@@ -1,5 +1,6 @@
 package br.com.archflow.core;
 
+import br.com.archflow.model.engine.ExecutionMetrics;
 import dev.langchain4j.memory.ChatMemory;
 
 import java.util.Optional;

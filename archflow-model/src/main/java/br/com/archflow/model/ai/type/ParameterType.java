@@ -1,4 +1,4 @@
-package br.com.archflow.plugin.api.type;
+package br.com.archflow.model.ai.type;
 
 /**
  * Tipos de parâmetros suportados.
