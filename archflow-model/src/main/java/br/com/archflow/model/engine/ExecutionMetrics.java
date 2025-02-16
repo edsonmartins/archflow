@@ -1,4 +1,4 @@
-package br.com.archflow.core;
+package br.com.archflow.model.engine;
 
 import br.com.archflow.model.metrics.StepMetrics;
 
