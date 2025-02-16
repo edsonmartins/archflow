@@ -1,0 +1,140 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>br.com.archflow</groupId>
+    <artifactId>archflow</artifactId>
+    <version>1.0.0-SNAPSHOT</version>
+    <packaging>pom</packaging>
+
+    <name>archflow</name>
+    <description>Framework open source para automação de agentes IA em Java</description>
+
+    <properties>
+        <java.version>17</java.version>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <langchain4j.version>0.27.1</langchain4j.version>
+        <camel.version>4.3.0</camel.version>
+        <spring-boot.version>3.2.2</spring-boot.version>
+    </properties>
+
+    <modules>
+        <module>archflow-core</module>
+        <module>archflow-model</module>
+        <module>archflow-plugin-api</module>
+        <module>archflow-engine</module>
+        <module>archflow-api</module>
+        <module>archflow-agent</module>
+        <module>archflow-langchain4j</module>
+        <module>archflow-plugin-processor</module>
+        <module>archflow-plugin-loader</module>
+    </modules>
+
+    <dependencyManagement>
+        <dependencies>
+            <!-- Spring Boot BOM -->
+            <dependency>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-dependencies</artifactId>
+                <version>${spring-boot.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            
+            <!-- Apache Camel BOM -->
+            <dependency>
+                <groupId>org.apache.camel.springboot</groupId>
+                <artifactId>camel-spring-boot-bom</artifactId>
+                <version>${camel.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+
+            <!-- LangChain4j -->
+            <dependency>
+                <groupId>dev.langchain4j</groupId>
+                <artifactId>langchain4j</artifactId>
+                <version>${langchain4j.version}</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <build>
+        <pluginManagement>
+            <plugins>
+                <!-- Compilação -->
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-compiler-plugin</artifactId>
+                    <version>3.11.0</version>
+                    <configuration>
+                        <release>17</release>
+                    </configuration>
+                </plugin>
+
+                <!-- Source -->
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-source-plugin</artifactId>
+                    <version>3.3.0</version>
+                    <executions>
+                        <execution>
+                            <id>attach-sources</id>
+                            <phase>verify</phase>
+                            <goals>
+                                <goal>jar-no-fork</goal>
+                            </goals>
+                            <configuration>
+                                <classifier>sources</classifier>
+                            </configuration>
+                        </execution>
+                    </executions>
+                </plugin>
+
+                <!-- JavaDoc -->
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-javadoc-plugin</artifactId>
+                    <version>3.6.3</version>
+                    <executions>
+                        <execution>
+                            <id>attach-javadocs</id>
+                            <goals>
+                                <goal>jar</goal>
+                            </goals>
+                        </execution>
+                    </executions>
+                    <configuration>
+                        <source>${java.version}</source>
+                        <encoding>UTF-8</encoding>
+                        <failOnError>false</failOnError>
+                        <doclint>none</doclint>
+                    </configuration>
+                </plugin>
+
+                <!-- Jacoco -->
+                <plugin>
+                    <groupId>org.jacoco</groupId>
+                    <artifactId>jacoco-maven-plugin</artifactId>
+                    <version>0.8.11</version>
+                    <executions>
+                        <execution>
+                            <goals>
+                                <goal>prepare-agent</goal>
+                            </goals>
+                        </execution>
+                        <execution>
+                            <id>report</id>
+                            <phase>test</phase>
+                            <goals>
+                                <goal>report</goal>
+                            </goals>
+                        </execution>
+                    </executions>
+                </plugin>
+            </plugins>
+        </pluginManagement>
+    </build>
+</project>

@@ -1,0 +1,6 @@
+br.com.archflow.plugin.api.catalog
+br.com.archflow.plugin.api.exception
+br.com.archflow.plugin.api.metadata
+br.com.archflow.plugin.api.model
+br.com.archflow.plugin.api.spi
+br.com.archflow.plugin.api.type

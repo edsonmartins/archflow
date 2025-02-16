@@ -1,0 +1,1 @@
+typeSearchIndex = [{"l":"All Classes and Interfaces","u":"allclasses-index.html"},{"p":"br.com.archflow.plugin.loader","l":"ArchflowPluginClassLoader"},{"p":"br.com.archflow.plugin.loader","l":"ArchflowPluginManager"}];updateSearchResults();

@@ -1,0 +1,62 @@
+@options
+@packages
+-classpath
+'/Users/relevantsolutions/relevant/archflow/archflow-plugin-api/target/archflow-plugin-api-1.0.0-SNAPSHOT.jar:/Users/relevantsolutions/.m2/repository/dev/langchain4j/langchain4j/0.27.1/langchain4j-0.27.1.jar:/Users/relevantsolutions/.m2/repository/dev/langchain4j/langchain4j-core/0.27.1/langchain4j-core-0.27.1.jar:/Users/relevantsolutions/.m2/repository/com/google/code/gson/gson/2.10.1/gson-2.10.1.jar:/Users/relevantsolutions/.m2/repository/com/squareup/retrofit2/retrofit/2.9.0/retrofit-2.9.0.jar:/Users/relevantsolutions/.m2/repository/com/squareup/okhttp3/okhttp/4.12.0/okhttp-4.12.0.jar:/Users/relevantsolutions/.m2/repository/com/squareup/okio/okio/3.6.0/okio-3.6.0.jar:/Users/relevantsolutions/.m2/repository/com/squareup/okio/okio-jvm/3.6.0/okio-jvm-3.6.0.jar:/Users/relevantsolutions/.m2/repository/org/jetbrains/kotlin/kotlin-stdlib-common/1.9.22/kotlin-stdlib-common-1.9.22.jar:/Users/relevantsolutions/.m2/repository/org/jetbrains/kotlin/kotlin-stdlib-jdk8/1.9.22/kotlin-stdlib-jdk8-1.9.22.jar:/Users/relevantsolutions/.m2/repository/org/jetbrains/kotlin/kotlin-stdlib/1.9.22/kotlin-stdlib-1.9.22.jar:/Users/relevantsolutions/.m2/repository/org/jetbrains/annotations/13.0/annotations-13.0.jar:/Users/relevantsolutions/.m2/repository/org/jetbrains/kotlin/kotlin-stdlib-jdk7/1.9.22/kotlin-stdlib-jdk7-1.9.22.jar:/Users/relevantsolutions/.m2/repository/org/apache/opennlp/opennlp-tools/1.9.4/opennlp-tools-1.9.4.jar:/Users/relevantsolutions/.m2/repository/org/jsoup/jsoup/1.16.1/jsoup-1.16.1.jar:/Users/relevantsolutions/.m2/repository/jakarta/validation/jakarta.validation-api/3.0.2/jakarta.validation-api-3.0.2.jar:/Users/relevantsolutions/.m2/repository/org/slf4j/slf4j-api/2.0.9/slf4j-api-2.0.9.jar:/Users/relevantsolutions/.m2/repository/org/apache/commons/commons-lang3/3.13.0/commons-lang3-3.13.0.jar'
+-encoding
+'UTF-8'
+-protected
+-source
+'17'
+-sourcepath
+'/Users/relevantsolutions/relevant/archflow/archflow-plugin-loader/src/main/java:/Users/relevantsolutions/relevant/archflow/archflow-plugin-loader/target/generated-sources/annotations'
+-author
+-bottom
+'Copyright &#169; 2025. All rights reserved.'
+-charset
+'UTF-8'
+-d
+'/Users/relevantsolutions/relevant/archflow/archflow-plugin-loader/target/apidocs'
+-docencoding
+'UTF-8'
+-Xdoclint:none
+-doctitle
+'archflow-plugin-loader 1.0.0-SNAPSHOT API'
+-use
+-version
+-windowtitle
+'archflow-plugin-loader 1.0.0-SNAPSHOT API'
+br.com.archflow.plugin.loader
+/Users/relevantsolutions/relevant/archflow/archflow-plugin-api/target/archflow-plugin-api-1.0.0-SNAPSHOT.jar = 1739713804043
+/Users/relevantsolutions/.m2/repository/dev/langchain4j/langchain4j/0.27.1/langchain4j-0.27.1.jar = 1707486268000
+/Users/relevantsolutions/.m2/repository/dev/langchain4j/langchain4j-core/0.27.1/langchain4j-core-0.27.1.jar = 1707486244000
+/Users/relevantsolutions/.m2/repository/com/google/code/gson/gson/2.10.1/gson-2.10.1.jar = 1673019840000
+/Users/relevantsolutions/.m2/repository/com/squareup/retrofit2/retrofit/2.9.0/retrofit-2.9.0.jar = 1589991728000
+/Users/relevantsolutions/.m2/repository/com/squareup/okhttp3/okhttp/4.12.0/okhttp-4.12.0.jar = 1697509437000
+/Users/relevantsolutions/.m2/repository/com/squareup/okio/okio/3.6.0/okio-3.6.0.jar = 1696213723000
+/Users/relevantsolutions/.m2/repository/com/squareup/okio/okio-jvm/3.6.0/okio-jvm-3.6.0.jar = 1696213713000
+/Users/relevantsolutions/.m2/repository/org/jetbrains/kotlin/kotlin-stdlib-common/1.9.22/kotlin-stdlib-common-1.9.22.jar = 1703164399000
+/Users/relevantsolutions/.m2/repository/org/jetbrains/kotlin/kotlin-stdlib-jdk8/1.9.22/kotlin-stdlib-jdk8-1.9.22.jar = 1703164405000
+/Users/relevantsolutions/.m2/repository/org/jetbrains/kotlin/kotlin-stdlib/1.9.22/kotlin-stdlib-1.9.22.jar = 1703164397000
+/Users/relevantsolutions/.m2/repository/org/jetbrains/annotations/13.0/annotations-13.0.jar = 1387282242000
+/Users/relevantsolutions/.m2/repository/org/jetbrains/kotlin/kotlin-stdlib-jdk7/1.9.22/kotlin-stdlib-jdk7-1.9.22.jar = 1703164395000
+/Users/relevantsolutions/.m2/repository/org/apache/opennlp/opennlp-tools/1.9.4/opennlp-tools-1.9.4.jar = 1635273265000
+/Users/relevantsolutions/.m2/repository/org/jsoup/jsoup/1.16.1/jsoup-1.16.1.jar = 1682747890000
+/Users/relevantsolutions/.m2/repository/jakarta/validation/jakarta.validation-api/3.0.2/jakarta.validation-api-3.0.2.jar = 1653588099000
+/Users/relevantsolutions/.m2/repository/org/slf4j/slf4j-api/2.0.9/slf4j-api-2.0.9.jar = 1693757672000
+/Users/relevantsolutions/.m2/repository/org/apache/commons/commons-lang3/3.13.0/commons-lang3-3.13.0.jar = 1690141497000
+/Users/relevantsolutions/relevant/archflow/archflow-plugin-loader/src/main/java/.DS_Store = 1739709470553
+/Users/relevantsolutions/relevant/archflow/archflow-plugin-loader/src/main/java = 1739709470552
+/Users/relevantsolutions/relevant/archflow/archflow-plugin-loader/target/generated-sources/annotations = 1739713812237
+/Users/relevantsolutions/relevant/archflow/archflow-plugin-loader/target/apidocs/tag-search-index.js = 1739713814754
+/Users/relevantsolutions/relevant/archflow/archflow-plugin-loader/target/apidocs/overview-tree.html = 1739713814727
+/Users/relevantsolutions/relevant/archflow/archflow-plugin-loader/target/apidocs/module-search-index.js = 1739713814749
+/Users/relevantsolutions/relevant/archflow/archflow-plugin-loader/target/apidocs/index.html = 1739713814777
+/Users/relevantsolutions/relevant/archflow/archflow-plugin-loader/target/apidocs/package-search-index.js = 1739713814750
+/Users/relevantsolutions/relevant/archflow/archflow-plugin-loader/target/apidocs/index-all.html = 1739713814771
+/Users/relevantsolutions/relevant/archflow/archflow-plugin-loader/target/apidocs/allpackages-index.html = 1739713814748
+/Users/relevantsolutions/relevant/archflow/archflow-plugin-loader/target/apidocs/member-search-index.js = 1739713814752
+/Users/relevantsolutions/relevant/archflow/archflow-plugin-loader/target/apidocs/help-doc.html = 1739713814785
+/Users/relevantsolutions/relevant/archflow/archflow-plugin-loader/target/apidocs/element-list = 1739713814677
+/Users/relevantsolutions/relevant/archflow/archflow-plugin-loader/target/apidocs/search.html = 1739713814774
+/Users/relevantsolutions/relevant/archflow/archflow-plugin-loader/target/apidocs/allclasses-index.html = 1739713814744
+/Users/relevantsolutions/relevant/archflow/archflow-plugin-loader/target/apidocs/type-search-index.js = 1739713814751
