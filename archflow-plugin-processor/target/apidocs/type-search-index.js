@@ -1,1 +1,0 @@
-typeSearchIndex = [{"p":"br.com.archflow.plugin.api.spi","l":"AIPlugin"},{"l":"All Classes and Interfaces","u":"allclasses-index.html"}];updateSearchResults();
