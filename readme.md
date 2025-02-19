@@ -18,192 +18,158 @@
 
 ## ✨ Por que archflow?
 
-O archflow é uma plataforma LowCode que permite criar, executar e gerenciar fluxos de trabalho baseados em IA de forma robusta e escalável. Construído sobre [LangChain4j](https://github.com/langchain4j/langchain4j) e Apache Camel, com suporte a múltiplas linguagens via GraalVM, ele traz:
+O archflow é um framework para criar, executar e gerenciar fluxos de trabalho baseados em IA de forma robusta e escalável. Construído sobre [LangChain4j](https://github.com/langchain4j/langchain4j), ele oferece:
 
-- 🎯 **LowCode**: Desenvolva usando nossa interface visual drag-and-drop ou código em Java, JavaScript e Python
-- 🚀 **Performance**: Execução otimizada e escalável usando GraalVM para ambientes de produção
-- 🔌 **Extensibilidade**: Sistema de plugins multilinguagem para adicionar novas funcionalidades, com marketplace visual
-- 🛡️ **Segurança**: Projetado com segurança e compliance em mente, com dashboard de monitoramento
-- 📊 **Observabilidade**: Monitoramento completo e métricas detalhadas através de interfaces visuais intuitivas
-- 🌍 **Multilinguagem**: Crie componentes em Java, JavaScript ou Python e integre-os seamlessly no mesmo fluxo
-- 🖥️ **Visual First**: Design, configuração e monitoramento totalmente visual, sem necessidade de codificação para operações comuns
+- 🎯 **Fluxo Estruturado**: Desenvolva fluxos de IA modulares e reutilizáveis em Java
+- 🚀 **Alta Performance**: Execução otimizada e escalável com suporte a processamento paralelo
+- 🔌 **Extensibilidade**: Sistema robusto de plugins com gerenciamento automático de dependências
+- 🛡️ **Controle Total**: Gestão completa do ciclo de vida dos fluxos, com monitoramento detalhado
+- 📊 **Observabilidade**: Métricas detalhadas e auditoria completa de execuções
+- 🏭 **Produção Ready**: Projetado para ambientes empresariais com foco em confiabilidade
 
-## 🎯 O que você pode construir?
+## 🎯 Componentes Principais
 
-O archflow permite criar soluções de IA complexas através de plugins especializados:
+### 🤖 Core Engine
+- Execução de fluxos distribuída
+- Gerenciamento de estado
+- Controle de ciclo de vida
+- Processamento paralelo
+- Tratamento de erros robusto
 
-### 🤖 Assistentes e Agentes IA
-- Análise de Sentimento e Intenção
-- Classificação e Categorização de Textos
-- Sumarização de Documentos
-- Assistentes Especializados (Jurídico, Médico, Financeiro)
-- Atendimento ao Cliente Automatizado
+### 📚 Integração com LangChain4j
+- ModelAdapter para diferentes LLMs
+- ChainAdapter para sequências de processamento
+- AgentAdapter para execução autônoma
+- ToolAdapter para funcionalidades específicas
+- MemoryAdapter para gestão de contexto
 
-### 📚 Processamento de Conhecimento
-- RAG (Retrieval Augmented Generation)
-- Integração com Bases de Conhecimento
-- Processamento de PDFs e Documentos
-- Web Scraping e Análise
-- Gestão de Memória e Contexto
+### 🔒 Gestão de Plugins
+- Carregamento dinâmico
+- Versionamento automático
+- Resolução de dependências via Jeka
+- Isolamento de classloader
+- Hot reload de componentes
 
-### 🔒 Segurança e Compliance
-- Detecção de Viés
-- Filtragem de Conteúdo
-- Validação de Fatos
-- Detecção de Alucinações
-- Análise de Toxicidade
+### 📊 Monitoramento
+- Métricas de execução detalhadas
+- Tracking de uso de recursos
+- Auditoria de operações
+- Logging estruturado
+- Alertas e notificações
 
-### 🔗 Integrações
-- Conexão com CRMs e ERPs
-- APIs REST e GraphQL
-- Bancos de Dados e Data Lakes
-- Sistemas Legados
-- Plataformas de Mensageria
+## 🔌 Recursos Implementados
 
-### 📊 Analytics e Relatórios
-- Geração de Documentos
-- Formatação de Respostas
-- Geração de Relatórios
-- Análise de Dados
-- Dashboards Interativos
+### 1. Engine de Execução
+- Execução assíncrona de fluxos
+- Gestão de estado distribuída
+- Controle de ciclo de vida
+- Processamento paralelo
+- Retry policies
 
-### 🛠️ Ferramentas Especializadas
-- Calculadoras Avançadas
-- Processamento de Datas
-- Geração de Código
-- Tradução Especializada
-- Análise de Imagens
+### 2. Sistema de Plugins
+- Carregamento dinâmico
+- Gestão de dependências
+- Versionamento
+- Isolamento
+- Hot reload
 
-## 🔌 Plugins Disponíveis
+### 3. Monitoramento e Métricas
+- Performance metrics
+- Resource utilization
+- Execution tracking
+- Error monitoring
+- Audit logging
 
-### 1. Modelos de IA
-- Plugin GPT-4: Integração com OpenAI
-- Plugin Claude: Integração com Anthropic
-- Plugin Mistral: Acesso aos modelos Mistral AI
-- Plugin Local LLM: Execução de modelos locais
+### 4. Adaptadores LangChain4j
+- Integração com LLMs
+- Chain processing
+- Agent execution
+- Tool management
+- Memory handling
 
-### 2. Processamento de Linguagem
-- Análise de Sentimento
-- Classificação de Texto
-- Extração de Entidades
-- Sumarização de Documentos
-- Análise de Intenção
+## 💻 Requisitos de Sistema
 
-### 3. RAG (Retrieval Augmented Generation)
-- Plugin Weaviate: Busca vetorial
-- Plugin pgvector: Armazenamento de embeddings
-- Plugin ChromaDB: Gestão de documentos
-- Plugin PDF: Extração de texto
-- Plugin Web Scraping: Coleta de dados
-
-### 4. Memória e Contexto
-- Plugin Redis: Cache e memória de curto prazo
-- Plugin PostgreSQL: Armazenamento persistente
-- Plugin de Sessão: Gestão de contexto
-- Plugin de Histórico: Tracking de interações
-
-### 5. Especialidades
-- Plugin Jurídico: Conhecimento legal
-- Plugin Médico: Terminologia médica
-- Plugin Financeiro: Análise financeira
-- Plugin de Atendimento: Suporte ao cliente
-
-### 6. Validação e Segurança
-- Detector de Viés
-- Filtro de Conteúdo Impróprio
-- Validador de Fatos
-- Detector de Alucinações
-- Análise de Toxicidade
-
-### 7. Integração de Dados
-- Conexão com CRM
-- Integração com ERP
-- Acesso a Bases de Conhecimento
-- Integração com Wikis
-- Conexão com Bases de Dados
-
-### 8. Saída e Formatação
-- Geração de Documentos
-- Formatação de Respostas
-- Geração de Relatórios
-- Conversão de Formatos
-- Templates de Resposta
-
-### 9. Monitoramento
-- Tracking de Uso de Tokens
-- Análise de Performance
-- Monitoramento de Qualidade
-- Avaliação de Respostas
-- Feedback Loop
-
-### 10. Ferramentas Específicas
-- Calculadora Avançada
-- Processamento de Datas
-- Geração de Código
-- Tradução Especializada
-- Análise de Imagens
-
-Todos estes componentes podem ser:
-- Criados e configurados visualmente ou via código (Java, JavaScript, Python)
-- Combinados em fluxos complexos
-- Personalizados para necessidades específicas
-- Compartilhados via marketplace
-- Monitorados em tempo real
+- Java 17 ou superior
+- Maven 3.8+
+- Memória: 4GB RAM (mínimo)
+- Disco: 1GB disponível
+- Sistema Operacional: Linux, Windows ou macOS
 
 ## 🚀 Início Rápido
 
-### Dependência Maven
+### Dependências Maven
 ```xml
-<dependency>
-    <groupId>br.com.archflow</groupId>
-    <artifactId>archflow-core</artifactId>
-    <version>1.0.0-SNAPSHOT</version>
-</dependency>
+<dependencies>
+    <dependency>
+        <groupId>br.com.archflow</groupId>
+        <artifactId>archflow-core</artifactId>
+        <version>1.0.0-SNAPSHOT</version>
+    </dependency>
+    <dependency>
+        <groupId>br.com.archflow</groupId>
+        <artifactId>archflow-agent</artifactId>
+        <version>1.0.0-SNAPSHOT</version>
+    </dependency>
+    <dependency>
+        <groupId>br.com.archflow</groupId>
+        <artifactId>archflow-langchain4j</artifactId>
+        <version>1.0.0-SNAPSHOT</version>
+    </dependency>
+</dependencies>
 ```
 
-### Exemplo Simples
+### Exemplo de Fluxo
 ```java
-@AIFlow
-public class CustomerSupportFlow {
-    @FlowStep(order = 1)
-    public StepResult analyzeIntent(String customerMessage) {
-        return StepResult.of(Map.of(
-            "intent", "technical-support",
-            "priority", "high"
-        ));
+public class CustomerSupportFlow implements Flow {
+    @Override
+    public String getId() {
+        return "customer-support";
     }
 
-    @FlowStep(order = 2)
-    public StepResult generateResponse(Map<String, Object> analysis) {
-        return StepResult.of(
-            "Entendi que você precisa de suporte técnico. Como posso ajudar?"
+    @Override
+    public List<FlowStep> getSteps() {
+        return Arrays.asList(
+            new IntentAnalysisStep(),
+            new ResponseGenerationStep()
         );
+    }
+
+    @Override
+    public FlowConfiguration getConfiguration() {
+        return FlowConfiguration.builder()
+            .timeout(30000)
+            .retryPolicy(new RetryPolicy(3, 1000, 2.0))
+            .build();
     }
 }
 ```
 
-➡️ [Veja mais exemplos](docs/examples/README.md)
+### Executando o Fluxo
+```java
+AgentConfig config = AgentConfig.builder()
+    .agentId("support-agent")
+    .pluginsPath("plugins")
+    .maxConcurrentFlows(10)
+    .build();
+
+try (ArchFlowAgent agent = new ArchFlowAgent(config)) {
+    Flow flow = new CustomerSupportFlow();
+    Map<String, Object> input = Map.of("message", "Como posso resetar minha senha?");
+    
+    FlowResult result = agent.executeFlow(flow, input).get();
+    System.out.println("Status: " + result.getStatus());
+    System.out.println("Output: " + result.getOutput().orElse(null));
+}
+```
 
 ## 📦 Módulos
 
-- **archflow-core**: Contratos e interfaces principais
-- **archflow-model**: Modelos de domínio
-- **archflow-plugin-api**: API para desenvolvimento de plugins
-- **archflow-engine**: Motor de execução baseado em Camel
-- **archflow-api**: REST API para gerenciamento
-- **archflow-agent**: Agente de execução distribuída
-- **archflow-langchain4j**: Integração com LangChain4j
-- **archflow-plugin-loader**: Carregamento dinâmico e gestão de plugins em runtime
-
-
-## 🛠️ Recursos
-
-- Interface visual para design de fluxos
-- Suporte a múltiplos LLMs
-- Sistema robusto de plugins
-- Execução distribuída
-- Métricas e monitoramento
-- Cache e otimização
+- **archflow-core**: Engine de execução, interfaces base e contratos principais
+- **archflow-model**: Modelos de domínio e estruturas de dados
+- **archflow-plugin-api**: Sistema de catálogo e API para desenvolvimento de plugins
+- **archflow-plugin-loader**: Carregamento dinâmico de plugins com Jeka
+- **archflow-agent**: Agente de execução com gestão de plugins e métricas
+- **archflow-langchain4j**: Adaptadores para integração com LangChain4j
 
 ## 🌱 Começando
 
@@ -241,8 +207,8 @@ archflow é licenciado sob [Apache License 2.0](LICENSE).
 
 ## 🙏 Agradecimentos
 
-- [LangChain4j](https://github.com/langchain4j/langchain4j) - Base para processamento de IA
-- [Apache Camel](https://camel.apache.org/) - Engine de integração
+- [LangChain4j](https://github.com/langchain4j/langchain4j) - Framework de base para processamento de IA
+- [Jeka](https://jeka.dev) - Gerenciamento de dependências
 - [Contribuidores](https://github.com/archflow/archflow/graphs/contributors)
 
 ---

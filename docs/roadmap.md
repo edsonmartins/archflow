@@ -2,181 +2,171 @@
 
 ## Visão Geral do Roadmap
 
-O desenvolvimento do archflow está planejado em fases incrementais, cada uma adicionando funcionalidades específicas e melhorias ao framework.
+O desenvolvimento do archflow está organizado em fases incrementais, focando primeiro na robustez do core e expandindo gradualmente as funcionalidades.
 
-## Fase 1 (MVP) - Q2 2024
+## Fase 1 (Core) - Em Desenvolvimento
 
-### Core Framework
+### Engine Base
 - [x] Setup inicial do projeto
 - [x] Estrutura de módulos
-- [ ] Interfaces base
-- [ ] Implementação core
-- [ ] Testes unitários básicos
-
-### Integração LangChain4j
-- [ ] Adaptador básico
-- [ ] Suporte ao GPT-4
-- [ ] Gestão de memória
-- [ ] Gestão de contexto
-
-### Ferramentas Básicas
-- [ ] CLI básica
-- [ ] Comandos essenciais
-- [ ] Sistema de logging
-- [ ] Métricas básicas
-
-### Documentação
-- [x] Documentação de arquitetura
-- [x] Guias de desenvolvimento
-- [ ] API Reference
-- [ ] Tutoriais básicos
-
-## Fase 2 - Q3 2024
-
-### Interface & Usabilidade
-- [ ] Dashboard Web v1
-  - [ ] Visualização de fluxos
-  - [ ] Gestão de agentes
-  - [ ] Métricas básicas
-  - [ ] Configurações
+- [x] Interfaces base (Flow, FlowStep, FlowEngine)
+- [x] Implementação DefaultFlowEngine
+- [x] Sistema de execução assíncrona
+- [x] Gestão de estado
+- [x] Tratamento de erros
 
 ### Sistema de Plugins
-- [ ] Framework de plugins
-- [ ] Sistema de carregamento
-- [ ] Isolamento de classloader
-- [ ] Plugins básicos:
-  - [ ] Banco de dados
-  - [ ] API REST
-  - [ ] File System
+- [x] Integração com Jeka
+- [x] Carregamento dinâmico
+- [x] Gestão de dependências
+- [x] Isolamento de classloader
+- [ ] Hot reload
+- [ ] Versionamento avançado
 
-### Storage & Cache
-- [ ] Suporte a bancos vetoriais
-  - [ ] PostgreSQL + pgvector
-  - [ ] Milvus
-  - [ ] ChromaDB
-- [ ] Cache layer
-  - [ ] Redis integration
-  - [ ] Cache strategies
-  - [ ] Invalidação
+### Integração LangChain4j
+- [x] ModelAdapter
+- [x] ChainAdapter
+- [x] ToolAdapter
+- [x] AgentAdapter
+- [x] MemoryAdapter
+- [ ] Streaming responses
+- [ ] Retry strategies
 
-### Observabilidade
-- [ ] Métricas detalhadas
-- [ ] Tracing distribuído
-- [ ] Logs estruturados
-- [ ] Dashboards Grafana
+### Métricas e Monitoramento
+- [x] MetricsCollector
+- [x] Tracking de execução
+- [x] Métricas de steps
+- [x] Auditoria básica
+- [ ] Dashboards
+- [ ] Alertas
 
-## Fase 3 - Q4 2024
+## Fase 2 (Q2 2024)
 
-### Multi-LLM Support
-- [ ] Suporte a múltiplos providers:
-  - [ ] OpenAI
+### Storage & Persistence
+- [ ] Implementação SQL do StateRepository
+- [ ] Implementação SQL do FlowRepository
+- [ ] Cache com Redis
+- [ ] Gestão de histórico
+- [ ] Cleanup policies
+
+### Execução Distribuída
+- [ ] Cluster de agentes
+- [ ] Balanceamento de carga
+- [ ] Sincronização de estado
+- [ ] Recuperação de falhas
+- [ ] Monitoramento distribuído
+
+### Segurança
+- [ ] Autenticação de agentes
+- [ ] Autorização de operações
+- [ ] Rate limiting
+- [ ] Auditoria avançada
+- [ ] Compliance tools
+
+### Enhanced Plugins
+- [ ] Marketplace de plugins
+- [ ] Sistema de descoberta
+- [ ] Plugins oficiais:
+  - [ ] Database connectors
+  - [ ] REST client
+  - [ ] File processors
+  - [ ] Message queues
+
+## Fase 3 (Q3 2024)
+
+### Advanced LLM Features
+- [ ] Suporte multi-provider:
+  - [ ] OpenAI (GPT-4)
   - [ ] Anthropic
-  - [ ] Google
   - [ ] Mistral
-- [ ] Fallback strategies
+  - [ ] Local models
 - [ ] Cost optimization
 - [ ] Model routing
+- [ ] Custom models
 
-### Visual Workflow Designer
-- [ ] Interface drag-and-drop
-- [ ] Componentes visuais
-- [ ] Validação em tempo real
-- [ ] Templates prontos
-- [ ] Versionamento
+### RAG Integration
+- [ ] Vector stores:
+  - [ ] PostgreSQL/pgvector
+  - [ ] Milvus
+  - [ ] ChromaDB
+- [ ] Document processors
+- [ ] Semantic search
+- [ ] Knowledge bases
 
-### Advanced Features
-- [ ] Rate limiting
-- [ ] Circuit breakers
-- [ ] Retry policies
-- [ ] Error handling avançado
-
-### Marketplace & Community
-- [ ] Plugin marketplace
-- [ ] Template gallery
-- [ ] Community contributions
-- [ ] Documentation portal
-
-## Fase 4 - 2025
+### Developer Tools
+- [ ] Debugging tools
+- [ ] Testing framework
+- [ ] Performance profiling
+- [ ] Development console
 
 ### Enterprise Features
 - [ ] Multi-tenancy
 - [ ] SSO Integration
-- [ ] Audit logs
-- [ ] Compliance tools
+- [ ] Resource quotas
+- [ ] Cost management
+
+## Fase 4 (Q4 2024)
 
 ### Scaling & Performance
-- [ ] Distributed execution
-- [ ] Load balancing
-- [ ] Performance profiling
 - [ ] Auto-scaling
+- [ ] Resource optimization
+- [ ] Performance tuning
+- [ ] Capacity planning
 
 ### AI Enhancements
-- [ ] RAG avançado
-- [ ] Fine-tuning support
+- [ ] Custom prompts
+- [ ] Prompt templates
+- [ ] Chain optimization
 - [ ] Model evaluation
-- [ ] Custom models
 
-### Developer Experience
-- [ ] IDE plugins
-- [ ] Debug tools
-- [ ] Testing framework
-- [ ] CI/CD templates
+### Advanced Monitoring
+- [ ] APM integration
+- [ ] Custom metrics
+- [ ] Advanced analytics
+- [ ] Prediction insights
+
+### Community Features
+- [ ] Template gallery
+- [ ] Plugin directory
+- [ ] Best practices
+- [ ] Success stories
 
 ## Priorização
 
 ### Critérios
-- Valor para usuários
-- Complexidade técnica
-- Dependências
-- Recursos necessários
+1. Estabilidade do core
+2. Facilidade de uso
+3. Valor para usuário
+4. Demanda da comunidade
 
 ### Metodologia
-1. Must Have (MVP)
-2. Should Have (Fase 2)
-3. Could Have (Fase 3)
-4. Won't Have (Futuro)
-
-## Processo de Desenvolvimento
-
-### Sprints
-- Duração: 2 semanas
-- Planning no início
-- Review no final
-- Retrospectiva mensal
-
-### Releases
-- Release Candidates mensais
-- Releases estáveis trimestrais
-- Hotfixes conforme necessário
-
-### Contribuições
-- Pull Requests bem-vindos
-- Code review obrigatório
-- Testes automatizados
-- Documentação atualizada
-
-## Acompanhamento
-
-### Kanban Board
-- [GitHub Projects](https://github.com/archflow/archflow/projects)
-- Issues atualizadas
-- Milestones claros
-- Labels organizados
-
-### Reports
-- Status semanal
-- Métricas mensais
-- Retrospectivas trimestrais
-- Release notes
+- Releases frequentes
+- Feedback contínuo
+- Iterações rápidas
+- Testes extensivos
 
 ## Como Contribuir
 
-1. Escolha uma feature do roadmap
-2. Verifique as issues relacionadas
+1. Verifique as [Issues](https://github.com/archflow/archflow/issues)
+2. Escolha uma feature do roadmap
 3. Discuta a implementação
 4. Submeta um Pull Request
 
-Mais detalhes em [Guia de Contribuição](development/contributing.md)
+Mais detalhes em nosso [Guia de Contribuição](development/contributing.md)
+
+## Acompanhamento
+
+### Status Board
+- [GitHub Projects](https://github.com/archflow/archflow/projects)
+- Milestones atualizados
+- Issues organizadas
+- Labels claras
+
+### Reports
+- Release notes
+- Status updates
+- Métricas de progresso
+- Retrospectivas
 
 ## Links Úteis
 

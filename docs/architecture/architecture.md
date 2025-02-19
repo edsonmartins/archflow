@@ -2,216 +2,216 @@
 
 ## Visão Geral da Arquitetura
 
-O archflow é projetado com uma arquitetura modular e extensível, dividida em camadas distintas que permitem escalabilidade, segurança e manutenibilidade.
+O archflow implementa uma arquitetura modular focada em execução robusta de fluxos de IA, com integração nativa ao LangChain4j.
 
 ```mermaid
 graph TB
-    subgraph "Interface Layer"
-        UI[UI Admin]
-        Designer[Flow Designer]
-        REST[REST API]
+    subgraph "Agent Layer"
+        Agent[ArchFlow Agent]
+        Metrics[Metrics Collector]
+        PluginMgr[Plugin Manager]
     end
     
     subgraph "Core Layer"
         Engine[Flow Engine]
-        PluginSystem[Plugin System]
-        Memory[Memory Layer]
-        RAG[RAG Module]
-        Cache[Cache Layer]
-        Circuit[Circuit Breaker]
+        ExecManager[Execution Manager]
+        StateMgr[State Manager]
+        ValManager[Validation Manager]
     end
     
     subgraph "Integration Layer"
-        LangChain[LangChain4J Adapter]
-        Plugin[Plugin System]
-        Gateway[API Gateway]
-        EventBus[Event Bus]
+        ModelAdapter[Model Adapter]
+        ChainAdapter[Chain Adapter]
+        AgentAdapter[Agent Adapter]
+        ToolAdapter[Tool Adapter]
     end
     
-    subgraph "Infrastructure Layer"
-        Metrics[Metrics Collector]
-        Logging[Logging System]
-        Health[Health Check]
-        Auth[Auth Manager]
-        Audit[Audit Trail]
-        RateLimit[Rate Limiter]
+    subgraph "Plugin Layer"
+        Plugins[Plugin System]
+        Jeka[Jeka Integration]
+        ClassLoader[Plugin ClassLoader]
     end
 
-    UI --> REST
-    Designer --> REST
-    REST --> Engine
-    Engine --> LangChain
-    Engine --> Memory
-    Engine --> PluginSystem
+    Agent --> Engine
+    Agent --> PluginMgr
+    Engine --> ExecManager
+    Engine --> StateMgr
+    ExecManager --> ModelAdapter
+    ExecManager --> ChainAdapter
+    PluginMgr --> Jeka
+    PluginMgr --> ClassLoader
 ```
 
-## Camadas da Arquitetura
+## Componentes Implementados
 
-### 1. Core Engine (Núcleo)
+### 1. Core Engine
 
-#### Agent Manager
-- Gerenciamento do ciclo de vida dos agentes
-- Configuração e estado dos agentes
-- Balanceamento de carga
-- Recuperação de falhas
+#### Flow Engine (DefaultFlowEngine)
+```java
+public class DefaultFlowEngine implements FlowEngine {
+    // Gerencia execução de fluxos
+    private final ExecutionManager executionManager;
+    // Gerencia estado dos fluxos
+    private final StateManager stateManager;
+    // Repositório de fluxos
+    private final FlowRepository flowRepository;
+    // Validação de fluxos
+    private final FlowValidator flowValidator;
+    // Execuções ativas
+    private final Map<String, FlowExecution> activeExecutions;
+}
+```
 
-#### Workflow Orchestrator
-- Execução de fluxos de trabalho
-- Gerenciamento de estado
-- Tratamento de erros
-- Pipeline de execução
+#### Execution Manager
+- Controle de execução de fluxos
+- Gerenciamento de ciclo de vida
+- Execução paralela de steps
+- Tratamento de erros e recuperação
 
-#### Memory Layer
-- Gerenciamento de memória distribuída
-- Suporte a múltiplos backends (Redis, PostgreSQL)
-- Cache de contexto
+#### State Manager
 - Persistência de estado
+- Gestão de contexto
+- Controle de execução
+- Auditoria de operações
 
-#### RAG Module
-- Sistema de recuperação aumentada
-- Embeddings e vetorização
-- Busca semântica
-- Integração com bases de conhecimento
+### 2. Agent Layer
 
-#### Cache Layer
-- Otimização de prompts
-- Cache de respostas
-- Gerenciamento de TTL
-- Invalidação inteligente
-
-#### Circuit Breaker
-- Proteção contra falhas
-- Rate limiting
-- Fallback strategies
-- Recuperação automática
-
-### 2. Integração
-
-#### LangChain4J Adapter
-- Integração com múltiplos LLMs
-- Gerenciamento de modelos
-- Otimização de tokens
-- Handling de respostas
-
-#### Plugin System
-- Carregamento dinâmico
-- Isolamento de classloader
-- Gerenciamento de dependências
-- Hot reload
-
-#### API Gateway
-- REST/GraphQL endpoints
-- Validação de requisições
-- Roteamento
-- Transformação de dados
-
-#### Event Bus
-- Processamento assíncrono
-- Pub/sub
-- Dead letter queue
-- Retry policies
-
-### 3. Monitoramento & Observabilidade
+#### ArchFlow Agent
+```java
+public class ArchFlowAgent implements AutoCloseable {
+    // Configuração do agente
+    private final AgentConfig config;
+    // Gerenciador de plugins
+    private final FlowPluginManager pluginManager;
+    // Coletor de métricas
+    private final MetricsCollector metricsCollector;
+    // Engine de execução
+    private final FlowEngine flowEngine;
+}
+```
 
 #### Metrics Collector
-- Integração Micrometer/Prometheus
-- Métricas customizadas
-- Dashboards Grafana
-- Alertas
+- Métricas de execução
+- Monitoramento de recursos
+- Tracking de steps
+- Gestão de erros
 
-#### Logging System
-- Log estruturado
-- Trace distribuído
-- Agregação ELK
-- Rotação de logs
+#### Plugin Manager
+- Carregamento dinâmico
+- Gestão de dependências com Jeka
+- Isolamento de classloader
+- Controle de ciclo de vida
 
-#### Health Check
-- Monitoramento de componentes
-- Verificações de dependências
-- Auto-healing
-- Status endpoints
+### 3. LangChain4j Integration
 
-#### Performance Analytics
-- Análise de uso
-- Profiling
-- Bottleneck detection
-- Otimização automática
+#### Model Adapter
+```java
+public class ModelAdapter implements LangChainAdapter {
+    // Configuração do modelo
+    private ChatLanguageModel model;
+    // Gerenciamento de propriedades
+    private Map<String, Object> properties;
+}
+```
 
-### 4. Segurança
+#### Chain Adapter
+- Integração com ConversationalChain
+- Gestão de memória
+- Configuração de modelos
+- Processamento de respostas
 
-#### Auth Manager
-- OAuth2/OpenID Connect
-- API Keys
-- RBAC/ABAC
-- SSO integration
+#### Tool Adapter
+- Especificação de ferramentas
+- Validação de parâmetros
+- Execução de operações
+- Gestão de resultados
 
-#### Audit Trail
-- Logging detalhado
-- Compliance
-- Histórico de mudanças
-- Exportação de dados
+### 4. Plugin System
 
-#### Rate Limiter
-- Controle por usuário/org
-- Quotas
-- Throttling
-- Fair use policies
+#### Plugin Manager
+```java
+public class FlowPluginManager {
+    // Diretório de plugins
+    private final String pluginsPath;
+    // ClassLoader de plugins
+    private URLClassLoader pluginClassLoader;
+    // Plugins carregados
+    private final Map<String, PluginInfo> loadedPlugins;
+}
+```
 
-#### Data Protection
-- Criptografia
-- Mascaramento de dados
-- PII handling
-- Compliance (GDPR/LGPD)
+#### Jeka Integration
+- Resolução de dependências
+- Download de artefatos
+- Gestão de repositórios
+- Controle de versões
 
-## Fluxo de Dados
+## Fluxo de Execução
 
 ```mermaid
 sequenceDiagram
     participant Client
-    participant API
+    participant Agent
     participant Engine
-    participant Memory
-    participant LLM
+    participant Executor
+    participant Plugin
     
-    Client->>API: Execute Flow
-    API->>Engine: Process Request
-    Engine->>Memory: Load Context
-    Engine->>LLM: Generate Response
-    LLM-->>Engine: Response
-    Engine->>Memory: Update Context
-    Engine-->>API: Result
-    API-->>Client: Response
+    Client->>Agent: Execute Flow
+    Agent->>Engine: Start Flow
+    Engine->>Executor: Process Steps
+    
+    loop Step Execution
+        Executor->>Plugin: Load Plugin
+        Plugin->>Executor: Execute
+        Executor->>Engine: Step Result
+    end
+    
+    Engine->>Agent: Flow Result
+    Agent->>Client: Response
 ```
 
 ## Considerações de Design
 
 ### Escalabilidade
-- Arquitetura distribuída
-- Stateless quando possível
-- Cache em múltiplas camadas
-- Horizontal scaling
+- Execução paralela de steps
+- Gerenciamento de recursos
+- Controle de concorrência
+- Plugin isolation
 
 ### Resiliência
-- Circuit breakers
-- Fallback strategies
 - Retry policies
 - Error handling
+- Estado persistente
+- Recuperação de falhas
 
 ### Performance
-- Otimização de prompts
-- Pooling de conexões
-- Caching inteligente
-- Lazy loading
+- ClassLoader otimizado
+- Caching de plugins
+- Execução assíncrona
+- Resource pooling
 
 ### Segurança
-- Defense in depth
-- Principle of least privilege
-- Secure by default
-- Compliance first
+- Isolamento de plugins
+- Validação de entradas
+- Controle de recursos
+- Auditoria de execução
 
 ## Próximos Passos
 
-- [Módulos Detalhados](modules.md)
-- [Sistema de Plugins](plugins.md)
-- [Configuração](configuration.md)
-- [Deployment](deployment.md)
+1. **Expansão do Core**
+    - Implementar novos tipos de steps
+    - Melhorar validação de fluxos
+    - Adicionar mais adaptadores
+    - Expandir métricas
+
+2. **Melhorias no Agent**
+    - Sistema de plugins mais robusto
+    - Mais opções de configuração
+    - Better resource management
+    - Enhanced monitoring
+
+3. **Integração LangChain4j**
+    - Suporte a mais modelos
+    - Chains customizadas
+    - Ferramentas especializadas
+    - Memória avançada

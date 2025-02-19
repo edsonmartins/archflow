@@ -1,103 +1,92 @@
-# archflow
+# Documentação do archflow
 
 <div align="center">
+<img src="images/logo_horizontal.svg" alt="archflow Logo" width="300"/>
 
-[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
-[![Build Status](https://img.shields.io/github/actions/workflow/status/archflow/archflow/build.yml?branch=main)](https://github.com/archflow/archflow/actions)
-[![Maven Central](https://img.shields.io/maven-central/v/br.com.archflow/archflow.svg)](https://search.maven.org/search?q=g:br.com.archflow)
-[![Java Version](https://img.shields.io/badge/java-%3E%3D17-orange)](https://adoptium.net/)
-
+Framework open source para automação de agentes de IA em Java
 </div>
 
-O archflow é um framework open source para automação de agentes de IA em Java, construído sobre o [LangChain4j](https://github.com/langchain4j/langchain4j). 
+## 📚 Conteúdo
 
-## 🌟 Destaques
+### Introdução
+- [Visão Geral](overview.md) - Introdução ao archflow
+- [Roadmap](roadmap.md) - Planejamento e próximos passos
 
-- 🚀 **Baseado em LangChain4j**: Aproveite todo o poder do ecossistema LangChain no mundo Java
-- 🔄 **Orquestração Robusta**: Construído sobre Apache Camel para execução confiável de fluxos
-- 🔌 **Sistema de Plugins**: Extensível através de um sistema modular de plugins
-- 📊 **Monitoramento**: Métricas e observabilidade em tempo real
-- 🛡️ **Pronto para Produção**: Desenvolvido pensando em ambientes empresariais
+### Arquitetura
+- [Arquitetura Geral](architecture/architecture.md) - Design e estrutura do sistema
+- [Componentes de IA](architecture/ai-components.md) - Detalhes dos componentes de IA
 
-## 🚀 Início Rápido
+### Diagramas
 
-### Maven
+#### Engine
+- [Diagrama do Engine](architecture/diagrams/engine/engine-diagram.mermaid) - Estrutura do motor de execução
 
-```xml
-<dependency>
-    <groupId>br.com.archflow</groupId>
-    <artifactId>archflow-core</artifactId>
-    <version>1.0.0-SNAPSHOT</version>
-</dependency>
-```
+#### Modelo de Domínio
+- [Diagrama de IA](architecture/diagrams/model/ai-diagram.mermaid) - Componentes de IA
+- [Diagrama do Engine](architecture/diagrams/model/engine-diagram.mermaid) - Engine e execução
+- [Diagrama de Erros](architecture/diagrams/model/error-enums-diagram.mermaid) - Estrutura de erros
+- [Diagrama de Fluxo](architecture/diagrams/model/flow-diagram.mermaid) - Fluxos de trabalho
 
-### Exemplo Básico
+#### Sistema de Plugins
+- [API de Plugins](architecture/diagrams/plugin-api/plugin-api-diagram.mermaid) - API do sistema de plugins
+- [Carregador de Plugins](architecture/diagrams/plugin-loader/plugin-loader-diagram.mermaid) - Sistema de carregamento
 
-```java
-@AIComponentDescriptor(
-    type = "assistant",
-    name = "customer-support"
-)
-public class CustomerSupportFlow implements AIFlow {
-    // Implementação do fluxo
-}
-```
+### Desenvolvimento
+- [Guia de Início Rápido](development/quickstart.md) - Começando com archflow
+- [Stack Tecnológico](development/stack.md) - Tecnologias utilizadas
+- [Features](development/features.md) - Funcionalidades disponíveis
+- [Guia de Contribuição](development/contributing.md) - Como contribuir
 
-## 📚 Documentação
+### Comunidade
+- [Comunidade](community/README.md) - Recursos da comunidade
 
-- [Visão Geral do Projeto](docs/README.md)
-- [Guia de Arquitetura](docs/architecture/README.md)
-- [Guia de Desenvolvimento](docs/development/README.md)
-- [Exemplos](docs/examples/README.md)
-- [JavaDoc](https://archflow.github.io/docs/javadoc)
+## 🎨 Recursos Visuais
 
-## 🌱 Módulos
+### Logos
+- [Logo Horizontal (SVG)](images/logo_horizontal.svg)
+- [Logo Horizontal (PNG)](images/logo_horizontal.png)
+- [Logo Vertical (SVG)](images/logo_vertical.svg)
+- [Logo Vertical (PNG)](images/logo_vertical.png)
 
-- **archflow-core**: Contratos e interfaces principais
-- **archflow-model**: Modelos de domínio
-- **archflow-plugin-api**: API para desenvolvimento de plugins
-- **archflow-engine**: Motor de execução baseado em Camel
-- **archflow-api**: REST API para gerenciamento
-- **archflow-agent**: Agente de execução distribuída
-- **archflow-langchain4j**: Integração com LangChain4j
-- **archflow-plugin-loader**: Carregamento dinâmico e gestão de plugins em runtime
+## 📖 Como Usar esta Documentação
 
-## 🤝 Contribuindo
+1. **Novos Usuários**
+    - Comece pela [Visão Geral](overview.md)
+    - Siga para o [Guia de Início Rápido](development/quickstart.md)
+    - Explore os [Exemplos](development/examples)
 
-Contribuições são bem-vindas! Por favor, leia nosso [Guia de Contribuição](development/contributing.md) antes de começar.
+2. **Desenvolvedores**
+    - Consulte a [Arquitetura](architecture/architecture.md)
+    - Entenda os [Componentes de IA](architecture/ai-components.md)
+    - Veja os [Diagramas](#diagramas) para detalhes técnicos
 
-### Setup do Ambiente
+3. **Contribuidores**
+    - Leia o [Guia de Contribuição](development/contributing.md)
+    - Verifique o [Roadmap](roadmap.md)
+    - Participe da [Comunidade](community/README.md)
 
-```bash
-# Clone o repositório
-git clone https://github.com/archflow/archflow.git
+## 🔄 Mantendo a Documentação
 
-# Entre no diretório
-cd archflow
+### Diretrizes
+- Mantenha a documentação atualizada com o código
+- Atualize os diagramas quando houver mudanças arquiteturais
+- Siga o padrão de formatação existente
+- Inclua exemplos práticos sempre que possível
 
-# Instale as dependências
-mvn clean install
-```
+### Formato dos Diagramas
+- Diagramas são mantidos em formato Mermaid
+- Arquivos `.mermaid` podem ser visualizados no GitHub
+- Use ferramentas como [Mermaid Live Editor](https://mermaid.live) para edição
 
-## 🔗 Links Úteis
+## 🤝 Contribuindo com a Documentação
 
-- [Website](https://archflow.github.io)
-- [Exemplos](https://github.com/archflow/archflow-examples)
-- [Discord](https://discord.gg/archflow)
-- [Issue Tracker](https://github.com/archflow/archflow/issues)
+1. Faça um fork do repositório
+2. Crie uma branch para suas alterações
+3. Submeta um Pull Request
+4. Aguarde a revisão
 
-## 📄 Licença
+Para mais detalhes, consulte o [Guia de Contribuição](development/contributing.md).
 
-Este projeto está licenciado sob a [Apache License 2.0](LICENSE).
+## 📝 License
 
-## 🙏 Agradecimentos
-
-- [LangChain4j](https://github.com/langchain4j/langchain4j) - Por fornecer a base do framework
-- [Apache Camel](https://camel.apache.org/) - Pela robusta engine de integração
-- Todos os [contribuidores](https://github.com/archflow/archflow/graphs/contributors) que ajudam a melhorar o projeto
-
----
-
-<div align="center">
-⭐️ Se você gosta do archflow, por favor considere dar uma estrela no projeto! ⭐️
-</div>
+Este projeto está licenciado sob a [Apache License 2.0](../LICENSE).
