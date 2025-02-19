@@ -1,0 +1,126 @@
+classDiagram
+    %% Interfaces do Catálogo
+    class ComponentCatalog {
+        <<interface>>
+        +register(AIComponent) void
+        +unregister(String) void
+        +getComponent(String) Optional~AIComponent~
+        +getMetadata(String) Optional~ComponentMetadata~
+        +listComponents() List~ComponentMetadata~
+        +searchComponents(ComponentSearchCriteria) List~ComponentMetadata~
+        +getVersionManager() ComponentVersionManager
+        +registerVersion(String, String, AIComponent) void
+    }
+
+    class ComponentVersionManager {
+        <<interface>>
+        +registerVersion(String, String, ComponentMetadata) void
+        +getVersion(String, String) Optional~ComponentMetadata~
+        +getVersions(String) List~String~
+        +getLatestVersion(String) Optional~ComponentMetadata~
+    }
+
+    %% Implementações
+    class DefaultComponentCatalog {
+        -Map~String,AIComponent~ components
+        -Map~String,ComponentMetadata~ metadata
+        -ComponentVersionManager versionManager
+        +register(AIComponent) void
+        +matchesCriteria(ComponentMetadata, ComponentSearchCriteria) boolean
+    }
+
+    class DefaultComponentVersionManager {
+        -Map~String,Map~String,ComponentMetadata~~ versions
+    }
+
+    %% Records e Classes de Dados
+    class ComponentSearchCriteria {
+        +ComponentType type
+        +Set~String~ capabilities
+        +String textSearch
+    }
+
+    %% Exceções
+    class ComponentException {
+        +message: String
+        +cause: Throwable
+    }
+
+    class ComponentInitializationException {
+        +message: String
+        +cause: Throwable
+    }
+
+    class ComponentNotFoundException {
+        +componentId: String
+    }
+
+    class ComponentOperationException {
+        +message: String
+        +cause: Throwable
+    }
+
+    %% Annotations e Metadados
+    class ComponentDescriptor {
+        <<annotation>>
+        +String id
+        +String name
+        +String description
+        +ComponentType type
+        +String version
+        +String icon
+        +Operation[] operations
+        +Property[] properties
+    }
+
+    class Operation {
+        <<annotation>>
+        +String id
+        +String name
+        +String description
+        +Property[] inputs
+        +Property[] outputs
+    }
+
+    class Property {
+        <<annotation>>
+        +String id
+        +String name
+        +String description
+        +String type
+        +boolean required
+        +String defaultValue
+        +String group
+    }
+
+    %% Interface SPI
+    class ComponentPlugin {
+        <<interface>>
+        +validateConfig(Map) void
+        +onLoad(ExecutionContext) void
+        +onUnload() void
+    }
+
+    %% Relações
+    ComponentCatalog <|.. DefaultComponentCatalog
+    ComponentVersionManager <|.. DefaultComponentVersionManager
+    DefaultComponentCatalog --> ComponentVersionManager : uses
+    ComponentCatalog --> ComponentSearchCriteria : uses
+    ComponentCatalog --> AIComponent : manages
+    ComponentPlugin --|> AIComponent : extends
+    
+    ComponentException <|-- ComponentInitializationException
+    ComponentException <|-- ComponentNotFoundException
+    ComponentException <|-- ComponentOperationException
+
+    ComponentDescriptor --> Operation : contains
+    ComponentDescriptor --> Property : contains
+    Operation --> Property : uses
+
+    DefaultComponentCatalog ..> ComponentException : throws
+    ComponentPlugin ..> ComponentException : throws
+
+    %% Notas explicativas
+    note for ComponentCatalog "Gerencia registro e descoberta de componentes"
+    note for ComponentPlugin "Contrato base para plugins"
+    note for ComponentDescriptor "Metadados declarativos de componentes"

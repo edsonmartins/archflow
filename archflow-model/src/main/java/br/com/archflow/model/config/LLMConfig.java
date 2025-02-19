@@ -1,4 +1,4 @@
-package br.com.archflow.core;
+package br.com.archflow.model.config;
 
 import java.util.Map;
 

@@ -1,0 +1,57 @@
+classDiagram
+    class ArchflowPluginManager {
+        -Map~String, ComponentPlugin~ loadedPlugins
+        -ComponentCatalog catalog
+        -File pluginsDirectory
+        -AtomicBoolean loading
+        +loadPlugins()
+        +getPlugin(String): Optional~ComponentPlugin~
+        +getLoadedPlugins(): Collection~ComponentPlugin~
+        +getComponentsByType(ComponentType): List~T~
+        +getAssistants(): List~AIAssistant~
+        +getAgents(): List~AIAgent~
+        +getTools(): List~Tool~
+        -loadPlugin(File)
+        -installPlugin(ComponentPlugin)
+        -createPluginClassLoader(File): URLClassLoader
+    }
+
+    class ArchflowPluginClassLoader {
+        -List~String~ SHARED_PACKAGES
+        -ClassLoader parentClassLoader
+        +loadClass(String, boolean): Class
+    }
+
+    class PluginLoadException {
+        +PluginLoadException(String)
+        +PluginLoadException(String, Throwable)
+    }
+
+    class ComponentLoadException {
+        -ComponentType type
+        -String componentId
+        +getType(): ComponentType
+        +getComponentId(): String
+    }
+
+    %% External Classes
+    class URLClassLoader {
+        <<external>>
+    }
+
+    class ComponentCatalog {
+        <<external>>
+    }
+
+    class ComponentPlugin {
+        <<external>>
+    }
+
+    %% Relationships
+    ArchflowPluginClassLoader --|> URLClassLoader
+    ComponentLoadException --|> PluginLoadException
+    ArchflowPluginManager --* ArchflowPluginClassLoader: creates
+    ArchflowPluginManager --o ComponentCatalog: uses
+    ArchflowPluginManager --o ComponentPlugin: manages
+    ArchflowPluginManager ..> PluginLoadException: throws
+    ArchflowPluginManager ..> ComponentLoadException: throws

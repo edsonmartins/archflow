@@ -1,7 +1,8 @@
 package br.com.archflow.model.ai;
 
-import br.com.archflow.core.ExecutionContext;
 import br.com.archflow.model.ai.metadata.ComponentMetadata;
+import br.com.archflow.model.engine.ExecutionContext;
+
 import java.util.Map;
 
 /**

@@ -1,7 +1,7 @@
 package br.com.archflow.model.flow;
 
-import br.com.archflow.core.ExecutionMetrics;
-import br.com.archflow.core.ExecutionStatus;
+import br.com.archflow.model.engine.ExecutionMetrics;
+import br.com.archflow.model.enums.ExecutionStatus;
 import br.com.archflow.model.error.ExecutionError;
 
 import java.util.List;

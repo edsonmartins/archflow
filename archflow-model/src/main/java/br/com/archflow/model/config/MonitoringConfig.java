@@ -1,4 +1,6 @@
-package br.com.archflow.core;
+package br.com.archflow.model.config;
+
+import br.com.archflow.model.enums.LogLevel;
 
 import java.util.Map;
 

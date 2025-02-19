@@ -1,8 +1,8 @@
 package br.com.archflow.model.ai;
 
-import br.com.archflow.core.ExecutionContext;
 import br.com.archflow.model.ai.domain.Analysis;
 import br.com.archflow.model.ai.domain.Response;
+import br.com.archflow.model.engine.ExecutionContext;
 
 /**
  * Interface base para Assistentes de IA.

@@ -25,6 +25,11 @@
             <artifactId>archflow-plugin-api</artifactId>
             <version>1.0.0-SNAPSHOT</version>
         </dependency>
+        <dependency>
+            <groupId>br.com.archflow</groupId>
+            <artifactId>archflow-model</artifactId>
+            <version>1.0.0-SNAPSHOT</version>
+        </dependency>
         <!-- LangChain4j -->
         <dependency>
             <groupId>dev.langchain4j</groupId>

@@ -1,136 +1,76 @@
 package br.com.archflow.plugin.loader;
 
-import br.com.archflow.plugin.api.metadata.PluginDescriptor;
-import br.com.archflow.plugin.api.spi.AIPlugin;
+import br.com.archflow.model.ai.AIAgent;
+import br.com.archflow.model.ai.AIAssistant;
+import br.com.archflow.model.ai.AIComponent;
+import br.com.archflow.model.ai.Tool;
+import br.com.archflow.model.ai.metadata.ComponentMetadata;
+import br.com.archflow.model.ai.type.ComponentType;
+import br.com.archflow.plugin.api.catalog.ComponentCatalog;
+import br.com.archflow.plugin.api.catalog.ComponentSearchCriteria;
+import br.com.archflow.plugin.api.catalog.DefaultComponentCatalog;
+import br.com.archflow.plugin.api.spi.ComponentPlugin;
 
 import java.io.File;
-import java.net.URL;
-import java.net.URLClassLoader;
-import java.util.*;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
 
-/**
- * Gerenciador de plugins do archflow.
- * Responsável por carregar, instalar e gerenciar plugins.
- */
 public class ArchflowPluginManager {
-    
-    private final Map<String, AIPlugin> loadedPlugins = new ConcurrentHashMap<>();
-    private final File pluginsDirectory;
-    private final AtomicBoolean loading = new AtomicBoolean(false);
-
-    public ArchflowPluginManager(File pluginsDirectory) {
-        this.pluginsDirectory = pluginsDirectory;
-    }
-
-    /**
-     * Carrega todos os plugins do diretório configurado.
-     */
-    public void loadPlugins() {
-        if (!pluginsDirectory.exists() || !pluginsDirectory.isDirectory()) {
-            throw new PluginLoadException(
-                "Diretório de plugins não encontrado: " + pluginsDirectory
-            );
-        }
-
-        if (loading.compareAndSet(false, true)) {
-            try {
-                File[] directories = pluginsDirectory.listFiles(File::isDirectory);
-                if (directories != null) {
-                    for (File pluginDir : directories) {
-                        loadPlugin(pluginDir);
-                    }
-                }
-            } finally {
-                loading.set(false);
-            }
-        }
-    }
-
-    /**
-     * Carrega um plugin específico.
-     */
-    private void loadPlugin(File pluginDir) {
-        try {
-            URLClassLoader pluginClassLoader = createPluginClassLoader(pluginDir);
-            ClassLoader contextClassLoader = Thread.currentThread().getContextClassLoader();
-            
-            try {
-                Thread.currentThread().setContextClassLoader(pluginClassLoader);
-                
-                // Usa ServiceLoader para carregar as implementações de AIPlugin
-                ServiceLoader<AIPlugin> serviceLoader = ServiceLoader.load(
-                    AIPlugin.class, 
-                    pluginClassLoader
-                );
-                
-                for (AIPlugin plugin : serviceLoader) {
-                    installPlugin(plugin);
-                }
-                
-            } finally {
-                Thread.currentThread().setContextClassLoader(contextClassLoader);
-            }
-            
-        } catch (Exception e) {
-            throw new PluginLoadException(
-                "Erro carregando plugin do diretório: " + pluginDir, 
-                e
-            );
-        }
-    }
+    private final Map<String, ComponentPlugin> loadedPlugins = new ConcurrentHashMap<>();
+    private final ComponentCatalog catalog = new DefaultComponentCatalog();
 
     /**
      * Instala um plugin no sistema.
      */
-    private void installPlugin(AIPlugin plugin) {
-        String pluginId = plugin.getClass().getAnnotation(PluginDescriptor.class).id();
-        loadedPlugins.put(pluginId, plugin);
-    }
-
-    /**
-     * Cria o ClassLoader para um plugin.
-     */
-    private URLClassLoader createPluginClassLoader(File pluginDir) {
+    private void installPlugin(ComponentPlugin plugin) {
+        // Validar tipo do componente
+        ComponentMetadata metadata = plugin.getMetadata();
+        metadata.validate();
+        
+        // Registrar no catálogo
+        catalog.register(plugin);
+        
+        // Manter referência local
+        loadedPlugins.put(metadata.id(), plugin);
+        
+        // Inicializar plugin
         try {
-            List<URL> urls = new ArrayList<>();
-            
-            // Adiciona JARs do diretório do plugin
-            File[] files = pluginDir.listFiles((dir, name) -> 
-                name.toLowerCase().endsWith(".jar")
-            );
-            
-            if (files != null) {
-                for (File file : files) {
-                    urls.add(file.toURI().toURL());
-                }
-            }
-
-            return new ArchflowPluginClassLoader(
-                urls.toArray(new URL[0]),
-                getClass().getClassLoader()
-            );
-            
+            plugin.onLoad(null); // TODO: Passar contexto adequado
         } catch (Exception e) {
-            throw new PluginLoadException(
-                "Erro criando ClassLoader para plugin: " + pluginDir,
-                e
-            );
+            catalog.unregister(metadata.id());
+            loadedPlugins.remove(metadata.id());
+            throw new PluginLoadException("Erro inicializando plugin: " + metadata.id(), e);
         }
     }
 
     /**
-     * Obtém um plugin pelo ID.
+     * Obtém componentes por tipo.
      */
-    public Optional<AIPlugin> getPlugin(String pluginId) {
-        return Optional.ofNullable(loadedPlugins.get(pluginId));
+    public <T extends AIComponent> List<T> getComponentsByType(ComponentType type) {
+        return catalog.searchComponents(
+            ComponentSearchCriteria.builder()
+                .type(type)
+                .build()
+        )
+        .stream()
+        .map(meta -> (T)loadedPlugins.get(meta.id()))
+        .filter(Objects::nonNull)
+        .collect(Collectors.toList());
     }
 
-    /**
-     * Lista todos os plugins carregados.
-     */
-    public Collection<AIPlugin> getLoadedPlugins() {
-        return Collections.unmodifiableCollection(loadedPlugins.values());
+    // Helper methods
+    public List<AIAssistant> getAssistants() {
+        return getComponentsByType(ComponentType.ASSISTANT);
+    }
+
+    public List<AIAgent> getAgents() {
+        return getComponentsByType(ComponentType.AGENT);
+    }
+
+    public List<Tool> getTools() {
+        return getComponentsByType(ComponentType.TOOL);
     }
 }

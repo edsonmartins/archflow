@@ -194,7 +194,7 @@ public class CustomerSupportFlow {
 - **archflow-agent**: Agente de execução distribuída
 - **archflow-langchain4j**: Integração com LangChain4j
 - **archflow-plugin-loader**: Carregamento dinâmico e gestão de plugins em runtime
-- **archflow-plugin-processor**: Processamento de anotações e geração de metadados de plugins
+
 
 ## 🛠️ Recursos
 

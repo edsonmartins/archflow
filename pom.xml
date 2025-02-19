@@ -15,7 +15,7 @@
     <properties>
         <java.version>17</java.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <langchain4j.version>0.27.1</langchain4j.version>
+        <langchain4j.version>1.0.0-beta1</langchain4j.version>
         <camel.version>4.3.0</camel.version>
         <spring-boot.version>3.2.2</spring-boot.version>
     </properties>
@@ -24,11 +24,9 @@
         <module>archflow-core</module>
         <module>archflow-model</module>
         <module>archflow-plugin-api</module>
-        <module>archflow-engine</module>
         <module>archflow-api</module>
         <module>archflow-agent</module>
         <module>archflow-langchain4j</module>
-        <module>archflow-plugin-processor</module>
         <module>archflow-plugin-loader</module>
     </modules>
 
@@ -57,6 +55,38 @@
                 <groupId>dev.langchain4j</groupId>
                 <artifactId>langchain4j</artifactId>
                 <version>${langchain4j.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>dev.langchain4j</groupId>
+                <artifactId>langchain4j-core</artifactId>
+                <version>${langchain4j.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>dev.langchain4j</groupId>
+                <artifactId>langchain4j</artifactId>
+                <version>${langchain4j.version}</version>
+            </dependency>
+
+            <!-- LangChain4j OpenAI -->
+            <dependency>
+                <groupId>dev.langchain4j</groupId>
+                <artifactId>langchain4j-open-ai</artifactId>
+                <version>${langchain4j.version}</version>
+            </dependency>
+
+            <!-- LangChain4j Anthropic -->
+            <dependency>
+                <groupId>dev.langchain4j</groupId>
+                <artifactId>langchain4j-anthropic</artifactId>
+                <version>${langchain4j.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>org.projectlombok</groupId>
+                <artifactId>lombok</artifactId>
+                <optional>true</optional>
             </dependency>
         </dependencies>
     </dependencyManagement>

@@ -1,0 +1,156 @@
+classDiagram
+    %% Interfaces
+    class Flow {
+        <<interface>>
+        +getId() String
+        +getMetadata() Map
+        +getSteps() List~FlowStep~
+        +getConfiguration() FlowConfiguration
+        +validate() void
+    }
+
+    class FlowStep {
+        <<interface>>
+        +getId() String
+        +getType() StepType
+        +getConnections() List~StepConnection~
+        +execute(ExecutionContext) CompletableFuture~StepResult~
+    }
+
+    class StepConnection {
+        <<interface>>
+        +getSourceId() String
+        +getTargetId() String
+        +getCondition() Optional~String~
+        +isErrorPath() boolean
+    }
+
+    class StepResult {
+        <<interface>>
+        +getStepId() String
+        +getStatus() StepStatus
+        +getOutput() Optional~Object~
+        +getMetrics() StepMetrics
+        +getErrors() List~StepError~
+    }
+
+    class FlowResult {
+        <<interface>>
+        +getStatus() ExecutionStatus
+        +getOutput() Optional~Object~
+        +getMetrics() ExecutionMetrics
+        +getErrors() List~ExecutionError~
+    }
+
+    %% Classes concretas
+    class FlowState {
+        -String flowId
+        -FlowStatus status
+        -String currentStepId
+        -Map~String,Object~ variables
+        -List~ExecutionPath~ executionPaths
+        -FlowMetrics metrics
+        -ExecutionError error
+    }
+
+    class FlowMetrics {
+        -long startTime
+        -long endTime
+        -Map~String,StepMetrics~ stepMetrics
+        -int totalSteps
+        -int completedSteps
+    }
+
+    class ExecutionPath {
+        -String pathId
+        -PathStatus status
+        -List~String~ completedSteps
+        -List~ExecutionPath~ parallelBranches
+    }
+
+    class StepError {
+        +ErrorType type
+        +String code
+        +String message
+        +Instant timestamp
+        +Map~String,Object~ context
+        +Throwable cause
+    }
+
+    class StateUpdate {
+        -String stepId
+        -FlowStatus newStatus
+        -Map~String,Object~ variableUpdates
+        -StepResult stepResult
+        +apply(FlowState) void
+    }
+
+    class AuditLog {
+        -String flowId
+        -Instant timestamp
+        -FlowState state
+        -String stepId
+        -StepResult stepResult
+    }
+
+    %% Enums
+    class StepType {
+        <<enumeration>>
+        CHAIN
+        AGENT
+        TOOL
+        CUSTOM
+    }
+
+    class FlowStatus {
+        <<enumeration>>
+        INITIALIZED
+        RUNNING
+        PAUSED
+        COMPLETED
+        FAILED
+        STOPPED
+    }
+
+    class PathStatus {
+        <<enumeration>>
+        STARTED
+        RUNNING
+        PAUSED
+        COMPLETED
+        FAILED
+        MERGED
+    }
+
+    class ErrorType {
+        <<enumeration>>
+        VALIDATION
+        EXECUTION
+        TIMEOUT
+        LLM
+        SYSTEM
+        PERMISSION
+        CONNECTION
+    }
+
+    %% Relações
+    Flow ..> FlowStep : uses
+    Flow ..> FlowConfiguration : uses
+    FlowStep ..> StepType : uses
+    FlowStep ..> StepConnection : uses
+    FlowStep ..> StepResult : produces
+    FlowStep ..> ExecutionContext : uses
+    FlowResult ..> ExecutionStatus : uses
+    FlowResult ..> ExecutionMetrics : uses
+    FlowState ..> FlowStatus : uses
+    FlowState ..> ExecutionPath : contains
+    FlowState ..> FlowMetrics : contains
+    ExecutionPath ..> PathStatus : uses
+    StepResult ..> StepStatus : uses
+    StepResult ..> StepMetrics : uses
+    StepResult ..> StepError : contains
+    StepError ..> ErrorType : uses
+    StateUpdate ..> FlowState : modifies
+    StateUpdate ..> FlowStatus : uses
+    AuditLog ..> FlowState : references
+    AuditLog ..> StepResult : references

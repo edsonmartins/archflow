@@ -20,6 +20,13 @@
     </properties>
 
     <dependencies>
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <version>1.18.30</version> <!-- Verifique a versão mais recente -->
+            <scope>provided</scope>
+        </dependency>
+
         <!-- LangChain4j -->
         <dependency>
             <groupId>dev.langchain4j</groupId>

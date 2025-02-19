@@ -1,0 +1,127 @@
+classDiagram
+    %% Interfaces
+    class ExecutionContext {
+        <<interface>>
+        +get(String) Optional~Object~
+        +set(String, Object) void
+        +getChatMemory() ChatMemory
+        +getMetrics() ExecutionMetrics
+        +getState() FlowState
+        +setState(FlowState) void
+    }
+
+    %% Implementação
+    class DefaultExecutionContext {
+        -Map~String,Object~ variables
+        -ChatMemory chatMemory
+        -Map~String,StepMetrics~ stepMetricsMap
+        -long startTime
+        -int totalTokens
+        -double estimatedCost
+        -FlowState state
+        +get(String) Optional~Object~
+        +set(String, Object) void
+        +getChatMemory() ChatMemory
+        +getMetrics() ExecutionMetrics
+        +getState() FlowState
+        +setState(FlowState) void
+        +addStepMetrics(String, StepMetrics) void
+        +resetStartTime() void
+        +updateEstimatedCost(double) void
+    }
+
+    %% Records
+    class ExecutionMetrics {
+        +long executionTime
+        +int tokensUsed
+        +double estimatedCost
+        +Map~String,StepMetrics~ stepMetrics
+    }
+
+    class StepMetrics {
+        +long executionTime
+        +int tokensUsed
+        +int retryCount
+        +Map~String,Object~ additionalMetrics
+    }
+
+    %% Enums relacionados
+    class ExecutionStatus {
+        <<enumeration>>
+        COMPLETED
+        FAILED
+        CANCELLED
+        RUNNING
+        PAUSED
+    }
+
+    class StepStatus {
+        <<enumeration>>
+        PENDING
+        RUNNING
+        COMPLETED
+        FAILED
+        SKIPPED
+        CANCELLED
+        PAUSED
+        TIMEOUT
+        +isFinal() boolean
+        +isError() boolean
+        +isRunning() boolean
+    }
+
+    class LogLevel {
+        <<enumeration>>
+        DEBUG
+        INFO
+        WARN
+        ERROR
+    }
+
+    %% Configurações relacionadas
+    class FlowConfiguration {
+        <<interface>>
+        +getTimeout() long
+        +getRetryPolicy() RetryPolicy
+        +getLLMConfig() LLMConfig
+        +getMonitoringConfig() MonitoringConfig
+    }
+
+    class LLMConfig {
+        +String model
+        +double temperature
+        +int maxTokens
+        +long timeout
+        +Map~String,Object~ additionalConfig
+    }
+
+    class MonitoringConfig {
+        +boolean detailedMetrics
+        +boolean fullHistory
+        +LogLevel logLevel
+        +Map~String,String~ tags
+    }
+
+    class RetryPolicy {
+        +int maxAttempts
+        +long delay
+        +double multiplier
+        +Set~Class~ retryableExceptions
+    }
+
+    %% Relações
+    ExecutionContext <|.. DefaultExecutionContext
+    ExecutionContext ..> ExecutionMetrics : uses
+    ExecutionContext ..> FlowState : uses
+    DefaultExecutionContext ..> StepMetrics : uses
+    DefaultExecutionContext ..> ChatMemory : uses
+    ExecutionMetrics o-- StepMetrics
+    FlowConfiguration ..> RetryPolicy : uses
+    FlowConfiguration ..> LLMConfig : uses
+    FlowConfiguration ..> MonitoringConfig : uses
+    MonitoringConfig ..> LogLevel : uses
+    DefaultExecutionContext ..> ExecutionMetrics : creates
+
+    %% Relações com ExecutionStatus e StepStatus
+    ExecutionContext ..> ExecutionStatus : uses
+    ExecutionContext ..> StepStatus : uses

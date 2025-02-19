@@ -1,6 +1,6 @@
 package br.com.archflow.model.flow;
 
-import br.com.archflow.core.FlowConfiguration;
+import br.com.archflow.model.config.FlowConfiguration;
 
 import java.util.List;
 import java.util.Map;

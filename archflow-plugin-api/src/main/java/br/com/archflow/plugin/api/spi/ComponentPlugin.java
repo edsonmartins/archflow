@@ -1,7 +1,8 @@
 package br.com.archflow.plugin.api.spi;
 
-import br.com.archflow.core.ExecutionContext;
 import br.com.archflow.model.ai.AIComponent;
+import br.com.archflow.model.engine.ExecutionContext;
+
 import java.util.Map;
 
 /**

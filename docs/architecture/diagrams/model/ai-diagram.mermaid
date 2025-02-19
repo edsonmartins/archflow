@@ -1,0 +1,177 @@
+classDiagram
+    %% Interfaces Base (br.com.archflow.model.ai)
+    class AIComponent {
+        <<interface>>
+        +initialize(Map~String,Object~) void
+        +getMetadata() ComponentMetadata
+        +execute(String, Object, ExecutionContext) Object
+        +shutdown() void
+    }
+
+    class AIAssistant {
+        <<interface>>
+        +analyzeRequest(String, ExecutionContext) Analysis
+        +generateResponse(Analysis, ExecutionContext) Response
+        +getSpecialization() String
+    }
+
+    class AIAgent {
+        <<interface>>
+        +executeTask(Task, ExecutionContext) Result
+        +makeDecision(ExecutionContext) Decision
+        +planActions(Goal, ExecutionContext) List~Action~
+    }
+
+    class Tool {
+        <<interface>>
+        +execute(Map~String,Object~, ExecutionContext) Result
+        +getParameters() List~ParameterDescription~
+        +validateParameters(Map~String,Object~) void
+    }
+
+    %% Classes de Estado (br.com.archflow.model.ai)
+    class ComponentState {
+        +StateType type
+        +String message
+        +long lastUpdated
+    }
+
+    class ComponentState_Type {
+        <<enumeration>>
+        UNINITIALIZED
+        INITIALIZING
+        READY
+        BUSY
+        ERROR
+        SHUTTING_DOWN
+        SHUTDOWN
+    }
+
+    %% Classes de Domínio (br.com.archflow.model.ai.domain)
+    class Action {
+        +String type
+        +String name
+        +Map~String,Object~ parameters
+        +boolean immediate
+    }
+
+    class Analysis {
+        +String intent
+        +Map~String,Object~ entities
+        +double confidence
+        +List~String~ suggestedActions
+    }
+
+    class Decision {
+        +String action
+        +String reasoning
+        +double confidence
+        +List~String~ alternatives
+    }
+
+    class Goal {
+        +String id
+        +String description
+        +List~String~ successCriteria
+        +Map~String,Object~ context
+        +GoalPriority priority
+    }
+
+    class Goal_Priority {
+        <<enumeration>>
+        LOW
+        MEDIUM
+        HIGH
+        CRITICAL
+    }
+
+    class Response {
+        +String content
+        +Map~String,Object~ metadata
+        +List~Action~ actions
+    }
+
+    class Result {
+        +boolean success
+        +Object output
+        +Map~String,Object~ metadata
+        +List~String~ messages
+    }
+
+    class Task {
+        +String id
+        +String type
+        +Map~String,Object~ parameters
+        +TaskPriority priority
+        +TaskConstraints constraints
+    }
+
+    class ParameterDescription {
+        +String name
+        +String type
+        +String description
+        +boolean required
+        +Object defaultValue
+        +List~String~ allowedValues
+    }
+
+    %% Metadata (br.com.archflow.model.ai.metadata)
+    class ComponentMetadata {
+        +String id
+        +String name
+        +String description
+        +ComponentType type
+        +String version
+        +Set~String~ capabilities
+        +List~OperationMetadata~ operations
+        +Map~String,Object~ properties
+        +Set~String~ tags
+    }
+
+    %% Types (br.com.archflow.model.ai.type)
+    class ComponentType {
+        <<enumeration>>
+        ASSISTANT
+        AGENT
+        PLUGIN
+        TOOL
+    }
+
+    class OperationType {
+        <<enumeration>>
+        SYNC
+        ASYNC
+        STREAM
+    }
+
+    class ParameterType {
+        <<enumeration>>
+        STRING
+        NUMBER
+        BOOLEAN
+        ENUM
+        OBJECT
+        ARRAY
+        FILE
+        SECRET
+    }
+
+    %% Relações
+    AIComponent <|-- AIAssistant
+    AIComponent <|-- AIAgent
+    AIComponent <|-- Tool
+    AIComponent ..> ComponentMetadata : uses
+    AIAssistant ..> Analysis : produces
+    AIAssistant ..> Response : produces
+    AIAgent ..> Task : uses
+    AIAgent ..> Goal : uses
+    AIAgent ..> Decision : produces
+    AIAgent ..> Action : produces
+    Tool ..> ParameterDescription : uses
+    Tool ..> Result : produces
+    ComponentState *-- ComponentState_Type
+    Goal *-- Goal_Priority
+    Response o-- Action
+    ComponentMetadata ..> ComponentType : uses
+    ComponentMetadata ..> OperationType : uses
+    Task ..> ParameterType : uses

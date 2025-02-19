@@ -1,8 +1,8 @@
 package br.com.archflow.model.ai;
 
-import br.com.archflow.core.ExecutionContext;
 import br.com.archflow.model.ai.domain.ParameterDescription;
 import br.com.archflow.model.ai.domain.Result;
+import br.com.archflow.model.engine.ExecutionContext;
 
 import java.util.List;
 import java.util.Map;

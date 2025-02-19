@@ -9,11 +9,12 @@ import java.util.*;
  * Garante isolamento e controle de acesso às classes compartilhadas.
  */
 public class ArchflowPluginClassLoader extends URLClassLoader {
-    
+
     private static final List<String> SHARED_PACKAGES = Arrays.asList(
-        "br.com.archflow.core.plugin.spi",
-        "br.com.archflow.core.plugin.metadata",
-        "dev.langchain4j"
+            "br.com.archflow.model",           // Novo - para acessar interfaces base
+            "br.com.archflow.plugin.api",      // Atualizado - novo pacote
+            "dev.langchain4j",                 // Mantido
+            "org.apache.camel"                 // Novo - para suporte a rotas
     );
 
     private final ClassLoader parentClassLoader;

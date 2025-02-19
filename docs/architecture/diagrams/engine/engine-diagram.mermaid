@@ -1,0 +1,123 @@
+classDiagram
+    %% Core Package
+    class FlowEngine {
+        <<interface>>
+        +startFlow(String, Map) CompletableFuture~FlowResult~
+        +execute(Flow, ExecutionContext) CompletableFuture~FlowResult~
+        +resumeFlow(String, ExecutionContext) CompletableFuture~FlowResult~
+        +getFlowStatus(String) FlowStatus
+        +pause(String) void
+        +cancel(String) void
+    }
+
+    class DefaultFlowEngine {
+        -ExecutionManager executionManager
+        -FlowRepository flowRepository
+        -StateManager stateManager
+        -FlowValidator flowValidator
+        -Map~String,FlowExecution~ activeExecutions
+        +startFlow(String, Map) CompletableFuture~FlowResult~
+        +execute(Flow, ExecutionContext) CompletableFuture~FlowResult~
+        -handleExecutionError(String, Exception) void
+        -createInitialContext(Flow, Map) ExecutionContext
+    }
+
+    class ExecutionManager {
+        <<interface>>
+        +executeFlow(Flow, ExecutionContext) FlowResult
+        +pauseFlow(String) void
+        +stopFlow(String) void
+    }
+
+    class StateManager {
+        <<interface>>
+        +saveState(String, FlowState) void
+        +loadState(String) FlowState
+        +updateState(String, StateUpdate) void
+    }
+
+    %% Execution Package
+    class FlowExecutor {
+        <<interface>>
+        +execute(Flow, ExecutionContext) FlowResult
+        +handleResult(StepResult) void
+    }
+
+    class ParallelExecutor {
+        <<interface>>
+        +executeParallel(List~FlowStep~) List~StepResult~
+        +awaitCompletion() void
+    }
+
+    %% Persistence Package
+    class FlowRepository {
+        <<interface>>
+        +save(Flow) void
+        +findById(String) Optional~Flow~
+        +delete(String) void
+    }
+
+    class StateRepository {
+        <<interface>>
+        +saveState(String, FlowState) void
+        +getState(String) FlowState
+        +saveAuditLog(String, AuditLog) void
+    }
+
+    %% Validation Package
+    class FlowValidator {
+        <<interface>>
+        +validate(Flow) void
+        +validateStep(FlowStep, ValidationContext) void
+    }
+
+    class DefaultFlowValidator {
+        -validateBasicInfo(Flow, List) void
+        -validateConnections(Flow, List) void
+        -validateCycles(Flow, List) void
+        -validateStepConfiguration(FlowStep, List) void
+        -hasCycle(FlowStep, Set, Set, Flow) boolean
+    }
+
+    class ValidationContext {
+        -Flow flow
+        -Map~String,Object~ attributes
+        +setAttribute(String, Object) void
+        +getAttribute(String) Object
+    }
+
+    %% Inner Classes
+    class FlowExecution {
+        -Flow flow
+        -ExecutionContext context
+        +pause() void
+        +cancel() void
+        -updateState(FlowStatus) void
+    }
+
+    %% Relationships
+    FlowEngine <|.. DefaultFlowEngine
+    FlowValidator <|.. DefaultFlowValidator
+    DefaultFlowEngine *-- FlowExecution
+    DefaultFlowEngine o-- ExecutionManager
+    DefaultFlowEngine o-- FlowRepository
+    DefaultFlowEngine o-- StateManager
+    DefaultFlowEngine o-- FlowValidator
+    DefaultFlowValidator -- ValidationContext
+    
+    StateManager ..> StateRepository : uses
+    FlowExecutor ..> ExecutionContext : uses
+    FlowExecutor ..> Flow : uses
+    ParallelExecutor ..> FlowStep : uses
+    StateManager ..> FlowState : manages
+    FlowValidator ..> Flow : validates
+    
+    %% Dependency Lines
+    DefaultFlowEngine ..> FlowNotFoundException : throws
+    DefaultFlowEngine ..> FlowEngineException : throws
+    DefaultFlowValidator ..> FlowValidationException : throws
+
+    %% Notes
+    note for DefaultFlowEngine "Implementação principal do engine"
+    note for FlowExecution "Representa uma execução ativa"
+    note for FlowValidator "Validação de fluxos e passos"

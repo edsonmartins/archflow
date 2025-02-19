@@ -1,0 +1,137 @@
+classDiagram
+    %% Estruturas de Erro
+    class ExecutionError {
+        +String code
+        +String message
+        +ExecutionErrorType type
+        +String component
+        +Instant timestamp
+        +Throwable cause
+        +Map~String,Object~ details
+        +static of(String, String, ExecutionErrorType) ExecutionError
+        +static of(String, String, ExecutionErrorType, String) ExecutionError
+        +static fromException(String, Throwable, String) ExecutionError
+        +withDetail(String, Object) ExecutionError
+    }
+
+    class StepError {
+        +ErrorType type
+        +String code
+        +String message
+        +Instant timestamp
+        +Map~String,Object~ context
+        +Throwable cause
+        +static of(ErrorType, String, String) StepError
+        +static of(ErrorType, String, String, Map) StepError
+        +static fromException(Throwable, String) StepError
+    }
+
+    %% Tipos de Erro
+    class ExecutionErrorType {
+        <<enumeration>>
+        CONFIGURATION
+        VALIDATION
+        EXECUTION
+        SYSTEM
+        CONNECTION
+        AUTHORIZATION
+        TIMEOUT
+        NOT_FOUND
+        INVALID_STATE
+        UNKNOWN
+    }
+
+    class ErrorType {
+        <<enumeration>>
+        VALIDATION
+        EXECUTION
+        TIMEOUT
+        LLM
+        SYSTEM
+        PERMISSION
+        CONNECTION
+    }
+
+    %% Status e Estados
+    class PathStatus {
+        <<enumeration>>
+        STARTED
+        RUNNING
+        PAUSED
+        COMPLETED
+        FAILED
+        MERGED
+        +isActive() boolean
+        +isTerminal() boolean
+    }
+
+    class FlowStatus {
+        <<enumeration>>
+        INITIALIZED
+        RUNNING
+        PAUSED
+        COMPLETED
+        FAILED
+        STOPPED
+        +isFinal() boolean
+        +canContinue() boolean
+    }
+
+    class StepStatus {
+        <<enumeration>>
+        PENDING
+        RUNNING
+        COMPLETED
+        FAILED
+        SKIPPED
+        CANCELLED
+        PAUSED
+        TIMEOUT
+        +isFinal() boolean
+        +isError() boolean
+        +isRunning() boolean
+    }
+
+    class ExecutionStatus {
+        <<enumeration>>
+        COMPLETED
+        FAILED
+        CANCELLED
+        RUNNING
+        PAUSED
+    }
+
+    %% Estados de Componentes
+    class ComponentState_Type {
+        <<enumeration>>
+        UNINITIALIZED
+        INITIALIZING
+        READY
+        BUSY
+        ERROR
+        SHUTTING_DOWN
+        SHUTDOWN
+    }
+
+    %% Relações
+    ExecutionError ..> ExecutionErrorType : uses
+    StepError ..> ErrorType : uses
+    ExecutionError ..> Instant : uses
+    StepError ..> Instant : uses
+    
+    %% Agrupamento lógico de estados
+    FlowStatus ..> ExecutionStatus : relates
+    StepStatus ..> ExecutionStatus : relates
+    PathStatus ..> ExecutionStatus : relates
+    
+    %% Relações de erro
+    ExecutionErrorType ..> ErrorType : maps to
+    
+    %% Relações de estado
+    ComponentState_Type ..> ExecutionStatus : relates to
+    
+    %% Notas
+    note for ExecutionError "Erro de nível de execução"
+    note for StepError "Erro específico de um passo"
+    note for ErrorType "Tipos de erro em passos"
+    note for ExecutionErrorType "Tipos de erro em execução"

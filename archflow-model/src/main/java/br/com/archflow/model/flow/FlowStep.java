@@ -1,6 +1,7 @@
 package br.com.archflow.model.flow;
 
-import br.com.archflow.core.ExecutionContext;
+
+import br.com.archflow.model.engine.ExecutionContext;
 
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -40,7 +41,6 @@ public interface FlowStep {
      *
      * @param context contexto de execução
      * @return future com o resultado da execução
-     * @throws StepExecutionException se houver erro na execução
      */
     CompletableFuture<StepResult> execute(ExecutionContext context);
 }
