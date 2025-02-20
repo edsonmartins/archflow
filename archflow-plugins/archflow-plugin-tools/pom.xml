@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>br.com.archflow.plugins</groupId>
+        <artifactId>archflow-plugins</artifactId>
+        <version>1.0.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>archflow-plugin-tools</artifactId>
+    <packaging>pom</packaging>
+    <name>archflow Tools Plugins</name>
+    <description>General purpose tool plugins for archflow</description>
+
+    <properties>
+        <plugin.category>tools</plugin.category>
+        <apache.pdfbox.version>2.0.29</apache.pdfbox.version>
+        <apache.poi.version>5.2.3</apache.poi.version>
+    </properties>
+
+    <modules>
+        <module>archflow-plugin-pdf</module>
+        <module>archflow-plugin-csv</module>
+        <module>archflow-plugin-json</module>
+        <module>archflow-plugin-xml</module>
+    </modules>
+
+    <dependencyManagement>
+        <dependencies>
+            <!-- Document Processing -->
+            <dependency>
+                <groupId>org.apache.pdfbox</groupId>
+                <artifactId>pdfbox</artifactId>
+                <version>${apache.pdfbox.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.poi</groupId>
+                <artifactId>poi</artifactId>
+                <version>${apache.poi.version}</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <configuration>
+                    <archive>
+                        <manifestEntries>
+                            <Plugin-Category>${plugin.category}</Plugin-Category>
+                        </manifestEntries>
+                    </archive>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>

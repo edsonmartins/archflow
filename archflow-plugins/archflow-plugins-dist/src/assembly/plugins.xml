@@ -1,0 +1,17 @@
+<assembly>
+    <id>plugins</id>
+    <formats>
+        <format>zip</format>
+    </formats>
+    <includeBaseDirectory>false</includeBaseDirectory>
+
+    <dependencySets>
+        <dependencySet>
+            <outputDirectory>plugins</outputDirectory>
+            <includes>
+                <include>br.com.archflow.plugins:*</include>
+            </includes>
+            <useProjectArtifact>false</useProjectArtifact>
+        </dependencySet>
+    </dependencySets>
+</assembly>

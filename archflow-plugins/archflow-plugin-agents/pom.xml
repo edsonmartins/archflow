@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>br.com.archflow.plugins</groupId>
+        <artifactId>archflow-plugins</artifactId>
+        <version>1.0.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>archflow-plugin-agents</artifactId>
+    <packaging>pom</packaging>
+    <name>archflow Agent Plugins</name>
+    <description>AI Agent plugins for archflow</description>
+
+    <properties>
+        <plugin.category>agents</plugin.category>
+    </properties>
+
+    <modules>
+        <module>archflow-plugin-research-agent</module>
+        <module>archflow-plugin-analysis-agent</module>
+        <module>archflow-plugin-assistant-agent</module>
+        <module>archflow-plugin-planning-agent</module>
+    </modules>
+
+    <dependencies>
+        <!-- LangChain4j Dependencies -->
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-core</artifactId>
+        </dependency>
+        <!-- OpenAI Integration -->
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-open-ai</artifactId>
+        </dependency>
+        <!-- Anthropic Integration -->
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-anthropic</artifactId>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <configuration>
+                    <archive>
+                        <manifestEntries>
+                            <Plugin-Category>${plugin.category}</Plugin-Category>
+                        </manifestEntries>
+                    </archive>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>

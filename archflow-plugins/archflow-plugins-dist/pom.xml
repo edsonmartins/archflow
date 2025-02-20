@@ -1,0 +1,35 @@
+<project>
+    <artifactId>archflow-plugins-dist</artifactId>
+    <packaging>pom</packaging>
+
+    <dependencies>
+        <!-- Dependências para todos os plugins -->
+        <dependency>
+            <groupId>br.com.archflow.plugins</groupId>
+            <artifactId>archflow-plugin-calculator</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- ... outros plugins ... -->
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <artifactId>maven-assembly-plugin</artifactId>
+                <configuration>
+                    <descriptors>
+                        <descriptor>src/assembly/plugins.xml</descriptor>
+                    </descriptors>
+                </configuration>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>single</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

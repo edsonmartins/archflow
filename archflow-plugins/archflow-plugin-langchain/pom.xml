@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>br.com.archflow.plugins</groupId>
+        <artifactId>archflow-plugins</artifactId>
+        <version>1.0.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>archflow-plugin-langchain</artifactId>
+    <packaging>pom</packaging>
+    <name>archflow LangChain4j Plugins</name>
+    <description>Plugins that integrate with LangChain4j functionality</description>
+
+    <properties>
+        <plugin.category>langchain</plugin.category>
+    </properties>
+
+    <modules>
+        <module>archflow-plugin-calculator</module>
+        <module>archflow-plugin-websearch</module>
+        <module>archflow-plugin-rag</module>
+        <module>archflow-plugin-chains</module>
+    </modules>
+
+    <dependencies>
+        <!-- LangChain4j Dependencies -->
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-core</artifactId>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <configuration>
+                    <archive>
+                        <manifestEntries>
+                            <Plugin-Category>${plugin.category}</Plugin-Category>
+                        </manifestEntries>
+                    </archive>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>

@@ -1,0 +1,45 @@
+<project>
+    <groupId>br.com.archflow.plugins</groupId>
+    <artifactId>archflow-plugins</artifactId>
+    <packaging>pom</packaging>
+
+    <modules>
+        <module>archflow-plugin-langchain</module>
+        <module>archflow-plugin-tools</module>
+        <module>archflow-plugin-assistants</module>
+        <module>archflow-plugin-agents</module>
+        <module>archflow-plugins-dist</module>
+    </modules>
+
+    <properties>
+        <plugin.packaging>jar</plugin.packaging>
+        <plugin.api.version>${project.version}</plugin.api.version>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>br.com.archflow</groupId>
+            <artifactId>archflow-plugin-api</artifactId>
+            <version>${plugin.api.version}</version>
+            <scope>provided</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <configuration>
+                    <archive>
+                        <manifestEntries>
+                            <Plugin-Id>${plugin.id}</Plugin-Id>
+                            <Plugin-Version>${project.version}</Plugin-Version>
+                            <Plugin-Provider>${project.groupId}</Plugin-Provider>
+                        </manifestEntries>
+                    </archive>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>

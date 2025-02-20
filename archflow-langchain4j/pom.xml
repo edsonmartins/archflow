@@ -41,6 +41,36 @@
             <artifactId>langchain4j</artifactId>
         </dependency>
 
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-document-transformer-jsoup</artifactId>
+            <version>1.0.0-beta1</version>
+        </dependency>
+
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-hugging-face</artifactId>
+            <version>1.0.0-beta1</version>
+        </dependency>
+
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-easy-rag</artifactId>
+            <version>1.0.0-beta1</version>
+        </dependency>
+
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-embeddings</artifactId>
+            <version>1.0.0-beta1</version>
+        </dependency>
+
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-document-loader-selenium</artifactId>
+            <version>1.0.0-beta1</version>
+        </dependency>
+
         <!-- LangChain4j OpenAI -->
         <dependency>
             <groupId>dev.langchain4j</groupId>
@@ -94,6 +124,8 @@
             <artifactId>assertj-core</artifactId>
             <scope>test</scope>
         </dependency>
+
+
     </dependencies>
 
     <build>
