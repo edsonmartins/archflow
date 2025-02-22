@@ -38,19 +38,19 @@ import br.com.archflow.core.model.StepResult;
 
 @AIFlow
 public class CustomerSupportFlow {
-    
+
     @FlowStep(order = 1)
     public StepResult analyzeIntent(String customerMessage) {
         return StepResult.of(Map.of(
-            "intent", "Análise do problema do cliente",
-            "sentiment", "neutral"
+                "intent", "Análise do problema do cliente",
+                "sentiment", "neutral"
         ));
     }
-    
+
     @FlowStep(order = 2)
     public StepResult generateResponse(Map<String, Object> analysis) {
         return StepResult.of(
-            "Entendi sua necessidade. Como posso ajudar?"
+                "Entendi sua necessidade. Como posso ajudar?"
         );
     }
 }
@@ -61,16 +61,16 @@ public class CustomerSupportFlow {
 ```java
 @Configuration
 public class FlowConfig {
-    
+
     @Bean
     public FlowEngine flowEngine(
-        LangChain4j langChain,
-        FlowValidator validator
+            LangChain4j langChain,
+            FlowValidator validator
     ) {
         return FlowEngine.builder()
-            .langChain(langChain)
-            .validator(validator)
-            .build();
+                .langChain(langChain)
+                .validator(validator)
+                .build();
     }
 }
 ```
@@ -80,15 +80,15 @@ public class FlowConfig {
 ```java
 @Service
 public class SupportService {
-    
+
     private final FlowEngine flowEngine;
-    
+
     public CompletableFuture<FlowResult> handleCustomerMessage(String message) {
         return flowEngine.execute(
-            new CustomerSupportFlow(),
-            ExecutionContext.builder()
-                .input(message)
-                .build()
+                new CustomerSupportFlow(),
+                ExecutionContext.builder()
+                        .input(message)
+                        .build()
         );
     }
 }
@@ -100,17 +100,17 @@ public class SupportService {
 
 ```java
 @PluginDescriptor(
-    id = "sentiment-analyzer",
-    name = "Sentiment Analyzer",
-    operations = {
-        @PluginOperation(
-            name = "analyze",
-            description = "Analisa sentimento do texto"
-        )
-    }
+        id = "sentiment-analyzer",
+        name = "Sentiment Analyzer",
+        operations = {
+                @PluginOperation(
+                        name = "analyze",
+                        description = "Analisa sentimento do texto"
+                )
+        }
 )
 public class SentimentPlugin implements AIPlugin {
-    
+
     @Override
     public Object execute(String operationId, Object input, Map<String, Object> context) {
         // Implementação
@@ -124,14 +124,14 @@ public class SentimentPlugin implements AIPlugin {
 ```java
 @AIFlow
 public class EnhancedSupportFlow {
-    
+
     @Inject
     private SentimentPlugin sentimentPlugin;
-    
+
     @FlowStep(order = 1)
     public StepResult analyzeSentiment(String message) {
         return StepResult.of(
-            sentimentPlugin.execute("analyze", message, Map.of())
+                sentimentPlugin.execute("analyze", message, Map.of())
         );
     }
 }
@@ -144,15 +144,15 @@ public class EnhancedSupportFlow {
 ```java
 @Component
 public class FlowMetrics {
-    
+
     private final MeterRegistry registry;
-    
+
     public void recordExecution(FlowResult result) {
         registry.timer("flow.execution")
-            .record(result.getExecutionTime());
-            
+                .record(result.getExecutionTime());
+
         registry.counter("flow.status." + result.getStatus())
-            .increment();
+                .increment();
     }
 }
 ```
@@ -210,3 +210,15 @@ Precisa de ajuda?
 - [GitHub Issues](https://github.com/archflow/archflow/issues)
 - [Discord](https://discord.gg/archflow)
 - [Stack Overflow](https://stackoverflow.com/questions/tagged/archflow)
+
+## Documentos Relacionados
+
+Para aprender mais sobre o archflow, confira os seguintes guias e documentos:
+
+- [Guia de Contribuição](contributing.md) - Como contribuir para o projeto
+- [Guia do Desenvolvedor](dev-guide.md) - Informações detalhadas sobre desenvolvimento de componentes
+- [Features](features.md) - Funcionalidades oferecidas pelo framework
+- [Proposta de Plugins](plugins_proposal.md) - Estrutura e desenvolvimento de plugins
+- [Stack Tecnológico](stack.md) - Tecnologias utilizadas no projeto
+
+Esses documentos oferecem uma visão mais detalhada sobre o funcionamento e as melhores práticas para utilizar o archflow.

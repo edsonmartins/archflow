@@ -29,6 +29,16 @@ O archflow é um framework para criar, executar e gerenciar fluxos de trabalho b
 
 ## 🎯 Componentes Principais
 
+### 🖼️ Arquitetura em Pilhas
+
+A arquitetura do archflow é organizada em pilhas, proporcionando uma separação clara de responsabilidades e facilitando a manutenção e escalabilidade.
+
+<div align="center">
+    <img src="docs/images/stack-architecture-contrast.svg" alt="Arquitetura em Pilhas do archflow" width="600"/>
+</div>
+
+
+
 ### 🤖 Core Engine
 - Execução de fluxos distribuída
 - Gerenciamento de estado
@@ -100,66 +110,66 @@ O archflow é um framework para criar, executar e gerenciar fluxos de trabalho b
 ### Dependências Maven
 ```xml
 <dependencies>
-    <dependency>
-        <groupId>br.com.archflow</groupId>
-        <artifactId>archflow-core</artifactId>
-        <version>1.0.0-SNAPSHOT</version>
-    </dependency>
-    <dependency>
-        <groupId>br.com.archflow</groupId>
-        <artifactId>archflow-agent</artifactId>
-        <version>1.0.0-SNAPSHOT</version>
-    </dependency>
-    <dependency>
-        <groupId>br.com.archflow</groupId>
-        <artifactId>archflow-langchain4j</artifactId>
-        <version>1.0.0-SNAPSHOT</version>
-    </dependency>
+   <dependency>
+      <groupId>br.com.archflow</groupId>
+      <artifactId>archflow-core</artifactId>
+      <version>1.0.0-SNAPSHOT</version>
+   </dependency>
+   <dependency>
+      <groupId>br.com.archflow</groupId>
+      <artifactId>archflow-agent</artifactId>
+      <version>1.0.0-SNAPSHOT</version>
+   </dependency>
+   <dependency>
+      <groupId>br.com.archflow</groupId>
+      <artifactId>archflow-langchain4j</artifactId>
+      <version>1.0.0-SNAPSHOT</version>
+   </dependency>
 </dependencies>
 ```
 
 ### Exemplo de Fluxo
 ```java
 public class CustomerSupportFlow implements Flow {
-    @Override
-    public String getId() {
-        return "customer-support";
-    }
+   @Override
+   public String getId() {
+      return "customer-support";
+   }
 
-    @Override
-    public List<FlowStep> getSteps() {
-        return Arrays.asList(
-            new IntentAnalysisStep(),
-            new ResponseGenerationStep()
-        );
-    }
+   @Override
+   public List<FlowStep> getSteps() {
+      return Arrays.asList(
+              new IntentAnalysisStep(),
+              new ResponseGenerationStep()
+      );
+   }
 
-    @Override
-    public FlowConfiguration getConfiguration() {
-        return FlowConfiguration.builder()
-            .timeout(30000)
-            .retryPolicy(new RetryPolicy(3, 1000, 2.0))
-            .build();
-    }
+   @Override
+   public FlowConfiguration getConfiguration() {
+      return FlowConfiguration.builder()
+              .timeout(30000)
+              .retryPolicy(new RetryPolicy(3, 1000, 2.0))
+              .build();
+   }
 }
 ```
 
 ### Executando o Fluxo
 ```java
 AgentConfig config = AgentConfig.builder()
-    .agentId("support-agent")
-    .pluginsPath("plugins")
-    .maxConcurrentFlows(10)
-    .build();
+        .agentId("support-agent")
+        .pluginsPath("plugins")
+        .maxConcurrentFlows(10)
+        .build();
 
 try (ArchFlowAgent agent = new ArchFlowAgent(config)) {
-    Flow flow = new CustomerSupportFlow();
-    Map<String, Object> input = Map.of("message", "Como posso resetar minha senha?");
-    
-    FlowResult result = agent.executeFlow(flow, input).get();
+Flow flow = new CustomerSupportFlow();
+Map<String, Object> input = Map.of("message", "Como posso resetar minha senha?");
+
+FlowResult result = agent.executeFlow(flow, input).get();
     System.out.println("Status: " + result.getStatus());
-    System.out.println("Output: " + result.getOutput().orElse(null));
-}
+        System.out.println("Output: " + result.getOutput().orElse(null));
+        }
 ```
 
 ## 📦 Módulos
@@ -190,14 +200,14 @@ try (ArchFlowAgent agent = new ArchFlowAgent(config)) {
 Adoramos contribuições! Veja como você pode ajudar:
 
 - 🐛 Reporte bugs e sugira features nas [Issues](https://github.com/archflow/archflow/issues)
-- 📖 Melhore a [documentação](docs/README.md)
+- 📖 Melhore a [documentação](docs/readme.md)
 - 💻 Contribua com código seguindo nosso [guia](docs/development/contributing.md)
 - 🌟 Dê uma estrela no projeto e compartilhe!
 
 ## 📚 Links
 
 - [Website](https://archflow.github.io)
-- [Documentação](docs/README.md)
+- [Documentação](docs/readme.md)
 - [Discord](https://discord.gg/archflow)
 - [Blog](https://blog.archflow.org)
 
