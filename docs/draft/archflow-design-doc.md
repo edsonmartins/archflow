@@ -57,7 +57,7 @@ public class ChainAdapter implements LangChainAdapter {
     
     @Override
     public void configure(Map<String, Object> properties) {
-        // Configura a chain baseado nas properties
+        // Configura a openai baseado nas properties
         this.chain = createChain(properties);
     }
     

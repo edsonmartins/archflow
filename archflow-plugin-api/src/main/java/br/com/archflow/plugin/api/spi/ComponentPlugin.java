@@ -6,9 +6,10 @@ import br.com.archflow.model.engine.ExecutionContext;
 import java.util.Map;
 
 /**
- * Interface que define o contrato para componentes implementados como plugins.
+ * Interface base para plugins do archflow.
+ * Define o contrato básico que todos os plugins devem implementar.
  */
-public interface ComponentPlugin extends AIComponent {
+public interface ComponentPlugin {
     /**
      * Valida a configuração do plugin.
      * @param config configuração a ser validada

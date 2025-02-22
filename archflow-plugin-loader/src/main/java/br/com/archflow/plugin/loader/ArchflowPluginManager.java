@@ -22,46 +22,51 @@ public class ArchflowPluginManager {
     private final Map<String, ComponentPlugin> loadedPlugins = new ConcurrentHashMap<>();
     private final ComponentCatalog catalog = new DefaultComponentCatalog();
 
-    /**
-     * Instala um plugin no sistema.
-     */
     private void installPlugin(ComponentPlugin plugin) {
-        // Validar tipo do componente
-        ComponentMetadata metadata = plugin.getMetadata();
+        // Valida que o plugin implementa uma das interfaces de IA
+        if (!(plugin instanceof AIComponent)) {
+            throw new PluginLoadException("Plugin must implement an AI component interface");
+        }
+
+        AIComponent component = (AIComponent) plugin;
+        ComponentMetadata metadata = component.getMetadata();
         metadata.validate();
-        
-        // Registrar no catálogo
-        catalog.register(plugin);
-        
-        // Manter referência local
+
+        // Registra no catálogo como AIComponent
+        catalog.register(component);
+
+        // Mantém referência como plugin
         loadedPlugins.put(metadata.id(), plugin);
-        
-        // Inicializar plugin
+
         try {
-            plugin.onLoad(null); // TODO: Passar contexto adequado
+            plugin.onLoad(null);
         } catch (Exception e) {
             catalog.unregister(metadata.id());
             loadedPlugins.remove(metadata.id());
-            throw new PluginLoadException("Erro inicializando plugin: " + metadata.id(), e);
+            throw new PluginLoadException("Error initializing plugin: " + metadata.id(), e);
         }
     }
 
-    /**
-     * Obtém componentes por tipo.
-     */
     public <T extends AIComponent> List<T> getComponentsByType(ComponentType type) {
         return catalog.searchComponents(
-            ComponentSearchCriteria.builder()
-                .type(type)
-                .build()
-        )
-        .stream()
-        .map(meta -> (T)loadedPlugins.get(meta.id()))
-        .filter(Objects::nonNull)
-        .collect(Collectors.toList());
+                        ComponentSearchCriteria.builder()
+                                .type(type)
+                                .build()
+                )
+                .stream()
+                .map(meta -> {
+                    ComponentPlugin plugin = loadedPlugins.get(meta.id());
+                    if (plugin instanceof AIComponent) {
+                        return (T) plugin;
+                    }
+                    return null;
+                })
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
     }
 
-    // Helper methods
+    // Helper methods remain the same but now work correctly since we validate
+    // plugin implements correct interface
     public List<AIAssistant> getAssistants() {
         return getComponentsByType(ComponentType.ASSISTANT);
     }

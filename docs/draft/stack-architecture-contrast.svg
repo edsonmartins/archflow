@@ -1,0 +1,132 @@
+<svg viewBox="0 0 800 900" xmlns="http://www.w3.org/2000/svg">
+    <!-- Estilos -->
+    <defs>
+        <style>
+            .layer { stroke: #333; stroke-width: 2; }
+            .layer-title { font-family: Arial; font-size: 16px; font-weight: bold; fill: #2d3436; }
+            .component-box { stroke: #333; stroke-width: 1; rx: 4; }
+            .component-text { font-family: Arial; font-size: 14px; fill: white; text-anchor: middle; }
+            .rag-related { stroke: #e84393; stroke-width: 2; }
+        </style>
+    </defs>
+
+    <!-- Camada de Consumidores -->
+    <g transform="translate(0,0)">
+        <rect width="800" height="100" rx="5" fill="#81ecec" class="layer" />
+        <text x="20" y="30" class="layer-title">Camada de Consumidores</text>
+        <!-- Componentes -->
+        <rect x="40" y="40" width="150" height="40" class="component-box" fill="#00cec9" />
+        <text x="115" y="65" class="component-text">Admin UI</text>
+        
+        <rect x="230" y="40" width="150" height="40" class="component-box" fill="#00cec9" />
+        <text x="305" y="65" class="component-text">Editor Visual</text>
+        
+        <rect x="420" y="40" width="150" height="40" class="component-box" fill="#00cec9" />
+        <text x="495" y="65" class="component-text">CLI</text>
+        
+        <rect x="610" y="40" width="150" height="40" class="component-box" fill="#00cec9" />
+        <text x="685" y="65" class="component-text">Aplicações Clientes</text>
+    </g>
+
+    <!-- Camada de API -->
+    <g transform="translate(0,120)">
+        <rect width="800" height="100" rx="5" fill="#fd79a8" class="layer" />
+        <text x="20" y="30" class="layer-title">Camada de API</text>
+        <!-- Componentes -->
+        <rect x="40" y="40" width="220" height="40" class="component-box" fill="#e84393" />
+        <text x="150" y="65" class="component-text">REST API</text>
+        
+        <rect x="290" y="40" width="220" height="40" class="component-box" fill="#e84393" />
+        <text x="400" y="65" class="component-text">GraphQL API</text>
+        
+        <rect x="540" y="40" width="220" height="40" class="component-box" fill="#e84393" />
+        <text x="650" y="65" class="component-text">Java SDK</text>
+    </g>
+
+    <!-- Camada do Engine -->
+    <g transform="translate(0,240)">
+        <rect width="800" height="100" rx="5" fill="#ffeaa7" class="layer" />
+        <text x="20" y="30" class="layer-title">Camada do Engine</text>
+        <!-- Componentes -->
+        <rect x="40" y="40" width="220" height="40" class="component-box" fill="#f39c12" />
+        <text x="150" y="65" class="component-text">Flow Engine</text>
+        
+        <rect x="290" y="40" width="220" height="40" class="component-box" fill="#f39c12" />
+        <text x="400" y="65" class="component-text">Execution Manager</text>
+        
+        <rect x="540" y="40" width="220" height="40" class="component-box" fill="#f39c12" />
+        <text x="650" y="65" class="component-text">State Manager</text>
+    </g>
+
+    <!-- Camada de Componentes -->
+    <g transform="translate(0,360)">
+        <rect width="800" height="100" rx="5" fill="#fab1a0" class="layer" />
+        <text x="20" y="30" class="layer-title">Camada de Componentes</text>
+        <!-- Componentes -->
+        <rect x="40" y="40" width="165" height="40" class="component-box" fill="#d63031" />
+        <text x="122" y="65" class="component-text">Assistant Component</text>
+        
+        <rect x="225" y="40" width="165" height="40" class="component-box" fill="#d63031" />
+        <text x="307" y="65" class="component-text">Agent Component</text>
+        
+        <rect x="410" y="40" width="165" height="40" class="component-box rag-related" fill="#d63031" />
+        <text x="492" y="65" class="component-text">RAG Component</text>
+        
+        <rect x="595" y="40" width="165" height="40" class="component-box" fill="#d63031" />
+        <text x="677" y="65" class="component-text">Tool Component</text>
+    </g>
+
+    <!-- Camada de Adaptadores -->
+    <g transform="translate(0,480)">
+        <rect width="800" height="100" rx="5" fill="#a8e6cf" class="layer" />
+        <text x="20" y="30" class="layer-title">Camada de Adaptadores</text>
+        <!-- Componentes -->
+        <rect x="40" y="40" width="165" height="40" class="component-box" fill="#27ae60" />
+        <text x="122" y="65" class="component-text">Model Adapter</text>
+        
+        <rect x="225" y="40" width="165" height="40" class="component-box rag-related" fill="#27ae60" />
+        <text x="307" y="65" class="component-text">RAG Chain Adapter</text>
+        
+        <rect x="410" y="40" width="165" height="40" class="component-box" fill="#27ae60" />
+        <text x="492" y="65" class="component-text">Tool Adapter</text>
+        
+        <rect x="595" y="40" width="165" height="40" class="component-box" fill="#27ae60" />
+        <text x="677" y="65" class="component-text">Memory Adapter</text>
+    </g>
+
+    <!-- Camada LangChain4j -->
+    <g transform="translate(0,600)">
+        <rect width="800" height="100" rx="5" fill="#74b9ff" class="layer" />
+        <text x="20" y="30" class="layer-title">Camada LangChain4j</text>
+        <!-- Componentes -->
+        <rect x="40" y="40" width="165" height="40" class="component-box rag-related" fill="#2980b9" />
+        <text x="122" y="65" class="component-text">Embedding Models</text>
+        
+        <rect x="225" y="40" width="165" height="40" class="component-box rag-related" fill="#2980b9" />
+        <text x="307" y="65" class="component-text">RAG Chains</text>
+        
+        <rect x="410" y="40" width="165" height="40" class="component-box" fill="#2980b9" />
+        <text x="492" y="65" class="component-text">Memory</text>
+        
+        <rect x="595" y="40" width="165" height="40" class="component-box" fill="#2980b9" />
+        <text x="677" y="65" class="component-text">Tools</text>
+    </g>
+
+    <!-- Camada de Integrações Externas -->
+    <g transform="translate(0,720)">
+        <rect width="800" height="100" rx="5" fill="#dfe6e9" class="layer" />
+        <text x="20" y="30" class="layer-title">Camada de Integrações Externas</text>
+        <!-- Componentes -->
+        <rect x="40" y="40" width="165" height="40" class="component-box" fill="#636e72" />
+        <text x="122" y="65" class="component-text">LLMs</text>
+        
+        <rect x="225" y="40" width="165" height="40" class="component-box rag-related" fill="#636e72" />
+        <text x="307" y="65" class="component-text">Vector Stores</text>
+        
+        <rect x="410" y="40" width="165" height="40" class="component-box rag-related" fill="#636e72" />
+        <text x="492" y="65" class="component-text">Documentos</text>
+        
+        <rect x="595" y="40" width="165" height="40" class="component-box" fill="#636e72" />
+        <text x="677" y="65" class="component-text">APIs Externas</text>
+    </g>
+</svg>

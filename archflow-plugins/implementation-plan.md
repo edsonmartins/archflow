@@ -50,7 +50,7 @@ Objetivo: Gerenciamento de memória para conversas
 ### 1.3 Chain Components (archflow-plugin-langchain/chains)
 ```java
 @ComponentDescriptor(
-    id = "conversational-chain",
+    id = "conversational-openai",
     type = ComponentType.CHAIN,
     properties = {
         @Property(id = "model", required = true),
@@ -150,7 +150,7 @@ Objetivo: Armazenamento de embeddings
 ### 3.3 RAG Chains
 ```java
 @ComponentDescriptor(
-    id = "rag-chain",
+    id = "rag-openai",
     type = ComponentType.CHAIN,
     properties = {
         @Property(id = "model", required = true),

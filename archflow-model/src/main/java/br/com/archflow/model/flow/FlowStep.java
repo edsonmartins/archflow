@@ -21,7 +21,7 @@ public interface FlowStep {
     String getId();
 
     /**
-     * Retorna o tipo do passo (chain, agent, tool).
+     * Retorna o tipo do passo (openai, agent, tool).
      *
      * @return tipo do passo
      */

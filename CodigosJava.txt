@@ -1,0 +1,5840 @@
+=== CONSOLIDADO DE CÓDIGOS JAVA ===
+Gerado em: Sex 21 Fev 2025 18:42:09 -03
+Diretório base: .
+===================================
+
+
+// ==================================================
+// Arquivo: archflow-core/src/main/java/br/com/archflow/engine/core/ExecutionManager.java
+// ==================================================
+
+package br.com.archflow.engine.core;
+
+import br.com.archflow.model.flow.Flow;
+import br.com.archflow.model.engine.ExecutionContext;
+import br.com.archflow.model.flow.FlowResult;
+
+public interface ExecutionManager {
+    /**
+     * Gerencia a execução de um fluxo
+     */
+    FlowResult executeFlow(Flow flow, ExecutionContext context);
+    
+    /**
+     * Pausa a execução de um fluxo
+     */
+    void pauseFlow(String flowId);
+    
+    /**
+     * Para a execução de um fluxo
+     */
+    void stopFlow(String flowId);
+}
+
+// ==================================================
+// Arquivo: archflow-core/src/main/java/br/com/archflow/engine/core/DefaultFlowEngine.java
+// ==================================================
+
+package br.com.archflow.engine.core;
+
+import br.com.archflow.engine.api.FlowEngine;
+import br.com.archflow.engine.exceptions.FlowEngineException;
+import br.com.archflow.engine.exceptions.FlowNotFoundException;
+import br.com.archflow.engine.persistence.FlowRepository;
+import br.com.archflow.model.engine.DefaultExecutionContext;
+import br.com.archflow.model.engine.ExecutionContext;
+import br.com.archflow.model.error.ExecutionError;
+import br.com.archflow.model.flow.*;
+import br.com.archflow.engine.validation.FlowValidator;
+import dev.langchain4j.memory.chat.MessageWindowChatMemory;
+
+import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.logging.Logger;
+
+public class DefaultFlowEngine implements FlowEngine {
+    private static final Logger logger = Logger.getLogger(DefaultFlowEngine.class.getName());
+
+    private final ExecutionManager executionManager;
+    private final FlowRepository flowRepository;
+    private final StateManager stateManager;
+    private final FlowValidator flowValidator;
+    private final Map<String, FlowExecution> activeExecutions;
+
+    public DefaultFlowEngine(ExecutionManager executionManager,
+                             FlowRepository flowRepository,
+                             StateManager stateManager,
+                             FlowValidator flowValidator) {
+        this.executionManager = executionManager;
+        this.flowRepository = flowRepository;
+        this.stateManager = stateManager;
+        this.flowValidator = flowValidator;
+        this.activeExecutions = new ConcurrentHashMap<>();
+    }
+
+    @Override
+    public CompletableFuture<FlowResult> startFlow(String flowId, Map<String, Object> input) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                Flow flow = flowRepository.findById(flowId)
+                        .orElseThrow(() -> new FlowNotFoundException(flowId));
+
+                flowValidator.validate(flow);
+
+                ExecutionContext context = createInitialContext(flow, input);
+                FlowExecution execution = new FlowExecution(flow, context);
+                activeExecutions.put(flowId, execution);
+
+                return executionManager.executeFlow(flow, context);
+            } catch (Exception e) {
+                handleExecutionError(flowId, e);
+                throw new FlowEngineException("Error starting flow: " + flowId, e);
+            }
+        });
+    }
+
+    @Override
+    public CompletableFuture<FlowResult> execute(Flow flow, ExecutionContext context) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                flowValidator.validate(flow);
+
+                if (context.getState() == null) {
+                    FlowState initialState = createInitialState(flow.getId());
+                    context.setState(initialState);
+                }
+
+                FlowExecution execution = new FlowExecution(flow, context);
+                activeExecutions.put(flow.getId(), execution);
+
+                return executionManager.executeFlow(flow, context);
+            } catch (Exception e) {
+                handleExecutionError(flow.getId(), e);
+                throw new FlowEngineException("Error executing flow: " + flow.getId(), e);
+            }
+        });
+    }
+
+    @Override
+    public CompletableFuture<FlowResult> resumeFlow(String flowId, ExecutionContext context) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                Flow flow = flowRepository.findById(flowId)
+                        .orElseThrow(() -> new FlowNotFoundException(flowId));
+
+                FlowState state = stateManager.loadState(flowId);
+                if (state == null) {
+                    throw new FlowEngineException("No state found for flow: " + flowId);
+                }
+
+                if (state.getStatus().isFinal()) {
+                    throw new FlowEngineException("Cannot resume flow in final state: " + state.getStatus());
+                }
+
+                context.setState(state);
+                FlowExecution execution = new FlowExecution(flow, context);
+                activeExecutions.put(flowId, execution);
+
+                return executionManager.executeFlow(flow, context);
+            } catch (Exception e) {
+                handleExecutionError(flowId, e);
+                throw new FlowEngineException("Error resuming flow: " + flowId, e);
+            }
+        });
+    }
+
+    @Override
+    public FlowStatus getFlowStatus(String flowId) {
+        try {
+            FlowExecution execution = activeExecutions.get(flowId);
+            if (execution != null) {
+                return execution.getContext().getState().getStatus();
+            }
+
+            FlowState state = stateManager.loadState(flowId);
+            if (state == null) {
+                throw new FlowNotFoundException(flowId);
+            }
+
+            return state.getStatus();
+        } catch (Exception e) {
+            throw new FlowEngineException("Error getting flow status: " + flowId, e);
+        }
+    }
+
+    @Override
+    public void pause(String flowId) {
+        try {
+            FlowExecution execution = activeExecutions.get(flowId);
+            if (execution == null) {
+                throw new FlowNotFoundException(flowId);
+            }
+
+            execution.pause();
+            stateManager.saveState(flowId, execution.getContext().getState());
+            executionManager.pauseFlow(flowId);
+        } catch (Exception e) {
+            throw new FlowEngineException("Error pausing flow: " + flowId, e);
+        }
+    }
+
+    @Override
+    public void cancel(String flowId) {
+        try {
+            FlowExecution execution = activeExecutions.get(flowId);
+            if (execution == null) {
+                throw new FlowNotFoundException(flowId);
+            }
+
+            execution.cancel();
+            stateManager.saveState(flowId, execution.getContext().getState());
+            activeExecutions.remove(flowId);
+            executionManager.stopFlow(flowId);
+        } catch (Exception e) {
+            throw new FlowEngineException("Error canceling flow: " + flowId, e);
+        }
+    }
+
+    private ExecutionContext createInitialContext(Flow flow, Map<String, Object> input) {
+        ExecutionContext context = new DefaultExecutionContext(MessageWindowChatMemory.builder().build());
+
+        FlowState initialState = FlowState.builder()
+                .flowId(flow.getId())
+                .status(FlowStatus.INITIALIZED)
+                .variables(new HashMap<>(input != null ? input : new HashMap<>()))
+                .executionPaths(new ArrayList<>())
+                .metrics(FlowMetrics.builder().build())
+                .build();
+
+        context.setState(initialState);
+        return context;
+    }
+
+    private FlowState createInitialState(String flowId) {
+        return FlowState.builder()
+                .flowId(flowId)
+                .status(FlowStatus.INITIALIZED)
+                .variables(new HashMap<>())
+                .executionPaths(new ArrayList<>())
+                .metrics(FlowMetrics.builder().build())
+                .build();
+    }
+
+    private void handleExecutionError(String flowId, Exception e) {
+        try {
+            FlowExecution execution = activeExecutions.remove(flowId);
+            if (execution != null) {
+                FlowState currentState = execution.getContext().getState();
+
+                ExecutionError error = ExecutionError.fromException(
+                        "FLOW_EXECUTION_ERROR",
+                        e,
+                        "FlowEngine"
+                );
+
+                FlowState errorState = FlowState.builder()
+                        .flowId(currentState.getFlowId())
+                        .status(FlowStatus.FAILED)
+                        .currentStepId(currentState.getCurrentStepId())
+                        .variables(currentState.getVariables())
+                        .executionPaths(currentState.getExecutionPaths())
+                        .metrics(currentState.getMetrics())
+                        .error(error)
+                        .build();
+
+                stateManager.saveState(flowId, errorState);
+            }
+        } catch (Exception ex) {
+            logger.severe("Error handling execution error for flow: " + flowId + " - " + ex.getMessage());
+        }
+    }
+
+    private static class FlowExecution {
+        private final Flow flow;
+        private final ExecutionContext context;
+
+        public FlowExecution(Flow flow, ExecutionContext context) {
+            this.flow = flow;
+            this.context = context;
+        }
+
+        public void pause() {
+            updateState(FlowStatus.PAUSED);
+        }
+
+        public void cancel() {
+            updateState(FlowStatus.STOPPED);
+        }
+
+        private void updateState(FlowStatus newStatus) {
+            FlowState currentState = context.getState();
+            FlowState updatedState = FlowState.builder()
+                    .flowId(currentState.getFlowId())
+                    .status(newStatus)
+                    .currentStepId(currentState.getCurrentStepId())
+                    .variables(currentState.getVariables())
+                    .executionPaths(currentState.getExecutionPaths())
+                    .metrics(currentState.getMetrics())
+                    .error(currentState.getError())
+                    .build();
+
+            context.setState(updatedState);
+        }
+
+        public ExecutionContext getContext() {
+            return context;
+        }
+    }
+
+    @Override
+    public Set<String> getActiveFlows() {
+        return new HashSet<>(activeExecutions.keySet());
+    }
+}
+
+// ==================================================
+// Arquivo: archflow-core/src/main/java/br/com/archflow/engine/core/StateManager.java
+// ==================================================
+
+package br.com.archflow.engine.core;
+
+import br.com.archflow.model.flow.FlowState;
+import br.com.archflow.model.flow.StateUpdate;
+
+
+public interface StateManager {
+    /**
+     * Salva o estado do fluxo
+     */
+    void saveState(String flowId, FlowState state);
+    
+    /**
+     * Carrega o estado do fluxo
+     */
+    FlowState loadState(String flowId);
+    
+    /**
+     * Atualiza o estado do fluxo
+     */
+    void updateState(String flowId, StateUpdate update);
+}
+
+// ==================================================
+// Arquivo: archflow-core/src/main/java/br/com/archflow/engine/exceptions/StepExecutionException.java
+// ==================================================
+
+package br.com.archflow.engine.exceptions;
+
+import br.com.archflow.model.flow.StepError;
+
+/**
+ * Exceção lançada durante execução de um passo.
+ */
+public class StepExecutionException extends FlowException {
+    private final String stepId;
+    private final StepError error;
+
+    public StepExecutionException(String stepId, StepError error) {
+        super("Step execution failed: " + stepId);
+        this.stepId = stepId;
+        this.error = error;
+    }
+
+    public String getStepId() {
+        return stepId;
+    }
+
+    public StepError getError() {
+        return error;
+    }
+}
+
+// ==================================================
+// Arquivo: archflow-core/src/main/java/br/com/archflow/engine/exceptions/FlowValidationException.java
+// ==================================================
+
+package br.com.archflow.engine.exceptions;
+
+import java.util.Collections;
+import java.util.List;
+
+/**
+ * Exceção lançada durante validação de fluxos.
+ */
+public class FlowValidationException extends FlowException {
+    private final List<ValidationError> errors;
+
+    public FlowValidationException(List<ValidationError> errors) {
+        super("Flow validation failed: " + errors.size() + " errors found");
+        this.errors = errors;
+    }
+
+    public List<ValidationError> getErrors() {
+        return Collections.unmodifiableList(errors);
+    }
+}
+
+// ==================================================
+// Arquivo: archflow-core/src/main/java/br/com/archflow/engine/exceptions/FlowException.java
+// ==================================================
+
+package br.com.archflow.engine.exceptions;
+
+/**
+ * Exceção base para erros relacionados a fluxos.
+ */
+public class FlowException extends RuntimeException {
+    public FlowException(String message) {
+        super(message);
+    }
+
+    public FlowException(String message, Throwable cause) {
+        super(message, cause);
+    }
+}
+
+// ==================================================
+// Arquivo: archflow-core/src/main/java/br/com/archflow/engine/exceptions/FlowNotFoundException.java
+// ==================================================
+
+package br.com.archflow.engine.exceptions;
+
+/**
+ * Exceção lançada quando um fluxo não é encontrado.
+ */
+public class FlowNotFoundException extends FlowException {
+    private final String flowId;
+
+    public FlowNotFoundException(String flowId) {
+        super("Flow not found: " + flowId);
+        this.flowId = flowId;
+    }
+
+    public String getFlowId() {
+        return flowId;
+    }
+}
+
+// ==================================================
+// Arquivo: archflow-core/src/main/java/br/com/archflow/engine/exceptions/ValidationError.java
+// ==================================================
+
+package br.com.archflow.engine.exceptions;
+
+import java.util.Map;
+
+/**
+ * Erro de validação específico.
+ */
+public record ValidationError(
+    String field,
+    String message,
+    String code,
+    Map<String, Object> context
+) {}
+
+// ==================================================
+// Arquivo: archflow-core/src/main/java/br/com/archflow/engine/exceptions/FlowEngineException.java
+// ==================================================
+
+package br.com.archflow.engine.exceptions;
+
+/**
+ * Exceção lançada quando ocorre erro no engine de execução.
+ */
+public class FlowEngineException extends FlowException {
+    public FlowEngineException(String message) {
+        super(message);
+    }
+
+    public FlowEngineException(String message, Throwable cause) {
+        super(message, cause);
+    }
+}
+
+// ==================================================
+// Arquivo: archflow-core/src/main/java/br/com/archflow/engine/execution/FlowExecutor.java
+// ==================================================
+
+package br.com.archflow.engine.execution;
+
+import br.com.archflow.model.flow.Flow;
+import br.com.archflow.model.engine.ExecutionContext;
+import br.com.archflow.model.flow.FlowResult;
+import br.com.archflow.model.flow.StepResult;
+
+public interface FlowExecutor {
+    /**
+     * Executa um fluxo específico
+     */
+    FlowResult execute(Flow flow, ExecutionContext context);
+    
+    /**
+     * Processa o resultado de um passo
+     */
+    void handleResult(StepResult result);
+}
+
+// ==================================================
+// Arquivo: archflow-core/src/main/java/br/com/archflow/engine/execution/ParallelExecutor.java
+// ==================================================
+
+package br.com.archflow.engine.execution;
+
+import br.com.archflow.model.flow.FlowStep;
+import br.com.archflow.model.flow.StepResult;
+
+import java.util.List;
+
+public interface ParallelExecutor {
+    /**
+     * Executa passos em paralelo
+     */
+    List<StepResult> executeParallel(List<FlowStep> steps);
+    
+    /**
+     * Aguarda a conclusão da execução paralela
+     */
+    void awaitCompletion();
+}
+
+// ==================================================
+// Arquivo: archflow-core/src/main/java/br/com/archflow/engine/persistence/StateRepository.java
+// ==================================================
+
+package br.com.archflow.engine.persistence;
+
+
+import br.com.archflow.model.flow.AuditLog;
+import br.com.archflow.model.flow.FlowState;
+
+public interface StateRepository {
+    void saveState(String flowId, FlowState state);
+    FlowState getState(String flowId);
+    void saveAuditLog(String flowId, AuditLog log);
+}
+
+// ==================================================
+// Arquivo: archflow-core/src/main/java/br/com/archflow/engine/persistence/FlowRepository.java
+// ==================================================
+
+package br.com.archflow.engine.persistence;
+
+import br.com.archflow.model.flow.Flow;
+import java.util.Optional;
+
+public interface FlowRepository {
+    void save(Flow flow);
+    Optional<Flow> findById(String id);
+    void delete(String id);
+}
+
+// ==================================================
+// Arquivo: archflow-core/src/main/java/br/com/archflow/engine/api/FlowEngine.java
+// ==================================================
+
+package br.com.archflow.engine.api;
+
+import br.com.archflow.engine.exceptions.FlowEngineException;
+import br.com.archflow.engine.exceptions.FlowNotFoundException;
+import br.com.archflow.model.engine.ExecutionContext;
+import br.com.archflow.model.flow.Flow;
+import br.com.archflow.model.flow.FlowResult;
+import br.com.archflow.model.flow.FlowStatus;
+
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+
+/**
+ * Engine principal do archflow, responsável pela execução de fluxos.
+ * Integra-se com componentes de IA para processamento.
+ *
+ * @since 1.0.0
+ */
+public interface FlowEngine {
+    /**
+     * Inicia a execução de um fluxo
+     *
+     * @param flowId identificador do fluxo
+     * @param input variáveis iniciais do fluxo
+     * @return resultado da execução
+     * @throws FlowNotFoundException se o fluxo não for encontrado
+     * @throws FlowEngineException se houver erro na execução
+     */
+    CompletableFuture<FlowResult> startFlow(String flowId, Map<String, Object> input);
+
+    /**
+     * Executa um fluxo de forma assíncrona.
+     *
+     * @param flow fluxo a ser executado
+     * @param context contexto inicial de execução
+     * @return future com o resultado da execução
+     * @throws FlowEngineException se houver erro na execução
+     */
+    CompletableFuture<FlowResult> execute(Flow flow, ExecutionContext context);
+
+    /**
+     * Retoma a execução de um fluxo pausado
+     *
+     * @param flowId identificador do fluxo
+     * @param context contexto atualizado para continuação
+     * @return resultado da execução
+     * @throws FlowNotFoundException se o fluxo não for encontrado
+     */
+    CompletableFuture<FlowResult> resumeFlow(String flowId, ExecutionContext context);
+
+    /**
+     * Obtém o status atual do fluxo
+     *
+     * @param flowId identificador do fluxo
+     * @return status atual do fluxo
+     * @throws FlowNotFoundException se o fluxo não for encontrado
+     */
+    FlowStatus getFlowStatus(String flowId);
+
+    /**
+     * Pausa a execução de um fluxo em andamento.
+     *
+     * @param flowId identificador do fluxo
+     * @throws FlowNotFoundException se o fluxo não for encontrado
+     */
+    void pause(String flowId);
+
+    /**
+     * Cancela a execução de um fluxo em andamento.
+     *
+     * @param flowId identificador do fluxo
+     * @throws FlowNotFoundException se o fluxo não for encontrado
+     */
+    void cancel(String flowId);
+
+    /**
+     * Retorna o conjunto de IDs dos fluxos ativos
+     */
+    Set<String> getActiveFlows();
+}
+
+// ==================================================
+// Arquivo: archflow-core/src/main/java/br/com/archflow/engine/validation/DefaultFlowValidator.java
+// ==================================================
+
+package br.com.archflow.engine.validation;
+
+import br.com.archflow.engine.exceptions.FlowValidationException;
+import br.com.archflow.engine.exceptions.ValidationError;
+import br.com.archflow.model.flow.Flow;
+import br.com.archflow.model.flow.FlowStep;
+import br.com.archflow.model.flow.StepConnection;
+
+import java.util.*;
+import java.util.stream.Collectors;
+
+/**
+ * Implementação padrão do validador de fluxos.
+ */
+public class DefaultFlowValidator implements FlowValidator {
+    
+    @Override
+    public void validate(Flow flow) throws FlowValidationException {
+        List<ValidationError> errors = new ArrayList<>();
+        ValidationContext context = new ValidationContext(flow);
+
+        // Valida identificação básica
+        validateBasicInfo(flow, errors);
+
+        // Valida passos
+        for (FlowStep step : flow.getSteps()) {
+            try {
+                validateStep(step, context);
+            } catch (FlowValidationException e) {
+                errors.addAll(e.getErrors());
+            }
+        }
+
+        // Valida conexões
+        validateConnections(flow, errors);
+
+        // Valida ciclos
+        validateCycles(flow, errors);
+
+        if (!errors.isEmpty()) {
+            throw new FlowValidationException(errors);
+        }
+    }
+
+    @Override
+    public void validateStep(FlowStep step, ValidationContext context) throws FlowValidationException {
+        List<ValidationError> errors = new ArrayList<>();
+
+        // Valida identificação do passo
+        if (step.getId() == null || step.getId().trim().isEmpty()) {
+            errors.add(new ValidationError(
+                "step.id",
+                "Step ID is required",
+                "STEP_ID_REQUIRED",
+                Map.of("step", step)
+            ));
+        }
+
+        // Valida tipo do passo
+        if (step.getType() == null) {
+            errors.add(new ValidationError(
+                "step.type",
+                "Step type is required",
+                "STEP_TYPE_REQUIRED",
+                Map.of("step", step)
+            ));
+        }
+
+        // Valida configuração do passo
+        validateStepConfiguration(step, errors);
+
+        // Valida conexões do passo
+        validateStepConnections(step, context, errors);
+
+        if (!errors.isEmpty()) {
+            throw new FlowValidationException(errors);
+        }
+    }
+
+    private void validateBasicInfo(Flow flow, List<ValidationError> errors) {
+        if (flow.getId() == null || flow.getId().trim().isEmpty()) {
+            errors.add(new ValidationError(
+                "flow.id",
+                "Flow ID is required",
+                "FLOW_ID_REQUIRED",
+                Map.of()
+            ));
+        }
+
+        if (flow.getSteps().isEmpty()) {
+            errors.add(new ValidationError(
+                "flow.steps",
+                "Flow must have at least one step",
+                "FLOW_EMPTY",
+                Map.of()
+            ));
+        }
+    }
+
+    private void validateConnections(Flow flow, List<ValidationError> errors) {
+        Set<String> stepIds = flow.getSteps().stream()
+            .map(FlowStep::getId)
+            .collect(Collectors.toSet());
+
+        for (FlowStep step : flow.getSteps()) {
+            for (StepConnection connection : step.getConnections()) {
+                // Valida existência dos passos conectados
+                if (!stepIds.contains(connection.getSourceId())) {
+                    errors.add(new ValidationError(
+                        "connection.source",
+                        "Source step does not exist: " + connection.getSourceId(),
+                        "INVALID_CONNECTION_SOURCE",
+                        Map.of("connection", connection)
+                    ));
+                }
+
+                if (!stepIds.contains(connection.getTargetId())) {
+                    errors.add(new ValidationError(
+                        "connection.target",
+                        "Target step does not exist: " + connection.getTargetId(),
+                        "INVALID_CONNECTION_TARGET",
+                        Map.of("connection", connection)
+                    ));
+                }
+
+                // Valida condições
+                connection.getCondition().ifPresent(condition -> 
+                    validateCondition(condition, errors, connection)
+                );
+            }
+        }
+    }
+
+    private void validateCycles(Flow flow, List<ValidationError> errors) {
+        // Implementa detecção de ciclos usando DFS
+        Set<String> visited = new HashSet<>();
+        Set<String> currentPath = new HashSet<>();
+
+        for (FlowStep step : flow.getSteps()) {
+            if (hasCycle(step, visited, currentPath, flow)) {
+                errors.add(new ValidationError(
+                    "flow.cycle",
+                    "Flow contains cycles",
+                    "FLOW_CYCLE_DETECTED",
+                    Map.of("startStep", step.getId())
+                ));
+                break;
+            }
+        }
+    }
+
+    private boolean hasCycle(FlowStep step, Set<String> visited, Set<String> currentPath, Flow flow) {
+        String stepId = step.getId();
+        
+        if (currentPath.contains(stepId)) {
+            return true;
+        }
+        
+        if (visited.contains(stepId)) {
+            return false;
+        }
+
+        visited.add(stepId);
+        currentPath.add(stepId);
+
+        for (StepConnection connection : step.getConnections()) {
+            String targetId = connection.getTargetId();
+            Optional<FlowStep> targetStep = flow.getSteps().stream()
+                .filter(s -> s.getId().equals(targetId))
+                .findFirst();
+
+            if (targetStep.isPresent() && hasCycle(targetStep.get(), visited, currentPath, flow)) {
+                return true;
+            }
+        }
+
+        currentPath.remove(stepId);
+        return false;
+    }
+
+    private void validateStepConfiguration(FlowStep step, List<ValidationError> errors) {
+        // Validações específicas para cada tipo de passo
+        switch (step.getType()) {
+            case CHAIN:
+                validateChainConfiguration(step, errors);
+                break;
+            case AGENT:
+                validateAgentConfiguration(step, errors);
+                break;
+            case TOOL:
+                validateToolConfiguration(step, errors);
+                break;
+            default:
+                errors.add(new ValidationError(
+                    "step.type",
+                    "Unsupported step type: " + step.getType(),
+                    "UNSUPPORTED_STEP_TYPE",
+                    Map.of("step", step)
+                ));
+        }
+    }
+
+    private void validateChainConfiguration(FlowStep step, List<ValidationError> errors) {
+        // Implementar validações específicas para Chains
+    }
+
+    private void validateAgentConfiguration(FlowStep step, List<ValidationError> errors) {
+        // Implementar validações específicas para Agents
+    }
+
+    private void validateToolConfiguration(FlowStep step, List<ValidationError> errors) {
+        // Implementar validações específicas para Tools
+    }
+
+    private void validateStepConnections(FlowStep step, ValidationContext context, List<ValidationError> errors) {
+        // Implementar validações de conexões do passo
+    }
+
+    private void validateCondition(String condition, List<ValidationError> errors, StepConnection connection) {
+        // Implementar validação de expressões de condição
+    }
+}
+
+// ==================================================
+// Arquivo: archflow-core/src/main/java/br/com/archflow/engine/validation/FlowValidator.java
+// ==================================================
+
+package br.com.archflow.engine.validation;
+
+import br.com.archflow.model.flow.Flow;
+import br.com.archflow.model.flow.FlowStep;
+import br.com.archflow.engine.exceptions.FlowValidationException;
+
+/**
+ * Responsável por validar a estrutura e integridade de um fluxo.
+ * Verifica conexões, parâmetros e configurações antes da execução.
+ */
+public interface FlowValidator {
+    /**
+     * Valida um fluxo completo.
+     *
+     * @param flow fluxo a ser validado
+     * @throws FlowValidationException se houver erros de validação
+     */
+    void validate(Flow flow) throws FlowValidationException;
+
+    /**
+     * Valida um passo específico do fluxo.
+     *
+     * @param step passo a ser validado
+     * @param context contexto do fluxo para validação
+     * @throws FlowValidationException se houver erros de validação
+     */
+    void validateStep(FlowStep step, ValidationContext context) throws FlowValidationException;
+}
+
+
+
+// ==================================================
+// Arquivo: archflow-core/src/main/java/br/com/archflow/engine/validation/ValidationContext.java
+// ==================================================
+
+package br.com.archflow.engine.validation;
+
+import br.com.archflow.model.flow.Flow;
+
+import java.util.HashMap;
+import java.util.Map;
+
+/**
+ * Contexto usado durante a validação.
+ * Mantém informações relevantes para validação de passos e conexões.
+ */
+public class ValidationContext {
+    private final Flow flow;
+    private final Map<String, Object> attributes = new HashMap<>();
+
+    public ValidationContext(Flow flow) {
+        this.flow = flow;
+    }
+
+    public Flow getFlow() {
+        return flow;
+    }
+
+    public void setAttribute(String key, Object value) {
+        attributes.put(key, value);
+    }
+
+    public Object getAttribute(String key) {
+        return attributes.get(key);
+    }
+}
+
+// ==================================================
+// Arquivo: archflow-plugin-loader/src/main/java/br/com/archflow/plugin/loader/ComponentLoadException.java
+// ==================================================
+
+package br.com.archflow.plugin.loader;
+
+import br.com.archflow.model.ai.type.ComponentType;
+
+public class ComponentLoadException extends PluginLoadException {
+    private final ComponentType type;
+    private final String componentId;
+
+    public ComponentLoadException(String message, ComponentType type, String componentId) {
+        super(message);
+        this.type = type;
+        this.componentId = componentId;
+    }
+
+    public ComponentLoadException(String message, ComponentType type, String componentId, Throwable cause) {
+        super(message, cause);
+        this.type = type;
+        this.componentId = componentId;
+    }
+
+    public ComponentType getType() {
+        return type;
+    }
+
+    public String getComponentId() {
+        return componentId;
+    }
+}
+
+// ==================================================
+// Arquivo: archflow-plugin-loader/src/main/java/br/com/archflow/plugin/loader/PluginLoadException.java
+// ==================================================
+
+package br.com.archflow.plugin.loader;
+
+/**
+ * Exceção lançada durante o carregamento de plugins.
+ */
+class PluginLoadException extends RuntimeException {
+    public PluginLoadException(String message) {
+        super(message);
+    }
+
+    public PluginLoadException(String message, Throwable cause) {
+        super(message, cause);
+    }
+}
+
+// ==================================================
+// Arquivo: archflow-plugin-loader/src/main/java/br/com/archflow/plugin/loader/ArchflowPluginClassLoader.java
+// ==================================================
+
+package br.com.archflow.plugin.loader;
+
+import java.net.URL;
+import java.net.URLClassLoader;
+import java.util.*;
+
+/**
+ * ClassLoader específico para plugins do archflow.
+ * Garante isolamento e controle de acesso às classes compartilhadas.
+ */
+public class ArchflowPluginClassLoader extends URLClassLoader {
+
+    private static final List<String> SHARED_PACKAGES = Arrays.asList(
+            "br.com.archflow.model",           // Novo - para acessar interfaces base
+            "br.com.archflow.plugin.api",      // Atualizado - novo pacote
+            "dev.langchain4j",                 // Mantido
+            "org.apache.camel"                 // Novo - para suporte a rotas
+    );
+
+    private final ClassLoader parentClassLoader;
+
+    public ArchflowPluginClassLoader(URL[] urls, ClassLoader parent) {
+        super(urls, null);
+        this.parentClassLoader = parent;
+    }
+
+    @Override
+    protected Class<?> loadClass(String name, boolean resolve) 
+            throws ClassNotFoundException {
+        
+        Class<?> loadedClass = findLoadedClass(name);
+        
+        if (loadedClass == null) {
+            boolean isSharedClass = SHARED_PACKAGES.stream()
+                .anyMatch(name::startsWith);
+
+            if (isSharedClass) {
+                loadedClass = parentClassLoader.loadClass(name);
+            } else {
+                try {
+                    loadedClass = super.loadClass(name, resolve);
+                } catch (ClassNotFoundException e) {
+                    loadedClass = parentClassLoader.loadClass(name);
+                }
+            }
+        }
+
+        if (resolve) {
+            resolveClass(loadedClass);
+        }
+
+        return loadedClass;
+    }
+}
+
+// ==================================================
+// Arquivo: archflow-plugin-loader/src/main/java/br/com/archflow/plugin/loader/ArchflowPluginManager.java
+// ==================================================
+
+package br.com.archflow.plugin.loader;
+
+import br.com.archflow.model.ai.AIAgent;
+import br.com.archflow.model.ai.AIAssistant;
+import br.com.archflow.model.ai.AIComponent;
+import br.com.archflow.model.ai.Tool;
+import br.com.archflow.model.ai.metadata.ComponentMetadata;
+import br.com.archflow.model.ai.type.ComponentType;
+import br.com.archflow.plugin.api.catalog.ComponentCatalog;
+import br.com.archflow.plugin.api.catalog.ComponentSearchCriteria;
+import br.com.archflow.plugin.api.catalog.DefaultComponentCatalog;
+import br.com.archflow.plugin.api.spi.ComponentPlugin;
+
+import java.io.File;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
+
+public class ArchflowPluginManager {
+    private final Map<String, ComponentPlugin> loadedPlugins = new ConcurrentHashMap<>();
+    private final ComponentCatalog catalog = new DefaultComponentCatalog();
+
+    /**
+     * Instala um plugin no sistema.
+     */
+    private void installPlugin(ComponentPlugin plugin) {
+        // Validar tipo do componente
+        ComponentMetadata metadata = plugin.getMetadata();
+        metadata.validate();
+        
+        // Registrar no catálogo
+        catalog.register(plugin);
+        
+        // Manter referência local
+        loadedPlugins.put(metadata.id(), plugin);
+        
+        // Inicializar plugin
+        try {
+            plugin.onLoad(null); // TODO: Passar contexto adequado
+        } catch (Exception e) {
+            catalog.unregister(metadata.id());
+            loadedPlugins.remove(metadata.id());
+            throw new PluginLoadException("Erro inicializando plugin: " + metadata.id(), e);
+        }
+    }
+
+    /**
+     * Obtém componentes por tipo.
+     */
+    public <T extends AIComponent> List<T> getComponentsByType(ComponentType type) {
+        return catalog.searchComponents(
+            ComponentSearchCriteria.builder()
+                .type(type)
+                .build()
+        )
+        .stream()
+        .map(meta -> (T)loadedPlugins.get(meta.id()))
+        .filter(Objects::nonNull)
+        .collect(Collectors.toList());
+    }
+
+    // Helper methods
+    public List<AIAssistant> getAssistants() {
+        return getComponentsByType(ComponentType.ASSISTANT);
+    }
+
+    public List<AIAgent> getAgents() {
+        return getComponentsByType(ComponentType.AGENT);
+    }
+
+    public List<Tool> getTools() {
+        return getComponentsByType(ComponentType.TOOL);
+    }
+}
+
+// ==================================================
+// Arquivo: archflow-langchain4j/archflow-langchain4j-embedding/src/main/java/br/com/archflow/langchain4j/embedding/package-info.java
+// ==================================================
+
+/**
+ * Package for archflow-langchain4j-embedding adapters.
+ */
+package br.com.archflow.langchain4j.embedding;
+
+
+// ==================================================
+// Arquivo: archflow-langchain4j/archflow-langchain4j-agent/src/main/java/br/com/archflow/langchain4j/agent/package-info.java
+// ==================================================
+
+/**
+ * Package for archflow-langchain4j-agent adapters.
+ */
+package br.com.archflow.langchain4j.agent;
+
+
+// ==================================================
+// Arquivo: archflow-langchain4j/archflow-langchain4j-memory/src/main/java/br/com/archflow/langchain4j/memory/package-info.java
+// ==================================================
+
+/**
+ * Package for archflow-langchain4j-memory adapters.
+ */
+package br.com.archflow.langchain4j.memory;
+
+
+// ==================================================
+// Arquivo: archflow-langchain4j/archflow-langchain4j-chain/src/main/java/br/com/archflow/langchain4j/chain/package-info.java
+// ==================================================
+
+/**
+ * Package for archflow-langchain4j-chain adapters.
+ */
+package br.com.archflow.langchain4j.openai;
+
+
+// ==================================================
+// Arquivo: archflow-langchain4j/archflow-langchain4j-model/src/main/java/br/com/archflow/langchain4j/model/package-info.java
+// ==================================================
+
+/**
+ * Package for archflow-langchain4j-model adapters.
+ */
+package br.com.archflow.langchain4j.model;
+
+
+// ==================================================
+// Arquivo: archflow-langchain4j/archflow-langchain4j-core/src/main/java/br/com/archflow/langchain4j/core/LangChainAdapter.java
+// ==================================================
+
+package br.com.archflow.langchain4j.core;
+
+import br.com.archflow.model.engine.ExecutionContext;
+
+import java.util.Map;
+
+public interface LangChainAdapter {
+    /**
+     * Configura o adapter com as propriedades fornecidas
+     */
+    void configure(Map<String, Object> properties);
+
+    /**
+     * Executa uma operação usando o componente do LangChain4j
+     */
+    Object execute(String operation, Object input, ExecutionContext context) throws Exception;
+
+    /**
+     * Valida a configuração do adapter
+     */
+    void validate(Map<String, Object> properties);
+
+    /**
+     * Libera recursos quando o adapter não é mais necessário
+     */
+    void shutdown();
+}
+
+// ==================================================
+// Arquivo: archflow-langchain4j/archflow-langchain4j-core/src/main/java/br/com/archflow/langchain4j/core/BaseAdapter.java
+// ==================================================
+
+package br.com.archflow.langchain4j.core;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.HashMap;
+import java.util.Map;
+
+public abstract class BaseAdapter implements LangChainAdapter {
+    protected final Logger logger = LoggerFactory.getLogger(getClass());
+    protected Map<String, Object> configuration;
+    
+    @Override
+    public void configure(Map<String, Object> properties) {
+        validate(properties);
+        this.configuration = new HashMap<>(properties);
+        doConfigure(properties);
+    }
+    
+    @Override
+    public void validate(Map<String, Object> properties) {
+        if (properties == null) {
+            throw new IllegalArgumentException("Configuration properties cannot be null");
+        }
+    }
+
+    @Override
+    public void shutdown() {
+        // Base implementation - can be overridden if needed
+    }
+
+    /**
+     * Template method for specific adapter configuration
+     */
+    protected abstract void doConfigure(Map<String, Object> properties);
+
+    /**
+     * Helper method to get typed configuration value
+     */
+    protected <T> T getConfigValue(String key, Class<T> type, T defaultValue) {
+        Object value = configuration.get(key);
+        if (value == null) {
+            return defaultValue;
+        }
+        try {
+            if (type.isInstance(value)) {
+                return type.cast(value);
+            }
+            if (type == Integer.class && value instanceof Number) {
+                return type.cast(((Number) value).intValue());
+            }
+            if (type == Double.class && value instanceof Number) {
+                return type.cast(((Number) value).doubleValue());
+            }
+            if (type == Boolean.class && value instanceof String) {
+                return type.cast(Boolean.valueOf((String) value));
+            }
+            return type.cast(value);
+        } catch (ClassCastException e) {
+            logger.warn("Invalid type for key {}: expected {}, got {}", key, type, value.getClass());
+            return defaultValue;
+        }
+    }
+}
+
+// ==================================================
+// Arquivo: archflow-langchain4j/archflow-langchain4j-core/src/main/java/br/com/archflow/langchain4j/core/package-info.java
+// ==================================================
+
+/**
+ * Package for archflow-langchain4j-core adapters.
+ */
+package br.com.archflow.langchain4j.core;
+
+
+// ==================================================
+// Arquivo: archflow-langchain4j/archflow-langchain4j-document/src/main/java/br/com/archflow/langchain4j/document/package-info.java
+// ==================================================
+
+/**
+ * Package for archflow-langchain4j-document adapters.
+ */
+package br.com.archflow.langchain4j.document;
+
+
+// ==================================================
+// Arquivo: archflow-model/src/main/java/br/com/archflow/model/metrics/StepMetrics.java
+// ==================================================
+
+package br.com.archflow.model.metrics;
+
+import java.util.Map;
+
+/**
+ * Métricas específicas de um passo.
+ */
+public record StepMetrics(
+    /** Tempo de execução do passo em ms */
+    long executionTime,
+    
+    /** Tokens consumidos pelo passo */
+    int tokensUsed,
+    
+    /** Número de retries */
+    int retryCount,
+    
+    /** Métricas adicionais */
+    Map<String, Object> additionalMetrics
+) {}
+
+// ==================================================
+// Arquivo: archflow-model/src/main/java/br/com/archflow/model/config/FlowConfiguration.java
+// ==================================================
+
+package br.com.archflow.model.config;
+
+/**
+ * Configuração específica de um fluxo.
+ * Define parâmetros que afetam a execução do fluxo.
+ *
+ * @since 1.0.0
+ */
+public interface FlowConfiguration {
+    /**
+     * Retorna o timeout máximo para execução do fluxo.
+     *
+     * @return timeout em milissegundos
+     */
+    long getTimeout();
+
+    /**
+     * Retorna a política de retry para erros.
+     *
+     * @return configuração de retry
+     */
+    RetryPolicy getRetryPolicy();
+
+    /**
+     * Retorna configurações específicas do LLM.
+     *
+     * @return configurações do modelo
+     */
+    LLMConfig getLLMConfig();
+
+    /**
+     * Retorna configurações de monitoramento.
+     *
+     * @return configurações de monitoramento
+     */
+    MonitoringConfig getMonitoringConfig();
+}
+
+// ==================================================
+// Arquivo: archflow-model/src/main/java/br/com/archflow/model/config/LLMConfig.java
+// ==================================================
+
+package br.com.archflow.model.config;
+
+import java.util.Map;
+
+/**
+ * Configurações específicas do LLM.
+ */
+public record LLMConfig(
+    /** Modelo a ser usado */
+    String model,
+    
+    /** Temperatura para geração */
+    double temperature,
+    
+    /** Máximo de tokens na resposta */
+    int maxTokens,
+    
+    /** Timeout específico para chamadas LLM */
+    long timeout,
+    
+    /** Configurações adicionais */
+    Map<String, Object> additionalConfig
+) {}
+
+// ==================================================
+// Arquivo: archflow-model/src/main/java/br/com/archflow/model/config/MonitoringConfig.java
+// ==================================================
+
+package br.com.archflow.model.config;
+
+import br.com.archflow.model.enums.LogLevel;
+
+import java.util.Map;
+
+/**
+ * Configurações de monitoramento.
+ */
+public record MonitoringConfig(
+    /** Se deve coletar métricas detalhadas */
+    boolean detailedMetrics,
+    
+    /** Se deve manter histórico completo */
+    boolean fullHistory,
+    
+    /** Nível de log desejado */
+    LogLevel logLevel,
+    
+    /** Tags para métricas */
+    Map<String, String> tags
+) {}
+
+// ==================================================
+// Arquivo: archflow-model/src/main/java/br/com/archflow/model/config/RetryPolicy.java
+// ==================================================
+
+package br.com.archflow.model.config;
+
+import java.util.Set;
+
+/**
+ * Política de retry para execuções com erro.
+ */
+public record RetryPolicy(
+    /** Número máximo de tentativas */
+    int maxAttempts,
+    
+    /** Delay entre tentativas em ms */
+    long delay,
+    
+    /** Fator de multiplicação do delay */
+    double multiplier,
+    
+    /** Tipos de erros que podem ser retentados */
+    Set<Class<? extends Throwable>> retryableExceptions
+) {}
+
+// ==================================================
+// Arquivo: archflow-model/src/main/java/br/com/archflow/model/enums/ExecutionStatus.java
+// ==================================================
+
+package br.com.archflow.model.enums;
+
+/**
+ * Status possíveis de uma execução.
+ */
+public enum ExecutionStatus {
+    /** Execução completada com sucesso */
+    COMPLETED,
+    
+    /** Execução falhou */
+    FAILED,
+    
+    /** Execução cancelada */
+    CANCELLED,
+    
+    /** Execução em andamento */
+    RUNNING,
+    
+    /** Execução pausada */
+    PAUSED
+}
+
+
+// ==================================================
+// Arquivo: archflow-model/src/main/java/br/com/archflow/model/enums/StepStatus.java
+// ==================================================
+
+package br.com.archflow.model.enums;
+
+/**
+ * Define os possíveis estados de um passo durante/após sua execução.
+ */
+public enum StepStatus {
+    /**
+     * Passo aguardando execução
+     */
+    PENDING,
+
+    /**
+     * Passo em execução
+     */
+    RUNNING,
+
+    /**
+     * Passo executado com sucesso
+     */
+    COMPLETED,
+
+    /**
+     * Passo falhou durante execução
+     */
+    FAILED,
+
+    /**
+     * Passo foi pulado (ex: condição não atendida)
+     */
+    SKIPPED,
+
+    /**
+     * Passo foi cancelado
+     */
+    CANCELLED,
+
+    /**
+     * Passo está pausado
+     */
+    PAUSED,
+
+    /**
+     * Timeout durante execução do passo
+     */
+    TIMEOUT;
+
+    /**
+     * Verifica se este é um status final (não haverá mais mudanças).
+     *
+     * @return true se for um status final
+     */
+    public boolean isFinal() {
+        return this == COMPLETED || 
+               this == FAILED || 
+               this == SKIPPED || 
+               this == CANCELLED ||
+               this == TIMEOUT;
+    }
+
+    /**
+     * Verifica se este é um status de erro.
+     *
+     * @return true se for um status de erro
+     */
+    public boolean isError() {
+        return this == FAILED || this == TIMEOUT;
+    }
+
+    /**
+     * Verifica se este é um status de execução em andamento.
+     *
+     * @return true se a execução estiver em andamento
+     */
+    public boolean isRunning() {
+        return this == RUNNING || this == PAUSED;
+    }
+}
+
+// ==================================================
+// Arquivo: archflow-model/src/main/java/br/com/archflow/model/enums/LogLevel.java
+// ==================================================
+
+package br.com.archflow.model.enums;
+
+/**
+ * Níveis de log disponíveis.
+ */
+public enum LogLevel {
+    DEBUG, INFO, WARN, ERROR
+}
+
+
+// ==================================================
+// Arquivo: archflow-model/src/main/java/br/com/archflow/model/ai/AIAssistant.java
+// ==================================================
+
+package br.com.archflow.model.ai;
+
+import br.com.archflow.model.ai.domain.Analysis;
+import br.com.archflow.model.ai.domain.Response;
+import br.com.archflow.model.engine.ExecutionContext;
+
+/**
+ * Interface base para Assistentes de IA.
+ */
+public interface AIAssistant extends AIComponent {
+    /**
+     * Analisa uma requisição e gera uma resposta apropriada.
+     */
+    Analysis analyzeRequest(String input, ExecutionContext context);
+
+    /**
+     * Gera uma resposta baseada na análise.
+     */
+    Response generateResponse(Analysis analysis, ExecutionContext context);
+    
+    /**
+     * Retorna a especialização do assistente.
+     */
+    String getSpecialization();
+}
+
+// ==================================================
+// Arquivo: archflow-model/src/main/java/br/com/archflow/model/ai/ComponentState.java
+// ==================================================
+
+package br.com.archflow.model.ai;
+
+/**
+ * Representa o estado atual de um componente de IA.
+ */
+public record ComponentState(
+    StateType type,
+    String message,
+    long lastUpdated
+) {
+    public enum StateType {
+        UNINITIALIZED,  // Componente ainda não inicializado
+        INITIALIZING,   // Em processo de inicialização
+        READY,          // Pronto para uso
+        BUSY,           // Executando operação
+        ERROR,          // Em estado de erro
+        SHUTTING_DOWN,  // Em processo de finalização
+        SHUTDOWN        // Finalizado
+    }
+
+    public static ComponentState of(StateType type) {
+        return new ComponentState(type, null, System.currentTimeMillis());
+    }
+
+    public static ComponentState of(StateType type, String message) {
+        return new ComponentState(type, message, System.currentTimeMillis());
+    }
+}
+
+// ==================================================
+// Arquivo: archflow-model/src/main/java/br/com/archflow/model/ai/type/OperationType.java
+// ==================================================
+
+package br.com.archflow.model.ai.type;
+
+/**
+ * Tipos de operações suportadas.
+ */
+public enum OperationType {
+    SYNC,      // Operação síncrona
+    ASYNC,     // Operação assíncrona
+    STREAM     // Operação streaming
+}
+
+// ==================================================
+// Arquivo: archflow-model/src/main/java/br/com/archflow/model/ai/type/ComponentType.java
+// ==================================================
+
+package br.com.archflow.model.ai.type;
+
+/**
+ * Define os tipos possíveis de componentes IA no archflow.
+ */
+public enum ComponentType {
+    ASSISTANT,  // Componentes interativos
+    AGENT,      // Componentes autônomos 
+    PLUGIN,     // Funcionalidades reutilizáveis
+    TOOL        // Ferramentas específicas
+}
+
+// ==================================================
+// Arquivo: archflow-model/src/main/java/br/com/archflow/model/ai/type/ParameterType.java
+// ==================================================
+
+package br.com.archflow.model.ai.type;
+
+/**
+ * Tipos de parâmetros suportados.
+ */
+public enum ParameterType {
+    STRING,
+    NUMBER,
+    BOOLEAN,
+    ENUM,
+    OBJECT,
+    ARRAY,
+    FILE,
+    SECRET
+}
+
+// ==================================================
+// Arquivo: archflow-model/src/main/java/br/com/archflow/model/ai/Tool.java
+// ==================================================
+
+package br.com.archflow.model.ai;
+
+import br.com.archflow.model.ai.domain.ParameterDescription;
+import br.com.archflow.model.ai.domain.Result;
+import br.com.archflow.model.engine.ExecutionContext;
+
+import java.util.List;
+import java.util.Map;
+
+/**
+ * Interface base para Ferramentas de IA.
+ */
+public interface Tool extends AIComponent {
+    /**
+     * Executa a ferramenta com os parâmetros fornecidos.
+     */
+    Result execute(Map<String, Object> params, ExecutionContext context);
+
+    /**
+     * Retorna a descrição dos parâmetros aceitos.
+     */
+    List<ParameterDescription> getParameters();
+
+    /**
+     * Valida os parâmetros antes da execução.
+     */
+    void validateParameters(Map<String, Object> params);
+}
+
+// ==================================================
+// Arquivo: archflow-model/src/main/java/br/com/archflow/model/ai/AIComponent.java
+// ==================================================
+
+package br.com.archflow.model.ai;
+
+import br.com.archflow.model.ai.metadata.ComponentMetadata;
+import br.com.archflow.model.engine.ExecutionContext;
+
+import java.util.Map;
+
+/**
+ * Interface base para todos os componentes IA no archflow.
+ */
+public interface AIComponent {
+    void initialize(Map<String, Object> config);
+    ComponentMetadata getMetadata();
+    Object execute(String operation, Object input, ExecutionContext context) throws Exception;
+    void shutdown();
+}
+
+// ==================================================
+// Arquivo: archflow-model/src/main/java/br/com/archflow/model/ai/domain/Response.java
+// ==================================================
+
+package br.com.archflow.model.ai.domain;
+
+import java.util.List;
+import java.util.Map;
+
+/**
+ * Resposta gerada por um assistente.
+ */
+public record Response(
+    String content,
+    Map<String, Object> metadata,
+    List<Action> actions
+) {}
+
+// ==================================================
+// Arquivo: archflow-model/src/main/java/br/com/archflow/model/ai/domain/Analysis.java
+// ==================================================
+
+package br.com.archflow.model.ai.domain;
+
+import java.util.List;
+import java.util.Map;
+
+/**
+ * Resultado de uma análise de requisição.
+ */
+public record Analysis(
+    String intent,
+    Map<String, Object> entities,
+    double confidence,
+    List<String> suggestedActions
+) {}
+
+// ==================================================
+// Arquivo: archflow-model/src/main/java/br/com/archflow/model/ai/domain/Decision.java
+// ==================================================
+
+package br.com.archflow.model.ai.domain;
+
+import java.util.List;
+
+/**
+ * Representa uma decisão tomada por um agente.
+ */
+public record Decision(
+    String action,
+    String reasoning,
+    double confidence,
+    List<String> alternatives
+) {}
+
+// ==================================================
+// Arquivo: archflow-model/src/main/java/br/com/archflow/model/ai/domain/Task.java
+// ==================================================
+
+package br.com.archflow.model.ai.domain;
+
+import java.time.Duration;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+
+/**
+ * Representa uma tarefa a ser executada por um agente.
+ */
+public record Task(
+    String id,
+    String type,
+    Map<String, Object> parameters,
+    TaskPriority priority,
+    TaskConstraints constraints
+) {
+    public enum TaskPriority {
+        LOW, MEDIUM, HIGH, CRITICAL
+    }
+
+    public record TaskConstraints(
+        Duration timeout,
+        List<String> requiredCapabilities,
+        Map<String, Object> limits
+    ) {}
+
+    public static Task of(String type, Map<String, Object> parameters) {
+        return new Task(
+            UUID.randomUUID().toString(),
+            type,
+            parameters,
+            TaskPriority.MEDIUM,
+            new TaskConstraints(Duration.ofMinutes(5), List.of(), Map.of())
+        );
+    }
+}
+
+// ==================================================
+// Arquivo: archflow-model/src/main/java/br/com/archflow/model/ai/domain/Action.java
+// ==================================================
+
+package br.com.archflow.model.ai.domain;
+
+import java.util.Map;
+
+/**
+ * Representa uma ação que pode ser executada por um componente.
+ */
+public record Action(
+    String type,
+    String name,
+    Map<String, Object> parameters,
+    boolean immediate
+) {
+    public static Action of(String type, String name) {
+        return new Action(type, name, Map.of(), true);
+    }
+
+    public static Action of(String type, String name, Map<String, Object> parameters) {
+        return new Action(type, name, parameters, true);
+    }
+}
+
+// ==================================================
+// Arquivo: archflow-model/src/main/java/br/com/archflow/model/ai/domain/Result.java
+// ==================================================
+
+package br.com.archflow.model.ai.domain;
+
+import java.util.List;
+import java.util.Map;
+
+/**
+ * Resultado de uma execução.
+ */
+public record Result(
+    boolean success,
+    Object output,
+    Map<String, Object> metadata,
+    List<String> messages
+) {
+    public static Result success(Object output) {
+        return new Result(true, output, Map.of(), List.of());
+    }
+
+    public static Result failure(String message) {
+        return new Result(false, null, Map.of(), List.of(message));
+    }
+}
+
+// ==================================================
+// Arquivo: archflow-model/src/main/java/br/com/archflow/model/ai/domain/Goal.java
+// ==================================================
+
+package br.com.archflow.model.ai.domain;
+
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+
+/**
+ * Representa um objetivo que um agente deve alcançar.
+ */
+public record Goal(
+    String id,
+    String description,
+    List<String> successCriteria,
+    Map<String, Object> context,
+    GoalPriority priority
+) {
+    public enum GoalPriority {
+        LOW, MEDIUM, HIGH, CRITICAL
+    }
+
+    public static Goal of(String description, List<String> successCriteria) {
+        return new Goal(
+            UUID.randomUUID().toString(),
+            description,
+            successCriteria,
+            Map.of(),
+            GoalPriority.MEDIUM
+        );
+    }
+
+    public static Goal of(String description, String... successCriteria) {
+        return of(description, Arrays.asList(successCriteria));
+    }
+}
+
+// ==================================================
+// Arquivo: archflow-model/src/main/java/br/com/archflow/model/ai/domain/ParameterDescription.java
+// ==================================================
+
+package br.com.archflow.model.ai.domain;
+
+import java.util.List;
+
+/**
+ * Descrição de um parâmetro de ferramenta.
+ */
+public record ParameterDescription(
+    String name,
+    String type,
+    String description,
+    boolean required,
+    Object defaultValue,
+    List<String> allowedValues
+) {}
+
+// ==================================================
+// Arquivo: archflow-model/src/main/java/br/com/archflow/model/ai/metadata/ComponentMetadata.java
+// ==================================================
+
+package br.com.archflow.model.ai.metadata;
+
+import br.com.archflow.model.ai.type.ComponentType;
+import java.util.Map;
+import java.util.Set;
+import java.util.List;
+
+/**
+ * Metadados de um componente de IA.
+ */
+public record ComponentMetadata(
+    String id,
+    String name,
+    String description,
+    ComponentType type,
+    String version,
+    Set<String> capabilities,
+    List<OperationMetadata> operations,
+    Map<String, Object> properties,
+    Set<String> tags
+) {
+    /**
+     * Metadados de uma operação do componente
+     */
+    public record OperationMetadata(
+        String id,
+        String name,
+        String description,
+        List<ParameterMetadata> inputs,
+        List<ParameterMetadata> outputs
+    ) {}
+
+    /**
+     * Metadados de um parâmetro
+     */
+    public record ParameterMetadata(
+        String name,
+        String type,
+        String description,
+        boolean required
+    ) {}
+
+    /**
+     * Valida se os metadados estão corretos.
+     */
+    public void validate() {
+        if (id == null || id.isBlank()) {
+            throw new IllegalArgumentException("ID é obrigatório");
+        }
+        if (type == null) {
+            throw new IllegalArgumentException("Tipo é obrigatório");
+        }
+        if (version == null || version.isBlank()) {
+            throw new IllegalArgumentException("Versão é obrigatória");
+        }
+        
+        // Valida operações
+        if (operations != null) {
+            operations.forEach(op -> {
+                if (op.id() == null || op.id().isBlank()) {
+                    throw new IllegalArgumentException("ID da operação é obrigatório");
+                }
+            });
+        }
+    }
+}
+
+// ==================================================
+// Arquivo: archflow-model/src/main/java/br/com/archflow/model/ai/AIAgent.java
+// ==================================================
+
+package br.com.archflow.model.ai;
+
+
+import br.com.archflow.model.ai.domain.*;
+import br.com.archflow.model.engine.ExecutionContext;
+
+import java.util.List;
+
+/**
+ * Interface base para Agentes de IA.
+ */
+public interface AIAgent extends AIComponent {
+    /**
+     * Executa uma tarefa específica.
+     */
+    Result executeTask(Task task, ExecutionContext context);
+
+    /**
+     * Toma uma decisão baseada no contexto atual.
+     */
+    Decision makeDecision(ExecutionContext context);
+
+    /**
+     * Planeja ações para atingir um objetivo.
+     */
+    List<Action> planActions(Goal goal, ExecutionContext context);
+}
+
+// ==================================================
+// Arquivo: archflow-model/src/main/java/br/com/archflow/model/engine/ExecutionContext.java
+// ==================================================
+
+package br.com.archflow.model.engine;
+
+import br.com.archflow.model.flow.FlowState;
+import dev.langchain4j.memory.ChatMemory;
+
+import java.util.Optional;
+
+/**
+ * Contexto mantido durante a execução de um fluxo.
+ * Mantém estado, variáveis e memória entre os passos.
+ *
+ * @since 1.0.0
+ */
+public interface ExecutionContext {
+    /**
+     * Obtém um valor do contexto.
+     */
+    Optional<Object> get(String key);
+
+    /**
+     * Define um valor no contexto.
+     */
+    void set(String key, Object value);
+
+    /**
+     * Retorna a memória de chat do LangChain4j.
+     */
+    ChatMemory getChatMemory();
+
+    /**
+     * Obtém métricas da execução atual.
+     */
+    ExecutionMetrics getMetrics();
+
+    /**
+     * Obtém o estado atual do fluxo.
+     */
+    FlowState getState();
+
+    /**
+     * Atualiza o estado do fluxo.
+     */
+    void setState(FlowState state);
+}
+
+// ==================================================
+// Arquivo: archflow-model/src/main/java/br/com/archflow/model/engine/ExecutionMetrics.java
+// ==================================================
+
+package br.com.archflow.model.engine;
+
+import br.com.archflow.model.metrics.StepMetrics;
+
+import java.util.Map;
+
+/**
+ * Métricas coletadas durante execução.
+ */
+public record ExecutionMetrics(
+    /** Tempo total de execução em ms */
+    long executionTime,
+    
+    /** Número de tokens consumidos */
+    int tokensUsed,
+    
+    /** Custo estimado da execução */
+    double estimatedCost,
+    
+    /** Métricas específicas de passos */
+    Map<String, StepMetrics> stepMetrics
+) {}
+
+// ==================================================
+// Arquivo: archflow-model/src/main/java/br/com/archflow/model/engine/DefaultExecutionContext.java
+// ==================================================
+
+package br.com.archflow.model.engine;
+
+import br.com.archflow.model.flow.FlowState;
+import br.com.archflow.model.metrics.StepMetrics;
+import dev.langchain4j.memory.ChatMemory;
+
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
+
+public class DefaultExecutionContext implements ExecutionContext {
+    private final Map<String, Object> variables;
+    private final ChatMemory chatMemory;
+    private final Map<String, StepMetrics> stepMetricsMap;
+    private long startTime;
+    private int totalTokens;
+    private double estimatedCost;
+    private FlowState state;
+
+    public DefaultExecutionContext(ChatMemory chatMemory) {
+        this.variables = new HashMap<>();
+        this.chatMemory = chatMemory;
+        this.stepMetricsMap = new ConcurrentHashMap<>();
+        this.startTime = System.currentTimeMillis();
+        this.totalTokens = 0;
+        this.estimatedCost = 0.0;
+    }
+
+    @Override
+    public Optional<Object> get(String key) {
+        return Optional.ofNullable(variables.get(key));
+    }
+
+    @Override
+    public void set(String key, Object value) {
+        variables.put(key, value);
+    }
+
+    @Override
+    public ChatMemory getChatMemory() {
+        return chatMemory;
+    }
+
+    @Override
+    public ExecutionMetrics getMetrics() {
+        return new ExecutionMetrics(
+                System.currentTimeMillis() - startTime,
+                totalTokens,
+                estimatedCost,
+                Map.copyOf(stepMetricsMap)
+        );
+    }
+
+    @Override
+    public FlowState getState() {
+        return state;
+    }
+
+    @Override
+    public void setState(FlowState state) {
+        this.state = state;
+    }
+
+    /**
+     * Adiciona métricas de um passo específico
+     */
+    public void addStepMetrics(String stepId, StepMetrics metrics) {
+        stepMetricsMap.put(stepId, metrics);
+        totalTokens += metrics.tokensUsed();
+
+        // Calcula custo estimado baseado em tokens (pode ser customizado)
+        // Exemplo: $0.002 por token
+        estimatedCost += (metrics.tokensUsed() * 0.002);
+    }
+
+    /**
+     * Reseta o tempo de início da execução
+     */
+    public void resetStartTime() {
+        this.startTime = System.currentTimeMillis();
+    }
+
+    /**
+     * Atualiza o custo estimado diretamente
+     */
+    public void updateEstimatedCost(double cost) {
+        this.estimatedCost = cost;
+    }
+}
+
+// ==================================================
+// Arquivo: archflow-model/src/main/java/br/com/archflow/model/error/ExecutionError.java
+// ==================================================
+
+package br.com.archflow.model.error;
+
+import java.time.Instant;
+import java.util.HashMap;
+import java.util.Map;
+
+/**
+ * Representa um erro ocorrido durante a execução de um fluxo.
+ * Mais abrangente que o StepError, pois pode representar erros
+ * que não estão associados a um passo específico.
+ */
+public record ExecutionError(
+    /**
+     * Código do erro para identificação
+     */
+    String code,
+
+    /**
+     * Mensagem descritiva do erro
+     */
+    String message,
+
+    /**
+     * Tipo do erro
+     */
+    ExecutionErrorType type,
+
+    /**
+     * Componente onde ocorreu o erro (se aplicável)
+     */
+    String component,
+
+    /**
+     * Momento em que o erro ocorreu
+     */
+    Instant timestamp,
+
+    /**
+     * Causa original do erro (opcional)
+     */
+    Throwable cause,
+
+    /**
+     * Dados adicionais do erro
+     */
+    Map<String, Object> details
+) {
+    /**
+     * Cria um novo ExecutionError com timestamp atual
+     */
+    public static ExecutionError of(String code, String message, ExecutionErrorType type) {
+        return new ExecutionError(
+            code,
+            message,
+            type,
+            null,
+            Instant.now(),
+            null,
+            new HashMap<>()
+        );
+    }
+
+    /**
+     * Cria um novo ExecutionError com componente
+     */
+    public static ExecutionError of(String code, String message, ExecutionErrorType type, String component) {
+        return new ExecutionError(
+            code,
+            message,
+            type,
+            component,
+            Instant.now(),
+            null,
+            new HashMap<>()
+        );
+    }
+
+    /**
+     * Cria um novo ExecutionError a partir de uma exceção
+     */
+    public static ExecutionError fromException(String code, Throwable cause, String component) {
+        return new ExecutionError(
+            code,
+            cause.getMessage(),
+            ExecutionErrorType.SYSTEM,
+            component,
+            Instant.now(),
+            cause,
+            new HashMap<>()
+        );
+    }
+
+    /**
+     * Adiciona detalhes ao erro
+     */
+    public ExecutionError withDetail(String key, Object value) {
+        Map<String, Object> newDetails = new HashMap<>(this.details);
+        newDetails.put(key, value);
+        return new ExecutionError(
+            this.code,
+            this.message,
+            this.type,
+            this.component,
+            this.timestamp,
+            this.cause,
+            newDetails
+        );
+    }
+}
+
+// ==================================================
+// Arquivo: archflow-model/src/main/java/br/com/archflow/model/error/ExecutionErrorType.java
+// ==================================================
+
+package br.com.archflow.model.error;
+
+/**
+ * Tipos de erros de execução
+ */
+public enum ExecutionErrorType {
+    /**
+     * Erro de configuração
+     */
+    CONFIGURATION,
+
+    /**
+     * Erro de validação
+     */
+    VALIDATION,
+
+    /**
+     * Erro de execução
+     */
+    EXECUTION,
+
+    /**
+     * Erro de sistema
+     */
+    SYSTEM,
+
+    /**
+     * Erro de conexão
+     */
+    CONNECTION,
+
+    /**
+     * Erro de autorização
+     */
+    AUTHORIZATION,
+
+    /**
+     * Timeout
+     */
+    TIMEOUT,
+
+    /**
+     * Erro de recurso não encontrado
+     */
+    NOT_FOUND,
+
+    /**
+     * Erro de estado inválido
+     */
+    INVALID_STATE,
+
+    /**
+     * Erro desconhecido
+     */
+    UNKNOWN
+}
+
+// ==================================================
+// Arquivo: archflow-model/src/main/java/br/com/archflow/model/flow/FlowStatus.java
+// ==================================================
+
+package br.com.archflow.model.flow;
+
+public enum FlowStatus {
+    /**
+     * Fluxo iniciado mas ainda não em execução
+     */
+    INITIALIZED,
+    
+    /**
+     * Fluxo em execução
+     */
+    RUNNING,
+    
+    /**
+     * Fluxo pausado
+     */
+    PAUSED,
+    
+    /**
+     * Fluxo concluído com sucesso
+     */
+    COMPLETED,
+    
+    /**
+     * Fluxo falhou durante execução
+     */
+    FAILED,
+    
+    /**
+     * Fluxo cancelado/parado manualmente
+     */
+    STOPPED;
+    
+    /**
+     * Verifica se o status é final (não permite mais execução)
+     */
+    public boolean isFinal() {
+        return this == COMPLETED || this == FAILED || this == STOPPED;
+    }
+    
+    /**
+     * Verifica se o status permite continuar a execução
+     */
+    public boolean canContinue() {
+        return this == INITIALIZED || this == RUNNING || this == PAUSED;
+    }
+}
+
+// ==================================================
+// Arquivo: archflow-model/src/main/java/br/com/archflow/model/flow/AuditLog.java
+// ==================================================
+
+package br.com.archflow.model.flow;
+
+import lombok.Builder;
+import lombok.Data;
+
+import java.time.Instant;
+
+@Data
+@Builder
+public class AuditLog {
+    private String flowId;
+    private Instant timestamp;
+    private FlowState state;
+    private String stepId;
+    private StepResult stepResult;
+}
+
+// ==================================================
+// Arquivo: archflow-model/src/main/java/br/com/archflow/model/flow/StepConnection.java
+// ==================================================
+
+package br.com.archflow.model.flow;
+
+import java.util.Optional;
+
+/**
+ * Representa uma conexão entre dois passos em um fluxo.
+ * Define como os passos são conectados e as condições de transição.
+ */
+public interface StepConnection {
+    /**
+     * Retorna o ID do passo de origem.
+     *
+     * @return ID do passo de origem
+     */
+    String getSourceId();
+
+    /**
+     * Retorna o ID do passo de destino.
+     *
+     * @return ID do passo de destino
+     */
+    String getTargetId();
+
+    /**
+     * Retorna a condição para esta transição, se houver.
+     *
+     * @return condição opcional para a transição
+     */
+    Optional<String> getCondition();
+
+    /**
+     * Indica se esta é uma conexão de caminho de erro.
+     *
+     * @return true se for um caminho de erro
+     */
+    boolean isErrorPath();
+}
+
+// ==================================================
+// Arquivo: archflow-model/src/main/java/br/com/archflow/model/flow/FlowStep.java
+// ==================================================
+
+package br.com.archflow.model.flow;
+
+
+import br.com.archflow.model.engine.ExecutionContext;
+
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
+
+/**
+ * Representa um passo individual dentro de um fluxo.
+ * Cada passo pode ser uma Chain, Agent ou Tool do LangChain4j.
+ *
+ * @since 1.0.0
+ */
+public interface FlowStep {
+    /**
+     * Retorna o identificador único do passo.
+     *
+     * @return identificador do passo
+     */
+    String getId();
+
+    /**
+     * Retorna o tipo do passo (chain, agent, tool).
+     *
+     * @return tipo do passo
+     */
+    StepType getType();
+
+    /**
+     * Retorna as conexões deste passo com outros passos no fluxo.
+     * Inclui tanto conexões de sucesso quanto de erro.
+     *
+     * @return lista de conexões do passo
+     */
+    List<StepConnection> getConnections();
+
+    /**
+     * Executa o passo usando o contexto fornecido.
+     * A execução é assíncrona e pode envolver chamadas a LLMs.
+     *
+     * @param context contexto de execução
+     * @return future com o resultado da execução
+     */
+    CompletableFuture<StepResult> execute(ExecutionContext context);
+}
+
+// ==================================================
+// Arquivo: archflow-model/src/main/java/br/com/archflow/model/flow/FlowState.java
+// ==================================================
+
+package br.com.archflow.model.flow;
+
+import br.com.archflow.model.error.ExecutionError;
+import lombok.Builder;
+import lombok.Data;
+
+import java.util.List;
+import java.util.Map;
+
+@Data
+@Builder
+public class FlowState {
+    private String flowId;
+    private FlowStatus status;
+    private String currentStepId;
+    private Map<String, Object> variables;
+    private List<ExecutionPath> executionPaths;
+    private FlowMetrics metrics;
+    private ExecutionError error;
+}
+
+// ==================================================
+// Arquivo: archflow-model/src/main/java/br/com/archflow/model/flow/PathStatus.java
+// ==================================================
+
+package br.com.archflow.model.flow;
+
+public enum PathStatus {
+    /**
+     * Caminho de execução iniciado
+     */
+    STARTED,
+    
+    /**
+     * Caminho em execução
+     */
+    RUNNING,
+    
+    /**
+     * Caminho pausado (aguardando ação)
+     */
+    PAUSED,
+    
+    /**
+     * Caminho concluído com sucesso
+     */
+    COMPLETED,
+    
+    /**
+     * Caminho falhou durante execução
+     */
+    FAILED,
+    
+    /**
+     * Caminho foi mesclado após execução paralela
+     */
+    MERGED;
+    
+    public boolean isActive() {
+        return this == STARTED || this == RUNNING;
+    }
+    
+    public boolean isTerminal() {
+        return this == COMPLETED || this == FAILED || this == MERGED;
+    }
+}
+
+// ==================================================
+// Arquivo: archflow-model/src/main/java/br/com/archflow/model/flow/Flow.java
+// ==================================================
+
+package br.com.archflow.model.flow;
+
+import br.com.archflow.model.config.FlowConfiguration;
+
+import java.util.List;
+import java.util.Map;
+
+/**
+ * Contrato principal que define um fluxo de trabalho de IA no archflow.
+ * Um fluxo é uma sequência de passos que podem envolver Chains, Agents ou Tools
+ * do LangChain4j, organizados em uma ordem específica de execução.
+ *
+ * @since 1.0.0
+ */
+public interface Flow {
+    /**
+     * Retorna o identificador único do fluxo.
+     * Este ID é usado para referenciar o fluxo em toda a plataforma.
+     *
+     * @return identificador único do fluxo
+     */
+    String getId();
+
+    /**
+     * Retorna os metadados associados ao fluxo.
+     * Metadados podem incluir descrição, tags, proprietário, etc.
+     *
+     * @return mapa de metadados do fluxo
+     */
+    Map<String, Object> getMetadata();
+
+    /**
+     * Retorna a lista ordenada de passos que compõem o fluxo.
+     * A ordem dos passos define a sequência de execução.
+     *
+     * @return lista de passos do fluxo
+     */
+    List<FlowStep> getSteps();
+
+    /**
+     * Retorna a configuração específica deste fluxo.
+     * Inclui parâmetros como timeout, retry policy, etc.
+     *
+     * @return configuração do fluxo
+     */
+    FlowConfiguration getConfiguration();
+
+    /**
+     * Valida se o fluxo está corretamente configurado.
+     * Verifica a consistência dos passos, conexões e parâmetros.
+     *
+     * @throws Exception se houver problemas na configuração
+     */
+    void validate() throws Exception;
+}
+
+// ==================================================
+// Arquivo: archflow-model/src/main/java/br/com/archflow/model/flow/StepType.java
+// ==================================================
+
+package br.com.archflow.model.flow;
+
+/**
+ * Tipos possíveis de passos em um fluxo.
+ */
+public enum StepType {
+    /** Representa uma Chain do LangChain4j */
+    CHAIN,
+    
+    /** Representa um Agent do LangChain4j */
+    AGENT,
+    
+    /** Representa uma Tool do LangChain4j */
+    TOOL,
+    
+    /** Representa um passo customizado */
+    CUSTOM
+}
+
+// ==================================================
+// Arquivo: archflow-model/src/main/java/br/com/archflow/model/flow/FlowMetrics.java
+// ==================================================
+
+package br.com.archflow.model.flow;
+
+import br.com.archflow.model.metrics.StepMetrics;
+import lombok.Builder;
+import lombok.Data;
+
+import java.util.Map;
+
+@Data
+public class FlowMetrics {
+    private long startTime;
+    private long endTime;
+    private Map<String, StepMetrics> stepMetrics;
+    private int totalSteps;
+    private int completedSteps;
+
+    public FlowMetrics() {
+    }
+
+    @Builder
+    public FlowMetrics(long startTime, long endTime, Map<String, StepMetrics> stepMetrics, int totalSteps, int completedSteps) {
+        this.startTime = startTime;
+        this.endTime = endTime;
+        this.stepMetrics = stepMetrics;
+        this.totalSteps = totalSteps;
+        this.completedSteps = completedSteps;
+    }
+}
+
+// ==================================================
+// Arquivo: archflow-model/src/main/java/br/com/archflow/model/flow/StateUpdate.java
+// ==================================================
+
+package br.com.archflow.model.flow;
+
+import br.com.archflow.model.enums.StepStatus;
+
+import java.util.HashMap;
+import java.util.Map;
+
+/**
+ * Classe imutável que representa uma atualização de estado do fluxo
+ */
+public class StateUpdate {
+    private final String stepId;
+    private final FlowStatus newStatus;
+    private final Map<String, Object> variableUpdates;
+    private final StepResult stepResult;
+    
+    private StateUpdate(Builder builder) {
+        this.stepId = builder.stepId;
+        this.newStatus = builder.newStatus;
+        this.variableUpdates = builder.variableUpdates;
+        this.stepResult = builder.stepResult;
+    }
+    
+    /**
+     * Aplica a atualização ao estado atual
+     */
+    public void apply(FlowState state) {
+        if (newStatus != null) {
+            state.setStatus(newStatus);
+        }
+        
+        if (stepId != null) {
+            state.setCurrentStepId(stepId);
+        }
+        
+        if (variableUpdates != null) {
+            state.getVariables().putAll(variableUpdates);
+        }
+        
+        if (stepResult != null) {
+            updateMetrics(state, stepResult);
+        }
+    }
+    
+    private void updateMetrics(FlowState state, StepResult result) {
+        FlowMetrics metrics = state.getMetrics();
+        if (metrics == null) {
+            metrics = new FlowMetrics();
+            state.setMetrics(metrics);
+        }
+        
+        // Atualiza métricas do passo
+        metrics.getStepMetrics().put(stepId, result.getMetrics());
+        
+        // Atualiza contadores
+        if (result.getStatus() == StepStatus.COMPLETED) {
+            metrics.setCompletedSteps(metrics.getCompletedSteps() + 1);
+        }
+    }
+    
+    public static Builder builder() {
+        return new Builder();
+    }
+    
+    public static class Builder {
+        private String stepId;
+        private FlowStatus newStatus;
+        private Map<String, Object> variableUpdates = new HashMap<>();
+        private StepResult stepResult;
+        
+        public Builder stepId(String stepId) {
+            this.stepId = stepId;
+            return this;
+        }
+        
+        public Builder status(FlowStatus status) {
+            this.newStatus = status;
+            return this;
+        }
+        
+        public Builder variable(String key, Object value) {
+            this.variableUpdates.put(key, value);
+            return this;
+        }
+        
+        public Builder variables(Map<String, Object> updates) {
+            this.variableUpdates.putAll(updates);
+            return this;
+        }
+        
+        public Builder stepResult(StepResult result) {
+            this.stepResult = result;
+            return this;
+        }
+        
+        public StateUpdate build() {
+            return new StateUpdate(this);
+        }
+    }
+}
+
+// ==================================================
+// Arquivo: archflow-model/src/main/java/br/com/archflow/model/flow/ErrorType.java
+// ==================================================
+
+package br.com.archflow.model.flow;
+
+/**
+ * Tipos de erro que podem ocorrer durante a execução de um passo
+ */
+public enum ErrorType {
+    /**
+     * Erro de validação (ex: parâmetros inválidos)
+     */
+    VALIDATION,
+
+    /**
+     * Erro durante a execução
+     */
+    EXECUTION,
+
+    /**
+     * Timeout na execução
+     */
+    TIMEOUT,
+
+    /**
+     * Erro relacionado ao LLM
+     */
+    LLM,
+
+    /**
+     * Erro de sistema (ex: falta de recursos)
+     */
+    SYSTEM,
+
+    /**
+     * Erro de permissão
+     */
+    PERMISSION,
+
+    /**
+     * Erro de conexão
+     */
+    CONNECTION
+}
+
+// ==================================================
+// Arquivo: archflow-model/src/main/java/br/com/archflow/model/flow/ExecutionPath.java
+// ==================================================
+
+package br.com.archflow.model.flow;
+
+import lombok.Builder;
+import lombok.Data;
+
+import java.util.List;
+
+@Data
+@Builder
+public class ExecutionPath {
+    private String pathId;
+    private PathStatus status;
+    private List<String> completedSteps;
+    private List<ExecutionPath> parallelBranches;
+}
+
+// ==================================================
+// Arquivo: archflow-model/src/main/java/br/com/archflow/model/flow/FlowResult.java
+// ==================================================
+
+package br.com.archflow.model.flow;
+
+import br.com.archflow.model.engine.ExecutionMetrics;
+import br.com.archflow.model.enums.ExecutionStatus;
+import br.com.archflow.model.error.ExecutionError;
+
+import java.util.List;
+import java.util.Optional;
+
+/**
+ * Resultado da execução de um fluxo.
+ * Contém o resultado final e métricas da execução.
+ *
+ * @since 1.0.0
+ */
+public interface FlowResult {
+    /**
+     * Retorna o status final da execução.
+     *
+     * @return status da execução
+     */
+    ExecutionStatus getStatus();
+
+    /**
+     * Retorna o resultado da execução.
+     *
+     * @return resultado opcional
+     */
+    Optional<Object> getOutput();
+
+    /**
+     * Retorna métricas da execução.
+     *
+     * @return métricas coletadas
+     */
+    ExecutionMetrics getMetrics();
+
+    /**
+     * Retorna erros ocorridos durante a execução.
+     *
+     * @return lista de erros
+     */
+    List<ExecutionError> getErrors();
+}
+
+// ==================================================
+// Arquivo: archflow-model/src/main/java/br/com/archflow/model/flow/StepResult.java
+// ==================================================
+
+package br.com.archflow.model.flow;
+
+import br.com.archflow.model.enums.StepStatus;
+import br.com.archflow.model.metrics.StepMetrics;
+
+import java.util.List;
+import java.util.Optional;
+
+/**
+ * Resultado da execução de um passo no fluxo.
+ */
+public interface StepResult {
+    /**
+     * Retorna o ID do passo.
+     *
+     * @return ID do passo executado
+     */
+    String getStepId();
+
+    /**
+     * Retorna o status da execução.
+     *
+     * @return status do passo
+     */
+    StepStatus getStatus();
+
+    /**
+     * Retorna o resultado da execução, se houver.
+     *
+     * @return resultado opcional
+     */
+    Optional<Object> getOutput();
+
+    /**
+     * Retorna as métricas da execução.
+     *
+     * @return métricas coletadas
+     */
+    StepMetrics getMetrics();
+
+    /**
+     * Retorna erros ocorridos, se houver.
+     *
+     * @return lista de erros
+     */
+    List<StepError> getErrors();
+}
+
+// ==================================================
+// Arquivo: archflow-model/src/main/java/br/com/archflow/model/flow/StepError.java
+// ==================================================
+
+package br.com.archflow.model.flow;
+
+import java.time.Instant;
+import java.util.Map;
+
+/**
+ * Representa um erro ocorrido durante a execução de um passo no fluxo.
+ */
+public record StepError(
+    /**
+     * Tipo do erro
+     */
+    ErrorType type,
+
+    /**
+     * Código do erro para identificação
+     */
+    String code,
+
+    /**
+     * Mensagem descritiva do erro
+     */
+    String message,
+
+    /**
+     * Momento em que o erro ocorreu
+     */
+    Instant timestamp,
+
+    /**
+     * Contexto adicional do erro
+     */
+    Map<String, Object> context,
+
+    /**
+     * Causa original do erro (opcional)
+     */
+    Throwable cause
+) {
+    /**
+     * Cria um novo StepError com timestamp atual
+     */
+    public static StepError of(ErrorType type, String code, String message) {
+        return new StepError(
+            type,
+            code,
+            message,
+            Instant.now(),
+            Map.of(),
+            null
+        );
+    }
+
+    /**
+     * Cria um novo StepError com contexto
+     */
+    public static StepError of(ErrorType type, String code, String message, Map<String, Object> context) {
+        return new StepError(
+            type,
+            code,
+            message,
+            Instant.now(),
+            context,
+            null
+        );
+    }
+
+    /**
+     * Cria um novo StepError a partir de uma exceção
+     */
+    public static StepError fromException(Throwable e, String code) {
+        return new StepError(
+            ErrorType.EXECUTION,
+            code,
+            e.getMessage(),
+            Instant.now(),
+            Map.of(),
+            e
+        );
+    }
+}
+
+// ==================================================
+// Arquivo: archflow-plugin-api/src/main/java/br/com/archflow/plugin/api/catalog/ComponentVersionManager.java
+// ==================================================
+
+package br.com.archflow.plugin.api.catalog;
+
+import br.com.archflow.model.ai.metadata.ComponentMetadata;
+import java.util.List;
+import java.util.Optional;
+
+/**
+ * Interface para gerenciamento de versões de componentes.
+ */
+public interface ComponentVersionManager {
+    /**
+     * Registra uma nova versão de um componente.
+     */
+    void registerVersion(String componentId, String version, ComponentMetadata metadata);
+
+    /**
+     * Obtém uma versão específica de um componente.
+     */
+    Optional<ComponentMetadata> getVersion(String componentId, String version);
+
+    /**
+     * Lista todas as versões disponíveis de um componente.
+     */
+    List<String> getVersions(String componentId);
+
+    /**
+     * Obtém a última versão de um componente.
+     */
+    Optional<ComponentMetadata> getLatestVersion(String componentId);
+}
+
+// ==================================================
+// Arquivo: archflow-plugin-api/src/main/java/br/com/archflow/plugin/api/catalog/ComponentCatalog.java
+// ==================================================
+
+package br.com.archflow.plugin.api.catalog;
+
+import br.com.archflow.model.ai.AIComponent;
+import br.com.archflow.model.ai.metadata.ComponentMetadata;
+import java.util.List;
+import java.util.Optional;
+
+/**
+ * Catálogo de componentes de IA disponíveis.
+ */
+public interface ComponentCatalog {
+    /**
+     * Registra um novo componente.
+     */
+    void register(AIComponent component);
+
+    /**
+     * Remove um componente do catálogo.
+     */
+    void unregister(String componentId);
+
+    /**
+     * Busca um componente por ID.
+     */
+    Optional<AIComponent> getComponent(String componentId);
+
+    /**
+     * Retorna os metadados de um componente.
+     */
+    Optional<ComponentMetadata> getMetadata(String componentId);
+
+    /**
+     * Lista todos os componentes disponíveis.
+     */
+    List<ComponentMetadata> listComponents();
+
+    /**
+     * Busca componentes por critérios.
+     */
+    List<ComponentMetadata> searchComponents(ComponentSearchCriteria criteria);
+
+    /**
+     * Retorna o gerenciador de versões.
+     */
+    ComponentVersionManager getVersionManager();
+
+    /**
+     * Registra uma nova versão de um componente.
+     */
+    default void registerVersion(String componentId, String version, AIComponent component) {
+        component.getMetadata().validate();
+        getVersionManager().registerVersion(componentId, version, component.getMetadata());
+    }
+}
+
+// ==================================================
+// Arquivo: archflow-plugin-api/src/main/java/br/com/archflow/plugin/api/catalog/DefaultComponentVersionManager.java
+// ==================================================
+
+package br.com.archflow.plugin.api.catalog;
+
+import br.com.archflow.model.ai.metadata.ComponentMetadata;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
+
+/**
+ * Implementação do gerenciador de versões de componentes.
+ */
+public class DefaultComponentVersionManager implements ComponentVersionManager {
+    private final Map<String, Map<String, ComponentMetadata>> versions = new ConcurrentHashMap<>();
+
+    @Override
+    public void registerVersion(String componentId, String version, ComponentMetadata metadata) {
+        metadata.validate();
+        versions.computeIfAbsent(componentId, k -> new ConcurrentHashMap<>())
+               .put(version, metadata);
+    }
+
+    @Override
+    public Optional<ComponentMetadata> getVersion(String componentId, String version) {
+        return Optional.ofNullable(
+            versions.getOrDefault(componentId, Map.of())
+                   .get(version)
+        );
+    }
+
+    @Override
+    public List<String> getVersions(String componentId) {
+        return versions.getOrDefault(componentId, Map.of())
+                      .keySet()
+                      .stream()
+                      .sorted()
+                      .toList();
+    }
+
+    @Override
+    public Optional<ComponentMetadata> getLatestVersion(String componentId) {
+        return versions.getOrDefault(componentId, Map.of())
+                      .entrySet()
+                      .stream()
+                      .max(Map.Entry.comparingByKey())
+                      .map(Map.Entry::getValue);
+    }
+}
+
+// ==================================================
+// Arquivo: archflow-plugin-api/src/main/java/br/com/archflow/plugin/api/catalog/DefaultComponentCatalog.java
+// ==================================================
+
+package br.com.archflow.plugin.api.catalog;
+
+import br.com.archflow.model.ai.AIComponent;
+import br.com.archflow.model.ai.metadata.ComponentMetadata;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
+
+/**
+ * Implementação básica do catálogo de componentes.
+ */
+public class DefaultComponentCatalog implements ComponentCatalog {
+    private final Map<String, AIComponent> components = new ConcurrentHashMap<>();
+    private final Map<String, ComponentMetadata> metadata = new ConcurrentHashMap<>();
+    private final ComponentVersionManager versionManager = new DefaultComponentVersionManager();
+
+    @Override
+    public ComponentVersionManager getVersionManager() {
+        return versionManager;
+    }
+
+    @Override
+    public void register(AIComponent component) {
+        ComponentMetadata meta = component.getMetadata();
+        meta.validate();
+
+        String id = meta.id();
+        components.put(id, component);
+        metadata.put(id, meta);
+
+        // Registra também como uma versão
+        versionManager.registerVersion(id, meta.version(), meta);
+    }
+
+    @Override
+    public void unregister(String componentId) {
+        components.remove(componentId);
+        metadata.remove(componentId);
+    }
+
+    @Override
+    public Optional<AIComponent> getComponent(String componentId) {
+        return Optional.ofNullable(components.get(componentId));
+    }
+
+    @Override
+    public Optional<ComponentMetadata> getMetadata(String componentId) {
+        return Optional.ofNullable(metadata.get(componentId));
+    }
+
+    @Override
+    public List<ComponentMetadata> listComponents() {
+        return new ArrayList<>(metadata.values());
+    }
+
+    @Override
+    public List<ComponentMetadata> searchComponents(ComponentSearchCriteria criteria) {
+        return metadata.values().stream()
+            .filter(meta -> matchesCriteria(meta, criteria))
+            .collect(Collectors.toList());
+    }
+
+    private boolean matchesCriteria(ComponentMetadata meta, ComponentSearchCriteria criteria) {
+        // Filtra por tipo se especificado
+        if (criteria.type() != null && meta.type() != criteria.type()) {
+            return false;
+        }
+
+        // Filtra por capacidades se especificadas
+        if (!criteria.capabilities().isEmpty() && 
+            !meta.capabilities().containsAll(criteria.capabilities())) {
+            return false;
+        }
+
+        // Filtra por texto se especificado
+        if (criteria.textSearch() != null && !criteria.textSearch().isBlank()) {
+            String search = criteria.textSearch().toLowerCase();
+            return meta.name().toLowerCase().contains(search) ||
+                   meta.description().toLowerCase().contains(search);
+        }
+
+        return true;
+    }
+}
+
+// ==================================================
+// Arquivo: archflow-plugin-api/src/main/java/br/com/archflow/plugin/api/catalog/ComponentSearchCriteria.java
+// ==================================================
+
+package br.com.archflow.plugin.api.catalog;
+
+import br.com.archflow.model.ai.type.ComponentType;
+
+import java.util.HashSet;
+import java.util.Set;
+
+/**
+ * Critérios para busca de componentes.
+ */
+public record ComponentSearchCriteria(
+    ComponentType type,
+    Set<String> capabilities,
+    String textSearch
+) {
+    public static Builder builder() {
+        return new Builder();
+    }
+
+    public static class Builder {
+        private ComponentType type;
+        private Set<String> capabilities = new HashSet<>();
+        private String textSearch;
+
+        public Builder type(ComponentType type) {
+            this.type = type;
+            return this;
+        }
+
+        public Builder capabilities(Set<String> capabilities) {
+            this.capabilities = capabilities;
+            return this;
+        }
+
+        public Builder textSearch(String textSearch) {
+            this.textSearch = textSearch;
+            return this;
+        }
+
+        public ComponentSearchCriteria build() {
+            return new ComponentSearchCriteria(type, capabilities, textSearch);
+        }
+    }
+}
+
+// ==================================================
+// Arquivo: archflow-plugin-api/src/main/java/br/com/archflow/plugin/api/spi/ComponentPlugin.java
+// ==================================================
+
+package br.com.archflow.plugin.api.spi;
+
+import br.com.archflow.model.ai.AIComponent;
+import br.com.archflow.model.engine.ExecutionContext;
+
+import java.util.Map;
+
+/**
+ * Interface que define o contrato para componentes implementados como plugins.
+ */
+public interface ComponentPlugin extends AIComponent {
+    /**
+     * Valida a configuração do plugin.
+     * @param config configuração a ser validada
+     * @throws br.com.archflow.plugin.api.exception.ComponentException se configuração inválida
+     */
+    void validateConfig(Map<String, Object> config);
+    
+    /**
+     * Chamado quando o plugin é carregado.
+     * @param context contexto de execução
+     */
+    default void onLoad(ExecutionContext context) {}
+    
+    /**
+     * Chamado quando o plugin é descarregado.
+     */
+    default void onUnload() {}
+}
+
+// ==================================================
+// Arquivo: archflow-plugin-api/src/main/java/br/com/archflow/plugin/api/exception/ComponentNotFoundException.java
+// ==================================================
+
+package br.com.archflow.plugin.api.exception;
+
+/**
+ * Exceção lançada quando um componente não é encontrado.
+ */
+public class ComponentNotFoundException extends ComponentException {
+    public ComponentNotFoundException(String componentId) {
+        super("Componente não encontrado: " + componentId);
+    }
+}
+
+// ==================================================
+// Arquivo: archflow-plugin-api/src/main/java/br/com/archflow/plugin/api/exception/ComponentInitializationException.java
+// ==================================================
+
+package br.com.archflow.plugin.api.exception;
+
+/**
+ * Exceção lançada quando há erro na inicialização do componente.
+ */
+public class ComponentInitializationException extends ComponentException {
+    public ComponentInitializationException(String message) {
+        super(message);
+    }
+
+    public ComponentInitializationException(String message, Throwable cause) {
+        super(message, cause);
+    }
+}
+
+// ==================================================
+// Arquivo: archflow-plugin-api/src/main/java/br/com/archflow/plugin/api/exception/ComponentException.java
+// ==================================================
+
+package br.com.archflow.plugin.api.exception;
+
+/**
+ * Exceção base para erros relacionados a componentes.
+ */
+public class ComponentException extends RuntimeException {
+    public ComponentException(String message) {
+        super(message);
+    }
+
+    public ComponentException(String message, Throwable cause) {
+        super(message, cause);
+    }
+}
+
+// ==================================================
+// Arquivo: archflow-plugin-api/src/main/java/br/com/archflow/plugin/api/exception/ComponentOperationException.java
+// ==================================================
+
+package br.com.archflow.plugin.api.exception;
+
+/**
+ * Exceção lançada quando há erro na execução de uma operação.
+ */
+public class ComponentOperationException extends ComponentException {
+    public ComponentOperationException(String message) {
+        super(message);
+    }
+
+    public ComponentOperationException(String message, Throwable cause) {
+        super(message, cause);
+    }
+}
+
+// ==================================================
+// Arquivo: archflow-plugin-api/src/main/java/br/com/archflow/plugin/api/metadata/ComponentDescriptor.java
+// ==================================================
+
+package br.com.archflow.plugin.api.metadata;
+
+import br.com.archflow.model.ai.type.ComponentType;
+
+import java.lang.annotation.*;
+
+/**
+ * Descritor de um componente de IA.
+ */
+@Retention(RetentionPolicy.RUNTIME)
+@Target(ElementType.TYPE)
+@Documented
+public @interface ComponentDescriptor {
+    /**
+     * Identificador único do componente
+     */
+    String id();
+
+    /**
+     * Nome do componente
+     */
+    String name();
+
+    /**
+     * Descrição do componente
+     */
+    String description() default "";
+
+    /**
+     * Tipo do componente
+     */
+    ComponentType type();
+
+    /**
+     * Versão do componente
+     */
+    String version();
+
+    /**
+     * URL ou base64 do ícone
+     */
+    String icon() default "";
+
+    /**
+     * Operações suportadas
+     */
+    Operation[] operations() default {};
+
+    /**
+     * Propriedades de configuração
+     */
+    Property[] properties() default {};
+}
+
+// ==================================================
+// Arquivo: archflow-plugin-api/src/main/java/br/com/archflow/plugin/api/metadata/Property.java
+// ==================================================
+
+package br.com.archflow.plugin.api.metadata;
+
+import java.lang.annotation.*;
+
+/**
+ * Define uma propriedade.
+ */
+@Target({})
+@Retention(RetentionPolicy.RUNTIME)
+public @interface Property {
+    /**
+     * Identificador da propriedade
+     */
+    String id();
+
+    /**
+     * Nome da propriedade
+     */
+    String name();
+
+    /**
+     * Descrição da propriedade
+     */
+    String description() default "";
+
+    /**
+     * Tipo da propriedade
+     */
+    String type() default "string";
+
+    /**
+     * Se a propriedade é obrigatória
+     */
+    boolean required() default false;
+
+    /**
+     * Valor padrão
+     */
+    String defaultValue() default "";
+
+    /**
+     * Grupo para organização na UI
+     */
+    String group() default "default";
+}
+
+// ==================================================
+// Arquivo: archflow-plugin-api/src/main/java/br/com/archflow/plugin/api/metadata/Operation.java
+// ==================================================
+
+package br.com.archflow.plugin.api.metadata;
+
+import java.lang.annotation.*;
+
+/**
+ * Define uma operação do componente.
+ */
+@Target({})
+@Retention(RetentionPolicy.RUNTIME)
+public @interface Operation {
+    /**
+     * Identificador da operação
+     */
+    String id();
+
+    /**
+     * Nome da operação
+     */
+    String name();
+
+    /**
+     * Descrição da operação
+     */
+    String description() default "";
+
+    /**
+     * Propriedades de entrada
+     */
+    Property[] inputs() default {};
+
+    /**
+     * Propriedades de saída
+     */
+    Property[] outputs() default {};
+}
+
+// ==================================================
+// Arquivo: archflow-agent/src/main/java/br/com/archflow/agent/metrics/MetricsRegistry.java
+// ==================================================
+
+package br.com.archflow.agent.metrics;
+
+import br.com.archflow.agent.config.AgentConfig;
+import br.com.archflow.model.flow.FlowStatus;
+
+import java.time.Instant;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.DoubleAdder;
+import java.util.stream.Collectors;
+
+/**
+ * Registro de métricas que mantém contadores e valores
+ */
+class MetricsRegistry {
+    private final Map<String, AtomicLong> counters;
+    private final Map<String, DoubleAdder> values;
+    private final Map<String, List<Double>> histories;
+
+    public MetricsRegistry() {
+        this.counters = new ConcurrentHashMap<>();
+        this.values = new ConcurrentHashMap<>();
+        this.histories = new ConcurrentHashMap<>();
+    }
+
+    public void incrementCounter(String name) {
+        counters.computeIfAbsent(name, k -> new AtomicLong())
+                .incrementAndGet();
+    }
+
+    public void recordValue(String name, double value) {
+        values.computeIfAbsent(name, k -> new DoubleAdder())
+              .add(value);
+        
+        histories.computeIfAbsent(name, k -> Collections.synchronizedList(new ArrayList<>()))
+                .add(value);
+    }
+
+    public long getCounter(String name) {
+        return counters.getOrDefault(name, new AtomicLong()).get();
+    }
+
+    public double getValue(String name) {
+        return values.getOrDefault(name, new DoubleAdder()).sum();
+    }
+
+    public Map<String, Long> getCounters() {
+        return counters.entrySet().stream()
+            .collect(Collectors.toMap(
+                Map.Entry::getKey,
+                e -> e.getValue().get()
+            ));
+    }
+
+    public Map<String, Double> getValues() {
+        return values.entrySet().stream()
+            .collect(Collectors.toMap(
+                Map.Entry::getKey,
+                e -> e.getValue().sum()
+            ));
+    }
+
+    public Map<String, List<Double>> getHistories() {
+        return new HashMap<>(histories);
+    }
+
+    public void reset() {
+        counters.clear();
+        values.clear();
+        histories.clear();
+    }
+}
+
+
+
+
+// ==================================================
+// Arquivo: archflow-agent/src/main/java/br/com/archflow/agent/metrics/MetricsExporter.java
+// ==================================================
+
+package br.com.archflow.agent.metrics;
+
+import br.com.archflow.agent.config.AgentConfig;
+
+/**
+ * Exportador de métricas que envia dados para sistemas externos
+ */
+class MetricsExporter {
+    private final AgentConfig config;
+
+    public MetricsExporter(AgentConfig config) {
+        this.config = config;
+    }
+
+    public void export(AggregatedMetrics metrics) {
+        // TODO: Implementar exportação para sistemas externos
+        // Por exemplo: Prometheus, InfluxDB, etc.
+    }
+}
+
+
+
+// ==================================================
+// Arquivo: archflow-agent/src/main/java/br/com/archflow/agent/metrics/MetricsCollector.java
+// ==================================================
+
+package br.com.archflow.agent.metrics;
+
+import br.com.archflow.agent.config.AgentConfig;
+import br.com.archflow.model.metrics.StepMetrics;
+import br.com.archflow.model.engine.ExecutionMetrics;
+import br.com.archflow.model.flow.FlowStatus;
+
+import java.io.Closeable;
+import java.util.Map;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.logging.Logger;
+import java.time.Instant;
+
+/**
+ * Coletor de métricas do ArchFlow Agent.
+ * Responsável por coletar e agregar métricas de execução.
+ */
+public class MetricsCollector implements Closeable {
+    private static final Logger logger = Logger.getLogger(MetricsCollector.class.getName());
+
+    private final AgentConfig config;
+    private final ScheduledExecutorService scheduler;
+    private final Map<String, FlowMetricsContext> activeFlows;
+    private final MetricsRegistry registry;
+    private final MetricsAggregator aggregator;
+    private final MetricsExporter exporter;
+
+    public MetricsCollector(AgentConfig config) {
+        this.config = config;
+        this.scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "metrics-collector");
+            t.setDaemon(true);
+            return t;
+        });
+        this.activeFlows = new ConcurrentHashMap<>();
+        this.registry = new MetricsRegistry();
+        this.aggregator = new MetricsAggregator(registry);
+        this.exporter = new MetricsExporter(config);
+
+        if (config.monitoringConfig().metricsEnabled()) {
+            startPeriodicCollection();
+        }
+    }
+
+    /**
+     * Registra início de execução de um fluxo
+     */
+    public void recordFlowStart(String flowId) {
+        logger.fine("Registrando início do fluxo: " + flowId);
+        FlowMetricsContext context = new FlowMetricsContext(flowId, Instant.now());
+        activeFlows.put(flowId, context);
+        registry.incrementCounter("flows_started");
+    }
+
+    /**
+     * Registra conclusão de execução de um fluxo
+     */
+    public void recordFlowCompletion(String flowId, ExecutionMetrics metrics, boolean success) {
+        logger.fine("Registrando conclusão do fluxo: " + flowId + ", success=" + success);
+
+        FlowMetricsContext context = activeFlows.remove(flowId);
+        if (context != null) {
+            long duration = context.getDurationMillis();
+
+            registry.incrementCounter("flows_completed");
+            if (success) {
+                registry.incrementCounter("flows_succeeded");
+            } else {
+                registry.incrementCounter("flows_failed");
+            }
+
+            registry.recordValue("flow_duration", duration);
+            registry.recordValue("flow_tokens", metrics.tokensUsed());
+
+            // Registra métricas por passo
+            metrics.stepMetrics().forEach((stepId, stepMetrics) ->
+                    recordStepMetrics(flowId, stepId, stepMetrics)
+            );
+        }
+    }
+
+    /**
+     * Registra erro na execução de um fluxo
+     */
+    public void recordFlowError(String flowId, Throwable error) {
+        logger.fine("Registrando erro do fluxo: " + flowId);
+
+        registry.incrementCounter("flows_errors");
+        registry.incrementCounter("errors_total");
+
+        FlowMetricsContext context = activeFlows.get(flowId);
+        if (context != null) {
+            context.recordError(error);
+        }
+    }
+
+    /**
+     * Registra métricas de um passo específico
+     */
+    public void recordStepMetrics(String flowId, String stepId, StepMetrics metrics) {
+        registry.recordValue("step_duration", metrics.executionTime());
+        registry.recordValue("step_tokens", metrics.tokensUsed());
+        registry.recordValue("step_retries", metrics.retryCount());
+
+        // Registra métricas adicionais se houver
+        metrics.additionalMetrics().forEach((key, value) -> {
+            if (value instanceof Number) {
+                registry.recordValue("step_" + key, ((Number) value).doubleValue());
+            }
+        });
+    }
+
+    /**
+     * Registra status atual de um fluxo
+     */
+    public void recordFlowStatus(String flowId, FlowStatus status) {
+        logger.fine("Registrando status do fluxo: " + flowId + " = " + status);
+
+        registry.incrementCounter("flow_status_" + status.name().toLowerCase());
+
+        FlowMetricsContext context = activeFlows.get(flowId);
+        if (context != null) {
+            context.updateStatus(status);
+        }
+    }
+
+    /**
+     * Obtém métricas agregadas
+     */
+    public AggregatedMetrics getAggregatedMetrics() {
+        return aggregator.aggregate();
+    }
+
+    @Override
+    public void close() {
+        scheduler.shutdown();
+        try {
+            if (!scheduler.awaitTermination(5, TimeUnit.SECONDS)) {
+                scheduler.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            scheduler.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
+
+        // Exporta métricas finais
+        if (config.monitoringConfig().metricsEnabled()) {
+            exporter.export(getAggregatedMetrics());
+        }
+    }
+
+    private void startPeriodicCollection() {
+        int interval = config.monitoringConfig().metricsInterval();
+        scheduler.scheduleAtFixedRate(() -> {
+            try {
+                AggregatedMetrics metrics = aggregator.aggregate();
+                exporter.export(metrics);
+            } catch (Exception e) {
+                logger.warning("Erro coletando métricas: " + e.getMessage());
+            }
+        }, interval, interval, TimeUnit.SECONDS);
+    }
+}
+
+// ==================================================
+// Arquivo: archflow-agent/src/main/java/br/com/archflow/agent/metrics/AggregatedMetrics.java
+// ==================================================
+
+package br.com.archflow.agent.metrics;
+
+import java.time.Instant;
+import java.util.Map;
+
+/**
+ * Métricas agregadas com estatísticas
+ */
+record AggregatedMetrics(
+    Instant timestamp,
+    Map<String, Long> counters,
+    Map<String, Double> values,
+    Map<String, MetricStats> stats
+) {}
+
+// ==================================================
+// Arquivo: archflow-agent/src/main/java/br/com/archflow/agent/metrics/MetricsAggregator.java
+// ==================================================
+
+package br.com.archflow.agent.metrics;
+
+import java.time.Instant;
+import java.util.*;
+
+/**
+ * Agregador de métricas que processa dados brutos
+ */
+class MetricsAggregator {
+    private final MetricsRegistry registry;
+
+    public MetricsAggregator(MetricsRegistry registry) {
+        this.registry = registry;
+    }
+
+    public AggregatedMetrics aggregate() {
+        Map<String, Long> counters = registry.getCounters();
+        Map<String, Double> values = registry.getValues();
+        Map<String, List<Double>> histories = registry.getHistories();
+
+        Map<String, MetricStats> stats = new HashMap<>();
+        
+        // Calcula estatísticas para cada métrica com histórico
+        histories.forEach((name, history) -> {
+            if (!history.isEmpty()) {
+                stats.put(name, calculateStats(history));
+            }
+        });
+
+        return new AggregatedMetrics(
+            Instant.now(),
+            counters,
+            values,
+            stats
+        );
+    }
+
+    private MetricStats calculateStats(List<Double> values) {
+        if (values.isEmpty()) {
+            return new MetricStats(0, 0, 0, 0, 0);
+        }
+
+        DoubleSummaryStatistics stats = values.stream()
+            .mapToDouble(Double::doubleValue)
+            .summaryStatistics();
+
+        return new MetricStats(
+            stats.getMin(),
+            stats.getMax(),
+            stats.getAverage(),
+            stats.getCount(),
+            calculateMedian(values)
+        );
+    }
+
+    private double calculateMedian(List<Double> values) {
+        List<Double> sorted = new ArrayList<>(values);
+        Collections.sort(sorted);
+        
+        int size = sorted.size();
+        if (size == 0) return 0;
+        
+        if (size % 2 == 0) {
+            return (sorted.get(size/2 - 1) + sorted.get(size/2)) / 2;
+        } else {
+            return sorted.get(size/2);
+        }
+    }
+}
+
+// ==================================================
+// Arquivo: archflow-agent/src/main/java/br/com/archflow/agent/metrics/MetricStats.java
+// ==================================================
+
+package br.com.archflow.agent.metrics;
+
+/**
+ * Estatísticas calculadas para uma métrica
+ */
+record MetricStats(
+    double min,
+    double max,
+    double mean,
+    long count,
+    double median
+) {}
+
+// ==================================================
+// Arquivo: archflow-agent/src/main/java/br/com/archflow/agent/metrics/FlowMetricsContext.java
+// ==================================================
+
+package br.com.archflow.agent.metrics;
+
+import br.com.archflow.model.flow.FlowStatus;
+
+import java.time.Instant;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+
+/**
+ * Contexto de métricas para um fluxo específico
+ */
+class FlowMetricsContext {
+    private final String flowId;
+    private final Instant startTime;
+    private FlowStatus currentStatus;
+    private final List<Throwable> errors;
+    private final Map<String, Object> attributes;
+
+    public FlowMetricsContext(String flowId, Instant startTime) {
+        this.flowId = flowId;
+        this.startTime = startTime;
+        this.errors = Collections.synchronizedList(new ArrayList<>());
+        this.attributes = new ConcurrentHashMap<>();
+    }
+
+    public long getDurationMillis() {
+        return Instant.now().toEpochMilli() - startTime.toEpochMilli();
+    }
+
+    public void updateStatus(FlowStatus status) {
+        this.currentStatus = status;
+    }
+
+    public void recordError(Throwable error) {
+        this.errors.add(error);
+    }
+
+    public void setAttribute(String key, Object value) {
+        this.attributes.put(key, value);
+    }
+
+    public Object getAttribute(String key) {
+        return this.attributes.get(key);
+    }
+
+    public String getFlowId() {
+        return flowId;
+    }
+
+    public FlowStatus getCurrentStatus() {
+        return currentStatus;
+    }
+
+    public List<Throwable> getErrors() {
+        return new ArrayList<>(errors);
+    }
+
+    public Map<String, Object> getAttributes() {
+        return new HashMap<>(attributes);
+    }
+}
+
+// ==================================================
+// Arquivo: archflow-agent/src/main/java/br/com/archflow/agent/context/FlowContextBuilder.java
+// ==================================================
+
+package br.com.archflow.agent.context;
+
+import br.com.archflow.model.engine.ExecutionContext;
+import br.com.archflow.model.engine.DefaultExecutionContext;
+import br.com.archflow.model.flow.Flow;
+import br.com.archflow.model.flow.FlowState;
+import br.com.archflow.model.flow.FlowStatus;
+import dev.langchain4j.memory.chat.MessageWindowChatMemory;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.core.type.TypeReference;
+
+import java.util.*;
+import java.util.logging.Logger;
+
+/**
+ * Builder para criar e configurar o contexto de execução de fluxos
+ */
+public class FlowContextBuilder {
+    private static final Logger logger = Logger.getLogger(FlowContextBuilder.class.getName());
+    private static final ObjectMapper objectMapper = new ObjectMapper();
+
+    private final Flow flow;
+    private JsonNode parametersJson;
+    private Map<String, Object> initialVariables;
+    private Map<String, Object> additionalContext;
+
+    public FlowContextBuilder(Flow flow) {
+        this.flow = flow;
+        this.initialVariables = new HashMap<>();
+        this.additionalContext = new HashMap<>();
+    }
+
+    /**
+     * Define parâmetros a partir de JSON
+     */
+    public FlowContextBuilder withParametersJson(String json) {
+        try {
+            this.parametersJson = objectMapper.readTree(json);
+            return this;
+        } catch (Exception e) {
+            throw new ContextBuilderException("Erro ao processar JSON de parâmetros", e);
+        }
+    }
+
+    /**
+     * Define parâmetros a partir de JsonNode
+     */
+    public FlowContextBuilder withParametersJson(JsonNode json) {
+        this.parametersJson = json;
+        return this;
+    }
+
+    /**
+     * Adiciona variáveis iniciais
+     */
+    public FlowContextBuilder withInitialVariables(Map<String, Object> variables) {
+        this.initialVariables.putAll(variables);
+        return this;
+    }
+
+    /**
+     * Adiciona contexto adicional
+     */
+    public FlowContextBuilder withAdditionalContext(Map<String, Object> context) {
+        this.additionalContext.putAll(context);
+        return this;
+    }
+
+    /**
+     * Constrói o contexto de execução
+     */
+    public ExecutionContext build() {
+        try {
+            // 1. Cria o contexto base
+            DefaultExecutionContext context = new DefaultExecutionContext(
+                MessageWindowChatMemory.builder()
+                    .maxMessages(100)
+                    .build()
+            );
+
+            // 2. Processa parâmetros do JSON se disponível
+            if (parametersJson != null) {
+                processJsonParameters(context);
+            }
+
+            // 3. Adiciona variáveis iniciais
+            initialVariables.forEach(context::set);
+
+            // 4. Adiciona contexto adicional
+            additionalContext.forEach(context::set);
+
+            // 5. Configura estado inicial
+            context.setState(createInitialState());
+
+            return context;
+
+        } catch (Exception e) {
+            throw new ContextBuilderException("Erro ao construir contexto de execução", e);
+        }
+    }
+
+    private void processJsonParameters(DefaultExecutionContext context) {
+        // Processa parâmetros simples
+        if (parametersJson.isObject()) {
+            parametersJson.fields().forEachRemaining(entry -> {
+                String key = entry.getKey();
+                JsonNode valueNode = entry.getValue();
+                
+                try {
+                    Object value = convertJsonValue(valueNode);
+                    context.set(key, value);
+                } catch (Exception e) {
+                    logger.warning("Erro ao processar parâmetro " + key + ": " + e.getMessage());
+                }
+            });
+        }
+    }
+
+    private Object convertJsonValue(JsonNode node) {
+        try {
+            if (node.isNull()) {
+                return null;
+            } else if (node.isBoolean()) {
+                return node.asBoolean();
+            } else if (node.isInt()) {
+                return node.asInt();
+            } else if (node.isLong()) {
+                return node.asLong();
+            } else if (node.isDouble()) {
+                return node.asDouble();
+            } else if (node.isTextual()) {
+                return node.asText();
+            } else if (node.isArray()) {
+                List<Object> list = new ArrayList<>();
+                node.elements().forEachRemaining(element -> 
+                    list.add(convertJsonValue(element))
+                );
+                return list;
+            } else if (node.isObject()) {
+                Map<String, Object> map = new HashMap<>();
+                node.fields().forEachRemaining(entry ->
+                    map.put(entry.getKey(), convertJsonValue(entry.getValue()))
+                );
+                return map;
+            } else {
+                return node.toString();
+            }
+        } catch (Exception e) {
+            throw new ContextBuilderException("Erro ao converter valor JSON", e);
+        }
+    }
+
+    private FlowState createInitialState() {
+        return FlowState.builder()
+            .flowId(flow.getId())
+            .status(FlowStatus.INITIALIZED)
+            .variables(new HashMap<>(initialVariables))
+            .executionPaths(new ArrayList<>())
+            .build();
+    }
+
+    /**
+     * Exceção específica para erros no builder
+     */
+    public static class ContextBuilderException extends RuntimeException {
+        public ContextBuilderException(String message) {
+            super(message);
+        }
+
+        public ContextBuilderException(String message, Throwable cause) {
+            super(message, cause);
+        }
+    }
+
+    /**
+     * Utilitário para validar tipos de valores
+     */
+    public static class TypeValidator {
+        public static boolean isValidNumber(Object value) {
+            return value instanceof Number;
+        }
+
+        public static boolean isValidBoolean(Object value) {
+            return value instanceof Boolean;
+        }
+
+        public static boolean isValidString(Object value) {
+            return value instanceof String;
+        }
+
+        public static boolean isValidList(Object value) {
+            return value instanceof List;
+        }
+
+        public static boolean isValidMap(Object value) {
+            return value instanceof Map;
+        }
+
+        public static <T> T convertTo(Object value, Class<T> type) {
+            if (value == null) {
+                return null;
+            }
+            return objectMapper.convertValue(value, type);
+        }
+
+        public static <T> List<T> convertToList(Object value, Class<T> elementType) {
+            if (value == null) {
+                return null;
+            }
+            return objectMapper.convertValue(value, 
+                objectMapper.getTypeFactory().constructCollectionType(List.class, elementType)
+            );
+        }
+
+        public static <K, V> Map<K, V> convertToMap(Object value, Class<K> keyType, Class<V> valueType) {
+            if (value == null) {
+                return null;
+            }
+            return objectMapper.convertValue(value,
+                objectMapper.getTypeFactory().constructMapType(Map.class, keyType, valueType)
+            );
+        }
+    }
+
+    /**
+     * Factory method para criar builder
+     */
+    public static FlowContextBuilder forFlow(Flow flow) {
+        return new FlowContextBuilder(flow);
+    }
+}
+
+// ==================================================
+// Arquivo: archflow-agent/src/main/java/br/com/archflow/agent/config/RetryConfig.java
+// ==================================================
+
+package br.com.archflow.agent.config;
+
+/**
+ * Configuração de retry para operações com falha
+ */
+public record RetryConfig(
+    int maxAttempts,
+    long initialDelay,
+    double backoffMultiplier
+) {
+    public RetryConfig {
+        if (maxAttempts < 0) {
+            throw new IllegalArgumentException("maxAttempts must be >= 0");
+        }
+        if (initialDelay < 0) {
+            throw new IllegalArgumentException("initialDelay must be >= 0");
+        }
+        if (backoffMultiplier <= 0) {
+            throw new IllegalArgumentException("backoffMultiplier must be > 0");
+        }
+    }
+}
+
+// ==================================================
+// Arquivo: archflow-agent/src/main/java/br/com/archflow/agent/config/ResourceConfig.java
+// ==================================================
+
+package br.com.archflow.agent.config;
+
+/**
+ * Configuração de recursos do agent
+ */
+public record ResourceConfig(
+    int maxThreads,
+    long maxMemory
+) {
+    public ResourceConfig {
+        if (maxThreads <= 0) {
+            throw new IllegalArgumentException("maxThreads must be > 0");
+        }
+        if (maxMemory <= 0) {
+            throw new IllegalArgumentException("maxMemory must be > 0");
+        }
+    }
+}
+
+
+// ==================================================
+// Arquivo: archflow-agent/src/main/java/br/com/archflow/agent/config/MonitoringConfig.java
+// ==================================================
+
+package br.com.archflow.agent.config;
+
+import br.com.archflow.model.enums.LogLevel;
+
+import java.util.Map;
+
+/**
+ * Configuração de monitoramento
+ */
+public record MonitoringConfig(
+    boolean metricsEnabled,
+    LogLevel logLevel,
+    int metricsInterval,
+    Map<String, String> labels
+) {
+    public MonitoringConfig {
+        if (metricsInterval <= 0) {
+            throw new IllegalArgumentException("metricsInterval must be > 0");
+        }
+    }
+}
+
+// ==================================================
+// Arquivo: archflow-agent/src/main/java/br/com/archflow/agent/config/AgentConfig.java
+// ==================================================
+
+package br.com.archflow.agent.config;
+
+import br.com.archflow.model.enums.LogLevel;
+
+import java.util.Map;
+
+/**
+ * Configuração do ArchFlow Agent
+ */
+public record AgentConfig(
+    // Configurações básicas
+    String agentId,
+    String pluginsPath,
+    
+    // Configurações de execução
+    int maxConcurrentFlows,
+    long defaultFlowTimeout,
+    RetryConfig retryConfig,
+    
+    // Configurações de recursos
+    ResourceConfig resourceConfig,
+    
+    // Configurações de monitoramento
+    MonitoringConfig monitoringConfig,
+    
+    // Configurações extras
+    Map<String, Object> extraConfig
+) {
+    /**
+     * Builder para facilitar a criação da configuração
+     */
+    public static class Builder {
+        private String agentId = "default";
+        private String pluginsPath = "plugins";
+        private int maxConcurrentFlows = 10;
+        private long defaultFlowTimeout = 3600000; // 1 hora
+        private RetryConfig retryConfig = new RetryConfig(3, 1000, 2.0);
+        private ResourceConfig resourceConfig = new ResourceConfig(
+            Runtime.getRuntime().availableProcessors(),
+            Runtime.getRuntime().maxMemory() / 2
+        );
+        private MonitoringConfig monitoringConfig = new MonitoringConfig(
+            true,  // metrics enabled
+            LogLevel.INFO,
+            300,   // metrics interval (5 min)
+            Map.of()
+        );
+        private Map<String, Object> extraConfig = Map.of();
+
+        public Builder agentId(String agentId) {
+            this.agentId = agentId;
+            return this;
+        }
+
+        public Builder pluginsPath(String pluginsPath) {
+            this.pluginsPath = pluginsPath;
+            return this;
+        }
+
+        public Builder maxConcurrentFlows(int maxConcurrentFlows) {
+            this.maxConcurrentFlows = maxConcurrentFlows;
+            return this;
+        }
+
+        public Builder defaultFlowTimeout(long defaultFlowTimeout) {
+            this.defaultFlowTimeout = defaultFlowTimeout;
+            return this;
+        }
+
+        public Builder retryConfig(RetryConfig retryConfig) {
+            this.retryConfig = retryConfig;
+            return this;
+        }
+
+        public Builder resourceConfig(ResourceConfig resourceConfig) {
+            this.resourceConfig = resourceConfig;
+            return this;
+        }
+
+        public Builder monitoringConfig(MonitoringConfig monitoringConfig) {
+            this.monitoringConfig = monitoringConfig;
+            return this;
+        }
+
+        public Builder extraConfig(Map<String, Object> extraConfig) {
+            this.extraConfig = extraConfig;
+            return this;
+        }
+
+        public AgentConfig build() {
+            return new AgentConfig(
+                agentId,
+                pluginsPath,
+                maxConcurrentFlows,
+                defaultFlowTimeout,
+                retryConfig,
+                resourceConfig,
+                monitoringConfig,
+                extraConfig
+            );
+        }
+    }
+
+    public static Builder builder() {
+        return new Builder();
+    }
+}
+
+
+
+// ==================================================
+// Arquivo: archflow-agent/src/main/java/br/com/archflow/agent/plugin/FlowPluginManager.java
+// ==================================================
+
+package br.com.archflow.agent.plugin;
+
+import br.com.archflow.model.flow.Flow;
+import br.com.archflow.model.flow.FlowStep;
+import br.com.archflow.plugin.api.catalog.ComponentCatalog;
+import br.com.archflow.plugin.api.catalog.DefaultComponentCatalog;
+
+import dev.jeka.core.api.depmanagement.JkDependencySet;
+import dev.jeka.core.api.depmanagement.JkRepo;
+import dev.jeka.core.api.depmanagement.resolution.JkDependencyResolver;
+import dev.jeka.core.api.depmanagement.resolution.JkResolveResult;
+import dev.jeka.core.api.file.JkPathSequence;
+
+import java.io.File;
+import java.net.URL;
+import java.net.URLClassLoader;
+import java.nio.file.Path;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.logging.Logger;
+
+/**
+ * Gerenciador de plugins do ArchFlow.
+ * Responsável por baixar, carregar e gerenciar plugins necessários para execução dos fluxos.
+ */
+public class FlowPluginManager {
+    private static final Logger logger = Logger.getLogger(FlowPluginManager.class.getName());
+
+    private final String pluginsPath;
+    private final ComponentCatalog catalog;
+    private final Map<String, PluginInfo> loadedPlugins;
+    private URLClassLoader pluginClassLoader;
+    private final Set<URL> loadedUrls;
+
+    public FlowPluginManager(String pluginsPath) {
+        this.pluginsPath = pluginsPath;
+        this.catalog = new DefaultComponentCatalog();
+        this.loadedPlugins = new ConcurrentHashMap<>();
+        this.loadedUrls = new LinkedHashSet<>();
+    }
+
+    /**
+     * Carrega plugins necessários para um fluxo
+     */
+    public void loadPluginsForFlow(Flow flow) throws Exception {
+//        Set<URL> urls = new LinkedHashSet<>();
+//        logger.info("Iniciando carregamento de plugins para fluxo: " + flow.getId());
+//
+//        // Coleta plugins necessários para cada step
+//        for (FlowStep step : flow.getSteps()) {
+//            if (step.getType() == null) {
+//                logger.warning("Step sem tipo definido: " + step.getId());
+//                continue;
+//            }
+//
+//            try {
+//                // Obtém informações do plugin baseado no step
+//                PluginInfo pluginInfo = getPluginInfo(step);
+//                logger.info("Processando plugin: " + pluginInfo);
+//
+//                // Download do plugin e dependências
+//                Set<URL> pluginUrls = downloadPluginAndDependencies(pluginInfo, urls);
+//                urls.addAll(pluginUrls);
+//
+//                // Registra plugin carregado
+//                loadedPlugins.put(pluginInfo.getId(), pluginInfo);
+//
+//            } catch (Exception e) {
+//                logger.severe("Erro carregando plugin para step " + step.getId() + ": " + e.getMessage());
+//                throw new ComponentLoadException(
+//                        "Erro carregando plugin: " + e.getMessage(),
+//                        step.getType(),
+//                        step.getId()
+//                );
+//            }
+//        }
+//
+//        // Cria novo ClassLoader com todas as URLs
+//        this.pluginClassLoader = new URLClassLoader(
+//                urls.toArray(new URL[0]),
+//                getClass().getClassLoader()
+//        );
+//        this.loadedUrls.addAll(urls);
+//
+//        logger.info("Plugins carregados com sucesso. Total de URLs: " + urls.size());
+    }
+
+    /**
+     * Download de plugin e suas dependências
+     */
+    private Set<URL> downloadPluginAndDependencies(PluginInfo plugin, Set<URL> globalUrls) throws Exception {
+//        Set<URL> urls = new LinkedHashSet<>();
+//
+//        // 1. Download do plugin principal
+//        String coordinates = String.format(
+//                "br.com.archflow:archflow-plugin-%s:%s",
+//                plugin.getId(),
+//                plugin.getVersion()
+//        );
+//
+//        logger.info("Resolvendo dependência: " + coordinates);
+//
+//        // Configura resolver do Jeka
+//        JkDependencyResolver resolver = JkDependencyResolver.of(
+//                JkRepo.ofMavenLocal(),
+//                JkRepo.ofMavenCentral()
+//        );
+//
+//        // Resolve plugin principal
+//        JkDependencySet deps = JkDependencySet.of().and(coordinates);
+//        JkResolveResult result = resolver.resolve(deps);
+//        JkPathSequence files = result.getFiles();
+//
+//        // Adiciona arquivos resolvidos
+//        for (Path path : files.getEntries()) {
+//            URL url = path.toUri().toURL();
+//            if (!globalUrls.contains(url)) {
+//                urls.add(url);
+//                logger.fine("URL adicionada: " + url);
+//            }
+//        }
+//
+//        // 2. Resolve dependências transitivas
+//        String[] dependencies = plugin.getDependencies();
+//        if (dependencies != null && dependencies.length > 0) {
+//            List<String> toBeFetched = filterExistingDependencies(dependencies, globalUrls);
+//            logger.info("Dependências a serem baixadas: " + toBeFetched);
+//
+//            if (!toBeFetched.isEmpty()) {
+//                deps = JkDependencySet.of();
+//                for (String dep : toBeFetched) {
+//                    deps = deps.and(dep);
+//                }
+//
+//                result = resolver.resolve(deps);
+//                for (Path path : result.getFiles().getEntries()) {
+//                    urls.add(path.toUri().toURL());
+//                }
+//            }
+//        }
+//
+//        return urls;
+        return null;
+    }
+
+    /**
+     * Filtra dependências que já existem no classpath
+     */
+    private List<String> filterExistingDependencies(String[] dependencies, Set<URL> globalUrls) {
+        String[] classpath = getSystemClassPath(globalUrls);
+        return Arrays.stream(dependencies)
+                .filter(dep -> {
+                    String artifactId = dep.split(":")[1];
+                    return Arrays.stream(classpath)
+                            .noneMatch(cp -> cp.contains(artifactId));
+                })
+                .toList();
+    }
+
+    /**
+     * Obtém classpath completo do sistema
+     */
+    private String[] getSystemClassPath(Set<URL> globalUrls) {
+        List<String> entries = new ArrayList<>();
+
+        // Classpath do sistema
+        entries.addAll(Arrays.asList(
+                System.getProperty("java.class.path").split(File.pathSeparator)
+        ));
+
+        // URLs globais
+        entries.addAll(
+                globalUrls.stream()
+                        .map(URL::getPath)
+                        .toList()
+        );
+
+        return entries.toArray(new String[0]);
+    }
+
+    /**
+     * Extrai informações do plugin a partir do step
+     */
+    private PluginInfo getPluginInfo(FlowStep step) {
+        String type = step.getType().name().toLowerCase();
+        String version = getVersionFromMetadata(step);
+        String[] dependencies = getDependenciesFromMetadata(step);
+
+        return new PluginInfo(
+                type,
+                version,
+                dependencies
+        );
+    }
+
+    private String getVersionFromMetadata(FlowStep step) {
+//        return step.getMetadata() != null && step.getMetadata().containsKey("version")
+//                ? step.getMetadata().get("version").toString()
+//                : "1.0.0"; // Versão default
+        return "";
+    }
+
+    private String[] getDependenciesFromMetadata(FlowStep step) {
+//        if (step.getMetadata() == null || !step.getMetadata().containsKey("dependencies")) {
+//            return new String[0];
+//        }
+//        Object deps = step.getMetadata().get("dependencies");
+//        if (deps instanceof String[]) {
+//            return (String[]) deps;
+//        }
+//        if (deps instanceof List) {
+//            List<?> list = (List<?>) deps;
+//            return list.stream()
+//                    .map(Object::toString)
+//                    .toArray(String[]::new);
+//        }
+//        return new String[0];
+        return null;
+    }
+
+    /**
+     * Obtém ClassLoader com plugins carregados
+     */
+    public URLClassLoader getPluginClassLoader() {
+        return pluginClassLoader;
+    }
+
+    /**
+     * Limpa plugins carregados
+     */
+    public void clearPlugins() {
+        if (pluginClassLoader != null) {
+            try {
+                pluginClassLoader.close();
+            } catch (Exception e) {
+                logger.warning("Erro fechando ClassLoader: " + e.getMessage());
+            }
+        }
+        loadedPlugins.clear();
+        loadedUrls.clear();
+        pluginClassLoader = null;
+    }
+
+    /**
+     * Informações de um plugin
+     */
+    private record PluginInfo(
+            String id,
+            String version,
+            String[] dependencies
+    ) {
+        @Override
+        public String toString() {
+            return "Plugin[id=" + id + ", version=" + version + "]";
+        }
+    }
+}
+
+// ==================================================
+// Arquivo: archflow-agent/src/main/java/br/com/archflow/agent/execution/DefaultFlowExecutor.java
+// ==================================================
+
+package br.com.archflow.agent.execution;
+
+import br.com.archflow.engine.execution.FlowExecutor;
+import br.com.archflow.model.enums.ExecutionStatus;
+import br.com.archflow.model.flow.*;
+import br.com.archflow.agent.metrics.MetricsCollector;
+import br.com.archflow.model.engine.ExecutionContext;
+import br.com.archflow.model.engine.ExecutionMetrics;
+import br.com.archflow.model.error.ExecutionError;
+import br.com.archflow.model.error.ExecutionErrorType;
+import br.com.archflow.model.enums.StepStatus;
+import br.com.archflow.model.flow.Flow;
+import br.com.archflow.model.metrics.StepMetrics;
+
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.*;
+import java.util.logging.Logger;
+import java.util.stream.Collectors;
+
+/**
+ * Executor de fluxos padrão
+ */
+public class DefaultFlowExecutor implements FlowExecutor {
+    private static final Logger logger = Logger.getLogger(DefaultFlowExecutor.class.getName());
+
+    private final ClassLoader pluginClassLoader;
+    private final MetricsCollector metricsCollector;
+    private final Map<String, StepExecution> activeExecutions;
+    private volatile Flow currentFlow;
+
+    public DefaultFlowExecutor(ClassLoader pluginClassLoader, MetricsCollector metricsCollector) {
+        this.pluginClassLoader = pluginClassLoader;
+        this.metricsCollector = metricsCollector;
+        this.activeExecutions = new ConcurrentHashMap<>();
+    }
+
+    @Override
+    public FlowResult execute(Flow flow, ExecutionContext context) {
+        String flowId = flow.getId();
+        Thread.currentThread().setContextClassLoader(pluginClassLoader);
+        this.currentFlow = flow;
+
+        try {
+            logger.info("Iniciando execução do fluxo: " + flowId);
+            metricsCollector.recordFlowStart(flowId);
+
+            // Executa passos do fluxo
+            List<StepResult> results = executeSteps(flow.getSteps(), context, flow);
+
+            // Verifica resultado final
+            boolean success = results.stream()
+                    .allMatch(r -> r.getStatus() == StepStatus.COMPLETED);
+
+            // Retorna resultado
+            return new FlowResult() {
+                @Override
+                public ExecutionStatus getStatus() {
+                    return success ? ExecutionStatus.COMPLETED : ExecutionStatus.FAILED;
+                }
+
+                @Override
+                public Optional<Object> getOutput() {
+                    return results.isEmpty() ? Optional.empty() :
+                            results.get(results.size() - 1).getOutput();
+                }
+
+                @Override
+                public ExecutionMetrics getMetrics() {
+                    return context.getMetrics();
+                }
+
+                @Override
+                public List<ExecutionError> getErrors() {
+                    return results.stream()
+                            .filter(r -> r.getStatus().isError())
+                            .flatMap(r -> r.getErrors().stream())
+                            .map(e -> ExecutionError.of(
+                                    e.code(),
+                                    e.message(),
+                                    ExecutionErrorType.EXECUTION,
+                                    e.context().toString()
+                            ))
+                            .toList();
+                }
+            };
+
+        } catch (Exception e) {
+            logger.severe("Erro executando fluxo: " + flowId + " - " + e.getMessage());
+            metricsCollector.recordFlowError(flowId, e);
+            throw new RuntimeException("Erro executando fluxo: " + flowId, e);
+        } finally {
+            this.currentFlow = null;
+        }
+    }
+
+    @Override
+    public void handleResult(StepResult result) {
+        String stepId = result.getStepId();
+        logger.info("Processando resultado do step: " + stepId);
+
+        StepExecution execution = activeExecutions.get(stepId);
+        if (execution == null) {
+            logger.warning("Step execution não encontrada para: " + stepId);
+            return;
+        }
+
+        try {
+            // Registra métricas
+            if (result.getMetrics() != null) {
+                metricsCollector.recordStepMetrics(
+                        execution.getFlowId(),
+                        stepId,
+                        result.getMetrics()
+                );
+            }
+
+            // Processa resultado baseado no status
+            switch (result.getStatus()) {
+                case COMPLETED -> handleSuccess(execution, result);
+                case FAILED -> handleFailure(execution, result);
+                case SKIPPED -> handleSkipped(execution, result);
+                default -> logger.warning("Status não tratado: " + result.getStatus());
+            }
+
+            // Remove execução ativa
+            activeExecutions.remove(stepId);
+
+        } catch (Exception e) {
+            logger.severe("Erro processando resultado do step " + stepId + ": " + e.getMessage());
+            execution.fail(e);
+        }
+    }
+
+    private void handleSuccess(StepExecution execution, StepResult result) {
+        logger.info("Step " + result.getStepId() + " concluído com sucesso");
+
+        // Atualiza estado do fluxo
+        execution.getContext().set("step." + result.getStepId() + ".output",
+                result.getOutput().orElse(null));
+
+        // Executa próximos passos se houver
+        List<FlowStep> nextSteps = findNextSteps(execution.getFlow(), result.getStepId());
+        if (!nextSteps.isEmpty()) {
+            executeSteps(nextSteps, execution.getContext(), execution.getFlow());
+        }
+    }
+
+    private void handleFailure(StepExecution execution, StepResult result) {
+        logger.severe("Step " + result.getStepId() + " falhou: " +
+                result.getErrors().stream()
+                        .map(StepError::message)
+                        .findFirst().orElse("Sem mensagem de erro"));
+
+        // Registra erro no contexto
+        execution.getContext().set("step." + result.getStepId() + ".error",
+                result.getErrors());
+
+        // Executa caminhos de erro se definidos
+        List<FlowStep> errorSteps = findErrorSteps(execution.getFlow(), result.getStepId());
+        if (!errorSteps.isEmpty()) {
+            executeSteps(errorSteps, execution.getContext(), execution.getFlow());
+        }
+    }
+
+    private void handleSkipped(StepExecution execution, StepResult result) {
+        logger.info("Step " + result.getStepId() + " ignorado");
+
+        // Executa próximos passos normalmente
+        List<FlowStep> nextSteps = findNextSteps(execution.getFlow(), result.getStepId());
+        if (!nextSteps.isEmpty()) {
+            executeSteps(nextSteps, execution.getContext(), execution.getFlow());
+        }
+    }
+
+    private List<FlowStep> findNextSteps(Flow flow, String stepId) {
+        return flow.getSteps().stream()
+                .filter(step -> step.getConnections().stream()
+                        .anyMatch(conn -> !conn.isErrorPath() &&
+                                conn.getSourceId().equals(stepId)))
+                .collect(Collectors.toList());
+    }
+
+    private List<FlowStep> findErrorSteps(Flow flow, String stepId) {
+        return flow.getSteps().stream()
+                .filter(step -> step.getConnections().stream()
+                        .anyMatch(conn -> conn.isErrorPath() &&
+                                conn.getSourceId().equals(stepId)))
+                .collect(Collectors.toList());
+    }
+
+    private List<StepResult> executeSteps(List<FlowStep> steps, ExecutionContext context, Flow flow) {
+        return steps.stream()
+                .map(step -> executeStep(step, context, flow))
+                .toList();
+    }
+
+    private StepResult executeStep(FlowStep step, ExecutionContext context, Flow flow) {
+        String stepId = step.getId();
+        logger.info("Executando step: " + stepId);
+
+        try {
+            // Registra execução ativa
+            StepExecution execution = new StepExecution(flow, step, context);
+            activeExecutions.put(stepId, execution);
+
+            return step.execute(context)
+                    .whenComplete((result, error) -> {
+                        if (error != null) {
+                            logger.severe("Erro executando step " + stepId + ": " + error.getMessage());
+                            handleResult(createErrorResult(step, error));
+                        } else {
+                            handleResult(result);
+                        }
+                    })
+                    .get();
+
+        } catch (Exception e) {
+            logger.severe("Erro executando step: " + stepId + " - " + e.getMessage());
+            return createErrorResult(step, e);
+        }
+    }
+
+    private StepResult createErrorResult(FlowStep step, Throwable error) {
+        return new StepResult() {
+            @Override
+            public String getStepId() {
+                return step.getId();
+            }
+
+            @Override
+            public StepStatus getStatus() {
+                return StepStatus.FAILED;
+            }
+
+            @Override
+            public Optional<Object> getOutput() {
+                return Optional.empty();
+            }
+
+            @Override
+            public StepMetrics getMetrics() {
+                return null;
+            }
+
+            @Override
+            public List<StepError> getErrors() {
+                return List.of(StepError.fromException(error, "STEP_EXECUTION_ERROR"));
+            }
+        };
+    }
+
+    /**
+     * Classe interna para manter estado da execução de um step
+     */
+    private static class StepExecution {
+        private final Flow flow;
+        private final FlowStep step;
+        private final ExecutionContext context;
+        private final String flowId;
+        private volatile boolean failed;
+
+        public StepExecution(Flow flow, FlowStep step, ExecutionContext context) {
+            this.flow = flow;
+            this.step = step;
+            this.context = context;
+            this.flowId = context.getState().getFlowId();
+        }
+
+        public Flow getFlow() {
+            return flow;
+        }
+
+        public FlowStep getStep() {
+            return step;
+        }
+
+        public ExecutionContext getContext() {
+            return context;
+        }
+
+        public String getFlowId() {
+            return flowId;
+        }
+
+        public void fail(Throwable error) {
+            this.failed = true;
+            context.set("step." + step.getId() + ".error", error);
+        }
+
+        public boolean isFailed() {
+            return failed;
+        }
+    }
+}
+
+// ==================================================
+// Arquivo: archflow-agent/src/main/java/br/com/archflow/agent/execution/DefaultParallelExecutor.java
+// ==================================================
+
+package br.com.archflow.agent.execution;
+
+import br.com.archflow.engine.execution.ParallelExecutor;
+import br.com.archflow.model.flow.FlowStep;
+import br.com.archflow.model.flow.StepResult;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Semaphore;
+
+/**
+ * Executor para execução paralela de steps
+ */
+public class DefaultParallelExecutor implements ParallelExecutor {
+    private static final Logger logger = LoggerFactory.getLogger(DefaultParallelExecutor.class.getName());
+
+    private final ExecutorService executorService;
+    private final int maxConcurrent;
+    private final Semaphore semaphore;
+
+    public DefaultParallelExecutor(ExecutorService executorService, int maxConcurrent) {
+        this.executorService = executorService;
+        this.maxConcurrent = maxConcurrent;
+        this.semaphore = new Semaphore(maxConcurrent);
+    }
+
+    @Override
+    public List<StepResult> executeParallel(List<FlowStep> steps) {
+        try {
+            // Cria tasks para cada step
+            List<CompletableFuture<StepResult>> futures = steps.stream()
+                .map(this::executeStepAsync)
+                .toList();
+
+            // Aguarda conclusão de todos
+            CompletableFuture<Void> allOf = CompletableFuture.allOf(
+                futures.toArray(new CompletableFuture[0])
+            );
+
+            // Retorna resultados
+            return allOf.thenApply(v -> futures.stream()
+                .map(CompletableFuture::join)
+                .toList()
+            ).get();
+
+        } catch (Exception e) {
+            logger.error("Erro na execução paralela: " + e.getMessage());
+            throw new RuntimeException("Erro na execução paralela", e);
+        }
+    }
+
+    private CompletableFuture<StepResult> executeStepAsync(FlowStep step) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                semaphore.acquire();
+                logger.info("Iniciando execução paralela do step: " + step.getId());
+                return step.execute(null).get(); // TODO: Passar contexto apropriado
+            } catch (Exception e) {
+                throw new CompletionException(e);
+            } finally {
+                semaphore.release();
+            }
+        }, executorService);
+    }
+
+    @Override
+    public void awaitCompletion() {
+        // Nada a fazer, pois já aguardamos no executeParallel
+    }
+}
+
+// ==================================================
+// Arquivo: archflow-agent/src/main/java/br/com/archflow/agent/execution/DefaultExecutionManager.java
+// ==================================================
+
+package br.com.archflow.agent.execution;
+
+import br.com.archflow.engine.core.ExecutionManager;
+import br.com.archflow.engine.execution.FlowExecutor;
+import br.com.archflow.engine.execution.ParallelExecutor;
+import br.com.archflow.model.engine.ExecutionMetrics;
+import br.com.archflow.model.enums.ExecutionStatus;
+import br.com.archflow.model.flow.*;
+import br.com.archflow.model.engine.ExecutionContext;
+import br.com.archflow.model.error.ExecutionError;
+import br.com.archflow.model.enums.StepStatus;
+import br.com.archflow.model.flow.Flow;
+
+import java.util.*;
+import java.util.concurrent.*;
+import java.util.logging.Logger;
+import java.util.stream.Collectors;
+
+/**
+ * Implementação do ExecutionManager que gerencia a execução de fluxos.
+ */
+public class DefaultExecutionManager implements ExecutionManager {
+    private static final Logger logger = Logger.getLogger(DefaultExecutionManager.class.getName());
+
+    private final FlowExecutor flowExecutor;
+    private final ParallelExecutor parallelExecutor;
+    private final ExecutorService executorService;
+    private final Map<String, ExecutionControl> activeExecutions;
+
+    public DefaultExecutionManager(
+        FlowExecutor flowExecutor,
+        ParallelExecutor parallelExecutor,
+        ExecutorService executorService
+    ) {
+        this.flowExecutor = flowExecutor;
+        this.parallelExecutor = parallelExecutor;
+        this.executorService = executorService;
+        this.activeExecutions = new ConcurrentHashMap<>();
+    }
+
+    @Override
+    public FlowResult executeFlow(Flow flow, ExecutionContext context) {
+        String flowId = flow.getId();
+        logger.info("Iniciando execução do fluxo: " + flowId);
+
+        try {
+            // Registra controle de execução
+            ExecutionControl control = new ExecutionControl(flowId);
+            activeExecutions.put(flowId, control);
+
+            // Executa o fluxo
+            FlowResult result = flowExecutor.execute(flow, context);
+
+            // Remove controle ao finalizar
+            activeExecutions.remove(flowId);
+
+            return result;
+
+        } catch (Exception e) {
+            logger.severe("Erro executando fluxo " + flowId + ": " + e.getMessage());
+            activeExecutions.remove(flowId);
+            
+            // Cria erro de execução
+            ExecutionError error = ExecutionError.fromException(
+                "FLOW_EXECUTION_ERROR",
+                e,
+                "ExecutionManager"
+            );
+
+            // Retorna resultado com erro
+            return new FlowResult() {
+                @Override
+                public ExecutionStatus getStatus() {
+                    return ExecutionStatus.FAILED;
+                }
+
+                @Override
+                public Optional<Object> getOutput() {
+                    return Optional.empty();
+                }
+
+                @Override
+                public ExecutionMetrics getMetrics() {
+                    return context.getMetrics();
+                }
+
+                @Override
+                public List<ExecutionError> getErrors() {
+                    return List.of(error);
+                }
+            };
+        }
+    }
+
+    @Override
+    public void pauseFlow(String flowId) {
+        logger.info("Pausando fluxo: " + flowId);
+        ExecutionControl control = activeExecutions.get(flowId);
+        if (control != null) {
+            control.pause();
+        }
+    }
+
+    @Override
+    public void stopFlow(String flowId) {
+        logger.info("Parando fluxo: " + flowId);
+        ExecutionControl control = activeExecutions.get(flowId);
+        if (control != null) {
+            control.stop();
+            activeExecutions.remove(flowId);
+        }
+    }
+
+    /**
+     * Executa uma lista de passos em paralelo
+     */
+    public List<StepResult> executeParallelSteps(List<FlowStep> steps, ExecutionContext context) {
+        return parallelExecutor.executeParallel(steps);
+    }
+
+    /**
+     * Classe interna para controle de execução
+     */
+    private static class ExecutionControl {
+        private final String flowId;
+        private volatile boolean paused;
+        private volatile boolean stopped;
+        private final Set<String> completedSteps;
+        private final Set<String> failedSteps;
+
+        public ExecutionControl(String flowId) {
+            this.flowId = flowId;
+            this.paused = false;
+            this.stopped = false;
+            this.completedSteps = ConcurrentHashMap.newKeySet();
+            this.failedSteps = ConcurrentHashMap.newKeySet();
+        }
+
+        public void pause() {
+            this.paused = true;
+        }
+
+        public void resume() {
+            this.paused = false;
+        }
+
+        public void stop() {
+            this.stopped = true;
+        }
+
+        public boolean isPaused() {
+            return paused;
+        }
+
+        public boolean isStopped() {
+            return stopped;
+        }
+
+        public void markStepCompleted(String stepId) {
+            completedSteps.add(stepId);
+        }
+
+        public void markStepFailed(String stepId) {
+            failedSteps.add(stepId);
+        }
+
+        public Set<String> getCompletedSteps() {
+            return Collections.unmodifiableSet(completedSteps);
+        }
+
+        public Set<String> getFailedSteps() {
+            return Collections.unmodifiableSet(failedSteps);
+        }
+    }
+}
+
+// ==================================================
+// Arquivo: archflow-agent/src/main/java/br/com/archflow/agent/persistence/InMemoryStateRepository.java
+// ==================================================
+
+package br.com.archflow.agent.persistence;
+
+import br.com.archflow.engine.persistence.StateRepository;
+import br.com.archflow.model.flow.AuditLog;
+import br.com.archflow.model.flow.ExecutionPath;
+import br.com.archflow.model.flow.FlowMetrics;
+import br.com.archflow.model.flow.FlowState;
+import br.com.archflow.model.error.ExecutionError;
+
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.logging.Logger;
+import java.time.Instant;
+import java.util.stream.Collectors;
+
+/**
+ * Implementação em memória do StateRepository.
+ * Útil para desenvolvimento e testes.
+ */
+public class InMemoryStateRepository implements StateRepository {
+    private static final Logger logger = Logger.getLogger(InMemoryStateRepository.class.getName());
+    
+    private final Map<String, FlowState> states;
+    private final Map<String, List<AuditLog>> auditLogs;
+    private final Map<String, List<ExecutionError>> errors;
+
+    public InMemoryStateRepository() {
+        this.states = new ConcurrentHashMap<>();
+        this.auditLogs = new ConcurrentHashMap<>();
+        this.errors = new ConcurrentHashMap<>();
+    }
+
+    @Override
+    public void saveState(String flowId, FlowState state) {
+        logger.fine("Salvando estado do fluxo: " + flowId);
+        
+        // Faz uma cópia profunda do estado para evitar modificações externas
+        FlowState stateCopy = deepCopyState(state);
+        states.put(flowId, stateCopy);
+        
+        // Registra no audit log
+        saveAuditLog(flowId, createAuditLog(flowId, state));
+    }
+
+    @Override
+    public FlowState getState(String flowId) {
+        logger.fine("Recuperando estado do fluxo: " + flowId);
+        
+        FlowState state = states.get(flowId);
+        if (state != null) {
+            // Retorna uma cópia para evitar modificações externas
+            return deepCopyState(state);
+        }
+        return null;
+    }
+
+    @Override
+    public void saveAuditLog(String flowId, AuditLog log) {
+        logger.fine("Registrando audit log para fluxo: " + flowId);
+        auditLogs.computeIfAbsent(flowId, k -> new ArrayList<>())
+                 .add(log);
+    }
+
+    /**
+     * Recupera o histórico de audit logs de um fluxo
+     */
+    public List<AuditLog> getAuditLogs(String flowId) {
+        return new ArrayList<>(auditLogs.getOrDefault(flowId, new ArrayList<>()));
+    }
+
+    /**
+     * Registra um erro de execução
+     */
+    public void saveError(String flowId, ExecutionError error) {
+        logger.fine("Registrando erro para fluxo: " + flowId);
+        errors.computeIfAbsent(flowId, k -> new ArrayList<>())
+              .add(error);
+    }
+
+    /**
+     * Recupera erros de execução de um fluxo
+     */
+    public List<ExecutionError> getErrors(String flowId) {
+        return new ArrayList<>(errors.getOrDefault(flowId, new ArrayList<>()));
+    }
+
+    /**
+     * Remove todos os dados de um fluxo
+     */
+    public void clearFlow(String flowId) {
+        states.remove(flowId);
+        auditLogs.remove(flowId);
+        errors.remove(flowId);
+    }
+
+    private AuditLog createAuditLog(String flowId, FlowState state) {
+        return AuditLog.builder()
+            .flowId(flowId)
+            .timestamp(Instant.now())
+            .state(deepCopyState(state))
+            .build();
+    }
+
+    /**
+     * Faz uma cópia profunda do estado para garantir imutabilidade
+     */
+    private FlowState deepCopyState(FlowState state) {
+        return FlowState.builder()
+            .flowId(state.getFlowId())
+            .status(state.getStatus())
+            .currentStepId(state.getCurrentStepId())
+            .variables(new HashMap<>(state.getVariables()))
+            .executionPaths(deepCopyExecutionPaths(state.getExecutionPaths()))
+            .metrics(deepCopyMetrics(state.getMetrics()))
+            .error(state.getError() != null ? copyError(state.getError()) : null)
+            .build();
+    }
+
+    private List<ExecutionPath> deepCopyExecutionPaths(List<ExecutionPath> paths) {
+        if (paths == null) return new ArrayList<>();
+        return paths.stream()
+            .map(path -> ExecutionPath.builder()
+                .pathId(path.getPathId())
+                .status(path.getStatus())
+                .completedSteps(new ArrayList<>(path.getCompletedSteps()))
+                .parallelBranches(deepCopyExecutionPaths(path.getParallelBranches()))
+                .build())
+            .collect(Collectors.toList());
+    }
+
+    private FlowMetrics deepCopyMetrics(FlowMetrics metrics) {
+        if (metrics == null) return null;
+        return FlowMetrics.builder()
+            .startTime(metrics.getStartTime())
+            .endTime(metrics.getEndTime())
+            .stepMetrics(new HashMap<>(metrics.getStepMetrics()))
+            .totalSteps(metrics.getTotalSteps())
+            .completedSteps(metrics.getCompletedSteps())
+            .build();
+    }
+
+    private ExecutionError copyError(ExecutionError error) {
+        if (error == null) return null;
+        return new ExecutionError(
+            error.code(),
+            error.message(),
+            error.type(),
+            error.component(),
+            error.timestamp(),
+            error.cause(),
+            new HashMap<>(error.details())
+        );
+    }
+}
+
+// ==================================================
+// Arquivo: archflow-agent/src/main/java/br/com/archflow/agent/persistence/InMemoryFlowRepository.java
+// ==================================================
+
+package br.com.archflow.agent.persistence;
+
+import br.com.archflow.engine.persistence.FlowRepository;
+import br.com.archflow.model.flow.Flow;
+
+import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.logging.Logger;
+
+/**
+ * Implementação em memória do FlowRepository
+ */
+public class InMemoryFlowRepository implements FlowRepository {
+    private static final Logger logger = Logger.getLogger(InMemoryFlowRepository.class.getName());
+    
+    private final Map<String, Flow> flows;
+
+    public InMemoryFlowRepository() {
+        this.flows = new ConcurrentHashMap<>();
+    }
+
+    @Override
+    public void save(Flow flow) {
+        logger.info("Salvando fluxo: " + flow.getId());
+        flows.put(flow.getId(), flow);
+    }
+
+    @Override
+    public Optional<Flow> findById(String id) {
+        logger.fine("Buscando fluxo: " + id);
+        return Optional.ofNullable(flows.get(id));
+    }
+
+    @Override
+    public void delete(String id) {
+        logger.info("Removendo fluxo: " + id);
+        flows.remove(id);
+    }
+
+    /**
+     * Remove todos os fluxos do repositório
+     */
+    public void clear() {
+        flows.clear();
+    }
+}
+
+// ==================================================
+// Arquivo: archflow-agent/src/main/java/br/com/archflow/agent/ArchFlowAgent.java
+// ==================================================
+
+package br.com.archflow.agent;
+
+import br.com.archflow.agent.config.AgentConfig;
+import br.com.archflow.agent.context.FlowContextBuilder;
+import br.com.archflow.agent.execution.DefaultExecutionManager;
+import br.com.archflow.agent.execution.DefaultFlowExecutor;
+import br.com.archflow.agent.execution.DefaultParallelExecutor;
+import br.com.archflow.agent.metrics.MetricsCollector;
+import br.com.archflow.agent.persistence.InMemoryFlowRepository;
+import br.com.archflow.agent.persistence.InMemoryStateRepository;
+import br.com.archflow.agent.plugin.FlowPluginManager;
+import br.com.archflow.engine.api.FlowEngine;
+import br.com.archflow.engine.core.DefaultFlowEngine;
+import br.com.archflow.engine.core.ExecutionManager;
+import br.com.archflow.engine.core.StateManager;
+import br.com.archflow.engine.execution.FlowExecutor;
+import br.com.archflow.engine.execution.ParallelExecutor;
+import br.com.archflow.engine.persistence.FlowRepository;
+import br.com.archflow.engine.persistence.StateRepository;
+import br.com.archflow.engine.validation.DefaultFlowValidator;
+import br.com.archflow.engine.validation.FlowValidator;
+import br.com.archflow.model.engine.ExecutionContext;
+import br.com.archflow.model.enums.ExecutionStatus;
+import br.com.archflow.model.flow.*;
+import br.com.archflow.model.flow.Flow;
+
+import java.util.Map;
+import java.util.concurrent.*;
+import java.util.logging.Logger;
+
+/**
+ * Implementação principal do ArchFlow Agent.
+ * Responsável por gerenciar e executar fluxos de trabalho.
+ */
+public class ArchFlowAgent implements AutoCloseable {
+    private static final Logger logger = Logger.getLogger(ArchFlowAgent.class.getName());
+
+    private final AgentConfig config;
+    private final FlowPluginManager pluginManager;
+    private final MetricsCollector metricsCollector;
+    private final StateRepository stateRepository;
+    private final FlowRepository flowRepository;
+    private final FlowEngine flowEngine;
+    private final ExecutorService executorService;
+    private final StateManager stateManager;
+
+    public ArchFlowAgent(AgentConfig config) {
+        this.config = config;
+
+        // Inicializa componentes principais
+        this.executorService = createExecutorService();
+        this.stateRepository = new InMemoryStateRepository();
+        this.flowRepository = new InMemoryFlowRepository();
+        this.metricsCollector = new MetricsCollector(config);
+        this.pluginManager = new FlowPluginManager(config.pluginsPath());
+        this.stateManager = createStateManager();
+
+        // Inicializa engine de execução
+        this.flowEngine = createFlowEngine();
+
+        logger.info("ArchFlow Agent iniciado com configuração: " + config);
+    }
+
+    protected StateManager getStateManager() {
+        return this.stateManager;
+    }
+
+    /**
+     * Executa um fluxo de forma assíncrona
+     */
+    public CompletableFuture<FlowResult> executeFlow(Flow flow, Map<String, Object> input) {
+        String flowId = flow.getId();
+        logger.info("Iniciando execução do fluxo: " + flowId);
+
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                // Registra início da execução
+                metricsCollector.recordFlowStart(flowId);
+
+                // Carrega plugins necessários
+                pluginManager.loadPluginsForFlow(flow);
+
+                // Salva fluxo no repositório
+                flowRepository.save(flow);
+
+                // Inicia execução
+                return flowEngine.startFlow(flowId, input)
+                        .whenComplete((result, error) -> {
+                            if (error != null) {
+                                logger.severe("Erro executando fluxo " + flowId + ": " + error.getMessage());
+                                metricsCollector.recordFlowError(flowId, error);
+                            } else {
+                                logger.info("Fluxo " + flowId + " concluído com status: " + result.getStatus());
+                                metricsCollector.recordFlowCompletion(flowId, result.getMetrics(),
+                                        result.getStatus() == ExecutionStatus.COMPLETED);
+                            }
+                        })
+                        .get(); // Aguarda conclusão
+
+            } catch (Exception e) {
+                logger.severe("Erro executando fluxo: " + flowId + " - " + e.getMessage());
+                metricsCollector.recordFlowError(flowId, e);
+                throw new RuntimeException("Erro executando fluxo: " + flowId, e);
+            }
+        }, executorService);
+    }
+
+    /**
+     * Para a execução de um fluxo
+     */
+    public void stopFlow(String flowId) {
+        logger.info("Parando fluxo: " + flowId);
+        try {
+            flowEngine.cancel(flowId);
+            metricsCollector.recordFlowStatus(flowId, FlowStatus.STOPPED);
+        } catch (Exception e) {
+            logger.severe("Erro parando fluxo: " + flowId + " - " + e.getMessage());
+            throw new RuntimeException("Erro parando fluxo: " + flowId, e);
+        }
+    }
+
+    /**
+     * Pausa a execução de um fluxo
+     */
+    public void pauseFlow(String flowId) {
+        logger.info("Pausando fluxo: " + flowId);
+        try {
+            flowEngine.pause(flowId);
+            metricsCollector.recordFlowStatus(flowId, FlowStatus.PAUSED);
+        } catch (Exception e) {
+            logger.severe("Erro pausando fluxo: " + flowId + " - " + e.getMessage());
+            throw new RuntimeException("Erro pausando fluxo: " + flowId, e);
+        }
+    }
+
+    /**
+     * Retoma a execução de um fluxo pausado
+     */
+    public CompletableFuture<FlowResult> resumeFlow(String flowId) {
+        logger.info("Retomando fluxo: " + flowId);
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                // Carrega estado atual
+                FlowState state = getStateManager().loadState(flowId);
+                if (state == null) {
+                    throw new IllegalStateException("Estado não encontrado para fluxo: " + flowId);
+                }
+
+                // Carrega fluxo do repositório
+                Flow flow = flowRepository.findById(flowId)
+                        .orElseThrow(() -> new IllegalStateException("Fluxo não encontrado: " + flowId));
+
+                // Cria contexto para retomada
+                ExecutionContext context = FlowContextBuilder.forFlow(flow)
+                        .withInitialVariables(state.getVariables())
+                        .withAdditionalContext(Map.of(
+                                "resumeTime", System.currentTimeMillis(),
+                                "previousState", state.getStatus()
+                        ))
+                        .build();
+
+                // Retoma execução
+                return flowEngine.resumeFlow(flowId, context)
+                        .whenComplete((result, error) -> {
+                            if (error != null) {
+                                logger.severe("Erro retomando fluxo " + flowId + ": " + error.getMessage());
+                                metricsCollector.recordFlowError(flowId, error);
+                            } else {
+                                logger.info("Fluxo " + flowId + " retomado com status: " + result.getStatus());
+                                metricsCollector.recordFlowStatus(flowId, FlowStatus.RUNNING);
+                            }
+                        })
+                        .get();
+
+            } catch (Exception e) {
+                logger.severe("Erro retomando fluxo: " + flowId + " - " + e.getMessage());
+                throw new RuntimeException("Erro retomando fluxo: " + flowId, e);
+            }
+        }, executorService);
+    }
+
+    /**
+     * Obtém o status atual de um fluxo
+     */
+    public FlowStatus getFlowStatus(String flowId) {
+        return flowEngine.getFlowStatus(flowId);
+    }
+
+    @Override
+    public void close() {
+        logger.info("Finalizando ArchFlow Agent");
+
+        try {
+            // Para execuções ativas
+            flowEngine.getActiveFlows().forEach(flowId -> {
+                try {
+                    stopFlow(flowId);
+                } catch (Exception e) {
+                    logger.warning("Erro parando fluxo " + flowId + ": " + e.getMessage());
+                }
+            });
+
+            // Limpa recursos
+            executorService.shutdown();
+            if (!executorService.awaitTermination(60, TimeUnit.SECONDS)) {
+                executorService.shutdownNow();
+            }
+
+            pluginManager.clearPlugins();
+            metricsCollector.close();
+
+            logger.info("ArchFlow Agent finalizado com sucesso");
+
+        } catch (Exception e) {
+            logger.severe("Erro finalizando ArchFlow Agent: " + e.getMessage());
+            executorService.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    private FlowEngine createFlowEngine() {
+        ExecutionManager executionManager = new DefaultExecutionManager(
+                createFlowExecutor(),
+                createParallelExecutor(),
+                executorService
+        );
+
+        FlowValidator flowValidator = new DefaultFlowValidator();
+        StateManager stateManager = createStateManager();
+
+        return new DefaultFlowEngine(
+                executionManager,
+                flowRepository,
+                stateManager,
+                flowValidator
+        );
+    }
+
+    private ExecutorService createExecutorService() {
+        ThreadFactory threadFactory = r -> {
+            Thread t = new Thread(r);
+            t.setName("archflow-agent-" + t.getId());
+            return t;
+        };
+
+        return new ThreadPoolExecutor(
+                config.resourceConfig().maxThreads(),
+                config.resourceConfig().maxThreads(),
+                60L, TimeUnit.SECONDS,
+                new LinkedBlockingQueue<>(),
+                threadFactory,
+                new ThreadPoolExecutor.CallerRunsPolicy()
+        );
+    }
+
+    private StateManager createStateManager() {
+        return new StateManager() {
+            @Override
+            public void saveState(String flowId, FlowState state) {
+                stateRepository.saveState(flowId, state);
+            }
+
+            @Override
+            public FlowState loadState(String flowId) {
+                return stateRepository.getState(flowId);
+            }
+
+            @Override
+            public void updateState(String flowId, StateUpdate update) {
+                FlowState state = loadState(flowId);
+                if (state != null) {
+                    update.apply(state);
+                    saveState(flowId, state);
+                }
+            }
+        };
+    }
+
+    // Métodos protected para facilitar testes e extensões
+    protected FlowExecutor createFlowExecutor() {
+        return new DefaultFlowExecutor(
+                pluginManager.getPluginClassLoader(),
+                metricsCollector
+        );
+    }
+
+    protected ParallelExecutor createParallelExecutor() {
+        return new DefaultParallelExecutor(
+                executorService,
+                config.maxConcurrentFlows()
+        );
+    }
+}
