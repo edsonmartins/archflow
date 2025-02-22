@@ -1,5 +1,5 @@
 === CONSOLIDADO DE CÓDIGOS JAVA ===
-Gerado em: Sex 21 Fev 2025 18:42:09 -03
+Gerado em: Sáb 22 Fev 2025 13:54:56 -03
 Diretório base: .
 ===================================
 
@@ -1053,46 +1053,51 @@ public class ArchflowPluginManager {
     private final Map<String, ComponentPlugin> loadedPlugins = new ConcurrentHashMap<>();
     private final ComponentCatalog catalog = new DefaultComponentCatalog();
 
-    /**
-     * Instala um plugin no sistema.
-     */
     private void installPlugin(ComponentPlugin plugin) {
-        // Validar tipo do componente
-        ComponentMetadata metadata = plugin.getMetadata();
+        // Valida que o plugin implementa uma das interfaces de IA
+        if (!(plugin instanceof AIComponent)) {
+            throw new PluginLoadException("Plugin must implement an AI component interface");
+        }
+
+        AIComponent component = (AIComponent) plugin;
+        ComponentMetadata metadata = component.getMetadata();
         metadata.validate();
-        
-        // Registrar no catálogo
-        catalog.register(plugin);
-        
-        // Manter referência local
+
+        // Registra no catálogo como AIComponent
+        catalog.register(component);
+
+        // Mantém referência como plugin
         loadedPlugins.put(metadata.id(), plugin);
-        
-        // Inicializar plugin
+
         try {
-            plugin.onLoad(null); // TODO: Passar contexto adequado
+            plugin.onLoad(null);
         } catch (Exception e) {
             catalog.unregister(metadata.id());
             loadedPlugins.remove(metadata.id());
-            throw new PluginLoadException("Erro inicializando plugin: " + metadata.id(), e);
+            throw new PluginLoadException("Error initializing plugin: " + metadata.id(), e);
         }
     }
 
-    /**
-     * Obtém componentes por tipo.
-     */
     public <T extends AIComponent> List<T> getComponentsByType(ComponentType type) {
         return catalog.searchComponents(
-            ComponentSearchCriteria.builder()
-                .type(type)
-                .build()
-        )
-        .stream()
-        .map(meta -> (T)loadedPlugins.get(meta.id()))
-        .filter(Objects::nonNull)
-        .collect(Collectors.toList());
+                        ComponentSearchCriteria.builder()
+                                .type(type)
+                                .build()
+                )
+                .stream()
+                .map(meta -> {
+                    ComponentPlugin plugin = loadedPlugins.get(meta.id());
+                    if (plugin instanceof AIComponent) {
+                        return (T) plugin;
+                    }
+                    return null;
+                })
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
     }
 
-    // Helper methods
+    // Helper methods remain the same but now work correctly since we validate
+    // plugin implements correct interface
     public List<AIAssistant> getAssistants() {
         return getComponentsByType(ComponentType.ASSISTANT);
     }
@@ -1107,60 +1112,1201 @@ public class ArchflowPluginManager {
 }
 
 // ==================================================
-// Arquivo: archflow-langchain4j/archflow-langchain4j-embedding/src/main/java/br/com/archflow/langchain4j/embedding/package-info.java
+// Arquivo: archflow-langchain4j/archflow-langchain4j-vectorstore-pinecone/src/main/java/br/com/archflow/langchain4j/vectorstore/pinecone/PineconeVectorStoreAdapterFactory.java
 // ==================================================
+
+package br.com.archflow.langchain4j.vectorstore.pinecone;
+
+import br.com.archflow.langchain4j.core.spi.LangChainAdapter;
+import br.com.archflow.langchain4j.core.spi.LangChainAdapterFactory;
+
+import java.util.Map;
+
+public class PineconeVectorStoreAdapterFactory implements LangChainAdapterFactory {
+        @Override
+        public String getProvider() {
+            return "pinecone";
+        }
+
+        @Override
+        public LangChainAdapter createAdapter(Map<String, Object> properties) {
+            PineconeVectorStoreAdapter adapter = new PineconeVectorStoreAdapter();
+            adapter.configure(properties);
+            return adapter;
+        }
+
+        @Override
+        public boolean supports(String type) {
+            return "vectorstore".equals(type);
+        }
+    }
+
+// ==================================================
+// Arquivo: archflow-langchain4j/archflow-langchain4j-vectorstore-pinecone/src/main/java/br/com/archflow/langchain4j/vectorstore/pinecone/PineconeVectorStoreAdapter.java
+// ==================================================
+
+package br.com.archflow.langchain4j.vectorstore.pinecone;
+
+import br.com.archflow.langchain4j.core.spi.LangChainAdapter;
+import br.com.archflow.langchain4j.core.spi.LangChainAdapterFactory;
+import br.com.archflow.model.engine.ExecutionContext;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.langchain4j.data.embedding.Embedding;
+import dev.langchain4j.data.segment.TextSegment;
+import dev.langchain4j.store.embedding.EmbeddingMatch;
+import dev.langchain4j.store.embedding.EmbeddingSearchRequest;
+import dev.langchain4j.store.embedding.EmbeddingSearchResult;
+import dev.langchain4j.store.embedding.filter.Filter;
+import org.apache.http.client.methods.CloseableHttpResponse;
+import org.apache.http.client.methods.HttpDelete;
+import org.apache.http.client.methods.HttpPost;
+import org.apache.http.entity.StringEntity;
+import org.apache.http.impl.client.CloseableHttpClient;
+import org.apache.http.impl.client.HttpClients;
+import org.apache.http.util.EntityUtils;
+
+import java.io.IOException;
+import java.util.*;
+import java.util.stream.Collectors;
 
 /**
- * Package for archflow-langchain4j-embedding adapters.
+ * Adapter para armazenamento e busca de embeddings usando Pinecone.
+ * Suporta filtros por metadados e remoção de embeddings.
+ *
+ * <p>Exemplo de configuração:
+ * <pre>{@code
+ * Map<String, Object> config = Map.of(
+ *     "pinecone.apiKey", "sua-chave-api-pinecone",       // Chave de API do Pinecone
+ *     "pinecone.apiUrl", "https://seu-indice.pinecone.io", // URL do índice Pinecone
+ *     "pinecone.indexName", "embeddings",                // Nome do índice (opcional)
+ *     "pinecone.dimension", 1536                         // Dimensão dos vetores
+ * );
+ * }</pre>
  */
-package br.com.archflow.langchain4j.embedding;
+public class PineconeVectorStoreAdapter implements LangChainAdapter, dev.langchain4j.store.embedding.EmbeddingStore<TextSegment>, AutoCloseable {
+    private static final ObjectMapper objectMapper = new ObjectMapper();
+    private volatile CloseableHttpClient httpClient;
+    private String apiKey;
+    private String apiUrl;
+    private String indexName;
+    private int vectorDimension;
+    private Map<String, Object> config;
 
+    @Override
+    public void validate(Map<String, Object> properties) {
+        if (properties == null) {
+            throw new IllegalArgumentException("Properties cannot be null");
+        }
+
+        String apiKey = (String) properties.get("pinecone.apiKey");
+        if (apiKey == null || apiKey.trim().isEmpty()) {
+            throw new IllegalArgumentException("Pinecone API key is required");
+        }
+
+        String apiUrl = (String) properties.get("pinecone.apiUrl");
+        if (apiUrl == null || apiUrl.trim().isEmpty()) {
+            throw new IllegalArgumentException("Pinecone API URL is required");
+        }
+
+        String indexName = (String) properties.get("pinecone.indexName");
+        if (indexName != null && indexName.trim().isEmpty()) {
+            throw new IllegalArgumentException("Pinecone index name cannot be empty if provided");
+        }
+
+        Object dimension = properties.get("pinecone.dimension");
+        if (dimension == null || !(dimension instanceof Number) || ((Number) dimension).intValue() <= 0) {
+            throw new IllegalArgumentException("Vector dimension is required and must be a positive number");
+        }
+    }
+
+    @Override
+    public void configure(Map<String, Object> properties) {
+        validate(properties);
+        this.config = properties;
+
+        this.apiKey = (String) properties.get("pinecone.apiKey");
+        this.apiUrl = (String) properties.get("pinecone.apiUrl");
+        this.indexName = (String) properties.getOrDefault("pinecone.indexName", "embeddings");
+        this.vectorDimension = (Integer) properties.get("pinecone.dimension");
+
+        this.httpClient = HttpClients.createDefault();
+    }
+
+    @Override
+    public void add(String id, Embedding embedding) {
+        upsertVectors(Collections.singletonList(new VectorData(id, embedding.vector(), null)));
+    }
+
+    @Override
+    public String add(Embedding embedding) {
+        return add(embedding, null);
+    }
+
+    @Override
+    public String add(Embedding embedding, TextSegment embedded) {
+        String id = UUID.randomUUID().toString();
+        upsertVectors(Collections.singletonList(new VectorData(id, embedding.vector(), embedded != null ? embedded.text() : null)));
+        return id;
+    }
+
+    @Override
+    public List<String> addAll(List<Embedding> embeddings) {
+        List<String> ids = generateIds(embeddings.size());
+        addAll(ids, embeddings, null);
+        return ids;
+    }
+
+    @Override
+    public void addAll(List<String> ids, List<Embedding> embeddings, List<TextSegment> embedded) {
+        if (ids.size() != embeddings.size() || (embedded != null && embedded.size() != ids.size())) {
+            throw new IllegalArgumentException("All lists must have the same size");
+        }
+
+        List<VectorData> vectors = new ArrayList<>();
+        for (int i = 0; i < ids.size(); i++) {
+            String text = embedded != null ? embedded.get(i).text() : null;
+            vectors.add(new VectorData(ids.get(i), embeddings.get(i).vector(), text));
+        }
+        upsertVectors(vectors);
+    }
+
+    private void upsertVectors(List<VectorData> vectors) {
+        try {
+            HttpPost post = new HttpPost(apiUrl + "/vectors/upsert");
+            post.setHeader("Api-Key", apiKey);
+            post.setHeader("Content-Type", "application/json");
+
+            Map<String, Object> requestBody = new HashMap<>();
+            requestBody.put("vectors", vectors.stream().map(v -> {
+                Map<String, Object> vector = new HashMap<>();
+                vector.put("id", v.id);
+                vector.put("values", v.values);
+                if (v.text != null) {
+                    vector.put("metadata", Collections.singletonMap("text", v.text));
+                }
+                return vector;
+            }).collect(Collectors.toList()));
+            requestBody.put("namespace", indexName);
+
+            post.setEntity(new StringEntity(objectMapper.writeValueAsString(requestBody)));
+
+            try (CloseableHttpResponse response = httpClient.execute(post)) {
+                int statusCode = response.getStatusLine().getStatusCode();
+                if (statusCode != 200) {
+                    throw new RuntimeException("Failed to upsert vectors to Pinecone: " + EntityUtils.toString(response.getEntity()));
+                }
+            }
+        } catch (IOException e) {
+            throw new RuntimeException("Error upserting vectors to Pinecone", e);
+        }
+    }
+
+    @Override
+    public EmbeddingSearchResult<TextSegment> search(EmbeddingSearchRequest request) {
+        try {
+            HttpPost post = new HttpPost(apiUrl + "/query");
+            post.setHeader("Api-Key", apiKey);
+            post.setHeader("Content-Type", "application/json");
+
+            Map<String, Object> requestBody = new HashMap<>();
+            requestBody.put("vector", request.queryEmbedding().vector());
+            requestBody.put("topK", request.maxResults());
+            requestBody.put("includeValues", true);
+            requestBody.put("includeMetadata", true);
+            requestBody.put("namespace", indexName);
+
+            Filter filter = request.filter();
+            if (filter != null) {
+                requestBody.put("filter", buildFilterCondition(filter));
+            }
+
+            post.setEntity(new StringEntity(objectMapper.writeValueAsString(requestBody)));
+
+            try (CloseableHttpResponse response = httpClient.execute(post)) {
+                int statusCode = response.getStatusLine().getStatusCode();
+                if (statusCode != 200) {
+                    throw new RuntimeException("Failed to search vectors in Pinecone: " + EntityUtils.toString(response.getEntity()));
+                }
+
+                String jsonResponse = EntityUtils.toString(response.getEntity());
+                Map<String, Object> result = objectMapper.readValue(jsonResponse, Map.class);
+                List<Map<String, Object>> matches = (List<Map<String, Object>>) result.get("matches");
+
+                List<EmbeddingMatch<TextSegment>> embeddingMatches = matches.stream()
+                        .map(match -> {
+                            String id = (String) match.get("id");
+                            double score = (Double) match.get("score");
+                            List<Double> values = (List<Double>) match.get("values");
+                            float[] vector = values.stream().map(Double::floatValue)
+                                    .collect(Collectors.collectingAndThen(Collectors.toList(), list -> {
+                                        float[] array = new float[list.size()];
+                                        for (int i = 0; i < list.size(); i++) {
+                                            array[i] = list.get(i);
+                                        }
+                                        return array;
+                                    }));
+                            Map<String, Object> metadata = (Map<String, Object>) match.get("metadata");
+                            String text = metadata != null ? (String) metadata.get("text") : null;
+
+                            if (score >= request.minScore()) {
+                                Embedding embedding = new Embedding(vector);
+                                TextSegment textSegment = text != null ? TextSegment.from(text) : null;
+                                return new EmbeddingMatch<>(score, id, embedding, textSegment);
+                            }
+                            return null;
+                        })
+                        .filter(Objects::nonNull)
+                        .collect(Collectors.toList());
+
+                return new EmbeddingSearchResult<>(embeddingMatches);
+            }
+        } catch (IOException e) {
+            throw new RuntimeException("Error searching embeddings in Pinecone", e);
+        }
+    }
+
+    // Método para construir condições de filtro (simples, suporta apenas "text" por agora)
+    private Map<String, Object> buildFilterCondition(Filter filter) {
+        if (filter instanceof dev.langchain4j.store.embedding.filter.comparison.IsEqualTo) {
+            dev.langchain4j.store.embedding.filter.comparison.IsEqualTo eq = (dev.langchain4j.store.embedding.filter.comparison.IsEqualTo) filter;
+            if ("text".equals(eq.key())) {
+                return Collections.singletonMap("text", Collections.singletonMap("$eq", eq.comparisonValue()));
+            }
+        }
+        throw new UnsupportedOperationException("Only simple text equality filters are supported");
+    }
+
+    // Métodos de remoção
+    public void remove(String id) {
+        try {
+            HttpDelete delete = new HttpDelete(apiUrl + "/vectors/delete?id=" + id + "&namespace=" + indexName);
+            delete.setHeader("Api-Key", apiKey);
+
+            try (CloseableHttpResponse response = httpClient.execute(delete)) {
+                int statusCode = response.getStatusLine().getStatusCode();
+                if (statusCode != 200) {
+                    throw new RuntimeException("Failed to remove vector from Pinecone: " + EntityUtils.toString(response.getEntity()));
+                }
+            }
+        } catch (IOException e) {
+            throw new RuntimeException("Error removing embedding from Pinecone", e);
+        }
+    }
+
+    public void removeAll() {
+        try {
+            HttpDelete delete = new HttpDelete(apiUrl + "/vectors/delete?deleteAll=true&namespace=" + indexName);
+            delete.setHeader("Api-Key", apiKey);
+
+            try (CloseableHttpResponse response = httpClient.execute(delete)) {
+                int statusCode = response.getStatusLine().getStatusCode();
+                if (statusCode != 200) {
+                    throw new RuntimeException("Failed to remove all vectors from Pinecone: " + EntityUtils.toString(response.getEntity()));
+                }
+            }
+        } catch (IOException e) {
+            throw new RuntimeException("Error removing all embeddings from Pinecone", e);
+        }
+    }
+
+    @Override
+    public Object execute(String operation, Object input, ExecutionContext context) throws Exception {
+        if (httpClient == null) {
+            throw new IllegalStateException("Vector store not configured. Call configure() first.");
+        }
+
+        switch (operation) {
+            case "search":
+                if (!(input instanceof EmbeddingSearchRequest)) {
+                    throw new IllegalArgumentException("Input must be an EmbeddingSearchRequest for search operation");
+                }
+                return search((EmbeddingSearchRequest) input);
+            case "remove":
+                if (!(input instanceof String)) {
+                    throw new IllegalArgumentException("Input must be a String ID for remove operation");
+                }
+                remove((String) input);
+                return null;
+            case "removeAll":
+                if (input != null) {
+                    throw new IllegalArgumentException("Input must be null for removeAll operation (Pinecone limitation)");
+                }
+                removeAll();
+                return null;
+            default:
+                throw new IllegalArgumentException("Unsupported operation: " + operation);
+        }
+    }
+
+    @Override
+    public void shutdown() {
+        if (httpClient != null) {
+            try {
+                httpClient.close();
+            } catch (IOException e) {
+                // Logar o erro se houver sistema de log
+            }
+            httpClient = null;
+        }
+        this.config = null;
+    }
+
+    @Override
+    public void close() {
+        shutdown();
+    }
+
+    public List<String> generateIds(int count) {
+        List<String> ids = new ArrayList<>(count);
+        for (int i = 0; i < count; i++) {
+            ids.add(UUID.randomUUID().toString());
+        }
+        return ids;
+    }
+
+    private static class VectorData {
+        String id;
+        float[] values;
+        String text;
+
+        VectorData(String id, float[] values, String text) {
+            this.id = id;
+            this.values = values;
+            this.text = text;
+        }
+    }
+
+
+}
 
 // ==================================================
-// Arquivo: archflow-langchain4j/archflow-langchain4j-agent/src/main/java/br/com/archflow/langchain4j/agent/package-info.java
-// ==================================================
-
-/**
- * Package for archflow-langchain4j-agent adapters.
- */
-package br.com.archflow.langchain4j.agent;
-
-
-// ==================================================
-// Arquivo: archflow-langchain4j/archflow-langchain4j-memory/src/main/java/br/com/archflow/langchain4j/memory/package-info.java
-// ==================================================
-
-/**
- * Package for archflow-langchain4j-memory adapters.
- */
-package br.com.archflow.langchain4j.memory;
-
-
-// ==================================================
-// Arquivo: archflow-langchain4j/archflow-langchain4j-chain/src/main/java/br/com/archflow/langchain4j/chain/package-info.java
-// ==================================================
-
-/**
- * Package for archflow-langchain4j-chain adapters.
- */
-package br.com.archflow.langchain4j.openai;
-
-
-// ==================================================
-// Arquivo: archflow-langchain4j/archflow-langchain4j-model/src/main/java/br/com/archflow/langchain4j/model/package-info.java
+// Arquivo: archflow-langchain4j/archflow-langchain4j-vectorstore-pinecone/src/main/java/br/com/archflow/langchain4j/vectorstore/pinecone/package-info.java
 // ==================================================
 
 /**
  * Package for archflow-langchain4j-model adapters.
  */
-package br.com.archflow.langchain4j.model;
+package br.com.archflow.langchain4j.vectorstore.redis;
 
 
 // ==================================================
-// Arquivo: archflow-langchain4j/archflow-langchain4j-core/src/main/java/br/com/archflow/langchain4j/core/LangChainAdapter.java
+// Arquivo: archflow-langchain4j/archflow-langchain4j-embedding-openai/src/main/java/br/com/archflow/langchain4j/embedding/openai/OpenAiEmbeddingAdapter.java
 // ==================================================
 
-package br.com.archflow.langchain4j.core;
+package br.com.archflow.langchain4j.embedding.openai;
+
+import br.com.archflow.langchain4j.core.spi.LangChainAdapter;
+import br.com.archflow.langchain4j.core.spi.LangChainAdapterFactory;
+import br.com.archflow.model.engine.ExecutionContext;
+import dev.langchain4j.data.embedding.Embedding;
+import dev.langchain4j.data.segment.TextSegment;
+import dev.langchain4j.model.embedding.EmbeddingModel;
+import dev.langchain4j.model.openai.OpenAiEmbeddingModel;
+import dev.langchain4j.model.output.Response;
+
+import java.io.IOException;
+import java.time.Duration;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * Adapter para o modelo de embeddings da OpenAI.
+ * Gera embeddings de texto usando a API da OpenAI (text-embedding-ada-002).
+ *
+ * <p>Exemplo de configuração:
+ * <pre>{@code
+ * Map<String, Object> config = Map.of(
+ *     "openai.api.key", "sk-...",           // API key da OpenAI
+ *     "openai.model", "text-embedding-ada-002", // Modelo (opcional)
+ *     "openai.timeout", 30,                 // Timeout em segundos (opcional)
+ *     "openai.maxRetries", 3                // Máximo de retentativas (opcional)
+ * );
+ * }</pre>
+ *
+ * <p>Operações suportadas:
+ * <ul>
+ *   <li>{@code embed} - Gera embedding de um texto</li>
+ *   <li>{@code embedBatch} - Gera embeddings de múltiplos textos</li>
+ * </ul>
+ */
+public class OpenAiEmbeddingAdapter implements LangChainAdapter, EmbeddingModel {
+    private volatile OpenAiEmbeddingModel embeddingModel;
+    private Map<String, Object> config;
+
+    /**
+     * Valida as configurações fornecidas para o adapter.
+     *
+     * @param properties Map com as configurações
+     * @throws IllegalArgumentException se as configurações forem inválidas
+     */
+    @Override
+    public void validate(Map<String, Object> properties) {
+        if (properties == null) {
+            throw new IllegalArgumentException("Properties cannot be null");
+        }
+
+        String apiKey = (String) properties.get("openai.api.key");
+        if (apiKey == null || apiKey.trim().isEmpty()) {
+            throw new IllegalArgumentException("OpenAI API key is required");
+        }
+
+        Object timeout = properties.get("openai.timeout");
+        if (timeout != null) {
+            if (!(timeout instanceof Number) || ((Number) timeout).intValue() <= 0) {
+                throw new IllegalArgumentException("Timeout must be a positive number");
+            }
+        }
+
+        Object maxRetries = properties.get("openai.maxRetries");
+        if (maxRetries != null) {
+            if (!(maxRetries instanceof Number) || ((Number) maxRetries).intValue() < 0 || ((Number) maxRetries).intValue() > 10) {
+                throw new IllegalArgumentException("Max retries must be a number between 0 and 10");
+            }
+        }
+    }
+
+    /**
+     * Configura o adapter com as propriedades especificadas.
+     *
+     * <p>Requer as seguintes configurações:
+     * <ul>
+     *   <li>{@code openai.api.key} - Chave de API da OpenAI</li>
+     * </ul>
+     * <p>Configurações opcionais:
+     * <ul>
+     *   <li>{@code openai.model} - Nome do modelo (default: "text-embedding-ada-002")</li>
+     *   <li>{@code openai.timeout} - Timeout em segundos (default: 30)</li>
+     *   <li>{@code openai.maxRetries} - Máximo de retentativas (default: 3)</li>
+     * </ul>
+     *
+     * @param properties Map com as configurações
+     * @throws IllegalArgumentException se as configurações forem inválidas
+     */
+    @Override
+    public void configure(Map<String, Object> properties) {
+        validate(properties);
+        this.config = properties;
+
+        String apiKey = (String) properties.get("openai.api.key");
+        String model = (String) properties.getOrDefault("openai.model", "text-embedding-ada-002");
+        int timeout = (Integer) properties.getOrDefault("openai.timeout", 30);
+        int maxRetries = (Integer) properties.getOrDefault("openai.maxRetries", 3);
+
+        this.embeddingModel = OpenAiEmbeddingModel.builder()
+                .apiKey(apiKey)
+                .modelName(model)
+                .timeout(Duration.ofSeconds(timeout))
+                .maxRetries(maxRetries)
+                .build();
+    }
+
+    /**
+     * Executa operações no modelo de embeddings da OpenAI.
+     *
+     * @param operation Nome da operação ("embed" ou "embedBatch")
+     * @param input     Para "embed": String ou {@link TextSegment}<br>Para "embedBatch": List de String ou {@link TextSegment}
+     * @param context   Contexto de execução (não utilizado atualmente)
+     * @return Para "embed": {@link Response}&lt;{@link Embedding}&gt;<br>Para "embedBatch": {@link Response}&lt;List&lt;{@link Embedding}&gt;&gt;
+     * @throws IllegalArgumentException se a operação ou o input for inválido
+     * @throws IllegalStateException    se o adapter não estiver configurado
+     * @throws RuntimeException         se ocorrer um erro durante a execução (ex.: falha de rede)
+     */
+    @Override
+    public synchronized Object execute(String operation, Object input, ExecutionContext context) throws Exception {
+        if (embeddingModel == null) {
+            throw new IllegalStateException("Embedding model not configured. Call configure() first.");
+        }
+
+        try {
+            if ("embed".equals(operation)) {
+                if (input instanceof String) {
+                    return embed(TextSegment.from((String) input));
+                }
+                if (input instanceof TextSegment) {
+                    return embed((TextSegment) input);
+                }
+                throw new IllegalArgumentException("Input must be a String or TextSegment for embed operation");
+            }
+
+            if ("embedBatch".equals(operation)) {
+                if (!(input instanceof List)) {
+                    throw new IllegalArgumentException("Input must be a List for embedBatch operation");
+                }
+                List<?> inputs = (List<?>) input;
+                if (inputs.isEmpty()) {
+                    throw new IllegalArgumentException("Input list cannot be empty");
+                }
+
+                if (inputs.get(0) instanceof String) {
+                    List<TextSegment> segments = ((List<String>) input).stream()
+                            .map(TextSegment::from)
+                            .toList();
+                    return embedAll(segments);
+                }
+                if (inputs.get(0) instanceof TextSegment) {
+                    return embedAll((List<TextSegment>) input);
+                }
+                throw new IllegalArgumentException("Input must be a List of String or TextSegment for embedBatch operation");
+            }
+
+            throw new IllegalArgumentException("Unsupported operation: " + operation);
+        } catch (Exception e) {
+            throw new RuntimeException("Error executing operation: " + operation, e);
+        }
+    }
+
+    /**
+     * Gera um embedding para um único segmento de texto.
+     *
+     * @param text O segmento de texto a ser convertido em embedding
+     * @return Resposta contendo o embedding gerado
+     */
+    @Override
+    public Response<Embedding> embed(TextSegment text) {
+        return embeddingModel.embed(text);
+    }
+
+    /**
+     * Gera embeddings para uma lista de segmentos de texto.
+     *
+     * @param texts Lista de segmentos de texto a serem convertidos em embeddings
+     * @return Resposta contendo a lista de embeddings gerados
+     */
+    @Override
+    public Response<List<Embedding>> embedAll(List<TextSegment> texts) {
+        return embeddingModel.embedAll(texts);
+    }
+
+    /**
+     * Libera recursos utilizados pelo adapter.
+     *
+     * <p>Define o modelo e as configurações como null. Recursos internos do {@link OpenAiEmbeddingModel}
+     * (ex.: cliente HTTP) são gerenciados pelo LangChain4j.
+     */
+    @Override
+    public void shutdown() {
+        this.embeddingModel = null;
+        this.config = null;
+    }
+
+    public static class Factory implements LangChainAdapterFactory {
+        @Override
+        public String getProvider() {
+            return "openai";
+        }
+
+        @Override
+        public LangChainAdapter createAdapter(Map<String, Object> properties) {
+            OpenAiEmbeddingAdapter adapter = new OpenAiEmbeddingAdapter();
+            adapter.configure(properties);
+            return adapter;
+        }
+
+        @Override
+        public boolean supports(String type) {
+            return "embedding".equals(type);
+        }
+    }
+}
+
+// ==================================================
+// Arquivo: archflow-langchain4j/archflow-langchain4j-embedding-openai/src/main/java/br/com/archflow/langchain4j/embedding/openai/OpenAiEmbeddingAdapterFactory.java
+// ==================================================
+
+package br.com.archflow.langchain4j.embedding.openai;
+
+import br.com.archflow.langchain4j.core.spi.LangChainAdapter;
+import br.com.archflow.langchain4j.core.spi.LangChainAdapterFactory;
+
+import java.util.Map;
+
+/**
+ * Factory para criação do OpenAI Embedding Adapter.
+ * Registrada via SPI para descoberta automática.
+ */
+public class OpenAiEmbeddingAdapterFactory implements LangChainAdapterFactory {
+    @Override
+    public String getProvider() {
+        return "openai";
+    }
+
+    @Override
+    public LangChainAdapter createAdapter(Map<String, Object> properties) {
+        OpenAiEmbeddingAdapter adapter = new OpenAiEmbeddingAdapter();
+        adapter.configure(properties);
+        return adapter;
+    }
+
+    @Override
+    public boolean supports(String type) {
+        return "embedding".equals(type);
+    }
+}
+
+// ==================================================
+// Arquivo: archflow-langchain4j/archflow-langchain4j-embedding-openai/src/main/java/br/com/archflow/langchain4j/embedding/openai/package-info.java
+// ==================================================
+
+/**
+ * Package for archflow-langchain4j-openai adapters.
+ */
+package br.com.archflow.langchain4j.openai;
+
+
+// ==================================================
+// Arquivo: archflow-langchain4j/archflow-langchain4j-memory-redis/src/main/java/br/com/archflow/langchain4j/memory/redis/RedisMemoryAdapter.java
+// ==================================================
+
+package br.com.archflow.langchain4j.memory.redis;
+
+import br.com.archflow.langchain4j.core.spi.LangChainAdapter;
+import br.com.archflow.langchain4j.core.spi.LangChainAdapterFactory;
+import br.com.archflow.model.engine.ExecutionContext;
+import dev.langchain4j.data.message.AiMessage;
+import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.UserMessage;
+import redis.clients.jedis.JedisPool;
+import redis.clients.jedis.JedisPoolConfig;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+
+public class RedisMemoryAdapter implements LangChainAdapter {
+    private JedisPool jedisPool;
+    private String keyPrefix;
+    private int maxMessages;
+    private final ObjectMapper objectMapper;
+
+    public RedisMemoryAdapter() {
+        this.objectMapper = new ObjectMapper();
+    }
+
+    @Override
+    public void validate(Map<String, Object> properties) {
+        if (properties == null) {
+            throw new IllegalArgumentException("Properties cannot be null");
+        }
+
+        String host = (String) properties.get("redis.host");
+        if (host == null || host.trim().isEmpty()) {
+            throw new IllegalArgumentException("Redis host is required");
+        }
+
+        Object port = properties.get("redis.port");
+        if (port != null && !(port instanceof Number)) {
+            throw new IllegalArgumentException("Redis port must be a number");
+        }
+
+        Object maxMessages = properties.get("memory.maxMessages");
+        if (maxMessages != null && !(maxMessages instanceof Number)) {
+            throw new IllegalArgumentException("Max messages must be a number");
+        }
+    }
+
+    @Override
+    public void configure(Map<String, Object> properties) {
+        validate(properties);
+
+        String host = (String) properties.getOrDefault("redis.host", "localhost");
+        int port = (Integer) properties.getOrDefault("redis.port", 6379);
+        this.keyPrefix = (String) properties.getOrDefault("redis.prefix", "archflow:chat:");
+        this.maxMessages = (Integer) properties.getOrDefault("memory.maxMessages", 100);
+
+        JedisPoolConfig poolConfig = new JedisPoolConfig();
+        poolConfig.setMaxTotal(10);
+        poolConfig.setMaxIdle(5);
+        poolConfig.setMinIdle(1);
+        poolConfig.setTestOnBorrow(true);
+        poolConfig.setTestOnReturn(true);
+        poolConfig.setTestWhileIdle(true);
+
+        this.jedisPool = new JedisPool(poolConfig, host, port);
+    }
+
+    @Override
+    public Object execute(String operation, Object input, ExecutionContext context) throws Exception {
+        String conversationId = context.getState().getFlowId();
+
+        if ("add".equals(operation)) {
+            if (input instanceof ChatMessage message) {
+                addMessage(conversationId, message);
+                return null;
+            }
+            throw new IllegalArgumentException("Input must be a ChatMessage");
+        }
+
+        if ("get".equals(operation)) {
+            return getMessages(conversationId);
+        }
+
+        if ("clear".equals(operation)) {
+            clearMemory(conversationId);
+            return null;
+        }
+
+        throw new IllegalArgumentException("Unsupported operation: " + operation);
+    }
+
+    private void addMessage(String conversationId, ChatMessage message) throws Exception {
+        String key = keyPrefix + conversationId;
+        try (var jedis = jedisPool.getResource()) {
+            String json = serializeMessage(message);
+            jedis.lpush(key, json);
+            jedis.ltrim(key, 0, maxMessages - 1);
+        }
+    }
+
+    private List<ChatMessage> getMessages(String conversationId) throws Exception {
+        String key = keyPrefix + conversationId;
+        try (var jedis = jedisPool.getResource()) {
+            List<String> jsonMessages = jedis.lrange(key, 0, -1);
+            List<ChatMessage> messages = new ArrayList<>();
+
+            for (String json : jsonMessages) {
+                ChatMessage message = deserializeMessage(json);
+                if (message != null) {
+                    messages.add(message);
+                }
+            }
+
+            return messages;
+        }
+    }
+
+    private void clearMemory(String conversationId) {
+        String key = keyPrefix + conversationId;
+        try (var jedis = jedisPool.getResource()) {
+            jedis.del(key);
+        }
+    }
+
+    private String serializeMessage(ChatMessage message) throws Exception {
+        ObjectNode node = objectMapper.createObjectNode();
+
+        if (message instanceof UserMessage userMessage) {
+            node.put("type", "user");
+            node.put("content", userMessage.singleText());
+        } else if (message instanceof AiMessage aiMessage) {
+            node.put("type", "ai");
+            node.put("content", aiMessage.text());
+        } else {
+            throw new IllegalArgumentException("Unsupported message type: " + message.getClass());
+        }
+
+        return objectMapper.writeValueAsString(node);
+    }
+
+    private ChatMessage deserializeMessage(String json) throws Exception {
+        JsonNode node = objectMapper.readTree(json);
+        String type = node.get("type").asText();
+        String content = node.get("content").asText();
+
+        if ("user".equals(type)) {
+            return UserMessage.from(content);
+        } else if ("ai".equals(type)) {
+            return AiMessage.from(content);
+        } else {
+            throw new IllegalArgumentException("Unknown message type: " + type);
+        }
+    }
+
+    @Override
+    public void shutdown() {
+        if (jedisPool != null) {
+            jedisPool.close();
+        }
+    }
+
+    public static class Factory implements LangChainAdapterFactory {
+        @Override
+        public String getProvider() {
+            return "redis";
+        }
+
+        @Override
+        public LangChainAdapter createAdapter(Map<String, Object> properties) {
+            RedisMemoryAdapter adapter = new RedisMemoryAdapter();
+            adapter.configure(properties);
+            return adapter;
+        }
+
+        @Override
+        public boolean supports(String type) {
+            return "memory".equals(type);
+        }
+    }
+}
+
+// ==================================================
+// Arquivo: archflow-langchain4j/archflow-langchain4j-memory-redis/src/main/java/br/com/archflow/langchain4j/memory/redis/RedisMemoryAdapterFactory.java
+// ==================================================
+
+package br.com.archflow.langchain4j.memory.redis;
+
+import br.com.archflow.langchain4j.core.spi.LangChainAdapter;
+import br.com.archflow.langchain4j.core.spi.LangChainAdapterFactory;
+
+import java.util.Map;
+
+/**
+ * Factory para o adapter Redis
+ */
+public class RedisMemoryAdapterFactory implements LangChainAdapterFactory {
+    @Override
+    public String getProvider() {
+        return "redis";
+    }
+
+    @Override
+    public LangChainAdapter createAdapter(Map<String, Object> properties) {
+        RedisMemoryAdapter adapter = new RedisMemoryAdapter();
+        adapter.configure(properties);
+        return adapter;
+    }
+
+    @Override
+    public boolean supports(String type) {
+        return "memory".equals(type);
+    }
+}
+
+// ==================================================
+// Arquivo: archflow-langchain4j/archflow-langchain4j-memory-redis/src/main/java/br/com/archflow/langchain4j/memory/redis/package-info.java
+// ==================================================
+
+/**
+ * Package for archflow-langchain4j-model adapters.
+ */
+package br.com.archflow.langchain4j.vectorstore.redis;
+
+
+// ==================================================
+// Arquivo: archflow-langchain4j/archflow-langchain4j-anthropic/src/main/java/br/com/archflow/langchain4j/chain/rag/package-info.java
+// ==================================================
+
+/**
+ * Package for archflow-langchain4j-agent adapters.
+ */
+package br.com.archflow.langchain4j.chain.rag;
+
+
+// ==================================================
+// Arquivo: archflow-langchain4j/archflow-langchain4j-openai/src/main/java/br/com/archflow/langchain4j/openai/OpenAiAdapterFactory.java
+// ==================================================
+
+package br.com.archflow.langchain4j.openai;
+
+import br.com.archflow.langchain4j.core.spi.LangChainAdapter;
+import br.com.archflow.langchain4j.core.spi.LangChainAdapterFactory;
+
+import java.util.Map;
+
+/**
+ * Factory para o adapter OpenAI
+ */
+public class OpenAiAdapterFactory implements LangChainAdapterFactory {
+    @Override
+    public String getProvider() {
+        return "openai";
+    }
+
+    @Override
+    public LangChainAdapter createAdapter(Map<String, Object> properties) {
+        OpenAiChatAdapter adapter = new OpenAiChatAdapter();
+        adapter.configure(properties);
+        return adapter;
+    }
+
+    @Override
+    public boolean supports(String type) {
+        return "chat".equals(type) || "model".equals(type);
+    }
+}
+
+// ==================================================
+// Arquivo: archflow-langchain4j/archflow-langchain4j-openai/src/main/java/br/com/archflow/langchain4j/openai/OpenAiChatAdapter.java
+// ==================================================
+
+package br.com.archflow.langchain4j.openai;
+
+import br.com.archflow.langchain4j.core.spi.LangChainAdapter;
+import br.com.archflow.model.engine.ExecutionContext;
+import dev.langchain4j.data.message.UserMessage;
+import dev.langchain4j.model.chat.ChatLanguageModel;
+import dev.langchain4j.model.chat.response.ChatResponse;
+import dev.langchain4j.model.openai.OpenAiChatModel;
+import dev.langchain4j.memory.ChatMemory;
+
+import java.io.IOException;
+import java.util.Map;
+
+/**
+ * Adapter para integração com o modelo de chat da OpenAI no LangChain4j.
+ * Esta implementação permite interagir com modelos de linguagem da OpenAI, suportando geração de respostas simples e conversas com memória.
+ *
+ * <p>Este adapter é projetado para ser usado dentro do Archflow, integrando-se ao framework via SPI e oferecendo suporte a dois tipos de operações:
+ * <ul>
+ *   <li>{@code generate} - Gera uma resposta única a partir de uma entrada de texto</li>
+ *   <li>{@code chat} - Realiza uma conversa mantendo o contexto através de memória</li>
+ * </ul>
+ *
+ * <p>Exemplo de configuração:
+ * <pre>{@code
+ * Map<String, Object> config = Map.of(
+ *     "api.key", "sua-chave-api-openai",    // Chave de API da OpenAI
+ *     "model.name", "gpt-4",                // Nome do modelo (opcional, default: gpt-3.5-turbo)
+ *     "temperature", 0.9                    // Temperatura para controle de criatividade (opcional, default: 0.7)
+ * );
+ * }</pre>
+ *
+ * @see LangChainAdapter
+ * @see OpenAiChatModel
+ */
+public class OpenAiChatAdapter implements LangChainAdapter {
+    private ChatLanguageModel model;
+    private Map<String, Object> config;
+
+    /**
+     * Valida as configurações fornecidas para o adapter.
+     *
+     * <p>Verifica se as propriedades obrigatórias (como a chave de API) estão presentes e se os valores opcionais
+     * (como nome do modelo e temperatura) estão dentro dos limites aceitáveis.
+     *
+     * @param properties Map com as configurações, incluindo "api.key", "model.name" (opcional) e "temperature" (opcional)
+     * @throws IllegalArgumentException se as configurações forem inválidas ou ausentes
+     */
+    @Override
+    public void validate(Map<String, Object> properties) {
+        if (properties == null) {
+            throw new IllegalArgumentException("Properties cannot be null");
+        }
+
+        String apiKey = (String) properties.get("api.key");
+        if (apiKey == null || apiKey.trim().isEmpty()) {
+            throw new IllegalArgumentException("OpenAI API key is required");
+        }
+
+        String modelName = (String) properties.getOrDefault("model.name", "gpt-3.5-turbo");
+        if (modelName == null || modelName.trim().isEmpty()) {
+            throw new IllegalArgumentException("Model name cannot be empty");
+        }
+
+        Object temperature = properties.get("temperature");
+        if (temperature != null) {
+            if (!(temperature instanceof Number)) {
+                throw new IllegalArgumentException("Temperature must be a number");
+            }
+            double temp = ((Number) temperature).doubleValue();
+            if (temp < 0.0 || temp > 2.0) {
+                throw new IllegalArgumentException("Temperature must be between 0.0 and 2.0");
+            }
+        }
+    }
+
+    /**
+     * Configura o adapter com as propriedades especificadas.
+     *
+     * <p>Requer as seguintes configurações:
+     * <ul>
+     *   <li>{@code api.key} - Chave de API da OpenAI</li>
+     * </ul>
+     * <p>Configurações opcionais:
+     * <ul>
+     *   <li>{@code model.name} - Nome do modelo OpenAI (default: "gpt-3.5-turbo")</li>
+     *   <li>{@code temperature} - Temperatura para controle de criatividade (default: 0.7)</li>
+     * </ul>
+     *
+     * @param properties Map com as configurações
+     * @throws IllegalArgumentException se alguma configuração obrigatória estiver faltando ou for inválida
+     */
+    @Override
+    public void configure(Map<String, Object> properties) {
+        validate(properties);
+        this.config = properties;
+
+        String apiKey = (String) properties.get("api.key");
+        String modelName = (String) properties.getOrDefault("model.name", "gpt-3.5-turbo");
+        Double temperature = (Double) properties.getOrDefault("temperature", 0.7);
+
+        this.model = OpenAiChatModel.builder()
+                .apiKey(apiKey)
+                .modelName(modelName)
+                .temperature(temperature)
+                .build();
+    }
+
+    /**
+     * Executa operações no modelo de chat da OpenAI.
+     *
+     * <p>Operações suportadas:
+     * <ul>
+     *   <li>{@code generate} - Gera uma resposta única a partir de uma mensagem de entrada</li>
+     *   <li>{@code chat} - Realiza uma interação conversacional mantendo o contexto na memória</li>
+     * </ul>
+     *
+     * @param operation Nome da operação ("generate" ou "chat")
+     * @param input     Para "generate" ou "chat": String com a mensagem do usuário
+     * @param context   Contexto de execução, necessário para "chat" para acessar a memória
+     * @return Para "generate": {@link ChatResponse} com a resposta do modelo
+     *         Para "chat": {@link ChatResponse} com a resposta do modelo e memória atualizada
+     * @throws IllegalArgumentException se a operação for inválida ou o input estiver no formato incorreto
+     * @throws IllegalStateException se o adapter não estiver configurado ou a memória estiver ausente para "chat"
+     * @throws RuntimeException se ocorrer um erro durante a execução (ex.: falha de rede)
+     */
+    @Override
+    public synchronized Object execute(String operation, Object input, ExecutionContext context) throws Exception {
+        if (model == null) {
+            throw new IllegalStateException("Adapter not configured. Call configure() first.");
+        }
+
+        try {
+            if ("generate".equals(operation)) {
+                if (!(input instanceof String)) {
+                    throw new IllegalArgumentException("Input must be a string for 'generate' operation");
+                }
+                UserMessage userMessage = UserMessage.from((String) input);
+                return model.chat(userMessage);
+            }
+
+            if ("chat".equals(operation)) {
+                if (!(input instanceof String)) {
+                    throw new IllegalArgumentException("Chat input must be a string");
+                }
+
+                ChatMemory memory = context.getChatMemory();
+                if (memory == null) {
+                    throw new IllegalStateException("Chat memory not available in context");
+                }
+
+                UserMessage userMessage = UserMessage.from((String) input);
+                memory.add(userMessage);
+                ChatResponse response = model.chat(userMessage);
+                memory.add(response.aiMessage());
+                return response;
+            }
+
+            throw new IllegalArgumentException("Unsupported operation: " + operation);
+        } catch (Exception e) {
+            throw new RuntimeException("Error executing operation: " + operation, e);
+        }
+    }
+
+    /**
+     * Libera recursos utilizados pelo adapter.
+     *
+     * <p>Define o modelo e as configurações como null, permitindo que o garbage collector os libere.
+     * Não há garantia de que recursos internos do {@link OpenAiChatModel} sejam fechados.
+     */
+    @Override
+    public void shutdown() {
+        this.model = null;
+        this.config = null;
+    }
+}
+
+// ==================================================
+// Arquivo: archflow-langchain4j/archflow-langchain4j-openai/src/main/java/br/com/archflow/langchain4j/openai/package-info.java
+// ==================================================
+
+/**
+ * Package for archflow-langchain4j-openai adapters.
+ */
+package br.com.archflow.langchain4j.embedding.openai;
+
+
+// ==================================================
+// Arquivo: archflow-langchain4j/archflow-langchain4j-core/src/main/java/br/com/archflow/langchain4j/core/spi/LangChainRegistry.java
+// ==================================================
+
+package br.com.archflow.langchain4j.core.spi;
+
+import java.util.HashSet;
+import java.util.Map;
+import java.util.ServiceLoader;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+
+/**
+ * Registry central para descoberta e criação de adapters
+ */
+public class LangChainRegistry {
+    private static final Map<String, LangChainAdapterFactory> factories = new ConcurrentHashMap<>();
+    
+    static {
+        // Carrega factories via SPI
+        ServiceLoader<LangChainAdapterFactory> loader = ServiceLoader.load(LangChainAdapterFactory.class);
+        for (LangChainAdapterFactory factory : loader) {
+            factories.put(factory.getProvider(), factory);
+        }
+    }
+    
+    public static LangChainAdapter createAdapter(String provider, String type, Map<String, Object> properties) {
+        LangChainAdapterFactory factory = factories.get(provider);
+        if (factory == null) {
+            throw new IllegalArgumentException("Provider not found: " + provider);
+        }
+        
+        if (!factory.supports(type)) {
+            throw new IllegalArgumentException(
+                String.format("Provider %s does not support type %s", provider, type));
+        }
+        
+        return factory.createAdapter(properties);
+    }
+
+    /**
+     * Verifica se um provider está disponível
+     */
+    public static boolean hasProvider(String provider) {
+        return factories.containsKey(provider);
+    }
+
+    /**
+     * Lista todos os providers disponíveis
+     */
+    public static Set<String> getAvailableProviders() {
+        return new HashSet<>(factories.keySet());
+    }
+}
+
+// ==================================================
+// Arquivo: archflow-langchain4j/archflow-langchain4j-core/src/main/java/br/com/archflow/langchain4j/core/spi/LangChainAdapterFactory.java
+// ==================================================
+
+package br.com.archflow.langchain4j.core.spi;
+
+import java.util.Map;
+
+/**
+ * Factory para criação de adapters via SPI
+ */
+public interface LangChainAdapterFactory {
+    /**
+     * Retorna o identificador do provider
+     */
+    String getProvider();
+    
+    /**
+     * Cria uma nova instância do adapter
+     */
+    LangChainAdapter createAdapter(Map<String, Object> properties);
+    
+    /**
+     * Verifica se o factory suporta o tipo especificado
+     */
+    boolean supports(String type);
+}
+
+// ==================================================
+// Arquivo: archflow-langchain4j/archflow-langchain4j-core/src/main/java/br/com/archflow/langchain4j/core/spi/LangChainAdapter.java
+// ==================================================
+
+package br.com.archflow.langchain4j.core.spi;
 
 import br.com.archflow.model.engine.ExecutionContext;
 
@@ -1189,73 +2335,24 @@ public interface LangChainAdapter {
 }
 
 // ==================================================
-// Arquivo: archflow-langchain4j/archflow-langchain4j-core/src/main/java/br/com/archflow/langchain4j/core/BaseAdapter.java
+// Arquivo: archflow-langchain4j/archflow-langchain4j-core/src/main/java/br/com/archflow/langchain4j/core/exception/LangChainAdapterException.java
 // ==================================================
 
-package br.com.archflow.langchain4j.core;
+package br.com.archflow.langchain4j.core.exception;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import java.util.HashMap;
-import java.util.Map;
-
-public abstract class BaseAdapter implements LangChainAdapter {
-    protected final Logger logger = LoggerFactory.getLogger(getClass());
-    protected Map<String, Object> configuration;
-    
-    @Override
-    public void configure(Map<String, Object> properties) {
-        validate(properties);
-        this.configuration = new HashMap<>(properties);
-        doConfigure(properties);
-    }
-    
-    @Override
-    public void validate(Map<String, Object> properties) {
-        if (properties == null) {
-            throw new IllegalArgumentException("Configuration properties cannot be null");
-        }
+/**
+ * Exceção base para erros dos adapters
+ */
+public class LangChainAdapterException extends RuntimeException {
+    public LangChainAdapterException(String message) {
+        super(message);
     }
 
-    @Override
-    public void shutdown() {
-        // Base implementation - can be overridden if needed
-    }
-
-    /**
-     * Template method for specific adapter configuration
-     */
-    protected abstract void doConfigure(Map<String, Object> properties);
-
-    /**
-     * Helper method to get typed configuration value
-     */
-    protected <T> T getConfigValue(String key, Class<T> type, T defaultValue) {
-        Object value = configuration.get(key);
-        if (value == null) {
-            return defaultValue;
-        }
-        try {
-            if (type.isInstance(value)) {
-                return type.cast(value);
-            }
-            if (type == Integer.class && value instanceof Number) {
-                return type.cast(((Number) value).intValue());
-            }
-            if (type == Double.class && value instanceof Number) {
-                return type.cast(((Number) value).doubleValue());
-            }
-            if (type == Boolean.class && value instanceof String) {
-                return type.cast(Boolean.valueOf((String) value));
-            }
-            return type.cast(value);
-        } catch (ClassCastException e) {
-            logger.warn("Invalid type for key {}: expected {}, got {}", key, type, value.getClass());
-            return defaultValue;
-        }
+    public LangChainAdapterException(String message, Throwable cause) {
+        super(message, cause);
     }
 }
+
 
 // ==================================================
 // Arquivo: archflow-langchain4j/archflow-langchain4j-core/src/main/java/br/com/archflow/langchain4j/core/package-info.java
@@ -1268,13 +2365,1325 @@ package br.com.archflow.langchain4j.core;
 
 
 // ==================================================
-// Arquivo: archflow-langchain4j/archflow-langchain4j-document/src/main/java/br/com/archflow/langchain4j/document/package-info.java
+// Arquivo: archflow-langchain4j/archflow-langchain4j-chain-rag/src/main/java/br/com/archflow/langchain4j/chain/rag/RagChainAdapter.java
+// ==================================================
+
+package br.com.archflow.langchain4j.chain.rag;
+
+import br.com.archflow.langchain4j.core.spi.LangChainAdapter;
+import br.com.archflow.langchain4j.core.spi.LangChainAdapterFactory;
+import br.com.archflow.langchain4j.core.spi.LangChainRegistry;
+import br.com.archflow.model.engine.ExecutionContext;
+import dev.langchain4j.chain.ConversationalChain;
+import dev.langchain4j.data.segment.TextSegment;
+import dev.langchain4j.model.chat.ChatLanguageModel;
+import dev.langchain4j.model.embedding.EmbeddingModel;
+import dev.langchain4j.store.embedding.EmbeddingMatch;
+import dev.langchain4j.store.embedding.EmbeddingSearchRequest;
+import dev.langchain4j.store.embedding.EmbeddingStore;
+
+import java.io.IOException;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * Adapter para Retrieval Augmented Generation (RAG) Chain do LangChain4j.
+ * Esta implementação permite combinar diferentes providers para embeddings, vector store e modelos de linguagem.
+ *
+ * <p>O RAG combina três componentes principais:
+ * <ul>
+ *   <li>Embedding Model - para vetorização de texto</li>
+ *   <li>Vector Store - para armazenamento e busca de embeddings</li>
+ *   <li>Language Model - para geração de respostas</li>
+ * </ul>
+ *
+ * <p>Exemplo de configuração:
+ * <pre>{@code
+ * Map<String, Object> config = Map.of(
+ *     "embedding.provider", "openai",           // Provider para embeddings
+ *     "vectorstore.provider", "redis",          // Provider para vector store
+ *     "languagemodel.provider", "anthropic",    // Provider para modelo de linguagem
+ *     "retriever.maxResults", 2,                // Máximo de resultados por busca
+ *     "retriever.minScore", 0.7                 // Score mínimo de similaridade
+ * );
+ * }</pre>
+ *
+ * <p>Providers suportados dependem dos adapters disponíveis no classpath e são descobertos via SPI.
+ *
+ * @see LangChainAdapter
+ * @see LangChainRegistry
+ */
+public class RagChainAdapter implements LangChainAdapter {
+    private volatile ConversationalChain chain; // volatile para visibilidade em multi-threading
+    private volatile EmbeddingModel embeddingModel;
+    private volatile EmbeddingStore<TextSegment> embeddingStore;
+    private Map<String, Object> config;
+
+    /**
+     * Valida as configurações fornecidas.
+     *
+     * @param properties Map com as configurações
+     * @throws IllegalArgumentException se as configurações forem inválidas
+     */
+    @Override
+    public void validate(Map<String, Object> properties) {
+        if (properties == null) {
+            throw new IllegalArgumentException("Properties cannot be null");
+        }
+
+        validateEmbeddingConfig(properties);
+        validateVectorStoreConfig(properties);
+        validateLanguageModelConfig(properties);
+
+        // Validação de parâmetros opcionais
+        Object maxResults = properties.get("retriever.maxResults");
+        if (maxResults != null) {
+            if (!(maxResults instanceof Integer) || (Integer) maxResults < 1) {
+                throw new IllegalArgumentException("retriever.maxResults must be a positive integer");
+            }
+        }
+
+        Object minScore = properties.get("retriever.minScore");
+        if (minScore != null) {
+            if (!(minScore instanceof Number) || ((Number) minScore).doubleValue() < 0.0 || ((Number) minScore).doubleValue() > 1.0) {
+                throw new IllegalArgumentException("retriever.minScore must be a number between 0.0 and 1.0");
+            }
+        }
+    }
+
+    private void validateEmbeddingConfig(Map<String, Object> properties) {
+        String embeddingProvider = (String) properties.get("embedding.provider");
+        if (embeddingProvider == null || embeddingProvider.trim().isEmpty()) {
+            throw new IllegalArgumentException("Embedding provider is required");
+        }
+        if (!LangChainRegistry.hasProvider(embeddingProvider)) {
+            throw new IllegalArgumentException("Unsupported embedding provider: " + embeddingProvider);
+        }
+    }
+
+    private void validateVectorStoreConfig(Map<String, Object> properties) {
+        String vectorStoreProvider = (String) properties.get("vectorstore.provider");
+        if (vectorStoreProvider == null || vectorStoreProvider.trim().isEmpty()) {
+            throw new IllegalArgumentException("Vector store provider is required");
+        }
+        if (!LangChainRegistry.hasProvider(vectorStoreProvider)) {
+            throw new IllegalArgumentException("Unsupported vector store provider: " + vectorStoreProvider);
+        }
+    }
+
+    private void validateLanguageModelConfig(Map<String, Object> properties) {
+        String languageModelProvider = (String) properties.get("languagemodel.provider");
+        if (languageModelProvider == null || languageModelProvider.trim().isEmpty()) {
+            throw new IllegalArgumentException("Language model provider is required");
+        }
+        if (!LangChainRegistry.hasProvider(languageModelProvider)) {
+            throw new IllegalArgumentException("Unsupported language model provider: " + languageModelProvider);
+        }
+    }
+
+    /**
+     * Configura o adapter com os providers especificados.
+     *
+     * <p>Requer as seguintes configurações:
+     * <ul>
+     *   <li>{@code embedding.provider} - Provider para modelo de embeddings</li>
+     *   <li>{@code vectorstore.provider} - Provider para vector store</li>
+     *   <li>{@code languagemodel.provider} - Provider para modelo de linguagem</li>
+     * </ul>
+     *
+     * <p>Configurações opcionais:
+     * <ul>
+     *   <li>{@code retriever.maxResults} - Número máximo de resultados (default: 2)</li>
+     *   <li>{@code retriever.minScore} - Score mínimo de similaridade (default: 0.7)</li>
+     * </ul>
+     *
+     * @param properties Map com as configurações
+     * @throws IllegalArgumentException se alguma configuração obrigatória estiver faltando
+     */
+    @Override
+    public void configure(Map<String, Object> properties) {
+        validate(properties);
+        this.config = properties;
+
+        // Obtém embedding model
+        LangChainAdapter embeddingAdapter = LangChainRegistry.createAdapter(
+                (String) properties.get("embedding.provider"), "embedding", properties);
+        if (!(embeddingAdapter instanceof EmbeddingModel)) {
+            throw new IllegalStateException("Provider " + properties.get("embedding.provider") + " does not return an EmbeddingModel");
+        }
+        this.embeddingModel = (EmbeddingModel) embeddingAdapter;
+
+        // Obtém vector store
+        LangChainAdapter vectorStoreAdapter = LangChainRegistry.createAdapter(
+                (String) properties.get("vectorstore.provider"), "vectorstore", properties);
+        if (!(vectorStoreAdapter instanceof EmbeddingStore)) {
+            throw new IllegalStateException("Provider " + properties.get("vectorstore.provider") + " does not return an EmbeddingStore");
+        }
+        this.embeddingStore = (EmbeddingStore<TextSegment>) vectorStoreAdapter;
+
+        // Obtém language model
+        LangChainAdapter languageModelAdapter = LangChainRegistry.createAdapter(
+                (String) properties.get("languagemodel.provider"), "chat", properties);
+        if (!(languageModelAdapter instanceof ChatLanguageModel)) {
+            throw new IllegalStateException("Provider " + properties.get("languagemodel.provider") + " does not return a ChatLanguageModel");
+        }
+        ChatLanguageModel languageModel = (ChatLanguageModel) languageModelAdapter;
+
+        // Configura a chain
+        this.chain = ConversationalChain.builder()
+                .chatLanguageModel(languageModel)
+                .build();
+    }
+
+    /**
+     * Executa operações no RAG Chain.
+     *
+     * <p>Operações suportadas:
+     * <ul>
+     *   <li>{@code query} - Executa uma consulta na base de conhecimento</li>
+     *   <li>{@code addDocuments} - Adiciona documentos à base de conhecimento</li>
+     * </ul>
+     *
+     * @param operation Nome da operação
+     * @param input     Para "query": String com a pergunta
+     *                  Para "addDocuments": List<TextSegment> com os documentos
+     * @param context   Contexto de execução
+     * @return Para "query": String com a resposta
+     *         Para "addDocuments": null
+     * @throws IllegalArgumentException se a operação for inválida
+     * @throws IllegalStateException    se o adapter não estiver configurado
+     */
+    @Override
+    public synchronized Object execute(String operation, Object input, ExecutionContext context) throws Exception {
+        if (chain == null || embeddingModel == null || embeddingStore == null) {
+            throw new IllegalStateException("Chain, embedding model, or embedding store not configured. Call configure() first.");
+        }
+
+        try {
+            if ("query".equals(operation)) {
+                if (!(input instanceof String)) {
+                    throw new IllegalArgumentException("Input must be a string for query operation");
+                }
+
+                String query = (String) input;
+                int maxResults = (Integer) config.getOrDefault("retriever.maxResults", 2);
+                double minScore = (Double) config.getOrDefault("retriever.minScore", 0.7);
+
+                // Gera embedding da query
+                var queryEmbedding = embeddingModel.embed(TextSegment.from(query)).content();
+
+                // Busca documentos similares
+                var searchRequest = EmbeddingSearchRequest.builder()
+                        .queryEmbedding(queryEmbedding)
+                        .maxResults(maxResults)
+                        .minScore(minScore)
+                        .build();
+
+                var searchResult = embeddingStore.search(searchRequest);
+                List<EmbeddingMatch<TextSegment>> relevantDocs = searchResult.matches();
+
+                // Constrói o prompt com os documentos relevantes
+                String contextPrompt = relevantDocs.stream()
+                        .map(match -> match.embedded().text())
+                        .reduce((a, b) -> a + "\n" + b)
+                        .orElse("");
+
+                String augmentedPrompt = String.format("""
+                        Based on the following context:
+                        ---
+                        %s
+                        ---
+                        Please answer the question: %s
+                        """, contextPrompt, query);
+
+                // Gera resposta
+                return chain.execute(augmentedPrompt);
+            }
+
+            if ("addDocuments".equals(operation)) {
+                if (!(input instanceof List<?>)) {
+                    throw new IllegalArgumentException("Input must be a List<TextSegment> for addDocuments operation");
+                }
+
+                List<TextSegment> documents = (List<TextSegment>) input;
+                var embeddings = embeddingModel.embedAll(documents).content();
+                embeddingStore.addAll(embeddings, documents);
+                return null;
+            }
+
+            throw new IllegalArgumentException("Unsupported operation: " + operation);
+        } catch (Exception e) {
+            throw new RuntimeException("Error executing operation: " + operation, e);
+        }
+    }
+
+    /**
+     * Libera recursos utilizados pelo adapter.
+     */
+    @Override
+    public void shutdown() {
+        this.chain = null;
+        this.embeddingModel = null;
+        if (embeddingStore instanceof AutoCloseable) {
+            try {
+                ((AutoCloseable) embeddingStore).close();
+            } catch (Exception e) {
+                // Logar o erro, se houver sistema de log
+            }
+        }
+        this.embeddingStore = null;
+        this.config = null;
+    }
+
+    public static class Factory implements LangChainAdapterFactory {
+        @Override
+        public String getProvider() {
+            return "rag";
+        }
+
+        @Override
+        public LangChainAdapter createAdapter(Map<String, Object> properties) {
+            RagChainAdapter adapter = new RagChainAdapter();
+            adapter.configure(properties);
+            return adapter;
+        }
+
+        @Override
+        public boolean supports(String type) {
+            return "chain".equals(type);
+        }
+    }
+}
+
+// ==================================================
+// Arquivo: archflow-langchain4j/archflow-langchain4j-chain-rag/src/main/java/br/com/archflow/langchain4j/chain/rag/RagChainAdapterFactory.java
+// ==================================================
+
+package br.com.archflow.langchain4j.chain.rag;
+
+import br.com.archflow.langchain4j.core.spi.LangChainAdapter;
+import br.com.archflow.langchain4j.core.spi.LangChainAdapterFactory;
+
+import java.util.Map;
+
+/**
+ * Factory para criação do RAG Chain Adapter.
+ * Registrada via SPI para descoberta automática.
+ */
+public class RagChainAdapterFactory implements LangChainAdapterFactory {
+    @Override
+    public String getProvider() {
+        return "rag";
+    }
+
+    @Override
+    public LangChainAdapter createAdapter(Map<String, Object> properties) {
+        RagChainAdapter adapter = new RagChainAdapter();
+        adapter.configure(properties);
+        return adapter;
+    }
+
+    @Override
+    public boolean supports(String type) {
+        return "chain".equals(type);
+    }
+}
+
+// ==================================================
+// Arquivo: archflow-langchain4j/archflow-langchain4j-chain-rag/src/main/java/br/com/archflow/langchain4j/chain/rag/package-info.java
 // ==================================================
 
 /**
- * Package for archflow-langchain4j-document adapters.
+ * Package for archflow-langchain4j-agent adapters.
  */
-package br.com.archflow.langchain4j.document;
+package br.com.archflow.langchain4j.chain.rag;
+
+
+// ==================================================
+// Arquivo: archflow-langchain4j/archflow-langchain4j-vectorstore-pgvector/src/main/java/br/com/archflow/langchain4j/vectorstore/pgvector/PgVectorStoreAdapter.java
+// ==================================================
+
+package br.com.archflow.langchain4j.vectorstore.pgvector;
+
+import br.com.archflow.langchain4j.core.spi.LangChainAdapter;
+import br.com.archflow.langchain4j.core.spi.LangChainAdapterFactory;
+import br.com.archflow.model.engine.ExecutionContext;
+import com.zaxxer.hikari.HikariConfig;
+import com.zaxxer.hikari.HikariDataSource;
+import dev.langchain4j.data.embedding.Embedding;
+import dev.langchain4j.data.segment.TextSegment;
+import dev.langchain4j.store.embedding.EmbeddingMatch;
+import dev.langchain4j.store.embedding.EmbeddingSearchRequest;
+import dev.langchain4j.store.embedding.EmbeddingSearchResult;
+import dev.langchain4j.store.embedding.filter.Filter;
+
+import java.sql.*;
+import java.util.*;
+
+/**
+ * Adapter para armazenamento e busca de embeddings usando PgVector no PostgreSQL.
+ * Suporta filtros por metadados e remoção de embeddings.
+ *
+ * <p>Exemplo de configuração:
+ * <pre>{@code
+ * Map<String, Object> config = Map.of(
+ *     "pgvector.jdbcUrl", "jdbc:postgresql://localhost:5432/archflow", // URL do banco
+ *     "pgvector.username", "postgres",                                 // Usuário do banco
+ *     "pgvector.password", "password",                                 // Senha do banco
+ *     "pgvector.table", "embeddings",                                  // Nome da tabela (opcional)
+ *     "pgvector.dimension", 1536                                       // Dimensão dos vetores
+ * );
+ * }</pre>
+ */
+public class PgVectorStoreAdapter implements LangChainAdapter, dev.langchain4j.store.embedding.EmbeddingStore<TextSegment>, AutoCloseable {
+    private volatile HikariDataSource dataSource;
+    private String tableName;
+    private int dimension;
+    private Map<String, Object> config;
+
+    @Override
+    public void validate(Map<String, Object> properties) {
+        if (properties == null) {
+            throw new IllegalArgumentException("Properties cannot be null");
+        }
+
+        String jdbcUrl = (String) properties.get("pgvector.jdbcUrl");
+        if (jdbcUrl == null || jdbcUrl.trim().isEmpty()) {
+            throw new IllegalArgumentException("PgVector JDBC URL is required");
+        }
+
+        String username = (String) properties.get("pgvector.username");
+        if (username == null || username.trim().isEmpty()) {
+            throw new IllegalArgumentException("PgVector username is required");
+        }
+
+        String password = (String) properties.get("pgvector.password");
+        if (password == null) {
+            throw new IllegalArgumentException("PgVector password is required");
+        }
+
+        String tableName = (String) properties.get("pgvector.table");
+        if (tableName != null && tableName.trim().isEmpty()) {
+            throw new IllegalArgumentException("PgVector table name cannot be empty if provided");
+        }
+
+        Object dimension = properties.get("pgvector.dimension");
+        if (dimension == null || !(dimension instanceof Number) || ((Number) dimension).intValue() <= 0) {
+            throw new IllegalArgumentException("Vector dimension is required and must be a positive number");
+        }
+    }
+
+    @Override
+    public void configure(Map<String, Object> properties) {
+        validate(properties);
+        this.config = properties;
+
+        String jdbcUrl = (String) properties.get("pgvector.jdbcUrl");
+        String username = (String) properties.get("pgvector.username");
+        String password = (String) properties.get("pgvector.password");
+        this.tableName = (String) properties.getOrDefault("pgvector.table", "embeddings");
+        this.dimension = (Integer) properties.get("pgvector.dimension");
+
+        HikariConfig hikariConfig = new HikariConfig();
+        hikariConfig.setJdbcUrl(jdbcUrl);
+        hikariConfig.setUsername(username);
+        hikariConfig.setPassword(password);
+        hikariConfig.setMaximumPoolSize((Integer) properties.getOrDefault("pgvector.pool.maxSize", 8));
+        hikariConfig.setMinimumIdle((Integer) properties.getOrDefault("pgvector.pool.minIdle", 0));
+        hikariConfig.setDriverClassName("org.postgresql.Driver");
+
+        this.dataSource = new HikariDataSource(hikariConfig);
+
+        createTableIfNotExists();
+    }
+
+    private void createTableIfNotExists() {
+        try (Connection conn = dataSource.getConnection();
+             Statement stmt = conn.createStatement()) {
+            stmt.execute("CREATE EXTENSION IF NOT EXISTS vector");
+            String createTableSql = String.format(
+                    "CREATE TABLE IF NOT EXISTS %s ("
+                            + "id VARCHAR(36) PRIMARY KEY, "
+                            + "embedding vector(%d), "
+                            + "text TEXT)",
+                    tableName, dimension
+            );
+            stmt.execute(createTableSql);
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to initialize PgVector table", e);
+        }
+    }
+
+    @Override
+    public void add(String id, Embedding embedding) {
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(
+                     String.format("INSERT INTO %s (id, embedding) VALUES (?, ?::vector) ON CONFLICT (id) DO UPDATE SET embedding = EXCLUDED.embedding", tableName))) {
+            stmt.setString(1, id);
+            stmt.setString(2, vectorToString(embedding.vector()));
+            stmt.executeUpdate();
+        } catch (SQLException e) {
+            throw new RuntimeException("Error adding embedding to PgVector", e);
+        }
+    }
+
+    @Override
+    public String add(Embedding embedding) {
+        return add(embedding, null);
+    }
+
+    @Override
+    public String add(Embedding embedding, TextSegment embedded) {
+        String id = UUID.randomUUID().toString();
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(
+                     String.format("INSERT INTO %s (id, embedding, text) VALUES (?, ?::vector, ?) ON CONFLICT (id) DO UPDATE SET embedding = EXCLUDED.embedding, text = EXCLUDED.text", tableName))) {
+            stmt.setString(1, id);
+            stmt.setString(2, vectorToString(embedding.vector()));
+            stmt.setString(3, embedded != null ? embedded.text() : null);
+            stmt.executeUpdate();
+        } catch (SQLException e) {
+            throw new RuntimeException("Error adding embedding to PgVector", e);
+        }
+        return id;
+    }
+
+    @Override
+    public List<String> addAll(List<Embedding> embeddings) {
+        List<String> ids = generateIds(embeddings.size());
+        addAll(ids, embeddings, null);
+        return ids;
+    }
+
+    @Override
+    public void addAll(List<String> ids, List<Embedding> embeddings, List<TextSegment> embedded) {
+        if (ids.size() != embeddings.size() || (embedded != null && embedded.size() != ids.size())) {
+            throw new IllegalArgumentException("All lists must have the same size");
+        }
+
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(
+                     String.format("INSERT INTO %s (id, embedding, text) VALUES (?, ?::vector, ?) ON CONFLICT (id) DO UPDATE SET embedding = EXCLUDED.embedding, text = EXCLUDED.text", tableName))) {
+            conn.setAutoCommit(false);
+            for (int i = 0; i < ids.size(); i++) {
+                stmt.setString(1, ids.get(i));
+                stmt.setString(2, vectorToString(embeddings.get(i).vector()));
+                stmt.setString(3, embedded != null ? embedded.get(i).text() : null);
+                stmt.addBatch();
+            }
+            stmt.executeBatch();
+            conn.commit();
+        } catch (SQLException e) {
+            throw new RuntimeException("Error adding embeddings batch to PgVector", e);
+        }
+    }
+
+    @Override
+    public EmbeddingSearchResult<TextSegment> search(EmbeddingSearchRequest request) {
+        try (Connection conn = dataSource.getConnection()) {
+            StringBuilder sql = new StringBuilder(
+                    String.format("SELECT id, embedding, text, embedding <=> ?::vector AS distance FROM %s", tableName)
+            );
+            Filter filter = request.filter();
+            if (filter != null) {
+                sql.append(" WHERE ").append(buildFilterCondition(filter));
+            }
+            sql.append(" ORDER BY distance LIMIT ?");
+
+            try (PreparedStatement stmt = conn.prepareStatement(sql.toString())) {
+                stmt.setString(1, vectorToString(request.queryEmbedding().vector()));
+                stmt.setInt(2, request.maxResults());
+
+                ResultSet rs = stmt.executeQuery();
+                List<EmbeddingMatch<TextSegment>> matches = new ArrayList<>();
+
+                while (rs.next()) {
+                    String id = rs.getString("id");
+                    String embeddingStr = rs.getString("embedding");
+                    String text = rs.getString("text");
+                    double distance = rs.getDouble("distance");
+                    double score = 1 - distance; // Converter distância para similaridade
+
+                    if (score >= request.minScore()) {
+                        float[] vector = parseVector(embeddingStr);
+                        Embedding embedding = new Embedding(vector);
+                        TextSegment textSegment = text != null ? TextSegment.from(text) : null;
+                        matches.add(new EmbeddingMatch<>(score, id, embedding, textSegment));
+                    }
+                }
+
+                return new EmbeddingSearchResult<>(matches);
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("Error searching embeddings in PgVector", e);
+        }
+    }
+
+    // Método para construir condições de filtro (simples, suporta apenas "text" por agora)
+    private String buildFilterCondition(Filter filter) {
+        // Suporta apenas filtros simples como Equals para "text"
+        // Para filtros mais complexos, precisaria de uma implementação mais robusta
+        if (filter instanceof dev.langchain4j.store.embedding.filter.comparison.IsEqualTo) {
+            dev.langchain4j.store.embedding.filter.comparison.IsEqualTo eq = (dev.langchain4j.store.embedding.filter.comparison.IsEqualTo) filter;
+            if ("text".equals(eq.key())) {
+                return String.format("text = '%s'", eq.comparisonValue().toString().replace("'", "''"));
+            }
+        }
+        throw new UnsupportedOperationException("Only simple text equality filters are supported");
+    }
+
+    // Métodos de remoção
+    public void remove(String id) {
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(
+                     String.format("DELETE FROM %s WHERE id = ?", tableName))) {
+            stmt.setString(1, id);
+            stmt.executeUpdate();
+        } catch (SQLException e) {
+            throw new RuntimeException("Error removing embedding from PgVector", e);
+        }
+    }
+
+    public void removeAll(List<String> ids) {
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(
+                     String.format("DELETE FROM %s WHERE id = ANY(?)", tableName))) {
+            Array array = conn.createArrayOf("varchar", ids.toArray());
+            stmt.setArray(1, array);
+            stmt.executeUpdate();
+        } catch (SQLException e) {
+            throw new RuntimeException("Error removing embeddings from PgVector", e);
+        }
+    }
+
+    public void removeAll() {
+        try (Connection conn = dataSource.getConnection();
+             Statement stmt = conn.createStatement()) {
+            stmt.execute(String.format("DELETE FROM %s", tableName));
+        } catch (SQLException e) {
+            throw new RuntimeException("Error removing all embeddings from PgVector", e);
+        }
+    }
+
+    @Override
+    public Object execute(String operation, Object input, ExecutionContext context) throws Exception {
+        if (dataSource == null) {
+            throw new IllegalStateException("Vector store not configured. Call configure() first.");
+        }
+
+        switch (operation) {
+            case "search":
+                if (!(input instanceof EmbeddingSearchRequest)) {
+                    throw new IllegalArgumentException("Input must be an EmbeddingSearchRequest for search operation");
+                }
+                return search((EmbeddingSearchRequest) input);
+            case "remove":
+                if (!(input instanceof String)) {
+                    throw new IllegalArgumentException("Input must be a String ID for remove operation");
+                }
+                remove((String) input);
+                return null;
+            case "removeAll":
+                if (input instanceof List) {
+                    removeAll((List<String>) input);
+                } else if (input == null) {
+                    removeAll();
+                } else {
+                    throw new IllegalArgumentException("Input must be a List of IDs or null for removeAll operation");
+                }
+                return null;
+            default:
+                throw new IllegalArgumentException("Unsupported operation: " + operation);
+        }
+    }
+
+    @Override
+    public void shutdown() {
+        if (dataSource != null) {
+            dataSource.close();
+            dataSource = null;
+        }
+        this.config = null;
+    }
+
+    @Override
+    public void close() {
+        shutdown();
+    }
+
+    private String vectorToString(float[] vector) {
+        StringBuilder sb = new StringBuilder("[");
+        for (int i = 0; i < vector.length; i++) {
+            sb.append(i > 0 ? "," : "").append(vector[i]);
+        }
+        sb.append("]");
+        return sb.toString();
+    }
+
+    private float[] parseVector(String vectorStr) {
+        String[] parts = vectorStr.substring(1, vectorStr.length() - 1).split(",");
+        float[] vector = new float[parts.length];
+        for (int i = 0; i < parts.length; i++) {
+            vector[i] = Float.parseFloat(parts[i].trim());
+        }
+        return vector;
+    }
+
+    public List<String> generateIds(int count) {
+        List<String> ids = new ArrayList<>(count);
+        for (int i = 0; i < count; i++) {
+            ids.add(UUID.randomUUID().toString());
+        }
+        return ids;
+    }
+
+
+}
+
+// ==================================================
+// Arquivo: archflow-langchain4j/archflow-langchain4j-vectorstore-pgvector/src/main/java/br/com/archflow/langchain4j/vectorstore/pgvector/PgVectorStoreAdapterFactory.java
+// ==================================================
+
+package br.com.archflow.langchain4j.vectorstore.pgvector;
+
+import br.com.archflow.langchain4j.core.spi.LangChainAdapter;
+import br.com.archflow.langchain4j.core.spi.LangChainAdapterFactory;
+
+import java.util.Map;
+
+public class PgVectorStoreAdapterFactory implements LangChainAdapterFactory {
+        @Override
+        public String getProvider() {
+            return "pgvector";
+        }
+
+        @Override
+        public LangChainAdapter createAdapter(Map<String, Object> properties) {
+            PgVectorStoreAdapter adapter = new PgVectorStoreAdapter();
+            adapter.configure(properties);
+            return adapter;
+        }
+
+        @Override
+        public boolean supports(String type) {
+            return "vectorstore".equals(type);
+        }
+    }
+
+// ==================================================
+// Arquivo: archflow-langchain4j/archflow-langchain4j-vectorstore-pgvector/src/main/java/br/com/archflow/langchain4j/vectorstore/pgvector/package-info.java
+// ==================================================
+
+/**
+ * Package for archflow-langchain4j-model adapters.
+ */
+package br.com.archflow.langchain4j.vectorstore.pgvector;
+
+
+// ==================================================
+// Arquivo: archflow-langchain4j/archflow-langchain4j-embedding-local/src/main/java/br/com/archflow/langchain4j/embedding/local/LocalEmbeddingAdapter.java
+// ==================================================
+
+package br.com.archflow.langchain4j.embedding.local;
+
+import ai.djl.sentencepiece.SpProcessor;
+import ai.djl.sentencepiece.SpTokenizer;
+import ai.onnxruntime.*;
+import br.com.archflow.langchain4j.core.spi.LangChainAdapter;
+import br.com.archflow.langchain4j.core.spi.LangChainAdapterFactory;
+import br.com.archflow.model.engine.ExecutionContext;
+import dev.langchain4j.data.embedding.Embedding;
+import dev.langchain4j.data.segment.TextSegment;
+import dev.langchain4j.model.embedding.EmbeddingModel;
+import dev.langchain4j.model.output.Response;
+
+import java.nio.FloatBuffer;
+import java.nio.LongBuffer;
+import java.nio.file.Paths;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
+
+/**
+ * Adapter para geração local de embeddings usando um modelo ONNX com tokenização SentencePiece via DJL.
+ * Suporta GPU (multi-GPU), batching, pooling configurável e cache de tokenização.
+ *
+ * <p>Exemplo de configuração:
+ * <pre>{@code
+ * Map<String, Object> config = Map.of(
+ *     "local.model.path", "/path/to/minilm-l6-v2.onnx",           // Caminho para o modelo ONNX
+ *     "local.vocab.path", "/path/to/sentencepiece.bpe.model",     // Caminho para o vocabulário SentencePiece
+ *     "local.dimension", 384,                                     // Dimensão dos embeddings (ex.: 384 para MiniLM-L6)
+ *     "local.maxLength", 128,                                     // Comprimento máximo da sequência (opcional)
+ *     "local.batchSize", 32,                                      // Tamanho máximo do batch (opcional)
+ *     "local.useGpu", true,                                       // Habilitar GPU (opcional)
+ *     "local.gpuDeviceId", 0,                                     // ID do dispositivo GPU (opcional, padrão 0)
+ *     "local.usePooling", false,                                  // Usar mean pooling em vez de [CLS] (opcional)
+ *     "local.useCache", true                                      // Habilitar cache de tokenização (opcional)
+ * );
+ * }</pre>
+ *
+ * <p>Operações suportadas:
+ * <ul>
+ *   <li>{@code embed} - Gera embedding de um texto</li>
+ *   <li>{@code embedBatch} - Gera embeddings de múltiplos textos em lote</li>
+ * </ul>
+ */
+public class LocalEmbeddingAdapter implements LangChainAdapter, EmbeddingModel {
+    private volatile OrtEnvironment env;
+    private volatile OrtSession session;
+    private volatile SpTokenizer tokenizer;
+    private int dimension;
+    private int maxLength;
+    private int batchSize;
+    private boolean useGpu;
+    private int gpuDeviceId;
+    private boolean usePooling;
+    private boolean useCache;
+    private Map<String, int[]> tokenCache; // Cache de tokenização
+    private Map<String, Object> config;
+
+    /**
+     * Valida as configurações fornecidas para o adapter.
+     *
+     * @param properties Map com as configurações
+     * @throws IllegalArgumentException se as configurações forem inválidas
+     */
+    @Override
+    public void validate(Map<String, Object> properties) {
+        if (properties == null) {
+            throw new IllegalArgumentException("Properties cannot be null");
+        }
+
+        String modelPath = (String) properties.get("local.model.path");
+        if (modelPath == null || modelPath.trim().isEmpty()) {
+            throw new IllegalArgumentException("Local model path is required");
+        }
+
+        String vocabPath = (String) properties.get("local.vocab.path");
+        if (vocabPath == null || vocabPath.trim().isEmpty()) {
+            throw new IllegalArgumentException("Local vocabulary path is required");
+        }
+
+        Object dimension = properties.get("local.dimension");
+        if (dimension == null || !(dimension instanceof Number) || ((Number) dimension).intValue() <= 0) {
+            throw new IllegalArgumentException("Vector dimension is required and must be a positive number");
+        }
+
+        Object maxLength = properties.get("local.maxLength");
+        if (maxLength != null && (!(maxLength instanceof Number) || ((Number) maxLength).intValue() <= 0)) {
+            throw new IllegalArgumentException("Max length must be a positive number");
+        }
+
+        Object batchSize = properties.get("local.batchSize");
+        if (batchSize != null && (!(batchSize instanceof Number) || ((Number) batchSize).intValue() <= 0)) {
+            throw new IllegalArgumentException("Batch size must be a positive number");
+        }
+
+        Object useGpu = properties.get("local.useGpu");
+        if (useGpu != null && !(useGpu instanceof Boolean)) {
+            throw new IllegalArgumentException("useGpu must be a boolean");
+        }
+
+        Object gpuDeviceId = properties.get("local.gpuDeviceId");
+        if (gpuDeviceId != null && (!(gpuDeviceId instanceof Number) || ((Number) gpuDeviceId).intValue() < 0)) {
+            throw new IllegalArgumentException("gpuDeviceId must be a non-negative number");
+        }
+
+        Object usePooling = properties.get("local.usePooling");
+        if (usePooling != null && !(usePooling instanceof Boolean)) {
+            throw new IllegalArgumentException("usePooling must be a boolean");
+        }
+
+        Object useCache = properties.get("local.useCache");
+        if (useCache != null && !(useCache instanceof Boolean)) {
+            throw new IllegalArgumentException("useCache must be a boolean");
+        }
+    }
+
+    /**
+     * Configura o adapter com as propriedades especificadas.
+     *
+     * @param properties Map com as configurações
+     * @throws IllegalArgumentException se as configurações forem inválidas
+     */
+    @Override
+    public void configure(Map<String, Object> properties) {
+        validate(properties);
+        this.config = properties;
+
+        String modelPath = (String) properties.get("local.model.path");
+        String vocabPath = (String) properties.get("local.vocab.path");
+        this.dimension = (Integer) properties.get("local.dimension");
+        this.maxLength = (Integer) properties.getOrDefault("local.maxLength", 128);
+        this.batchSize = (Integer) properties.getOrDefault("local.batchSize", 32);
+        this.useGpu = (Boolean) properties.getOrDefault("local.useGpu", false);
+        this.gpuDeviceId = (Integer) properties.getOrDefault("local.gpuDeviceId", 0);
+        this.usePooling = (Boolean) properties.getOrDefault("local.usePooling", false);
+        this.useCache = (Boolean) properties.getOrDefault("local.useCache", true);
+        this.tokenCache = useCache ? new ConcurrentHashMap<>() : null;
+
+        try {
+            // Inicializa o ONNX Runtime
+            this.env = OrtEnvironment.getEnvironment();
+            OrtSession.SessionOptions options = new OrtSession.SessionOptions();
+
+            if (useGpu) {
+                // Adicionar suporte a CUDA (GPU) com dispositivo específico
+                options.addCUDA(gpuDeviceId);
+            }
+
+            this.session = env.createSession(modelPath, options);
+
+            // Inicializa o SentencePiece via DJL
+            this.tokenizer = new SpTokenizer(Paths.get(vocabPath));
+        } catch (OrtException e) {
+            throw new RuntimeException("Failed to initialize ONNX model" + (useGpu ? " with GPU support" : ""), e);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to initialize SentencePiece tokenizer via DJL", e);
+        }
+    }
+
+    /**
+     * Executa operações no modelo de embeddings local.
+     *
+     * @param operation Nome da operação ("embed" ou "embedBatch")
+     * @param input     Para "embed": String ou {@link TextSegment}<br>Para "embedBatch": List de String ou {@link TextSegment}
+     * @param context   Contexto de execução (não utilizado atualmente)
+     * @return Para "embed": {@link Response}<{@link Embedding}><br>Para "embedBatch": {@link Response}<List<{@link Embedding}>>
+     * @throws IllegalArgumentException se a operação ou o input for inválido
+     * @throws IllegalStateException    se o adapter não estiver configurado
+     * @throws RuntimeException         se ocorrer um erro durante a execução
+     */
+    @Override
+    public synchronized Object execute(String operation, Object input, ExecutionContext context) throws Exception {
+        if (session == null || env == null || tokenizer == null) {
+            throw new IllegalStateException("Embedding model not configured. Call configure() first.");
+        }
+
+        if ("embed".equals(operation)) {
+            if (input instanceof String) {
+                return embed(TextSegment.from((String) input));
+            }
+            if (input instanceof TextSegment) {
+                return embed((TextSegment) input);
+            }
+            throw new IllegalArgumentException("Input must be a String or TextSegment for embed operation");
+        }
+
+        if ("embedBatch".equals(operation)) {
+            if (!(input instanceof List)) {
+                throw new IllegalArgumentException("Input must be a List for embedBatch operation");
+            }
+            List<?> inputs = (List<?>) input;
+            if (inputs.isEmpty()) {
+                throw new IllegalArgumentException("Input list cannot be empty");
+            }
+
+            if (inputs.get(0) instanceof String) {
+                List<TextSegment> segments = ((List<String>) input).stream()
+                        .map(TextSegment::from)
+                        .toList();
+                return embedAll(segments);
+            }
+            if (inputs.get(0) instanceof TextSegment) {
+                return embedAll((List<TextSegment>) input);
+            }
+            throw new IllegalArgumentException("Input must be a List of String or TextSegment for embedBatch operation");
+        }
+
+        throw new IllegalArgumentException("Unsupported operation: " + operation);
+    }
+
+    @Override
+    public Response<Embedding> embed(TextSegment text) {
+        try {
+            List<TextSegment> singleText = Collections.singletonList(text);
+            float[][] embeddings = generateEmbeddings(singleText);
+            return Response.from(new Embedding(embeddings[0]));
+        } catch (OrtException e) {
+            throw new RuntimeException("Failed to generate embedding", e);
+        }
+    }
+
+    @Override
+    public Response<List<Embedding>> embedAll(List<TextSegment> texts) {
+        try {
+            List<Embedding> allEmbeddings = new ArrayList<>();
+            for (int i = 0; i < texts.size(); i += batchSize) {
+                List<TextSegment> batch = texts.subList(i, Math.min(i + batchSize, texts.size()));
+                float[][] batchEmbeddings = generateEmbeddings(batch);
+                for (float[] embedding : batchEmbeddings) {
+                    allEmbeddings.add(new Embedding(embedding));
+                }
+            }
+            return Response.from(allEmbeddings);
+        } catch (OrtException e) {
+            throw new RuntimeException("Failed to generate embeddings for batch", e);
+        }
+    }
+
+    private float[][] generateEmbeddings(List<TextSegment> texts) throws OrtException {
+        SpProcessor processor = tokenizer.getProcessor();
+        int batchSize = texts.size();
+        long[][] inputIds = new long[batchSize][maxLength];
+        long[][] attentionMask = new long[batchSize][maxLength];
+        int padId = processor.getId("[PAD]");
+        int clsId = processor.getId("[CLS]");
+        int sepId = processor.getId("[SEP]");
+
+        // Tokenização com cache, se habilitado
+        for (int b = 0; b < batchSize; b++) {
+            String text = texts.get(b).text();
+            int[] tokenIds;
+            if (useCache && tokenCache.containsKey(text)) {
+                tokenIds = tokenCache.get(text);
+            } else {
+                tokenIds = processor.encode(text);
+                if (useCache) {
+                    tokenCache.put(text, tokenIds);
+                }
+            }
+
+            Arrays.fill(inputIds[b], padId);
+            Arrays.fill(attentionMask[b], 0);
+
+            int length = Math.min(tokenIds.length, maxLength - 2); // Reservar espaço para [CLS] e [SEP]
+            inputIds[b][0] = clsId;
+            attentionMask[b][0] = 1;
+
+            for (int i = 0; i < length; i++) {
+                inputIds[b][i + 1] = tokenIds[i];
+                attentionMask[b][i + 1] = 1;
+            }
+            inputIds[b][length + 1] = sepId;
+            attentionMask[b][length + 1] = 1;
+        }
+
+        // Criar tensores para batch
+        LongBuffer inputIdsBuffer = LongBuffer.allocate(batchSize * maxLength);
+        LongBuffer attentionMaskBuffer = LongBuffer.allocate(batchSize * maxLength);
+        for (int b = 0; b < batchSize; b++) {
+            inputIdsBuffer.put(inputIds[b]);
+            attentionMaskBuffer.put(attentionMask[b]);
+        }
+        inputIdsBuffer.rewind();
+        attentionMaskBuffer.rewind();
+
+        Map<String, OnnxTensor> inputs = new HashMap<>();
+        inputs.put("input_ids", OnnxTensor.createTensor(env, inputIdsBuffer, new long[]{batchSize, maxLength}));
+        inputs.put("attention_mask", OnnxTensor.createTensor(env, attentionMaskBuffer, new long[]{batchSize, maxLength}));
+
+        // Executar inferência em batch
+        try (OrtSession.Result result = session.run(inputs)) {
+            OnnxTensor outputTensor = (OnnxTensor) result.get(0); // [batch_size, seq_length, hidden_size]
+            FloatBuffer buffer = outputTensor.getFloatBuffer();
+            float[][] embeddings = new float[batchSize][dimension];
+
+            if (usePooling) {
+                // Mean pooling: calcular a média dos embeddings ao longo da sequência
+                int seqLength = maxLength;
+                for (int b = 0; b < batchSize; b++) {
+                    float[] sum = new float[dimension];
+                    int validTokens = 0;
+                    for (int s = 0; s < seqLength; s++) {
+                        if (attentionMask[b][s] == 1) {
+                            buffer.position((b * seqLength + s) * dimension);
+                            float[] tokenEmbedding = new float[dimension];
+                            buffer.get(tokenEmbedding, 0, dimension);
+                            for (int d = 0; d < dimension; d++) {
+                                sum[d] += tokenEmbedding[d];
+                            }
+                            validTokens++;
+                        }
+                    }
+                    for (int d = 0; d < dimension; d++) {
+                        embeddings[b][d] = sum[d] / validTokens;
+                    }
+                }
+            } else {
+                // Usar [CLS] token (padrão)
+                for (int b = 0; b < batchSize; b++) {
+                    buffer.position(b * maxLength * dimension); // Posição do [CLS]
+                    buffer.get(embeddings[b], 0, dimension);
+                }
+            }
+            return embeddings;
+        }
+    }
+
+    /**
+     * Libera recursos utilizados pelo adapter, fechando a sessão ONNX e o ambiente.
+     */
+    @Override
+    public void shutdown() {
+        if (session != null) {
+            try {
+                session.close();
+            } catch (OrtException e) {
+                // Logar erro se houver sistema de log
+            }
+            session = null;
+        }
+        if (env != null) {
+            env.close();
+            env = null;
+        }
+        if (tokenizer != null) {
+            tokenizer.close();
+            tokenizer = null;
+        }
+        if (tokenCache != null) {
+            tokenCache.clear();
+            tokenCache = null;
+        }
+        this.config = null;
+    }
+
+    public static class Factory implements LangChainAdapterFactory {
+        @Override
+        public String getProvider() {
+            return "local";
+        }
+
+        @Override
+        public LangChainAdapter createAdapter(Map<String, Object> properties) {
+            LocalEmbeddingAdapter adapter = new LocalEmbeddingAdapter();
+            adapter.configure(properties);
+            return adapter;
+        }
+
+        @Override
+        public boolean supports(String type) {
+            return "embedding".equals(type);
+        }
+    }
+}
+
+// ==================================================
+// Arquivo: archflow-langchain4j/archflow-langchain4j-embedding-local/src/main/java/br/com/archflow/langchain4j/embedding/local/LocalEmbeddingAdapterFactory.java
+// ==================================================
+
+package br.com.archflow.langchain4j.embedding.local;
+
+import br.com.archflow.langchain4j.core.spi.LangChainAdapter;
+import br.com.archflow.langchain4j.core.spi.LangChainAdapterFactory;
+
+import java.util.Map;
+
+public class LocalEmbeddingAdapterFactory implements LangChainAdapterFactory {
+    @Override
+    public String getProvider() {
+        return "local";
+    }
+
+    @Override
+    public LangChainAdapter createAdapter(Map<String, Object> properties) {
+        LocalEmbeddingAdapter adapter = new LocalEmbeddingAdapter();
+        adapter.configure(properties);
+        return adapter;
+    }
+
+    @Override
+    public boolean supports(String type) {
+        return "embedding".equals(type);
+    }
+}
+
+// ==================================================
+// Arquivo: archflow-langchain4j/archflow-langchain4j-embedding-local/src/main/java/br/com/archflow/langchain4j/embedding/local/package-info.java
+// ==================================================
+
+/**
+ * Package for archflow-langchain4j-openai adapters.
+ */
+package br.com.archflow.langchain4j.openai;
+
+
+// ==================================================
+// Arquivo: archflow-langchain4j/archflow-langchain4j-vectorstore-redis/src/main/java/br/com/archflow/langchain4j/vectorstore/redis/RedisVectorStoreAdapter.java
+// ==================================================
+
+package br.com.archflow.langchain4j.vectorstore.redis;
+
+import br.com.archflow.langchain4j.core.spi.LangChainAdapter;
+import br.com.archflow.langchain4j.core.spi.LangChainAdapterFactory;
+import br.com.archflow.model.engine.ExecutionContext;
+import dev.langchain4j.community.store.embedding.redis.RedisEmbeddingStore;
+import dev.langchain4j.data.embedding.Embedding;
+import dev.langchain4j.data.segment.TextSegment;
+import dev.langchain4j.store.embedding.EmbeddingSearchRequest;
+import dev.langchain4j.store.embedding.EmbeddingSearchResult;
+
+
+import java.util.List;
+import java.util.Map;
+
+/**
+ * Adapter para armazenamento e busca de embeddings usando Redis via LangChain4j.
+ * Utiliza o pacote langchain4j-community-redis para integração nativa.
+ *
+ * <p>Exemplo de configuração:
+ * <pre>{@code
+ * Map<String, Object> config = Map.of(
+ *     "redis.host", "localhost",         // Host do Redis
+ *     "redis.port", 6379,               // Porta do Redis
+ *     "redis.index", "embeddings",      // Nome do índice (opcional)
+ *     "redis.dimension", 1536           // Dimensão dos vetores
+ * );
+ * }</pre>
+ */
+public class RedisVectorStoreAdapter implements LangChainAdapter, dev.langchain4j.store.embedding.EmbeddingStore<TextSegment> {
+    private volatile RedisEmbeddingStore embeddingStore;
+    private Map<String, Object> config;
+
+    @Override
+    public void validate(Map<String, Object> properties) {
+        if (properties == null) {
+            throw new IllegalArgumentException("Properties cannot be null");
+        }
+
+        String host = (String) properties.get("redis.host");
+        if (host == null || host.trim().isEmpty()) {
+            throw new IllegalArgumentException("Redis host is required");
+        }
+
+        Object port = properties.get("redis.port");
+        if (port != null && !(port instanceof Number)) {
+            throw new IllegalArgumentException("Redis port must be a number");
+        }
+
+        Object dimension = properties.get("redis.dimension");
+        if (dimension == null || !(dimension instanceof Number)) {
+            throw new IllegalArgumentException("Vector dimension is required and must be a number");
+        }
+    }
+
+    @Override
+    public void configure(Map<String, Object> properties) {
+        validate(properties);
+        this.config = properties;
+
+        String host = (String) properties.get("redis.host");
+        int port = (Integer) properties.getOrDefault("redis.port", 6379);
+        String indexName = (String) properties.getOrDefault("redis.index", "embeddings");
+        int dimension = (Integer) properties.get("redis.dimension");
+
+        this.embeddingStore = RedisEmbeddingStore.builder()
+                .host(host)
+                .port(port)
+                .indexName(indexName)
+                .dimension(dimension)
+                .build();
+    }
+
+    @Override
+    public void add(String id, Embedding embedding) {
+        embeddingStore.add(id, embedding);
+    }
+
+    @Override
+    public String add(Embedding embedding) {
+        return embeddingStore.add(embedding);
+    }
+
+    @Override
+    public String add(Embedding embedding, TextSegment embedded) {
+        return embeddingStore.add(embedding, embedded);
+    }
+
+    @Override
+    public List<String> addAll(List<Embedding> embeddings) {
+        return embeddingStore.addAll(embeddings);
+    }
+
+    @Override
+    public void addAll(List<String> ids, List<Embedding> embeddings, List<TextSegment> embedded) {
+        embeddingStore.addAll(ids, embeddings, embedded);
+    }
+
+    @Override
+    public EmbeddingSearchResult<TextSegment> search(EmbeddingSearchRequest request) {
+        return embeddingStore.search(request);
+    }
+
+    @Override
+    public Object execute(String operation, Object input, ExecutionContext context) throws Exception {
+        if (embeddingStore == null) {
+            throw new IllegalStateException("Vector store not configured. Call configure() first.");
+        }
+
+        if ("search".equals(operation)) {
+            if (!(input instanceof EmbeddingSearchRequest)) {
+                throw new IllegalArgumentException("Input must be an EmbeddingSearchRequest for search operation");
+            }
+            return search((EmbeddingSearchRequest) input);
+        }
+
+        throw new IllegalArgumentException("Unsupported operation: " + operation);
+    }
+
+    @Override
+    public void shutdown() {
+        this.embeddingStore = null;
+        this.config = null;
+    }
+
+}
+
+// ==================================================
+// Arquivo: archflow-langchain4j/archflow-langchain4j-vectorstore-redis/src/main/java/br/com/archflow/langchain4j/vectorstore/redis/RedisVectorStoreAdapterFactory.java
+// ==================================================
+
+package br.com.archflow.langchain4j.vectorstore.redis;
+
+import br.com.archflow.langchain4j.core.spi.LangChainAdapter;
+import br.com.archflow.langchain4j.core.spi.LangChainAdapterFactory;
+
+import java.util.Map;
+
+/**
+ * Factory para criação do Redis Vector Store Adapter.
+ * Registrada via SPI para descoberta automática.
+ */
+public class RedisVectorStoreAdapterFactory implements LangChainAdapterFactory {
+    @Override
+    public String getProvider() {
+        return "redis";
+    }
+
+    @Override
+    public LangChainAdapter createAdapter(Map<String, Object> properties) {
+        RedisVectorStoreAdapter adapter = new RedisVectorStoreAdapter();
+        adapter.configure(properties);
+        return adapter;
+    }
+
+    @Override
+    public boolean supports(String type) {
+        return "vectorstore".equals(type);
+    }
+
+}
+
+// ==================================================
+// Arquivo: archflow-langchain4j/archflow-langchain4j-vectorstore-redis/src/main/java/br/com/archflow/langchain4j/vectorstore/redis/package-info.java
+// ==================================================
+
+/**
+ * Package for archflow-langchain4j-model adapters.
+ */
+package br.com.archflow.langchain4j.vectorstore.redis;
+
+
+// ==================================================
+// Arquivo: archflow-langchain4j/archflow-langchain4j-memory-jdbc/src/main/java/br/com/archflow/langchain4j/memory/package-info.java
+// ==================================================
+
+/**
+ * Package for archflow-langchain4j-memory adapters.
+ */
+package br.com.archflow.langchain4j.memory;
 
 
 // ==================================================
@@ -2516,7 +4925,7 @@ public interface FlowStep {
     String getId();
 
     /**
-     * Retorna o tipo do passo (chain, agent, tool).
+     * Retorna o tipo do passo (openai, agent, tool).
      *
      * @return tipo do passo
      */
@@ -2549,12 +4958,16 @@ package br.com.archflow.model.flow;
 import br.com.archflow.model.error.ExecutionError;
 import lombok.Builder;
 import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
 
 import java.util.List;
 import java.util.Map;
 
 @Data
 @Builder
+@Getter
+@Setter
 public class FlowState {
     private String flowId;
     private FlowStatus status;
@@ -3385,9 +5798,10 @@ import br.com.archflow.model.engine.ExecutionContext;
 import java.util.Map;
 
 /**
- * Interface que define o contrato para componentes implementados como plugins.
+ * Interface base para plugins do archflow.
+ * Define o contrato básico que todos os plugins devem implementar.
  */
-public interface ComponentPlugin extends AIComponent {
+public interface ComponentPlugin {
     /**
      * Valida a configuração do plugin.
      * @param config configuração a ser validada

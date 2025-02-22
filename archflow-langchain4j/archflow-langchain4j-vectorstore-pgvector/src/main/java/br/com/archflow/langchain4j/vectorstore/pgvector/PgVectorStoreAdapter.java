@@ -8,18 +8,16 @@ import com.zaxxer.hikari.HikariDataSource;
 import dev.langchain4j.data.embedding.Embedding;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.store.embedding.EmbeddingMatch;
-import dev.langchain4j.store.embedding.EmbeddingStore;
 import dev.langchain4j.store.embedding.EmbeddingSearchRequest;
 import dev.langchain4j.store.embedding.EmbeddingSearchResult;
+import dev.langchain4j.store.embedding.filter.Filter;
 
 import java.sql.*;
 import java.util.*;
 
 /**
  * Adapter para armazenamento e busca de embeddings usando PgVector no PostgreSQL.
- * Utiliza a extensão PgVector para suportar vetores de alta dimensão e busca por similaridade.
- *
- * <p>Este adapter requer um banco PostgreSQL com a extensão PgVector instalada.
+ * Suporta filtros por metadados e remoção de embeddings.
  *
  * <p>Exemplo de configuração:
  * <pre>{@code
@@ -28,23 +26,16 @@ import java.util.*;
  *     "pgvector.username", "postgres",                                 // Usuário do banco
  *     "pgvector.password", "password",                                 // Senha do banco
  *     "pgvector.table", "embeddings",                                  // Nome da tabela (opcional)
- *     "pgvector.dimension", 1536,                                      // Dimensão dos vetores
- *     "pgvector.pool.maxSize", 8                                       // Tamanho máximo do pool (opcional)
+ *     "pgvector.dimension", 1536                                       // Dimensão dos vetores
  * );
  * }</pre>
  */
-public class PgVectorStoreAdapter implements LangChainAdapter, EmbeddingStore<TextSegment>, AutoCloseable {
+public class PgVectorStoreAdapter implements LangChainAdapter, dev.langchain4j.store.embedding.EmbeddingStore<TextSegment>, AutoCloseable {
     private volatile HikariDataSource dataSource;
     private String tableName;
-    private int vectorDimension;
+    private int dimension;
     private Map<String, Object> config;
 
-    /**
-     * Valida as configurações fornecidas para o adapter.
-     *
-     * @param properties Map com as configurações
-     * @throws IllegalArgumentException se as configurações forem inválidas
-     */
     @Override
     public void validate(Map<String, Object> properties) {
         if (properties == null) {
@@ -75,19 +66,8 @@ public class PgVectorStoreAdapter implements LangChainAdapter, EmbeddingStore<Te
         if (dimension == null || !(dimension instanceof Number) || ((Number) dimension).intValue() <= 0) {
             throw new IllegalArgumentException("Vector dimension is required and must be a positive number");
         }
-
-        Object maxSize = properties.get("pgvector.pool.maxSize");
-        if (maxSize != null && (!(maxSize instanceof Number) || ((Number) maxSize).intValue() < 1)) {
-            throw new IllegalArgumentException("pgvector.pool.maxSize must be a positive number");
-        }
     }
 
-    /**
-     * Configura o adapter com as propriedades especificadas.
-     *
-     * @param properties Map com as configurações
-     * @throws IllegalArgumentException se as configurações forem inválidas
-     */
     @Override
     public void configure(Map<String, Object> properties) {
         validate(properties);
@@ -97,7 +77,7 @@ public class PgVectorStoreAdapter implements LangChainAdapter, EmbeddingStore<Te
         String username = (String) properties.get("pgvector.username");
         String password = (String) properties.get("pgvector.password");
         this.tableName = (String) properties.getOrDefault("pgvector.table", "embeddings");
-        this.vectorDimension = (Integer) properties.get("pgvector.dimension");
+        this.dimension = (Integer) properties.get("pgvector.dimension");
 
         HikariConfig hikariConfig = new HikariConfig();
         hikariConfig.setJdbcUrl(jdbcUrl);
@@ -115,16 +95,13 @@ public class PgVectorStoreAdapter implements LangChainAdapter, EmbeddingStore<Te
     private void createTableIfNotExists() {
         try (Connection conn = dataSource.getConnection();
              Statement stmt = conn.createStatement()) {
-            // Cria a extensão PgVector, se não existir
             stmt.execute("CREATE EXTENSION IF NOT EXISTS vector");
-
-            // Cria a tabela, se não existir
             String createTableSql = String.format(
                     "CREATE TABLE IF NOT EXISTS %s ("
                             + "id VARCHAR(36) PRIMARY KEY, "
                             + "embedding vector(%d), "
                             + "text TEXT)",
-                    tableName, vectorDimension
+                    tableName, dimension
             );
             stmt.execute(createTableSql);
         } catch (SQLException e) {
@@ -198,65 +175,123 @@ public class PgVectorStoreAdapter implements LangChainAdapter, EmbeddingStore<Te
 
     @Override
     public EmbeddingSearchResult<TextSegment> search(EmbeddingSearchRequest request) {
-        try (Connection conn = dataSource.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(
-                     String.format("SELECT id, embedding, text, embedding <=> ?::vector AS distance FROM %s ORDER BY distance LIMIT ?", tableName))) {
-            stmt.setString(1, vectorToString(request.queryEmbedding().vector()));
-            stmt.setInt(2, request.maxResults());
-
-            ResultSet rs = stmt.executeQuery();
-            List<EmbeddingMatch<TextSegment>> matches = new ArrayList<>();
-
-            while (rs.next()) {
-                String id = rs.getString("id");
-                String embeddingStr = rs.getString("embedding");
-                String text = rs.getString("text");
-                double distance = rs.getDouble("distance");
-                double score = 1 - distance; // Converter distância para similaridade (cosseno)
-
-                if (score >= request.minScore()) {
-                    float[] vector = parseVector(embeddingStr);
-                    Embedding embedding = new Embedding(vector);
-                    TextSegment textSegment = text != null ? TextSegment.from(text) : null;
-                    matches.add(new EmbeddingMatch<>(score, id, embedding, textSegment));
-                }
+        try (Connection conn = dataSource.getConnection()) {
+            StringBuilder sql = new StringBuilder(
+                    String.format("SELECT id, embedding, text, embedding <=> ?::vector AS distance FROM %s", tableName)
+            );
+            Filter filter = request.filter();
+            if (filter != null) {
+                sql.append(" WHERE ").append(buildFilterCondition(filter));
             }
+            sql.append(" ORDER BY distance LIMIT ?");
 
-            return new EmbeddingSearchResult<>(matches);
+            try (PreparedStatement stmt = conn.prepareStatement(sql.toString())) {
+                stmt.setString(1, vectorToString(request.queryEmbedding().vector()));
+                stmt.setInt(2, request.maxResults());
+
+                ResultSet rs = stmt.executeQuery();
+                List<EmbeddingMatch<TextSegment>> matches = new ArrayList<>();
+
+                while (rs.next()) {
+                    String id = rs.getString("id");
+                    String embeddingStr = rs.getString("embedding");
+                    String text = rs.getString("text");
+                    double distance = rs.getDouble("distance");
+                    double score = 1 - distance; // Converter distância para similaridade
+
+                    if (score >= request.minScore()) {
+                        float[] vector = parseVector(embeddingStr);
+                        Embedding embedding = new Embedding(vector);
+                        TextSegment textSegment = text != null ? TextSegment.from(text) : null;
+                        matches.add(new EmbeddingMatch<>(score, id, embedding, textSegment));
+                    }
+                }
+
+                return new EmbeddingSearchResult<>(matches);
+            }
         } catch (SQLException e) {
             throw new RuntimeException("Error searching embeddings in PgVector", e);
         }
     }
 
-    /**
-     * Executa operações no vector store do PgVector.
-     *
-     * @param operation Nome da operação ("search" é suportado)
-     * @param input     Para "search": {@link EmbeddingSearchRequest}
-     * @param context   Contexto de execução (não utilizado atualmente)
-     * @return Resultado da operação
-     * @throws IllegalArgumentException se a operação for inválida
-     * @throws IllegalStateException    se o adapter não estiver configurado
-     */
+    // Método para construir condições de filtro (simples, suporta apenas "text" por agora)
+    private String buildFilterCondition(Filter filter) {
+        // Suporta apenas filtros simples como Equals para "text"
+        // Para filtros mais complexos, precisaria de uma implementação mais robusta
+        if (filter instanceof dev.langchain4j.store.embedding.filter.comparison.IsEqualTo) {
+            dev.langchain4j.store.embedding.filter.comparison.IsEqualTo eq = (dev.langchain4j.store.embedding.filter.comparison.IsEqualTo) filter;
+            if ("text".equals(eq.key())) {
+                return String.format("text = '%s'", eq.comparisonValue().toString().replace("'", "''"));
+            }
+        }
+        throw new UnsupportedOperationException("Only simple text equality filters are supported");
+    }
+
+    // Métodos de remoção
+    public void remove(String id) {
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(
+                     String.format("DELETE FROM %s WHERE id = ?", tableName))) {
+            stmt.setString(1, id);
+            stmt.executeUpdate();
+        } catch (SQLException e) {
+            throw new RuntimeException("Error removing embedding from PgVector", e);
+        }
+    }
+
+    public void removeAll(List<String> ids) {
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(
+                     String.format("DELETE FROM %s WHERE id = ANY(?)", tableName))) {
+            Array array = conn.createArrayOf("varchar", ids.toArray());
+            stmt.setArray(1, array);
+            stmt.executeUpdate();
+        } catch (SQLException e) {
+            throw new RuntimeException("Error removing embeddings from PgVector", e);
+        }
+    }
+
+    public void removeAll() {
+        try (Connection conn = dataSource.getConnection();
+             Statement stmt = conn.createStatement()) {
+            stmt.execute(String.format("DELETE FROM %s", tableName));
+        } catch (SQLException e) {
+            throw new RuntimeException("Error removing all embeddings from PgVector", e);
+        }
+    }
+
     @Override
-    public synchronized Object execute(String operation, Object input, ExecutionContext context) throws Exception {
+    public Object execute(String operation, Object input, ExecutionContext context) throws Exception {
         if (dataSource == null) {
             throw new IllegalStateException("Vector store not configured. Call configure() first.");
         }
 
-        if ("search".equals(operation)) {
-            if (!(input instanceof EmbeddingSearchRequest)) {
-                throw new IllegalArgumentException("Input must be an EmbeddingSearchRequest for search operation");
-            }
-            return search((EmbeddingSearchRequest) input);
+        switch (operation) {
+            case "search":
+                if (!(input instanceof EmbeddingSearchRequest)) {
+                    throw new IllegalArgumentException("Input must be an EmbeddingSearchRequest for search operation");
+                }
+                return search((EmbeddingSearchRequest) input);
+            case "remove":
+                if (!(input instanceof String)) {
+                    throw new IllegalArgumentException("Input must be a String ID for remove operation");
+                }
+                remove((String) input);
+                return null;
+            case "removeAll":
+                if (input instanceof List) {
+                    removeAll((List<String>) input);
+                } else if (input == null) {
+                    removeAll();
+                } else {
+                    throw new IllegalArgumentException("Input must be a List of IDs or null for removeAll operation");
+                }
+                return null;
+            default:
+                throw new IllegalArgumentException("Unsupported operation: " + operation);
         }
-
-        throw new IllegalArgumentException("Unsupported operation: " + operation);
     }
 
-    /**
-     * Libera recursos utilizados pelo adapter, fechando o pool de conexões ao PostgreSQL.
-     */
     @Override
     public void shutdown() {
         if (dataSource != null) {
@@ -297,22 +332,5 @@ public class PgVectorStoreAdapter implements LangChainAdapter, EmbeddingStore<Te
         return ids;
     }
 
-    public static class Factory implements LangChainAdapterFactory {
-        @Override
-        public String getProvider() {
-            return "pgvector";
-        }
 
-        @Override
-        public LangChainAdapter createAdapter(Map<String, Object> properties) {
-            PgVectorStoreAdapter adapter = new PgVectorStoreAdapter();
-            adapter.configure(properties);
-            return adapter;
-        }
-
-        @Override
-        public boolean supports(String type) {
-            return "vectorstore".equals(type);
-        }
-    }
 }

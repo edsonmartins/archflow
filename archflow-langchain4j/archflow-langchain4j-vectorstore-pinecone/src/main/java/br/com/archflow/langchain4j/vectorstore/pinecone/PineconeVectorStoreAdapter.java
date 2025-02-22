@@ -7,10 +7,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.data.embedding.Embedding;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.store.embedding.EmbeddingMatch;
-import dev.langchain4j.store.embedding.EmbeddingStore;
 import dev.langchain4j.store.embedding.EmbeddingSearchRequest;
 import dev.langchain4j.store.embedding.EmbeddingSearchResult;
+import dev.langchain4j.store.embedding.filter.Filter;
 import org.apache.http.client.methods.CloseableHttpResponse;
+import org.apache.http.client.methods.HttpDelete;
 import org.apache.http.client.methods.HttpPost;
 import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.CloseableHttpClient;
@@ -23,9 +24,7 @@ import java.util.stream.Collectors;
 
 /**
  * Adapter para armazenamento e busca de embeddings usando Pinecone.
- * Utiliza a API REST do Pinecone para gerenciar vetores em um serviço na nuvem.
- *
- * <p>Este adapter requer uma conta no Pinecone e um índice criado previamente.
+ * Suporta filtros por metadados e remoção de embeddings.
  *
  * <p>Exemplo de configuração:
  * <pre>{@code
@@ -37,7 +36,7 @@ import java.util.stream.Collectors;
  * );
  * }</pre>
  */
-public class PineconeVectorStoreAdapter implements LangChainAdapter, EmbeddingStore<TextSegment>, AutoCloseable {
+public class PineconeVectorStoreAdapter implements LangChainAdapter, dev.langchain4j.store.embedding.EmbeddingStore<TextSegment>, AutoCloseable {
     private static final ObjectMapper objectMapper = new ObjectMapper();
     private volatile CloseableHttpClient httpClient;
     private String apiKey;
@@ -46,12 +45,6 @@ public class PineconeVectorStoreAdapter implements LangChainAdapter, EmbeddingSt
     private int vectorDimension;
     private Map<String, Object> config;
 
-    /**
-     * Valida as configurações fornecidas para o adapter.
-     *
-     * @param properties Map com as configurações
-     * @throws IllegalArgumentException se as configurações forem inválidas
-     */
     @Override
     public void validate(Map<String, Object> properties) {
         if (properties == null) {
@@ -79,12 +72,6 @@ public class PineconeVectorStoreAdapter implements LangChainAdapter, EmbeddingSt
         }
     }
 
-    /**
-     * Configura o adapter com as propriedades especificadas.
-     *
-     * @param properties Map com as configurações
-     * @throws IllegalArgumentException se as configurações forem inválidas
-     */
     @Override
     public void configure(Map<String, Object> properties) {
         validate(properties);
@@ -181,6 +168,11 @@ public class PineconeVectorStoreAdapter implements LangChainAdapter, EmbeddingSt
             requestBody.put("includeMetadata", true);
             requestBody.put("namespace", indexName);
 
+            Filter filter = request.filter();
+            if (filter != null) {
+                requestBody.put("filter", buildFilterCondition(filter));
+            }
+
             post.setEntity(new StringEntity(objectMapper.writeValueAsString(requestBody)));
 
             try (CloseableHttpResponse response = httpClient.execute(post)) {
@@ -198,9 +190,7 @@ public class PineconeVectorStoreAdapter implements LangChainAdapter, EmbeddingSt
                             String id = (String) match.get("id");
                             double score = (Double) match.get("score");
                             List<Double> values = (List<Double>) match.get("values");
-                            // Correção: converter List<Double> diretamente para float[]
-                            float[] vector = values.stream()
-                                    .map(Double::floatValue)
+                            float[] vector = values.stream().map(Double::floatValue)
                                     .collect(Collectors.collectingAndThen(Collectors.toList(), list -> {
                                         float[] array = new float[list.size()];
                                         for (int i = 0; i < list.size(); i++) {
@@ -228,35 +218,79 @@ public class PineconeVectorStoreAdapter implements LangChainAdapter, EmbeddingSt
         }
     }
 
-    /**
-     * Executa operações no vector store do Pinecone.
-     *
-     * @param operation Nome da operação ("search" é suportado)
-     * @param input     Para "search": {@link EmbeddingSearchRequest}
-     * @param context   Contexto de execução (não utilizado atualmente)
-     * @return Resultado da operação
-     * @throws IllegalArgumentException se a operação for inválida
-     * @throws IllegalStateException    se o adapter não estiver configurado
-     */
+    // Método para construir condições de filtro (simples, suporta apenas "text" por agora)
+    private Map<String, Object> buildFilterCondition(Filter filter) {
+        if (filter instanceof dev.langchain4j.store.embedding.filter.comparison.IsEqualTo) {
+            dev.langchain4j.store.embedding.filter.comparison.IsEqualTo eq = (dev.langchain4j.store.embedding.filter.comparison.IsEqualTo) filter;
+            if ("text".equals(eq.key())) {
+                return Collections.singletonMap("text", Collections.singletonMap("$eq", eq.comparisonValue()));
+            }
+        }
+        throw new UnsupportedOperationException("Only simple text equality filters are supported");
+    }
+
+    // Métodos de remoção
+    public void remove(String id) {
+        try {
+            HttpDelete delete = new HttpDelete(apiUrl + "/vectors/delete?id=" + id + "&namespace=" + indexName);
+            delete.setHeader("Api-Key", apiKey);
+
+            try (CloseableHttpResponse response = httpClient.execute(delete)) {
+                int statusCode = response.getStatusLine().getStatusCode();
+                if (statusCode != 200) {
+                    throw new RuntimeException("Failed to remove vector from Pinecone: " + EntityUtils.toString(response.getEntity()));
+                }
+            }
+        } catch (IOException e) {
+            throw new RuntimeException("Error removing embedding from Pinecone", e);
+        }
+    }
+
+    public void removeAll() {
+        try {
+            HttpDelete delete = new HttpDelete(apiUrl + "/vectors/delete?deleteAll=true&namespace=" + indexName);
+            delete.setHeader("Api-Key", apiKey);
+
+            try (CloseableHttpResponse response = httpClient.execute(delete)) {
+                int statusCode = response.getStatusLine().getStatusCode();
+                if (statusCode != 200) {
+                    throw new RuntimeException("Failed to remove all vectors from Pinecone: " + EntityUtils.toString(response.getEntity()));
+                }
+            }
+        } catch (IOException e) {
+            throw new RuntimeException("Error removing all embeddings from Pinecone", e);
+        }
+    }
+
     @Override
-    public synchronized Object execute(String operation, Object input, ExecutionContext context) throws Exception {
+    public Object execute(String operation, Object input, ExecutionContext context) throws Exception {
         if (httpClient == null) {
             throw new IllegalStateException("Vector store not configured. Call configure() first.");
         }
 
-        if ("search".equals(operation)) {
-            if (!(input instanceof EmbeddingSearchRequest)) {
-                throw new IllegalArgumentException("Input must be an EmbeddingSearchRequest for search operation");
-            }
-            return search((EmbeddingSearchRequest) input);
+        switch (operation) {
+            case "search":
+                if (!(input instanceof EmbeddingSearchRequest)) {
+                    throw new IllegalArgumentException("Input must be an EmbeddingSearchRequest for search operation");
+                }
+                return search((EmbeddingSearchRequest) input);
+            case "remove":
+                if (!(input instanceof String)) {
+                    throw new IllegalArgumentException("Input must be a String ID for remove operation");
+                }
+                remove((String) input);
+                return null;
+            case "removeAll":
+                if (input != null) {
+                    throw new IllegalArgumentException("Input must be null for removeAll operation (Pinecone limitation)");
+                }
+                removeAll();
+                return null;
+            default:
+                throw new IllegalArgumentException("Unsupported operation: " + operation);
         }
-
-        throw new IllegalArgumentException("Unsupported operation: " + operation);
     }
 
-    /**
-     * Libera recursos utilizados pelo adapter, fechando o cliente HTTP.
-     */
     @Override
     public void shutdown() {
         if (httpClient != null) {
@@ -283,7 +317,6 @@ public class PineconeVectorStoreAdapter implements LangChainAdapter, EmbeddingSt
         return ids;
     }
 
-    // Classe auxiliar para representar dados de vetores
     private static class VectorData {
         String id;
         float[] values;
@@ -296,22 +329,5 @@ public class PineconeVectorStoreAdapter implements LangChainAdapter, EmbeddingSt
         }
     }
 
-    public static class Factory implements LangChainAdapterFactory {
-        @Override
-        public String getProvider() {
-            return "pinecone";
-        }
 
-        @Override
-        public LangChainAdapter createAdapter(Map<String, Object> properties) {
-            PineconeVectorStoreAdapter adapter = new PineconeVectorStoreAdapter();
-            adapter.configure(properties);
-            return adapter;
-        }
-
-        @Override
-        public boolean supports(String type) {
-            return "vectorstore".equals(type);
-        }
-    }
 }

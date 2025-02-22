@@ -26,6 +26,7 @@
         <module>archflow-core</module>
         <module>archflow-model</module>
         <module>archflow-plugin-api</module>
+        <module>archflow-plugins</module>
         <module>archflow-api</module>
         <module>archflow-agent</module>
         <module>archflow-langchain4j</module>

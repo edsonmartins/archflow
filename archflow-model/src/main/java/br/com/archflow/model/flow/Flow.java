@@ -1,9 +1,7 @@
 package br.com.archflow.model.flow;
 
 import br.com.archflow.model.config.FlowConfiguration;
-
 import java.util.List;
-import java.util.Map;
 
 /**
  * Contrato principal que define um fluxo de trabalho de IA no archflow.
@@ -23,11 +21,11 @@ public interface Flow {
 
     /**
      * Retorna os metadados associados ao fluxo.
-     * Metadados podem incluir descrição, tags, proprietário, etc.
+     * Contém informações como nome, descrição, versão, etc.
      *
-     * @return mapa de metadados do fluxo
+     * @return metadados do fluxo
      */
-    Map<String, Object> getMetadata();
+    FlowMetadata getMetadata();
 
     /**
      * Retorna a lista ordenada de passos que compõem o fluxo.

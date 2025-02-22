@@ -26,4 +26,5 @@ public class RedisVectorStoreAdapterFactory implements LangChainAdapterFactory {
     public boolean supports(String type) {
         return "vectorstore".equals(type);
     }
+
 }
