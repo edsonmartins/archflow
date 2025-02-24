@@ -12,7 +12,7 @@
 
 **Framework open source para automação de agentes de IA em Java**
 
-[Website](https://archflow.github.io) • [Documentação](docs/README.md) • [Quickstart](docs/development/quickstart.md) • [Discord](https://discord.gg/archflow)
+[Website](https://archflow.github.io) • [Documentação](docs/readme.md) • [Quickstart](docs/development/quickstart.md) • [Discord](https://discord.gg/archflow)
 
 </div>
 
