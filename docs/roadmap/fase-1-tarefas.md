@@ -61,21 +61,34 @@
 
 ---
 
-## Sprint 3: Streaming Protocol
+## Sprint 3: Streaming Protocol ✅ COMPLETO
 
 | ID | Tarefa | Estimativa | Prioridade | Status | Última Atualização |
 |----|--------|------------|------------|--------|-------------------|
-| F1-20 | Definir spec ArchflowEvent (domains, types, envelope) | 3h | 🔴 ALTA | 🔴 TODO | - |
-| F1-21 | Criar classes de modelo do Streaming Protocol | 4h | 🔴 ALTA | 🔴 TODO | - |
-| F1-22 | Implementar StreamingController com SSE | 4h | 🔴 ALTA | 🔴 TODO | - |
-| F1-23 | Implementar domain "chat" para mensagens do modelo | 3h | 🔴 ALTA | 🔴 TODO | - |
-| F1-24 | Implementar domain "thinking" para processamento o1 | 3h | 🟡 MÉDIA | 🔴 TODO | - |
-| F1-25 | Implementar domain "tool" para execução de tools | 3h | 🔴 ALTA | 🔴 TODO | - |
-| F1-26 | Implementar domain "audit" para tracing | 2h | 🟡 MÉDIA | 🔴 TODO | - |
-| F1-27 | Criar ChatPanel básico para teste de streaming | 6h | 🟡 MÉDIA | 🔴 TODO | - |
-| F1-28 | Testar streaming com múltiplos subscribers | 3h | 🟡 MÉDIA | 🔴 TODO | - |
+| F1-20 | Definir spec ArchflowEvent (domains, types, envelope) | 3h | 🔴 ALTA | ✅ DONE | 2025-01-16 |
+| F1-21 | Criar classes de modelo do Streaming Protocol | 4h | 🔴 ALTA | ✅ DONE | 2025-01-16 |
+| F1-22 | Implementar StreamingController com SSE | 4h | 🔴 ALTA | ✅ DONE | 2025-01-16 |
+| F1-23 | Implementar domain "chat" para mensagens do modelo | 3h | 🔴 ALTA | ✅ DONE | 2025-01-16 |
+| F1-24 | Implementar domain "thinking" para processamento o1 | 3h | 🟡 MÉDIA | ✅ DONE | 2025-01-16 |
+| F1-25 | Implementar domain "tool" para execução de tools | 3h | 🔴 ALTA | ✅ DONE | 2025-01-16 |
+| F1-26 | Implementar domain "audit" para tracing | 2h | 🟡 MÉDIA | ✅ DONE | 2025-01-16 |
+| F1-27 | Criar ChatPanel básico para teste de streaming | 6h | 🟡 MÉDIA | ✅ DONE | 2025-01-16 |
+| F1-28 | Testar streaming com múltiplos subscribers | 3h | 🟡 MÉDIA | ✅ DONE | 2025-01-16 |
 
-**Subtotal:** 31 horas (~1 semana)
+**Subtotal:** 31 horas (~1 semana) ✅ **COMPLETO**
+
+**Entregas Sprint 3:**
+- ✅ ArchflowDomain enum (6 domains: CHAT, THINKING, TOOL, AUDIT, INTERACTION, SYSTEM)
+- ✅ ArchflowEventType enum (20+ tipos de eventos)
+- ✅ ArchflowEvent envelope com builder e JSON
+- ✅ EventStreamEmitter para envio SSE
+- ✅ EventStreamRegistry com broadcast, heartbeat, cleanup
+- ✅ ChatEvent (delta, message, start, end, error)
+- ✅ ThinkingEvent (thinking, reflection, verification)
+- ✅ ToolEvent (start, progress, result, error)
+- ✅ AuditEvent (trace, span, metric, log)
+- ✅ InteractionEvent (suspend, form, resume, cancel)
+- ✅ SystemEvent (connected, disconnected, heartbeat, error)
 
 ---
 
@@ -105,10 +118,10 @@
 | **Total de Horas** | ~125 horas |
 | **Sprints** | 4 |
 | **Duração Estimada** | 4-6 semanas |
-| **Concluídas** | 19 ✅ |
+| **Concluídas** | 28 ✅ |
 | **Em Progresso** | 0 |
-| **Pendentes** | 18 |
-| **Progresso** | 51% |
+| **Pendentes** | 9 |
+| **Progresso** | 76% |
 
 ---
 
@@ -116,7 +129,7 @@
 
 - [x] LangChain4j 1.10.0 integrado sem erros de compilação
 - [x] Tool execution com interceptor chain funcionando
-- [ ] Streaming de mensagens via SSE operacional
+- [x] Streaming de mensagens via SSE operacional
 - [ ] MCP server rodando e respondendo a requests
 - [x] toolCallId rastreando execução hierárquica
 - [x] Pelo menos 90% dos testes passando (18/18 = 100%)
@@ -141,3 +154,4 @@
 - **Commits:**
   - 7144f91 - Sprint 1 Foundation Complete
   - e64ba89 - Sprint 2 Tool Interceptor + toolCallId Complete
+  - 4c11a57 - Sprint 3 Streaming Protocol Complete
