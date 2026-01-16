@@ -32,21 +32,32 @@
 
 ---
 
-## Sprint 2: Tool Interceptor + toolCallId
+## Sprint 2: Tool Interceptor + toolCallId ✅ COMPLETO
 
 | ID | Tarefa | Estimativa | Prioridade | Status | Última Atualização |
 |----|--------|------------|------------|--------|-------------------|
-| F1-11 | Criar interface ToolInterceptor com before/after/onError | 2h | 🔴 ALTA | 🔴 TODO | - |
-| F1-12 | Implementar ToolInterceptorChain com ordem de execução | 3h | 🔴 ALTA | 🔴 TODO | - |
-| F1-13 | Criar LoggingInterceptor | 2h | 🔴 ALTA | 🔴 TODO | - |
-| F1-14 | Criar CachingInterceptor com TTL configurável | 4h | 🟡 MÉDIA | 🔴 TODO | - |
-| F1-15 | Criar MetricsInterceptor com Micrometer | 3h | 🟡 MÉDIA | 🔴 TODO | - |
-| F1-16 | Criar GuardrailsInterceptor para validação | 4h | 🟡 MÉDIA | 🔴 TODO | - |
-| F1-17 | Implementar ExecutionId com hierarquia parent-child | 3h | 🔴 ALTA | 🔴 TODO | - |
-| F1-18 | Implementar ExecutionTracker para rastreamento | 4h | 🔴 ALTA | 🔴 TODO | - |
-| F1-19 | Integrar toolCallId com ToolExecutor | 3h | 🔴 ALTA | 🔴 TODO | - |
+| F1-11 | Criar interface ToolInterceptor com before/after/onError | 2h | 🔴 ALTA | ✅ DONE | 2025-01-16 |
+| F1-12 | Implementar ToolInterceptorChain com ordem de execução | 3h | 🔴 ALTA | ✅ DONE | 2025-01-16 |
+| F1-13 | Criar LoggingInterceptor | 2h | 🔴 ALTA | ✅ DONE | 2025-01-16 |
+| F1-14 | Criar CachingInterceptor com TTL configurável | 4h | 🟡 MÉDIA | ✅ DONE | 2025-01-16 |
+| F1-15 | Criar MetricsInterceptor com Micrometer | 3h | 🟡 MÉDIA | ✅ DONE | 2025-01-16 |
+| F1-16 | Criar GuardrailsInterceptor para validação | 4h | 🟡 MÉDIA | ✅ DONE | 2025-01-16 |
+| F1-17 | Implementar ExecutionId com hierarquia parent-child | 3h | 🔴 ALTA | ✅ DONE | 2025-01-16 |
+| F1-18 | Implementar ExecutionTracker para rastreamento | 4h | 🔴 ALTA | ✅ DONE | 2025-01-16 |
+| F1-19 | Integrar toolCallId com ToolExecutor | 3h | 🔴 ALTA | ✅ DONE | 2025-01-16 |
 
-**Subtotal:** 28 horas (~1 semana)
+**Subtotal:** 28 horas (~1 semana) ✅ **COMPLETO**
+
+**Entregas Sprint 2:**
+- ✅ ToolInterceptor interface com before/after/onError
+- ✅ ToolInterceptorChain com ordenação (order())
+- ✅ LoggingInterceptor (log de execução)
+- ✅ CachingInterceptor (cache em memória com TTL)
+- ✅ MetricsInterceptor (métricas: count, avg/min/max duration)
+- ✅ GuardrailsInterceptor (validação input/output)
+- ✅ ExecutionId (FLOW_abc_001, TOOL_abc_002_001)
+- ✅ ExecutionTracker (rastreamento hierárquico)
+- ✅ InterceptableToolExecutor (executor integrado)
 
 ---
 
@@ -94,20 +105,20 @@
 | **Total de Horas** | ~125 horas |
 | **Sprints** | 4 |
 | **Duração Estimada** | 4-6 semanas |
-| **Concluídas** | 10 ✅ |
+| **Concluídas** | 19 ✅ |
 | **Em Progresso** | 0 |
-| **Pendentes** | 27 |
-| **Progresso** | 27% |
+| **Pendentes** | 18 |
+| **Progresso** | 51% |
 
 ---
 
 ## ✅ Critérios de Sucesso da Fase 1
 
 - [x] LangChain4j 1.10.0 integrado sem erros de compilação
-- [ ] Tool execution com interceptor chain funcionando
+- [x] Tool execution com interceptor chain funcionando
 - [ ] Streaming de mensagens via SSE operacional
 - [ ] MCP server rodando e respondendo a requests
-- [ ] toolCallId rastreando execução hierárquica
+- [x] toolCallId rastreando execução hierárquica
 - [x] Pelo menos 90% dos testes passando (18/18 = 100%)
 
 ---
@@ -117,8 +128,8 @@
 | Fase | Dependência | Status |
 |------|-------------|--------|
 | Sprint 2 | Sprint 1 completa | ✅ OK |
-| Sprint 3 | Sprint 1 completa | ✅ OK |
-| Sprint 4 | Sprint 1 completa | ✅ OK |
+| Sprint 3 | Sprint 2 completa | ✅ OK |
+| Sprint 4 | Sprint 2 completa | ✅ OK |
 
 ---
 
@@ -127,4 +138,6 @@
 - **Importante:** LangChain4j 1.10.0 tem muitos breaking changes - MIGRADO ✅
 - **Dica:** Usar branch de feature para o upgrade
 - **Validação:** Cada sprint deve ter demonstração funcional
-- **Commit:** 7144f91 - feat: LangChain4j upgrade to 1.10.0 - Sprint 1 Foundation Complete
+- **Commits:**
+  - 7144f91 - Sprint 1 Foundation Complete
+  - e64ba89 - Sprint 2 Tool Interceptor + toolCallId Complete
