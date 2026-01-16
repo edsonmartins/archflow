@@ -15,6 +15,7 @@
         <module>archflow-langchain4j-core</module>
         <module>archflow-langchain4j-openai</module>
         <module>archflow-langchain4j-anthropic</module>
+        <module>archflow-langchain4j-provider-hub</module>
         <module>archflow-langchain4j-memory-redis</module>
         <module>archflow-langchain4j-memory-jdbc</module>
         <module>archflow-langchain4j-chain-rag</module>

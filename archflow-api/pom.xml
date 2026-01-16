@@ -20,6 +20,20 @@
     </properties>
 
     <dependencies>
+        <!-- Archflow Model -->
+        <dependency>
+            <groupId>br.com.archflow</groupId>
+            <artifactId>archflow-model</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <!-- Archflow Security -->
+        <dependency>
+            <groupId>br.com.archflow</groupId>
+            <artifactId>archflow-security</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
         <!-- LangChain4j -->
         <dependency>
             <groupId>dev.langchain4j</groupId>
