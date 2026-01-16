@@ -121,7 +121,8 @@
 
 | Fase | Dependência | Status |
 |------|-------------|--------|
-| FASE 3 | FASE 1 deve estar 100% completa | ⏳ Aguardando |
+| FASE 3 | FASE 1 deve estar 100% completa | ✅ OK |
+| FASE 3 | FASE 2 deve estar 100% completa | ✅ OK |
 | FASE 4 | FASE 3 deve estar 100% completa | ⏳ Aguardando |
 
 ---
