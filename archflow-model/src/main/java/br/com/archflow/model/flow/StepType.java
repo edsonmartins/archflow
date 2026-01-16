@@ -5,10 +5,12 @@ package br.com.archflow.model.flow;
  */
 public enum StepType {
     ASSISTANT,
-    
+
     AGENT,
-    
+
     TOOL,
-    
+
+    CHAIN,
+
     CUSTOM
 }

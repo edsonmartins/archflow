@@ -17,16 +17,16 @@
         <maven.compiler.source>17</maven.compiler.source>
         <maven.compiler.target>17</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <langchain4j.version>1.0.0-beta1</langchain4j.version>
+        <langchain4j.version>1.10.0</langchain4j.version>
         <camel.version>4.3.0</camel.version>
-        <spring-boot.version>3.2.2</spring-boot.version>
+        <spring-boot.version>3.3.0</spring-boot.version>
     </properties>
 
     <modules>
         <module>archflow-core</module>
         <module>archflow-model</module>
         <module>archflow-plugin-api</module>
-        <module>archflow-plugins</module>
+        <!-- <module>archflow-plugins</module> Temporarily disabled due to missing submodules -->
         <module>archflow-api</module>
         <module>archflow-agent</module>
         <module>archflow-langchain4j</module>
@@ -53,37 +53,13 @@
                 <scope>import</scope>
             </dependency>
 
-            <!-- LangChain4j -->
+            <!-- LangChain4j BOM -->
             <dependency>
                 <groupId>dev.langchain4j</groupId>
-                <artifactId>langchain4j</artifactId>
+                <artifactId>langchain4j-bom</artifactId>
                 <version>${langchain4j.version}</version>
-            </dependency>
-
-            <dependency>
-                <groupId>dev.langchain4j</groupId>
-                <artifactId>langchain4j-core</artifactId>
-                <version>${langchain4j.version}</version>
-            </dependency>
-
-            <dependency>
-                <groupId>dev.langchain4j</groupId>
-                <artifactId>langchain4j</artifactId>
-                <version>${langchain4j.version}</version>
-            </dependency>
-
-            <!-- LangChain4j OpenAI -->
-            <dependency>
-                <groupId>dev.langchain4j</groupId>
-                <artifactId>langchain4j-open-ai</artifactId>
-                <version>${langchain4j.version}</version>
-            </dependency>
-
-            <!-- LangChain4j Anthropic -->
-            <dependency>
-                <groupId>dev.langchain4j</groupId>
-                <artifactId>langchain4j-anthropic</artifactId>
-                <version>${langchain4j.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
             </dependency>
 
             <dependency>
@@ -105,6 +81,13 @@
                     <configuration>
                         <target>${maven.compiler.target}</target>
                         <source>${maven.compiler.source}</source>
+                        <annotationProcessorPaths>
+                            <path>
+                                <groupId>org.projectlombok</groupId>
+                                <artifactId>lombok</artifactId>
+                                <version>1.18.30</version>
+                            </path>
+                        </annotationProcessorPaths>
                     </configuration>
                 </plugin>
 

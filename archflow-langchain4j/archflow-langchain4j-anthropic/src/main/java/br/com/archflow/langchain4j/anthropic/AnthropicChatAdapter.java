@@ -1,19 +1,19 @@
-package br.com.archflow.langchain4j.openai;
+package br.com.archflow.langchain4j.anthropic;
 
 import br.com.archflow.langchain4j.core.spi.LangChainAdapter;
 import br.com.archflow.model.engine.ExecutionContext;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.UserMessage;
+import dev.langchain4j.model.anthropic.AnthropicChatModel;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.response.ChatResponse;
-import dev.langchain4j.model.openai.OpenAiChatModel;
 import dev.langchain4j.memory.ChatMemory;
 
 import java.util.Map;
 
 /**
- * Adapter para integração com o modelo de chat da OpenAI no LangChain4j 1.10.0.
- * Esta implementação permite interagir com modelos de linguagem da OpenAI, suportando geração de respostas simples e conversas com memória.
+ * Adapter para integração com o modelo de chat da Anthropic (Claude) no LangChain4j 1.10.0.
+ * Esta implementação permite interagir com modelos Claude, suportando geração de respostas simples e conversas com memória.
  *
  * <p>Este adapter é projetado para ser usado dentro do Archflow, integrando-se ao framework via SPI e oferecendo suporte a dois tipos de operações:
  * <ul>
@@ -24,25 +24,22 @@ import java.util.Map;
  * <p>Exemplo de configuração:
  * <pre>{@code
  * Map<String, Object> config = Map.of(
- *     "api.key", "sua-chave-api-openai",    // Chave de API da OpenAI
- *     "model.name", "gpt-4o",               // Nome do modelo (opcional, default: gpt-4o-mini)
- *     "temperature", 0.9                    // Temperatura para controle de criatividade (opcional, default: 0.7)
+ *     "api.key", "sua-chave-api-anthropic",  // Chave de API da Anthropic
+ *     "model.name", "claude-sonnet-4-20250514",  // Nome do modelo (default: claude-3-5-sonnet-20241022)
+ *     "temperature", 0.7                      // Temperatura (default: 0.7)
  * );
  * }</pre>
  *
  * @see LangChainAdapter
  * @see ChatModel
- * @see OpenAiChatModel
+ * @see AnthropicChatModel
  */
-public class OpenAiChatAdapter implements LangChainAdapter {
+public class AnthropicChatAdapter implements LangChainAdapter {
     private ChatModel model;
     private Map<String, Object> config;
 
     /**
      * Valida as configurações fornecidas para o adapter.
-     *
-     * <p>Verifica se as propriedades obrigatórias (como a chave de API) estão presentes e se os valores opcionais
-     * (como nome do modelo e temperatura) estão dentro dos limites aceitáveis.
      *
      * @param properties Map com as configurações, incluindo "api.key", "model.name" (opcional) e "temperature" (opcional)
      * @throws IllegalArgumentException se as configurações forem inválidas ou ausentes
@@ -55,10 +52,10 @@ public class OpenAiChatAdapter implements LangChainAdapter {
 
         String apiKey = (String) properties.get("api.key");
         if (apiKey == null || apiKey.trim().isEmpty()) {
-            throw new IllegalArgumentException("OpenAI API key is required");
+            throw new IllegalArgumentException("Anthropic API key is required");
         }
 
-        String modelName = (String) properties.getOrDefault("model.name", "gpt-4o-mini");
+        String modelName = (String) properties.getOrDefault("model.name", "claude-3-5-sonnet-20241022");
         if (modelName == null || modelName.trim().isEmpty()) {
             throw new IllegalArgumentException("Model name cannot be empty");
         }
@@ -69,8 +66,8 @@ public class OpenAiChatAdapter implements LangChainAdapter {
                 throw new IllegalArgumentException("Temperature must be a number");
             }
             double temp = ((Number) temperature).doubleValue();
-            if (temp < 0.0 || temp > 2.0) {
-                throw new IllegalArgumentException("Temperature must be between 0.0 and 2.0");
+            if (temp < 0.0 || temp > 1.0) {
+                throw new IllegalArgumentException("Temperature must be between 0.0 and 1.0");
             }
         }
     }
@@ -80,13 +77,13 @@ public class OpenAiChatAdapter implements LangChainAdapter {
      *
      * <p>Requer as seguintes configurações:
      * <ul>
-     *   <li>{@code api.key} - Chave de API da OpenAI</li>
+     *   <li>{@code api.key} - Chave de API da Anthropic</li>
      * </ul>
      * <p>Configurações opcionais:
      * <ul>
-     *   <li>{@code model.name} - Nome do modelo OpenAI (default: "gpt-4o-mini")</li>
+     *   <li>{@code model.name} - Nome do modelo Claude (default: "claude-3-5-sonnet-20241022")</li>
      *   <li>{@code temperature} - Temperatura para controle de criatividade (default: 0.7)</li>
-     *   <li>{@code maxTokens} - Máximo de tokens na resposta (default: 2048)</li>
+     *   <li>{@code maxTokens} - Máximo de tokens na resposta (default: 4096)</li>
      * </ul>
      *
      * @param properties Map com as configurações
@@ -98,14 +95,14 @@ public class OpenAiChatAdapter implements LangChainAdapter {
         this.config = properties;
 
         String apiKey = (String) properties.get("api.key");
-        String modelName = (String) properties.getOrDefault("model.name", "gpt-4o-mini");
+        String modelName = (String) properties.getOrDefault("model.name", "claude-3-5-sonnet-20241022");
         Double temperature = ((Number) properties.getOrDefault("temperature", 0.7)).doubleValue();
         Integer maxTokens = properties.get("maxTokens") != null
                 ? ((Number) properties.get("maxTokens")).intValue()
-                : 2048;
+                : 4096;
 
         // LangChain4j 1.10.0: Builder pattern para criação do modelo
-        this.model = OpenAiChatModel.builder()
+        this.model = AnthropicChatModel.builder()
                 .apiKey(apiKey)
                 .modelName(modelName)
                 .temperature(temperature)
@@ -114,7 +111,7 @@ public class OpenAiChatAdapter implements LangChainAdapter {
     }
 
     /**
-     * Executa operações no modelo de chat da OpenAI.
+     * Executa operações no modelo de chat da Anthropic.
      *
      * <p>Operações suportadas:
      * <ul>
@@ -129,7 +126,7 @@ public class OpenAiChatAdapter implements LangChainAdapter {
      *         Para "chat": String com a resposta do modelo e memória atualizada
      * @throws IllegalArgumentException se a operação for inválida ou o input estiver no formato incorreto
      * @throws IllegalStateException se o adapter não estiver configurado ou a memória estiver ausente para "chat"
-     * @throws RuntimeException se ocorrer um erro durante a execução (ex.: falha de rede)
+     * @throws RuntimeException se ocorrer um erro durante a execução
      */
     @Override
     public synchronized Object execute(String operation, Object input, ExecutionContext context) throws Exception {
@@ -175,8 +172,6 @@ public class OpenAiChatAdapter implements LangChainAdapter {
 
     /**
      * Libera recursos utilizados pelo adapter.
-     *
-     * <p>Define o modelo e as configurações como null, permitindo que o garbage collector os libere.
      */
     @Override
     public void shutdown() {

@@ -6,7 +6,7 @@ import br.com.archflow.langchain4j.core.spi.LangChainRegistry;
 import br.com.archflow.model.engine.ExecutionContext;
 import dev.langchain4j.chain.ConversationalChain;
 import dev.langchain4j.data.segment.TextSegment;
-import dev.langchain4j.model.chat.ChatLanguageModel;
+import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.langchain4j.store.embedding.EmbeddingMatch;
 import dev.langchain4j.store.embedding.EmbeddingSearchRequest;
@@ -154,14 +154,14 @@ public class RagChainAdapter implements LangChainAdapter {
         // Obtém language model
         LangChainAdapter languageModelAdapter = LangChainRegistry.createAdapter(
                 (String) properties.get("languagemodel.provider"), "chat", properties);
-        if (!(languageModelAdapter instanceof ChatLanguageModel)) {
-            throw new IllegalStateException("Provider " + properties.get("languagemodel.provider") + " does not return a ChatLanguageModel");
+        if (!(languageModelAdapter instanceof ChatModel)) {
+            throw new IllegalStateException("Provider " + properties.get("languagemodel.provider") + " does not return a ChatModel");
         }
-        ChatLanguageModel languageModel = (ChatLanguageModel) languageModelAdapter;
+        ChatModel languageModel = (ChatModel) languageModelAdapter;
 
         // Configura a chain
         this.chain = ConversationalChain.builder()
-                .chatLanguageModel(languageModel)
+                .chatModel(languageModel)
                 .build();
     }
 

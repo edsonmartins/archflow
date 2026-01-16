@@ -48,21 +48,21 @@
 
 ## 📊 STATUS GERAL DO PROJETO
 
-**Última atualização:** 2025-01-15
+**Última atualização:** 2025-01-16
 
 ### Resumo por Fase
 
 | Fase | Descrição | Progresso | Status | Tarefas | Horas |
 |------|-----------|-----------|--------|---------|-------|
-| **FASE 1** | Foundation | 0% | 🔴 TODO | 0/37 | ~125h |
+| **FASE 1** | Foundation | 22% | 🟡 IN_PROGRESS | 8/37 | ~125h |
 | **FASE 2** | Visual Experience | 0% | 🔴 TODO | 0/41 | ~154h |
 | **FASE 3** | Enterprise Capabilities | 0% | 🔴 TODO | 0/46 | ~153h |
 | **FASE 4** | Ecosystem | 0% | 🔴 TODO | 0/49 | ~183h |
 | **FASE 5** | Polish & Launch | 0% | 🔴 TODO | 0/55 | ~220h |
 
-**Status Geral:** 🔴 **PROJETO INICIANDO** - Aguardando início da Fase 1
+**Status Geral:** 🟡 **SPRINT 1 EM ANDAMENTO** - Upgrade LangChain4j 1.0.0 → 1.10.0
 
-**Progresso Total:** 0% (0/228 tarefas)
+**Progresso Total:** 4% (8/228 tarefas)
 
 **Total Estimado:** ~835 horas (~20-30 semanas)
 
@@ -113,6 +113,20 @@ archflow/
 ---
 
 ## 📝 Log de Mudanças
+
+### 2025-01-16
+- ✅ Início do Sprint 1: Upgrade LangChain4j 1.0.0-beta1 → 1.10.0
+- ✅ Atualização do pom.xml raiz para langchain4j.version=1.10.0
+- ✅ Adição do langchain4j-bom para gerenciamento de dependências
+- ✅ Atualização do Spring Boot de 3.2.2 → 3.3.0
+- ✅ Correção do FlowState (anotações Lombok)
+- ✅ Adição de CHAIN ao enum StepType
+- ✅ Migração do OpenAiChatAdapter para nova API:
+  - `ChatLanguageModel` → `ChatModel`
+  - `model.chat(UserMessage)` → `model.chat(String)`
+  - `model.generate(String)` → `model.chat(String)`
+- ✅ Módulos compilando com sucesso: archflow-model, archflow-core, archflow-langchain4j-core, archflow-langchain4j-openai, archflow-langchain4j-anthropic
+- ⏳ Pendente: Corrigir dependências de submódulos (memory-redis, embeddings, vectorstores)
 
 ### 2025-01-15
 - ✅ Criação do documento de status principal (STATUS-PROJETO.md)
