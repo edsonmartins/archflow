@@ -1,0 +1,181 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 720" fill="none">
+  <!-- Definitions -->
+  <defs>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap');
+      .text { font-family: 'Inter', system-ui, sans-serif; }
+      .title { font-size: 18px; font-weight: 700; fill: #1a1a1a; }
+      .label { font-size: 12px; font-weight: 600; fill: #333; }
+      .small { font-size: 11px; font-weight: 400; fill: #555; }
+      .tiny { font-size: 10px; font-weight: 400; fill: #666; }
+    </style>
+    <linearGradient id="uiGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#7dd3fc;stop-opacity:0.9"/>
+      <stop offset="100%" style="stop-color:#38bdf8;stop-opacity:0.9"/>
+    </linearGradient>
+    <linearGradient id="uiGradientBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#38bdf8;stop-opacity:0.15"/>
+      <stop offset="100%" style="stop-color:#0ea5e9;stop-opacity:0.15"/>
+    </linearGradient>
+    <linearGradient id="serverGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#7dd3fc;stop-opacity:0.9"/>
+      <stop offset="100%" style="stop-color:#0ea5e9;stop-opacity:0.9"/>
+    </linearGradient>
+    <linearGradient id="serverGradientBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#38bdf8;stop-opacity:0.15"/>
+      <stop offset="100%" style="stop-color:#0284c7;stop-opacity:0.15"/>
+    </linearGradient>
+    <linearGradient id="aiGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#fbbf24;stop-opacity:0.9"/>
+      <stop offset="100%" style="stop-color:#f59e0b;stop-opacity:0.9"/>
+    </linearGradient>
+    <linearGradient id="aiGradientBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#fbbf24;stop-opacity:0.15"/>
+      <stop offset="100%" style="stop-color:#d97706;stop-opacity:0.15"/>
+    </linearGradient>
+    <filter id="shadow" x="-4" y="-4" width="24" height="24">
+      <feDropShadow dx="0" dy="2" stdDeviation="4" flood-opacity="0.08"/>
+    </filter>
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#666"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="900" height="720" fill="#ffffff"/>
+
+  <!-- Title -->
+  <text x="450" y="35" text-anchor="middle" class="text title">archflow 2.0 - Arquitetura</text>
+
+  <!-- Layer 1: Web Component UI -->
+  <g filter="url(#shadow)">
+    <!-- Container -->
+    <rect x="70" y="65" width="760" height="140" rx="8" fill="white" stroke="#e2e8f0" stroke-width="1"/>
+    <rect x="70" y="65" width="760" height="140" rx="8" fill="url(#uiGradientBg)" stroke="none"/>
+
+    <!-- Label Badge -->
+    <rect x="90" y="78" width="140" height="24" rx="4" fill="#0ea5e9"/>
+    <text x="160" y="95" text-anchor="middle" class="text" fill="white" font-size="11" font-weight="600">Web Component UI</text>
+
+    <!-- Components -->
+    <rect x="100" y="115" width="140" height="70" rx="6" fill="url(#uiGradient)" stroke="#0ea5e9" stroke-width="1"/>
+    <text x="170" y="145" text-anchor="middle" class="text label" fill="white">&lt;archflow-designer&gt;</text>
+    <text x="170" y="162" text-anchor="middle" class="text small" fill="white">Drag &amp; Drop</text>
+
+    <rect x="260" y="115" width="140" height="70" rx="6" fill="url(#uiGradient)" stroke="#0ea5e9" stroke-width="1"/>
+    <text x="330" y="145" text-anchor="middle" class="text label" fill="white">&lt;flow-view&gt;</text>
+    <text x="330" y="162" text-anchor="middle" class="text small" fill="white">Debugger</text>
+
+    <rect x="420" y="115" width="140" height="70" rx="6" fill="url(#uiGradient)" stroke="#0ea5e9" stroke-width="1"/>
+    <text x="490" y="145" text-anchor="middle" class="text label" fill="white">&lt;chat-panel&gt;</text>
+    <text x="490" y="162" text-anchor="middle" class="text small" fill="white">SSE Stream</text>
+
+    <!-- React 19 Badge -->
+    <rect x="590" y="130" width="200" height="30" rx="15" fill="white" stroke="#0ea5e9" stroke-width="2"/>
+    <text x="690" y="150" text-anchor="middle" class="text" fill="#0ea5e9" font-size="11" font-weight="600">React 19 Native ✓</text>
+  </g>
+
+  <!-- Connection Arrow 1 -->
+  <path d="M450 205 L450 235" stroke="#666" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+  <text x="450" y="225" text-anchor="middle" class="text tiny" fill="#666">HTTP/WebSocket</text>
+
+  <!-- Layer 2: Server -->
+  <g filter="url(#shadow)">
+    <!-- Container -->
+    <rect x="70" y="245" width="760" height="180" rx="8" fill="white" stroke="#e2e8f0" stroke-width="1"/>
+    <rect x="70" y="245" width="760" height="180" rx="8" fill="url(#serverGradientBg)" stroke="none"/>
+
+    <!-- Label Badge -->
+    <rect x="90" y="258" width="140" height="24" rx="4" fill="#0ea5e9"/>
+    <text x="160" y="275" text-anchor="middle" class="text" fill="white" font-size="11" font-weight="600">archflow-server</text>
+
+    <!-- Row 1 -->
+    <rect x="100" y="295" width="140" height="60" rx="6" fill="url(#serverGradient)" stroke="#0ea5e9" stroke-width="1"/>
+    <text x="170" y="323" text-anchor="middle" class="text label" fill="white">Flow</text>
+    <text x="170" y="339" text-anchor="middle" class="text small" fill="white">Engine</text>
+
+    <rect x="260" y="295" width="140" height="60" rx="6" fill="url(#serverGradient)" stroke="#0ea5e9" stroke-width="1"/>
+    <text x="330" y="323" text-anchor="middle" class="text label" fill="white">Agent</text>
+    <text x="330" y="339" text-anchor="middle" class="text small" fill="white">Executor</text>
+
+    <rect x="420" y="295" width="140" height="60" rx="6" fill="url(#serverGradient)" stroke="#0ea5e9" stroke-width="1"/>
+    <text x="490" y="323" text-anchor="middle" class="text label" fill="white">Tool</text>
+    <text x="490" y="339" text-anchor="middle" class="text small" fill="white">Invoker</text>
+
+    <!-- Row 2 -->
+    <rect x="100" y="365" width="140" height="60" rx="6" fill="url(#serverGradient)" stroke="#0ea5e9" stroke-width="1" opacity="0.85"/>
+    <text x="170" y="393" text-anchor="middle" class="text label" fill="white">MCP</text>
+    <text x="170" y="409" text-anchor="middle" class="text small" fill="white">Protocol</text>
+
+    <rect x="260" y="365" width="140" height="60" rx="6" fill="url(#serverGradient)" stroke="#0ea5e9" stroke-width="1" opacity="0.85"/>
+    <text x="330" y="393" text-anchor="middle" class="text label" fill="white">Streaming</text>
+    <text x="330" y="409" text-anchor="middle" class="text small" fill="white">Protocol</text>
+
+    <rect x="420" y="365" width="140" height="60" rx="6" fill="url(#serverGradient)" stroke="#0ea5e9" stroke-width="1" opacity="0.85"/>
+    <text x="490" y="388" text-anchor="middle" class="text label" fill="white" font-size="11">Observability</text>
+    <text x="490" y="405" text-anchor="middle" class="text tiny" fill="white">&amp; Metrics</text>
+
+    <!-- Spring Boot Badge -->
+    <text x="700" y="330" text-anchor="end" class="text" fill="#0ea5e9" font-size="13" font-weight="600">Spring Boot 3</text>
+  </g>
+
+  <!-- Connection Arrow 2 -->
+  <path d="M450 425 L450 455" stroke="#666" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+
+  <!-- Layer 3: AI Engine -->
+  <g filter="url(#shadow)">
+    <!-- Container -->
+    <rect x="70" y="465" width="760" height="140" rx="8" fill="white" stroke="#e2e8f0" stroke-width="1"/>
+    <rect x="70" y="465" width="760" height="140" rx="8" fill="url(#aiGradientBg)" stroke="none"/>
+
+    <!-- Label Badge -->
+    <rect x="90" y="478" width="200" height="24" rx="4" fill="#f59e0b"/>
+    <text x="190" y="495" text-anchor="middle" class="text" fill="white" font-size="11" font-weight="600">LangChain4j 1.10.0 + Spring AI</text>
+
+    <!-- Components -->
+    <rect x="100" y="505" width="190" height="70" rx="6" fill="url(#aiGradient)" stroke="#f59e0b" stroke-width="1"/>
+    <text x="195" y="535" text-anchor="middle" class="text label" fill="white">ChatModel</text>
+    <text x="195" y="553" text-anchor="middle" class="text small" fill="white">(15+ providers)</text>
+
+    <rect x="310" y="505" width="190" height="70" rx="6" fill="url(#aiGradient)" stroke="#f59e0b" stroke-width="1"/>
+    <text x="405" y="535" text-anchor="middle" class="text label" fill="white">EmbeddingModel</text>
+    <text x="405" y="553" text-anchor="middle" class="text small" fill="white">Vectors</text>
+
+    <rect x="520" y="505" width="190" height="70" rx="6" fill="url(#aiGradient)" stroke="#f59e0b" stroke-width="1"/>
+    <text x="615" y="535" text-anchor="middle" class="text label" fill="white">VectorStore</text>
+    <text x="615" y="553" text-anchor="middle" class="text small" fill="white">(6+ types)</text>
+  </g>
+
+  <!-- Key Features Bar -->
+  <g transform="translate(70, 625)">
+    <rect x="0" y="0" width="760" height="65" rx="8" fill="#f8fafc" stroke="#e2e8f0"/>
+
+    <g transform="translate(20, 25)">
+      <rect x="0" y="-12" width="24" height="24" rx="4" fill="#0ea5e9"/>
+      <path d="M6 0 L10 4 L18 4" stroke="white" stroke-width="2" fill="none"/>
+      <text x="32" y="4" class="text small" fill="#333">Zero Frontend Lock-in</text>
+      <text x="32" y="17" class="text tiny" fill="#666">Web Component works everywhere</text>
+    </g>
+
+    <g transform="translate(270, 25)">
+      <rect x="0" y="-12" width="24" height="24" rx="4" fill="#f59e0b"/>
+      <path d="M6 8 L12 4 L18 8 M6 12 L12 8 L18 12" stroke="white" stroke-width="2" fill="none"/>
+      <text x="32" y="4" class="text small" fill="#333">MCP Native Integration</text>
+      <text x="32" y="17" class="text tiny" fill="#666">Interoperabilidade AI</text>
+    </g>
+
+    <g transform="translate(530, 25)">
+      <rect x="0" y="-12" width="24" height="24" rx="4" fill="#0ea5e9"/>
+      <path d="M7 7 L17 7 M12 2 L12 12" stroke="white" stroke-width="2" fill="none"/>
+      <text x="32" y="4" class="text small" fill="#333">Enterprise from Day One</text>
+      <text x="32" y="17" class="text tiny" fill="#666">RBAC, Audit, Metrics</text>
+    </g>
+  </g>
+
+  <!-- Side Labels -->
+  <g>
+    <text x="35" y="140" text-anchor="middle" class="text label" transform="rotate(-90 35 140)" fill="#0ea5e9">UI LAYER</text>
+    <text x="35" y="335" text-anchor="middle" class="text label" transform="rotate(-90 35 335)" fill="#0ea5e9">SERVER LAYER</text>
+    <text x="35" y="535" text-anchor="middle" class="text label" transform="rotate(-90 35 535)" fill="#f59e0b">AI LAYER</text>
+  </g>
+</svg>
