@@ -29,7 +29,8 @@
       "Bash(npx vue-tsc:*)",
       "Bash(tsc:*)",
       "Bash(npx tsc:*)",
-      "Bash(./node_modules/.bin/tsc:*)"
+      "Bash(./node_modules/.bin/tsc:*)",
+      "Bash(git push:*)"
     ]
   }
 }

@@ -25,6 +25,7 @@
     <modules>
         <module>archflow-core</module>
         <module>archflow-model</module>
+        <module>archflow-security</module>
         <module>archflow-plugin-api</module>
         <!-- <module>archflow-plugins</module> Temporarily disabled due to missing submodules -->
         <module>archflow-api</module>
