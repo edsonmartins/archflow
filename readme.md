@@ -182,13 +182,21 @@ archflow/
 
 | Fase | Descrição | Status | Estimativa |
 |------|-----------|--------|------------|
-| **Fase 1** | Foundation - LangChain4j 1.10.0, Streaming, MCP | 🔴 TODO | 4-6 sem |
-| **Fase 2** | Visual Experience - Web Component Designer | 🔴 TODO | 6-8 sem |
+| **Fase 1** | Foundation - LangChain4j 1.10.0, Streaming, MCP | 🟡 IN PROGRESS | 4-6 sem |
+| **Fase 2** | Visual Experience - Web Component Designer | 🟡 IN PROGRESS | 6-8 sem |
 | **Fase 3** | Enterprise Capabilities - RBAC, Observability | 🔴 TODO | 4-6 sem |
 | **Fase 4** | Ecosystem - Templates, Marketplace | 🔴 TODO | 4-6 sem |
 | **Fase 5** | Polish & Launch - Performance, Docs | 🔴 TODO | 2-4 sem |
 
-**Total:** 20-30 semanas até v1.0.0
+**Progresso Atual:** ~30% completo
+
+**Conquistado Recentemente:**
+- ✅ Web Component `<archflow-designer>` framework-agnostic
+- ✅ Integração React e Vue funcionando
+- ✅ Sistema de execução com SSE streaming
+- ✅ ExecutionStore e ExecutionHistoryPanel
+- ✅ ThemeManager (light/dark mode)
+- ✅ TypeScript types completos
 
 [Ver roadmap detalhado](docs/roadmap/STATUS-PROJETO.md)
 
