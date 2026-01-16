@@ -1,0 +1,32 @@
+# Source files
+src/
+examples/
+public/
+
+# Build artifacts
+node_modules/
+
+# Development files
+*.config.ts
+*.config.js
+.eslintrc*
+.prettierrc*
+.gitignore
+.vscode/
+.idea/
+.DS_Store
+
+# Test files
+**/__tests__/
+**/*.test.ts
+**/*.test.tsx
+**/*.spec.ts
+**/*.spec.tsx
+coverage/
+.nyc_output/
+
+# Misc
+*.log
+*.lock
+.env*
+!.env.example

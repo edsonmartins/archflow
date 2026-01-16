@@ -1,0 +1,430 @@
+/**
+ * ArchflowDesigner - Node Component Styles
+ *
+ * Embedded CSS for node rendering within the Web Component.
+ */
+
+/* ==========================================================================
+// Node Base Styles
+// ========================================================================== */
+
+.archflow-node {
+  --node-color: #3b82f6;
+  --node-border: transparent;
+  --node-text: #ffffff;
+
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 180px;
+  max-width: 280px;
+  background: var(--node-color);
+  border-radius: 8px;
+  border: 2px solid var(--node-border);
+  color: var(--node-text);
+  font-size: 13px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  user-select: none;
+  transition: box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.archflow-node:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.archflow-node--selected {
+  border-color: #fbbf24;
+  box-shadow: 0 0 0 3px rgba(251, 191, 36, 0.3);
+}
+
+.archflow-node--disabled {
+  opacity: 0.6;
+  filter: grayscale(0.3);
+}
+
+/* ==========================================================================
+// Node Category Colors
+// ========================================================================== */
+
+.archflow-node--io {
+  --node-color: #10b981;
+}
+
+.archflow-node--ai {
+  --node-color: #8b5cf6;
+}
+
+.archflow-node--tool {
+  --node-color: #f59e0b;
+}
+
+.archflow-node--control {
+  --node-color: #ef4444;
+}
+
+.archflow-node--prompt {
+  --node-color: #06b6d4;
+}
+
+.archflow-node--vector {
+  --node-color: #ec4899;
+}
+
+.archflow-node--data {
+  --node-color: #6366f1;
+}
+
+.archflow-node--custom {
+  --node-color: #64748b;
+}
+
+/* ==========================================================================
+// Execution States
+// ========================================================================== */
+
+.archflow-node--running {
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.archflow-node--completed {
+  --node-color: #10b981;
+}
+
+.archflow-node--error {
+  --node-color: #ef4444;
+}
+
+.archflow-node--skipped {
+  opacity: 0.5;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(59, 130, 246, 0);
+  }
+}
+
+/* ==========================================================================
+// Node Header
+// ========================================================================== */
+
+.archflow-node__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.archflow-node__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.archflow-node__icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.archflow-node__label {
+  flex: 1;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ==========================================================================
+// Execution Status Indicator
+// ========================================================================== */
+
+.archflow-node__status {
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: bold;
+  flex-shrink: 0;
+}
+
+.archflow-node__status--running {
+  background: rgba(255, 255, 255, 0.2);
+  animation: spin 1s linear infinite;
+}
+
+.archflow-node__status--running::after {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border: 2px solid transparent;
+  border-top-color: currentColor;
+  border-radius: 50%;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.archflow-node__status--completed {
+  background: #10b981;
+}
+
+.archflow-node__status--error {
+  background: #ef4444;
+}
+
+.archflow-node__status--skipped {
+  background: #6b7280;
+}
+
+.archflow-node__status--waiting {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+/* ==========================================================================
+// Node Content
+// ========================================================================== */
+
+.archflow-node__content {
+  padding: 10px 12px;
+  min-height: 40px;
+}
+
+.archflow-node__param {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.archflow-node__param-label {
+  font-weight: 500;
+  opacity: 0.8;
+}
+
+.archflow-node__params-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.archflow-node__param-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.archflow-node__hint {
+  font-size: 12px;
+  opacity: 0.7;
+  font-style: italic;
+}
+
+.archflow-node__template-preview {
+  font-size: 11px;
+  opacity: 0.9;
+  line-height: 1.4;
+  margin-bottom: 6px;
+}
+
+.archflow-node__variables {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.archflow-node__variable {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+  font-size: 10px;
+  font-family: 'Monaco', 'Menlo', monospace;
+}
+
+/* ==========================================================================
+// Branch Indicators (Condition, Parallel)
+// ========================================================================== */
+
+.archflow-node__content--branch {
+  display: flex;
+  gap: 8px;
+}
+
+.archflow-node__branch {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.archflow-node__branch--true {
+  background: rgba(16, 185, 129, 0.3);
+}
+
+.archflow-node__branch--false {
+  background: rgba(239, 68, 68, 0.3);
+}
+
+.archflow-node__content--parallel {
+  padding: 12px;
+}
+
+.archflow-node__branches {
+  display: flex;
+  gap: 6px;
+}
+
+.archflow-node__branch-indicator {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 50%;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+/* ==========================================================================
+// Node Ports
+// ========================================================================== */
+
+.archflow-node__ports {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.archflow-node__ports--inputs {
+  left: -6px;
+}
+
+.archflow-node__ports--outputs {
+  right: -6px;
+}
+
+.archflow-node__port {
+  position: relative;
+  display: flex;
+  align-items: center;
+  font-size: 11px;
+  pointer-events: auto;
+}
+
+.archflow-node__port--input {
+  justify-content: flex-start;
+}
+
+.archflow-node__port--output {
+  justify-content: flex-end;
+}
+
+.archflow-node__port-handle {
+  width: 12px;
+  height: 12px;
+  background: #ffffff;
+  border: 2px solid var(--node-color);
+  border-radius: 50%;
+  cursor: crosshair;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.archflow-node__port--input .archflow-node__port-handle {
+  margin-right: 0;
+}
+
+.archflow-node__port--output .archflow-node__port-handle {
+  margin-left: 0;
+}
+
+.archflow-node__port-handle:hover {
+  transform: scale(1.3);
+  box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.3);
+}
+
+.archflow-node__port-label {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  background: rgba(0, 0, 0, 0.75);
+  color: white;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+.archflow-node__port--input .archflow-node__port-label {
+  left: 20px;
+}
+
+.archflow-node__port--output .archflow-node__port-label {
+  right: 20px;
+}
+
+.archflow-node__port:hover .archflow-node__port-label {
+  opacity: 1;
+}
+
+/* ==========================================================================
+// Dark Theme Overrides
+// ========================================================================== */
+
+:host([theme='dark']) .archflow-node {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+:host([theme='dark']) .archflow-node:hover {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+/* ==========================================================================
+// Compact Mode
+// ========================================================================== */
+
+.archflow-node--compact {
+  min-width: 140px;
+}
+
+.archflow-node--compact .archflow-node__header {
+  padding: 8px 10px;
+}
+
+.archflow-node--compact .archflow-node__content {
+  padding: 8px 10px;
+}
+
+.archflow-node--compact .archflow-node__param {
+  font-size: 11px;
+}

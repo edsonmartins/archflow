@@ -5,7 +5,31 @@
       "Bash(find:*)",
       "Bash(xargs:*)",
       "WebSearch",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(mvn compile:*)",
+      "Bash(mvn install:*)",
+      "Bash(mvn dependency:tree:*)",
+      "Bash(jar:*)",
+      "Bash(grep:*)",
+      "Bash(javap:*)",
+      "Bash(mvn test:*)",
+      "Bash(cat:*)",
+      "Bash(mvn:*)",
+      "Bash(curl:*)",
+      "Bash(python3:*)",
+      "Bash(git commit:*)",
+      "Bash(javac:*)",
+      "Bash(/Users/edsonmartins/relevant/archflow/archflow-agent/src/main/java/br/com/archflow/agent/tool/*.java)",
+      "Bash(/Users/edsonmartins/relevant/archflow/archflow-agent/src/main/java/br/com/archflow/agent/tool/interceptor/*.java)",
+      "Bash(npm install:*)",
+      "Bash(npm run build:component:*)",
+      "Bash(npm run typecheck:*)",
+      "Bash(npm run build:*)",
+      "Bash(npm run dev)",
+      "Bash(npx vue-tsc:*)",
+      "Bash(tsc:*)",
+      "Bash(npx tsc:*)",
+      "Bash(./node_modules/.bin/tsc:*)"
     ]
   }
 }

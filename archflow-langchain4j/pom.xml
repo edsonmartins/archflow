@@ -23,6 +23,7 @@
         <module>archflow-langchain4j-vectorstore-redis</module>
         <module>archflow-langchain4j-vectorstore-pgvector</module>
         <module>archflow-langchain4j-vectorstore-pinecone</module>
+        <module>archflow-langchain4j-mcp</module>
     </modules>
 
     <properties>
