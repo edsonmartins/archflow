@@ -28,6 +28,7 @@
         <module>archflow-security</module>
         <module>archflow-observability</module>
         <module>archflow-templates</module>
+        <module>archflow-conversation</module>
         <module>archflow-plugin-api</module>
         <!-- <module>archflow-plugins</module> Temporarily disabled due to missing submodules -->
         <module>archflow-api</module>
