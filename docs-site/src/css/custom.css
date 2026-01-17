@@ -1,0 +1,252 @@
+/**
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+:root {
+  --ifm-color-primary: #6366f1;
+  --ifm-color-primary-dark: #4c51bc;
+  --ifm-color-primary-light: #818cf8;
+  --archflow-accent: #00D4AA;
+  --archflow-accent-dark: #00A88A;
+  --archflow-purple: #8B5CF6;
+  --archflow-blue: #3B82F6;
+  --archflow-dark-bg: #0F172A;
+  --archflow-card-bg: #1E293B;
+}
+
+html[data-theme='dark'] {
+  --docusaurus-color-scheme: dark;
+  --ifm-background-color: var(--archflow-dark-bg);
+  --ifm-background-surface-color: var(--archflow-card-bg);
+  --ifm-color-content: #e2e8f0;
+  --ifm-color-secondary: var(--archflow-purple);
+  --ifm-menu-color: #94a3b8;
+  --ifm-tabs-color: #94a3b8;
+  --ifm-heading-color: #f1f5f9;
+}
+
+html {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+.hero {
+  text-align: center;
+  padding: 4rem 1rem;
+  background: linear-gradient(135deg, var(--archflow-purple) 0%, var(--archflow-blue) 100%);
+  color: white;
+  border-radius: 1rem;
+  margin: 2rem 0;
+}
+
+.hero h1 {
+  font-size: 3rem;
+  font-weight: 700;
+  margin-bottom: 1rem;
+}
+
+.hero p {
+  font-size: 1.25rem;
+  opacity: 0.9;
+  margin-bottom: 2rem;
+}
+
+.hero-buttons {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.hero-button {
+  padding: 0.75rem 1.5rem;
+  border-radius: 0.5rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.hero-button.primary {
+  background: white;
+  color: var(--archflow-purple);
+}
+
+.hero-button.secondary {
+  background: transparent;
+  color: white;
+  border: 2px solid white;
+}
+
+.hero-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+}
+
+.features {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.5rem;
+  padding: 2rem 0;
+}
+
+.feature-card {
+  padding: 1.5rem;
+  border-radius: 0.75rem;
+  background: var(--ifm-background-surface-color);
+  border: 1px solid var(--ifm-color-emphasis-300);
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.feature-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.1);
+}
+
+.feature-icon {
+  font-size: 2rem;
+  margin-bottom: 1rem;
+}
+
+.code-block {
+  position: relative;
+  margin: 1.5rem 0;
+}
+
+.code-block-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 1rem;
+  background: var(--ifm-background-surface-color);
+  border: 1px solid var(--ifm-color-emphasis-300);
+  border-radius: 0.5rem 0.5rem 0 0.5rem;
+  font-size: 0.875rem;
+  color: var(--ifm-color-secondary);
+}
+
+.copy-button {
+  background: transparent;
+  border: none;
+  color: var(--ifm-color-secondary);
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.25rem;
+  transition: background 0.2s;
+}
+
+.copy-button:hover {
+  background: var(--ifm-color-emphasis-100);
+}
+
+.module-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 1rem;
+}
+
+.module-card {
+  padding: 1rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--ifm-color-emphasis-300);
+}
+
+.module-name {
+  font-weight: 600;
+  color: var(--archflow-accent);
+  margin-bottom: 0.25rem;
+}
+
+.api-reference {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 0.5rem;
+}
+
+.api-card {
+  padding: 1rem;
+  border: 1px solid var(--ifm-color-emphasis-300);
+  border-radius: 0.5rem;
+  text-align: center;
+  transition: all 0.2s;
+}
+
+.api-card:hover {
+  border-color: var(--archflow-accent);
+  background: var(--ifm-color-emphasis-100);
+}
+
+.api-card .badge {
+  display: inline-block;
+  padding: 0.125rem 0.5rem;
+  border-radius: 1rem;
+  font-size: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.api-card .badge.get {
+  background: #10b981;
+  color: white;
+}
+
+.api-card .badge.post {
+  background: #f59e0b;
+  color: white;
+}
+
+.theme-toggle {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  z-index: 1000;
+}
+
+@media (max-width: 768px) {
+  .hero h1 {
+    font-size: 2rem;
+  }
+
+  .features {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Docusaurus specific overrides */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Code blocks */
+.theme-code-block {
+  border-radius: 0.5rem !important;
+}
+
+/* Tables */
+table {
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+
+/* Cards */
+.card {
+  border-radius: 0.75rem;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.1);
+}
+
+/* Navbar */
+.navbar {
+  backdrop-filter: blur(10px);
+}
+
+/* Footer */
+.footer {
+  background: linear-gradient(135deg, var(--archflow-dark-bg) 0%, #1a1a2e 100%);
+}
