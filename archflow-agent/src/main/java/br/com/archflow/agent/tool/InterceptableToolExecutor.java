@@ -53,6 +53,9 @@ public class InterceptableToolExecutor {
                     .executionContext(context)
                     .build();
 
+            // Disponibiliza o mapa de tools no contexto para o DefaultToolExecutor
+            toolContext.setAttribute(ToolContext.TOOLS_MAP_KEY, tools);
+
             // Cria executor que invoca a tool real
             ToolInterceptorChain.ToolExecutor toolExecutor = tc -> {
                 ToolFunction tool = tools.get(toolName);
@@ -104,6 +107,9 @@ public class InterceptableToolExecutor {
                     .input(input)
                     .executionContext(context)
                     .build();
+
+            // Disponibiliza o mapa de tools no contexto para o DefaultToolExecutor
+            toolContext.setAttribute(ToolContext.TOOLS_MAP_KEY, tools);
 
             ToolInterceptorChain.ToolExecutor toolExecutor = tc -> {
                 ToolFunction tool = tools.get(toolName);

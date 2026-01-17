@@ -6,6 +6,7 @@ import org.slf4j.LoggerFactory;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
@@ -218,15 +219,64 @@ public class ToolInterceptorChain {
     }
 
     /**
-     * Executor padrão que invoca a tool via reflexão.
+     * Executor padrão que invoca a tool através do mapa de tools no contexto.
+     *
+     * <p>Para usar este executor, o ToolContext deve conter o atributo
+     * {@link ToolContext#TOOLS_MAP_KEY} com o mapa de tools registradas.
      */
     private static class DefaultToolExecutor implements ToolExecutor {
         @Override
+        @SuppressWarnings("unchecked")
         public ToolResult<?> execute(ToolContext context) throws Exception {
-            // Este é um placeholder - a implementação real
-            // deverá invocar a tool através do ToolRegistry
-            throw new UnsupportedOperationException(
-                    "ToolExecutor deve ser configurado ou use ToolExecutor adaptado"
+            // Busca o mapa de tools no contexto
+            Object toolsMapObj = context.getAttribute(ToolContext.TOOLS_MAP_KEY);
+
+            if (toolsMapObj == null) {
+                throw new IllegalStateException(
+                        "Nenhuma tool registrada encontrada no contexto. " +
+                        "Configure um ToolExecutor explicito ou registre as tools usando " +
+                        "InterceptableToolExecutor.registerTool(), e garanta que o mapa seja " +
+                        "definido como atributo '" + ToolContext.TOOLS_MAP_KEY + "' no ToolContext."
+                );
+            }
+
+            if (!(toolsMapObj instanceof Map)) {
+                throw new IllegalStateException(
+                        "O atributo '" + ToolContext.TOOLS_MAP_KEY + "' deve ser um Map<String, ToolFunction>"
+                );
+            }
+
+            Map<String, Object> toolsMap = (Map<String, Object>) toolsMapObj;
+            Object tool = toolsMap.get(context.getToolName());
+
+            if (tool == null) {
+                throw new IllegalArgumentException(
+                        "Tool not found: " + context.getToolName() + ". " +
+                        "Available tools: " + toolsMap.keySet()
+                );
+            }
+
+            // Invoca a tool (suporta both ToolFunction interface and simple reflection)
+            if (tool instanceof InterceptableToolExecutor.ToolFunction) {
+                return ((InterceptableToolExecutor.ToolFunction) tool).apply(
+                        context.getInput(),
+                        context.getExecutionContext()
+                );
+            }
+
+            // Fallback para tool genérica com método execute/apply
+            try {
+                if (tool instanceof java.util.function.Function) {
+                    Object result = ((java.util.function.Function<Object, ?>) tool).apply(context.getInput());
+                    return ToolResult.success(result);
+                }
+            } catch (Exception e) {
+                return ToolResult.error("Erro ao executar tool: " + e.getMessage(), e);
+            }
+
+            throw new IllegalArgumentException(
+                    "Tool '" + context.getToolName() + "' não implementa uma interface suportada. " +
+                    "Use InterceptableToolExecutor.ToolFunction."
             );
         }
     }

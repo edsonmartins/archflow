@@ -14,6 +14,12 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class ToolContext {
 
+    /**
+     * Chave do atributo que contém o mapa de tools registradas.
+     * O valor deve ser um {@code Map<String, ToolFunction>}.
+     */
+    public static final String TOOLS_MAP_KEY = "_archflow_tools_map";
+
     private final String executionId;
     private final String toolName;
     private final Object input;
