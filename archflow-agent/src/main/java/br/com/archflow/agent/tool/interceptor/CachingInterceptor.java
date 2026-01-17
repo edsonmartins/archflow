@@ -8,6 +8,7 @@ import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -24,6 +25,13 @@ import java.util.function.Supplier;
  *   <li>Expurgação automática de entradas expiradas</li>
  *   <li>Configuração de TTL global ou por tool</li>
  * </ul>
+ *
+ * <p>Exemplo de configuração de TTL por tool:
+ * <pre>{@code
+ * CachingInterceptor interceptor = new CachingInterceptor();
+ * interceptor.setToolTtl("expensive_api", Duration.ofHours(1));  // Cache de 1 hora
+ * interceptor.setToolTtl("fast_operation", Duration.ofSeconds(30));  // Cache de 30 segundos
+ * }</pre>
  */
 public class CachingInterceptor implements ToolInterceptor {
 
@@ -33,6 +41,7 @@ public class CachingInterceptor implements ToolInterceptor {
     private final Duration defaultTtl;
     private final int maxCacheSize;
     private final ScheduledExecutorService cleanupExecutor;
+    private final ConcurrentHashMap<String, Duration> toolTtls;
 
     public CachingInterceptor() {
         this(Duration.ofMinutes(5), 1000);
@@ -42,6 +51,7 @@ public class CachingInterceptor implements ToolInterceptor {
         this.cache = new ConcurrentHashMap<>();
         this.defaultTtl = defaultTtl;
         this.maxCacheSize = maxCacheSize;
+        this.toolTtls = new ConcurrentHashMap<>();
         this.cleanupExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread thread = new Thread(r, "cache-cleanup");
             thread.setDaemon(true);
@@ -171,6 +181,44 @@ public class CachingInterceptor implements ToolInterceptor {
         return new CacheStats(totalEntries, totalEntries - expiredEntries, expiredEntries);
     }
 
+    /**
+     * Configura o TTL para uma tool específica.
+     *
+     * @param toolName Nome da tool
+     * @param ttl Time-to-live para cache desta tool
+     */
+    public void setToolTtl(String toolName, Duration ttl) {
+        if (toolName == null || toolName.isEmpty()) {
+            throw new IllegalArgumentException("Tool name cannot be null or empty");
+        }
+        if (ttl == null || ttl.isNegative() || ttl.isZero()) {
+            toolTtls.remove(toolName);
+            log.info("TTL removido para tool {}", toolName);
+        } else {
+            toolTtls.put(toolName, ttl);
+            log.info("TTL configurado para tool {}: {}", toolName, ttl);
+        }
+    }
+
+    /**
+     * Retorna o TTL configurado para uma tool específica.
+     *
+     * @param toolName Nome da tool
+     * @return TTL configurado, ou null se não houver configuração específica
+     */
+    public Duration getToolTtl(String toolName) {
+        return toolTtls.get(toolName);
+    }
+
+    /**
+     * Retorna todos os TTLs configurados por tool.
+     *
+     * @return Mapa imutável de toolName -> TTL
+     */
+    public Map<String, Duration> getAllToolTtls() {
+        return Map.copyOf(toolTtls);
+    }
+
     private String buildCacheKey(ToolContext context) {
         // chave = toolName:inputHash
         int inputHash = context.getInput() != null
@@ -180,8 +228,13 @@ public class CachingInterceptor implements ToolInterceptor {
     }
 
     private Duration getTtlForTool(String toolName) {
-        // Por padrão, usa TTL global
-        // TODO: permitir configurar TTL por tool
+        // Primeiro verifica se há TTL específico para a tool
+        Duration toolTtl = toolTtls.get(toolName);
+        if (toolTtl != null) {
+            log.trace("Usando TTL específico para tool {}: {}", toolName, toolTtl);
+            return toolTtl;
+        }
+        // Caso contrário, usa TTL global
         return defaultTtl;
     }
 
