@@ -1,0 +1,20 @@
+{
+  "name": "archflow-vue-example",
+  "version": "1.0.0",
+  "description": "Exemplo de integração archflow com Vue",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "vue": "^3.4.0",
+    "@archflow/component": "^1.0.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.0.0",
+    "vite": "^5.0.8"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  }
+}

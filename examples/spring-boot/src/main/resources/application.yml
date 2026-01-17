@@ -1,0 +1,48 @@
+# archflow Spring Boot Example Configuration
+
+server:
+  port: 8080
+
+spring:
+  application:
+    name: archflow-example
+
+archflow:
+  # LLM Configuration
+  llm:
+    provider: openai
+    api-key: ${OPENAI_API_KEY:sk-test}
+    model: gpt-4o
+    temperature: 0.7
+    max-tokens: 2000
+
+  # API Configuration
+  api:
+    enabled: true
+    base-path: /api
+    cors:
+      enabled: true
+
+  # Observability
+  observability:
+    metrics:
+      enabled: true
+    tracing:
+      enabled: false
+
+# Logging
+logging:
+  level:
+    br.com.archflow: DEBUG
+    org.springframework.web: INFO
+
+# Actuator
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  metrics:
+    export:
+      prometheus:
+        enabled: false
