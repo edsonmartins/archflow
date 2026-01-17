@@ -30,6 +30,7 @@
         <module>archflow-templates</module>
         <module>archflow-conversation</module>
         <module>archflow-marketplace</module>
+        <module>archflow-workflow-tool</module>
         <module>archflow-plugin-api</module>
         <!-- <module>archflow-plugins</module> Temporarily disabled due to missing submodules -->
         <module>archflow-api</module>
