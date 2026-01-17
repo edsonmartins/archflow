@@ -58,12 +58,137 @@ public enum OutputFormat {
         }
 
         private void validateAgainstSchema(String json, String jsonSchema) throws FormatException {
-            // TODO: Implement JSON Schema validation
-            // For now, just validate that it's valid JSON
             try {
-                new ObjectMapper().readTree(json);
+                ObjectMapper mapper = new ObjectMapper();
+                JsonNode jsonNode = mapper.readTree(json);
+                JsonNode schemaNode = mapper.readTree(jsonSchema);
+
+                // Perform basic JSON Schema validation
+                SchemaValidator validator = new SchemaValidator();
+                ValidationResult result = validator.validate(jsonNode, schemaNode);
+
+                if (!result.isValid()) {
+                    throw new FormatException("JSON Schema validation failed: " + result.getErrors());
+                }
             } catch (JsonProcessingException e) {
-                throw new FormatException("Invalid JSON output", e);
+                throw new FormatException("Invalid JSON or schema", e);
+            }
+        }
+
+        /**
+         * Basic JSON Schema validator that supports common validations.
+         * Supports: type, required, properties, items, minimum, maximum, minLength, maxLength, pattern.
+         */
+        private static class SchemaValidator {
+            private final StringBuilder errors = new StringBuilder();
+
+            public ValidationResult validate(JsonNode jsonNode, JsonNode schemaNode) {
+                errors.setLength(0);
+                validateNode(jsonNode, schemaNode, "");
+                return new ValidationResult(errors.length() == 0, errors.toString());
+            }
+
+            private void validateNode(JsonNode node, JsonNode schema, String path) {
+                // Check type
+                if (schema.has("type")) {
+                    String type = schema.get("type").asText();
+                    if (!validateType(node, type)) {
+                        error(path, "expected type " + type + " but got " + getTypeName(node));
+                    }
+                }
+
+                // Check required fields for objects
+                if (node.isObject() && schema.has("required")) {
+                    for (JsonNode requiredField : schema.get("required")) {
+                        String fieldName = requiredField.asText();
+                        if (!node.has(fieldName)) {
+                            error(path + "." + fieldName, "required field is missing");
+                        }
+                    }
+                }
+
+                // Check properties against schema
+                if (node.isObject() && schema.has("properties")) {
+                    JsonNode properties = schema.get("properties");
+                    node.fields().forEachRemaining(entry -> {
+                        String fieldName = entry.getKey();
+                        JsonNode fieldValue = entry.getValue();
+                        if (properties.has(fieldName)) {
+                            validateNode(fieldValue, properties.get(fieldName), path + "." + fieldName);
+                        }
+                    });
+                }
+
+                // Check array items
+                if (node.isArray() && schema.has("items")) {
+                    JsonNode itemsSchema = schema.get("items");
+                    for (int i = 0; i < node.size(); i++) {
+                        validateNode(node.get(i), itemsSchema, path + "[" + i + "]");
+                    }
+                }
+
+                // Check minimum/maximum for numbers
+                if (node.isNumber()) {
+                    double value = node.asDouble();
+                    if (schema.has("minimum") && value < schema.get("minimum").asDouble()) {
+                        error(path, "value " + value + " is less than minimum " + schema.get("minimum").asDouble());
+                    }
+                    if (schema.has("maximum") && value > schema.get("maximum").asDouble()) {
+                        error(path, "value " + value + " is greater than maximum " + schema.get("maximum").asDouble());
+                    }
+                }
+
+                // Check minLength/maxLength for strings
+                if (node.isTextual()) {
+                    String value = node.asText();
+                    if (schema.has("minLength") && value.length() < schema.get("minLength").asInt()) {
+                        error(path, "string length " + value.length() + " is less than minLength " + schema.get("minLength").asInt());
+                    }
+                    if (schema.has("maxLength") && value.length() > schema.get("maxLength").asInt()) {
+                        error(path, "string length " + value.length() + " is greater than maxLength " + schema.get("maxLength").asInt());
+                    }
+                    if (schema.has("pattern")) {
+                        String pattern = schema.get("pattern").asText();
+                        if (!value.matches(pattern)) {
+                            error(path, "string does not match pattern " + pattern);
+                        }
+                    }
+                }
+            }
+
+            private boolean validateType(JsonNode node, String expectedType) {
+                return switch (expectedType) {
+                    case "string" -> node.isTextual();
+                    case "number", "integer" -> node.isNumber();
+                    case "boolean" -> node.isBoolean();
+                    case "array" -> node.isArray();
+                    case "object" -> node.isObject();
+                    case "null" -> node.isNull();
+                    default -> true; // Unknown types pass validation
+                };
+            }
+
+            private String getTypeName(JsonNode node) {
+                if (node.isTextual()) return "string";
+                if (node.isNumber()) return node.isInt() ? "integer" : "number";
+                if (node.isBoolean()) return "boolean";
+                if (node.isArray()) return "array";
+                if (node.isObject()) return "object";
+                if (node.isNull()) return "null";
+                return "unknown";
+            }
+
+            private void error(String path, String message) {
+                if (errors.length() > 0) {
+                    errors.append("; ");
+                }
+                errors.append(path).append(": ").append(message);
+            }
+        }
+
+        private record ValidationResult(boolean isValid, String errors) {
+            public String getErrors() {
+                return errors;
             }
         }
     },
