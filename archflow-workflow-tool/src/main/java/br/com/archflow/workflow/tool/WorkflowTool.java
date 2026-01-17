@@ -28,6 +28,7 @@ import java.util.function.Function;
  *     .id("data-processor")
  *     .description("Processes and validates data")
  *     .workflow(myWorkflow)
+ *     .executor((input) -> flowEngine.execute(myFlow, context).get().getOutput().orElse(null))
  *     .inputSchema(Map.of(
  *         "data", "string",
  *         "format", "string"
@@ -51,6 +52,7 @@ public class WorkflowTool {
     private final String name;
     private final String description;
     private final Workflow workflow;
+    private final Function<Map<String, Object>, Object> executor;
     private final Map<String, Object> inputSchema;
     private final Map<String, Object> outputSchema;
     private final Duration timeout;
@@ -63,6 +65,7 @@ public class WorkflowTool {
         this.name = builder.name != null ? builder.name : builder.id;
         this.description = builder.description;
         this.workflow = Objects.requireNonNull(builder.workflow, "workflow is required");
+        this.executor = builder.executor;
         this.inputSchema = builder.inputSchema != null ? Map.copyOf(builder.inputSchema) : Map.of();
         this.outputSchema = builder.outputSchema != null ? Map.copyOf(builder.outputSchema) : Map.of();
         this.timeout = builder.timeout;
@@ -138,13 +141,22 @@ public class WorkflowTool {
     }
 
     private Object executeWorkflow(Map<String, Object> input) {
-        // In a real implementation, this would use a FlowEngine to execute the workflow
-        // For now, return the workflow metadata as a placeholder
+        if (executor != null) {
+            // Use the provided executor function
+            log.debug("Using custom executor for workflow tool {}", id);
+            return executor.apply(input);
+        }
+
+        // Fallback: return the workflow metadata as a placeholder
+        // Users should configure an executor for actual workflow execution
+        log.warn("No executor configured for workflow tool {}, returning metadata placeholder. " +
+                 "Configure an executor using .executor() in the builder.", id);
         return Map.of(
                 "workflowId", workflow.getId(),
                 "workflowName", workflow.getName(),
                 "input", input,
-                "metadata", workflow.getMetadata()
+                "metadata", workflow.getMetadata(),
+                "_note", "This is a placeholder. Configure a WorkflowExecutor for actual execution."
         );
     }
 
@@ -197,6 +209,7 @@ public class WorkflowTool {
                 .name(this.name)
                 .description(this.description)
                 .workflow(this.workflow)
+                .executor(this.executor)
                 .inputSchema(this.inputSchema)
                 .outputSchema(this.outputSchema)
                 .timeout(this.timeout)
@@ -213,6 +226,7 @@ public class WorkflowTool {
         private String name;
         private String description;
         private Workflow workflow;
+        private Function<Map<String, Object>, Object> executor;
         private Map<String, Object> inputSchema;
         private Map<String, Object> outputSchema;
         private Duration timeout;
@@ -237,6 +251,18 @@ public class WorkflowTool {
 
         public Builder workflow(Workflow workflow) {
             this.workflow = workflow;
+            return this;
+        }
+
+        /**
+         * Sets the executor function for this workflow tool.
+         * The executor should accept the input map and return the workflow output.
+         *
+         * @param executor Function to execute the workflow
+         * @return This builder
+         */
+        public Builder executor(Function<Map<String, Object>, Object> executor) {
+            this.executor = executor;
             return this;
         }
 
