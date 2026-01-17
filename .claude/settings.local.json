@@ -30,7 +30,13 @@
       "Bash(tsc:*)",
       "Bash(npx tsc:*)",
       "Bash(./node_modules/.bin/tsc:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(git reset:*)",
+      "Bash(chmod:*)",
+      "Bash(unzip:*)",
+      "Bash(java:*)",
+      "Bash(npx create-docusaurus@latest:*)",
+      "Bash(ls:*)"
     ]
   }
 }
