@@ -151,52 +151,70 @@ npm install @archflow/component
 ```
 archflow/
 ├── archflow-core/                    # Core engine
-├── archflow-model/                   # Domain models
+├── archflow-model/                   # Domain models (Workflow interface)
 ├── archflow-agent/                   # Agent execution
 ├── archflow-plugin-api/              # Plugin SPI
+├── archflow-plugin-loader/           # Plugin loading system
 ├── archflow-langchain4j/             # LangChain4j 1.10.0 integration
 │   ├── archflow-langchain4j-core/    # Base interfaces
 │   ├── archflow-langchain4j-openai/  # OpenAI + GPT-4.1, o1
 │   ├── archflow-langchain4j-anthropic/# Claude 3.5/3.7 Sonnet
-│   ├── archflow-langchain4j-mcp/     # MCP Protocol ⭐
-│   └── archflow-langchain4j-streaming/ # Streaming support ⭐
-├── archflow-server/                  # Spring Boot 3 server ⭐
+│   ├── archflow-langchain4j-mcp/     # MCP Protocol
+│   ├── archflow-langchain4j-streaming/ # Streaming support
+│   ├── archflow-langchain4j-provider-hub/ # Multi-LLM Hub
+│   └── archflow-langchain4j-chain-rag/ # RAG Chain
+├── archflow-templates/               # ✅ Workflow templates
+├── archflow-conversation/            # ✅ Suspend/Resume conversations
+├── archflow-marketplace/             # ✅ Extension marketplace
+├── archflow-workflow-tool/           # ✅ Workflow-as-Tool pattern
+├── archflow-security/                # RBAC, SSO
+├── archflow-observability/           # Metrics, tracing, audit
+├── archflow-server/                  # Spring Boot 3 server
 │   ├── archflow-api/                 # REST/WebSocket APIs
 │   ├── archflow-mcp/                 # MCP Server implementation
-│   ├── archflow-streaming/           # SSE/WebSocket streaming
-│   ├── archflow-observability/       # Metrics, tracing, audit
-│   └── archflow-security/            # RBAC, SSO
-├── archflow-ui/                      # Web Component distribution ⭐
+│   └── archflow-streaming/           # SSE/WebSocket streaming
+├── archflow-ui/                      # Web Component distribution
 │   └── archflow-component/           # <archflow-designer>
-├── archflow-templates/               # Workflow templates ⭐
-└── archflow-enterprise/              # Optional enterprise module ⭐
+└── archflow-enterprise/              # Optional enterprise module
 ```
 
-⭐ = Planejado para v2.0
+✅ = Implementado na v1.0.0-SNAPSHOT
 
 ---
 
 ## 🗺️ Roadmap
 
-### v2.0.0 (Roadmap Completo)
+### v1.0.0 (Current Development)
 
-| Fase | Descrição | Status | Estimativa |
-|------|-----------|--------|------------|
-| **Fase 1** | Foundation - LangChain4j 1.10.0, Streaming, MCP | 🟡 IN PROGRESS | 4-6 sem |
-| **Fase 2** | Visual Experience - Web Component Designer | 🟡 IN PROGRESS | 6-8 sem |
-| **Fase 3** | Enterprise Capabilities - RBAC, Observability | 🔴 TODO | 4-6 sem |
-| **Fase 4** | Ecosystem - Templates, Marketplace | 🔴 TODO | 4-6 sem |
-| **Fase 5** | Polish & Launch - Performance, Docs | 🔴 TODO | 2-4 sem |
+| Fase | Sprint | Descrição | Status |
+|------|--------|-----------|--------|
+| **Fase 1** | 1-4 | Foundation - LangChain4j 1.10.0, Streaming, MCP | ✅ COMPLETO |
+| **Fase 2** | 5-8 | Visual Experience - Web Component Designer | ✅ COMPLETO |
+| **Fase 3** | 9-12 | Enterprise Capabilities - RBAC, Observability | ✅ COMPLETO |
+| **Fase 4** | 13-16 | Ecosystem - Templates, Marketplace, Workflow-as-Tool | ✅ COMPLETO |
+| **Fase 5** | 17-20 | Polish & Launch - Performance, Docs, Examples | 🔴 TODO |
 
-**Progresso Atual:** ~30% completo
+**Progresso Atual:** ~80% completo
+
+**Fase 4: Ecosystem ✅**
+- ✅ Sprint 13: Workflow Templates (Customer Support, Document Processing, Knowledge Base, Agent Supervisor)
+- ✅ Sprint 14: Suspend/Resume Conversations (Form rendering, SuspendedConversation state)
+- ✅ Sprint 15: Extension Marketplace (ExtensionManifest, signature verification, RBAC)
+- ✅ Sprint 16: Workflow-as-Tool Pattern (WorkflowTool, registry, composition)
 
 **Conquistado Recentemente:**
+- ✅ 4 Workflow Templates prontos para uso
+- ✅ Sistema de Suspend/Resume com ArchflowEvent protocol
+- ✅ FormData com validação e múltiplos tipos de campo
+- ✅ Extension Marketplace com verificação de assinatura
+- ✅ Workflow-as-Tool para composição de workflows
 - ✅ Web Component `<archflow-designer>` framework-agnostic
 - ✅ Integração React e Vue funcionando
 - ✅ Sistema de execução com SSE streaming
-- ✅ ExecutionStore e ExecutionHistoryPanel
-- ✅ ThemeManager (light/dark mode)
-- ✅ TypeScript types completos
+- ✅ Multi-LLM Provider Hub (15+ providers)
+- ✅ Tool Interceptor Chain (caching, logging, metrics, guardrails)
+- ✅ toolCallId Tracking System
+- ✅ Func-Agent Mode (execução determinística)
 
 [Ver roadmap detalhado](docs/roadmap/STATUS-PROJETO.md)
 
