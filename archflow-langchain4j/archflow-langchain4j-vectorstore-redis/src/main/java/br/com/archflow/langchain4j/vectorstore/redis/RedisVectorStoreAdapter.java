@@ -13,9 +13,8 @@ import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPool;
 import redis.clients.jedis.Pipeline;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * Adapter para armazenamento e busca de embeddings usando Redis.
@@ -98,7 +97,15 @@ public class RedisVectorStoreAdapter implements LangChainAdapter, EmbeddingStore
         try (Jedis jedis = jedisPool.getResource()) {
             String key = prefix + id;
             jedis.hset(key, "text", embedded.text());
-            // TODO: Armazenar metadados adicionais
+            // Armazena metadados do TextSegment
+            if (embedded.metadata() != null && !embedded.metadata().toMap().isEmpty()) {
+                Map<String, String> metadata = embedded.metadata().toMap().entrySet().stream()
+                    .collect(Collectors.toMap(
+                        e -> "metadata." + e.getKey(),
+                        e -> String.valueOf(e.getValue())
+                    ));
+                jedis.hset(key, metadata);
+            }
         }
         return id;
     }
@@ -128,6 +135,15 @@ public class RedisVectorStoreAdapter implements LangChainAdapter, EmbeddingStore
                 p.hset(key, "vector", vectorToString(embeddings.get(i).vector()));
                 if (embedded.get(i) != null) {
                     p.hset(key, "text", embedded.get(i).text());
+                    // Armazena metadados
+                    if (embedded.get(i).metadata() != null && !embedded.get(i).metadata().toMap().isEmpty()) {
+                        Map<String, String> metadata = embedded.get(i).metadata().toMap().entrySet().stream()
+                            .collect(Collectors.toMap(
+                                e -> "metadata." + e.getKey(),
+                                e -> String.valueOf(e.getValue())
+                            ));
+                        metadata.forEach((k, v) -> p.hset(key, k, v));
+                    }
                 }
             }
             p.sync();
@@ -136,9 +152,48 @@ public class RedisVectorStoreAdapter implements LangChainAdapter, EmbeddingStore
 
     @Override
     public EmbeddingSearchResult<TextSegment> search(EmbeddingSearchRequest request) {
-        // TODO: Implementar busca vetorial com similaridade
-        // Por enquanto, retorna resultado vazio
-        return new EmbeddingSearchResult<>(List.of());
+        int maxResults = request.maxResults() > 0 ? request.maxResults() : 10;
+        double minScore = request.minScore();
+
+        // Busca todas as chaves com o prefixo usando KEYS
+        List<Candidate> candidates = new ArrayList<>();
+        try (Jedis jedis = jedisPool.getResource()) {
+            Set<String> keys = jedis.keys(prefix + "*");
+
+            for (String key : keys) {
+                Map<String, String> data = jedis.hgetAll(key);
+                String vectorStr = data.get("vector");
+                if (vectorStr != null) {
+                    float[] vector = stringToVector(vectorStr);
+                    double score = cosineSimilarity(request.queryEmbedding().vector(), vector);
+                    if (score >= minScore) {
+                        String id = key.substring(prefix.length());
+                        candidates.add(new Candidate(id, score, data));
+                    }
+                }
+            }
+        }
+
+        // Ordena por score (similaridade) descendente e pega os top-k
+        List<EmbeddingMatch<TextSegment>> matches = candidates.stream()
+            .sorted((a, b) -> Double.compare(b.score, a.score))
+            .limit(maxResults)
+            .map(c -> {
+                TextSegment segment = null;
+                if (c.data.containsKey("text")) {
+                    segment = TextSegment.from(c.data.get("text"));
+                }
+                // EmbeddingMatch constructor: (Double score, String embeddingId, Embedding embedding, Embedded embedded)
+                return new EmbeddingMatch<>(
+                    c.score,
+                    c.id,
+                    request.queryEmbedding(),
+                    segment
+                );
+            })
+            .collect(Collectors.toList());
+
+        return new EmbeddingSearchResult<>(matches);
     }
 
     @Override
@@ -166,6 +221,32 @@ public class RedisVectorStoreAdapter implements LangChainAdapter, EmbeddingStore
         this.config = null;
     }
 
+    /**
+     * Calcula a similaridade de cosseno entre dois vetores.
+     * Cosine Similarity = (A . B) / (||A|| * ||B||)
+     */
+    private double cosineSimilarity(float[] vectorA, float[] vectorB) {
+        if (vectorA.length != vectorB.length) {
+            throw new IllegalArgumentException("Vector dimensions must match");
+        }
+
+        double dotProduct = 0.0;
+        double normA = 0.0;
+        double normB = 0.0;
+
+        for (int i = 0; i < vectorA.length; i++) {
+            dotProduct += vectorA[i] * vectorB[i];
+            normA += vectorA[i] * vectorA[i];
+            normB += vectorB[i] * vectorB[i];
+        }
+
+        if (normA == 0.0 || normB == 0.0) {
+            return 0.0;
+        }
+
+        return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+    }
+
     private String vectorToString(float[] vector) {
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < vector.length; i++) {
@@ -182,6 +263,21 @@ public class RedisVectorStoreAdapter implements LangChainAdapter, EmbeddingStore
             vector[i] = Float.parseFloat(parts[i]);
         }
         return vector;
+    }
+
+    /**
+     * Candidato interno para armazenar resultados da busca.
+     */
+    private static class Candidate {
+        final String id;
+        final double score;
+        final Map<String, String> data;
+
+        Candidate(String id, double score, Map<String, String> data) {
+            this.id = id;
+            this.score = score;
+            this.data = data;
+        }
     }
 
     public static class Factory implements LangChainAdapterFactory {
@@ -203,3 +299,4 @@ public class RedisVectorStoreAdapter implements LangChainAdapter, EmbeddingStore
         }
     }
 }
+
