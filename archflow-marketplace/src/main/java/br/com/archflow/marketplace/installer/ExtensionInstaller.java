@@ -2,6 +2,8 @@ package br.com.archflow.marketplace.installer;
 
 import br.com.archflow.marketplace.manifest.ExtensionManifest;
 import br.com.archflow.marketplace.registry.ExtensionRegistry;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -26,10 +28,17 @@ import java.util.*;
 public class ExtensionInstaller {
 
     private static final Logger log = LoggerFactory.getLogger(ExtensionInstaller.class);
+    private static final ObjectMapper objectMapper = createObjectMapper();
 
     private final ExtensionRegistry registry;
     private final Path extensionsDir;
     private final boolean verifySignatures;
+
+    private static ObjectMapper createObjectMapper() {
+        ObjectMapper mapper = new ObjectMapper();
+        mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+        return mapper;
+    }
 
     public ExtensionInstaller(Path extensionsDir) {
         this(extensionsDir, true);
@@ -132,11 +141,28 @@ public class ExtensionInstaller {
 
     /**
      * Loads a manifest from a file.
+     *
+     * @param manifestPath Path to the manifest.json file
+     * @return Parsed ExtensionManifest
+     * @throws IOException If the file cannot be read or parsed
      */
     public ExtensionManifest loadManifest(Path manifestPath) throws IOException {
-        // In a real implementation, this would use ObjectMapper to parse JSON
-        // For now, return a simple placeholder
-        throw new UnsupportedOperationException("JSON parsing not implemented in this version");
+        if (!Files.exists(manifestPath)) {
+            throw new IOException("Manifest file not found: " + manifestPath);
+        }
+
+        String content = Files.readString(manifestPath);
+        log.debug("Loading manifest from {}", manifestPath);
+
+        try {
+            ExtensionManifest manifest = objectMapper.readValue(content, ExtensionManifest.class);
+            log.info("Loaded manifest for extension {} (version {})",
+                    manifest.getName(), manifest.getVersion());
+            return manifest;
+        } catch (Exception e) {
+            log.error("Failed to parse manifest from {}", manifestPath, e);
+            throw new IOException("Failed to parse manifest.json: " + e.getMessage(), e);
+        }
     }
 
     /**
