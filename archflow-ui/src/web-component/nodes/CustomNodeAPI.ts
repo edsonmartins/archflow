@@ -27,6 +27,7 @@ export class ExtensionManager {
   private registry: NodeRegistry;
   private extensions: Map<string, CustomNodeExtension> = new Map();
   private loadedModules: Set<string> = new Set();
+  private workflowGetter: (() => object | null) | null = null;
 
   constructor(registry?: NodeRegistry) {
     this.registry = registry || getNodeRegistry();
@@ -224,6 +225,25 @@ export class ExtensionManager {
     return nodes;
   }
 
+  /**
+   * Set the workflow getter function.
+   * This allows extensions to access the current workflow data.
+   *
+   * @param getter - Function that returns the current workflow object
+   */
+  setWorkflowGetter(getter: () => object | null): void {
+    this.workflowGetter = getter;
+  }
+
+  /**
+   * Get the current workflow.
+   *
+   * @returns The current workflow object, or null if not set
+   */
+  getWorkflow(): object | null {
+    return this.workflowGetter ? this.workflowGetter() : null;
+  }
+
   // -----------------------------------------------------------------------
   // Private Methods
   // -----------------------------------------------------------------------
@@ -280,7 +300,8 @@ export class ExtensionManager {
         this.registry.unregister(type);
       },
       getWorkflow: () => {
-        return null; // TODO: Implement
+        // Return the current workflow from the getter
+        return this.workflowGetter ? this.workflowGetter() : null;
       },
       emit: (event: string, data: unknown) => {
         // Emit event to host
