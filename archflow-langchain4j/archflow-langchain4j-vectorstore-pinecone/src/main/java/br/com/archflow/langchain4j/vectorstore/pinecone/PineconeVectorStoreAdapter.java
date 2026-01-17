@@ -218,15 +218,101 @@ public class PineconeVectorStoreAdapter implements LangChainAdapter, dev.langcha
         }
     }
 
-    // Método para construir condições de filtro (simples, suporta apenas "text" por agora)
+    /**
+     * Builds a Pinecone filter condition from a LangChain4j Filter.
+     *
+     * <p>Pinecone filter format uses metadata filtering with operators:
+     * <ul>
+     *   <li>$eq - Equals</li>
+     *   <li>$ne - Not equals</li>
+     *   <li>$gt - Greater than</li>
+     *   <li>$gte - Greater than or equal</li>
+     *   <li>$lt - Less than</li>
+     *   <li>$lte - Less than or equal</li>
+     *   <li>$in - In array</li>
+     *   <li>$and - Logical AND</li>
+     *   <li>$or - Logical OR</li>
+     *   <li>$not - Logical NOT</li>
+     * </ul>
+     *
+     * @param filter The filter to convert
+     * @return Pinecone filter map
+     */
     private Map<String, Object> buildFilterCondition(Filter filter) {
-        if (filter instanceof dev.langchain4j.store.embedding.filter.comparison.IsEqualTo) {
-            dev.langchain4j.store.embedding.filter.comparison.IsEqualTo eq = (dev.langchain4j.store.embedding.filter.comparison.IsEqualTo) filter;
-            if ("text".equals(eq.key())) {
-                return Collections.singletonMap("text", Collections.singletonMap("$eq", eq.comparisonValue()));
-            }
+        if (filter == null) {
+            return Collections.emptyMap();
         }
-        throw new UnsupportedOperationException("Only simple text equality filters are supported");
+
+        // Comparison filters
+        if (filter instanceof dev.langchain4j.store.embedding.filter.comparison.IsEqualTo) {
+            dev.langchain4j.store.embedding.filter.comparison.IsEqualTo eq =
+                    (dev.langchain4j.store.embedding.filter.comparison.IsEqualTo) filter;
+            return Collections.singletonMap(eq.key(), Collections.singletonMap("$eq", eq.comparisonValue()));
+        }
+
+        if (filter instanceof dev.langchain4j.store.embedding.filter.comparison.IsNotEqualTo) {
+            dev.langchain4j.store.embedding.filter.comparison.IsNotEqualTo ne =
+                    (dev.langchain4j.store.embedding.filter.comparison.IsNotEqualTo) filter;
+            return Collections.singletonMap(ne.key(), Collections.singletonMap("$ne", ne.comparisonValue()));
+        }
+
+        if (filter instanceof dev.langchain4j.store.embedding.filter.comparison.IsGreaterThan) {
+            dev.langchain4j.store.embedding.filter.comparison.IsGreaterThan gt =
+                    (dev.langchain4j.store.embedding.filter.comparison.IsGreaterThan) filter;
+            return Collections.singletonMap(gt.key(), Collections.singletonMap("$gt", gt.comparisonValue()));
+        }
+
+        if (filter instanceof dev.langchain4j.store.embedding.filter.comparison.IsLessThan) {
+            dev.langchain4j.store.embedding.filter.comparison.IsLessThan lt =
+                    (dev.langchain4j.store.embedding.filter.comparison.IsLessThan) filter;
+            return Collections.singletonMap(lt.key(), Collections.singletonMap("$lt", lt.comparisonValue()));
+        }
+
+        if (filter instanceof dev.langchain4j.store.embedding.filter.comparison.IsGreaterThanOrEqualTo) {
+            dev.langchain4j.store.embedding.filter.comparison.IsGreaterThanOrEqualTo gte =
+                    (dev.langchain4j.store.embedding.filter.comparison.IsGreaterThanOrEqualTo) filter;
+            return Collections.singletonMap(gte.key(), Collections.singletonMap("$gte", gte.comparisonValue()));
+        }
+
+        if (filter instanceof dev.langchain4j.store.embedding.filter.comparison.IsLessThanOrEqualTo) {
+            dev.langchain4j.store.embedding.filter.comparison.IsLessThanOrEqualTo lte =
+                    (dev.langchain4j.store.embedding.filter.comparison.IsLessThanOrEqualTo) filter;
+            return Collections.singletonMap(lte.key(), Collections.singletonMap("$lte", lte.comparisonValue()));
+        }
+
+        if (filter instanceof dev.langchain4j.store.embedding.filter.comparison.IsIn) {
+            dev.langchain4j.store.embedding.filter.comparison.IsIn isIn =
+                    (dev.langchain4j.store.embedding.filter.comparison.IsIn) filter;
+            return Collections.singletonMap(isIn.key(), Collections.singletonMap("$in", isIn.comparisonValues()));
+        }
+
+        // Logical filters (binary AND/OR)
+        if (filter instanceof dev.langchain4j.store.embedding.filter.logical.And) {
+            dev.langchain4j.store.embedding.filter.logical.And and =
+                    (dev.langchain4j.store.embedding.filter.logical.And) filter;
+            Map<String, Object> left = buildFilterCondition(and.left());
+            Map<String, Object> right = buildFilterCondition(and.right());
+            return Map.of("$and", List.of(left, right));
+        }
+
+        if (filter instanceof dev.langchain4j.store.embedding.filter.logical.Or) {
+            dev.langchain4j.store.embedding.filter.logical.Or or =
+                    (dev.langchain4j.store.embedding.filter.logical.Or) filter;
+            Map<String, Object> left = buildFilterCondition(or.left());
+            Map<String, Object> right = buildFilterCondition(or.right());
+            return Map.of("$or", List.of(left, right));
+        }
+
+        if (filter instanceof dev.langchain4j.store.embedding.filter.logical.Not) {
+            dev.langchain4j.store.embedding.filter.logical.Not not =
+                    (dev.langchain4j.store.embedding.filter.logical.Not) filter;
+            return Collections.singletonMap("$not", Collections.singletonList(buildFilterCondition(not.expression())));
+        }
+
+        throw new UnsupportedOperationException(
+                "Unsupported filter type: " + filter.getClass().getSimpleName() +
+                ". Supported types: IsEqualTo, IsNotEqualTo, IsGreaterThan, IsLessThan, " +
+                "IsGreaterThanOrEqualTo, IsLessThanOrEqualTo, IsIn, And, Or, Not");
     }
 
     // Métodos de remoção

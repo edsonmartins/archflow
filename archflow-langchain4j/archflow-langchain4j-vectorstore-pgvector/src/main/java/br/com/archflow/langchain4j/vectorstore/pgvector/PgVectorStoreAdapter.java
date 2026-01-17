@@ -214,17 +214,166 @@ public class PgVectorStoreAdapter implements LangChainAdapter, dev.langchain4j.s
         }
     }
 
-    // Método para construir condições de filtro (simples, suporta apenas "text" por agora)
+    /**
+     * Builds a SQL WHERE clause condition from a LangChain4j Filter.
+     *
+     * <p>Supported filter types:
+     * <ul>
+     *   <li>IsEqualTo - key = value</li>
+     *   <li>IsNotEqualTo - key != value</li>
+     *   <li>IsGreaterThan - key > value (numeric)</li>
+     *   <li>IsLessThan - key < value (numeric)</li>
+     *   <li>IsGreaterThanOrEqualTo - key >= value (numeric)</li>
+     *   <li>IsLessThanOrEqualTo - key <= value (numeric)</li>
+     *   <li>IsIn - key IN (values)</li>
+     *   <li>And - logical AND of conditions</li>
+     *   <li>Or - logical OR of conditions</li>
+     * </ul>
+     *
+     * @param filter The filter to convert
+     * @return SQL WHERE condition
+     */
     private String buildFilterCondition(Filter filter) {
-        // Suporta apenas filtros simples como Equals para "text"
-        // Para filtros mais complexos, precisaria de uma implementação mais robusta
-        if (filter instanceof dev.langchain4j.store.embedding.filter.comparison.IsEqualTo) {
-            dev.langchain4j.store.embedding.filter.comparison.IsEqualTo eq = (dev.langchain4j.store.embedding.filter.comparison.IsEqualTo) filter;
-            if ("text".equals(eq.key())) {
-                return String.format("text = '%s'", eq.comparisonValue().toString().replace("'", "''"));
-            }
+        if (filter == null) {
+            return "";
         }
-        throw new UnsupportedOperationException("Only simple text equality filters are supported");
+
+        // Comparison filters
+        if (filter instanceof dev.langchain4j.store.embedding.filter.comparison.IsEqualTo) {
+            dev.langchain4j.store.embedding.filter.comparison.IsEqualTo eq =
+                    (dev.langchain4j.store.embedding.filter.comparison.IsEqualTo) filter;
+            return formatCondition(eq.key(), "=", eq.comparisonValue());
+        }
+
+        if (filter instanceof dev.langchain4j.store.embedding.filter.comparison.IsNotEqualTo) {
+            dev.langchain4j.store.embedding.filter.comparison.IsNotEqualTo ne =
+                    (dev.langchain4j.store.embedding.filter.comparison.IsNotEqualTo) filter;
+            return formatCondition(ne.key(), "!=", ne.comparisonValue());
+        }
+
+        if (filter instanceof dev.langchain4j.store.embedding.filter.comparison.IsGreaterThan) {
+            dev.langchain4j.store.embedding.filter.comparison.IsGreaterThan gt =
+                    (dev.langchain4j.store.embedding.filter.comparison.IsGreaterThan) filter;
+            return formatCondition(gt.key(), ">", gt.comparisonValue());
+        }
+
+        if (filter instanceof dev.langchain4j.store.embedding.filter.comparison.IsLessThan) {
+            dev.langchain4j.store.embedding.filter.comparison.IsLessThan lt =
+                    (dev.langchain4j.store.embedding.filter.comparison.IsLessThan) filter;
+            return formatCondition(lt.key(), "<", lt.comparisonValue());
+        }
+
+        if (filter instanceof dev.langchain4j.store.embedding.filter.comparison.IsGreaterThanOrEqualTo) {
+            dev.langchain4j.store.embedding.filter.comparison.IsGreaterThanOrEqualTo gte =
+                    (dev.langchain4j.store.embedding.filter.comparison.IsGreaterThanOrEqualTo) filter;
+            return formatCondition(gte.key(), ">=", gte.comparisonValue());
+        }
+
+        if (filter instanceof dev.langchain4j.store.embedding.filter.comparison.IsLessThanOrEqualTo) {
+            dev.langchain4j.store.embedding.filter.comparison.IsLessThanOrEqualTo lte =
+                    (dev.langchain4j.store.embedding.filter.comparison.IsLessThanOrEqualTo) filter;
+            return formatCondition(lte.key(), "<=", lte.comparisonValue());
+        }
+
+        if (filter instanceof dev.langchain4j.store.embedding.filter.comparison.IsIn) {
+            dev.langchain4j.store.embedding.filter.comparison.IsIn isIn =
+                    (dev.langchain4j.store.embedding.filter.comparison.IsIn) filter;
+            Collection<?> values = isIn.comparisonValues();
+            return formatInCondition(isIn.key(), values);
+        }
+
+        // Logical filters (binary AND/OR)
+        if (filter instanceof dev.langchain4j.store.embedding.filter.logical.And) {
+            dev.langchain4j.store.embedding.filter.logical.And and =
+                    (dev.langchain4j.store.embedding.filter.logical.And) filter;
+            String left = buildFilterCondition(and.left());
+            String right = buildFilterCondition(and.right());
+            return "(" + left + " AND " + right + ")";
+        }
+
+        if (filter instanceof dev.langchain4j.store.embedding.filter.logical.Or) {
+            dev.langchain4j.store.embedding.filter.logical.Or or =
+                    (dev.langchain4j.store.embedding.filter.logical.Or) filter;
+            String left = buildFilterCondition(or.left());
+            String right = buildFilterCondition(or.right());
+            return "(" + left + " OR " + right + ")";
+        }
+
+        if (filter instanceof dev.langchain4j.store.embedding.filter.logical.Not) {
+            dev.langchain4j.store.embedding.filter.logical.Not not =
+                    (dev.langchain4j.store.embedding.filter.logical.Not) filter;
+            return "NOT (" + buildFilterCondition(not.expression()) + ")";
+        }
+
+        throw new UnsupportedOperationException(
+                "Unsupported filter type: " + filter.getClass().getSimpleName() +
+                ". Supported types: IsEqualTo, IsNotEqualTo, IsGreaterThan, IsLessThan, " +
+                "IsGreaterThanOrEqualTo, IsLessThanOrEqualTo, IsIn, And, Or, Not");
+    }
+
+    /**
+     * Formats a key-operator-value condition.
+     */
+    private String formatCondition(String key, String operator, Object value) {
+        if (value instanceof String || value instanceof Character) {
+            String escaped = value.toString().replace("'", "''");
+            return String.format("%s %s '%s'", sanitizeKey(key), operator, escaped);
+        } else if (value instanceof Number) {
+            return String.format("%s %s %s", sanitizeKey(key), operator, value);
+        } else if (value instanceof Boolean) {
+            return String.format("%s %s %s", sanitizeKey(key), operator,
+                    ((Boolean) value) ? "TRUE" : "FALSE");
+        } else {
+            // For other types, convert to string and escape
+            String escaped = value.toString().replace("'", "''");
+            return String.format("%s %s '%s'", sanitizeKey(key), operator, escaped);
+        }
+    }
+
+    /**
+     * Formats an IN condition for multiple values.
+     */
+    private String formatInCondition(String key, Collection<?> values) {
+        if (values == null || values.isEmpty()) {
+            return "FALSE";
+        }
+        String sanitizedKey = sanitizeKey(key);
+        if (values.size() == 1) {
+            Object first = values.iterator().next();
+            return formatCondition(key, "=", first);
+        }
+
+        List<String> formattedValues = values.stream()
+                .map(v -> {
+                    if (v instanceof String || v instanceof Character) {
+                        return "'" + v.toString().replace("'", "''") + "'";
+                    } else if (v instanceof Number) {
+                        return v.toString();
+                    } else if (v instanceof Boolean) {
+                        return ((Boolean) v) ? "TRUE" : "FALSE";
+                    } else {
+                        return "'" + v.toString().replace("'", "''") + "'";
+                    }
+                })
+                .toList();
+
+        return String.format("%s IN (%s)", sanitizedKey, String.join(", ", formattedValues));
+    }
+
+    /**
+     * Sanitizes a column/key name to prevent SQL injection.
+     * Only allows alphanumeric characters and underscore.
+     */
+    private String sanitizeKey(String key) {
+        if (key == null || key.isEmpty()) {
+            throw new IllegalArgumentException("Filter key cannot be null or empty");
+        }
+        // Basic validation - only allow alphanumeric and underscore
+        if (!key.matches("^[a-zA-Z_][a-zA-Z0-9_]*$")) {
+            throw new IllegalArgumentException(
+                    "Invalid filter key: '" + key + "'. Only alphanumeric characters and underscore are allowed.");
+        }
+        return key;
     }
 
     // Métodos de remoção
