@@ -11,6 +11,16 @@
 
 O LangFlow para o mundo Java — Visual AI Builder com Web Component UI
 
+</div>
+
+<div align="center">
+
+![Infográfico archflow](images/infografico.png)
+
+</div>
+
+<div align="center">
+
 [Features](#-por-que-archflow) • [Quickstart](#-início-rápido) • [Documentação](docs-site/) • [Examples](examples/)
 
 </div>
