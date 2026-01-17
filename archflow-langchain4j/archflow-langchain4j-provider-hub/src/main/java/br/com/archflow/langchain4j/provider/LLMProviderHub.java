@@ -245,9 +245,18 @@ public class LLMProviderHub {
             case OLLAMA -> createOllamaModel(config);
             case DEEPSEEK -> createDeepSeekModel(config);
             case TONGYI -> createTongyiModel(config);
+            case MISTRAL -> createMistralModel(config);
+            case COHERE -> createCohereModel(config);
+            case BEDROCK -> createBedrockModel(config);
+            case HUGGINGFACE -> createHuggingFaceModel(config);
+            case QIANFAN -> createQianfanModel(config);
+            case HUNYUAN -> createHunyuanModel(config);
+            case WATSONX -> createWatsonxModel(config);
+            case VERTEX_AI -> createVertexAiModel(config);
             default -> throw new UnsupportedOperationException(
-                    "Provider " + config.getProvider().getDisplayName() + " requires additional dependencies. " +
-                    "Add the appropriate langchain4j dependency to your project.");
+                    "Provider " + config.getProvider().getDisplayName() + " is not yet supported. " +
+                    "Supported providers: OpenAI, Anthropic, Azure OpenAI, Gemini, Ollama, " +
+                    "DeepSeek, Tongyi, Mistral, Cohere, Bedrock, HuggingFace, Qianfan, Hunyuan, Watsonx, Vertex AI.");
         };
     }
 
@@ -262,6 +271,13 @@ public class LLMProviderHub {
             case AZURE_OPENAI -> (StreamingChatModel) createAzureOpenAiModel(config);
             case GEMINI -> (StreamingChatModel) createGeminiModel(config);
             case OLLAMA -> (StreamingChatModel) createOllamaModel(config);
+            case MISTRAL -> (StreamingChatModel) createMistralModel(config);
+            case DEEPSEEK -> (StreamingChatModel) createDeepSeekModel(config);
+            case TONGYI -> (StreamingChatModel) createTongyiModel(config);
+            case COHERE -> (StreamingChatModel) createCohereModel(config);
+            case HUGGINGFACE -> (StreamingChatModel) createHuggingFaceModel(config);
+            case QIANFAN -> (StreamingChatModel) createQianfanModel(config);
+            case HUNYUAN -> (StreamingChatModel) createHunyuanModel(config);
             default -> throw new IllegalArgumentException(
                     "Streaming not yet supported for " + config.getProvider().getDisplayName());
         };
@@ -391,6 +407,152 @@ public class LLMProviderHub {
                 .temperature(config.getTemperature())
                 .timeout(config.getTimeout())
                 .build();
+    }
+
+    private ChatModel createMistralModel(LLMProviderConfig config) {
+        // Mistral AI uses OpenAI-compatible API
+        String baseUrl = config.getBaseUrl() != null
+                ? config.getBaseUrl()
+                : "https://api.mistral.ai/v1";
+
+        return OpenAiChatModel.builder()
+                .baseUrl(baseUrl)
+                .apiKey(config.getApiKey())
+                .modelName(config.getModelId())
+                .temperature(config.getTemperature())
+                .timeout(config.getTimeout())
+                .build();
+    }
+
+    private ChatModel createCohereModel(LLMProviderConfig config) {
+        // Cohere uses OpenAI-compatible API via their v1 endpoint
+        String baseUrl = config.getBaseUrl() != null
+                ? config.getBaseUrl()
+                : "https://api.cohere.ai/v1";
+
+        return OpenAiChatModel.builder()
+                .baseUrl(baseUrl)
+                .apiKey(config.getApiKey())
+                .modelName(config.getModelId())
+                .temperature(config.getTemperature())
+                .timeout(config.getTimeout())
+                .build();
+    }
+
+    private ChatModel createBedrockModel(LLMProviderConfig config) {
+        // AWS Bedrock - uses reflection to access the Bedrock classes
+        try {
+            Class<?> bedrockClass = Class.forName("dev.langchain4j.model.bedrock.BedrockAnthropicMessageChatModel");
+            Class<?> builderClass = Class.forName("dev.langchain4j.model.bedrock.BedrockAnthropicMessageChatModel$Builder");
+
+            Object builder = bedrockClass.getMethod("builder").invoke(null);
+
+            // Set properties using reflection
+            builder.getClass().getMethod("temperature", Double.class).invoke(builder, config.getTemperature());
+            builder.getClass().getMethod("timeout", Duration.class).invoke(builder, config.getTimeout());
+            builder.getClass().getMethod("maxTokens", Integer.class).invoke(builder,
+                    config.getMaxTokens() != null ? config.getMaxTokens() : 4096);
+
+            return (ChatModel) builder.getClass().getMethod("build").invoke(builder);
+        } catch (Exception e) {
+            throw new UnsupportedOperationException(
+                    "Bedrock provider requires langchain4j-aws dependency", e);
+        }
+    }
+
+    private ChatModel createHuggingFaceModel(LLMProviderConfig config) {
+        // HuggingFace Inference API uses OpenAI-compatible format
+        String baseUrl = config.getBaseUrl() != null
+                ? config.getBaseUrl()
+                : "https://api-inference.huggingface.co/v1";
+
+        return OpenAiChatModel.builder()
+                .baseUrl(baseUrl)
+                .apiKey(config.getApiKey())
+                .modelName(config.getModelId())
+                .temperature(config.getTemperature())
+                .timeout(config.getTimeout())
+                .build();
+    }
+
+    private ChatModel createQianfanModel(LLMProviderConfig config) {
+        // Baidu Qianfan uses OpenAI-compatible API
+        String baseUrl = config.getBaseUrl() != null
+                ? config.getBaseUrl()
+                : "https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop";
+
+        return OpenAiChatModel.builder()
+                .baseUrl(baseUrl)
+                .apiKey(config.getApiKey())
+                .modelName(config.getModelId())
+                .temperature(config.getTemperature())
+                .timeout(config.getTimeout())
+                .build();
+    }
+
+    private ChatModel createHunyuanModel(LLMProviderConfig config) {
+        // Tencent Hunyuan uses OpenAI-compatible API
+        String baseUrl = config.getBaseUrl() != null
+                ? config.getBaseUrl()
+                : "https://hunyuan.tencentcloudapi.com/v1";
+
+        return OpenAiChatModel.builder()
+                .baseUrl(baseUrl)
+                .apiKey(config.getApiKey())
+                .modelName(config.getModelId())
+                .temperature(config.getTemperature())
+                .timeout(config.getTimeout())
+                .build();
+    }
+
+    private ChatModel createWatsonxModel(LLMProviderConfig config) {
+        // IBM Watsonx - uses reflection to access the IBM classes
+        try {
+            Class<?> watsonxClass = Class.forName("dev.langchain4j.model.ibm.WatsonxChatModel");
+            Class<?> builderClass = Class.forName("dev.langchain4j.model.ibm.WatsonxChatModel$Builder");
+
+            Object builder = watsonxClass.getMethod("builder").invoke(null);
+
+            // Set properties using reflection
+            builder.getClass().getMethod("apiKey", String.class).invoke(builder, config.getApiKey());
+            builder.getClass().getMethod("modelId", String.class).invoke(builder, config.getModelId());
+            builder.getClass().getMethod("temperature", Double.class).invoke(builder, config.getTemperature());
+            builder.getClass().getMethod("timeout", Duration.class).invoke(builder, config.getTimeout());
+
+            if (config.getBaseUrl() != null) {
+                builder.getClass().getMethod("endpoint", String.class).invoke(builder, config.getBaseUrl());
+            }
+
+            return (ChatModel) builder.getClass().getMethod("build").invoke(builder);
+        } catch (Exception e) {
+            throw new UnsupportedOperationException(
+                    "Watsonx provider requires langchain4j-ibm-watsonx dependency", e);
+        }
+    }
+
+    private ChatModel createVertexAiModel(LLMProviderConfig config) {
+        // Google Vertex AI - similar to Gemini but for enterprise
+        try {
+            Class<?> vertexClass = Class.forName("dev.langchain4j.model.vertexai.VertexAiChatModel");
+            Class<?> builderClass = Class.forName("dev.langchain4j.model.vertexai.VertexAiChatModel$VertexAiChatModelBuilder");
+
+            Object builder = vertexClass.getMethod("builder").invoke(null);
+
+            // Set properties using reflection
+            builder.getClass().getMethod("apiKey", String.class).invoke(builder, config.getApiKey());
+            builder.getClass().getMethod("modelName", String.class).invoke(builder, config.getModelId());
+            builder.getClass().getMethod("temperature", Double.class).invoke(builder, config.getTemperature());
+            builder.getClass().getMethod("timeout", Duration.class).invoke(builder, config.getTimeout());
+
+            if (config.getBaseUrl() != null) {
+                builder.getClass().getMethod("endpoint", String.class).invoke(builder, config.getBaseUrl());
+            }
+
+            return (ChatModel) builder.getClass().getMethod("build").invoke(builder);
+        } catch (Exception e) {
+            throw new UnsupportedOperationException(
+                    "Vertex AI provider requires langchain4j-google-ai-gemini dependency", e);
+        }
     }
 
     // ========== Runtime Switching ==========
