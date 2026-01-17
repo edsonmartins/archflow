@@ -1,0 +1,31 @@
+{
+  "defaultLocale": "pt-BR",
+  "locales": [
+    "pt-BR",
+    "en"
+  ],
+  "path": "i18n",
+  "currentLocale": "en",
+  "localeConfigs": {
+    "pt-BR": {
+      "label": "Português (Brasil)",
+      "direction": "ltr",
+      "htmlLang": "pt-BR",
+      "calendar": "gregory",
+      "path": "pt-BR",
+      "translate": false,
+      "url": "https://archflow.dev",
+      "baseUrl": "/"
+    },
+    "en": {
+      "label": "English",
+      "direction": "ltr",
+      "htmlLang": "en",
+      "calendar": "gregory",
+      "path": "en",
+      "translate": false,
+      "url": "https://archflow.dev",
+      "baseUrl": "/en/"
+    }
+  }
+}

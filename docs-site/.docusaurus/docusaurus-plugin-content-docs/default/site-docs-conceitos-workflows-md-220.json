@@ -1,0 +1,29 @@
+{
+  "id": "conceitos/workflows",
+  "title": "Workflows",
+  "description": "Conceito",
+  "source": "@site/docs/conceitos/workflows.md",
+  "sourceDirName": "conceitos",
+  "slug": "/conceitos/workflows",
+  "permalink": "/en/docs/conceitos/workflows",
+  "draft": false,
+  "unlisted": false,
+  "editUrl": "https://github.com/edsonmartins/archflow/tree/main/docs-site/docs/conceitos/workflows.md",
+  "tags": [],
+  "version": "current",
+  "sidebarPosition": 2,
+  "frontMatter": {
+    "title": "Workflows",
+    "sidebar_position": 2,
+    "slug": "workflows"
+  },
+  "sidebar": "docs",
+  "previous": {
+    "title": "Arquitetura",
+    "permalink": "/en/docs/conceitos/arquitetura"
+  },
+  "next": {
+    "title": "Agentes",
+    "permalink": "/en/docs/conceitos/agentes"
+  }
+}

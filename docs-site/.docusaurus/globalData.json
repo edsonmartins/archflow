@@ -1,0 +1,112 @@
+{
+  "docusaurus-plugin-content-docs": {
+    "default": {
+      "path": "/en/docs",
+      "versions": [
+        {
+          "name": "current",
+          "label": "Next",
+          "isLast": true,
+          "path": "/en/docs",
+          "mainDocId": "intro",
+          "docs": [
+            {
+              "id": "api/agent",
+              "path": "/en/docs/api/api-agent",
+              "sidebar": "docs"
+            },
+            {
+              "id": "api/core",
+              "path": "/en/docs/api/api-core",
+              "sidebar": "docs"
+            },
+            {
+              "id": "api/langchain4j",
+              "path": "/en/docs/api/api-langchain4j",
+              "sidebar": "docs"
+            },
+            {
+              "id": "api/streaming",
+              "path": "/en/docs/api/api-streaming",
+              "sidebar": "docs"
+            },
+            {
+              "id": "conceitos/agentes",
+              "path": "/en/docs/conceitos/agentes",
+              "sidebar": "docs"
+            },
+            {
+              "id": "conceitos/arquitetura",
+              "path": "/en/docs/conceitos/arquitetura",
+              "sidebar": "docs"
+            },
+            {
+              "id": "conceitos/tools",
+              "path": "/en/docs/conceitos/tools",
+              "sidebar": "docs"
+            },
+            {
+              "id": "conceitos/workflows",
+              "path": "/en/docs/conceitos/workflows",
+              "sidebar": "docs"
+            },
+            {
+              "id": "guias/agente-ia",
+              "path": "/en/docs/guias/agente-ia",
+              "sidebar": "docs"
+            },
+            {
+              "id": "guias/multi-agente",
+              "path": "/en/docs/guias/multi-agente",
+              "sidebar": "docs"
+            },
+            {
+              "id": "guias/primeiro-workflow",
+              "path": "/en/docs/guias/primeiro-workflow",
+              "sidebar": "docs"
+            },
+            {
+              "id": "guias/rag",
+              "path": "/en/docs/guias/rag",
+              "sidebar": "docs"
+            },
+            {
+              "id": "instalacao",
+              "path": "/en/docs/instalacao"
+            },
+            {
+              "id": "integracoes/mcp",
+              "path": "/en/docs/integracoes/mcp",
+              "sidebar": "docs"
+            },
+            {
+              "id": "integracoes/observabilidade",
+              "path": "/en/docs/integracoes/observabilidade",
+              "sidebar": "docs"
+            },
+            {
+              "id": "integracoes/spring-boot",
+              "path": "/en/docs/integracoes/spring-boot",
+              "sidebar": "docs"
+            },
+            {
+              "id": "intro",
+              "path": "/en/docs/intro",
+              "sidebar": "docs"
+            }
+          ],
+          "draftIds": [],
+          "sidebars": {
+            "docs": {
+              "link": {
+                "path": "/en/docs/intro",
+                "label": "intro"
+              }
+            }
+          }
+        }
+      ],
+      "breadcrumbs": true
+    }
+  }
+}

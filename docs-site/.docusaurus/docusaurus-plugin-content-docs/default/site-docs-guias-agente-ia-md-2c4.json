@@ -1,0 +1,29 @@
+{
+  "id": "guias/agente-ia",
+  "title": "Agente AI",
+  "description": "Neste guia, você aprenderá a criar um agente AI que pode usar ferramentas para realizar tarefas.",
+  "source": "@site/docs/guias/agente-ia.md",
+  "sourceDirName": "guias",
+  "slug": "/guias/agente-ia",
+  "permalink": "/en/docs/guias/agente-ia",
+  "draft": false,
+  "unlisted": false,
+  "editUrl": "https://github.com/edsonmartins/archflow/tree/main/docs-site/docs/guias/agente-ia.md",
+  "tags": [],
+  "version": "current",
+  "sidebarPosition": 2,
+  "frontMatter": {
+    "title": "Agente AI",
+    "sidebar_position": 2,
+    "slug": "agente-ia"
+  },
+  "sidebar": "docs",
+  "previous": {
+    "title": "Primeiro Workflow",
+    "permalink": "/en/docs/guias/primeiro-workflow"
+  },
+  "next": {
+    "title": "RAG (Retrieval-Augmented Generation)",
+    "permalink": "/en/docs/guias/rag"
+  }
+}

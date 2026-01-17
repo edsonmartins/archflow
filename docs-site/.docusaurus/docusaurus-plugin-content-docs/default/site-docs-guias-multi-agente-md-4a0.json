@@ -1,0 +1,29 @@
+{
+  "id": "guias/multi-agente",
+  "title": "Multi-Agente",
+  "description": "Coordene múltiplos agentes AI especializados trabalhando juntos para resolver tarefas complexas.",
+  "source": "@site/docs/guias/multi-agente.md",
+  "sourceDirName": "guias",
+  "slug": "/guias/multi-agente",
+  "permalink": "/en/docs/guias/multi-agente",
+  "draft": false,
+  "unlisted": false,
+  "editUrl": "https://github.com/edsonmartins/archflow/tree/main/docs-site/docs/guias/multi-agente.md",
+  "tags": [],
+  "version": "current",
+  "sidebarPosition": 4,
+  "frontMatter": {
+    "title": "Multi-Agente",
+    "sidebar_position": 4,
+    "slug": "multi-agente"
+  },
+  "sidebar": "docs",
+  "previous": {
+    "title": "RAG (Retrieval-Augmented Generation)",
+    "permalink": "/en/docs/guias/rag"
+  },
+  "next": {
+    "title": "Core API",
+    "permalink": "/en/docs/api/api-core"
+  }
+}

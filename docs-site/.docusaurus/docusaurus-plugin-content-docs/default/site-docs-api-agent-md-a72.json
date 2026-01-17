@@ -1,0 +1,29 @@
+{
+  "id": "api/agent",
+  "title": "Agent API",
+  "description": "Agent",
+  "source": "@site/docs/api/agent.md",
+  "sourceDirName": "api",
+  "slug": "/api/api-agent",
+  "permalink": "/en/docs/api/api-agent",
+  "draft": false,
+  "unlisted": false,
+  "editUrl": "https://github.com/edsonmartins/archflow/tree/main/docs-site/docs/api/agent.md",
+  "tags": [],
+  "version": "current",
+  "sidebarPosition": 2,
+  "frontMatter": {
+    "title": "Agent API",
+    "sidebar_position": 2,
+    "slug": "api-agent"
+  },
+  "sidebar": "docs",
+  "previous": {
+    "title": "Core API",
+    "permalink": "/en/docs/api/api-core"
+  },
+  "next": {
+    "title": "LangChain4j API",
+    "permalink": "/en/docs/api/api-langchain4j"
+  }
+}

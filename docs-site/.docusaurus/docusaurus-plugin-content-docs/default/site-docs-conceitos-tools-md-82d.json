@@ -1,0 +1,29 @@
+{
+  "id": "conceitos/tools",
+  "title": "Tools",
+  "description": "Conceito",
+  "source": "@site/docs/conceitos/tools.md",
+  "sourceDirName": "conceitos",
+  "slug": "/conceitos/tools",
+  "permalink": "/en/docs/conceitos/tools",
+  "draft": false,
+  "unlisted": false,
+  "editUrl": "https://github.com/edsonmartins/archflow/tree/main/docs-site/docs/conceitos/tools.md",
+  "tags": [],
+  "version": "current",
+  "sidebarPosition": 4,
+  "frontMatter": {
+    "title": "Tools",
+    "sidebar_position": 4,
+    "slug": "tools"
+  },
+  "sidebar": "docs",
+  "previous": {
+    "title": "Agentes",
+    "permalink": "/en/docs/conceitos/agentes"
+  },
+  "next": {
+    "title": "Primeiro Workflow",
+    "permalink": "/en/docs/guias/primeiro-workflow"
+  }
+}

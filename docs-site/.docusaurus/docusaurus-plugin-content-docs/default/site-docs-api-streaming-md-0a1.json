@@ -1,0 +1,29 @@
+{
+  "id": "api/streaming",
+  "title": "Streaming API",
+  "description": "Archflow Streaming Protocol",
+  "source": "@site/docs/api/streaming.md",
+  "sourceDirName": "api",
+  "slug": "/api/api-streaming",
+  "permalink": "/en/docs/api/api-streaming",
+  "draft": false,
+  "unlisted": false,
+  "editUrl": "https://github.com/edsonmartins/archflow/tree/main/docs-site/docs/api/streaming.md",
+  "tags": [],
+  "version": "current",
+  "sidebarPosition": 4,
+  "frontMatter": {
+    "title": "Streaming API",
+    "sidebar_position": 4,
+    "slug": "api-streaming"
+  },
+  "sidebar": "docs",
+  "previous": {
+    "title": "LangChain4j API",
+    "permalink": "/en/docs/api/api-langchain4j"
+  },
+  "next": {
+    "title": "Spring Boot",
+    "permalink": "/en/docs/integracoes/spring-boot"
+  }
+}

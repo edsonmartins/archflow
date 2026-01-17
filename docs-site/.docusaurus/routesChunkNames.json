@@ -1,0 +1,90 @@
+{
+  "/en/docs-c04": {
+    "__comp": "5e95c892",
+    "__context": {
+      "plugin": "aba21aa0"
+    }
+  },
+  "/en/docs-729": {
+    "__comp": "a7bd4aaa",
+    "__props": "0abf49b1"
+  },
+  "/en/docs-e30": {
+    "__comp": "a94703ab"
+  },
+  "/en/docs/api/api-agent-044": {
+    "__comp": "17896441",
+    "content": "a720e4a6"
+  },
+  "/en/docs/api/api-core-d5a": {
+    "__comp": "17896441",
+    "content": "36fe3260"
+  },
+  "/en/docs/api/api-langchain4j-a2f": {
+    "__comp": "17896441",
+    "content": "cf1075ea"
+  },
+  "/en/docs/api/api-streaming-880": {
+    "__comp": "17896441",
+    "content": "0a11e237"
+  },
+  "/en/docs/conceitos/agentes-002": {
+    "__comp": "17896441",
+    "content": "796fe175"
+  },
+  "/en/docs/conceitos/arquitetura-366": {
+    "__comp": "17896441",
+    "content": "715e5a6e"
+  },
+  "/en/docs/conceitos/tools-6bf": {
+    "__comp": "17896441",
+    "content": "82dab0bb"
+  },
+  "/en/docs/conceitos/workflows-87f": {
+    "__comp": "17896441",
+    "content": "220eec68"
+  },
+  "/en/docs/guias/agente-ia-af4": {
+    "__comp": "17896441",
+    "content": "2c44c53c"
+  },
+  "/en/docs/guias/multi-agente-430": {
+    "__comp": "17896441",
+    "content": "4a0d8cd7"
+  },
+  "/en/docs/guias/primeiro-workflow-6ae": {
+    "__comp": "17896441",
+    "content": "5e66acf4"
+  },
+  "/en/docs/guias/rag-1af": {
+    "__comp": "17896441",
+    "content": "5ef87360"
+  },
+  "/en/docs/instalacao-458": {
+    "__comp": "17896441",
+    "content": "62870c3d"
+  },
+  "/en/docs/integracoes/mcp-0ef": {
+    "__comp": "17896441",
+    "content": "68f20c17"
+  },
+  "/en/docs/integracoes/observabilidade-8a7": {
+    "__comp": "17896441",
+    "content": "1e5cee10"
+  },
+  "/en/docs/integracoes/spring-boot-a54": {
+    "__comp": "17896441",
+    "content": "59d7fadb"
+  },
+  "/en/docs/intro-37d": {
+    "__comp": "17896441",
+    "content": "0e384e19"
+  },
+  "/en/-6c2": {
+    "__comp": "1df93b7f",
+    "__context": {
+      "plugin": "a7456010"
+    },
+    "config": "5e9f5e1a"
+  }
+}

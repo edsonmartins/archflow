@@ -1,0 +1,29 @@
+{
+  "id": "guias/primeiro-workflow",
+  "title": "Primeiro Workflow",
+  "description": "Este guia mostra como criar e executar seu primeiro workflow AI com archflow.",
+  "source": "@site/docs/guias/primeiro-workflow.md",
+  "sourceDirName": "guias",
+  "slug": "/guias/primeiro-workflow",
+  "permalink": "/en/docs/guias/primeiro-workflow",
+  "draft": false,
+  "unlisted": false,
+  "editUrl": "https://github.com/edsonmartins/archflow/tree/main/docs-site/docs/guias/primeiro-workflow.md",
+  "tags": [],
+  "version": "current",
+  "sidebarPosition": 1,
+  "frontMatter": {
+    "title": "Primeiro Workflow",
+    "sidebar_position": 1,
+    "slug": "primeiro-workflow"
+  },
+  "sidebar": "docs",
+  "previous": {
+    "title": "Tools",
+    "permalink": "/en/docs/conceitos/tools"
+  },
+  "next": {
+    "title": "Agente AI",
+    "permalink": "/en/docs/guias/agente-ia"
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "id": "conceitos/agentes",
+  "title": "Agentes",
+  "description": "Conceito",
+  "source": "@site/docs/conceitos/agentes.md",
+  "sourceDirName": "conceitos",
+  "slug": "/conceitos/agentes",
+  "permalink": "/en/docs/conceitos/agentes",
+  "draft": false,
+  "unlisted": false,
+  "editUrl": "https://github.com/edsonmartins/archflow/tree/main/docs-site/docs/conceitos/agentes.md",
+  "tags": [],
+  "version": "current",
+  "sidebarPosition": 3,
+  "frontMatter": {
+    "title": "Agentes",
+    "sidebar_position": 3,
+    "slug": "agentes"
+  },
+  "sidebar": "docs",
+  "previous": {
+    "title": "Workflows",
+    "permalink": "/en/docs/conceitos/workflows"
+  },
+  "next": {
+    "title": "Tools",
+    "permalink": "/en/docs/conceitos/tools"
+  }
+}

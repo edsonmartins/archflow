@@ -1,0 +1,25 @@
+{
+  "id": "integracoes/observabilidade",
+  "title": "Observabilidade",
+  "description": "O archflow possui suporte nativo para métricas, tracing e logging estruturado.",
+  "source": "@site/docs/integracoes/observabilidade.md",
+  "sourceDirName": "integracoes",
+  "slug": "/integracoes/observabilidade",
+  "permalink": "/en/docs/integracoes/observabilidade",
+  "draft": false,
+  "unlisted": false,
+  "editUrl": "https://github.com/edsonmartins/archflow/tree/main/docs-site/docs/integracoes/observabilidade.md",
+  "tags": [],
+  "version": "current",
+  "sidebarPosition": 3,
+  "frontMatter": {
+    "title": "Observabilidade",
+    "sidebar_position": 3,
+    "slug": "observabilidade"
+  },
+  "sidebar": "docs",
+  "previous": {
+    "title": "MCP (Model Context Protocol)",
+    "permalink": "/en/docs/integracoes/mcp"
+  }
+}

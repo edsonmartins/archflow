@@ -1,0 +1,29 @@
+{
+  "id": "integracoes/mcp",
+  "title": "MCP (Model Context Protocol)",
+  "description": "O archflow suporta nativamente o Model Context Protocol (MCP) para interoperabilidade de ferramentas AI.",
+  "source": "@site/docs/integracoes/mcp.md",
+  "sourceDirName": "integracoes",
+  "slug": "/integracoes/mcp",
+  "permalink": "/en/docs/integracoes/mcp",
+  "draft": false,
+  "unlisted": false,
+  "editUrl": "https://github.com/edsonmartins/archflow/tree/main/docs-site/docs/integracoes/mcp.md",
+  "tags": [],
+  "version": "current",
+  "sidebarPosition": 2,
+  "frontMatter": {
+    "title": "MCP (Model Context Protocol)",
+    "sidebar_position": 2,
+    "slug": "mcp"
+  },
+  "sidebar": "docs",
+  "previous": {
+    "title": "Spring Boot",
+    "permalink": "/en/docs/integracoes/spring-boot"
+  },
+  "next": {
+    "title": "Observabilidade",
+    "permalink": "/en/docs/integracoes/observabilidade"
+  }
+}

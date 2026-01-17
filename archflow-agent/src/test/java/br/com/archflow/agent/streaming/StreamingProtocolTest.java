@@ -185,7 +185,7 @@ class StreamingProtocolTest {
                 500.0,
                 "ms",
                 "exec_123",
-                "tool:search", "status:success"
+                new String[]{"tool:search", "status:success"}
         );
 
         assertEquals(ArchflowEventType.METRIC, metric.getType());

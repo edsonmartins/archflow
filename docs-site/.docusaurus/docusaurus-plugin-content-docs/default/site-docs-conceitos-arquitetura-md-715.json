@@ -1,0 +1,29 @@
+{
+  "id": "conceitos/arquitetura",
+  "title": "Arquitetura",
+  "description": "Visão Geral",
+  "source": "@site/docs/conceitos/arquitetura.md",
+  "sourceDirName": "conceitos",
+  "slug": "/conceitos/arquitetura",
+  "permalink": "/en/docs/conceitos/arquitetura",
+  "draft": false,
+  "unlisted": false,
+  "editUrl": "https://github.com/edsonmartins/archflow/tree/main/docs-site/docs/conceitos/arquitetura.md",
+  "tags": [],
+  "version": "current",
+  "sidebarPosition": 1,
+  "frontMatter": {
+    "title": "Arquitetura",
+    "sidebar_position": 1,
+    "slug": "arquitetura"
+  },
+  "sidebar": "docs",
+  "previous": {
+    "title": "Introdução",
+    "permalink": "/en/docs/intro"
+  },
+  "next": {
+    "title": "Workflows",
+    "permalink": "/en/docs/conceitos/workflows"
+  }
+}

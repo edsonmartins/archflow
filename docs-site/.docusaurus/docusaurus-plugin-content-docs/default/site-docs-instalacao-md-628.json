@@ -1,0 +1,20 @@
+{
+  "id": "instalacao",
+  "title": "Instalação",
+  "description": "Requisitos",
+  "source": "@site/docs/instalacao.md",
+  "sourceDirName": ".",
+  "slug": "/instalacao",
+  "permalink": "/en/docs/instalacao",
+  "draft": false,
+  "unlisted": false,
+  "editUrl": "https://github.com/edsonmartins/archflow/tree/main/docs-site/docs/instalacao.md",
+  "tags": [],
+  "version": "current",
+  "sidebarPosition": 2,
+  "frontMatter": {
+    "title": "Instalação",
+    "sidebar_position": 2,
+    "slug": "instalacao"
+  }
+}

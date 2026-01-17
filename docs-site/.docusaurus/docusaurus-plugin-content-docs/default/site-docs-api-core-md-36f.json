@@ -1,0 +1,29 @@
+{
+  "id": "api/core",
+  "title": "Core API",
+  "description": "FlowEngine",
+  "source": "@site/docs/api/core.md",
+  "sourceDirName": "api",
+  "slug": "/api/api-core",
+  "permalink": "/en/docs/api/api-core",
+  "draft": false,
+  "unlisted": false,
+  "editUrl": "https://github.com/edsonmartins/archflow/tree/main/docs-site/docs/api/core.md",
+  "tags": [],
+  "version": "current",
+  "sidebarPosition": 1,
+  "frontMatter": {
+    "title": "Core API",
+    "sidebar_position": 1,
+    "slug": "api-core"
+  },
+  "sidebar": "docs",
+  "previous": {
+    "title": "Multi-Agente",
+    "permalink": "/en/docs/guias/multi-agente"
+  },
+  "next": {
+    "title": "Agent API",
+    "permalink": "/en/docs/api/api-agent"
+  }
+}

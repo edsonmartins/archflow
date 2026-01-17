@@ -1,0 +1,29 @@
+{
+  "id": "integracoes/spring-boot",
+  "title": "Spring Boot",
+  "description": "Auto-Configuration",
+  "source": "@site/docs/integracoes/spring-boot.md",
+  "sourceDirName": "integracoes",
+  "slug": "/integracoes/spring-boot",
+  "permalink": "/en/docs/integracoes/spring-boot",
+  "draft": false,
+  "unlisted": false,
+  "editUrl": "https://github.com/edsonmartins/archflow/tree/main/docs-site/docs/integracoes/spring-boot.md",
+  "tags": [],
+  "version": "current",
+  "sidebarPosition": 1,
+  "frontMatter": {
+    "title": "Spring Boot",
+    "sidebar_position": 1,
+    "slug": "spring-boot"
+  },
+  "sidebar": "docs",
+  "previous": {
+    "title": "Streaming API",
+    "permalink": "/en/docs/api/api-streaming"
+  },
+  "next": {
+    "title": "MCP (Model Context Protocol)",
+    "permalink": "/en/docs/integracoes/mcp"
+  }
+}

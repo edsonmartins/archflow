@@ -1,0 +1,29 @@
+{
+  "id": "api/langchain4j",
+  "title": "LangChain4j API",
+  "description": "Integração com LangChain4j para modelos de linguagem e embeddings.",
+  "source": "@site/docs/api/langchain4j.md",
+  "sourceDirName": "api",
+  "slug": "/api/api-langchain4j",
+  "permalink": "/en/docs/api/api-langchain4j",
+  "draft": false,
+  "unlisted": false,
+  "editUrl": "https://github.com/edsonmartins/archflow/tree/main/docs-site/docs/api/langchain4j.md",
+  "tags": [],
+  "version": "current",
+  "sidebarPosition": 3,
+  "frontMatter": {
+    "title": "LangChain4j API",
+    "sidebar_position": 3,
+    "slug": "api-langchain4j"
+  },
+  "sidebar": "docs",
+  "previous": {
+    "title": "Agent API",
+    "permalink": "/en/docs/api/api-agent"
+  },
+  "next": {
+    "title": "Streaming API",
+    "permalink": "/en/docs/api/api-streaming"
+  }
+}

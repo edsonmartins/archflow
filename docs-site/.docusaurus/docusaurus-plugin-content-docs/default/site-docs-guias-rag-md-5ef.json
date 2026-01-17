@@ -1,0 +1,29 @@
+{
+  "id": "guias/rag",
+  "title": "RAG (Retrieval-Augmented Generation)",
+  "description": "RAG (Retrieval-Augmented Generation) combina busca de informações com geração de texto para criar respostas baseadas em conhecimento específico.",
+  "source": "@site/docs/guias/rag.md",
+  "sourceDirName": "guias",
+  "slug": "/guias/rag",
+  "permalink": "/en/docs/guias/rag",
+  "draft": false,
+  "unlisted": false,
+  "editUrl": "https://github.com/edsonmartins/archflow/tree/main/docs-site/docs/guias/rag.md",
+  "tags": [],
+  "version": "current",
+  "sidebarPosition": 3,
+  "frontMatter": {
+    "title": "RAG (Retrieval-Augmented Generation)",
+    "sidebar_position": 3,
+    "slug": "rag"
+  },
+  "sidebar": "docs",
+  "previous": {
+    "title": "Agente AI",
+    "permalink": "/en/docs/guias/agente-ia"
+  },
+  "next": {
+    "title": "Multi-Agente",
+    "permalink": "/en/docs/guias/multi-agente"
+  }
+}

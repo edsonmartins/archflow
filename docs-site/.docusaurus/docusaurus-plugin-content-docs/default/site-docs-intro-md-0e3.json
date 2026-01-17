@@ -1,0 +1,25 @@
+{
+  "id": "intro",
+  "title": "Introdução",
+  "description": "archflow é a primeira plataforma visual Java-Nativa para construção de workflows de Inteligência Artificial.",
+  "source": "@site/docs/intro.md",
+  "sourceDirName": ".",
+  "slug": "/intro",
+  "permalink": "/en/docs/intro",
+  "draft": false,
+  "unlisted": false,
+  "editUrl": "https://github.com/edsonmartins/archflow/tree/main/docs-site/docs/intro.md",
+  "tags": [],
+  "version": "current",
+  "sidebarPosition": 1,
+  "frontMatter": {
+    "sidebar_position": 1,
+    "title": "Introdução",
+    "slug": "intro"
+  },
+  "sidebar": "docs",
+  "next": {
+    "title": "Arquitetura",
+    "permalink": "/en/docs/conceitos/arquitetura"
+  }
+}
