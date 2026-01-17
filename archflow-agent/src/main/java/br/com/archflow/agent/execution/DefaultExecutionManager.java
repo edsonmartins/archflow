@@ -115,7 +115,7 @@ public class DefaultExecutionManager implements ExecutionManager {
      * Executa uma lista de passos em paralelo
      */
     public List<StepResult> executeParallelSteps(List<FlowStep> steps, ExecutionContext context) {
-        return parallelExecutor.executeParallel(steps);
+        return parallelExecutor.executeParallel(steps, context);
     }
 
     /**

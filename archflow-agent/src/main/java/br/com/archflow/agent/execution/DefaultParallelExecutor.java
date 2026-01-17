@@ -1,6 +1,7 @@
 package br.com.archflow.agent.execution;
 
 import br.com.archflow.engine.execution.ParallelExecutor;
+import br.com.archflow.model.engine.ExecutionContext;
 import br.com.archflow.model.flow.FlowStep;
 import br.com.archflow.model.flow.StepResult;
 import org.slf4j.Logger;
@@ -29,11 +30,15 @@ public class DefaultParallelExecutor implements ParallelExecutor {
     }
 
     @Override
-    public List<StepResult> executeParallel(List<FlowStep> steps) {
+    public List<StepResult> executeParallel(List<FlowStep> steps, ExecutionContext context) {
+        if (context == null) {
+            throw new IllegalArgumentException("ExecutionContext cannot be null");
+        }
+
         try {
             // Cria tasks para cada step
             List<CompletableFuture<StepResult>> futures = steps.stream()
-                .map(this::executeStepAsync)
+                .map(step -> executeStepAsync(step, context))
                 .toList();
 
             // Aguarda conclusão de todos
@@ -53,14 +58,17 @@ public class DefaultParallelExecutor implements ParallelExecutor {
         }
     }
 
-    private CompletableFuture<StepResult> executeStepAsync(FlowStep step) {
+    private CompletableFuture<StepResult> executeStepAsync(FlowStep step, ExecutionContext context) {
         return CompletableFuture.supplyAsync(() -> {
             try {
                 semaphore.acquire();
-                logger.info("Iniciando execução paralela do step: " + step.getId());
-                return step.execute(null).get(); // TODO: Passar contexto apropriado
+                logger.info("Iniciando execução paralela do step: {}", step.getId());
+                return step.execute(context).get();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new CompletionException("Step execution interrupted: " + step.getId(), e);
             } catch (Exception e) {
-                throw new CompletionException(e);
+                throw new CompletionException("Error executing step: " + step.getId(), e);
             } finally {
                 semaphore.release();
             }
