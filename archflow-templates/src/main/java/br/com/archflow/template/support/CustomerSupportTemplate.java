@@ -342,9 +342,7 @@ public class CustomerSupportTemplate extends AbstractWorkflowTemplate {
 
     @Override
     protected Workflow buildWorkflow(String name, Map<String, Object> parameters) {
-        // This would create an actual Workflow instance
-        // For now, we return a placeholder that demonstrates the structure
-
+        // Extract parameters from configuration
         String knowledgeBaseId = getString(parameters, "knowledgeBaseId", "");
         int maxIterations = getInt(parameters, "maxIterations", 5);
         String escalationEmail = getString(parameters, "escalationEmail", "support@company.com");
@@ -366,23 +364,35 @@ public class CustomerSupportTemplate extends AbstractWorkflowTemplate {
                 "confidenceThreshold", confidenceThreshold
         ));
 
-        // Create and return workflow (placeholder implementation)
-        return createWorkflowFromConfig(name, config);
+        // Create and return workflow metadata instance
+        return createWorkflowFromConfig(name, config, knowledgeBaseId, maxIterations,
+                escalationEmail, enableSentiment, responseLanguage, confidenceThreshold);
     }
 
     /**
-     * Creates a workflow instance from configuration.
+     * Creates a workflow metadata instance from configuration.
+     *
+     * <p>Note: This creates the Workflow metadata object. For actual execution,
+     * a Flow engine implementation is needed to define the node graph and
+     * execution logic. The Workflow object can be converted to a Flow using
+     * WorkflowConverter or similar utilities.
      *
      * @param name The workflow name
      * @param config The configuration
-     * @return The workflow instance
+     * @param knowledgeBaseId Knowledge base for RAG queries
+     * @param maxIterations Maximum refinement iterations
+     * @param escalationEmail Email for escalation
+     * @param enableSentiment Whether to enable sentiment analysis
+     * @param responseLanguage Response language
+     * @param confidenceThreshold Confidence threshold for auto-response
+     * @return The workflow metadata instance
      */
-    private Workflow createWorkflowFromConfig(String name, Map<String, Object> config) {
-        // This is a placeholder - in a real implementation,
-        // this would use the WorkflowFactory or similar to create
-        // a proper Workflow instance with nodes and connections
-
-        // For now, return a simple workflow representation
+    private Workflow createWorkflowFromConfig(String name, Map<String, Object> config,
+                                               String knowledgeBaseId, int maxIterations,
+                                               String escalationEmail, boolean enableSentiment,
+                                               String responseLanguage, double confidenceThreshold) {
+        // Create a Workflow instance with metadata
+        // The Workflow interface provides metadata; execution is handled by FlowEngine
         return new Workflow() {
             private final String workflowName = name;
             private final Map<String, Object> workflowConfig = config;
@@ -405,11 +415,18 @@ public class CustomerSupportTemplate extends AbstractWorkflowTemplate {
 
             @Override
             public Map<String, Object> getMetadata() {
-                return Map.of(
-                        "template", templateId,
-                        "templateVersion", VERSION,
-                        "createdAt", java.time.Instant.now()
-                );
+                Map<String, Object> meta = new HashMap<>();
+                meta.put("template", templateId);
+                meta.put("templateVersion", VERSION);
+                meta.put("createdAt", java.time.Instant.now().toString());
+                meta.put("description", "Customer Support workflow with RAG, sentiment analysis, and escalation");
+                meta.put("knowledgeBaseId", knowledgeBaseId);
+                meta.put("maxIterations", maxIterations);
+                meta.put("escalationEmail", escalationEmail);
+                meta.put("enableSentiment", enableSentiment);
+                meta.put("responseLanguage", responseLanguage);
+                meta.put("confidenceThreshold", confidenceThreshold);
+                return meta;
             }
         };
     }
