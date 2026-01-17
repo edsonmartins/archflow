@@ -11,7 +11,7 @@
 
 O LangFlow para o mundo Java — Visual AI Builder com Web Component UI
 
-[Features](#-por-que-archflow) • [Quickstart](#-início-rápido) • [Documentação](docs/readme.md) • [Roadmap](docs/roadmap/STATUS-PROJETO.md)
+[Features](#-por-que-archflow) • [Quickstart](#-início-rápido) • [Documentação](docs-site/) • [Examples](examples/)
 
 </div>
 
@@ -108,9 +108,9 @@ Empresas Java enfrentam um dilema hoje:
 
 ```xml
 <dependency>
-    <groupId>org.archflow</groupId>
+    <groupId>br.com.archflow</groupId>
     <artifactId>archflow-spring-boot-starter</artifactId>
-    <version>2.0.0-SNAPSHOT</version>
+    <version>1.0.0</version>
 </dependency>
 ```
 
@@ -120,7 +120,7 @@ Empresas Java enfrentam um dilema hoje:
 docker run -d \
   -p 8080:8080 \
   -e ARCHFLOW_API_KEY=your-key-here \
-  archflow/server:2.0.0
+  archflow/server:1.0.0
 ```
 
 ### Web Component
@@ -167,18 +167,19 @@ archflow/
 ├── archflow-conversation/            # ✅ Suspend/Resume conversations
 ├── archflow-marketplace/             # ✅ Extension marketplace
 ├── archflow-workflow-tool/           # ✅ Workflow-as-Tool pattern
-├── archflow-security/                # RBAC, SSO
-├── archflow-observability/           # Metrics, tracing, audit
-├── archflow-server/                  # Spring Boot 3 server
-│   ├── archflow-api/                 # REST/WebSocket APIs
-│   ├── archflow-mcp/                 # MCP Server implementation
-│   └── archflow-streaming/           # SSE/WebSocket streaming
-├── archflow-ui/                      # Web Component distribution
-│   └── archflow-component/           # <archflow-designer>
+├── archflow-security/                # ✅ RBAC, SSO
+├── archflow-observability/           # ✅ Metrics, tracing, audit
+├── archflow-performance/             # ✅ Caching, pooling, parallel execution
+├── archflow-server/                  # ✅ Spring Boot 3 server
+│   ├── archflow-api/                 # ✅ REST/WebSocket APIs
+│   ├── archflow-mcp/                 # ✅ MCP Server implementation
+│   └── archflow-streaming/           # ✅ SSE/WebSocket streaming
+├── archflow-ui/                      # ✅ Web Component distribution
+│   └── archflow-component/           # ✅ <archflow-designer>
 └── archflow-enterprise/              # Optional enterprise module
 ```
 
-✅ = Implementado na v1.0.0-SNAPSHOT
+✅ = Implementado na v1.0.0
 
 ---
 
@@ -192,9 +193,9 @@ archflow/
 | **Fase 2** | 5-8 | Visual Experience - Web Component Designer | ✅ COMPLETO |
 | **Fase 3** | 9-12 | Enterprise Capabilities - RBAC, Observability | ✅ COMPLETO |
 | **Fase 4** | 13-16 | Ecosystem - Templates, Marketplace, Workflow-as-Tool | ✅ COMPLETO |
-| **Fase 5** | 17-20 | Polish & Launch - Performance, Docs, Examples | 🔴 TODO |
+| **Fase 5** | 17-20 | Polish & Launch - Performance, Docs, Examples | ✅ COMPLETO |
 
-**Progresso Atual:** ~80% completo
+**Progresso Atual:** 100% COMPLETO 🎉
 
 **Fase 4: Ecosystem ✅**
 - ✅ Sprint 13: Workflow Templates (Customer Support, Document Processing, Knowledge Base, Agent Supervisor)
@@ -208,6 +209,12 @@ archflow/
 - ✅ FormData com validação e múltiplos tipos de campo
 - ✅ Extension Marketplace com verificação de assinatura
 - ✅ Workflow-as-Tool para composição de workflows
+
+**Fase 5: Polish & Launch ✅**
+- ✅ Sprint 17: Performance (Caffeine caching, connection pooling, virtual threads)
+- ✅ Sprint 18: DX & Docs (Docusaurus site, API reference, guides)
+- ✅ Sprint 19: Examples (Spring Boot, React, Vue demos)
+- ✅ Sprint 20: Launch 1.0.0 (Release notes, changelog)
 - ✅ Web Component `<archflow-designer>` framework-agnostic
 - ✅ Integração React e Vue funcionando
 - ✅ Sistema de execução com SSE streaming
@@ -222,12 +229,22 @@ archflow/
 
 ## 📚 Documentação
 
-- [Quickstart Guide](docs/development/quickstart.md)
-- [Arquitetura](docs/architecture.md)
-- [Web Component API](docs/api/web-component.md)
-- [REST API Reference](docs/api/rest.md)
-- [Guia de Integração](docs/guides/integration.md)
-- [Exemplos](docs/examples/README.md)
+Documentação completa disponível em [docs-site/](docs-site/)
+
+- [Introdução](docs-site/docs/intro) - Bem-vindo ao archflow
+- [Instalação](docs-site/docs/instalacao) - Como configurar
+- [Conceitos](docs-site/docs/conceitos/) - Arquitetura, Workflows, Agentes, Tools
+- [Guias](docs-site/docs/guias/) - Primeiro workflow, Agente AI, RAG, Multi-agente
+- [API Reference](docs-site/docs/api/) - Core, Agent, LangChain4j, Streaming
+- [Integrações](docs-site/docs/integracoes/) - Spring Boot, MCP, Observabilidade
+
+## 🎓 Exemplos
+
+Exemplos completos disponíveis em [examples/](examples/)
+
+- [Spring Boot Example](examples/spring-boot/) - Aplicação completa Spring Boot
+- [React Example](examples/react/) - Integração com React
+- [Vue Example](examples/vue/) - Integração com Vue 3
 
 ---
 
