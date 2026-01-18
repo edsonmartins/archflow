@@ -15,7 +15,7 @@ O LangFlow para o mundo Java — Visual AI Builder com Web Component UI
 
 <div align="center">
 
-![Infográfico archflow](images/infografico.png)
+![archflow + LangChain4j](images/archflow_java_langchain4j.png)
 
 </div>
 
@@ -68,6 +68,12 @@ Empresas Java enfrentam um dilema hoje:
 | **MCP Native** | ✅ | ⚠️ | ❌ |
 | **Enterprise Features** | ✅ | ⚠️ | ✅ |
 | **Spring Integration** | ✅ | ❌ | ✅ |
+
+<div align="center">
+
+![Infográfico archflow](images/infografico.png)
+
+</div>
 
 ---
 
