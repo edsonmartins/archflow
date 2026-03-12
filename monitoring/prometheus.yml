@@ -1,0 +1,16 @@
+# Prometheus configuration for archflow
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'archflow'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['app:8080']
+        labels:
+          application: 'archflow'
+
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']

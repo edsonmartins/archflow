@@ -1,0 +1,62 @@
+# Production configuration for archflow
+# Activate with: SPRING_PROFILES_ACTIVE=prod
+
+server:
+  port: ${SERVER_PORT:8080}
+
+spring:
+  datasource:
+    url: ${SPRING_DATASOURCE_URL}
+    username: ${SPRING_DATASOURCE_USERNAME}
+    password: ${SPRING_DATASOURCE_PASSWORD}
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:localhost}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
+      password: ${SPRING_DATA_REDIS_PASSWORD:}
+
+# Spring Boot Actuator - Production
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+      base-path: /actuator
+  endpoint:
+    health:
+      show-details: when-authorized
+      probes:
+        enabled: true
+    prometheus:
+      enabled: true
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+    tags:
+      application: archflow
+      environment: ${SPRING_PROFILES_ACTIVE:prod}
+  health:
+    livenessState:
+      enabled: true
+    readinessState:
+      enabled: true
+
+# archflow observability
+archflow:
+  observability:
+    metrics:
+      enabled: true
+    tracing:
+      enabled: true
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4317}
+  security:
+    jwt:
+      secret: ${ARCHFLOW_JWT_SECRET}
+      expiration: 3600

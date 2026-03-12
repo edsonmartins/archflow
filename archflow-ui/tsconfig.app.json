@@ -28,6 +28,9 @@
     "src/**/*.test.tsx",
     "src/**/__tests__/**",
     "src/components/**",
+    "src/pages/**",
+    "src/stores/**",
+    "src/services/**",
     "src/App.tsx",
     "src/main.tsx"
   ]

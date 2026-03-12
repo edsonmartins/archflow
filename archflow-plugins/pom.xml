@@ -6,19 +6,19 @@
     <parent>
         <groupId>br.com.archflow</groupId>
         <artifactId>archflow</artifactId>
-        <version>1.0.0-SNAPSHOT</version>
+        <version>1.0.0</version>
     </parent>
 
     <groupId>br.com.archflow.plugins</groupId>
     <artifactId>archflow-plugins</artifactId>
     <packaging>pom</packaging>
+    <name>archflow Plugins</name>
+    <description>Reference plugin implementations for archflow</description>
 
     <modules>
-        <module>archflow-plugin-langchain</module>
         <module>archflow-plugin-tools</module>
         <module>archflow-plugin-assistants</module>
         <module>archflow-plugin-agents</module>
-        <module>archflow-plugins-dist</module>
     </modules>
 
     <properties>
@@ -32,6 +32,34 @@
             <artifactId>archflow-plugin-api</artifactId>
             <version>${plugin.api.version}</version>
             <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>br.com.archflow</groupId>
+            <artifactId>archflow-model</artifactId>
+            <version>${plugin.api.version}</version>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- Test Dependencies -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <scope>test</scope>
         </dependency>
     </dependencies>
 
@@ -49,6 +77,14 @@
                         </manifestEntries>
                     </archive>
                 </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
             </plugin>
         </plugins>
     </build>

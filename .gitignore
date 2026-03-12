@@ -32,3 +32,20 @@ build/
 ### VS Code ###
 .vscode/
 /docs-site/node_modules/
+
+### Secrets & Credentials ###
+.env
+.env.local
+.env.*.local
+*.key
+*.pem
+*.p12
+*.jks
+credentials.json
+secrets.yml
+secrets.yaml
+service-account.json
+
+### OS Files ###
+.DS_Store
+Thumbs.db

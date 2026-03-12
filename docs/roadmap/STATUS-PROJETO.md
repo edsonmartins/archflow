@@ -48,54 +48,74 @@
 
 ## 📊 STATUS GERAL DO PROJETO
 
-**Última atualização:** 2025-01-16
+**Última atualização:** 2026-03-12
 
 ### Resumo por Fase
 
 | Fase | Descrição | Progresso | Status | Tarefas | Horas |
 |------|-----------|-----------|--------|---------|-------|
-| **FASE 1** | Foundation | 27% | 🟢 IN_PROGRESS | 10/37 | ~88h/~125h |
-| **FASE 2** | Visual Experience | 0% | 🔴 TODO | 0/41 | ~154h |
-| **FASE 3** | Enterprise Capabilities | 0% | 🔴 TODO | 0/46 | ~153h |
-| **FASE 4** | Ecosystem | 0% | 🔴 TODO | 0/49 | ~183h |
-| **FASE 5** | Polish & Launch | 0% | 🔴 TODO | 0/55 | ~220h |
+| **FASE 1** | Foundation | 97% | ✅ DONE | 36/37 | ~125h |
+| **FASE 2** | Visual Experience | 100% | ✅ DONE | 42/42 | ~156h |
+| **FASE 3** | Enterprise Capabilities | 100% | ✅ DONE | 46/46 | ~153h |
+| **FASE 4** | Ecosystem | 100% | ✅ DONE | 49/49 | ~183h |
+| **FASE 5** | Polish & Launch | 87% | 🟡 IN_PROGRESS | 48/55 | ~220h |
 
-**Status Geral:** 🟢 **SPRINT 1 COMPLETO** - Iniciando Sprint 2: Tool Interceptor + toolCallId
+**Status Geral:** Fases 1-4 completas, Fase 5 em ~87% (pendente: tag, publicação, anúncios)
 
-**Progresso Total:** 4% (10/228 tarefas)
+**Progresso Total:** ~97% (~221/228 tarefas implementadas no código)
 
 **Total Estimado:** ~835 horas (~20-30 semanas)
 
+### Fase 4 — Gaps completados em 2026-03-12
+
+| Sprint | Gap anterior | Resolução |
+|--------|-------------|-----------|
+| Sprint 13: Templates | `TemplateMetadata` + REST | ✅ TemplateMetadata, TemplateController, DTOs, testes |
+| Sprint 14: Suspend/Resume | `ConversationMessage` + REST | ✅ ConversationMessage, ConversationService, Controller, DTOs, testes |
+| Sprint 15: Marketplace | Validators + REST | ✅ ExtensionSignatureValidator, PermissionValidator, DependencyResolver, Controller, DTOs, testes |
+| Sprint 16: Workflow-as-Tool | `LangChain4jToolAdapter` | ✅ LangChain4jToolAdapter, SpecificationFactory, Executor, testes |
+
+### Fase 5 — Status atual
+
+| Sprint | Progresso | Detalhes |
+|--------|-----------|----------|
+| Sprint 17: Performance | ✅ 100% | RedisCacheManager, TwoLevelCache, EmbeddingCache, LlmCache, Benchmarker + testes |
+| Sprint 18: Documentation | ✅ 100% | 10 docs Docusaurus (building-workflows, custom-tools, deploy, security, troubleshooting, web-component, conceitos) |
+| Sprint 19: Examples | ✅ 90% | React customer-support, Spring Boot integration, READMEs |
+| Sprint 20: Launch | 🟡 72% | CHANGELOG.md, release.yml, SECURITY.md, version 1.0.0, monitoring stack. Pendente: tag, publicação npm/Docker, anúncios |
+
 ---
 
-## 📦 Módulos Previstos
+## 📦 Módulos — Status Real
 
 ```
 archflow/
-├── archflow-core/                    # Core engine
-├── archflow-model/                   # Domain models
-├── archflow-agent/                   # Agent execution
-├── archflow-plugin-api/              # Plugin SPI
-├── archflow-langchain4j/             # LangChain4j 1.10.0 integration ✅
-│   ├── archflow-langchain4j-core/    ✅
-│   ├── archflow-langchain4j-openai/  ✅
-│   ├── archflow-langchain4j-anthropic/ ✅
-│   ├── archflow-langchain4j-mcp/      # PRÓXIMO
-│   ├── archflow-langchain4j-streaming/ # PRÓXIMO
-│   └── archflow-langchain4j-spring-ai/ # FUTURO
-├── archflow-server/                  # Spring Boot 3 server
-│   ├── archflow-api/
-│   ├── archflow-mcp/
-│   ├── archflow-streaming/
-│   ├── archflow-observability/
-│   └── archflow-security/
-├── archflow-ui/                      # Web Component distribution
-│   ├── archflow-component/
-│   ├── archflow-designer/
-│   ├── archflow-chat/
-│   └── archflow-admin/
-├── archflow-templates/               # Workflow templates
-└── archflow-enterprise/              # Optional enterprise module
+├── archflow-model/                    ✅ Domain models + testes
+├── archflow-core/                     ✅ Flow Engine, Execution, Validation + testes
+├── archflow-api/                      ✅ REST controllers (Auth, ApiKey) + testes
+├── archflow-agent/                    ✅ ArchFlowAgent, Tool Interceptors, Deterministic mode
+├── archflow-security/                 ✅ JWT, RBAC, ApiKey, CORS, Permissions
+├── archflow-plugin-api/               ✅ Plugin SPI, Catalog + testes
+├── archflow-plugin-loader/            ✅ Dynamic classloader, lifecycle + testes
+├── archflow-plugins/                  ✅ 3 plugins referência (Tool, Assistant, Agent) + testes
+├── archflow-langchain4j/              ✅ 13 submodules
+│   ├── archflow-langchain4j-core/     ✅ Base adapter interfaces (SPI)
+│   ├── archflow-langchain4j-openai/   ✅ + testes
+│   ├── archflow-langchain4j-anthropic/ ✅ + testes
+│   ├── archflow-langchain4j-mcp/      ✅ MCP registry + testes (27)
+│   ├── archflow-langchain4j-streaming/ ✅ SSE streaming
+│   ├── archflow-langchain4j-provider-hub/ ✅ Multi-LLM Hub (15+ providers)
+│   └── archflow-langchain4j-memory-*/ ✅ Redis, JDBC backends
+├── archflow-observability/            ✅ OpenTelemetry, Micrometer, Audit + testes
+├── archflow-conversation/             ✅ Suspend/Resume, Forms, SSE + testes
+├── archflow-performance/              ✅ Caffeine, Pools, Parallel + testes
+├── archflow-templates/                ✅ Registry + 4 built-in templates + testes
+├── archflow-marketplace/              ✅ ExtensionManifest, Installer, Registry, Validators + testes
+├── archflow-workflow-tool/            ✅ WorkflowTool, Registry, LangChain4j Adapter + testes
+├── archflow-ui/                       ✅ React 19 + Web Component + App shell
+├── .github/workflows/ci.yml          ✅ CI/CD (backend + frontend)
+├── Dockerfile                         ✅ Multi-stage build
+└── docker-compose.yml                 ✅ PostgreSQL + Redis
 ```
 
 ---
@@ -104,15 +124,44 @@ archflow/
 
 | Fase | Documento Detalhado | Status |
 |------|---------------------|--------|
-| [FASE 1: Foundation](./fase-1-tarefas.md) | [Ver documento](./fase-1-tarefas.md) | 🟢 Sprint 1 DONE |
-| [FASE 2: Visual Experience](./fase-2-tarefas.md) | [Ver documento](./fase-2-tarefas.md) | 🔴 TODO |
-| [FASE 3: Enterprise Capabilities](./fase-3-tarefas.md) | [Ver documento](./fase-3-tarefas.md) | 🔴 TODO |
-| [FASE 4: Ecosystem](./fase-4-tarefas.md) | [Ver documento](./fase-4-tarefas.md) | 🔴 TODO |
-| [FASE 5: Polish & Launch](./fase-5-tarefas.md) | [Ver documento](./fase-5-tarefas.md) | 🔴 TODO |
+| [FASE 1: Foundation](./fase-1-tarefas.md) | [Ver documento](./fase-1-tarefas.md) | ✅ DONE (97%) |
+| [FASE 2: Visual Experience](./fase-2-tarefas.md) | [Ver documento](./fase-2-tarefas.md) | ✅ DONE (100%) |
+| [FASE 3: Enterprise Capabilities](./fase-3-tarefas.md) | [Ver documento](./fase-3-tarefas.md) | ✅ DONE (100%) |
+| [FASE 4: Ecosystem](./fase-4-tarefas.md) | [Ver documento](./fase-4-tarefas.md) | ✅ DONE (100%) |
+| [FASE 5: Polish & Launch](./fase-5-tarefas.md) | [Ver documento](./fase-5-tarefas.md) | 🟡 IN_PROGRESS (~87%) |
 
 ---
 
 ## 📝 Log de Mudanças
+
+### 2026-03-12 - Sprint 20 Launch Tasks ✅
+- ✅ **F5-06:** SpringCacheConfig + CachingTemplateRegistry + CachingApiKeyService + testes (6 arquivos)
+- ✅ **F5-39/40:** Security audit — .gitignore atualizado, SECURITY.md criado, docker-compose.yml com warning
+- ✅ **F5-41:** Versão atualizada para 1.0.0 em 35 pom.xml files
+- ✅ **F5-54:** Monitoring stack — application-prod.yml, ArchflowHealthIndicator, docker-compose.monitoring.yml, Prometheus + Grafana config
+- **Total sessão:** ~20 arquivos criados/editados, ~30 testes adicionados
+
+### 2026-03-12 - Fases 4-5 Completadas (Blocos 1-8) ✅
+- ✅ **Block 1:** TemplateMetadata + TemplateController + DTOs + testes (6 arquivos)
+- ✅ **Block 2:** ConversationMessage + ConversationService + Controller + DTOs + testes (9 arquivos)
+- ✅ **Block 3:** ExtensionSignatureValidator + PermissionValidator + DependencyResolver + MarketplaceController + testes (10 arquivos)
+- ✅ **Block 4:** LangChain4jToolAdapter + WorkflowToolSpecificationFactory + LangChain4jToolExecutor + testes (5 arquivos)
+- ✅ **Block 5:** ChatPanel + ChatMessage + FormRenderer + conversation-api (4 arquivos frontend)
+- ✅ **Block 6:** RedisCacheManager + TwoLevelCache + EmbeddingCache + LlmCache + PerformanceBenchmarker + testes (9 arquivos)
+- ✅ **Block 7:** 7 docs Docusaurus (building-workflows, custom-tools, deploy-docker, security-rbac, troubleshooting, web-component, conceitos) + sidebars
+- ✅ **Block 8:** 2 exemplos (React customer-support, Spring Boot integration) + CHANGELOG.md + release.yml
+- **Total sessão:** ~60 arquivos criados, ~86 testes adicionados
+
+### 2026-03-12 - Auditoria Codebase COMPLETA ✅
+- ✅ **PLANO-ACAO-AUDITORIA.md** — 7 blocos executados e concluídos
+- ✅ **BLOCO 1:** Housekeeping (CLAUDE.md, STATUS-PROJETO.md, deps frontend, docs)
+- ✅ **BLOCO 2:** ~540+ testes criados em 13 módulos (model, core, api, plugin-api, plugin-loader, langchain4j-anthropic, langchain4j-mcp, plugins×3, observability, conversation, performance, templates)
+- ✅ **BLOCO 3:** CI/CD — GitHub Actions (build+frontend jobs), Dockerfile multi-stage, docker-compose.yml
+- ✅ **BLOCO 4:** 3 plugins de referência — TextTransformTool, TechSupportAssistant, ResearchAgent (52 tests)
+- ✅ **BLOCO 5:** Frontend MVP — routing, 4 pages, 3 Zustand stores, auth, NodePalette, PropertyEditor
+- ✅ **BLOCO 6:** Testes para módulos skeleton (~225 tests em observability, conversation, performance, templates)
+- ✅ **BLOCO 7:** Documentação técnica — quickstart-dev.md, rest-endpoints.md, plugin-development.md
+- ⚠️ **Pendente:** Testes frontend (Vitest), validação completa com `mvn clean install`
 
 ### 2025-01-16 - Sprint 1 COMPLETO ✅
 - ✅ **Sprint 1: Upgrade LangChain4j 1.0.0-beta1 → 1.10.0** - TODAS AS 10 TAREFAS COMPLETAS
@@ -147,43 +196,22 @@ archflow/
 
 ## 🎯 Sequência de Próximos Passos
 
-### Sprint 2: Tool Interceptor + toolCallId (PRÓXIMO)
+> Sprints 2-12 já concluídos (Fases 1-3). Próximo trabalho: completar Fase 4 e iniciar Fase 5.
 
-| Ordem | Tarefa | ID | Estimativa |
-|-------|--------|-----|------------|
-| 1 | Criar interface ToolInterceptor com before/after/onError | F1-11 | 2h |
-| 2 | Implementar ToolInterceptorChain com ordem de execução | F1-12 | 3h |
-| 3 | Criar LoggingInterceptor | F1-13 | 2h |
-| 4 | Implementar ExecutionId com hierarquia parent-child | F1-17 | 3h |
-| 5 | Criar CachingInterceptor com TTL configurável | F1-14 | 4h |
-| 6 | Implementar ExecutionTracker para rastreamento | F1-18 | 4h |
-| 7 | Criar MetricsInterceptor com Micrometer | F1-15 | 3h |
-| 8 | Criar GuardrailsInterceptor para validação | F1-16 | 4h |
-| 9 | Integrar toolCallId com ToolExecutor | F1-19 | 3h |
+### Próximos passos para v1.0.0
 
-**Subtotal Sprint 2:** 28 horas (~1 semana)
+Apenas tarefas de **publicação e marketing** restam:
 
-### Sprint 3: Streaming Protocol
-
-| Ordem | Tarefa | ID | Estimativa |
-|-------|--------|-----|------------|
-| 1 | Definir spec ArchflowEvent (domains, types, envelope) | F1-20 | 3h |
-| 2 | Criar classes de modelo do Streaming Protocol | F1-21 | 4h |
-| 3 | Implementar StreamingController com SSE | F1-22 | 4h |
-| 4 | Implementar domain "chat" para mensagens do modelo | F1-23 | 3h |
-| 5 | Implementar domain "tool" para execução de tools | F1-25 | 3h |
-| 6 | Criar ChatPanel básico para teste de streaming | F1-27 | 6h |
-| 7 | Testar streaming com múltiplos subscribers | F1-28 | 3h |
-
-### Sprint 4: MCP Integration
-
-| Ordem | Tarefa | ID | Estimativa |
-|-------|--------|-----|------------|
-| 1 | Estudar especificação MCP v1.0 | F1-29 | 4h |
-| 2 | Criar interfaces MCP Server (resources, tools, prompts) | F1-30 | 4h |
-| 3 | Implementar MCPServer com STDIO transport | F1-31 | 4h |
-| 4 | Implementar MCPClient para chamar servidores externos | F1-32 | 4h |
-| 5 | Criar ToolRegistry para descoberta de tools MCP | F1-33 | 3h |
+| Tarefa | Sprint | Estimativa |
+|--------|--------|------------|
+| Rodar test suite completo (coverage > 80%) | Sprint 20 | 3h |
+| Audit de segurança (dependency scan) | Sprint 20 | 2h |
+| Atualizar versão para 1.0.0 no pom.xml | Sprint 20 | 1h |
+| Criar tag git v1.0.0 | Sprint 20 | 0.5h |
+| Build e publicar Docker images | Sprint 20 | 2h |
+| Publicar npm @archflow/component 1.0.0 | Sprint 20 | 1h |
+| Criar GitHub Release com assets | Sprint 20 | 1h |
+| Exemplos Vue e Angular (opcional) | Sprint 19 | 8h |
 
 ---
 

@@ -14,13 +14,13 @@
 
     <groupId>br.com.archflow.examples</groupId>
     <artifactId>archflow-spring-boot-example</artifactId>
-    <version>1.0.0-SNAPSHOT</version>
+    <version>1.0.0</version>
     <name>archflow Spring Boot Example</name>
     <description>Exemplo de integração archflow com Spring Boot</description>
 
     <properties>
         <java.version>17</java.version>
-        <archflow.version>1.0.0-SNAPSHOT</archflow.version>
+        <archflow.version>1.0.0</archflow.version>
     </properties>
 
     <dependencies>
