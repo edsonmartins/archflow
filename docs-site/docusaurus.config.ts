@@ -5,10 +5,10 @@ const config: Config = {
   tagline: 'Visual AI Builder para Java',
   favicon: 'img/favicon.ico',
 
-  url: 'https://archflow.dev',
-  baseUrl: '/',
+  url: 'https://edsonmartins.github.io',
+  baseUrl: '/archflow/',
 
-  organizationName: 'archflow',
+  organizationName: 'edsonmartins',
   projectName: 'archflow',
 
   onBrokenLinks: 'throw',

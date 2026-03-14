@@ -45,7 +45,7 @@
 | F5-24 | Escrever guia de segurança e RBAC | 3h | 🟡 MÉDIA | ✅ DONE | 2026-03-12 |
 | F5-25 | Criar guia de troubleshooting | 2h | 🟢 BAIXA | ✅ DONE | 2026-03-12 |
 | F5-26 | Configurar MkDocs/VitePress para doc site | 3h | 🟡 MÉDIA | ✅ DONE | 2026-03-12 |
-| F5-27 | Publicar documentação em archflow.org/docs | 2h | 🟡 MÉDIA | TODO | - |
+| F5-27 | Publicar documentação em archflow.org/docs | 2h | 🟡 MÉDIA | ✅ DONE | 2026-03-14 |
 
 **Subtotal:** 51 horas (~1 semana)
 
@@ -78,15 +78,15 @@
 | F5-39 | Audit de segurança (dependencies scan) | 2h | 🔴 ALTA | ✅ DONE | 2026-03-12 |
 | F5-40 | Remover segredos e sensitive data | 1h | 🔴 ALTA | ✅ DONE | 2026-03-12 |
 | F5-41 | Atualizar versão para 1.0.0 no pom.xml | 1h | 🔴 ALTA | ✅ DONE | 2026-03-12 |
-| F5-42 | Criar tag git v1.0.0 | 0.5h | 🔴 ALTA | TODO | - |
+| F5-42 | Criar tag git v1.0.0 | 0.5h | 🔴 ALTA | ✅ DONE | 2026-03-14 |
 | F5-43 | Escrever release notes v1.0.0 | 2h | 🔴 ALTA | ✅ DONE | 2026-03-12 |
 | F5-44 | Criar GitHub Release com assets | 1h | 🔴 ALTA | TODO | - |
 | F5-45 | Build e publicar Docker images | 2h | 🔴 ALTA | TODO | - |
 | F5-46 | Publicar pacote npm @archflow/component 1.0.0 | 1h | 🔴 ALTA | TODO | - |
 | F5-47 | Atualizar website homepage | 3h | 🔴 ALTA | TODO | - |
-| F5-48 | Escrever blog post de lançamento | 3h | 🟡 MÉDIA | TODO | - |
-| F5-49 | Criar post LinkedIn | 1h | 🟡 MÉDIA | TODO | - |
-| F5-50 | Criar thread Twitter/X | 1h | 🟡 MÉDIA | TODO | - |
+| F5-48 | Escrever blog post de lançamento | 3h | 🟡 MÉDIA | ✅ DONE | 2026-03-14 |
+| F5-49 | Criar post LinkedIn | 1h | 🟡 MÉDIA | ✅ DONE | 2026-03-14 |
+| F5-50 | Criar thread Twitter/X | 1h | 🟡 MÉDIA | ✅ DONE | 2026-03-14 |
 | F5-51 | Criar vídeo demo (5 min) | 4h | 🟡 MÉDIA | TODO | - |
 | F5-52 | Enviar email para lista de discussão | 1h | 🟢 BAIXA | TODO | - |
 | F5-53 | Anunciar em comunidades Java (Reddit, Discord) | 1h | 🟡 MÉDIA | TODO | - |
@@ -105,10 +105,10 @@
 | **Total de Horas** | ~220 horas |
 | **Sprints** | 4 |
 | **Duração Estimada** | 2-4 semanas |
-| **Concluídas** | 48 ✅ |
+| **Concluídas** | 52 ✅ |
 | **Em Progresso** | 0 |
-| **Pendentes** | 7 |
-| **Progresso** | ~87% |
+| **Pendentes** | 3 |
+| **Progresso** | ~95% |
 
 ---
 
