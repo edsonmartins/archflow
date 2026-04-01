@@ -128,7 +128,7 @@ class ResearchAgentTest {
         @Test
         @DisplayName("should decide to gather data when no data available")
         void shouldGatherData() {
-            when(context.getVariable("research_data")).thenReturn(null);
+            when(context.get("research_data")).thenReturn(java.util.Optional.empty());
 
             Decision decision = agent.makeDecision(context);
 
@@ -140,7 +140,7 @@ class ResearchAgentTest {
         @Test
         @DisplayName("should decide to analyze when data available")
         void shouldAnalyze() {
-            when(context.getVariable("research_data")).thenReturn("some data");
+            when(context.get("research_data")).thenReturn(java.util.Optional.of("some data"));
 
             Decision decision = agent.makeDecision(context);
 

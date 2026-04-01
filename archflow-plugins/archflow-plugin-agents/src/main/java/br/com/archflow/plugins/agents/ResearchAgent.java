@@ -100,7 +100,7 @@ public class ResearchAgent implements AIAgent, ComponentPlugin {
     @Override
     public Decision makeDecision(ExecutionContext context) {
         // Analyze context to determine next action
-        boolean hasData = context != null && context.getVariable("research_data") != null;
+        boolean hasData = context != null && context.get("research_data").isPresent();
 
         if (hasData) {
             return new Decision(

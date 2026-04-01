@@ -4,12 +4,12 @@
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Java Version](https://img.shields.io/badge/java-%3E%3D17-orange)](https://adoptium.net/)
-[![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.x-green)](https://spring.io/projects/spring-boot)
+[![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.3.0-green)](https://spring.io/projects/spring-boot)
 [![LangChain4j](https://img.shields.io/badge/LangChain4j-1.10.0-brightgreen)](https://github.com/langchain4j/langchain4j)
 
-**Primeira Plataforma Visual Java-Nativa para IA**
+**Visual Java-Native Platform for AI Agent Workflows**
 
-O LangFlow para o mundo Java — Visual AI Builder com Web Component UI
+Build, visualize, and orchestrate AI agent workflows with a drag-and-drop designer and enterprise-grade Java backend.
 
 </div>
 
@@ -21,104 +21,63 @@ O LangFlow para o mundo Java — Visual AI Builder com Web Component UI
 
 <div align="center">
 
-[Features](#-por-que-archflow) • [Quickstart](#-início-rápido) • [Documentação](docs-site/) • [Examples](examples/)
+[Features](#features) | [Quickstart](#quickstart) | [Agent Patterns](#agent-patterns) | [Documentation](#documentation) | [Examples](examples/)
 
 </div>
 
 ---
 
-## ✨ Por que archflow?
+## Features
 
-### O Problema
+### Visual Workflow Designer
 
-**78% dos CIOs** citam compliance como barreira para adotar IA.
-Empresas Java enfrentam um dilema hoje:
+- **Web Component**: `<archflow-designer>` works in React, Vue, Angular, Svelte, or vanilla HTML
+- **Drag-and-drop**: Design AI workflows visually with 15+ node types
+- **Framework-agnostic**: Zero frontend lock-in via standard Web Components
+- **npm distribution**: `npm install @archflow/component`
 
-| Opção | Vantagem | Desvantagem |
-|-------|----------|--------------|
-| **LangFlow / n8n / Dify** | Visual, fácil de usar | ❌ Python/Node.js → não integra com stack Java |
-| **Spring AI / LangChain4j** | Java-nativo | ❌ Apenas código → requer especialistas AI |
-| **Camunda 8** | Java, enterprise | ❌ BPMN tradicional → não AI-native |
+### Java-Native AI Engine
 
-### A Solução
+- **LangChain4j 1.10.0**: 15+ LLM providers (OpenAI, Anthropic, Google, Mistral, Ollama, and more)
+- **MCP Protocol**: Model Context Protocol for standardized tool integration
+- **Spring Boot 3.3**: Native integration with the Spring ecosystem
+- **Suspend/Resume**: Conversational workflows with dynamic forms and human-in-the-loop
 
-**archflow** é a primeira plataforma visual Java-Nativa para construção de workflows de IA:
+### Agent Patterns
 
-<div align="center">
+archflow implements the industry-standard agent patterns validated by Anthropic, OpenAI, and Google:
 
-```html
-<!-- Funciona em QUALQUER framework -->
-<archflow-designer
-  workflow-id="customer-support-flow"
-  api-base="https://api.archflow.com"
-  theme="dark">
-</archflow-designer>
-```
+| Pattern | Description | Use Case |
+|---------|-------------|----------|
+| **ReAct** | Thought-Action-Observation loop | General tool use, the default agentic pattern |
+| **Plan-and-Execute** | Planner + Executor + Replanner | Multi-step tasks with cost efficiency |
+| **ReWOO** | Plan all tool calls upfront with placeholders | Batch processing, predictable workflows |
+| **Routing** | Semantic + LLM-based query routing | Multi-domain dispatch (customer support) |
+| **Supervisor/Worker** | Orchestrator delegates to specialized agents | Multi-agent coordination |
+| **Reflexion** | Self-critique with reflection memory | Tasks with clear success/failure signal |
+| **CoT-SC** | Multi-path sampling with majority voting | High-accuracy reasoning |
 
-</div>
+### Agent Types
 
-### 🎯 Diferenciais Únicos
+| Agent | Description |
+|-------|-------------|
+| **ConversationalAgent** | Customer service with intent classification, escalation policy, episodic memory |
+| **ResearchAgent** | Multi-step research with task decomposition and action planning |
+| **DataAnalysisAgent** | Text-to-SQL, schema introspection, statistical analysis |
+| **MonitoringAgent** | Continuous metric collection, anomaly detection, alert dispatch |
+| **OrchestratorAgent** | Supervisor template with worker coordination and quality checking |
 
-| Feature | archflow | Python Solutions | Java Frameworks |
-|---------|----------|-------------------|-----------------|
-| **Backend Java** | ✅ | ❌ | ✅ |
-| **Visual Builder** | ✅ | ✅ | ❌ |
-| **Web Component UI** | ✅ **ÚNICO** | ❌ | ❌ |
-| **Zero Frontend Lock-in** | ✅ | ❌ | ❌ |
-| **MCP Native** | ✅ | ⚠️ | ❌ |
-| **Enterprise Features** | ✅ | ⚠️ | ✅ |
-| **Spring Integration** | ✅ | ❌ | ✅ |
+### Enterprise Ready
 
-<div align="center">
-
-![Infográfico archflow](images/infografico.png)
-
-</div>
-
----
-
-## 🚀 Features
-
-### 🎨 Web Component Designer
-
-- **Zero lock-in**: Funciona em React, Vue, Angular, Svelte, vanilla
-- **Drag-and-drop**: Crie workflows AI visualmente
-- **15+ nodes nativos**: LLM, Tools, Vector Search, Conditions, Parallel, etc.
-- **Distribuição via npm**: `npm install @archflow/component`
-
-### 🤖 Java-Nativo AI Engine
-
-- **LangChain4j 1.10.0**: Framework de IA mais moderno do ecossistema Java
-- **Spring Boot 3.x**: Integração nativa com o ecossistema Spring
-- **15+ LLM Providers**: OpenAI, Anthropic, Azure, AWS, Google, DeepSeek, e mais
-- **MCP Protocol**: Interoperabilidade com o ecossistema de AI tools
-
-### 🏢 Enterprise from Day One
-
-- **RBAC**: Controle de acesso baseado em roles
-- **Audit Logging**: Rastreabilidade completa de execuções
-- **Observabilidade**: Metrics (Prometheus), Tracing (OpenTelemetry), Logging
-- **API Keys**: Autenticação programática
-- **Suspend/Resume**: Conversações interativas multi-step
+- **JWT + RBAC**: 4 built-in roles (Admin, Designer, Executor, Viewer)
+- **Observability**: OpenTelemetry tracing, Prometheus metrics, audit logging
+- **Two-Level Caching**: Caffeine (L1) + Redis (L2) for LLM responses and embeddings
+- **Plugin Architecture**: Dynamic plugin loading with SPI discovery and marketplace
+- **Production Monitoring**: Prometheus + Grafana + Jaeger stack included
 
 ---
 
-## 📐 Arquitetura
-
-![Arquitetura archflow 2.0](docs/images/architecture.svg)
-
----
-
-## 🚀 Início Rápido
-
-### Requisitos
-
-- Java 17+
-- Maven 3.9+
-- React 19+ (para UI)
-- Docker (opcional, para containers)
-
-> **React 19 + Web Components**: archflow usa Web Components que funcionam nativamente com React 19 (lançado Dez/2024). Zero conversão necessária!
+## Quickstart
 
 ### Spring Boot Starter
 
@@ -130,14 +89,15 @@ Empresas Java enfrentam um dilema hoje:
 </dependency>
 ```
 
-### Docker
+### Docker Compose
 
 ```bash
-docker run -d \
-  -p 8080:8080 \
-  -e ARCHFLOW_API_KEY=your-key-here \
-  archflow/server:1.0.0
+git clone https://github.com/edsonmartins/archflow.git
+cd archflow
+docker compose up -d
 ```
+
+This starts the archflow server, PostgreSQL (with pgvector), and Redis.
 
 ### Web Component
 
@@ -151,158 +111,143 @@ npm install @archflow/component
   api-base="http://localhost:8080/api"
   theme="dark">
 </archflow-designer>
-
-<script>
-  const designer = document.querySelector('archflow-designer');
-  designer.addEventListener('workflow-saved', (e) => {
-    console.log('Workflow saved:', e.detail);
-  });
-</script>
 ```
 
 ---
 
-## 📦 Módulos
+## Architecture
+
+![Architecture](docs/images/architecture.svg)
 
 ```
 archflow/
-├── archflow-core/                    # Core engine
-├── archflow-model/                   # Domain models (Workflow interface)
-├── archflow-agent/                   # Agent execution
-├── archflow-plugin-api/              # Plugin SPI
-├── archflow-plugin-loader/           # Plugin loading system
-├── archflow-langchain4j/             # LangChain4j 1.10.0 integration
-│   ├── archflow-langchain4j-core/    # Base interfaces
-│   ├── archflow-langchain4j-openai/  # OpenAI + GPT-4.1, o1
-│   ├── archflow-langchain4j-anthropic/# Claude 3.5/3.7 Sonnet
-│   ├── archflow-langchain4j-mcp/     # MCP Protocol
-│   ├── archflow-langchain4j-streaming/ # Streaming support
-│   ├── archflow-langchain4j-provider-hub/ # Multi-LLM Hub
-│   └── archflow-langchain4j-chain-rag/ # RAG Chain
-├── archflow-templates/               # ✅ Workflow templates
-├── archflow-conversation/            # ✅ Suspend/Resume conversations
-├── archflow-marketplace/             # ✅ Extension marketplace
-├── archflow-workflow-tool/           # ✅ Workflow-as-Tool pattern
-├── archflow-security/                # ✅ RBAC, SSO
-├── archflow-observability/           # ✅ Metrics, tracing, audit
-├── archflow-performance/             # ✅ Caching, pooling, parallel execution
-├── archflow-server/                  # ✅ Spring Boot 3 server
-│   ├── archflow-api/                 # ✅ REST/WebSocket APIs
-│   ├── archflow-mcp/                 # ✅ MCP Server implementation
-│   └── archflow-streaming/           # ✅ SSE/WebSocket streaming
-├── archflow-ui/                      # ✅ Web Component distribution
-│   └── archflow-component/           # ✅ <archflow-designer>
-└── archflow-enterprise/              # Optional enterprise module
+├── archflow-model/                     # Domain models
+├── archflow-core/                      # Flow engine, validation, execution
+├── archflow-agent/                     # Agent patterns (ReAct, Plan-and-Execute, ReWOO, CoT-SC)
+│   ├── pattern/                        # ReactAgentExecutor, PlanAndExecuteAgent, ReWOOExecutor
+│   ├── handoff/                        # AgentHandoff, AgentHandoffManager
+│   └── routing/                        # SemanticRouter (embedding + LLM hybrid)
+├── archflow-langchain4j/               # LangChain4j 1.10.0 integration
+│   ├── archflow-langchain4j-openai/    # OpenAI adapter
+│   ├── archflow-langchain4j-anthropic/ # Anthropic adapter
+│   ├── archflow-langchain4j-mcp/       # MCP Protocol client
+│   ├── archflow-langchain4j-streaming/ # SSE streaming
+│   └── archflow-langchain4j-provider-hub/ # Multi-LLM Hub (15+ providers)
+├── archflow-conversation/              # Suspend/resume, episodic memory, forms
+├── archflow-security/                  # JWT, RBAC, API keys, CORS
+├── archflow-observability/             # OpenTelemetry, Micrometer, audit logging
+├── archflow-performance/               # Two-level caching, connection pooling
+├── archflow-templates/                 # Workflow templates (Customer Support, etc.)
+├── archflow-marketplace/               # Extension marketplace with signature verification
+├── archflow-plugins/                   # Built-in agents (Conversational, Research, etc.)
+├── archflow-api/                       # REST controllers
+├── archflow-ui/                        # React 19 + Web Component designer
+├── docs-site/                          # Docusaurus documentation
+└── examples/                           # Spring Boot and React examples
 ```
 
-✅ = Implementado na v1.0.0
+---
+
+## Agent Patterns
+
+### ReAct (Reason + Act)
+
+```java
+ReactAgentExecutor executor = ReactAgentExecutor.builder()
+    .reasoningFunction(ctx -> thinkAboutNextStep(ctx))
+    .toolExecutor(action -> executeTool(action))
+    .maxIterations(10)
+    .timeout(Duration.ofSeconds(30))
+    .build();
+
+ReactResult result = executor.execute("What is the weather in Sao Paulo?");
+```
+
+### Semantic Router
+
+```java
+SemanticRouter router = SemanticRouter.builder()
+    .embeddingFunction(text -> embedModel.embed(text))
+    .addRoute("billing", "Payment, invoice, charges")
+    .addRoute("technical", "Bug, error, crash")
+    .confidenceThreshold(0.7)
+    .strategy(RoutingStrategy.HYBRID) // semantic + LLM fallback
+    .build();
+
+RoutingResult result = router.route("My payment failed");
+// result.getRouteName() => "billing"
+```
+
+### Agent Handoff
+
+```java
+AgentHandoffManager manager = new AgentHandoffManager();
+manager.registerAgent("billing", "Billing Agent", Set.of("payments", "invoices"));
+manager.registerAgent("support", "Tech Support", Set.of("bugs", "errors"));
+
+AgentHandoff handoff = AgentHandoff.peer("support", "billing",
+    Map.of("customerId", "12345"), "Customer needs billing help");
+manager.executeHandoff(handoff);
+```
 
 ---
 
-## 🗺️ Roadmap
+## Documentation
 
-### v1.0.0 (Current Development)
+Full documentation available at [edsonmartins.github.io/archflow](https://edsonmartins.github.io/archflow/) and in the [docs-site/](docs-site/) directory.
 
-| Fase | Sprint | Descrição | Status |
-|------|--------|-----------|--------|
-| **Fase 1** | 1-4 | Foundation - LangChain4j 1.10.0, Streaming, MCP | ✅ COMPLETO |
-| **Fase 2** | 5-8 | Visual Experience - Web Component Designer | ✅ COMPLETO |
-| **Fase 3** | 9-12 | Enterprise Capabilities - RBAC, Observability | ✅ COMPLETO |
-| **Fase 4** | 13-16 | Ecosystem - Templates, Marketplace, Workflow-as-Tool | ✅ COMPLETO |
-| **Fase 5** | 17-20 | Polish & Launch - Performance, Docs, Examples | ✅ COMPLETO |
+- [Concepts](docs-site/docs/conceitos/) - Architecture, workflows, agents, tools
+- [Building Workflows](docs-site/docs/guias/building-workflows.md) - Step-by-step guide
+- [Custom Tools](docs-site/docs/guias/custom-tools.md) - Creating and registering tools
+- [Deploy with Docker](docs-site/docs/guias/deploy-docker.md) - Docker and Kubernetes
+- [Security & RBAC](docs-site/docs/guias/security-rbac.md) - Authentication and authorization
+- [REST API](docs-site/docs/api/rest-endpoints.md) - API reference
+- [Web Component](docs-site/docs/api/web-component.md) - `<archflow-designer>` API
+- [Troubleshooting](docs-site/docs/guias/troubleshooting.md) - Common issues and fixes
 
-**Progresso Atual:** 100% COMPLETO 🎉
+## Examples
 
-**Fase 4: Ecosystem ✅**
-- ✅ Sprint 13: Workflow Templates (Customer Support, Document Processing, Knowledge Base, Agent Supervisor)
-- ✅ Sprint 14: Suspend/Resume Conversations (Form rendering, SuspendedConversation state)
-- ✅ Sprint 15: Extension Marketplace (ExtensionManifest, signature verification, RBAC)
-- ✅ Sprint 16: Workflow-as-Tool Pattern (WorkflowTool, registry, composition)
-
-**Conquistado Recentemente:**
-- ✅ 4 Workflow Templates prontos para uso
-- ✅ Sistema de Suspend/Resume com ArchflowEvent protocol
-- ✅ FormData com validação e múltiplos tipos de campo
-- ✅ Extension Marketplace com verificação de assinatura
-- ✅ Workflow-as-Tool para composição de workflows
-
-**Fase 5: Polish & Launch ✅**
-- ✅ Sprint 17: Performance (Caffeine caching, connection pooling, virtual threads)
-- ✅ Sprint 18: DX & Docs (Docusaurus site, API reference, guides)
-- ✅ Sprint 19: Examples (Spring Boot, React, Vue demos)
-- ✅ Sprint 20: Launch 1.0.0 (Release notes, changelog)
-- ✅ Web Component `<archflow-designer>` framework-agnostic
-- ✅ Integração React e Vue funcionando
-- ✅ Sistema de execução com SSE streaming
-- ✅ Multi-LLM Provider Hub (15+ providers)
-- ✅ Tool Interceptor Chain (caching, logging, metrics, guardrails)
-- ✅ toolCallId Tracking System
-- ✅ Func-Agent Mode (execução determinística)
-
-[Ver roadmap detalhado](docs/roadmap/STATUS-PROJETO.md)
+| Example | Description | Directory |
+|---------|-------------|-----------|
+| **Spring Boot Integration** | Full Spring Boot app with workflow execution | [examples/spring-boot-integration/](examples/spring-boot-integration/) |
+| **React Customer Support** | React app with chat UI and workflow designer | [examples/react-customer-support/](examples/react-customer-support/) |
 
 ---
 
-## 📚 Documentação
+## Technology Stack
 
-Documentação completa disponível em [docs-site/](docs-site/)
-
-- [Introdução](docs-site/docs/intro) - Bem-vindo ao archflow
-- [Instalação](docs-site/docs/instalacao) - Como configurar
-- [Conceitos](docs-site/docs/conceitos/) - Arquitetura, Workflows, Agentes, Tools
-- [Guias](docs-site/docs/guias/) - Primeiro workflow, Agente AI, RAG, Multi-agente
-- [API Reference](docs-site/docs/api/) - Core, Agent, LangChain4j, Streaming
-- [Integrações](docs-site/docs/integracoes/) - Spring Boot, MCP, Observabilidade
-
-## 🎓 Exemplos
-
-Exemplos completos disponíveis em [examples/](examples/)
-
-- [Spring Boot Example](examples/spring-boot/) - Aplicação completa Spring Boot
-- [React Example](examples/react/) - Integração com React
-- [Vue Example](examples/vue/) - Integração com Vue 3
+| Layer | Technology |
+|-------|-----------|
+| **Backend** | Java 17+, Spring Boot 3.3.0, Apache Camel 4.3.0 |
+| **AI** | LangChain4j 1.10.0, MCP Protocol |
+| **Frontend** | React 19, TypeScript, Mantine UI, React Flow |
+| **Databases** | PostgreSQL with pgvector, Redis |
+| **Observability** | OpenTelemetry, Micrometer, Prometheus, Grafana, Jaeger |
+| **Build** | Maven 3.8+, Node.js 18+, Docker |
 
 ---
 
-## 🤝 Contribuindo
+## Contributing
 
-Contribuições são bem-vindas! Por favor:
+Contributions are welcome! Please:
 
-1. Leia nosso [Guia de Contribuição](CONTRIBUTING.md)
-2. Verifique [Issues abertas](https://github.com/archflow/archflow/issues)
-3. Join nosso [Discord](https://discord.gg/archflow)
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feat/my-feature`)
+3. Commit with [Conventional Commits](https://www.conventionalcommits.org/) (`feat:`, `fix:`, `docs:`)
+4. Open a Pull Request
 
----
-
-## 💬 Comunidade
-
-- [Discord](https://discord.gg/archflow) - Chat em tempo real
-- [GitHub Discussions](https://github.com/archflow/archflow/discussions) - Discussões técnicas
-- [Twitter/X](https://twitter.com/archflow_dev) - Novidades e atualizações
+See [SECURITY.md](SECURITY.md) for reporting vulnerabilities.
 
 ---
 
-## 📄 Licença
+## License
 
 [Apache License 2.0](LICENSE)
 
 ---
 
-## 🙏 Agradecimentos
-
-- [LangChain4j](https://github.com/langchain4j/langchain4j) - Framework de IA para Java
-- [Spring AI](https://github.com/spring-projects/spring-ai) - Integração Spring com AI
-- [Anthropic](https://www.anthropic.com) - Claude models
-- [OpenAI](https://openai.com) - GPT models
-
----
-
 <div align="center">
 
-**⭐️ Se você acredita que o mundo Java precisa de um visual AI builder próprio, dê uma estrela! ⭐️**
-
-[Comece Agora](docs/development/quickstart.md) • [Documentação](docs/readme.md) • [Discord](https://discord.gg/archflow)
-
-Made with ❤️ by the archflow community
+**Built with LangChain4j** | [GitHub](https://github.com/edsonmartins/archflow) | [Documentation](https://edsonmartins.github.io/archflow/)
 
 </div>
