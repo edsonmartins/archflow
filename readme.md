@@ -79,6 +79,25 @@ archflow implements the industry-standard agent patterns validated by Anthropic,
 - **Two-Level Caching**: Caffeine (L1) + Redis (L2) for LLM responses and embeddings
 - **Plugin Architecture**: Dynamic plugin loading with SPI discovery and marketplace
 
+### Standalone Export
+
+Design workflows visually, then export them as **self-contained JARs** that run anywhere — no server, no database, no cloud required.
+
+```
+Design (browser) → Export (JSON) → Package (JAR ~15 MB) → Deploy (any machine with Java 17)
+```
+
+```bash
+# Run a standalone workflow — only needs Java + LLM API key
+export ARCHFLOW_API_KEY=sk-xxx
+java -jar my-workflow.jar customer-support.json --input "Track order #123"
+```
+
+- **Zero infrastructure**: No Spring Boot, no PostgreSQL, no Redis
+- **~15 MB JAR**: Includes flow engine, agent patterns, and LangChain4j runtime
+- **CLI interface**: `--input`, `--var key=value`, `--timeout`, `--threads`, `--plugins`
+- **Environment config**: `ARCHFLOW_API_KEY`, `ARCHFLOW_MODEL`, `ARCHFLOW_PROVIDER`
+
 ---
 
 ## Quickstart
@@ -145,6 +164,7 @@ archflow/
 ├── archflow-performance/               # Two-level caching, connection pooling
 ├── archflow-templates/                 # Workflow templates (Customer Support, etc.)
 ├── archflow-marketplace/               # Extension marketplace with signature verification
+├── archflow-standalone/                 # Export workflows as standalone JARs (no server)
 ├── archflow-plugins/                   # Built-in agents (Conversational, Research, etc.)
 ├── archflow-api/                       # REST controllers
 ├── archflow-ui/                        # React 19 + Web Component designer
@@ -227,6 +247,20 @@ manager.registerAgent("support", "Tech Support", Set.of("bugs", "errors"));
 AgentHandoff handoff = AgentHandoff.peer("support", "billing",
     Map.of("customerId", "12345"), "Customer needs billing help");
 manager.executeHandoff(handoff);
+```
+
+### Standalone Export
+
+```java
+// Export any workflow to a standalone JSON file
+FlowSerializer serializer = new FlowSerializer();
+serializer.exportToFile(myFlow, Path.of("customer-support.json"));
+
+// Later, run it anywhere without archflow server
+StandaloneRunner runner = new StandaloneRunner();
+FlowResult result = runner.run(new CliArgs(
+    "customer-support.json", "Track my order #123",
+    Map.of("customerId", "C-456"), 300, 4, null));
 ```
 
 ---
