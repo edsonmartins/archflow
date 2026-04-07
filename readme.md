@@ -5,7 +5,7 @@
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Java Version](https://img.shields.io/badge/java-%3E%3D17-orange)](https://adoptium.net/)
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.3.0-green)](https://spring.io/projects/spring-boot)
-[![LangChain4j](https://img.shields.io/badge/LangChain4j-1.10.0-brightgreen)](https://github.com/langchain4j/langchain4j)
+[![LangChain4j](https://img.shields.io/badge/LangChain4j-1.12.2-brightgreen)](https://github.com/langchain4j/langchain4j)
 
 **Visual Java-Native Platform for AI Agent Workflows**
 
@@ -38,7 +38,7 @@ Build, visualize, and orchestrate AI agent workflows with a drag-and-drop design
 
 ### Java-Native AI Engine
 
-- **LangChain4j 1.10.0**: 15+ LLM providers (OpenAI, Anthropic, Google, Mistral, Ollama, and more)
+- **LangChain4j 1.12.2**: 15+ LLM providers (OpenAI, Anthropic, Google, Mistral, Ollama, and more)
 - **MCP Protocol**: Model Context Protocol for standardized tool integration
 - **Agent Skills**: Load, activate, and manage behavioral instruction bundles ([agentskills.io](https://agentskills.io) spec)
 - **Brain Sentry**: Long-term agent memory with automatic context injection, hybrid search, and PII protection
@@ -131,7 +131,7 @@ archflow/
 │   ├── pattern/                        # ReactAgentExecutor, PlanAndExecuteAgent, ReWOOExecutor
 │   ├── handoff/                        # AgentHandoff, AgentHandoffManager
 │   └── routing/                        # SemanticRouter (embedding + LLM hybrid)
-├── archflow-langchain4j/               # LangChain4j 1.10.0 integration
+├── archflow-langchain4j/               # LangChain4j 1.12.2 integration
 │   ├── archflow-langchain4j-openai/    # OpenAI adapter
 │   ├── archflow-langchain4j-anthropic/ # Anthropic adapter
 │   ├── archflow-langchain4j-mcp/       # MCP Protocol client
@@ -258,7 +258,7 @@ Full documentation available at [edsonmartins.github.io/archflow](https://edsonm
 | Layer | Technology |
 |-------|-----------|
 | **Backend** | Java 17+, Spring Boot 3.3.0, Apache Camel 4.3.0 |
-| **AI** | LangChain4j 1.10.0, MCP Protocol, Agent Skills, Brain Sentry |
+| **AI** | LangChain4j 1.12.2, MCP Protocol, Agent Skills, Brain Sentry |
 | **Frontend** | React 19, TypeScript, Mantine UI, React Flow |
 | **Databases** | PostgreSQL with pgvector, Redis |
 | **Observability** | OpenTelemetry, Micrometer, Prometheus, Grafana, Jaeger |

@@ -112,14 +112,14 @@ Test structure follows Arrange-Act-Assert pattern within `src/test/java`.
 
 ## Technology Stack
 
-**Backend**: Java 17+, Spring Boot 3.3.0, Apache Camel 4.3.0, LangChain4j 1.10.0
+**Backend**: Java 17+, Spring Boot 3.3.0, Apache Camel 4.3.0, LangChain4j 1.12.2
 **Frontend**: React 19, TypeScript, Vite, Mantine UI, React Flow
 **Databases**: PostgreSQL with pgvector, Redis
 **Build**: Maven 3.8+, Node.js 18+
 
 ## Important Notes
 
-- LangChain4j version is managed via `langchain4j.version` property (currently 1.10.0)
+- LangChain4j version is managed via `langchain4j.version` property (currently 1.12.2)
 - Plugin dependencies are resolved dynamically at runtime using Jeka
 - Frontend uses Mantine UI components (not shadcn/ui as earlier docs may state)
 - Flow execution is asynchronous with built-in retry policies and parallel processing support
