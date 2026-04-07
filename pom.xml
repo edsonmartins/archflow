@@ -38,6 +38,7 @@
         <module>archflow-agent</module>
         <module>archflow-langchain4j</module>
         <module>archflow-plugin-loader</module>
+        <module>archflow-brainsentry</module>
     </modules>
 
     <dependencyManagement>
