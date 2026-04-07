@@ -41,6 +41,7 @@ Build, visualize, and orchestrate AI agent workflows with a drag-and-drop design
 - **LangChain4j 1.10.0**: 15+ LLM providers (OpenAI, Anthropic, Google, Mistral, Ollama, and more)
 - **MCP Protocol**: Model Context Protocol for standardized tool integration
 - **Agent Skills**: Load, activate, and manage behavioral instruction bundles ([agentskills.io](https://agentskills.io) spec)
+- **Brain Sentry**: Long-term agent memory with automatic context injection, hybrid search, and PII protection
 - **Spring Boot 3.3**: Native integration with the Spring ecosystem
 - **Suspend/Resume**: Conversational workflows with dynamic forms and human-in-the-loop
 
@@ -71,10 +72,12 @@ archflow implements the industry-standard agent patterns validated by Anthropic,
 ### Enterprise Ready
 
 - **JWT + RBAC**: 4 built-in roles (Admin, Designer, Executor, Viewer)
+- **Governance Profiles**: Per-tenant agent configuration (system prompt, tool allow/block, escalation thresholds)
+- **Confidence Scoring**: Response quality scoring with automatic escalation to human operators
+- **Conversation Summarization**: Automatic summarization of long conversations to manage LLM token limits
 - **Observability**: OpenTelemetry tracing, Prometheus metrics, audit logging
 - **Two-Level Caching**: Caffeine (L1) + Redis (L2) for LLM responses and embeddings
 - **Plugin Architecture**: Dynamic plugin loading with SPI discovery and marketplace
-- **Production Monitoring**: Prometheus + Grafana + Jaeger stack included
 
 ---
 
@@ -135,7 +138,8 @@ archflow/
 │   ├── archflow-langchain4j-skills/    # Agent Skills (SKILL.md loader + manager)
 │   ├── archflow-langchain4j-streaming/ # SSE streaming
 │   └── archflow-langchain4j-provider-hub/ # Multi-LLM Hub (15+ providers)
-├── archflow-conversation/              # Suspend/resume, episodic memory, forms
+├── archflow-brainsentry/                # Brain Sentry integration (long-term memory, PII)
+├── archflow-conversation/              # Suspend/resume, episodic memory, summarization
 ├── archflow-security/                  # JWT, RBAC, API keys, CORS
 ├── archflow-observability/             # OpenTelemetry, Micrometer, audit logging
 ├── archflow-performance/               # Two-level caching, connection pooling
@@ -196,6 +200,23 @@ Map<String, Object> skill = adapter.execute("activate_skill", "docx", context);
 // => {name: "docx", content: "You are a document editor...", resources: [...]}
 ```
 
+### Brain Sentry (Long-Term Memory)
+
+```java
+// Connect to Brain Sentry for cross-session agent memory
+var config = BrainSentryConfig.of("http://localhost:8081/api", "api-key", "tenant-1");
+var client = new BrainSentryClient(config);
+
+// As a ToolInterceptor — automatically enriches prompts with relevant memories
+var interceptor = new BrainSentryInterceptor(client, true);
+toolChainBuilder.addInterceptor(interceptor); // order 5, before guardrails
+
+// As an EpisodicMemory backend — hybrid search (vector + BM25 + graph)
+EpisodicMemory memory = new BrainSentryMemoryAdapter(client);
+memory.store(Episode.of("user-1", "Customer prefers email over phone", 0.8));
+List<ScoredEpisode> results = memory.recall("contact preference", "user-1", 5);
+```
+
 ### Agent Handoff
 
 ```java
@@ -237,7 +258,7 @@ Full documentation available at [edsonmartins.github.io/archflow](https://edsonm
 | Layer | Technology |
 |-------|-----------|
 | **Backend** | Java 17+, Spring Boot 3.3.0, Apache Camel 4.3.0 |
-| **AI** | LangChain4j 1.10.0, MCP Protocol, Agent Skills |
+| **AI** | LangChain4j 1.10.0, MCP Protocol, Agent Skills, Brain Sentry |
 | **Frontend** | React 19, TypeScript, Mantine UI, React Flow |
 | **Databases** | PostgreSQL with pgvector, Redis |
 | **Observability** | OpenTelemetry, Micrometer, Prometheus, Grafana, Jaeger |
