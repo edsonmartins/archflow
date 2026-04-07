@@ -88,6 +88,8 @@ public class SkillsManager {
      * Gets an active skill by name.
      */
     public Optional<Skill> getActiveSkill(String name) {
+        // Note: check-then-get is not atomic, but returning empty
+        // when a concurrent deactivation occurs is semantically correct
         if (!activeSkills.contains(name)) return Optional.empty();
         return Optional.ofNullable(registry.get(name));
     }

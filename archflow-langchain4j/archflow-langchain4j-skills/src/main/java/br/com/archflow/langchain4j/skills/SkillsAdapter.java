@@ -109,11 +109,11 @@ public class SkillsAdapter implements LangChainAdapter {
             throw new IllegalArgumentException("Input must be a map with 'skill' and 'resource' keys");
         }
         Map<String, Object> params = (Map<String, Object>) input;
-        String skillName = (String) params.get("skill");
-        String resourceName = (String) params.get("resource");
+        Object skillObj = params.get("skill");
+        Object resourceObj = params.get("resource");
 
-        if (skillName == null || resourceName == null) {
-            throw new IllegalArgumentException("Both 'skill' and 'resource' parameters are required");
+        if (!(skillObj instanceof String skillName) || !(resourceObj instanceof String resourceName)) {
+            throw new IllegalArgumentException("Both 'skill' and 'resource' string parameters are required");
         }
 
         return manager.getSkillResource(skillName, resourceName)
