@@ -25,6 +25,7 @@
         <module>archflow-langchain4j-vectorstore-pgvector</module>
         <module>archflow-langchain4j-vectorstore-pinecone</module>
         <module>archflow-langchain4j-mcp</module>
+        <module>archflow-langchain4j-skills</module>
     </modules>
 
     <properties>
