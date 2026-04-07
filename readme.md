@@ -40,6 +40,7 @@ Build, visualize, and orchestrate AI agent workflows with a drag-and-drop design
 
 - **LangChain4j 1.10.0**: 15+ LLM providers (OpenAI, Anthropic, Google, Mistral, Ollama, and more)
 - **MCP Protocol**: Model Context Protocol for standardized tool integration
+- **Agent Skills**: Load, activate, and manage behavioral instruction bundles ([agentskills.io](https://agentskills.io) spec)
 - **Spring Boot 3.3**: Native integration with the Spring ecosystem
 - **Suspend/Resume**: Conversational workflows with dynamic forms and human-in-the-loop
 
@@ -131,6 +132,7 @@ archflow/
 │   ├── archflow-langchain4j-openai/    # OpenAI adapter
 │   ├── archflow-langchain4j-anthropic/ # Anthropic adapter
 │   ├── archflow-langchain4j-mcp/       # MCP Protocol client
+│   ├── archflow-langchain4j-skills/    # Agent Skills (SKILL.md loader + manager)
 │   ├── archflow-langchain4j-streaming/ # SSE streaming
 │   └── archflow-langchain4j-provider-hub/ # Multi-LLM Hub (15+ providers)
 ├── archflow-conversation/              # Suspend/resume, episodic memory, forms
@@ -178,6 +180,22 @@ RoutingResult result = router.route("My payment failed");
 // result.getRouteName() => "billing"
 ```
 
+### Agent Skills
+
+```java
+// Load skills from file system (SKILL.md with YAML front matter)
+SkillsAdapter adapter = new SkillsAdapter();
+adapter.configure(Map.of("skills.directory", "skills/"));
+
+// List available skills
+List<Map<String, String>> skills = adapter.execute("list_skills", null, context);
+// => [{name: "docx", description: "Edit Word documents"}, ...]
+
+// Activate a skill — returns full instructions for the LLM
+Map<String, Object> skill = adapter.execute("activate_skill", "docx", context);
+// => {name: "docx", content: "You are a document editor...", resources: [...]}
+```
+
 ### Agent Handoff
 
 ```java
@@ -219,7 +237,7 @@ Full documentation available at [edsonmartins.github.io/archflow](https://edsonm
 | Layer | Technology |
 |-------|-----------|
 | **Backend** | Java 17+, Spring Boot 3.3.0, Apache Camel 4.3.0 |
-| **AI** | LangChain4j 1.10.0, MCP Protocol |
+| **AI** | LangChain4j 1.10.0, MCP Protocol, Agent Skills |
 | **Frontend** | React 19, TypeScript, Mantine UI, React Flow |
 | **Databases** | PostgreSQL with pgvector, Redis |
 | **Observability** | OpenTelemetry, Micrometer, Prometheus, Grafana, Jaeger |
