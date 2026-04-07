@@ -3,7 +3,9 @@ package br.com.archflow.agent.confidence;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import java.util.*;
+import java.util.Arrays;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 public class DefaultConfidenceScorer implements ConfidenceScorer {
     private static final Logger log = LoggerFactory.getLogger(DefaultConfidenceScorer.class);
@@ -57,8 +59,12 @@ public class DefaultConfidenceScorer implements ConfidenceScorer {
         }
 
         if (response != null && context.userQuery() != null) {
-            Set<String> qWords = Set.of(context.userQuery().toLowerCase().split("\\W+"));
-            Set<String> rWords = Set.of(response.toLowerCase().split("\\W+"));
+            Set<String> qWords = Arrays.stream(context.userQuery().toLowerCase().split("\\W+"))
+                    .filter(s -> !s.isEmpty())
+                    .collect(Collectors.toSet());
+            Set<String> rWords = Arrays.stream(response.toLowerCase().split("\\W+"))
+                    .filter(s -> !s.isEmpty())
+                    .collect(Collectors.toSet());
             long overlap = qWords.stream().filter(rWords::contains).count();
             if (overlap >= Math.min(2, qWords.size())) {
                 score += 0.1;

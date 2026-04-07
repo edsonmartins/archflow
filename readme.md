@@ -67,7 +67,7 @@ archflow implements the industry-standard agent patterns validated by Anthropic,
 | **ResearchAgent** | Multi-step research with task decomposition and action planning |
 | **DataAnalysisAgent** | Text-to-SQL, schema introspection, statistical analysis |
 | **MonitoringAgent** | Continuous metric collection, anomaly detection, alert dispatch |
-| **OrchestratorAgent** | Supervisor template with worker coordination and quality checking |
+| **SupervisorTemplate** | Workflow template with worker coordination and quality checking |
 
 ### Enterprise Ready
 
@@ -155,7 +155,6 @@ archflow/
 │   ├── archflow-langchain4j-anthropic/ # Anthropic adapter
 │   ├── archflow-langchain4j-mcp/       # MCP Protocol client
 │   ├── archflow-langchain4j-skills/    # Agent Skills (SKILL.md loader + manager)
-│   ├── archflow-langchain4j-streaming/ # SSE streaming
 │   └── archflow-langchain4j-provider-hub/ # Multi-LLM Hub (15+ providers)
 ├── archflow-brainsentry/                # Brain Sentry integration (long-term memory, PII)
 ├── archflow-conversation/              # Suspend/resume, episodic memory, summarization
@@ -164,6 +163,7 @@ archflow/
 ├── archflow-performance/               # Two-level caching, connection pooling
 ├── archflow-templates/                 # Workflow templates (Customer Support, etc.)
 ├── archflow-marketplace/               # Extension marketplace with signature verification
+├── archflow-workflow-tool/              # Workflow-as-Tool pattern
 ├── archflow-standalone/                 # Export workflows as standalone JARs (no server)
 ├── archflow-plugins/                   # Built-in agents (Conversational, Research, etc.)
 ├── archflow-api/                       # REST controllers

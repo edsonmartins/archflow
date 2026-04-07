@@ -58,6 +58,44 @@ class StandaloneRunnerTest {
         assertThat(flow.getMetadata().name()).isEqualTo("Test");
     }
 
+    @Test @DisplayName("should throw for nonexistent workflow file")
+    void shouldThrowForNonexistentFile() {
+        var runner = new StandaloneRunner();
+        assertThatThrownBy(() -> runner.loadWorkflow("/nonexistent/path.json"))
+                .isInstanceOf(Exception.class);
+    }
+
+    @Test @DisplayName("should create runner and close without error")
+    void shouldCreateAndClose() throws Exception {
+        var runner = new StandaloneRunner();
+        runner.close(); // Should not throw
+    }
+
+    @Test @DisplayName("should export workflow to file and verify content")
+    void shouldExportWorkflowContent(@TempDir Path tempDir) throws Exception {
+        var serializer = new FlowSerializer();
+        var flow = serializer.deserialize("""
+                {"id": "verify-export", "metadata": {"name": "V"}, "steps": [], "configuration": null}
+                """);
+        Path file = tempDir.resolve("out.json");
+        new StandaloneRunner().exportWorkflow(flow, file);
+
+        String content = java.nio.file.Files.readString(file);
+        assertThat(content).contains("verify-export").contains("\"name\"");
+    }
+
+    @Test @DisplayName("should parse var with equals in value")
+    void shouldParseVarWithEquals() {
+        var cli = StandaloneRunner.CliArgs.parse(new String[]{"f.json", "--var", "url=http://host:8080/path?a=1"});
+        assertThat(cli.variables().get("url")).isEqualTo("http://host:8080/path?a=1");
+    }
+
+    @Test @DisplayName("should use default plugins path as null")
+    void shouldDefaultPluginsNull() {
+        var cli = StandaloneRunner.CliArgs.parse(new String[]{"f.json"});
+        assertThat(cli.pluginsPath()).isNull();
+    }
+
     @Test @DisplayName("should export and reload workflow")
     void shouldExportAndReload(@TempDir Path tempDir) throws Exception {
         // Create a flow via serializer
