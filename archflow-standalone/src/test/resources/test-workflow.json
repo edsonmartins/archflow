@@ -1,0 +1,58 @@
+{
+  "id": "customer-support-v1",
+  "metadata": {
+    "name": "Customer Support Workflow",
+    "description": "Handles customer inquiries with intent routing and tool execution",
+    "version": "1.0.0",
+    "author": "archflow",
+    "category": "customer-service",
+    "tags": ["sac", "support", "routing"]
+  },
+  "steps": [
+    {
+      "id": "route",
+      "type": "AGENT",
+      "componentId": "semantic-router",
+      "operation": "route",
+      "config": {
+        "routes": ["billing", "technical", "shipping"],
+        "confidenceThreshold": 0.7
+      },
+      "connections": [
+        {"sourceId": "route", "targetId": "handle-billing", "condition": "route == 'billing'", "errorPath": false},
+        {"sourceId": "route", "targetId": "handle-technical", "condition": "route == 'technical'", "errorPath": false},
+        {"sourceId": "route", "targetId": "handle-default", "condition": null, "errorPath": false}
+      ]
+    },
+    {
+      "id": "handle-billing",
+      "type": "AGENT",
+      "componentId": "conversational-agent",
+      "operation": "execute",
+      "config": {"intent": "billing", "escalationThreshold": 0.5},
+      "connections": []
+    },
+    {
+      "id": "handle-technical",
+      "type": "AGENT",
+      "componentId": "conversational-agent",
+      "operation": "execute",
+      "config": {"intent": "technical"},
+      "connections": []
+    },
+    {
+      "id": "handle-default",
+      "type": "TOOL",
+      "componentId": "text-transform",
+      "operation": "respond",
+      "config": {"template": "I can help you with billing, technical support, or shipping."},
+      "connections": []
+    }
+  ],
+  "configuration": {
+    "timeout": 60000,
+    "retryPolicy": {"maxAttempts": 3, "delay": 1000, "multiplier": 2.0, "retryableExceptions": []},
+    "llmConfig": {"model": "gpt-4o-mini", "temperature": 0.3, "maxTokens": 2048, "timeout": 30000, "additionalConfig": {}},
+    "monitoringConfig": null
+  }
+}
