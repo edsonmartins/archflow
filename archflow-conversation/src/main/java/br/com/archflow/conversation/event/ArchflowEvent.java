@@ -5,6 +5,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
 
@@ -162,13 +163,14 @@ public class ArchflowEvent {
      * Creates an error event.
      */
     public static ArchflowEvent error(String message, Throwable cause) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("message", message);
+        payload.put("cause", cause != null ? cause.getMessage() : null);
+
         return builder()
                 .domain(EventDomain.AUDIT)
                 .type(EventType.ERROR)
-                .payload(Map.of(
-                        "message", message,
-                        "cause", cause != null ? cause.getMessage() : null
-                ))
+                .payload(payload)
                 .build();
     }
 

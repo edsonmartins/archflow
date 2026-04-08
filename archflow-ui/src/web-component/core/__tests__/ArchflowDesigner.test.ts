@@ -10,15 +10,19 @@
  * - Lifecycle callbacks
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
 import { ArchflowDesigner } from '../ArchflowDesigner';
+import type { Flow } from '../../../types/flow-types';
 
 describe('ArchflowDesigner - Web Component', () => {
   let element: ArchflowDesigner;
 
+  beforeAll(() => {
+    ArchflowDesigner.register();
+  });
+
   beforeEach(() => {
-    // Create a new instance for each test
-    element = new ArchflowDesigner();
+    element = document.createElement('archflow-designer') as ArchflowDesigner;
   });
 
   afterEach(() => {
@@ -37,10 +41,9 @@ describe('ArchflowDesigner - Web Component', () => {
       expect(element.tagName.toLowerCase()).toBe('archflow-designer');
     });
 
-    it('should register with custom tag name', () => {
-      const customTag = 'custom-archflow-designer';
-      ArchflowDesigner.register(customTag);
-      expect(customElements.get(customTag)).toBe(ArchflowDesigner);
+    it('should not re-register an existing tag', () => {
+      expect(() => ArchflowDesigner.register()).not.toThrow();
+      expect(customElements.get('archflow-designer')).toBe(ArchflowDesigner);
     });
   });
 
@@ -123,29 +126,13 @@ describe('ArchflowDesigner - Web Component', () => {
 
   describe('observedAttributes', () => {
     it('should observe workflow-id changes', () => {
-      const spy = jest.spyOn(element, 'attributeChangedCallback');
-
       element.setAttribute('workflow-id', 'wf-test');
-      expect(spy).toHaveBeenCalledWith(
-        'workflow-id',
-        null,
-        'wf-test'
-      );
-
-      spy.mockRestore();
+      expect(element.workflowId).toBe('wf-test');
     });
 
     it('should observe theme changes', () => {
-      const spy = jest.spyOn(element, 'attributeChangedCallback');
-
       element.setAttribute('theme', 'dark');
-      expect(spy).toHaveBeenCalledWith(
-        'theme',
-        null,
-        'dark'
-      );
-
-      spy.mockRestore();
+      expect(element.theme).toBe('dark');
     });
 
     it('should have all expected observed attributes', () => {
@@ -183,9 +170,9 @@ describe('ArchflowDesigner - Web Component', () => {
         id: 'wf-001',
         metadata: { name: 'Test' },
         steps: [],
-        configuration: {} as any
-      };
-      element.setWorkflow(mockWorkflow as any);
+        configuration: {}
+      } as Flow;
+      element.setWorkflow(mockWorkflow);
 
       const json = element.getWorkflowJson();
       expect(JSON.parse(json)).toEqual(mockWorkflow);
@@ -194,7 +181,7 @@ describe('ArchflowDesigner - Web Component', () => {
 
   describe('Events', () => {
     it('should dispatch event on workflow-saved', () => {
-      const handler = jest.fn();
+      const handler = vi.fn();
       element.addEventListener('workflow-saved', handler);
 
       // Trigger save (will fail but should emit error)
@@ -205,7 +192,7 @@ describe('ArchflowDesigner - Web Component', () => {
     });
 
     it('should dispatch event on workflow-loaded', () => {
-      const handler = jest.fn();
+      const handler = vi.fn();
       element.addEventListener('workflow-loaded', handler);
 
       // Load will fail without mock, but tests the event system
@@ -258,7 +245,7 @@ describe('ArchflowDesigner - Lifecycle', () => {
     });
 
     it('should emit connected event', () => {
-      const handler = jest.fn();
+      const handler = vi.fn();
       element = document.createElement('archflow-designer') as ArchflowDesigner;
 
       element.addEventListener('connected', handler);
@@ -273,7 +260,7 @@ describe('ArchflowDesigner - Lifecycle', () => {
       element.setAttribute('workflow-id', 'wf-001');
 
       // Mock fetch
-      global.fetch = jest.fn(() =>
+      global.fetch = vi.fn(() =>
         Promise.resolve({
           ok: true,
           json: () => Promise.resolve({

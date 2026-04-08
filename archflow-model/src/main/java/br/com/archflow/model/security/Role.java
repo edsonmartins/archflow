@@ -92,10 +92,15 @@ public class Role {
 
     public boolean hasPermission(String resource, String action) {
         return permissions.stream()
-                .anyMatch(p -> p.matches(resource + ":" + action) ||
-                               p.matches(resource + ":*") ||
-                               p.matches("*:" + action) ||
-                               p.matches("*:*"));
+                .anyMatch(p -> permissionAllows(p, resource, action));
+    }
+
+    private boolean permissionAllows(Permission permission, String resource, String action) {
+        boolean resourceMatches = "*".equals(permission.getResource())
+                || Objects.equals(permission.getResource(), resource);
+        boolean actionMatches = "*".equals(permission.getAction())
+                || Objects.equals(permission.getAction(), action);
+        return resourceMatches && actionMatches;
     }
 
     public boolean hasPermission(String permissionString) {

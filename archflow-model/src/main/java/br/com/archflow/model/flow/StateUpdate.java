@@ -48,6 +48,10 @@ public class StateUpdate {
             metrics = new FlowMetrics();
             state.setMetrics(metrics);
         }
+
+        if (metrics.getStepMetrics() == null) {
+            metrics.setStepMetrics(new HashMap<>());
+        }
         
         // Atualiza métricas do passo
         metrics.getStepMetrics().put(stepId, result.getMetrics());

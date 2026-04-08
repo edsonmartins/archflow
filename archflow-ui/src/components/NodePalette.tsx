@@ -66,6 +66,7 @@ export default function NodePalette() {
                                             withBorder
                                             shadow="xs"
                                             style={{ cursor: 'grab' }}
+                                            data-testid={`palette-node-${node.type.toLowerCase()}`}
                                             draggable
                                             onDragStart={(e) => handleDragStart(e, node)}
                                         >

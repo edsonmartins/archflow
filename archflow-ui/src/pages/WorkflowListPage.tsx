@@ -1,7 +1,7 @@
 import {
-    Title, Table, Button, Group, Text, Badge, ActionIcon, Tooltip, TextInput, Paper, Stack, LoadingOverlay, Modal,
+    Title, Table, Button, Group, Text, Badge, ActionIcon, Tooltip, TextInput, Paper, Stack, LoadingOverlay, Modal, Alert,
 } from '@mantine/core';
-import { IconPlus, IconSearch, IconPlayerPlay, IconPencil, IconTrash } from '@tabler/icons-react';
+import { IconPlus, IconSearch, IconPlayerPlay, IconPencil, IconTrash, IconAlertCircle } from '@tabler/icons-react';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useWorkflowStore } from '../stores/workflow-store';
@@ -15,7 +15,7 @@ const STATUS_COLORS: Record<string, string> = {
 
 export default function WorkflowListPage() {
     const navigate = useNavigate();
-    const { workflows, loading, fetchWorkflows, deleteWorkflow, executeWorkflow } = useWorkflowStore();
+    const { workflows, loading, error, fetchWorkflows, deleteWorkflow, executeWorkflow } = useWorkflowStore();
     const [search, setSearch] = useState('');
     const [deleteId, setDeleteId] = useState<string | null>(null);
 
@@ -47,6 +47,12 @@ export default function WorkflowListPage() {
     return (
         <Stack gap="md" pos="relative">
             <LoadingOverlay visible={loading} />
+
+            {error && (
+                <Alert color="red" icon={<IconAlertCircle size={16} />}>
+                    {error}
+                </Alert>
+            )}
 
             <Group justify="space-between">
                 <Title order={3}>Workflows</Title>

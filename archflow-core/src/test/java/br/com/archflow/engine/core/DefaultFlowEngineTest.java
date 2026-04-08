@@ -46,9 +46,7 @@ class DefaultFlowEngineTest {
 
     private Flow createMockFlow(String flowId) {
         Flow flow = mock(Flow.class);
-        when(flow.getId()).thenReturn(flowId);
-        when(flow.getSteps()).thenReturn(List.of(mock(FlowStep.class)));
-        when(flow.getConfiguration()).thenReturn(mock(FlowConfiguration.class));
+        lenient().when(flow.getId()).thenReturn(flowId);
         return flow;
     }
 

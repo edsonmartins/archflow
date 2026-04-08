@@ -35,7 +35,7 @@ public abstract class AbstractWorkflowTemplate implements WorkflowTemplate {
         this.description = description;
         this.category = category;
         this.tags = tags != null ? Set.copyOf(tags) : Set.of();
-        this.parameters = Map.copyOf(parameters);
+        this.parameters = Collections.unmodifiableMap(new LinkedHashMap<>(parameters));
     }
 
     @Override

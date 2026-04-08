@@ -36,7 +36,19 @@
       "Bash(unzip:*)",
       "Bash(java:*)",
       "Bash(npx create-docusaurus@latest:*)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(for module in archflow-plugin-api archflow-security archflow-observability archflow-templates archflow-conversation archflow-marketplace archflow-workflow-tool archflow-performance archflow-plugin-loader)",
+      "Bash(do echo \"=== $module ===\" echo -n \"Main implementation files: \" find /Users/edsonmartins/desenvolvimento/archflow/$module/src/main -name \"*.java\")",
+      "Bash(done)",
+      "Bash(du:*)",
+      "Bash(source:*)",
+      "Bash(npx vite:*)",
+      "Bash(npm run:*)",
+      "Bash(git tag:*)",
+      "Bash(mkdir -p /Users/edsonmartins/desenvolvimento/archflow/archflow-conversation/src/main/java/br/com/archflow/conversation/memory)",
+      "Bash(mkdir -p /Users/edsonmartins/desenvolvimento/archflow/archflow-conversation/src/test/java/br/com/archflow/conversation/memory)",
+      "Bash(/tmp/null_cast_test.txt:*)",
+      "Read(//tmp/**)"
     ]
   }
 }

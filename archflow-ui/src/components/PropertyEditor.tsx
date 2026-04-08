@@ -61,7 +61,7 @@ const NODE_PROPERTIES: Record<string, PropertyField[]> = {
 };
 
 export default function PropertyEditor() {
-    const { selectedNode } = useEditorStore();
+    const { selectedNode, updateSelectedNode, updateSelectedNodeConfig } = useEditorStore();
 
     if (!selectedNode) {
         return (
@@ -84,7 +84,12 @@ export default function PropertyEditor() {
 
             <Divider />
 
-            <TextInput label="Node Label" size="xs" value={selectedNode.label} readOnly />
+            <TextInput
+                label="Node Label"
+                size="xs"
+                value={selectedNode.label}
+                onChange={(e) => updateSelectedNode({ label: e.currentTarget.value })}
+            />
             <TextInput label="Node ID" size="xs" value={selectedNode.id} readOnly c="dimmed" />
 
             {fields.length > 0 && (
@@ -93,7 +98,12 @@ export default function PropertyEditor() {
                     <ScrollArea style={{ flex: 1 }}>
                         <Stack gap="xs">
                             {fields.map((field) => (
-                                <PropertyField key={field.name} field={field} value={config[field.name]} />
+                                <PropertyField
+                                    key={field.name}
+                                    field={field}
+                                    value={config[field.name]}
+                                    onChange={(value) => updateSelectedNodeConfig(field.name, value)}
+                                />
                             ))}
                         </Stack>
                     </ScrollArea>
@@ -103,7 +113,15 @@ export default function PropertyEditor() {
     );
 }
 
-function PropertyField({ field, value }: { field: PropertyField; value: unknown }) {
+function PropertyField({
+    field,
+    value,
+    onChange,
+}: {
+    field: PropertyField;
+    value: unknown;
+    onChange: (value: unknown) => void;
+}) {
     switch (field.type) {
         case 'string':
             return (
@@ -111,7 +129,8 @@ function PropertyField({ field, value }: { field: PropertyField; value: unknown 
                     label={field.label}
                     description={field.description}
                     size="xs"
-                    defaultValue={(value as string) ?? (field.defaultValue as string) ?? ''}
+                    value={(value as string) ?? (field.defaultValue as string) ?? ''}
+                    onChange={(e) => onChange(e.currentTarget.value)}
                 />
             );
         case 'number':
@@ -120,10 +139,11 @@ function PropertyField({ field, value }: { field: PropertyField; value: unknown 
                     label={field.label}
                     description={field.description}
                     size="xs"
-                    defaultValue={(value as number) ?? (field.defaultValue as number)}
+                    value={(value as number) ?? (field.defaultValue as number)}
                     min={field.min}
                     max={field.max}
                     step={field.step}
+                    onChange={onChange}
                 />
             );
         case 'boolean':
@@ -132,7 +152,8 @@ function PropertyField({ field, value }: { field: PropertyField; value: unknown 
                     label={field.label}
                     description={field.description}
                     size="xs"
-                    defaultChecked={(value as boolean) ?? (field.defaultValue as boolean) ?? false}
+                    checked={(value as boolean) ?? (field.defaultValue as boolean) ?? false}
+                    onChange={(e) => onChange(e.currentTarget.checked)}
                 />
             );
         case 'select':
@@ -142,7 +163,8 @@ function PropertyField({ field, value }: { field: PropertyField; value: unknown 
                     description={field.description}
                     size="xs"
                     data={field.options || []}
-                    defaultValue={(value as string) ?? (field.defaultValue as string)}
+                    value={(value as string) ?? (field.defaultValue as string) ?? null}
+                    onChange={onChange}
                 />
             );
         case 'textarea':
@@ -154,7 +176,8 @@ function PropertyField({ field, value }: { field: PropertyField; value: unknown 
                     autosize
                     minRows={3}
                     maxRows={8}
-                    defaultValue={(value as string) ?? (field.defaultValue as string) ?? ''}
+                    value={(value as string) ?? (field.defaultValue as string) ?? ''}
+                    onChange={(e) => onChange(e.currentTarget.value)}
                 />
             );
     }

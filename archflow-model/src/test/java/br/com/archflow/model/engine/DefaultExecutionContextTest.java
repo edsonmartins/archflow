@@ -3,12 +3,13 @@ package br.com.archflow.model.engine;
 import br.com.archflow.model.flow.FlowState;
 import br.com.archflow.model.flow.FlowStatus;
 import br.com.archflow.model.metrics.StepMetrics;
+import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.memory.ChatMemory;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.DisplayName;
-import org.mockito.Mockito;
 
+import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.*;
@@ -21,7 +22,7 @@ class DefaultExecutionContextTest {
 
     @BeforeEach
     void setUp() {
-        chatMemory = Mockito.mock(ChatMemory.class);
+        chatMemory = new TestChatMemory();
         context = new DefaultExecutionContext(chatMemory);
     }
 
@@ -128,5 +129,25 @@ class DefaultExecutionContextTest {
         context.set("key", "updated");
 
         assertThat(context.get("key")).contains("updated");
+    }
+
+    private static class TestChatMemory implements ChatMemory {
+        @Override
+        public Object id() {
+            return "test-memory";
+        }
+
+        @Override
+        public void add(ChatMessage message) {
+        }
+
+        @Override
+        public List<ChatMessage> messages() {
+            return List.of();
+        }
+
+        @Override
+        public void clear() {
+        }
     }
 }

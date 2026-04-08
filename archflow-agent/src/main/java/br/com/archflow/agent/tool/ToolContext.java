@@ -22,7 +22,7 @@ public class ToolContext {
 
     private final String executionId;
     private final String toolName;
-    private final Object input;
+    private Object input;
     private final ExecutionContext executionContext;
     private final Instant startTime;
     private final Map<String, Object> attributes;
@@ -51,6 +51,10 @@ public class ToolContext {
 
     public Object getInput() {
         return input;
+    }
+
+    public void setInput(Object input) {
+        this.input = input;
     }
 
     public ExecutionContext getExecutionContext() {

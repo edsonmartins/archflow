@@ -34,6 +34,23 @@
             <version>${project.version}</version>
         </dependency>
 
+        <!-- Archflow feature modules exposed by REST controllers -->
+        <dependency>
+            <groupId>br.com.archflow</groupId>
+            <artifactId>archflow-templates</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>br.com.archflow</groupId>
+            <artifactId>archflow-conversation</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>br.com.archflow</groupId>
+            <artifactId>archflow-marketplace</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
         <!-- LangChain4j -->
         <dependency>
             <groupId>dev.langchain4j</groupId>

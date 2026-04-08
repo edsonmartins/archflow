@@ -1,7 +1,7 @@
 import {
-    Title, Table, Badge, Text, Paper, Stack, LoadingOverlay, Group, Select,
+    Title, Table, Badge, Text, Paper, Stack, LoadingOverlay, Group, Select, Alert,
 } from '@mantine/core';
-import { IconPlayerPlay, IconCheck, IconX, IconClock } from '@tabler/icons-react';
+import { IconPlayerPlay, IconCheck, IconX, IconClock, IconAlertCircle } from '@tabler/icons-react';
 import { useEffect, useState } from 'react';
 import { useWorkflowStore } from '../stores/workflow-store';
 
@@ -21,7 +21,7 @@ function formatDuration(ms: number | null): string {
 }
 
 export default function ExecutionHistoryPage() {
-    const { executions, workflows, loading, fetchExecutions, fetchWorkflows } = useWorkflowStore();
+    const { executions, workflows, loading, error, fetchExecutions, fetchWorkflows } = useWorkflowStore();
     const [filterWorkflow, setFilterWorkflow] = useState<string | null>(null);
 
     useEffect(() => {
@@ -38,6 +38,12 @@ export default function ExecutionHistoryPage() {
     return (
         <Stack gap="md" pos="relative">
             <LoadingOverlay visible={loading} />
+
+            {error && (
+                <Alert color="red" icon={<IconAlertCircle size={16} />}>
+                    {error}
+                </Alert>
+            )}
 
             <Group justify="space-between">
                 <Title order={3}>Execution History</Title>

@@ -5,14 +5,13 @@ import br.com.archflow.model.metrics.StepMetrics;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.DisplayName;
-import org.mockito.Mockito;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.*;
-import static org.mockito.Mockito.*;
 
 @DisplayName("StateUpdate")
 class StateUpdateTest {
@@ -89,9 +88,7 @@ class StateUpdateTest {
     @DisplayName("should update metrics with step result")
     void shouldUpdateMetricsWithStepResult() {
         var stepMetrics = new StepMetrics(100L, 50, 0, Map.of());
-        var stepResult = Mockito.mock(StepResult.class);
-        when(stepResult.getMetrics()).thenReturn(stepMetrics);
-        when(stepResult.getStatus()).thenReturn(StepStatus.COMPLETED);
+        var stepResult = stepResult(stepMetrics, StepStatus.COMPLETED);
 
         var update = StateUpdate.builder()
                 .stepId("step-1")
@@ -110,9 +107,7 @@ class StateUpdateTest {
         state.setMetrics(null);
 
         var stepMetrics = new StepMetrics(100L, 50, 0, Map.of());
-        var stepResult = Mockito.mock(StepResult.class);
-        when(stepResult.getMetrics()).thenReturn(stepMetrics);
-        when(stepResult.getStatus()).thenReturn(StepStatus.FAILED);
+        var stepResult = stepResult(stepMetrics, StepStatus.FAILED);
 
         var update = StateUpdate.builder()
                 .stepId("step-1")
@@ -134,5 +129,34 @@ class StateUpdateTest {
 
         assertThat(state.getStatus()).isEqualTo(FlowStatus.RUNNING);
         assertThat(state.getCurrentStepId()).isEqualTo("step-0");
+    }
+
+    private StepResult stepResult(StepMetrics metrics, StepStatus status) {
+        return new StepResult() {
+            @Override
+            public String getStepId() {
+                return "step-1";
+            }
+
+            @Override
+            public StepStatus getStatus() {
+                return status;
+            }
+
+            @Override
+            public Optional<Object> getOutput() {
+                return Optional.empty();
+            }
+
+            @Override
+            public StepMetrics getMetrics() {
+                return metrics;
+            }
+
+            @Override
+            public List<StepError> getErrors() {
+                return List.of();
+            }
+        };
     }
 }

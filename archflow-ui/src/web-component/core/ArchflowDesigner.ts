@@ -35,7 +35,7 @@
 import { ArchflowShadowDom } from './ArchflowShadowDom';
 import { ArchflowEventDispatcher } from './ArchflowEventDispatcher';
 import { ThemeManager } from './ThemeManager';
-import type { Flow, FlowResult } from '../../types/flow-types';
+import { LogLevel, StepType, type Flow, type FlowConfiguration, type FlowResult, type FlowStep } from '../../types/flow-types';
 
 // Attribute names
 const ATTR_WORKFLOW_ID = 'workflow-id';
@@ -51,6 +51,36 @@ const DEFAULT_THEME: Theme = 'light';
 const DEFAULT_READONLY = false;
 const DEFAULT_WIDTH = '100%';
 const DEFAULT_HEIGHT = '600px';
+
+const DEFAULT_FLOW_CONFIGURATION: FlowConfiguration = {
+  timeout: 30000,
+  retryPolicy: {
+    maxAttempts: 1,
+    delay: 1000,
+    multiplier: 1,
+    retryableExceptions: [],
+  },
+  llmConfig: {
+    model: 'gpt-4',
+    temperature: 0.7,
+    maxTokens: 2048,
+    timeout: 30000,
+    additionalConfig: {},
+  },
+  monitoringConfig: {
+    detailedMetrics: false,
+    fullHistory: false,
+    logLevel: LogLevel.INFO,
+    tags: {},
+  },
+};
+
+interface AddNodeInput {
+  type: string;
+  label?: string;
+  position?: { x: number; y: number };
+  config?: Record<string, unknown>;
+}
 
 /**
  * ArchflowDesigner Web Component
@@ -73,6 +103,7 @@ export class ArchflowDesigner extends HTMLElement {
   private _isLoading = false;
   private _isExecuting = false;
   private _selectedNodeIds: string[] = [];
+  private _pendingConnectionSourceId: string | null = null;
 
   // Property backing stores (for React 19 compatibility)
   private _workflowId: string | null = null;
@@ -128,6 +159,12 @@ export class ArchflowDesigner extends HTMLElement {
     // Render initial UI
     this._render();
 
+    this.addEventListener('archflow:save', this._handleSaveRequested);
+    this.addEventListener('archflow:execute', this._handleExecuteRequested);
+    this.addEventListener('archflow:reset', this._handleResetRequested);
+    this.addEventListener('archflow:connect', this._handleConnectRequested);
+    this.addEventListener('archflow:remove', this._handleRemoveRequested);
+
     // Load workflow if ID is provided
     if (this._workflowId) {
       this.loadWorkflow(this._workflowId);
@@ -148,6 +185,12 @@ export class ArchflowDesigner extends HTMLElement {
     if (this._shadowDom) {
       this._shadowDom.destroy();
     }
+
+    this.removeEventListener('archflow:save', this._handleSaveRequested);
+    this.removeEventListener('archflow:execute', this._handleExecuteRequested);
+    this.removeEventListener('archflow:reset', this._handleResetRequested);
+    this.removeEventListener('archflow:connect', this._handleConnectRequested);
+    this.removeEventListener('archflow:remove', this._handleRemoveRequested);
 
     this._eventDispatcher?.emit('disconnected', {
       workflowId: this._workflowId
@@ -323,6 +366,10 @@ export class ArchflowDesigner extends HTMLElement {
     return [...this._selectedNodeIds];
   }
 
+  get pendingConnectionSourceId(): string | null {
+    return this._pendingConnectionSourceId;
+  }
+
   // ==========================================================================
   // Public Methods
   // ==========================================================================
@@ -335,7 +382,7 @@ export class ArchflowDesigner extends HTMLElement {
     this._render();
 
     try {
-      const response = await fetch(`${this._apiBase}/workflows/${workflowId}`);
+      const response = await this._request(`${this._apiBase}/workflows/${workflowId}`);
 
       if (!response.ok) {
         throw new Error(`Failed to load workflow: ${response.statusText}`);
@@ -370,8 +417,13 @@ export class ArchflowDesigner extends HTMLElement {
     }
 
     try {
-      const response = await fetch(`${this._apiBase}/workflows`, {
-        method: 'POST',
+      const hasExistingId = Boolean(this._workflow.id);
+      const endpoint = hasExistingId
+        ? `${this._apiBase}/workflows/${this._workflow.id}`
+        : `${this._apiBase}/workflows`;
+
+      const response = await this._request(endpoint, {
+        method: hasExistingId ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(this._workflow)
       });
@@ -407,13 +459,10 @@ export class ArchflowDesigner extends HTMLElement {
     this._render();
 
     try {
-      const response = await fetch(`${this._apiBase}/workflows/execute`, {
+      const response = await this._request(`${this._apiBase}/workflows/${this._workflow.id}/execute`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          workflowId: this._workflow.id,
-          input: input || {}
-        })
+        body: JSON.stringify(input || {})
       });
 
       if (!response.ok) {
@@ -448,6 +497,140 @@ export class ArchflowDesigner extends HTMLElement {
   }
 
   /**
+   * Add a node to the current workflow.
+   */
+  addNode(input: AddNodeInput): FlowStep | null {
+    if (this._readonly) {
+      return null;
+    }
+
+    if (!this._workflow) {
+      this._workflow = {
+        id: this._workflowId || '',
+        metadata: {
+          name: 'Untitled Workflow',
+          description: '',
+          version: '1.0.0',
+          author: 'Archflow UI',
+          category: 'custom',
+          tags: [],
+        },
+        steps: [],
+        configuration: DEFAULT_FLOW_CONFIGURATION,
+      };
+    }
+
+    const normalizedType = this._normalizeStepType(input.type);
+    const nodeId = `step-${this._workflow.steps.length + 1}`;
+    const node: FlowStep = {
+      id: nodeId,
+      type: normalizedType,
+      componentId: `${normalizedType.toLowerCase()}-${this._workflow.steps.length + 1}`,
+      operation: input.label || normalizedType,
+      connections: [],
+      configuration: input.config || {},
+    };
+
+    this._workflow = {
+      ...this._workflow,
+      steps: [...this._workflow.steps, node],
+    };
+    this._render();
+    this._eventDispatcher?.emit('node-selected', {
+      nodeId,
+      nodeType: normalizedType,
+      nodeLabel: input.label || nodeId,
+      position: input.position || { x: 0, y: 0 },
+      config: node.configuration || {},
+    } as never);
+
+    return node;
+  }
+
+  /**
+   * Remove a node and any related connections.
+   */
+  removeNode(nodeId: string): void {
+    if (!this._workflow) {
+      return;
+    }
+
+    this._workflow = {
+      ...this._workflow,
+      steps: this._workflow.steps
+        .filter((step) => step.id !== nodeId)
+        .map((step) => ({
+          ...step,
+          connections: step.connections.filter((connection) => connection.targetId !== nodeId),
+        })),
+    };
+
+    if (this._selectedNodeIds.includes(nodeId)) {
+      this.clearSelection();
+    }
+
+    if (this._pendingConnectionSourceId === nodeId) {
+      this._pendingConnectionSourceId = null;
+    }
+
+    this._render();
+  }
+
+  /**
+   * Update an existing node in the workflow.
+   */
+  updateNode(nodeId: string, updates: { label?: string; config?: Record<string, unknown> }): void {
+    if (!this._workflow) {
+      return;
+    }
+
+    this._workflow = {
+      ...this._workflow,
+      steps: this._workflow.steps.map((step) =>
+        step.id === nodeId
+          ? {
+              ...step,
+              operation: updates.label ?? step.operation,
+              configuration: updates.config ? { ...(step.configuration || {}), ...updates.config } : step.configuration,
+            }
+          : step
+      ),
+    };
+    this._render();
+  }
+
+  /**
+   * Create a connection between two steps.
+   */
+  connectSteps(sourceId: string, targetId: string): void {
+    if (!this._workflow || sourceId === targetId) {
+      return;
+    }
+
+    this._workflow = {
+      ...this._workflow,
+      steps: this._workflow.steps.map((step) =>
+        step.id === sourceId
+          ? {
+              ...step,
+              connections: [
+                ...step.connections.filter((connection) => connection.targetId !== targetId),
+                {
+                  sourceId,
+                  targetId,
+                  isErrorPath: false,
+                  type: 'success',
+                },
+              ],
+            }
+          : step
+      ),
+    };
+    this._pendingConnectionSourceId = null;
+    this._render();
+  }
+
+  /**
    * Select nodes by IDs.
    */
   selectNodes(nodeIds: string[]): void {
@@ -476,9 +659,10 @@ export class ArchflowDesigner extends HTMLElement {
    * Reset to empty state.
    */
   reset(): void {
+    this.clearSelection();
     this._workflow = null;
     this._workflowId = null;
-    this._selectedNodeIds = [];
+    this._pendingConnectionSourceId = null;
     this._isLoading = false;
     this._isExecuting = false;
     this.removeAttribute(ATTR_WORKFLOW_ID);
@@ -558,11 +742,88 @@ export class ArchflowDesigner extends HTMLElement {
         workflow: this._workflow,
         isLoading: this._isLoading,
         isExecuting: this._isExecuting,
-        readonly: this._readonly,
-        selectedNodeIds: this._selectedNodeIds
-      });
+      readonly: this._readonly,
+      selectedNodeIds: this._selectedNodeIds,
+      pendingConnectionSourceId: this._pendingConnectionSourceId
+    });
+  }
+  }
+
+  private _normalizeStepType(type: string): StepType {
+    switch (type.toUpperCase()) {
+      case StepType.AGENT:
+        return StepType.AGENT;
+      case StepType.ASSISTANT:
+      case 'LLM_CHAT':
+        return StepType.ASSISTANT;
+      case StepType.TOOL:
+      case 'FUNCTION':
+      case 'CONDITION':
+      case 'PARALLEL':
+      case 'LOOP':
+        return StepType.TOOL;
+      default:
+        return StepType.CUSTOM;
     }
   }
+
+  private async _request(input: string, init: RequestInit = {}): Promise<Response> {
+    const token = window.localStorage.getItem('archflow_token');
+    const headers = new Headers(init.headers || {});
+
+    if (token) {
+      headers.set('Authorization', `Bearer ${token}`);
+    }
+
+    const response = await fetch(input, {
+      ...init,
+      headers,
+    });
+
+    if (response.status === 401) {
+      window.localStorage.removeItem('archflow_token');
+      window.localStorage.removeItem('archflow_refresh_token');
+      window.location.href = '/login';
+      throw new Error('Unauthorized');
+    }
+
+    return response;
+  }
+
+  private _handleSaveRequested = (): void => {
+    void this.saveWorkflow();
+  };
+
+  private _handleExecuteRequested = (): void => {
+    void this.executeWorkflow();
+  };
+
+  private _handleResetRequested = (): void => {
+    this.reset();
+  };
+
+  private _handleConnectRequested = (event: Event): void => {
+    const detail = (event as CustomEvent<{ sourceId?: string; targetId?: string }>).detail;
+    const sourceId = detail?.sourceId;
+    const targetId = detail?.targetId;
+
+    if (sourceId && targetId) {
+      this.connectSteps(sourceId, targetId);
+      return;
+    }
+
+    if (sourceId) {
+      this._pendingConnectionSourceId = sourceId;
+      this._render();
+    }
+  };
+
+  private _handleRemoveRequested = (event: Event): void => {
+    const detail = (event as CustomEvent<{ nodeId?: string }>).detail;
+    if (detail?.nodeId) {
+      this.removeNode(detail.nodeId);
+    }
+  };
 }
 
 // ==========================================================================

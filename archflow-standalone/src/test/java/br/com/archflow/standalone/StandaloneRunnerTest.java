@@ -75,7 +75,7 @@ class StandaloneRunnerTest {
     void shouldExportWorkflowContent(@TempDir Path tempDir) throws Exception {
         var serializer = new FlowSerializer();
         var flow = serializer.deserialize("""
-                {"id": "verify-export", "metadata": {"name": "V"}, "steps": [], "configuration": null}
+                {"id": "verify-export", "metadata": {"name": "V", "version": "1.0"}, "steps": [], "configuration": null}
                 """);
         Path file = tempDir.resolve("out.json");
         new StandaloneRunner().exportWorkflow(flow, file);

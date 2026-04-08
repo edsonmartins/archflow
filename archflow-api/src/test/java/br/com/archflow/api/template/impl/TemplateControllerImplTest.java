@@ -113,7 +113,7 @@ class TemplateControllerImplTest {
         @Test
         @DisplayName("should install template")
         void shouldInstallTemplate() {
-            var template = createStubTemplate("t1", "Template 1", "A template", "support");
+            var template = mock(WorkflowTemplate.class);
             var workflow = mock(Workflow.class);
             var params = Map.<String, Object>of("model", "gpt-4");
 
@@ -131,7 +131,7 @@ class TemplateControllerImplTest {
         @Test
         @DisplayName("should validate parameters on install")
         void shouldValidateParametersOnInstall() {
-            var template = createStubTemplate("t1", "Template 1", "A template", "support");
+            var template = mock(WorkflowTemplate.class);
             var params = Map.<String, Object>of("invalid", "value");
 
             when(registry.getTemplate("t1")).thenReturn(Optional.of(template));

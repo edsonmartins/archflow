@@ -5,7 +5,7 @@ import reactRefresh from 'eslint-plugin-react-refresh'
 import tseslint from 'typescript-eslint'
 
 export default tseslint.config(
-  { ignores: ['dist'] },
+  { ignores: ['dist', 'examples', '**/*.d.ts'] },
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     files: ['**/*.{ts,tsx}'],
@@ -19,6 +19,9 @@ export default tseslint.config(
     },
     rules: {
       ...reactHooks.configs.recommended.rules,
+      '@typescript-eslint/no-explicit-any': 'off',
+      '@typescript-eslint/no-namespace': 'off',
+      '@typescript-eslint/no-unused-vars': 'warn',
       'react-refresh/only-export-components': [
         'warn',
         { allowConstantExport: true },

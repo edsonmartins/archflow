@@ -37,7 +37,7 @@ class McpToolRegistryTest {
     }
 
     private McpModel.Tool tool(String name, String description) {
-        return new McpModel.Tool(name, description, Map.of());
+        return McpModel.Tool.simple(name, description);
     }
 
     @Nested

@@ -54,7 +54,7 @@
 ## Sprint 19: Examples
 
 | ID | Tarefa | Estimativa | Prioridade | Status | Última Atualização |
-|----|--------|------------|------------|--------|--------|--------------|
+|----|--------|------------|------------|--------|-------------------|
 | F5-28 | Criar exemplo React principal (customer-support) | 6h | 🔴 ALTA | ✅ DONE | 2026-03-12 |
 | F5-29 | Criar exemplo React avançado (document-processor) | 5h | 🔴 ALTA | TODO | - |
 | F5-30 | Criar exemplo Vue (knowledge-base) | 5h | 🟡 MÉDIA | TODO | - |
@@ -73,8 +73,8 @@
 ## Sprint 20: Launch
 
 | ID | Tarefa | Estimativa | Prioridade | Status | Última Atualização |
-|----|--------|------------|------------|--------|--------|--------------|
-| F5-38 | Rodar test suite completo (coverage > 80%) | 3h | 🔴 ALTA | ✅ DONE | 2026-03-12 |
+|----|--------|------------|------------|--------|-------------------|
+| F5-38 | Rodar test suite completo (`mvn clean verify -Pcoverage`; CI 60% overall/80% changed) | 3h | 🔴 ALTA | ✅ DONE | 2026-04-08 |
 | F5-39 | Audit de segurança (dependencies scan) | 2h | 🔴 ALTA | ✅ DONE | 2026-03-12 |
 | F5-40 | Remover segredos e sensitive data | 1h | 🔴 ALTA | ✅ DONE | 2026-03-12 |
 | F5-41 | Atualizar versão para 1.0.0 no pom.xml | 1h | 🔴 ALTA | ✅ DONE | 2026-03-12 |
@@ -105,10 +105,10 @@
 | **Total de Horas** | ~220 horas |
 | **Sprints** | 4 |
 | **Duração Estimada** | 2-4 semanas |
-| **Concluídas** | 52 ✅ |
+| **Concluídas** | 41 ✅ |
 | **Em Progresso** | 0 |
-| **Pendentes** | 3 |
-| **Progresso** | ~95% |
+| **Pendentes** | 14 |
+| **Progresso** | ~75% |
 
 ---
 
@@ -151,7 +151,7 @@
 ```
 ✅ Código
    □ Todos os sprints completados
-   □ Testes passando (coverage > 80%)
+   ☑ Testes passando (`mvn clean verify -Pcoverage`; CI 60% overall/80% changed)
    □ Sem bugs críticos
    □ Dependências atualizadas
 

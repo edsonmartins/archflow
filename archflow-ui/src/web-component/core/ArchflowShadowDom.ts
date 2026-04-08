@@ -22,6 +22,7 @@ export interface ShadowDomState {
   isExecuting: boolean;
   readonly: boolean;
   selectedNodeIds: string[];
+  pendingConnectionSourceId?: string | null;
 }
 
 export interface ShadowDomConfig {
@@ -151,6 +152,68 @@ const BASE_STYLES = `
   .archflow-empty p {
     font-size: 13px;
     max-width: 300px;
+  }
+
+  .archflow-steps {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-content: flex-start;
+    padding: 16px;
+  }
+
+  .archflow-step {
+    min-width: 180px;
+    max-width: 220px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--bg-primary);
+    padding: 12px;
+    cursor: pointer;
+  }
+
+  .archflow-step.selected {
+    border-color: var(--accent-color);
+    box-shadow: 0 0 0 1px var(--accent-color);
+  }
+
+  .archflow-step__title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+  }
+
+  .archflow-step__meta {
+    font-size: 11px;
+    color: var(--text-secondary);
+  }
+
+  .archflow-step__actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+  }
+
+  .archflow-step__button {
+    padding: 4px 8px;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-size: 11px;
+    cursor: pointer;
+  }
+
+  .archflow-step__button.danger {
+    color: var(--archflow-error, #e03131);
+    border-color: var(--archflow-error, #e03131);
+  }
+
+  .archflow-step__connections {
+    margin-top: 6px;
+    font-size: 11px;
+    color: var(--text-secondary);
   }
 
   .archflow-loading {
@@ -457,7 +520,7 @@ export class ArchflowShadowDom {
   }
 
   private _renderDesigner(state: ShadowDomState): string {
-    const { workflow, isExecuting, readonly } = state;
+    const { workflow, isExecuting, readonly, pendingConnectionSourceId } = state;
     const workflowName = workflow?.metadata?.name || 'Untitled Workflow';
 
     return `
@@ -488,9 +551,40 @@ export class ArchflowShadowDom {
         </div>
 
         <div class="archflow-canvas" data-canvas>
-          <!-- Canvas will be rendered here by the canvas module -->
-          <div class="archflow-empty">
-            <p>Canvas: ${workflow?.steps?.length || 0} steps</p>
+          <div class="archflow-steps">
+            ${workflow?.steps?.map((step) => `
+              <div
+                class="archflow-step ${state.selectedNodeIds.includes(step.id) ? 'selected' : ''}"
+                data-node-id="${this._escapeHtml(step.id)}"
+              >
+                <div class="archflow-step__title">${this._escapeHtml(step.operation || step.id)}</div>
+                <div class="archflow-step__meta">${this._escapeHtml(step.type)}</div>
+                <div class="archflow-step__actions">
+                  <button
+                    class="archflow-step__button"
+                    data-connect-source-id="${this._escapeHtml(step.id)}"
+                  >
+                    ${pendingConnectionSourceId === step.id ? 'Connecting...' : 'Connect'}
+                  </button>
+                  <button
+                    class="archflow-step__button danger"
+                    data-remove-node-id="${this._escapeHtml(step.id)}"
+                  >
+                    Remove
+                  </button>
+                </div>
+                ${step.connections?.length
+                  ? `
+                    <div class="archflow-step__connections">
+                      ${step.connections.map((connection) =>
+                        `${this._escapeHtml(connection.sourceId)} -> ${this._escapeHtml(connection.targetId)}`
+                      ).join('<br/>')}
+                    </div>
+                  `
+                  : ''
+                }
+              </div>
+            `).join('') || '<div class="archflow-empty"><p>Canvas: 0 steps</p></div>'}
           </div>
         </div>
 
@@ -527,6 +621,24 @@ export class ArchflowShadowDom {
       button.removeEventListener('click', this._handleActionClick);
       button.addEventListener('click', this._handleActionClick);
     });
+
+    const nodeButtons = this.container?.querySelectorAll('[data-node-id]');
+    nodeButtons?.forEach((node) => {
+      node.removeEventListener('click', this._handleNodeClick);
+      node.addEventListener('click', this._handleNodeClick);
+    });
+
+    const connectButtons = this.container?.querySelectorAll('[data-connect-source-id]');
+    connectButtons?.forEach((button) => {
+      button.removeEventListener('click', this._handleConnectClick);
+      button.addEventListener('click', this._handleConnectClick);
+    });
+
+    const removeButtons = this.container?.querySelectorAll('[data-remove-node-id]');
+    removeButtons?.forEach((button) => {
+      button.removeEventListener('click', this._handleRemoveClick);
+      button.addEventListener('click', this._handleRemoveClick);
+    });
   }
 
   private _handleActionClick = (event: Event): void => {
@@ -543,4 +655,84 @@ export class ArchflowShadowDom {
       this.shadowRoot.host.dispatchEvent(customEvent);
     }
   };
+
+  private _handleNodeClick = (event: Event): void => {
+    const node = event.currentTarget as HTMLElement;
+    const nodeId = node.getAttribute('data-node-id');
+    if (!nodeId) {
+      return;
+    }
+
+    const state = this._getCurrentState();
+    if (state?.pendingConnectionSourceId && state.pendingConnectionSourceId !== nodeId) {
+      this.shadowRoot.host.dispatchEvent(new CustomEvent('archflow:connect', {
+        bubbles: true,
+        composed: true,
+        detail: {
+          sourceId: state.pendingConnectionSourceId,
+          targetId: nodeId,
+        },
+      }));
+      return;
+    }
+
+    const step = state?.workflow?.steps?.find((item) => item.id === nodeId);
+    this.shadowRoot.host.dispatchEvent(new CustomEvent('node-selected', {
+      bubbles: true,
+      composed: true,
+      detail: {
+        nodeId,
+        nodeType: step?.type || 'UNKNOWN',
+        nodeLabel: step?.operation || nodeId,
+        position: { x: 0, y: 0 },
+        config: step?.configuration || {},
+      },
+    }));
+  };
+
+  private _handleConnectClick = (event: Event): void => {
+    event.stopPropagation();
+    const button = event.currentTarget as HTMLElement;
+    const sourceId = button.getAttribute('data-connect-source-id');
+    if (!sourceId) {
+      return;
+    }
+
+    this.shadowRoot.host.dispatchEvent(new CustomEvent('archflow:connect', {
+      bubbles: true,
+      composed: true,
+      detail: { sourceId },
+    }));
+  };
+
+  private _handleRemoveClick = (event: Event): void => {
+    event.stopPropagation();
+    const button = event.currentTarget as HTMLElement;
+    const nodeId = button.getAttribute('data-remove-node-id');
+    if (!nodeId) {
+      return;
+    }
+
+    this.shadowRoot.host.dispatchEvent(new CustomEvent('archflow:remove', {
+      bubbles: true,
+      composed: true,
+      detail: { nodeId },
+    }));
+  };
+
+  private _getCurrentState(): ShadowDomState | null {
+    const host = this.shadowRoot.host as HTMLElement & {
+      workflow?: Flow | null;
+      selectedNodes?: string[];
+      pendingConnectionSourceId?: string | null;
+    };
+    return {
+      workflow: host.workflow || null,
+      isLoading: false,
+      isExecuting: false,
+      readonly: false,
+      selectedNodeIds: host.selectedNodes || [],
+      pendingConnectionSourceId: host.pendingConnectionSourceId || null,
+    };
+  }
 }

@@ -226,9 +226,10 @@ export abstract class BaseNodeComponent implements NodeComponent {
         return String(value);
       case 'number':
         return String(value);
-      default:
+      default: {
         const str = String(value);
         return str.length > 30 ? str.substring(0, 30) + '...' : str;
+      }
     }
   }
 

@@ -67,7 +67,9 @@ public class DefaultFlowValidator implements FlowValidator {
         }
 
         // Valida configuração do passo
-        validateStepConfiguration(step, errors);
+        if (step.getType() != null) {
+            validateStepConfiguration(step, errors);
+        }
 
         // Valida conexões do passo
         validateStepConnections(step, context, errors);

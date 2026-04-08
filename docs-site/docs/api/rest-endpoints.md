@@ -148,7 +148,7 @@ Lista todas as API keys do usuário atual.
 
 ---
 
-### GET /apikeys/{id}
+### `GET /apikeys/{id}`
 
 Retorna detalhes de uma API key específica.
 
@@ -159,7 +159,7 @@ Retorna detalhes de uma API key específica.
 
 ---
 
-### DELETE /apikeys/{id}
+### `DELETE /apikeys/{id}`
 
 Revoga (desativa) uma API key.
 
@@ -193,7 +193,7 @@ Lista todos os workflows acessíveis pelo usuário.
 
 ---
 
-### GET /workflows/{id}
+### `GET /workflows/{id}`
 
 Retorna o workflow completo com steps e configuração.
 
@@ -249,7 +249,7 @@ Cria um novo workflow.
 
 ---
 
-### PUT /workflows/{id}
+### `PUT /workflows/{id}`
 
 Atualiza um workflow existente.
 
@@ -259,7 +259,7 @@ Atualiza um workflow existente.
 
 ---
 
-### DELETE /workflows/{id}
+### `DELETE /workflows/{id}`
 
 Remove um workflow.
 
@@ -267,7 +267,7 @@ Remove um workflow.
 
 ---
 
-### POST /workflows/{id}/execute
+### `POST /workflows/{id}/execute`
 
 Executa um workflow com input opcional.
 
@@ -315,7 +315,7 @@ Lista execuções. Filtro opcional por workflow.
 
 ---
 
-### GET /executions/{id}
+### `GET /executions/{id}`
 
 Retorna detalhes de uma execução específica.
 

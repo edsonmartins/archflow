@@ -2,9 +2,10 @@ package br.com.archflow.standalone.model;
 
 import br.com.archflow.model.config.FlowConfiguration;
 import br.com.archflow.model.config.LLMConfig;
+import br.com.archflow.model.config.MonitoringConfig;
 import br.com.archflow.model.config.RetryPolicy;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
-import java.util.Map;
 import java.util.Set;
 
 /**
@@ -14,13 +15,14 @@ public class SerializableFlowConfig implements FlowConfiguration {
 
     private long timeout;
     private RetryPolicy retryPolicy;
+    @JsonProperty("llmConfig")
     private LLMConfig llmConfig;
-    private SerializableMonitoringConfig monitoringConfig;
+    private MonitoringConfig monitoringConfig;
 
     public SerializableFlowConfig() {} // Jackson
 
     public SerializableFlowConfig(long timeout, RetryPolicy retryPolicy, LLMConfig llmConfig,
-                                   SerializableMonitoringConfig monitoringConfig) {
+                                   MonitoringConfig monitoringConfig) {
         this.timeout = timeout;
         this.retryPolicy = retryPolicy;
         this.llmConfig = llmConfig;
@@ -38,30 +40,18 @@ public class SerializableFlowConfig implements FlowConfiguration {
                 config.getTimeout(),
                 serializableRp,
                 config.getLLMConfig(),
-                null // MonitoringConfig mapped separately if needed
+                config.getMonitoringConfig()
         );
     }
 
     @Override public long getTimeout() { return timeout; }
     @Override public RetryPolicy getRetryPolicy() { return retryPolicy; }
-    @Override public LLMConfig getLLMConfig() { return llmConfig; }
-    @Override public br.com.archflow.model.config.MonitoringConfig getMonitoringConfig() { return monitoringConfig; }
+    @Override @JsonProperty("llmConfig") public LLMConfig getLLMConfig() { return llmConfig; }
+    @Override public MonitoringConfig getMonitoringConfig() { return monitoringConfig; }
 
     public void setTimeout(long timeout) { this.timeout = timeout; }
     public void setRetryPolicy(RetryPolicy retryPolicy) { this.retryPolicy = retryPolicy; }
+    @JsonProperty("llmConfig")
     public void setLlmConfig(LLMConfig llmConfig) { this.llmConfig = llmConfig; }
-    public void setMonitoringConfig(SerializableMonitoringConfig monitoringConfig) { this.monitoringConfig = monitoringConfig; }
-
-    /**
-     * Serializable MonitoringConfig since the model version uses LogLevel enum.
-     */
-    public static class SerializableMonitoringConfig extends br.com.archflow.model.config.MonitoringConfig {
-        public SerializableMonitoringConfig() {
-            super(false, false, br.com.archflow.model.enums.LogLevel.INFO, Map.of());
-        }
-        public SerializableMonitoringConfig(boolean detailedMetrics, boolean fullHistory,
-                                             br.com.archflow.model.enums.LogLevel logLevel, Map<String, String> tags) {
-            super(detailedMetrics, fullHistory, logLevel, tags);
-        }
-    }
+    public void setMonitoringConfig(MonitoringConfig monitoringConfig) { this.monitoringConfig = monitoringConfig; }
 }

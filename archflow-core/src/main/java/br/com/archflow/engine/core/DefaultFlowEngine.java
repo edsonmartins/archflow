@@ -160,7 +160,11 @@ public class DefaultFlowEngine implements FlowEngine {
     }
 
     private ExecutionContext createInitialContext(Flow flow, Map<String, Object> input) {
-        ExecutionContext context = new DefaultExecutionContext(MessageWindowChatMemory.builder().build());
+        ExecutionContext context = new DefaultExecutionContext(
+                MessageWindowChatMemory.builder()
+                        .maxMessages(100)
+                        .build()
+        );
 
         FlowState initialState = FlowState.builder()
                 .flowId(flow.getId())
@@ -252,6 +256,6 @@ public class DefaultFlowEngine implements FlowEngine {
 
     @Override
     public Set<String> getActiveFlows() {
-        return new HashSet<>(activeExecutions.keySet());
+        return Collections.unmodifiableSet(new HashSet<>(activeExecutions.keySet()));
     }
 }

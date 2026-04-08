@@ -489,7 +489,7 @@ export class ExecutionStore {
         this._currentCallbacks.onNodeStart?.(nodeId);
         break;
 
-      case StreamEventType.NODE_COMPLETE:
+      case StreamEventType.NODE_COMPLETE: {
         const startTime = nodeStartTimes.get(nodeId) || Date.now();
         const executionTime = Date.now() - startTime;
 
@@ -508,6 +508,7 @@ export class ExecutionStore {
         this._currentCallbacks.onNodeComplete?.(nodeId, nodeResult);
         nodeStartTimes.delete(nodeId);
         break;
+      }
 
       case StreamEventType.NODE_ERROR:
         this.updateNodeState(nodeId, StepStatus.FAILED);

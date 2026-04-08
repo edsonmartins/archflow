@@ -59,7 +59,7 @@ jobs:
           retention-days: 14
 
   frontend:
-    name: Frontend Lint & Build
+    name: Frontend Lint, Test & Build
     runs-on: ubuntu-latest
 
     defaults:
@@ -82,6 +82,15 @@ jobs:
 
       - name: Lint
         run: npm run lint
+
+      - name: Test
+        run: npm run test:run
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: E2E
+        run: npm run test:e2e
 
       - name: Build
         run: npm run build

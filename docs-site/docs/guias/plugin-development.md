@@ -322,4 +322,4 @@ Código fonte em `archflow-plugins/archflow-plugin-{tools,assistants,agents}/`.
 
 - [API Reference](../api/rest-endpoints) — Endpoints REST para gerenciar plugins
 - [Conceitos](../conceitos/) — Arquitetura do archflow
-- [LangChain4j Integration](../api/langchain4j) — Integração com modelos de IA
+- [LangChain4j Integration](../api/api-langchain4j) — Integração com modelos de IA

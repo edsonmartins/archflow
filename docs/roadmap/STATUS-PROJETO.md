@@ -36,9 +36,9 @@
 - Enterprise features from day one
 
 **Stack Tecnológico:**
-- Backend: Java 17+, Spring Boot 3.x, LangChain4j 1.10.0
+- Backend: Java 17+, Spring Boot 3.x, LangChain4j 1.12.2
 - Frontend: React 19 (uso) + Web Component (distribuição)
-- AI: LangChain4j 1.10.0, Spring AI 1.1+
+- AI: LangChain4j 1.12.2, Spring AI 1.1+
 - Protocolos: MCP v1.0, SSE, WebSocket
 - Enterprise: Spring Security, Keycloak, OpenTelemetry
 
@@ -48,7 +48,7 @@
 
 ## 📊 STATUS GERAL DO PROJETO
 
-**Última atualização:** 2026-03-12
+**Última atualização:** 2026-04-08
 
 ### Resumo por Fase
 
@@ -58,11 +58,11 @@
 | **FASE 2** | Visual Experience | 100% | ✅ DONE | 42/42 | ~156h |
 | **FASE 3** | Enterprise Capabilities | 100% | ✅ DONE | 46/46 | ~153h |
 | **FASE 4** | Ecosystem | 100% | ✅ DONE | 49/49 | ~183h |
-| **FASE 5** | Polish & Launch | 87% | 🟡 IN_PROGRESS | 48/55 | ~220h |
+| **FASE 5** | Polish & Launch | 75% | 🟡 IN_PROGRESS | 41/55 | ~220h |
 
-**Status Geral:** Fases 1-4 completas, Fase 5 em ~87% (pendente: tag, publicação, anúncios)
+**Status Geral:** Fases 1-4 completas, Fase 5 em ~75% (pendente: exemplos avançados/e2e, publicação, website e anúncios)
 
-**Progresso Total:** ~97% (~221/228 tarefas implementadas no código)
+**Progresso Total:** ~93% (~214/229 tarefas implementadas no código)
 
 **Total Estimado:** ~835 horas (~20-30 semanas)
 
@@ -81,8 +81,8 @@
 |--------|-----------|----------|
 | Sprint 17: Performance | ✅ 100% | RedisCacheManager, TwoLevelCache, EmbeddingCache, LlmCache, Benchmarker + testes |
 | Sprint 18: Documentation | ✅ 100% | 10 docs Docusaurus (building-workflows, custom-tools, deploy, security, troubleshooting, web-component, conceitos) |
-| Sprint 19: Examples | ✅ 90% | React customer-support, Spring Boot integration, READMEs |
-| Sprint 20: Launch | 🟡 72% | CHANGELOG.md, release.yml, SECURITY.md, version 1.0.0, monitoring stack. Pendente: tag, publicação npm/Docker, anúncios |
+| Sprint 19: Examples | 🟡 40% | React customer-support, Spring Boot integration, READMEs. Pendentes: exemplos avançados, Vue/Angular, e2e, publicação |
+| Sprint 20: Launch | 🟡 56% | CHANGELOG.md, release.yml, SECURITY.md, version 1.0.0, monitoring stack, teste completo. Pendentes: release, publicação npm/Docker, website, anúncios |
 
 ---
 
@@ -98,22 +98,25 @@ archflow/
 ├── archflow-plugin-api/               ✅ Plugin SPI, Catalog + testes
 ├── archflow-plugin-loader/            ✅ Dynamic classloader, lifecycle + testes
 ├── archflow-plugins/                  ✅ 3 plugins referência (Tool, Assistant, Agent) + testes
-├── archflow-langchain4j/              ✅ 13 submodules
+├── archflow-langchain4j/              ✅ 14 submodules
 │   ├── archflow-langchain4j-core/     ✅ Base adapter interfaces (SPI)
 │   ├── archflow-langchain4j-openai/   ✅ + testes
 │   ├── archflow-langchain4j-anthropic/ ✅ + testes
-│   ├── archflow-langchain4j-mcp/      ✅ MCP registry + testes (27)
-│   ├── archflow-langchain4j-streaming/ ✅ SSE streaming
+│   ├── archflow-langchain4j-mcp/      ✅ MCP registry + testes
 │   ├── archflow-langchain4j-provider-hub/ ✅ Multi-LLM Hub (15+ providers)
-│   └── archflow-langchain4j-memory-*/ ✅ Redis, JDBC backends
+│   ├── archflow-langchain4j-memory-*/ ✅ Redis, JDBC backends
+│   ├── archflow-langchain4j-embedding-*/ ✅ OpenAI, local
+│   ├── archflow-langchain4j-vectorstore-*/ ✅ Redis, pgvector, Pinecone
+│   ├── archflow-langchain4j-chain-rag/ ✅ RAG chain
+│   └── archflow-langchain4j-skills/   ✅ Skills integration
 ├── archflow-observability/            ✅ OpenTelemetry, Micrometer, Audit + testes
 ├── archflow-conversation/             ✅ Suspend/Resume, Forms, SSE + testes
 ├── archflow-performance/              ✅ Caffeine, Pools, Parallel + testes
 ├── archflow-templates/                ✅ Registry + 4 built-in templates + testes
 ├── archflow-marketplace/              ✅ ExtensionManifest, Installer, Registry, Validators + testes
 ├── archflow-workflow-tool/            ✅ WorkflowTool, Registry, LangChain4j Adapter + testes
-├── archflow-ui/                       ✅ React 19 + Web Component + App shell
-├── .github/workflows/ci.yml          ✅ CI/CD (backend + frontend)
+├── archflow-ui/                       ✅ React 19 + Web Component + App shell + Vitest
+├── .github/workflows/ci.yml          ✅ CI/CD (backend + frontend lint/test/build)
 ├── Dockerfile                         ✅ Multi-stage build
 └── docker-compose.yml                 ✅ PostgreSQL + Redis
 ```
@@ -128,7 +131,7 @@ archflow/
 | [FASE 2: Visual Experience](./fase-2-tarefas.md) | [Ver documento](./fase-2-tarefas.md) | ✅ DONE (100%) |
 | [FASE 3: Enterprise Capabilities](./fase-3-tarefas.md) | [Ver documento](./fase-3-tarefas.md) | ✅ DONE (100%) |
 | [FASE 4: Ecosystem](./fase-4-tarefas.md) | [Ver documento](./fase-4-tarefas.md) | ✅ DONE (100%) |
-| [FASE 5: Polish & Launch](./fase-5-tarefas.md) | [Ver documento](./fase-5-tarefas.md) | 🟡 IN_PROGRESS (~87%) |
+| [FASE 5: Polish & Launch](./fase-5-tarefas.md) | [Ver documento](./fase-5-tarefas.md) | 🟡 IN_PROGRESS (~75%) |
 
 ---
 
@@ -161,7 +164,14 @@ archflow/
 - ✅ **BLOCO 5:** Frontend MVP — routing, 4 pages, 3 Zustand stores, auth, NodePalette, PropertyEditor
 - ✅ **BLOCO 6:** Testes para módulos skeleton (~225 tests em observability, conversation, performance, templates)
 - ✅ **BLOCO 7:** Documentação técnica — quickstart-dev.md, rest-endpoints.md, plugin-development.md
-- ⚠️ **Pendente:** Testes frontend (Vitest), validação completa com `mvn clean install`
+
+### 2026-04-08 - Auditoria de Build/Testes Corrigida ✅
+- ✅ `mvn clean verify -Pcoverage` passando no reactor completo (35 módulos)
+- ✅ `mvn clean package -DskipTests` validado para fluxo de release backend
+- ✅ `archflow-ui`: `npm run lint`, `npm run test:run` (31/31) e `npm run build` passando
+- ✅ `docs-site`: `npm ci` e `npm run build` passando para `pt-BR` e `en`
+- ✅ CI frontend atualizado para executar Vitest
+- ⚠️ Lint frontend passa com warnings de variáveis não usadas; `no-explicit-any` foi desativado para APIs dinâmicas do Web Component
 
 ### 2025-01-16 - Sprint 1 COMPLETO ✅
 - ✅ **Sprint 1: Upgrade LangChain4j 1.0.0-beta1 → 1.10.0** - TODAS AS 10 TAREFAS COMPLETAS
@@ -200,11 +210,11 @@ archflow/
 
 ### Próximos passos para v1.0.0
 
-Apenas tarefas de **publicação e marketing** restam:
+Restam tarefas de exemplos, release/publicação e marketing:
 
 | Tarefa | Sprint | Estimativa |
 |--------|--------|------------|
-| Rodar test suite completo (coverage > 80%) | Sprint 20 | 3h |
+| Rodar test suite completo (`mvn clean verify -Pcoverage`) | Sprint 20 | 3h |
 | Audit de segurança (dependency scan) | Sprint 20 | 2h |
 | Atualizar versão para 1.0.0 no pom.xml | Sprint 20 | 1h |
 | Criar tag git v1.0.0 | Sprint 20 | 0.5h |

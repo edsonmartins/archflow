@@ -9,7 +9,6 @@
  */
 
 import type { ExecutionStore } from './ExecutionStore';
-import type { NodeExecutionResultMap } from './execution-types';
 import { ExecutionState as ES, type ExecutionState, formatDuration, formatTimestamp } from './execution-types';
 
 // ==========================================================================
@@ -67,9 +66,6 @@ export class ExecutionPanel {
     this._render();
 
     overlayLayer.appendChild(this.container);
-
-    // Subscribe to store changes
-    this.store['state']; // This will be replaced with proper subscription
   }
 
   /**

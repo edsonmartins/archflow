@@ -16,6 +16,8 @@ interface EditorState {
     isPropertiesOpen: boolean;
 
     selectNode: (id: string | null, node?: EditorNode) => void;
+    updateSelectedNode: (updates: Partial<EditorNode>) => void;
+    updateSelectedNodeConfig: (name: string, value: unknown) => void;
     setDirty: (dirty: boolean) => void;
     togglePalette: () => void;
     toggleProperties: () => void;
@@ -37,6 +39,26 @@ export const useEditorStore = create<EditorState>((set) => ({
             selectedNode: node || null,
             isPropertiesOpen: !!id,
         }),
+
+    updateSelectedNode: (updates) =>
+        set((state) => ({
+            selectedNode: state.selectedNode ? { ...state.selectedNode, ...updates } : null,
+            isDirty: state.selectedNode ? true : state.isDirty,
+        })),
+
+    updateSelectedNodeConfig: (name, value) =>
+        set((state) => ({
+            selectedNode: state.selectedNode
+                ? {
+                    ...state.selectedNode,
+                    config: {
+                        ...state.selectedNode.config,
+                        [name]: value,
+                    },
+                }
+                : null,
+            isDirty: state.selectedNode ? true : state.isDirty,
+        })),
 
     setDirty: (dirty) => set({ isDirty: dirty }),
     togglePalette: () => set((s) => ({ isPaletteOpen: !s.isPaletteOpen })),
