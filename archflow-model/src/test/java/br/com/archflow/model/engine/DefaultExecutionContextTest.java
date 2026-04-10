@@ -131,6 +131,94 @@ class DefaultExecutionContextTest {
         assertThat(context.get("key")).contains("updated");
     }
 
+    @Test
+    @DisplayName("withVariable should return new instance without mutating original")
+    void withVariableShouldReturnNewInstance() {
+        context.set("existing", "value");
+        var newCtx = context.withVariable("added", "new");
+
+        assertThat(newCtx).isNotSameAs(context);
+        assertThat(newCtx.get("added")).contains("new");
+        assertThat(newCtx.get("existing")).contains("value");
+        assertThat(context.get("added")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("withVariable should preserve tenant fields")
+    void withVariableShouldPreserveTenantFields() {
+        var ctx = new DefaultExecutionContext("t1", "u1", "s1", chatMemory);
+        var newCtx = ctx.withVariable("key", "val");
+
+        assertThat(newCtx.getTenantId()).isEqualTo("t1");
+        assertThat(newCtx.getUserId()).isEqualTo("u1");
+        assertThat(newCtx.getSessionId()).isEqualTo("s1");
+        assertThat(newCtx.getRequestId()).isEqualTo(ctx.getRequestId());
+    }
+
+    @Test
+    @DisplayName("should default tenantId to SYSTEM with legacy constructor")
+    void shouldDefaultTenantIdToSystem() {
+        assertThat(context.getTenantId()).isEqualTo("SYSTEM");
+        assertThat(context.getUserId()).isNull();
+        assertThat(context.getSessionId()).isNull();
+        assertThat(context.getRequestId()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("should accept tenant fields in new constructor")
+    void shouldAcceptTenantFields() {
+        var ctx = new DefaultExecutionContext("tenant-1", "user-1", "session-1", chatMemory);
+
+        assertThat(ctx.getTenantId()).isEqualTo("tenant-1");
+        assertThat(ctx.getUserId()).isEqualTo("user-1");
+        assertThat(ctx.getSessionId()).isEqualTo("session-1");
+        assertThat(ctx.getRequestId()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("should treat null tenantId as SYSTEM")
+    void shouldTreatNullTenantIdAsSystem() {
+        var ctx = new DefaultExecutionContext(null, null, null, chatMemory);
+        assertThat(ctx.getTenantId()).isEqualTo("SYSTEM");
+    }
+
+    @Test
+    @DisplayName("should return unmodifiable variables map")
+    void shouldReturnUnmodifiableVariables() {
+        context.set("key", "value");
+        var variables = context.getVariables();
+
+        assertThat(variables).containsEntry("key", "value");
+        assertThatThrownBy(() -> variables.put("new", "val"))
+                .isInstanceOf(UnsupportedOperationException.class);
+    }
+
+    @Test
+    @DisplayName("should create immutable snapshot")
+    void shouldCreateImmutableSnapshot() {
+        context.set("key", "original");
+        var snapshot = context.snapshot();
+
+        context.set("key", "modified");
+        context.set("newKey", "newValue");
+
+        assertThat(snapshot.get("key")).contains("original");
+        assertThat(snapshot.get("newKey")).isEmpty();
+        assertThat(snapshot.getTenantId()).isEqualTo("SYSTEM");
+    }
+
+    @Test
+    @DisplayName("snapshot should preserve tenant fields")
+    void snapshotShouldPreserveTenantFields() {
+        var ctx = new DefaultExecutionContext("tenant-1", "user-1", "session-1", chatMemory);
+        var snapshot = ctx.snapshot();
+
+        assertThat(snapshot.getTenantId()).isEqualTo("tenant-1");
+        assertThat(snapshot.getUserId()).isEqualTo("user-1");
+        assertThat(snapshot.getSessionId()).isEqualTo("session-1");
+        assertThat(snapshot.getRequestId()).isEqualTo(ctx.getRequestId());
+    }
+
     private static class TestChatMemory implements ChatMemory {
         @Override
         public Object id() {

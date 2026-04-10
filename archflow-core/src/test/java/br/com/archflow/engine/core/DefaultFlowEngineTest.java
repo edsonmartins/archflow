@@ -217,7 +217,11 @@ class DefaultFlowEngineTest {
             var result = engine.resumeFlow("flow-1", context).get();
 
             assertThat(result).isSameAs(expectedResult);
-            verify(context).setState(pausedState);
+            // Estado é atualizado para RUNNING ao retomar
+            var stateCaptor = org.mockito.ArgumentCaptor.forClass(FlowState.class);
+            verify(context).setState(stateCaptor.capture());
+            assertThat(stateCaptor.getValue().getStatus()).isEqualTo(FlowStatus.RUNNING);
+            assertThat(stateCaptor.getValue().getFlowId()).isEqualTo("flow-1");
         }
 
         @Test

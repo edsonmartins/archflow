@@ -19,7 +19,8 @@ class FlowStatusTest {
                 FlowStatus.PAUSED,
                 FlowStatus.COMPLETED,
                 FlowStatus.FAILED,
-                FlowStatus.STOPPED
+                FlowStatus.STOPPED,
+                FlowStatus.AWAITING_APPROVAL
         );
     }
 
@@ -31,7 +32,7 @@ class FlowStatusTest {
     }
 
     @ParameterizedTest
-    @EnumSource(value = FlowStatus.class, names = {"INITIALIZED", "RUNNING", "PAUSED"})
+    @EnumSource(value = FlowStatus.class, names = {"INITIALIZED", "RUNNING", "PAUSED", "AWAITING_APPROVAL"})
     @DisplayName("isFinal should return false for non-terminal states")
     void isFinalShouldReturnFalseForNonTerminal(FlowStatus status) {
         assertThat(status.isFinal()).isFalse();
@@ -45,17 +46,29 @@ class FlowStatusTest {
     }
 
     @ParameterizedTest
-    @EnumSource(value = FlowStatus.class, names = {"COMPLETED", "FAILED", "STOPPED"})
-    @DisplayName("canContinue should return false for terminal states")
-    void canContinueShouldReturnFalseForTerminalStates(FlowStatus status) {
+    @EnumSource(value = FlowStatus.class, names = {"COMPLETED", "FAILED", "STOPPED", "AWAITING_APPROVAL"})
+    @DisplayName("canContinue should return false for non-active states")
+    void canContinueShouldReturnFalseForNonActiveStates(FlowStatus status) {
         assertThat(status.canContinue()).isFalse();
     }
 
     @Test
-    @DisplayName("isFinal and canContinue should be mutually exclusive")
-    void isFinalAndCanContinueShouldBeMutuallyExclusive() {
+    @DisplayName("AWAITING_APPROVAL is neither final nor continuable")
+    void awaitingApprovalIsNeitherFinalNorContinuable() {
+        assertThat(FlowStatus.AWAITING_APPROVAL.isFinal()).isFalse();
+        assertThat(FlowStatus.AWAITING_APPROVAL.canContinue()).isFalse();
+        assertThat(FlowStatus.AWAITING_APPROVAL.isWaitingForHuman()).isTrue();
+    }
+
+    @Test
+    @DisplayName("isWaitingForHuman should return false for all states except AWAITING_APPROVAL")
+    void isWaitingForHumanShouldReturnFalseForOtherStates() {
         for (FlowStatus status : FlowStatus.values()) {
-            assertThat(status.isFinal()).isNotEqualTo(status.canContinue());
+            if (status == FlowStatus.AWAITING_APPROVAL) {
+                assertThat(status.isWaitingForHuman()).isTrue();
+            } else {
+                assertThat(status.isWaitingForHuman()).isFalse();
+            }
         }
     }
 }

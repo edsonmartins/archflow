@@ -64,4 +64,32 @@ public interface EpisodicMemory {
      * Returns the total number of stored episodes.
      */
     int size();
+
+    /**
+     * Stores an episode with explicit tenant isolation.
+     */
+    default void store(String tenantId, Episode episode) {
+        store(episode);
+    }
+
+    /**
+     * Retrieves the most relevant episodes scoped by tenant.
+     */
+    default List<ScoredEpisode> recall(String tenantId, String query, String contextId, int maxResults) {
+        return recall(query, contextId, maxResults);
+    }
+
+    /**
+     * Retrieves all episodes for a tenant and context.
+     */
+    default List<Episode> getByContext(String tenantId, String contextId) {
+        return getByContext(contextId);
+    }
+
+    /**
+     * Clears all episodes for a tenant and context.
+     */
+    default void clear(String tenantId, String contextId) {
+        clear(contextId);
+    }
 }

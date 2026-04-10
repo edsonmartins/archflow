@@ -6,6 +6,19 @@ import { useState, FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../stores/auth-store';
 
+function ArchflowLogo() {
+    return (
+        <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+            <rect width="48" height="48" rx="12" fill="#185FA5"/>
+            <circle cx="14" cy="24" r="5" stroke="white" strokeWidth="2"/>
+            <circle cx="34" cy="14" r="4" stroke="white" strokeWidth="2"/>
+            <circle cx="34" cy="34" r="4" stroke="white" strokeWidth="2"/>
+            <line x1="19" y1="22" x2="30" y2="15" stroke="white" strokeWidth="2" strokeLinecap="round"/>
+            <line x1="19" y1="26" x2="30" y2="33" stroke="white" strokeWidth="2" strokeLinecap="round"/>
+        </svg>
+    );
+}
+
 export default function LoginPage() {
     const navigate = useNavigate();
     const { login, loading, error, clearError } = useAuthStore();
@@ -23,14 +36,15 @@ export default function LoginPage() {
     };
 
     return (
-        <Center h="100vh" bg="#f8fafc">
+        <Center h="100vh" style={{ background: 'var(--color-background-tertiary)' }}>
             <Box w={400}>
-                <Stack align="center" mb="lg">
-                    <Text fw={700} size="xl">Archflow</Text>
-                    <Text c="dimmed" size="sm">Sign in to your account</Text>
+                <Stack align="center" mb="xl" gap="xs">
+                    <ArchflowLogo />
+                    <Text fw={700} size="xl" mt="xs">Archflow</Text>
+                    <Text c="dimmed" size="sm">Agent orchestration platform</Text>
                 </Stack>
 
-                <Paper withBorder shadow="md" p="xl" radius="md">
+                <Paper withBorder shadow="md" p="xl" radius="lg">
                     <form onSubmit={handleSubmit}>
                         <Stack gap="md">
                             {error && (

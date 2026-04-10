@@ -34,16 +34,22 @@ public class BrainSentryMemoryAdapter implements EpisodicMemory {
 
     @Override
     public void store(Episode episode) {
+        store(episode.tenantId(), episode);
+    }
+
+    @Override
+    public void store(String tenantId, Episode episode) {
         try {
             String category = mapEpisodeType(episode.type());
             String importance = episode.importance() >= 0.7 ? "CRITICAL"
                     : episode.importance() >= 0.4 ? "IMPORTANT" : "MINOR";
             List<String> tags = new ArrayList<>();
             tags.add("archflow");
+            tags.add("tenant:" + tenantId);
             tags.add("context:" + episode.contextId());
 
             client.createMemory(episode.content(), category, importance, "EPISODIC", tags);
-            log.debug("Stored episode {} to Brain Sentry", episode.id());
+            log.debug("Stored episode {} to Brain Sentry for tenant {}", episode.id(), tenantId);
         } catch (Exception e) {
             log.error("Failed to store episode to Brain Sentry: {}", e.getMessage());
         }
@@ -51,9 +57,17 @@ public class BrainSentryMemoryAdapter implements EpisodicMemory {
 
     @Override
     public List<ScoredEpisode> recall(String query, String contextId, int maxResults) {
+        return recall("SYSTEM", query, contextId, maxResults);
+    }
+
+    @Override
+    public List<ScoredEpisode> recall(String tenantId, String query, String contextId, int maxResults) {
         try {
-            List<Memory> memories = client.searchMemories(query, maxResults);
+            // Prefix query with tenant filter to ensure isolation
+            String tenantQuery = "tenant:" + tenantId + " " + query;
+            List<Memory> memories = client.searchMemories(tenantQuery, maxResults);
             return memories.stream()
+                    .filter(m -> hasTenantTag(m, tenantId))
                     .map(m -> toScoredEpisode(m, contextId))
                     .toList();
         } catch (Exception e) {
@@ -64,10 +78,17 @@ public class BrainSentryMemoryAdapter implements EpisodicMemory {
 
     @Override
     public List<Episode> getByContext(String contextId) {
+        return getByContext("SYSTEM", contextId);
+    }
+
+    @Override
+    public List<Episode> getByContext(String tenantId, String contextId) {
         try {
-            List<Memory> memories = client.searchMemories("context:" + contextId, 50);
+            String tenantQuery = "tenant:" + tenantId + " context:" + contextId;
+            List<Memory> memories = client.searchMemories(tenantQuery, 50);
             return memories.stream()
-                    .map(m -> toEpisode(m, contextId))
+                    .filter(m -> hasTenantTag(m, tenantId))
+                    .map(m -> toEpisode(m, contextId, tenantId))
                     .sorted(Comparator.comparing(Episode::timestamp).reversed())
                     .toList();
         } catch (Exception e) {
@@ -79,11 +100,23 @@ public class BrainSentryMemoryAdapter implements EpisodicMemory {
     @Override
     public Optional<Episode> getById(String episodeId) {
         try {
-            return client.getMemory(episodeId).map(m -> toEpisode(m, "unknown"));
+            return client.getMemory(episodeId).map(m -> {
+                String tenantId = extractTenantFromTags(m);
+                return toEpisode(m, "unknown", tenantId);
+            });
         } catch (Exception e) {
             log.error("Failed to get by ID from Brain Sentry: {}", e.getMessage());
             return Optional.empty();
         }
+    }
+
+    private String extractTenantFromTags(Memory memory) {
+        if (memory.tags() == null) return "SYSTEM";
+        return memory.tags().stream()
+                .filter(t -> t.startsWith("tenant:"))
+                .map(t -> t.substring("tenant:".length()))
+                .findFirst()
+                .orElse("SYSTEM");
     }
 
     @Override
@@ -116,13 +149,18 @@ public class BrainSentryMemoryAdapter implements EpisodicMemory {
         };
     }
 
+    private boolean hasTenantTag(Memory memory, String tenantId) {
+        if (memory.tags() == null) return true; // No tags = no filtering possible
+        return memory.tags().contains("tenant:" + tenantId);
+    }
+
     private ScoredEpisode toScoredEpisode(Memory memory, String contextId) {
-        Episode episode = toEpisode(memory, contextId);
+        Episode episode = toEpisode(memory, contextId, "SYSTEM");
         double score = mapImportance(memory.importance());
         return new ScoredEpisode(episode, score, score, 1.0, score);
     }
 
-    private Episode toEpisode(Memory memory, String contextId) {
+    private Episode toEpisode(Memory memory, String contextId, String tenantId) {
         double importance = mapImportance(memory.importance());
         Map<String, String> metadata = new HashMap<>();
         metadata.put("brainsentry.id", memory.id());
@@ -131,6 +169,7 @@ public class BrainSentryMemoryAdapter implements EpisodicMemory {
 
         return new Episode(
                 memory.id(),
+                tenantId,
                 contextId,
                 memory.content(),
                 memory.summary(),

@@ -78,4 +78,30 @@ public interface FlowEngine {
      * Retorna o conjunto de IDs dos fluxos ativos
      */
     Set<String> getActiveFlows();
+
+    /**
+     * Suspende um fluxo aguardando aprovação humana (AWAITING_APPROVAL).
+     *
+     * @param flowId  ID do fluxo a suspender
+     * @param stepId  ID do step que solicita aprovação
+     * @param proposal Payload da proposta a ser aprovada
+     * @return ID da requisição de aprovação
+     */
+    default String requestApproval(String flowId, String stepId, Object proposal) {
+        throw new UnsupportedOperationException("Human-in-the-loop not supported by this engine");
+    }
+
+    /**
+     * Submete uma decisão humana para retomar um fluxo suspenso.
+     *
+     * @param flowId    ID do fluxo suspenso
+     * @param requestId ID da requisição de aprovação
+     * @param approved  Se a proposta foi aprovada
+     * @param editedPayload Payload editado (quando aplicável)
+     * @return Future com o resultado da execução retomada
+     */
+    default CompletableFuture<FlowResult> submitApproval(String flowId, String requestId,
+                                                          boolean approved, Object editedPayload) {
+        throw new UnsupportedOperationException("Human-in-the-loop not supported by this engine");
+    }
 }

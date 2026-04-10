@@ -1,0 +1,1129 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ArchFlow — System Design v2.0</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:      #F0F2F5;
+  --bg2:     #FFFFFF;
+  --bg3:     #F7F8FA;
+  --border:  rgba(0,0,0,0.08);
+  --border2: rgba(0,0,0,0.14);
+  --text:    #1A202C;
+  --text2:   #4A5568;
+  --text3:   #A0AEC0;
+  --blue:    #378ADD;
+  --blue-d:  #185FA5;
+  --blue-l:  #E6F1FB;
+  --purple:  #7F77DD;
+  --purple-l:#EEEDFE;
+  --teal:    #1D9E75;
+  --teal-l:  #E1F5EE;
+  --coral:   #D85A30;
+  --coral-l: #FAECE7;
+  --amber:   #BA7517;
+  --amber-l: #FAEEDA;
+  --gray:    #888780;
+  --gray-l:  #F1EFE8;
+  --success: #0F6E56;
+  --success-l:#E1F5EE;
+  --danger:  #993C1D;
+  --danger-l:#FAECE7;
+  --warning: #854F0B;
+  --warning-l:#FAEEDA;
+  --info:    #185FA5;
+  --info-l:  #E6F1FB;
+}
+
+body {
+  font-family: 'DM Sans', system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* ── Nav de telas ── */
+.screen-nav {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  height: 48px;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 24px;
+  gap: 4px;
+  z-index: 100;
+}
+.screen-nav-logo {
+  display: flex; align-items: center; gap: 8px;
+  margin-right: 20px;
+  padding-right: 20px;
+  border-right: 1px solid var(--border);
+}
+.screen-nav-logo svg { width: 24px; height: 24px; }
+.screen-nav-logo span { font-size: 15px; font-weight: 500; }
+.screen-nav-logo span b { color: var(--blue); font-weight: 500; }
+.nav-tab {
+  padding: 6px 14px;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  color: var(--text2);
+  border: none;
+  background: transparent;
+  transition: background 0.1s;
+}
+.nav-tab:hover { background: var(--bg3); }
+.nav-tab.active { background: var(--blue-l); color: var(--blue-d); }
+.nav-tag {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text3);
+  font-family: 'DM Mono', monospace;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  padding: 2px 10px;
+  border-radius: 20px;
+}
+
+/* ── Telas ── */
+.screen { display: none; padding-top: 48px; min-height: 100vh; }
+.screen.active { display: block; }
+
+/* ═══════════════════════════════════════════
+   TELA 1 — DESIGN SYSTEM
+═══════════════════════════════════════════ */
+.ds-wrap { padding: 32px; max-width: 1100px; margin: 0 auto; }
+.ds-section { margin-bottom: 40px; }
+.ds-label {
+  font-size: 10px; font-weight: 600; color: var(--text3);
+  letter-spacing: 0.09em; text-transform: uppercase;
+  margin-bottom: 14px;
+}
+.ds-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-start; }
+
+/* Logo */
+.logo-card {
+  display: flex; align-items: center; gap: 16px;
+  padding: 20px 24px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  margin-bottom: 12px;
+}
+.logo-icon { width: 40px; height: 40px; }
+.logo-name { font-size: 24px; font-weight: 500; letter-spacing: -0.5px; }
+.logo-name b { color: var(--blue); font-weight: 500; }
+.logo-tagline { font-size: 12px; color: var(--text3); margin-top: 1px; }
+.logo-version {
+  margin-left: auto;
+  font-size: 11px; color: var(--text3);
+  font-family: 'DM Mono', monospace;
+  background: var(--bg2); border: 1px solid var(--border);
+  padding: 3px 10px; border-radius: 20px;
+}
+
+/* Swatches */
+.swatch { text-align: center; width: 64px; }
+.swatch-block { height: 40px; border-radius: 8px; margin-bottom: 5px; border: 1px solid rgba(0,0,0,0.07); }
+.swatch-name { font-size: 11px; font-weight: 500; color: var(--text2); }
+.swatch-hex  { font-size: 10px; color: var(--text3); font-family: 'DM Mono', monospace; }
+
+/* Node category pills */
+.cat-pill {
+  display: flex; align-items: center; gap: 9px;
+  padding: 10px 14px; border-radius: 8px;
+  background: var(--bg2); border: 1px solid var(--border);
+  min-width: 190px;
+}
+.cat-dot { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+.cat-name { font-size: 12px; font-weight: 500; }
+.cat-desc { font-size: 11px; color: var(--text3); }
+
+/* Type scale */
+.type-row {
+  display: flex; align-items: baseline; gap: 20px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.type-meta { font-size: 11px; color: var(--text3); font-family: 'DM Mono', monospace; min-width: 160px; }
+
+/* Status badges */
+.badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 10px; border-radius: 20px;
+  font-size: 11px; font-weight: 500;
+}
+.badge-dot { width: 5px; height: 5px; border-radius: 50%; }
+
+/* ═══════════════════════════════════════════
+   TELA 2 — LOGIN
+═══════════════════════════════════════════ */
+.login-screen {
+  min-height: calc(100vh - 48px);
+  background: var(--bg3);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 24px;
+}
+.login-logo { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.login-logo-text { font-size: 22px; font-weight: 500; }
+.login-logo-text b { color: var(--blue); font-weight: 500; }
+.login-tagline { font-size: 13px; color: var(--text3); margin-bottom: 28px; }
+.login-card {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 28px;
+  width: 100%; max-width: 360px;
+  box-shadow: 0 2px 16px rgba(0,0,0,0.06);
+}
+.login-card-title { font-size: 15px; font-weight: 500; margin-bottom: 20px; }
+.field { margin-bottom: 14px; }
+.field-label { font-size: 11px; font-weight: 500; color: var(--text2); margin-bottom: 5px; }
+.field-input {
+  width: 100%; padding: 8px 12px;
+  border-radius: 8px; border: 1px solid var(--border2);
+  background: var(--bg3); color: var(--text);
+  font-size: 13px; font-family: 'DM Sans', sans-serif;
+  outline: none;
+}
+.field-input:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(55,138,221,0.12); }
+.btn-primary {
+  width: 100%; padding: 9px;
+  border-radius: 8px; border: none;
+  background: var(--blue); color: #fff;
+  font-size: 13px; font-weight: 500;
+  cursor: pointer; font-family: 'DM Sans', sans-serif;
+}
+.login-footer { font-size: 11px; color: var(--text3); margin-top: 20px; text-align: center; }
+
+/* ═══════════════════════════════════════════
+   TELA 3 — LISTA DE WORKFLOWS
+═══════════════════════════════════════════ */
+.app-shell {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  grid-template-rows: 1fr;
+  min-height: calc(100vh - 48px);
+}
+.sidebar {
+  background: var(--bg2);
+  border-right: 1px solid var(--border);
+  padding: 16px 10px;
+  display: flex;
+  flex-direction: column;
+}
+.sidebar-logo { display: flex; align-items: center; gap: 8px; padding: 6px 8px; margin-bottom: 16px; }
+.sidebar-logo-text { font-size: 15px; font-weight: 500; }
+.sidebar-logo-text b { color: var(--blue); font-weight: 500; }
+.sidebar-badge { font-size: 10px; color: var(--text3); background: var(--bg3); border: 1px solid var(--border); padding: 1px 7px; border-radius: 10px; font-family: 'DM Mono', monospace; }
+.nav-item {
+  display: flex; align-items: center; gap: 9px;
+  padding: 8px 10px; border-radius: 8px;
+  font-size: 12px; color: var(--text2);
+  cursor: pointer; margin-bottom: 2px;
+}
+.nav-item:hover { background: var(--bg3); }
+.nav-item.active { background: var(--blue-l); color: var(--blue-d); font-weight: 500; }
+.nav-icon { font-size: 14px; width: 18px; text-align: center; }
+.nav-divider { height: 1px; background: var(--border); margin: 10px 6px; }
+.sidebar-user {
+  margin-top: auto;
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px; border-radius: 8px;
+}
+.user-avatar {
+  width: 28px; height: 28px; border-radius: 50%;
+  background: var(--blue-l); color: var(--blue-d);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px; font-weight: 500; flex-shrink: 0;
+}
+.user-name { font-size: 12px; color: var(--text2); }
+.main-content { padding: 28px 32px; background: var(--bg2); }
+.page-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 20px;
+}
+.page-title { font-size: 20px; font-weight: 500; }
+.btn-new {
+  padding: 7px 16px; border-radius: 8px;
+  background: var(--blue); border: none; color: #fff;
+  font-size: 12px; font-weight: 500; cursor: pointer;
+  font-family: 'DM Sans', sans-serif;
+}
+.search-bar {
+  width: 100%; padding: 8px 12px;
+  border-radius: 8px; border: 1px solid var(--border);
+  background: var(--bg3); color: var(--text);
+  font-size: 12px; font-family: 'DM Sans', sans-serif;
+  margin-bottom: 16px; outline: none;
+}
+.wf-grid { display: flex; flex-direction: column; gap: 8px; }
+.wf-card {
+  display: flex; align-items: center; gap: 14px;
+  padding: 14px 16px; border-radius: 10px;
+  border: 1px solid var(--border); background: var(--bg2);
+  cursor: pointer; transition: border-color 0.1s, box-shadow 0.1s;
+}
+.wf-card:hover { border-color: var(--border2); box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+.wf-icon {
+  width: 40px; height: 40px; border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px; flex-shrink: 0;
+}
+.wf-info { flex: 1; min-width: 0; }
+.wf-name { font-size: 13px; font-weight: 500; }
+.wf-desc { font-size: 11px; color: var(--text3); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wf-meta { display: flex; align-items: center; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
+.wf-version { font-size: 10px; color: var(--text3); font-family: 'DM Mono', monospace; background: var(--bg3); padding: 1px 7px; border-radius: 6px; }
+.wf-steps { font-size: 11px; color: var(--text3); }
+.wf-date  { font-size: 11px; color: var(--text3); }
+.wf-actions { display: flex; align-items: center; gap: 4px; }
+.act-btn {
+  width: 30px; height: 30px; border-radius: 7px;
+  border: 1px solid var(--border); background: transparent;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; font-size: 13px; color: var(--text2);
+}
+
+/* ═══════════════════════════════════════════
+   TELA 4 — EDITOR DE FLUXOS
+═══════════════════════════════════════════ */
+.editor-shell {
+  display: grid;
+  grid-template-rows: 52px 1fr;
+  grid-template-columns: 240px 1fr 310px;
+  height: calc(100vh - 48px);
+  overflow: hidden;
+}
+
+.topbar {
+  grid-column: 1 / -1;
+  display: flex; align-items: center; gap: 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg2);
+  padding: 0 16px;
+}
+.topbar-logo { display: flex; align-items: center; gap: 8px; padding-right: 16px; border-right: 1px solid var(--border); margin-right: 16px; }
+.topbar-logo svg { width: 22px; height: 22px; }
+.topbar-logo-text { font-size: 15px; font-weight: 500; }
+.topbar-logo-text b { color: var(--blue); font-weight: 500; }
+.wf-title { font-size: 14px; font-weight: 500; }
+.wf-badge { font-size: 11px; color: var(--text3); background: var(--bg3); border: 1px solid var(--border); padding: 1px 7px; border-radius: 20px; font-family: 'DM Mono', monospace; margin-left: 8px; }
+.topbar-right { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+.autosave { font-size: 11px; color: var(--text3); margin-right: 6px; }
+.tb-btn {
+  padding: 5px 14px; border-radius: 7px; font-size: 12px; font-weight: 500;
+  cursor: pointer; border: 1px solid var(--border2);
+  background: var(--bg2); color: var(--text); font-family: 'DM Sans', sans-serif;
+}
+.tb-btn-primary { background: var(--blue); border-color: var(--blue-d); color: #fff; }
+.tb-icon {
+  width: 30px; height: 30px; border-radius: 7px;
+  border: 1px solid var(--border); background: var(--bg2);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; font-size: 14px; color: var(--text2);
+}
+
+/* Palette */
+.palette {
+  background: var(--bg3);
+  border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.palette-search { padding: 10px 12px; border-bottom: 1px solid var(--border); }
+.palette-search input {
+  width: 100%; padding: 6px 10px;
+  border-radius: 7px; border: 1px solid var(--border);
+  background: var(--bg2); font-size: 12px; color: var(--text);
+  font-family: 'DM Sans', sans-serif; outline: none;
+}
+.palette-body { flex: 1; overflow-y: auto; padding: 8px; }
+.palette-section { margin-bottom: 6px; }
+.palette-section-label {
+  font-size: 10px; font-weight: 600; color: var(--text3);
+  letter-spacing: 0.07em; text-transform: uppercase;
+  padding: 6px 4px 4px;
+}
+.node-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 8px; border-radius: 7px;
+  cursor: grab; border: 1px solid transparent;
+  margin-bottom: 2px; transition: background 0.1s, border-color 0.1s;
+}
+.node-item:hover { background: var(--bg2); border-color: var(--border); }
+.node-icon {
+  width: 26px; height: 26px; border-radius: 6px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; flex-shrink: 0;
+}
+.node-item-name { font-size: 12px; font-weight: 500; }
+.node-item-desc { font-size: 11px; color: var(--text3); }
+
+/* Canvas */
+.canvas-area {
+  position: relative; overflow: hidden;
+  background: var(--bg3);
+}
+.canvas-dots {
+  position: absolute; inset: 0;
+  background-image: radial-gradient(circle, rgba(0,0,0,0.12) 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+/* Edges SVG */
+.canvas-edges {
+  position: absolute; inset: 0;
+  pointer-events: none; overflow: visible;
+}
+/* Flow nodes */
+.flow-node {
+  position: absolute;
+  background: var(--bg2);
+  border: 1.5px solid var(--border2);
+  border-radius: 10px;
+  cursor: pointer;
+  min-width: 160px;
+  transition: box-shadow 0.15s, border-color 0.15s;
+}
+.flow-node:hover { box-shadow: 0 0 0 3px rgba(55,138,221,0.15); }
+.flow-node.selected { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(55,138,221,0.2); }
+.fn-header {
+  display: flex; align-items: center; gap: 7px;
+  padding: 8px 10px 6px;
+  border-bottom: 1px solid var(--border);
+}
+.fn-icon {
+  width: 22px; height: 22px; border-radius: 5px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; flex-shrink: 0;
+}
+.fn-name { font-size: 12px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fn-type { font-size: 10px; color: var(--text3); font-family: 'DM Mono', monospace; margin-top: 1px; }
+.fn-body { padding: 5px 10px 8px; }
+.exec-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 10px; font-weight: 500;
+  padding: 2px 8px; border-radius: 10px;
+}
+.fn-handle {
+  position: absolute; width: 10px; height: 10px;
+  border-radius: 50%; background: var(--bg2);
+  border: 2px solid var(--border2);
+}
+.fn-handle.left  { left: -5px;  top: 50%; transform: translateY(-50%); }
+.fn-handle.right { right: -5px; top: 50%; transform: translateY(-50%); }
+
+/* Canvas controls */
+.canvas-controls {
+  position: absolute; bottom: 16px; left: 16px;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.ctrl-btn {
+  width: 28px; height: 28px; border-radius: 6px;
+  border: 1px solid var(--border2); background: var(--bg2);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; font-size: 14px; color: var(--text2);
+}
+.minimap {
+  position: absolute; bottom: 16px; right: 326px;
+  width: 120px; height: 72px; border-radius: 8px;
+  border: 1px solid var(--border2); background: var(--bg2);
+  overflow: hidden;
+}
+.exec-status-bar {
+  position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 8px;
+  background: var(--bg2); border: 1px solid var(--border2);
+  border-radius: 20px; padding: 6px 16px;
+  font-size: 11px; color: var(--text2);
+  white-space: nowrap;
+}
+
+/* Props panel */
+.props-panel {
+  border-left: 1px solid var(--border);
+  background: var(--bg2);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.props-header {
+  padding: 12px 16px; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+}
+.props-node-info .props-title { font-size: 13px; font-weight: 500; }
+.props-node-info .props-sub   { font-size: 11px; color: var(--text3); font-family: 'DM Mono', monospace; margin-top: 1px; }
+.props-tabs {
+  display: flex; border-bottom: 1px solid var(--border);
+}
+.props-tab {
+  padding: 8px 14px; font-size: 12px; cursor: pointer;
+  color: var(--text3); border-bottom: 2px solid transparent;
+  transition: color 0.1s;
+}
+.props-tab.active { color: var(--blue); border-bottom-color: var(--blue); }
+.props-body { flex: 1; overflow-y: auto; padding: 14px 16px; }
+.prop-field { margin-bottom: 14px; }
+.prop-label { font-size: 11px; font-weight: 500; color: var(--text2); margin-bottom: 5px; }
+.prop-input {
+  width: 100%; padding: 7px 10px; border-radius: 7px;
+  border: 1px solid var(--border2); background: var(--bg3);
+  color: var(--text); font-size: 12px; font-family: 'DM Sans', sans-serif;
+  outline: none;
+}
+.prop-textarea {
+  width: 100%; padding: 8px 10px; border-radius: 7px;
+  border: 1px solid var(--border2); background: var(--bg3);
+  color: var(--text); font-size: 12px; font-family: 'DM Mono', monospace;
+  height: 80px; resize: none; outline: none;
+}
+.prop-select {
+  width: 100%; padding: 7px 10px; border-radius: 7px;
+  border: 1px solid var(--border2); background: var(--bg3);
+  color: var(--text); font-size: 12px; font-family: 'DM Sans', sans-serif;
+}
+.props-divider {
+  font-size: 10px; font-weight: 600; color: var(--text3);
+  letter-spacing: 0.07em; text-transform: uppercase;
+  padding-top: 14px; margin-bottom: 10px;
+  border-top: 1px solid var(--border);
+}
+.log-box {
+  background: var(--bg3); border-radius: 7px;
+  padding: 8px 10px; font-family: 'DM Mono', monospace;
+  font-size: 10px; line-height: 1.8; color: var(--text2);
+}
+.log-ok   { color: var(--success); }
+.log-ts   { color: var(--text3); }
+.output-box {
+  background: var(--bg3); border-radius: 7px;
+  padding: 8px 10px; font-family: 'DM Mono', monospace;
+  font-size: 10px; line-height: 1.8; color: var(--text);
+}
+
+/* ═══════════════════════════════════════════
+   TELA 5 — EXECUTION HISTORY
+═══════════════════════════════════════════ */
+.exec-list { display: flex; flex-direction: column; gap: 6px; }
+.exec-row {
+  display: grid;
+  grid-template-columns: 160px 1fr 120px 90px 80px 1fr;
+  align-items: center; gap: 12px;
+  padding: 12px 16px; border-radius: 10px;
+  border: 1px solid var(--border); background: var(--bg2);
+  cursor: pointer; font-size: 12px;
+  transition: border-color 0.1s;
+}
+.exec-row:hover { border-color: var(--border2); }
+.exec-id { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--text3); }
+.exec-wf { font-weight: 500; }
+.exec-dur { color: var(--text2); }
+.exec-err { font-size: 11px; color: var(--danger); }
+.exec-col-header {
+  display: grid;
+  grid-template-columns: 160px 1fr 120px 90px 80px 1fr;
+  gap: 12px;
+  padding: 0 16px 8px;
+  font-size: 11px; font-weight: 500; color: var(--text3);
+}
+</style>
+</head>
+<body>
+
+<!-- ── Nav de telas ── -->
+<nav class="screen-nav">
+  <div class="screen-nav-logo">
+    <svg viewBox="0 0 24 24" fill="none">
+      <rect width="24" height="24" rx="5" fill="#378ADD" opacity="0.15"/>
+      <circle cx="6" cy="12" r="2.5" fill="#378ADD"/>
+      <circle cx="18" cy="7"  r="2.5" fill="#378ADD"/>
+      <circle cx="18" cy="17" r="2.5" fill="#378ADD"/>
+      <path d="M8.3 11.2L15.8 7.8" stroke="#378ADD" stroke-width="1.3" stroke-linecap="round"/>
+      <path d="M8.3 12.8L15.8 16.2" stroke="#378ADD" stroke-width="1.3" stroke-linecap="round"/>
+    </svg>
+    <span>Arch<b>flow</b></span>
+  </div>
+  <button class="nav-tab active" onclick="showScreen('ds')">Design system</button>
+  <button class="nav-tab" onclick="showScreen('login')">Login</button>
+  <button class="nav-tab" onclick="showScreen('list')">Workflows</button>
+  <button class="nav-tab" onclick="showScreen('editor')">Editor</button>
+  <button class="nav-tab" onclick="showScreen('history')">Execuções</button>
+  <span class="nav-tag">v2.0 — system design</span>
+</nav>
+
+<!-- ══════════════════════════════════════════
+     TELA 1 — DESIGN SYSTEM
+══════════════════════════════════════════ -->
+<div id="screen-ds" class="screen active">
+<div class="ds-wrap">
+
+  <div style="margin-bottom:32px">
+    <div style="font-size:24px;font-weight:500;letter-spacing:-0.3px;margin-bottom:4px">ArchFlow — Design System</div>
+    <div style="font-size:13px;color:var(--text3)">Identidade visual, tokens e componentes para o redesign v2.0</div>
+  </div>
+
+  <!-- Logo -->
+  <div class="ds-section">
+    <div class="ds-label">Logotipo</div>
+    <div class="logo-card">
+      <svg class="logo-icon" viewBox="0 0 40 40" fill="none">
+        <rect width="40" height="40" rx="9" fill="#378ADD" opacity="0.12"/>
+        <circle cx="10" cy="20" r="3.5" fill="#378ADD"/>
+        <circle cx="30" cy="12" r="3.5" fill="#378ADD"/>
+        <circle cx="30" cy="28" r="3.5" fill="#378ADD"/>
+        <path d="M13.3 18.7L26.8 12.8" stroke="#378ADD" stroke-width="1.5" stroke-linecap="round"/>
+        <path d="M13.3 21.3L26.8 27.2" stroke="#378ADD" stroke-width="1.5" stroke-linecap="round"/>
+      </svg>
+      <div>
+        <div class="logo-name">Arch<b>flow</b></div>
+        <div class="logo-tagline">Agent orchestration platform</div>
+      </div>
+      <div class="logo-version">v2.0</div>
+    </div>
+  </div>
+
+  <!-- Cores primárias -->
+  <div class="ds-section">
+    <div class="ds-label">Paleta primária — blue</div>
+    <div class="ds-row">
+      <div class="swatch"><div class="swatch-block" style="background:#042C53"></div><div class="swatch-name">900</div><div class="swatch-hex">#042C53</div></div>
+      <div class="swatch"><div class="swatch-block" style="background:#0C447C"></div><div class="swatch-name">800</div><div class="swatch-hex">#0C447C</div></div>
+      <div class="swatch"><div class="swatch-block" style="background:#185FA5"></div><div class="swatch-name">600</div><div class="swatch-hex">#185FA5</div></div>
+      <div class="swatch"><div class="swatch-block" style="background:#378ADD"></div><div class="swatch-name">400</div><div class="swatch-hex">#378ADD</div></div>
+      <div class="swatch"><div class="swatch-block" style="background:#85B7EB"></div><div class="swatch-name">200</div><div class="swatch-hex">#85B7EB</div></div>
+      <div class="swatch"><div class="swatch-block" style="background:#B5D4F4"></div><div class="swatch-name">100</div><div class="swatch-hex">#B5D4F4</div></div>
+      <div class="swatch"><div class="swatch-block" style="background:#E6F1FB"></div><div class="swatch-name">50</div><div class="swatch-hex">#E6F1FB</div></div>
+    </div>
+  </div>
+
+  <!-- Categorias de nós -->
+  <div class="ds-section">
+    <div class="ds-label">Cores por categoria de nó</div>
+    <div class="ds-row">
+      <div class="cat-pill"><div class="cat-dot" style="background:#378ADD;border:1px solid #185FA5"></div><div><div class="cat-name">AI / Agents</div><div class="cat-desc">agent, assistant, llm-chat</div></div></div>
+      <div class="cat-pill"><div class="cat-dot" style="background:#7F77DD;border:1px solid #534AB7"></div><div><div class="cat-name">Control flow</div><div class="cat-desc">condition, switch, loop</div></div></div>
+      <div class="cat-pill"><div class="cat-dot" style="background:#1D9E75;border:1px solid #0F6E56"></div><div><div class="cat-name">Data</div><div class="cat-desc">transform, map, filter</div></div></div>
+      <div class="cat-pill"><div class="cat-dot" style="background:#D85A30;border:1px solid #993C1D"></div><div><div class="cat-name">Tools / Functions</div><div class="cat-desc">tool, function, custom</div></div></div>
+      <div class="cat-pill"><div class="cat-dot" style="background:#BA7517;border:1px solid #854F0B"></div><div><div class="cat-name">Vector / Memory</div><div class="cat-desc">vector-store, embedding</div></div></div>
+      <div class="cat-pill"><div class="cat-dot" style="background:#888780;border:1px solid #5F5E5A"></div><div><div class="cat-name">I/O</div><div class="cat-desc">input, output, prompt</div></div></div>
+    </div>
+  </div>
+
+  <!-- Tipografia -->
+  <div class="ds-section">
+    <div class="ds-label">Tipografia — DM Sans + DM Mono</div>
+    <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--bg2)">
+      <div class="type-row" style="padding:14px 18px"><div class="type-meta">Display / 26px / 500</div><div style="font-size:26px;font-weight:500;letter-spacing:-0.5px">Workflow editor</div></div>
+      <div class="type-row" style="padding:12px 18px"><div class="type-meta">Heading / 20px / 500</div><div style="font-size:20px;font-weight:500">Customer Support Flow</div></div>
+      <div class="type-row" style="padding:10px 18px"><div class="type-meta">Body / 13px / 400</div><div style="font-size:13px">AI-powered agent for processing customer requests and routing</div></div>
+      <div class="type-row" style="padding:10px 18px;border:none"><div class="type-meta">Mono / 12px / 400</div><div style="font-size:12px;font-family:'DM Mono',monospace;color:var(--text2)">exec-1a2b3c · v1.2.0 · 45.0s · claude-sonnet-4-6</div></div>
+    </div>
+  </div>
+
+  <!-- Status badges -->
+  <div class="ds-section">
+    <div class="ds-label">Status — badges de execução</div>
+    <div class="ds-row">
+      <span class="badge" style="background:var(--success-l);color:var(--success)"><span class="badge-dot" style="background:var(--success)"></span>Active</span>
+      <span class="badge" style="background:var(--bg3);color:var(--text3)"><span class="badge-dot" style="background:var(--text3)"></span>Draft</span>
+      <span class="badge" style="background:var(--info-l);color:var(--info)"><span class="badge-dot" style="background:var(--info)"></span>Running</span>
+      <span class="badge" style="background:var(--danger-l);color:var(--danger)"><span class="badge-dot" style="background:var(--danger)"></span>Failed</span>
+      <span class="badge" style="background:var(--warning-l);color:var(--warning)"><span class="badge-dot" style="background:var(--warning)"></span>Queued</span>
+      <span class="badge" style="background:var(--success-l);color:var(--success)"><span class="badge-dot" style="background:var(--success)"></span>Completed</span>
+    </div>
+  </div>
+
+</div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     TELA 2 — LOGIN
+══════════════════════════════════════════ -->
+<div id="screen-login" class="screen">
+  <div class="login-screen">
+    <div class="login-logo">
+      <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+        <rect width="32" height="32" rx="7" fill="#378ADD" opacity="0.15"/>
+        <circle cx="8"  cy="16" r="3"   fill="#378ADD"/>
+        <circle cx="24" cy="9"  r="3"   fill="#378ADD"/>
+        <circle cx="24" cy="23" r="3"   fill="#378ADD"/>
+        <path d="M10.8 14.8L21.2 9.8"  stroke="#378ADD" stroke-width="1.4" stroke-linecap="round"/>
+        <path d="M10.8 17.2L21.2 22.2" stroke="#378ADD" stroke-width="1.4" stroke-linecap="round"/>
+      </svg>
+      <span class="login-logo-text">Arch<b>flow</b></span>
+    </div>
+    <div class="login-tagline">Agent orchestration platform</div>
+    <div class="login-card">
+      <div class="login-card-title">Sign in to your workspace</div>
+      <div class="field"><div class="field-label">Username</div><input class="field-input" placeholder="your-username"/></div>
+      <div class="field"><div class="field-label">Password</div><input class="field-input" type="password" placeholder="••••••••"/></div>
+      <button class="btn-primary">Sign in</button>
+    </div>
+    <div class="login-footer">ArchFlow v2.0 · IntegrAllTech</div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     TELA 3 — LISTA DE WORKFLOWS
+══════════════════════════════════════════ -->
+<div id="screen-list" class="screen">
+<div class="app-shell">
+  <div class="sidebar">
+    <div class="sidebar-logo">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+        <rect width="24" height="24" rx="5" fill="#378ADD" opacity="0.15"/>
+        <circle cx="6" cy="12" r="2.5" fill="#378ADD"/>
+        <circle cx="18" cy="7"  r="2.5" fill="#378ADD"/>
+        <circle cx="18" cy="17" r="2.5" fill="#378ADD"/>
+        <path d="M8.3 11.2L15.8 7.8"  stroke="#378ADD" stroke-width="1.3" stroke-linecap="round"/>
+        <path d="M8.3 12.8L15.8 16.2" stroke="#378ADD" stroke-width="1.3" stroke-linecap="round"/>
+      </svg>
+      <span class="sidebar-logo-text">Arch<b>flow</b></span>
+      <span class="sidebar-badge">v2</span>
+    </div>
+    <div class="nav-item active"><span class="nav-icon">⊞</span> Workflows</div>
+    <div class="nav-item"><span class="nav-icon">✎</span> Editor</div>
+    <div class="nav-item"><span class="nav-icon">▶</span> Executions</div>
+    <div class="nav-divider"></div>
+    <div class="nav-item"><span class="nav-icon">⊡</span> Plugins</div>
+    <div class="nav-item"><span class="nav-icon">⚙</span> Settings</div>
+    <div class="sidebar-user">
+      <div class="user-avatar">EM</div>
+      <span class="user-name">Edson Martins</span>
+    </div>
+  </div>
+  <div class="main-content">
+    <div class="page-header">
+      <span class="page-title">Workflows</span>
+      <button class="btn-new">+ New workflow</button>
+    </div>
+    <input class="search-bar" placeholder="Search workflows..."/>
+    <div class="wf-grid">
+      <div class="wf-card">
+        <div class="wf-icon" style="background:var(--blue-l)">🤖</div>
+        <div class="wf-info">
+          <div class="wf-name">Customer Support Flow</div>
+          <div class="wf-desc">AI-powered customer support automation</div>
+          <div class="wf-meta">
+            <span class="badge" style="background:var(--success-l);color:var(--success)"><span class="badge-dot" style="background:var(--success)"></span>Active</span>
+            <span class="wf-version">v1.2.0</span>
+            <span class="wf-steps">5 nodes</span>
+            <span class="wf-date">Updated Apr 1</span>
+          </div>
+        </div>
+        <div class="wf-actions">
+          <button class="act-btn" title="Execute">▶</button>
+          <button class="act-btn" title="Edit">✎</button>
+          <button class="act-btn" title="Delete" style="color:var(--danger)">✕</button>
+        </div>
+      </div>
+      <div class="wf-card">
+        <div class="wf-icon" style="background:var(--teal-l)">📄</div>
+        <div class="wf-info">
+          <div class="wf-name">Invoice Processing</div>
+          <div class="wf-desc">Automated invoice extraction and approval</div>
+          <div class="wf-meta">
+            <span class="badge" style="background:var(--bg3);color:var(--text3)"><span class="badge-dot" style="background:var(--text3)"></span>Draft</span>
+            <span class="wf-version">v2.0.0</span>
+            <span class="wf-steps">8 nodes</span>
+            <span class="wf-date">Updated Apr 5</span>
+          </div>
+        </div>
+        <div class="wf-actions">
+          <button class="act-btn">▶</button>
+          <button class="act-btn">✎</button>
+          <button class="act-btn" style="color:var(--danger)">✕</button>
+        </div>
+      </div>
+      <div class="wf-card">
+        <div class="wf-icon" style="background:var(--amber-l)">📊</div>
+        <div class="wf-info">
+          <div class="wf-name">Sales Copilot — Briefing</div>
+          <div class="wf-desc">Weekly sales briefing for vendors</div>
+          <div class="wf-meta">
+            <span class="badge" style="background:var(--success-l);color:var(--success)"><span class="badge-dot" style="background:var(--success)"></span>Active</span>
+            <span class="wf-version">v1.0.0</span>
+            <span class="wf-steps">3 nodes</span>
+            <span class="wf-date">Updated Apr 8</span>
+          </div>
+        </div>
+        <div class="wf-actions">
+          <button class="act-btn">▶</button>
+          <button class="act-btn">✎</button>
+          <button class="act-btn" style="color:var(--danger)">✕</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     TELA 4 — EDITOR DE FLUXOS
+══════════════════════════════════════════ -->
+<div id="screen-editor" class="screen">
+<div class="editor-shell">
+
+  <!-- Topbar -->
+  <div class="topbar">
+    <div class="topbar-logo">
+      <svg viewBox="0 0 22 22" fill="none">
+        <rect width="22" height="22" rx="5" fill="#378ADD" opacity="0.15"/>
+        <circle cx="5.5" cy="11" r="2.2" fill="#378ADD"/>
+        <circle cx="16.5" cy="6"  r="2.2" fill="#378ADD"/>
+        <circle cx="16.5" cy="16" r="2.2" fill="#378ADD"/>
+        <path d="M7.5 10.3L14.4 7"  stroke="#378ADD" stroke-width="1.2" stroke-linecap="round"/>
+        <path d="M7.5 11.7L14.4 15" stroke="#378ADD" stroke-width="1.2" stroke-linecap="round"/>
+      </svg>
+      <span class="topbar-logo-text">Arch<b>flow</b></span>
+    </div>
+    <span class="wf-title">Customer Support Flow</span>
+    <span class="wf-badge">v1.2.0</span>
+    <div class="topbar-right">
+      <span class="autosave">Saved 2s ago</span>
+      <div class="tb-icon" title="Undo">↩</div>
+      <div class="tb-icon" title="Redo">↪</div>
+      <div class="tb-icon" title="Fit view">⊞</div>
+      <button class="tb-btn">Save</button>
+      <button class="tb-btn tb-btn-primary" onclick="runExecution()">▶ Execute</button>
+    </div>
+  </div>
+
+  <!-- Palette -->
+  <div class="palette">
+    <div class="palette-search"><input placeholder="Search nodes..."/></div>
+    <div class="palette-body">
+      <div class="palette-section">
+        <div class="palette-section-label">AI / Agents</div>
+        <div class="node-item"><div class="node-icon" style="background:var(--blue-l)">🤖</div><div><div class="node-item-name">Agent</div><div class="node-item-desc">Autonomous AI agent</div></div></div>
+        <div class="node-item"><div class="node-icon" style="background:var(--blue-l)">🧠</div><div><div class="node-item-name">Assistant</div><div class="node-item-desc">Interactive assistant</div></div></div>
+        <div class="node-item"><div class="node-icon" style="background:var(--blue-l)">💬</div><div><div class="node-item-name">LLM Chat</div><div class="node-item-desc">Language model call</div></div></div>
+      </div>
+      <div class="palette-section">
+        <div class="palette-section-label">Control flow</div>
+        <div class="node-item"><div class="node-icon" style="background:var(--purple-l)">⑂</div><div><div class="node-item-name">Condition</div><div class="node-item-desc">Branch on condition</div></div></div>
+        <div class="node-item"><div class="node-icon" style="background:var(--purple-l)">↻</div><div><div class="node-item-name">Loop</div><div class="node-item-desc">Iterate over items</div></div></div>
+        <div class="node-item"><div class="node-icon" style="background:var(--purple-l)">⫶</div><div><div class="node-item-name">Parallel</div><div class="node-item-desc">Run in parallel</div></div></div>
+      </div>
+      <div class="palette-section">
+        <div class="palette-section-label">Data</div>
+        <div class="node-item"><div class="node-icon" style="background:var(--teal-l)">⇄</div><div><div class="node-item-name">Transform</div><div class="node-item-desc">Map and reshape data</div></div></div>
+        <div class="node-item"><div class="node-icon" style="background:var(--teal-l)">▽</div><div><div class="node-item-name">Filter</div><div class="node-item-desc">Filter by condition</div></div></div>
+      </div>
+      <div class="palette-section">
+        <div class="palette-section-label">Tools</div>
+        <div class="node-item"><div class="node-icon" style="background:var(--coral-l)">⚙</div><div><div class="node-item-name">Tool</div><div class="node-item-desc">Execute a tool call</div></div></div>
+        <div class="node-item"><div class="node-icon" style="background:var(--coral-l)">⟨⟩</div><div><div class="node-item-name">Function</div><div class="node-item-desc">Custom function</div></div></div>
+      </div>
+      <div class="palette-section">
+        <div class="palette-section-label">Vector / Memory</div>
+        <div class="node-item"><div class="node-icon" style="background:var(--amber-l)">◎</div><div><div class="node-item-name">Vector search</div><div class="node-item-desc">Semantic retrieval</div></div></div>
+        <div class="node-item"><div class="node-icon" style="background:var(--amber-l)">∿</div><div><div class="node-item-name">Embedding</div><div class="node-item-desc">Generate embeddings</div></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Canvas -->
+  <div class="canvas-area" id="canvas">
+    <div class="canvas-dots"></div>
+
+    <!-- Edges SVG -->
+    <svg class="canvas-edges" width="100%" height="100%">
+      <defs>
+        <marker id="arr-blue" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto">
+          <path d="M2 2L8 5L2 8" fill="none" stroke="#378ADD" stroke-width="1.5" stroke-linecap="round"/>
+        </marker>
+        <marker id="arr-purple" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto">
+          <path d="M2 2L8 5L2 8" fill="none" stroke="#7F77DD" stroke-width="1.5" stroke-linecap="round"/>
+        </marker>
+        <marker id="arr-teal" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto">
+          <path d="M2 2L8 5L2 8" fill="none" stroke="#1D9E75" stroke-width="1.5" stroke-linecap="round"/>
+        </marker>
+      </defs>
+      <path id="edge1" d="M258 148 C 288 148, 288 158, 318 158" fill="none" stroke="#378ADD" stroke-width="1.5" marker-end="url(#arr-blue)" opacity="0.6"/>
+      <path id="edge2" d="M258 148 C 288 148, 288 274, 318 274" fill="none" stroke="#7F77DD" stroke-width="1.5" marker-end="url(#arr-purple)" opacity="0.6"/>
+      <path id="edge3" d="M470 158 C 510 158, 510 214, 540 214" fill="none" stroke="#1D9E75" stroke-width="1.5" marker-end="url(#arr-teal)" opacity="0.6"/>
+    </svg>
+
+    <!-- Nó 1: Agent (completed) -->
+    <div class="flow-node selected" id="node1" style="left:72px;top:112px;border-color:var(--blue)">
+      <div class="fn-handle right" style="border-color:var(--blue)"></div>
+      <div class="fn-header">
+        <div class="fn-icon" style="background:var(--blue-l)">🤖</div>
+        <div>
+          <div class="fn-name">executeTask</div>
+          <div class="fn-type">AGENT</div>
+        </div>
+      </div>
+      <div class="fn-body">
+        <span class="exec-badge" style="background:var(--success-l);color:var(--success)">✓ Completed · 1.2s</span>
+      </div>
+    </div>
+
+    <!-- Nó 2: Condition (completed) -->
+    <div class="flow-node" id="node2" style="left:318px;top:124px;border-color:var(--purple)">
+      <div class="fn-handle left"  style="border-color:var(--purple)"></div>
+      <div class="fn-handle right" style="border-color:var(--purple)"></div>
+      <div class="fn-header">
+        <div class="fn-icon" style="background:var(--purple-l)">⑂</div>
+        <div>
+          <div class="fn-name">routeIntent</div>
+          <div class="fn-type">CONDITION</div>
+        </div>
+      </div>
+      <div class="fn-body">
+        <span class="exec-badge" style="background:var(--success-l);color:var(--success)">✓ Completed · 0.1s</span>
+      </div>
+    </div>
+
+    <!-- Nó 3: LLM Chat (running) -->
+    <div class="flow-node" id="node3" style="left:318px;top:240px;border-color:var(--amber)">
+      <div class="fn-handle left"  style="border-color:var(--blue)"></div>
+      <div class="fn-handle right" style="border-color:var(--blue)"></div>
+      <div class="fn-header">
+        <div class="fn-icon" style="background:var(--blue-l)">💬</div>
+        <div>
+          <div class="fn-name">llmChat</div>
+          <div class="fn-type">LLM-CHAT</div>
+        </div>
+      </div>
+      <div class="fn-body">
+        <span class="exec-badge" id="running-badge" style="background:var(--warning-l);color:var(--warning)">◌ Running...</span>
+      </div>
+    </div>
+
+    <!-- Nó 4: Tool (waiting) -->
+    <div class="flow-node" id="node4" style="left:540px;top:184px;border-color:var(--coral);opacity:0.5">
+      <div class="fn-handle left" style="border-color:var(--coral)"></div>
+      <div class="fn-header">
+        <div class="fn-icon" style="background:var(--coral-l)">⚙</div>
+        <div>
+          <div class="fn-name">createTicket</div>
+          <div class="fn-type">TOOL</div>
+        </div>
+      </div>
+      <div class="fn-body">
+        <span class="exec-badge" style="background:var(--bg3);color:var(--text3)">Waiting...</span>
+      </div>
+    </div>
+
+    <!-- Controls -->
+    <div class="canvas-controls">
+      <div class="ctrl-btn">+</div>
+      <div class="ctrl-btn">−</div>
+      <div class="ctrl-btn">⊡</div>
+    </div>
+
+    <!-- Minimap -->
+    <div class="minimap">
+      <div style="position:relative;width:100%;height:100%;background:var(--bg3)">
+        <div style="position:absolute;left:10%;top:35%;width:22%;height:18%;background:var(--blue);opacity:0.4;border-radius:2px"></div>
+        <div style="position:absolute;left:40%;top:32%;width:18%;height:18%;background:var(--purple);opacity:0.4;border-radius:2px"></div>
+        <div style="position:absolute;left:40%;top:60%;width:18%;height:18%;background:var(--blue);opacity:0.3;border-radius:2px"></div>
+        <div style="position:absolute;left:68%;top:46%;width:18%;height:18%;background:var(--coral);opacity:0.25;border-radius:2px"></div>
+        <div style="position:absolute;left:5%;top:25%;width:58%;height:58%;border:1px solid var(--blue);opacity:0.4;border-radius:2px"></div>
+      </div>
+    </div>
+
+    <!-- Status bar -->
+    <div class="exec-status-bar" id="exec-status" style="display:none">
+      <span style="width:7px;height:7px;border-radius:50%;background:var(--warning);flex-shrink:0"></span>
+      Execution running · <span id="exec-count">2</span> of 4 nodes completed
+    </div>
+  </div>
+
+  <!-- Props panel -->
+  <div class="props-panel">
+    <div class="props-header">
+      <div class="props-node-info">
+        <div class="props-title">Node properties</div>
+        <div class="props-sub">executeTask · Agent</div>
+      </div>
+      <div style="width:22px;height:22px;border-radius:5px;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--text3);font-size:12px">×</div>
+    </div>
+    <div class="props-tabs">
+      <div class="props-tab active" onclick="switchTab(this,'tab-props')">Properties</div>
+      <div class="props-tab"        onclick="switchTab(this,'tab-logs')">Logs</div>
+      <div class="props-tab"        onclick="switchTab(this,'tab-output')">Output</div>
+    </div>
+    <div class="props-body">
+      <div id="tab-props">
+        <div class="prop-field"><div class="prop-label">Node name</div><input class="prop-input" value="executeTask"/></div>
+        <div class="prop-field">
+          <div class="prop-label">Model</div>
+          <select class="prop-select">
+            <option>claude-sonnet-4-6</option>
+            <option>claude-opus-4-6</option>
+            <option>gpt-4o</option>
+            <option>gemma-3-27b (local)</option>
+          </select>
+        </div>
+        <div class="prop-field">
+          <div class="prop-label">System prompt</div>
+          <textarea class="prop-textarea">You are a customer support agent for ArchFlow. Help users resolve issues with workflows and agents.</textarea>
+        </div>
+        <div class="prop-field"><div class="prop-label">Max iterations</div><input class="prop-input" value="10" type="number"/></div>
+        <div class="prop-field"><div class="prop-label">Temperature</div><input class="prop-input" value="0.7" type="number" step="0.1"/></div>
+      </div>
+      <div id="tab-logs" style="display:none">
+        <div class="props-divider">Last execution</div>
+        <div class="log-box">
+          <div><span class="log-ts">[09:00:01]</span> Agent started</div>
+          <div><span class="log-ts">[09:00:01]</span> Tool call: searchKnowledge</div>
+          <div><span class="log-ts">[09:00:02]</span> <span class="log-ok">✓</span> Found 3 relevant docs</div>
+          <div><span class="log-ts">[09:00:02]</span> Generating response...</div>
+          <div><span class="log-ts">[09:00:03]</span> <span class="log-ok">✓</span> Completed in 1.2s</div>
+        </div>
+      </div>
+      <div id="tab-output" style="display:none">
+        <div class="props-divider">Output preview</div>
+        <div class="output-box">→ intent: "billing_question"<br>→ confidence: 0.94<br>→ response: "I can help you with..."<br>→ tools_used: ["searchKnowledge"]</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     TELA 5 — EXECUTION HISTORY
+══════════════════════════════════════════ -->
+<div id="screen-history" class="screen">
+<div class="app-shell">
+  <div class="sidebar">
+    <div class="sidebar-logo">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+        <rect width="24" height="24" rx="5" fill="#378ADD" opacity="0.15"/>
+        <circle cx="6" cy="12" r="2.5" fill="#378ADD"/>
+        <circle cx="18" cy="7"  r="2.5" fill="#378ADD"/>
+        <circle cx="18" cy="17" r="2.5" fill="#378ADD"/>
+        <path d="M8.3 11.2L15.8 7.8"  stroke="#378ADD" stroke-width="1.3" stroke-linecap="round"/>
+        <path d="M8.3 12.8L15.8 16.2" stroke="#378ADD" stroke-width="1.3" stroke-linecap="round"/>
+      </svg>
+      <span class="sidebar-logo-text">Arch<b>flow</b></span>
+      <span class="sidebar-badge">v2</span>
+    </div>
+    <div class="nav-item"><span class="nav-icon">⊞</span> Workflows</div>
+    <div class="nav-item"><span class="nav-icon">✎</span> Editor</div>
+    <div class="nav-item active"><span class="nav-icon">▶</span> Executions</div>
+    <div class="nav-divider"></div>
+    <div class="nav-item"><span class="nav-icon">⊡</span> Plugins</div>
+    <div class="nav-item"><span class="nav-icon">⚙</span> Settings</div>
+    <div class="sidebar-user">
+      <div class="user-avatar">EM</div>
+      <span class="user-name">Edson Martins</span>
+    </div>
+  </div>
+  <div class="main-content">
+    <div class="page-header">
+      <span class="page-title">Execution history</span>
+      <select style="padding:6px 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg3);font-size:12px;font-family:'DM Sans',sans-serif;color:var(--text2)">
+        <option>All workflows</option>
+        <option>Customer Support Flow</option>
+        <option>Invoice Processing</option>
+      </select>
+    </div>
+    <div class="exec-col-header">
+      <span>Execution ID</span>
+      <span>Workflow</span>
+      <span>Status</span>
+      <span>Started</span>
+      <span>Duration</span>
+      <span>Error</span>
+    </div>
+    <div class="exec-list">
+      <div class="exec-row">
+        <span class="exec-id">exec-1a2b3c…</span>
+        <span class="exec-wf">Customer Support Flow</span>
+        <span class="badge" style="background:var(--success-l);color:var(--success);width:fit-content"><span class="badge-dot" style="background:var(--success)"></span>Completed</span>
+        <span style="color:var(--text2);font-size:11px">Apr 9, 07:00</span>
+        <span class="exec-dur">45.0s</span>
+        <span></span>
+      </div>
+      <div class="exec-row">
+        <span class="exec-id">exec-2b3c4d…</span>
+        <span class="exec-wf">Invoice Processing</span>
+        <span class="badge" style="background:var(--danger-l);color:var(--danger);width:fit-content"><span class="badge-dot" style="background:var(--danger)"></span>Failed</span>
+        <span style="color:var(--text2);font-size:11px">Apr 9, 06:30</span>
+        <span class="exec-dur">1m 0s</span>
+        <span class="exec-err">Timeout connecting to LLM provider</span>
+      </div>
+      <div class="exec-row">
+        <span class="exec-id">exec-3c4d5e…</span>
+        <span class="exec-wf">Customer Support Flow</span>
+        <span class="badge" style="background:var(--info-l);color:var(--info);width:fit-content"><span class="badge-dot" style="background:var(--info)"></span>Running</span>
+        <span style="color:var(--text2);font-size:11px">Apr 9, 09:00</span>
+        <span class="exec-dur">—</span>
+        <span></span>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<script>
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'))
+  document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'))
+  document.getElementById('screen-' + id).classList.add('active')
+  event.target.classList.add('active')
+}
+
+function switchTab(el, tabId) {
+  document.querySelectorAll('.props-tab').forEach(t => t.classList.remove('active'))
+  el.classList.add('active')
+  document.querySelectorAll('#tab-props, #tab-logs, #tab-output').forEach(t => t.style.display = 'none')
+  document.getElementById(tabId).style.display = 'block'
+}
+
+function runExecution() {
+  const status = document.getElementById('exec-status')
+  const badge  = document.getElementById('running-badge')
+  const node4  = document.getElementById('node4')
+  const count  = document.getElementById('exec-count')
+  const btn    = event.target
+
+  btn.disabled = true
+  btn.textContent = '◌ Running...'
+  btn.style.background = '#85B7EB'
+  status.style.display = 'flex'
+
+  // Simular nó 3 completando
+  setTimeout(() => {
+    badge.textContent = '✓ Completed · 2.1s'
+    badge.style.background = 'var(--success-l)'
+    badge.style.color       = 'var(--success)'
+    count.textContent = '3'
+    node4.style.opacity = '1'
+    node4.style.borderColor = 'var(--coral)'
+    node4.querySelector('.exec-badge').textContent = '◌ Running...'
+    node4.querySelector('.exec-badge').style.background = 'var(--warning-l)'
+    node4.querySelector('.exec-badge').style.color = 'var(--warning)'
+  }, 1800)
+
+  // Simular nó 4 completando
+  setTimeout(() => {
+    node4.querySelector('.exec-badge').textContent = '✓ Completed · 0.8s'
+    node4.querySelector('.exec-badge').style.background = 'var(--success-l)'
+    node4.querySelector('.exec-badge').style.color       = 'var(--success)'
+    count.textContent = '4'
+    status.querySelector('span:first-child').style.background = 'var(--success)'
+    status.innerHTML = status.innerHTML.replace('running', 'completed')
+    btn.disabled = false
+    btn.textContent = '▶ Execute'
+    btn.style.background = 'var(--blue)'
+  }, 3400)
+}
+</script>
+</body>
+</html>

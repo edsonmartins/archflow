@@ -150,7 +150,21 @@ public enum ArchflowEventType {
     /**
      * Heartbeat de keep-alive.
      */
-    HEARTBEAT("heartbeat");
+    HEARTBEAT("heartbeat"),
+
+    // ========================
+    // Eventos do Domain PAYLOAD
+    // ========================
+
+    /**
+     * Fragmento de payload rico (streaming parcial).
+     */
+    PAYLOAD_CHUNK("payload_chunk"),
+
+    /**
+     * Payload rico completo.
+     */
+    PAYLOAD_COMPLETE("payload_complete");
 
     private final String value;
 

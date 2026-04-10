@@ -14,6 +14,7 @@ import java.util.Map;
 @NoArgsConstructor
 @AllArgsConstructor
 public class FlowState {
+    private String tenantId;
     private String flowId;
     private FlowStatus status;
     private String currentStepId;

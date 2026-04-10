@@ -32,65 +32,126 @@ public class InMemoryStateRepository implements StateRepository {
 
     @Override
     public void saveState(String flowId, FlowState state) {
-        logger.fine("Salvando estado do fluxo: " + flowId);
-        
-        // Faz uma cópia profunda do estado para evitar modificações externas
-        FlowState stateCopy = deepCopyState(state);
-        states.put(flowId, stateCopy);
-        
-        // Registra no audit log
-        saveAuditLog(flowId, createAuditLog(flowId, state));
+        String tenantId = state.getTenantId() != null ? state.getTenantId() : "SYSTEM";
+        saveState(tenantId, flowId, state);
     }
 
     @Override
     public FlowState getState(String flowId) {
-        logger.fine("Recuperando estado do fluxo: " + flowId);
-        
-        FlowState state = states.get(flowId);
+        return getState("SYSTEM", flowId);
+    }
+
+    @Override
+    public void saveAuditLog(String flowId, AuditLog log) {
+        saveAuditLog("SYSTEM", flowId, log);
+    }
+
+    @Override
+    public void saveState(String tenantId, String flowId, FlowState state) {
+        String key = tenantKey(tenantId, flowId);
+        logger.fine("Salvando estado do fluxo: " + key);
+
+        FlowState stateCopy = deepCopyState(state);
+        states.put(key, stateCopy);
+
+        saveAuditLog(tenantId, flowId, createAuditLog(flowId, state));
+    }
+
+    @Override
+    public FlowState getState(String tenantId, String flowId) {
+        String key = tenantKey(tenantId, flowId);
+        logger.fine("Recuperando estado do fluxo: " + key);
+
+        FlowState state = states.get(key);
         if (state != null) {
-            // Retorna uma cópia para evitar modificações externas
             return deepCopyState(state);
         }
         return null;
     }
 
     @Override
-    public void saveAuditLog(String flowId, AuditLog log) {
-        logger.fine("Registrando audit log para fluxo: " + flowId);
-        auditLogs.computeIfAbsent(flowId, k -> new ArrayList<>())
+    public void saveAuditLog(String tenantId, String flowId, AuditLog log) {
+        String key = tenantKey(tenantId, flowId);
+        logger.fine("Registrando audit log para fluxo: " + key);
+        auditLogs.computeIfAbsent(key, k -> new ArrayList<>())
                  .add(log);
     }
 
-    /**
-     * Recupera o histórico de audit logs de um fluxo
-     */
-    public List<AuditLog> getAuditLogs(String flowId) {
-        return new ArrayList<>(auditLogs.getOrDefault(flowId, new ArrayList<>()));
+    @Override
+    public List<FlowState> getStatesByTenant(String tenantId) {
+        String prefix = tenantId + ":";
+        return states.entrySet().stream()
+                .filter(e -> e.getKey().startsWith(prefix))
+                .map(e -> deepCopyState(e.getValue()))
+                .toList();
+    }
+
+    private String tenantKey(String tenantId, String flowId) {
+        return tenantId + ":" + flowId;
     }
 
     /**
-     * Registra um erro de execução
+     * Recupera o histórico de audit logs de um fluxo (backward compat — usa tenant SYSTEM).
+     */
+    public List<AuditLog> getAuditLogs(String flowId) {
+        return getAuditLogs("SYSTEM", flowId);
+    }
+
+    /**
+     * Recupera o histórico de audit logs de um fluxo com isolamento por tenant.
+     */
+    public List<AuditLog> getAuditLogs(String tenantId, String flowId) {
+        String key = tenantKey(tenantId, flowId);
+        return new ArrayList<>(auditLogs.getOrDefault(key, new ArrayList<>()));
+    }
+
+    /**
+     * Registra um erro de execução (backward compat — usa tenant SYSTEM).
      */
     public void saveError(String flowId, ExecutionError error) {
-        logger.fine("Registrando erro para fluxo: " + flowId);
-        errors.computeIfAbsent(flowId, k -> new ArrayList<>())
+        saveError("SYSTEM", flowId, error);
+    }
+
+    /**
+     * Registra um erro de execução com isolamento por tenant.
+     */
+    public void saveError(String tenantId, String flowId, ExecutionError error) {
+        String key = tenantKey(tenantId, flowId);
+        logger.fine("Registrando erro para fluxo: " + key);
+        errors.computeIfAbsent(key, k -> new ArrayList<>())
               .add(error);
     }
 
     /**
-     * Recupera erros de execução de um fluxo
+     * Recupera erros de execução de um fluxo (backward compat — usa tenant SYSTEM).
      */
     public List<ExecutionError> getErrors(String flowId) {
-        return new ArrayList<>(errors.getOrDefault(flowId, new ArrayList<>()));
+        return getErrors("SYSTEM", flowId);
     }
 
     /**
-     * Remove todos os dados de um fluxo
+     * Recupera erros de execução de um fluxo com isolamento por tenant.
+     */
+    public List<ExecutionError> getErrors(String tenantId, String flowId) {
+        String key = tenantKey(tenantId, flowId);
+        return new ArrayList<>(errors.getOrDefault(key, new ArrayList<>()));
+    }
+
+    /**
+     * Remove todos os dados de um fluxo (backward compat — usa tenant SYSTEM).
      */
     public void clearFlow(String flowId) {
-        states.remove(flowId);
-        auditLogs.remove(flowId);
-        errors.remove(flowId);
+        clearFlow("SYSTEM", flowId);
+    }
+
+    /**
+     * Remove todos os dados de um fluxo com isolamento por tenant.
+     */
+    public void clearFlow(String tenantId, String flowId) {
+        String key = tenantKey(tenantId, flowId);
+        states.remove(key);
+        auditLogs.remove(key);
+        errors.remove(key);
     }
 
     private AuditLog createAuditLog(String flowId, FlowState state) {
@@ -106,6 +167,7 @@ public class InMemoryStateRepository implements StateRepository {
      */
     private FlowState deepCopyState(FlowState state) {
         return FlowState.builder()
+            .tenantId(state.getTenantId())
             .flowId(state.getFlowId())
             .status(state.getStatus())
             .currentStepId(state.getCurrentStepId())

@@ -9,7 +9,7 @@ import {
 } from '@tabler/icons-react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../../stores/auth-store';
-import { useState } from 'react';
+import { useColorScheme } from '../../App';
 
 const NAV_ITEMS = [
     { label: 'Workflows', icon: IconTopologyRing, path: '/' },
@@ -21,11 +21,16 @@ export default function AppLayout() {
     const navigate = useNavigate();
     const location = useLocation();
     const { user, logout } = useAuthStore();
-    const [dark, setDark] = useState(false);
+    const [colorScheme, setColorScheme] = useColorScheme();
+    const dark = colorScheme === 'dark';
 
     const handleLogout = async () => {
         await logout();
         navigate('/login');
+    };
+
+    const toggleTheme = () => {
+        setColorScheme(dark ? 'light' : 'dark');
     };
 
     return (
@@ -44,7 +49,7 @@ export default function AppLayout() {
                         <Tooltip label={dark ? 'Light mode' : 'Dark mode'}>
                             <ActionIcon
                                 variant="subtle"
-                                onClick={() => setDark(!dark)}
+                                onClick={toggleTheme}
                                 aria-label="Toggle theme"
                             >
                                 {dark ? <IconSun size={18} /> : <IconMoon size={18} />}

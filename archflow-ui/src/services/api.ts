@@ -16,6 +16,10 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     if (token) {
         headers['Authorization'] = `Bearer ${token}`;
     }
+    const impersonating = sessionStorage.getItem('archflow_impersonate_tenant');
+    if (impersonating) {
+        headers['X-Impersonate-Tenant'] = impersonating;
+    }
 
     const response = await fetch(`${API_BASE}${path}`, { ...options, headers });
 

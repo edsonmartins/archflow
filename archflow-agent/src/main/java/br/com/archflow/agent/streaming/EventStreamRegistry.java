@@ -97,6 +97,42 @@ public class EventStreamRegistry {
     }
 
     /**
+     * Cria e registra um novo emitter com isolamento por tenant.
+     * A chave interna é {@code tenantId:sessionId}.
+     *
+     * @param tenantId  ID do tenant
+     * @param sessionId ID da sessão
+     * @return Emitter criado e registrado
+     */
+    public EventStreamEmitter createEmitter(String tenantId, String sessionId) {
+        String tenantScopedId = tenantId + ":" + sessionId;
+        EventStreamEmitter emitter = new EventStreamEmitter(tenantScopedId);
+        return register(emitter);
+    }
+
+    /**
+     * Retorna todos os emitters ativos de um tenant.
+     *
+     * @param tenantId ID do tenant
+     * @return Lista de emitters do tenant
+     */
+    public List<EventStreamEmitter> getEmittersByTenant(String tenantId) {
+        String prefix = tenantId + ":";
+        List<EventStreamEmitter> result = new ArrayList<>();
+        for (Map.Entry<String, Set<String>> entry : executionEmitters.entrySet()) {
+            if (entry.getKey().startsWith(prefix)) {
+                for (String emitterId : entry.getValue()) {
+                    EventStreamEmitter emitter = emitters.get(emitterId);
+                    if (emitter != null && !emitter.isCompleted()) {
+                        result.add(emitter);
+                    }
+                }
+            }
+        }
+        return result;
+    }
+
+    /**
      * Remove um emitter.
      *
      * @param emitterId ID do emitter

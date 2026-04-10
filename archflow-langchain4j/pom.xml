@@ -26,6 +26,7 @@
         <module>archflow-langchain4j-vectorstore-pinecone</module>
         <module>archflow-langchain4j-mcp</module>
         <module>archflow-langchain4j-skills</module>
+        <module>archflow-langchain4j-openrouter</module>
     </modules>
 
     <properties>

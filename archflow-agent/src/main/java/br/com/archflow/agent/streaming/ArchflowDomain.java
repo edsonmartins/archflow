@@ -84,7 +84,22 @@ public enum ArchflowDomain {
      *   <li>heartbeat - Heartbeat de keep-alive</li>
      * </ul>
      */
-    SYSTEM("system");
+    SYSTEM("system"),
+
+    /**
+     * Domínio para payloads ricos estruturados.
+     *
+     * <p>Permite streaming de objetos arbitrários (ex: AI_SUGGESTION, QUOTE, ALERT)
+     * pelo canal do cliente. O motor não interpreta o conteúdo — produtos
+     * definem a semântica.
+     *
+     * <p>Eventos neste domínio incluem:
+     * <ul>
+     *   <li>payload_chunk - Fragmento de payload rico</li>
+     *   <li>payload_complete - Payload rico completo</li>
+     * </ul>
+     */
+    PAYLOAD("payload");
 
     private final String value;
 

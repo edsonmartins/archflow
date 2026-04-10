@@ -81,7 +81,7 @@ class InMemoryEpisodicMemoryTest {
     void shouldEvictOldest() {
         // Store episodes with different timestamps
         for (int i = 0; i < 10; i++) {
-            Episode ep = new Episode(null, "ctx", "Episode " + i, null,
+            Episode ep = new Episode(null, "SYSTEM", "ctx", "Episode " + i, null,
                     Episode.EpisodeType.INTERACTION, 0.5, Map.of(),
                     Instant.now().minusSeconds(100 - i * 10));
             memory.store(ep);
@@ -166,9 +166,9 @@ class InMemoryEpisodicMemoryTest {
     @Test
     @DisplayName("should order getByContext by timestamp descending")
     void shouldOrderByTimestampDescending() {
-        Episode old = new Episode(null, "ctx", "Old", null, null, 0.5, Map.of(),
+        Episode old = new Episode(null, "SYSTEM", "ctx", "Old", null, null, 0.5, Map.of(),
                 Instant.now().minusSeconds(3600));
-        Episode recent = new Episode(null, "ctx", "Recent", null, null, 0.5, Map.of(),
+        Episode recent = new Episode(null, "SYSTEM", "ctx", "Recent", null, null, 0.5, Map.of(),
                 Instant.now());
 
         memory.store(old);

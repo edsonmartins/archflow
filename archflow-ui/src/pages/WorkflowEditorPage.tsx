@@ -1,221 +1,255 @@
-import { useEffect, useRef, DragEvent, FormEvent, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
-import { Alert, Box, Button, Group, Modal, Paper, Stack, Textarea, TextInput } from '@mantine/core';
-import { useWorkflowStore } from '../stores/workflow-store';
-import { useEditorStore } from '../stores/editor-store';
-import NodePalette from '../components/NodePalette';
-import PropertyEditor from '../components/PropertyEditor';
+import { useEffect, useCallback, useMemo } from 'react'
+import { useParams }         from 'react-router-dom'
+import { notifications }     from '@mantine/notifications'
+import { FlowCanvas }        from '../components/FlowCanvas/FlowCanvas'
+import { NodePalette }       from '../components/NodePalette'
+import { PropertyPanel }     from '../components/PropertyPanel'
+import { useFlowStore }      from '../components/FlowCanvas/store/useFlowStore'
+import { useWorkflowStore }  from '../stores/workflow-store'
+import type { FlowNodeData, WorkflowData } from '../components/FlowCanvas/types'
+import { NODE_TYPE_TO_CATEGORY } from '../components/FlowCanvas/constants'
 
-interface DesignerElement extends HTMLElement {
-    setWorkflow?: (workflow: unknown) => void;
-    addNode?: (node: unknown) => void;
-    updateNode?: (nodeId: string, updates: { label?: string; config?: Record<string, unknown> }) => void;
+function toWorkflowData(detail: any): WorkflowData {
+  const steps = (detail.steps ?? []).map((step: any, i: number) => ({
+    id:          step.id ?? `step-${i}`,
+    type:        step.type?.toLowerCase() ?? 'custom',
+    componentId: step.componentId ?? step.type?.toLowerCase() ?? 'custom',
+    label:       step.operation ?? step.componentId ?? step.type ?? 'Node',
+    category:    NODE_TYPE_TO_CATEGORY[step.type?.toLowerCase()] ?? 'tool' as const,
+    position:    step.position ?? { x: 200 + i * 250, y: 150 },
+    config:      step.configuration ?? {},
+  }))
+
+  const connections = (detail.steps ?? []).flatMap((step: any) =>
+    (step.connections ?? []).map((conn: any, j: number) => ({
+      id:          `conn-${step.id}-${j}`,
+      sourceId:    conn.sourceId ?? step.id,
+      targetId:    conn.targetId,
+      isErrorPath: conn.isErrorPath ?? false,
+    }))
+  )
+
+  return { steps, connections }
 }
 
-export default function WorkflowEditorPage() {
-    const { id } = useParams<{ id: string }>();
-    const navigate = useNavigate();
-    const { currentWorkflow, fetchWorkflow, createWorkflow, clearCurrent, loading, error } = useWorkflowStore();
-    const { isPaletteOpen, isPropertiesOpen, selectNode, selectedNode } = useEditorStore();
-    const designerRef = useRef<DesignerElement>(null);
-    const [createOpened, setCreateOpened] = useState(false);
-    const [workflowName, setWorkflowName] = useState('');
-    const [workflowDescription, setWorkflowDescription] = useState('');
-    const [componentError, setComponentError] = useState<string | null>(null);
+export function WorkflowEditor() {
+  const { id } = useParams<{ id: string }>()
 
-    useEffect(() => {
-        if (id) {
-            fetchWorkflow(id);
-        }
-        return () => {
-            clearCurrent();
-            selectNode(null);
-        };
-    }, [id, fetchWorkflow, clearCurrent, selectNode]);
+  const { currentWorkflow: current, fetchWorkflow: loadWorkflow, updateWorkflow, loading: isSaving } = useWorkflowStore()
+  const lastSavedAt: number | null = null // TODO: track save timestamp
+  const saveWorkflow = async () => { if (current) await updateWorkflow(current.id, current) }
+  const workflowData = useMemo(() => current ? toWorkflowData(current) : null, [current])
+  const { selectedNodeId, selectedNodeData, selectNode, startExecution, isExecuting } = useFlowStore()
 
-    useEffect(() => {
-        const el = designerRef.current;
-        if (!el) return;
+  // Carregar workflow ao montar
+  useEffect(() => {
+    if (id) loadWorkflow(id)
+  }, [id])
 
-        let cancelled = false;
+  // ── Handlers ──────────────────────────────────────────────────
+  const handleNodeSelect = useCallback(
+    (nodeId: string | null, data: FlowNodeData | null) => {
+      selectNode(nodeId, data as any)
+    },
+    [selectNode]
+  )
 
-        if (currentWorkflow && id) {
-            customElements.whenDefined('archflow-designer').then(() => {
-                if (!cancelled) {
-                    designerRef.current?.setWorkflow?.(currentWorkflow);
-                }
-            });
-        }
+  const handleSave = useCallback(async () => {
+    if (!current) return
+    try {
+      await saveWorkflow()
+      notifications.show({
+        title:   'Saved',
+        message: 'Workflow saved successfully',
+        color:   'teal',
+      })
+    } catch {
+      notifications.show({
+        title:   'Error',
+        message: 'Failed to save workflow',
+        color:   'red',
+      })
+    }
+  }, [current, saveWorkflow])
 
-        const handleNodeSelected = (e: Event) => {
-            const detail = (e as CustomEvent).detail;
-            if (detail?.nodeId) {
-                selectNode(detail.nodeId, {
-                    id: detail.nodeId,
-                    type: detail.nodeType || 'UNKNOWN',
-                    label: detail.nodeLabel || detail.nodeId,
-                    position: detail.position || { x: 0, y: 0 },
-                    config: detail.config || {},
-                });
-            }
-        };
+  const handleExecute = useCallback(() => {
+    // Em produção: chamar API, receber executionId, ouvir SSE
+    const execId = `exec-${Date.now()}`
+    startExecution(execId)
+    notifications.show({
+      title:   'Execution started',
+      message: `Execution ID: ${execId}`,
+      color:   'blue',
+    })
+  }, [startExecution])
 
-        const handleSelectionCleared = () => selectNode(null);
-        const handleCreateRequested = () => setCreateOpened(true);
-        const handleWorkflowSaved = () => setComponentError(null);
-        const handleWorkflowExecuted = (e: Event) => {
-            setComponentError(null);
-            const detail = (e as CustomEvent).detail;
-            const executionId = detail?.result?.executionId;
-            if (executionId) {
-                navigate(`/executions?id=${executionId}`);
-            }
-        };
-        const handleDesignerError = (e: Event) => {
-            const detail = (e as CustomEvent).detail;
-            if (detail?.message) {
-                setComponentError(detail.message);
-            }
-        };
+  // ── Auto-save (debounced 3s) ───────────────────────────────────
+  // useEffect(() => {
+  //   const timer = setTimeout(handleSave, 3000)
+  //   return () => clearTimeout(timer)
+  // }, [nodes, edges])   ← ativar quando quiser auto-save
 
-        el.addEventListener('node-selected', handleNodeSelected);
-        el.addEventListener('selection-cleared', handleSelectionCleared);
-        el.addEventListener('archflow:create', handleCreateRequested);
-        el.addEventListener('workflow-saved', handleWorkflowSaved);
-        el.addEventListener('workflow-executed', handleWorkflowExecuted);
-        el.addEventListener('error', handleDesignerError);
+  const formattedSavedAt = lastSavedAt
+    ? new Intl.RelativeTimeFormat('en', { numeric: 'auto' }).format(
+        Math.round((lastSavedAt - Date.now()) / 1000),
+        'second'
+      )
+    : null
 
-        return () => {
-            cancelled = true;
-            el.removeEventListener('node-selected', handleNodeSelected);
-            el.removeEventListener('selection-cleared', handleSelectionCleared);
-            el.removeEventListener('archflow:create', handleCreateRequested);
-            el.removeEventListener('workflow-saved', handleWorkflowSaved);
-            el.removeEventListener('workflow-executed', handleWorkflowExecuted);
-            el.removeEventListener('error', handleDesignerError);
-        };
-    }, [currentWorkflow, id, navigate, selectNode]);
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 52px - 32px)', overflow: 'hidden' }}>
+      {/* ── Top bar ─────────────────────────────────────────── */}
+      <div
+        style={{
+          display:       'flex',
+          alignItems:    'center',
+          gap:           8,
+          borderBottom:  '0.5px solid var(--color-border-tertiary)',
+          background:    'var(--color-background-primary)',
+          padding:       '8px 12px',
+          flexShrink:    0,
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1 }}>
+          <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--color-text-primary)' }}>
+            {current?.metadata?.name ?? 'Untitled workflow'}
+          </span>
+          <span
+            style={{
+              fontSize:   11,
+              color:      'var(--color-text-tertiary)',
+              background: 'var(--color-background-tertiary)',
+              border:     '0.5px solid var(--color-border-tertiary)',
+              padding:    '1px 7px',
+              borderRadius: 20,
+              fontFamily: 'var(--font-mono)',
+            }}
+          >
+            {current?.metadata?.version ?? 'v1.0.0'}
+          </span>
+        </div>
 
-    useEffect(() => {
-        if (!selectedNode) return;
-        customElements.whenDefined('archflow-designer').then(() => {
-            designerRef.current?.updateNode?.(selectedNode.id, {
-                label: selectedNode.label,
-                config: selectedNode.config,
-            });
-        });
-    }, [selectedNode]);
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          {formattedSavedAt && (
+            <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginRight: 8 }}>
+              Saved {formattedSavedAt}
+            </span>
+          )}
 
-    const handleDrop = (e: DragEvent) => {
-        e.preventDefault();
-        const data = e.dataTransfer.getData('application/archflow-node');
-        if (data) {
-            const nodeInfo = JSON.parse(data);
-            const rect = (e.target as HTMLElement).getBoundingClientRect();
-            const position = {
-                x: e.clientX - rect.left,
-                y: e.clientY - rect.top,
-            };
-            // Dispatch to web component
-            const el = designerRef.current;
-            if (el) {
-                el.addNode?.({ ...nodeInfo, position });
-            }
-        }
-    };
+          <button aria-label="Undo" style={iconBtnStyle} title="Undo (⌘Z)">↩</button>
+          <button aria-label="Redo" style={iconBtnStyle} title="Redo (⌘⇧Z)">↪</button>
 
-    const handleDragOver = (e: DragEvent) => {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = 'copy';
-    };
+          <button
+            onClick={handleSave}
+            disabled={isSaving}
+            style={{ ...btnStyle, opacity: isSaving ? 0.6 : 1 }}
+          >
+            {isSaving ? 'Saving...' : 'Save'}
+          </button>
 
-    const handleCreateWorkflow = async (e: FormEvent) => {
-        e.preventDefault();
-        const name = workflowName.trim();
-        if (!name) return;
+          <button
+            onClick={handleExecute}
+            disabled={isExecuting}
+            style={{
+              ...btnStyle,
+              background: isExecuting ? '#85B7EB' : '#378ADD',
+              border: '0.5px solid #185FA5',
+              color: '#fff',
+            }}
+          >
+            {isExecuting ? '◌ Running...' : '▶ Execute'}
+          </button>
+        </div>
+      </div>
 
-        const created = await createWorkflow({
-            metadata: {
-                name,
-                description: workflowDescription.trim(),
-                version: '1.0.0',
-                category: 'custom',
-                tags: [],
-            },
-            steps: [],
-            configuration: {},
-        });
+      {/* ── Editor body: palette + canvas + property panel ──── */}
+      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+        {/* Palette */}
+        <div style={{ width: 240, flexShrink: 0, overflow: 'hidden' }}>
+          <NodePalette />
+        </div>
 
-        setCreateOpened(false);
-        setWorkflowName('');
-        setWorkflowDescription('');
-        setComponentError(null);
-        navigate(`/editor/${created.id}`);
-    };
+        {/* Canvas */}
+        <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+          {workflowData ? (
+            <FlowCanvas
+              initialWorkflow={workflowData}
+              onNodeSelect={handleNodeSelect}
+              onExecutionRequest={handleExecute}
+            />
+          ) : (
+            <EmptyCanvas />
+          )}
+        </div>
 
-    return (
-        <Stack gap="sm">
-            {componentError && <Alert color="red">{componentError}</Alert>}
-            {error && !createOpened && <Alert color="red">{error}</Alert>}
+        {/* Property panel */}
+        <div style={{ width: 320, flexShrink: 0, overflow: 'hidden' }}>
+          <PropertyPanel
+            nodeId={selectedNodeId}
+            nodeData={selectedNodeData as FlowNodeData | null}
+          />
+        </div>
+      </div>
+    </div>
+  )
+}
 
-            <Group justify="space-between">
-                <Button onClick={() => setCreateOpened(true)}>
-                    Create Workflow
-                </Button>
-            </Group>
+// ── Empty state do canvas ────────────────────────────────────────
+function EmptyCanvas() {
+  return (
+    <div
+      style={{
+        height:         '100%',
+        display:        'flex',
+        flexDirection:  'column',
+        alignItems:     'center',
+        justifyContent: 'center',
+        gap:            12,
+        background:     'var(--color-background-tertiary)',
+        color:          'var(--color-text-tertiary)',
+      }}
+    >
+      <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+        <circle cx="12" cy="24" r="5" stroke="currentColor" strokeWidth="1.5" strokeDasharray="3 2"/>
+        <circle cx="36" cy="14" r="5" stroke="currentColor" strokeWidth="1.5" strokeDasharray="3 2"/>
+        <circle cx="36" cy="34" r="5" stroke="currentColor" strokeWidth="1.5" strokeDasharray="3 2"/>
+        <line x1="17" y1="22.5" x2="31" y2="15.5" stroke="currentColor" strokeWidth="1.5" strokeDasharray="3 2"/>
+        <line x1="17" y1="25.5" x2="31" y2="32.5" stroke="currentColor" strokeWidth="1.5" strokeDasharray="3 2"/>
+      </svg>
+      <div style={{ fontSize: 16, fontWeight: 500, color: 'var(--color-text-secondary)' }}>
+        No workflow loaded
+      </div>
+      <div style={{ fontSize: 13, color: 'var(--color-text-tertiary)', maxWidth: 260, textAlign: 'center' }}>
+        Create a new workflow or load an existing one to get started
+      </div>
+    </div>
+  )
+}
 
-            <Box style={{ display: 'flex', height: 'calc(100vh - 140px)', gap: 8 }}>
-                {isPaletteOpen && (
-                    <Paper withBorder p="xs" w={220} style={{ flexShrink: 0, overflow: 'hidden' }}>
-                        <NodePalette />
-                    </Paper>
-                )}
+// ── Estilos utilitários ──────────────────────────────────────────
+const btnStyle: React.CSSProperties = {
+  padding:      '5px 14px',
+  borderRadius: 7,
+  fontSize:     12,
+  fontWeight:   500,
+  cursor:       'pointer',
+  border:       '0.5px solid var(--color-border-secondary)',
+  background:   'var(--color-background-primary)',
+  color:        'var(--color-text-primary)',
+  fontFamily:   'var(--font-sans)',
+}
 
-                <Box
-                    style={{ flex: 1, position: 'relative' }}
-                    data-testid="workflow-dropzone"
-                    onDrop={handleDrop}
-                    onDragOver={handleDragOver}
-                >
-                    <archflow-designer
-                        ref={designerRef}
-                        theme="light"
-                        width="100%"
-                        height="100%"
-                    />
-                </Box>
-
-                {isPropertiesOpen && (
-                    <Paper withBorder p="xs" w={280} style={{ flexShrink: 0, overflow: 'hidden' }}>
-                        <PropertyEditor />
-                    </Paper>
-                )}
-            </Box>
-
-            <Modal opened={createOpened} onClose={() => setCreateOpened(false)} title="Create Workflow" centered>
-                <form onSubmit={handleCreateWorkflow}>
-                    <Stack gap="md">
-                        {error && <Alert color="red">{error}</Alert>}
-                        <TextInput
-                            label="Name"
-                            placeholder="Customer onboarding"
-                            required
-                            value={workflowName}
-                            onChange={(e) => setWorkflowName(e.currentTarget.value)}
-                        />
-                        <Textarea
-                            label="Description"
-                            placeholder="Describe what this workflow does"
-                            value={workflowDescription}
-                            onChange={(e) => setWorkflowDescription(e.currentTarget.value)}
-                        />
-                        <Group justify="flex-end">
-                            <Button variant="light" onClick={() => setCreateOpened(false)}>Cancel</Button>
-                            <Button type="submit" loading={loading}>Create</Button>
-                        </Group>
-                    </Stack>
-                </form>
-            </Modal>
-        </Stack>
-    );
+const iconBtnStyle: React.CSSProperties = {
+  width:        30,
+  height:       30,
+  borderRadius: 7,
+  border:       '0.5px solid var(--color-border-tertiary)',
+  background:   'var(--color-background-primary)',
+  display:      'flex',
+  alignItems:   'center',
+  justifyContent: 'center',
+  cursor:       'pointer',
+  color:        'var(--color-text-secondary)',
+  fontSize:     14,
+  fontFamily:   'var(--font-sans)',
 }

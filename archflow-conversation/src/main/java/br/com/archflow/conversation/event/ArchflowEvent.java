@@ -50,7 +50,8 @@ public class ArchflowEvent {
                 builder.id != null ? builder.id : UUID.randomUUID().toString(),
                 builder.timestamp != null ? builder.timestamp : Instant.now(),
                 builder.correlationId,
-                builder.executionId
+                builder.executionId,
+                builder.tenantId
         );
         this.data = new EventData(builder.payload);
     }
@@ -212,10 +213,16 @@ public class ArchflowEvent {
             @JsonProperty("id") String id,
             @JsonProperty("timestamp") Instant timestamp,
             @JsonProperty("correlationId") String correlationId,
-            @JsonProperty("executionId") String executionId
+            @JsonProperty("executionId") String executionId,
+            @JsonProperty("tenantId") String tenantId
     ) {
         public EventEnvelope(String domain, String type, String id, Instant timestamp) {
-            this(domain, type, id, timestamp, null, null);
+            this(domain, type, id, timestamp, null, null, null);
+        }
+
+        public EventEnvelope(String domain, String type, String id, Instant timestamp,
+                             String correlationId, String executionId) {
+            this(domain, type, id, timestamp, correlationId, executionId, null);
         }
     }
 
@@ -289,7 +296,13 @@ public class ArchflowEvent {
         private Instant timestamp;
         private String correlationId;
         private String executionId;
+        private String tenantId;
         private Map<String, Object> payload;
+
+        public Builder tenantId(String tenantId) {
+            this.tenantId = tenantId;
+            return this;
+        }
 
         public Builder domain(String domain) {
             this.domain = domain;

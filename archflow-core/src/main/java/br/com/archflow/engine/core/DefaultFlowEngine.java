@@ -23,16 +23,26 @@ public class DefaultFlowEngine implements FlowEngine {
     private final FlowRepository flowRepository;
     private final StateManager stateManager;
     private final FlowValidator flowValidator;
+    private final MemoryRestorer memoryRestorer;
     private final Map<String, FlowExecution> activeExecutions;
 
     public DefaultFlowEngine(ExecutionManager executionManager,
                              FlowRepository flowRepository,
                              StateManager stateManager,
                              FlowValidator flowValidator) {
+        this(executionManager, flowRepository, stateManager, flowValidator, null);
+    }
+
+    public DefaultFlowEngine(ExecutionManager executionManager,
+                             FlowRepository flowRepository,
+                             StateManager stateManager,
+                             FlowValidator flowValidator,
+                             MemoryRestorer memoryRestorer) {
         this.executionManager = executionManager;
         this.flowRepository = flowRepository;
         this.stateManager = stateManager;
         this.flowValidator = flowValidator;
+        this.memoryRestorer = memoryRestorer;
         this.activeExecutions = new ConcurrentHashMap<>();
     }
 
@@ -64,7 +74,7 @@ public class DefaultFlowEngine implements FlowEngine {
                 flowValidator.validate(flow);
 
                 if (context.getState() == null) {
-                    FlowState initialState = createInitialState(flow.getId());
+                    FlowState initialState = createInitialState(flow.getId(), context.getTenantId());
                     context.setState(initialState);
                 }
 
@@ -95,7 +105,32 @@ public class DefaultFlowEngine implements FlowEngine {
                     throw new FlowEngineException("Cannot resume flow in final state: " + state.getStatus());
                 }
 
+                // Ao retomar, atualizar status para RUNNING
+                if (state.getStatus() == FlowStatus.PAUSED || state.getStatus() == FlowStatus.AWAITING_APPROVAL) {
+                    state = FlowState.builder()
+                            .tenantId(state.getTenantId())
+                            .flowId(state.getFlowId())
+                            .status(FlowStatus.RUNNING)
+                            .currentStepId(state.getCurrentStepId())
+                            .variables(state.getVariables())
+                            .executionPaths(state.getExecutionPaths())
+                            .metrics(state.getMetrics())
+                            .error(state.getError())
+                            .build();
+                }
+
                 context.setState(state);
+
+                // Restaurar ChatMemory (ex: do Redis) antes de retomar
+                if (memoryRestorer != null) {
+                    try {
+                        memoryRestorer.restore(context);
+                        logger.info("Memory restored for flow: " + flowId);
+                    } catch (Exception e) {
+                        logger.warning("Failed to restore memory for flow " + flowId + ": " + e.getMessage());
+                    }
+                }
+
                 FlowExecution execution = new FlowExecution(flow, context);
                 activeExecutions.put(flowId, execution);
 
@@ -160,16 +195,23 @@ public class DefaultFlowEngine implements FlowEngine {
     }
 
     private ExecutionContext createInitialContext(Flow flow, Map<String, Object> input) {
+        Map<String, Object> vars = input != null ? new HashMap<>(input) : new HashMap<>();
+        String tenantId = vars.containsKey("tenantId") ? String.valueOf(vars.get("tenantId")) : "SYSTEM";
+        String userId = vars.containsKey("userId") ? String.valueOf(vars.get("userId")) : null;
+        String sessionId = vars.containsKey("sessionId") ? String.valueOf(vars.get("sessionId")) : null;
+
         ExecutionContext context = new DefaultExecutionContext(
+                tenantId, userId, sessionId,
                 MessageWindowChatMemory.builder()
                         .maxMessages(100)
                         .build()
         );
 
         FlowState initialState = FlowState.builder()
+                .tenantId(tenantId)
                 .flowId(flow.getId())
                 .status(FlowStatus.INITIALIZED)
-                .variables(new HashMap<>(input != null ? input : new HashMap<>()))
+                .variables(vars)
                 .executionPaths(new ArrayList<>())
                 .metrics(FlowMetrics.builder().build())
                 .build();
@@ -179,7 +221,12 @@ public class DefaultFlowEngine implements FlowEngine {
     }
 
     private FlowState createInitialState(String flowId) {
+        return createInitialState(flowId, "SYSTEM");
+    }
+
+    private FlowState createInitialState(String flowId, String tenantId) {
         return FlowState.builder()
+                .tenantId(tenantId)
                 .flowId(flowId)
                 .status(FlowStatus.INITIALIZED)
                 .variables(new HashMap<>())
@@ -201,6 +248,7 @@ public class DefaultFlowEngine implements FlowEngine {
                 );
 
                 FlowState errorState = FlowState.builder()
+                        .tenantId(currentState.getTenantId())
                         .flowId(currentState.getFlowId())
                         .status(FlowStatus.FAILED)
                         .currentStepId(currentState.getCurrentStepId())
@@ -237,6 +285,7 @@ public class DefaultFlowEngine implements FlowEngine {
         private void updateState(FlowStatus newStatus) {
             FlowState currentState = context.getState();
             FlowState updatedState = FlowState.builder()
+                    .tenantId(currentState.getTenantId())
                     .flowId(currentState.getFlowId())
                     .status(newStatus)
                     .currentStepId(currentState.getCurrentStepId())
@@ -252,6 +301,71 @@ public class DefaultFlowEngine implements FlowEngine {
         public ExecutionContext getContext() {
             return context;
         }
+    }
+
+    @Override
+    public String requestApproval(String flowId, String stepId, Object proposal) {
+        FlowExecution execution = activeExecutions.get(flowId);
+        if (execution == null) {
+            throw new FlowNotFoundException(flowId);
+        }
+
+        FlowState currentState = execution.getContext().getState();
+        FlowState awaitingState = FlowState.builder()
+                .tenantId(currentState.getTenantId())
+                .flowId(currentState.getFlowId())
+                .status(FlowStatus.AWAITING_APPROVAL)
+                .currentStepId(stepId != null ? stepId : currentState.getCurrentStepId())
+                .variables(currentState.getVariables())
+                .executionPaths(currentState.getExecutionPaths())
+                .metrics(currentState.getMetrics())
+                .error(currentState.getError())
+                .build();
+
+        execution.getContext().setState(awaitingState);
+        stateManager.saveState(flowId, awaitingState);
+
+        String requestId = java.util.UUID.randomUUID().toString();
+        logger.info("Flow " + flowId + " awaiting approval: requestId=" + requestId);
+        return requestId;
+    }
+
+    @Override
+    public CompletableFuture<FlowResult> submitApproval(String flowId, String requestId,
+                                                         boolean approved, Object editedPayload) {
+        FlowExecution execution = activeExecutions.get(flowId);
+        if (execution == null) {
+            throw new FlowNotFoundException(flowId);
+        }
+
+        FlowState currentState = execution.getContext().getState();
+        if (currentState.getStatus() != FlowStatus.AWAITING_APPROVAL) {
+            throw new FlowEngineException("Flow is not awaiting approval: " + flowId);
+        }
+
+        if (!approved) {
+            FlowState rejectedState = FlowState.builder()
+                    .tenantId(currentState.getTenantId())
+                    .flowId(currentState.getFlowId())
+                    .status(FlowStatus.STOPPED)
+                    .currentStepId(currentState.getCurrentStepId())
+                    .variables(currentState.getVariables())
+                    .executionPaths(currentState.getExecutionPaths())
+                    .metrics(currentState.getMetrics())
+                    .build();
+            execution.getContext().setState(rejectedState);
+            stateManager.saveState(flowId, rejectedState);
+            activeExecutions.remove(flowId);
+            executionManager.stopFlow(flowId);
+            return CompletableFuture.completedFuture(null);
+        }
+
+        // Aprovado — retomar execução
+        if (editedPayload != null) {
+            execution.getContext().set("approvalPayload", editedPayload);
+        }
+
+        return resumeFlow(flowId, execution.getContext());
     }
 
     @Override

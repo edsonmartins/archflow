@@ -280,6 +280,27 @@ public enum LLMProvider {
             ModelInfo.of("gemini-1.5-pro", "Gemini 1.5 Pro (Vertex)", 2000000, 2.0),
             ModelInfo.of("claude-3-5-sonnet@20241022", "Claude 3.5 Sonnet (Vertex)", 200000, 1.0)
         )
+    ),
+
+    /**
+     * OpenRouter - Multi-model router with OpenAI-compatible API.
+     * Routes to 100+ models from OpenAI, Anthropic, Google, Meta, etc.
+     */
+    OPENROUTER(
+        "openrouter",
+        "OpenRouter",
+        "https://openrouter.ai/api/v1",
+        true,
+        true,
+        List.of(
+            ModelInfo.of("openai/gpt-4o", "GPT-4o (OpenRouter)", 128000, 2.0),
+            ModelInfo.of("openai/gpt-4o-mini", "GPT-4o Mini (OpenRouter)", 128000, 2.0),
+            ModelInfo.of("anthropic/claude-3.5-sonnet", "Claude 3.5 Sonnet (OpenRouter)", 200000, 1.0),
+            ModelInfo.of("anthropic/claude-sonnet-4-20250514", "Claude Sonnet 4 (OpenRouter)", 200000, 1.0),
+            ModelInfo.of("google/gemini-2.0-flash-exp:free", "Gemini 2.0 Flash (OpenRouter)", 1000000, 2.0),
+            ModelInfo.of("meta-llama/llama-3.3-70b-instruct", "Llama 3.3 70B (OpenRouter)", 128000, 1.0),
+            ModelInfo.of("deepseek/deepseek-chat", "DeepSeek Chat (OpenRouter)", 128000, 1.0)
+        )
     );
 
     private final String id;

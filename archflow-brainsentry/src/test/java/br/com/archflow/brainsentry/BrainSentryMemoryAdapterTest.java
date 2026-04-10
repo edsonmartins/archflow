@@ -34,7 +34,8 @@ class BrainSentryMemoryAdapterTest {
         adapter.store(episode);
 
         verify(client).createMemory(eq("Customer asked about order #123"),
-                eq("CONTEXT"), eq("CRITICAL"), eq("EPISODIC"), anyList());
+                eq("CONTEXT"), eq("CRITICAL"), eq("EPISODIC"),
+                argThat(tags -> tags.contains("tenant:SYSTEM") && tags.contains("archflow")));
     }
 
     @Test @DisplayName("should map importance correctly")
@@ -46,11 +47,11 @@ class BrainSentryMemoryAdapterTest {
         verify(client).createMemory(any(), any(), eq("IMPORTANT"), any(), any());
     }
 
-    @Test @DisplayName("should recall via search")
+    @Test @DisplayName("should recall via search with tenant filtering")
     void shouldRecall() throws Exception {
         var memory = new Memory("m1", "Found content", "summary", "KNOWLEDGE",
-                "CRITICAL", "SEMANTIC", List.of("tag"), Map.of(), Instant.now());
-        when(client.searchMemories("order status", 5)).thenReturn(List.of(memory));
+                "CRITICAL", "SEMANTIC", List.of("tenant:SYSTEM", "archflow"), Map.of(), Instant.now());
+        when(client.searchMemories("tenant:SYSTEM order status", 5)).thenReturn(List.of(memory));
 
         List<ScoredEpisode> results = adapter.recall("order status", "user-1", 5);
 
@@ -79,7 +80,7 @@ class BrainSentryMemoryAdapterTest {
 
     @Test @DisplayName("should handle client errors gracefully")
     void shouldHandleErrors() throws Exception {
-        when(client.searchMemories(any(), anyInt())).thenThrow(new RuntimeException("Network"));
+        when(client.searchMemories(anyString(), anyInt())).thenThrow(new RuntimeException("Network"));
 
         List<ScoredEpisode> results = adapter.recall("query", "ctx", 5);
 

@@ -104,6 +104,14 @@
             <artifactId>assertj-core</artifactId>
             <scope>test</scope>
         </dependency>
+
+        <!-- E2E test: conversation module for multi-tenant integration tests -->
+        <dependency>
+            <groupId>br.com.archflow</groupId>
+            <artifactId>archflow-conversation</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>

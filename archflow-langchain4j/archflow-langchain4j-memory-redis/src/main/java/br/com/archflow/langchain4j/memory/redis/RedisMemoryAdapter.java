@@ -71,7 +71,7 @@ public class RedisMemoryAdapter implements LangChainAdapter {
 
     @Override
     public Object execute(String operation, Object input, ExecutionContext context) throws Exception {
-        String conversationId = context.getState().getFlowId();
+        String conversationId = buildConversationKey(context);
 
         if ("add".equals(operation)) {
             if (input instanceof ChatMessage message) {
@@ -154,6 +154,18 @@ public class RedisMemoryAdapter implements LangChainAdapter {
         } else {
             throw new IllegalArgumentException("Unknown message type: " + type);
         }
+    }
+
+    /**
+     * Monta a chave de conversa com isolamento por tenant.
+     * Formato preferencial: {@code tenantId:sessionId}.
+     * Fallback: {@code tenantId:flowId} — mantém isolamento por tenant.
+     */
+    private String buildConversationKey(ExecutionContext context) {
+        String tenantId = context.getTenantId();
+        String sessionId = context.getSessionId();
+        String suffix = sessionId != null ? sessionId : context.getState().getFlowId();
+        return tenantId + ":" + suffix;
     }
 
     @Override

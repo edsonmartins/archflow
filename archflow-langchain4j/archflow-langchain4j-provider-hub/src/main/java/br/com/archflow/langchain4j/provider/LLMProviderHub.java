@@ -253,6 +253,7 @@ public class LLMProviderHub {
             case HUNYUAN -> createHunyuanModel(config);
             case WATSONX -> createWatsonxModel(config);
             case VERTEX_AI -> createVertexAiModel(config);
+            case OPENROUTER -> createOpenRouterModel(config);
             default -> throw new UnsupportedOperationException(
                     "Provider " + config.getProvider().getDisplayName() + " is not yet supported. " +
                     "Supported providers: OpenAI, Anthropic, Azure OpenAI, Gemini, Ollama, " +
@@ -278,6 +279,7 @@ public class LLMProviderHub {
             case HUGGINGFACE -> (StreamingChatModel) createHuggingFaceModel(config);
             case QIANFAN -> (StreamingChatModel) createQianfanModel(config);
             case HUNYUAN -> (StreamingChatModel) createHunyuanModel(config);
+            case OPENROUTER -> (StreamingChatModel) createOpenRouterModel(config);
             default -> throw new IllegalArgumentException(
                     "Streaming not yet supported for " + config.getProvider().getDisplayName());
         };
@@ -300,6 +302,29 @@ public class LLMProviderHub {
         }
         if (config.getBaseUrl() != null) {
             builder.baseUrl(config.getBaseUrl());
+        }
+
+        return builder.build();
+    }
+
+    private ChatModel createOpenRouterModel(LLMProviderConfig config) {
+        // OpenRouter uses an OpenAI-compatible API — delegate with baseUrl override
+        String baseUrl = config.getBaseUrl() != null
+                ? config.getBaseUrl()
+                : LLMProvider.OPENROUTER.getBaseUrl();
+
+        var builder = OpenAiChatModel.builder()
+                .apiKey(config.getApiKey())
+                .baseUrl(baseUrl)
+                .modelName(config.getModelId())
+                .temperature(config.getTemperature())
+                .timeout(config.getTimeout());
+
+        if (config.getTopP() != null) {
+            builder.topP(config.getTopP());
+        }
+        if (config.getMaxTokens() != null) {
+            builder.maxTokens(config.getMaxTokens());
         }
 
         return builder.build();

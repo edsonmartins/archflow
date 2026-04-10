@@ -48,14 +48,26 @@ public class InMemoryEpisodicMemory implements EpisodicMemory {
 
     @Override
     public void store(Episode episode) {
-        store.computeIfAbsent(episode.contextId(), k -> new CopyOnWriteArrayList<>())
+        String key = storeKey(episode.tenantId(), episode.contextId());
+        store.computeIfAbsent(key, k -> new CopyOnWriteArrayList<>())
                 .add(episode);
-        log.debug("Stored episode {} for context {}", episode.id(), episode.contextId());
+        log.debug("Stored episode {} for tenant:context {}", episode.id(), key);
+    }
+
+    @Override
+    public void store(String tenantId, Episode episode) {
+        store(episode);
     }
 
     @Override
     public List<ScoredEpisode> recall(String query, String contextId, int maxResults) {
-        List<Episode> episodes = store.getOrDefault(contextId, List.of());
+        return recall("SYSTEM", query, contextId, maxResults);
+    }
+
+    @Override
+    public List<ScoredEpisode> recall(String tenantId, String query, String contextId, int maxResults) {
+        String key = storeKey(tenantId, contextId);
+        List<Episode> episodes = store.getOrDefault(key, List.of());
         if (episodes.isEmpty()) {
             return List.of();
         }
@@ -71,7 +83,13 @@ public class InMemoryEpisodicMemory implements EpisodicMemory {
 
     @Override
     public List<Episode> getByContext(String contextId) {
-        return store.getOrDefault(contextId, List.of()).stream()
+        return getByContext("SYSTEM", contextId);
+    }
+
+    @Override
+    public List<Episode> getByContext(String tenantId, String contextId) {
+        String key = storeKey(tenantId, contextId);
+        return store.getOrDefault(key, List.of()).stream()
                 .sorted(Comparator.comparing(Episode::timestamp).reversed())
                 .toList();
     }
@@ -86,26 +104,38 @@ public class InMemoryEpisodicMemory implements EpisodicMemory {
 
     @Override
     public int evict(String contextId, int maxEpisodes) {
-        List<Episode> episodes = store.get(contextId);
+        return evictInternal(storeKey("SYSTEM", contextId), maxEpisodes);
+    }
+
+    @Override
+    public void clear(String contextId) {
+        store.remove(storeKey("SYSTEM", contextId));
+    }
+
+    @Override
+    public void clear(String tenantId, String contextId) {
+        store.remove(storeKey(tenantId, contextId));
+    }
+
+    private int evictInternal(String key, int maxEpisodes) {
+        List<Episode> episodes = store.get(key);
         if (episodes == null || episodes.size() <= maxEpisodes) {
             return 0;
         }
 
-        // Sort by timestamp descending, keep most recent
         List<Episode> sorted = new ArrayList<>(episodes);
         sorted.sort(Comparator.comparing(Episode::timestamp).reversed());
 
         int toRemove = sorted.size() - maxEpisodes;
         List<Episode> toKeep = sorted.subList(0, maxEpisodes);
-        store.put(contextId, new CopyOnWriteArrayList<>(toKeep));
+        store.put(key, new CopyOnWriteArrayList<>(toKeep));
 
-        log.debug("Evicted {} episodes from context {}", toRemove, contextId);
+        log.debug("Evicted {} episodes from {}", toRemove, key);
         return toRemove;
     }
 
-    @Override
-    public void clear(String contextId) {
-        store.remove(contextId);
+    private String storeKey(String tenantId, String contextId) {
+        return (tenantId != null ? tenantId : "SYSTEM") + ":" + contextId;
     }
 
     @Override

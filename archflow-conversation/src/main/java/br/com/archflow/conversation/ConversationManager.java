@@ -274,17 +274,36 @@ public class ConversationManager {
     }
 
     /**
-     * Subscribes to conversation events.
+     * Subscribes to conversation events (all tenants — backward compat).
      */
     public void subscribe(String subscriberId, Consumer<ArchflowEvent> handler) {
-        eventSubscribers.put(subscriberId, handler);
+        subscribe("SYSTEM", subscriberId, handler);
+    }
+
+    /**
+     * Subscribes to conversation events for a specific tenant.
+     */
+    public void subscribe(String tenantId, String subscriberId, Consumer<ArchflowEvent> handler) {
+        String key = tenantSubscriberKey(tenantId, subscriberId);
+        eventSubscribers.put(key, handler);
     }
 
     /**
      * Unsubscribes from conversation events.
      */
     public void unsubscribe(String subscriberId) {
-        eventSubscribers.remove(subscriberId);
+        unsubscribe("SYSTEM", subscriberId);
+    }
+
+    /**
+     * Unsubscribes from conversation events for a specific tenant.
+     */
+    public void unsubscribe(String tenantId, String subscriberId) {
+        eventSubscribers.remove(tenantSubscriberKey(tenantId, subscriberId));
+    }
+
+    private String tenantSubscriberKey(String tenantId, String subscriberId) {
+        return (tenantId != null ? tenantId : "SYSTEM") + ":" + subscriberId;
     }
 
     /**
@@ -297,14 +316,19 @@ public class ConversationManager {
     }
 
     /**
-     * Publishes an event to all subscribers.
+     * Publishes an event to subscribers matching the event's tenant.
+     * If tenantId is null, publishes to all subscribers (backward compat).
      */
     private void publishEvent(ArchflowEvent event) {
-        eventSubscribers.values().forEach(subscriber -> {
-            try {
-                subscriber.accept(event);
-            } catch (Exception e) {
-                log.error("Error publishing event to subscriber", e);
+        String eventTenantId = event.getEnvelope().tenantId();
+        eventSubscribers.forEach((key, subscriber) -> {
+            // If event has no tenant, send to all; otherwise filter by tenant prefix
+            if (eventTenantId == null || key.startsWith(eventTenantId + ":") || key.startsWith("SYSTEM:")) {
+                try {
+                    subscriber.accept(event);
+                } catch (Exception e) {
+                    log.error("Error publishing event to subscriber {}", key, e);
+                }
             }
         });
     }

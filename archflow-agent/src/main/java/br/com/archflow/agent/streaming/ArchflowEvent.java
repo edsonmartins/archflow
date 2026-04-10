@@ -68,7 +68,8 @@ public class ArchflowEvent {
                 builder.id != null ? builder.id : UUID.randomUUID().toString(),
                 builder.timestamp != null ? builder.timestamp : Instant.now(),
                 builder.correlationId,
-                builder.executionId
+                builder.executionId,
+                builder.tenantId
         );
         this.data = builder.data != null ? new HashMap<>(builder.data) : new HashMap<>();
         this.metadata = builder.metadata != null ? new HashMap<>(builder.metadata) : new HashMap<>();
@@ -135,6 +136,15 @@ public class ArchflowEvent {
      */
     public String getExecutionId() {
         return envelope.executionIdOpt().orElse(null);
+    }
+
+    /**
+     * Retorna o ID do tenant (opcional).
+     *
+     * @return tenantId ou null
+     */
+    public String getTenantId() {
+        return envelope.tenantIdOpt().orElse(null);
     }
 
     /**
@@ -272,7 +282,8 @@ public class ArchflowEvent {
             String id,
             Instant timestamp,
             String correlationId,
-            String executionId
+            String executionId,
+            String tenantId
     ) {
         public EventEnvelope {
             if (domain == null) {
@@ -293,7 +304,15 @@ public class ArchflowEvent {
          * Construtor simplificado sem IDs opcionais.
          */
         public EventEnvelope(ArchflowDomain domain, ArchflowEventType type, String id, Instant timestamp) {
-            this(domain, type, id, timestamp, null, null);
+            this(domain, type, id, timestamp, null, null, null);
+        }
+
+        /**
+         * Construtor sem tenantId (backward compat).
+         */
+        public EventEnvelope(ArchflowDomain domain, ArchflowEventType type, String id, Instant timestamp,
+                             String correlationId, String executionId) {
+            this(domain, type, id, timestamp, correlationId, executionId, null);
         }
 
         /**
@@ -309,6 +328,13 @@ public class ArchflowEvent {
         public java.util.Optional<String> executionIdOpt() {
             return java.util.Optional.ofNullable(executionId);
         }
+
+        /**
+         * Retorna o tenantId como Optional.
+         */
+        public java.util.Optional<String> tenantIdOpt() {
+            return java.util.Optional.ofNullable(tenantId);
+        }
     }
 
     /**
@@ -321,6 +347,7 @@ public class ArchflowEvent {
         private Instant timestamp;
         private String correlationId;
         private String executionId;
+        private String tenantId;
         private Map<String, Object> data;
         private Map<String, Object> metadata;
 
@@ -334,6 +361,12 @@ public class ArchflowEvent {
             this.timestamp = envelope.timestamp();
             this.correlationId = envelope.correlationIdOpt().orElse(null);
             this.executionId = envelope.executionIdOpt().orElse(null);
+            this.tenantId = envelope.tenantIdOpt().orElse(null);
+        }
+
+        public Builder tenantId(String tenantId) {
+            this.tenantId = tenantId;
+            return this;
         }
 
         public Builder domain(ArchflowDomain domain) {

@@ -1,0 +1,1094 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ArchFlow — Admin Panel</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:       #F0F2F5;
+  --bg2:      #FFFFFF;
+  --bg3:      #F7F8FA;
+  --border:   rgba(0,0,0,0.08);
+  --border2:  rgba(0,0,0,0.14);
+  --text:     #1A202C;
+  --text2:    #4A5568;
+  --text3:    #A0AEC0;
+  --blue:     #378ADD;
+  --blue-d:   #185FA5;
+  --blue-l:   #E6F1FB;
+  --purple:   #7F77DD;
+  --purple-l: #EEEDFE;
+  --teal:     #1D9E75;
+  --teal-l:   #E1F5EE;
+  --coral:    #D85A30;
+  --coral-l:  #FAECE7;
+  --amber:    #BA7517;
+  --amber-l:  #FAEEDA;
+  --gray:     #888780;
+  --gray-l:   #F1EFE8;
+  --success:  #0F6E56;  --success-l: #E1F5EE;
+  --danger:   #993C1D;  --danger-l:  #FAECE7;
+  --warning:  #854F0B;  --warning-l: #FAEEDA;
+  --info:     #185FA5;  --info-l:    #E6F1FB;
+  --red:      #A32D2D;  --red-l:     #FCEBEB;
+}
+
+body { font-family: 'DM Sans', system-ui, sans-serif; background: var(--bg); color: var(--text); font-size: 13px; line-height: 1.5; }
+
+/* ── Top nav ── */
+.top-nav {
+  position: fixed; top: 0; left: 0; right: 0; height: 48px;
+  background: var(--bg2); border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; padding: 0 20px; gap: 4px; z-index: 100;
+}
+.tnav-logo { display: flex; align-items: center; gap: 8px; margin-right: 16px; padding-right: 16px; border-right: 1px solid var(--border); }
+.tnav-logo svg { width: 22px; height: 22px; }
+.tnav-logo-text { font-size: 15px; font-weight: 500; }
+.tnav-logo-text b { color: var(--blue); font-weight: 500; }
+.tnav-pill {
+  font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 10px;
+  letter-spacing: 0.05em; text-transform: uppercase;
+}
+.nav-tab { padding: 6px 14px; border-radius: 7px; font-size: 12px; font-weight: 500; cursor: pointer; color: var(--text2); border: none; background: transparent; }
+.nav-tab:hover { background: var(--bg3); }
+.nav-tab.active { background: var(--blue-l); color: var(--blue-d); }
+.tnav-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.tnav-user { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--text2); }
+.avatar { width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 500; flex-shrink: 0; }
+
+/* ── Layout ── */
+.screen { display: none; padding-top: 48px; min-height: 100vh; }
+.screen.active { display: block; }
+.app-shell { display: grid; grid-template-columns: 220px 1fr; min-height: calc(100vh - 48px); }
+
+/* ── Sidebar ── */
+.sidebar { background: var(--bg2); border-right: 1px solid var(--border); padding: 16px 10px; display: flex; flex-direction: column; position: sticky; top: 48px; height: calc(100vh - 48px); }
+.sidebar-section { font-size: 10px; font-weight: 600; color: var(--text3); letter-spacing: 0.08em; text-transform: uppercase; padding: 10px 10px 4px; }
+.nav-item { display: flex; align-items: center; gap: 9px; padding: 8px 10px; border-radius: 8px; font-size: 12px; color: var(--text2); cursor: pointer; margin-bottom: 2px; transition: background 0.1s; }
+.nav-item:hover { background: var(--bg3); }
+.nav-item.active { background: var(--blue-l); color: var(--blue-d); font-weight: 500; }
+.nav-icon { font-size: 14px; width: 18px; text-align: center; flex-shrink: 0; }
+.nav-divider { height: 1px; background: var(--border); margin: 8px 6px; }
+.sidebar-footer { margin-top: auto; }
+
+/* ── Main ── */
+.main { padding: 28px 32px; background: var(--bg); }
+.page-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 24px; }
+.page-title { font-size: 20px; font-weight: 500; }
+.page-subtitle { font-size: 13px; color: var(--text3); margin-top: 2px; }
+
+/* ── Stat cards ── */
+.stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px; }
+.stat-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; }
+.stat-label { font-size: 11px; font-weight: 500; color: var(--text3); margin-bottom: 6px; }
+.stat-value { font-size: 24px; font-weight: 500; letter-spacing: -0.5px; }
+.stat-delta { font-size: 11px; color: var(--success); margin-top: 4px; }
+.stat-delta.down { color: var(--danger); }
+
+/* ── Buttons ── */
+.btn { padding: 7px 16px; border-radius: 8px; font-size: 12px; font-weight: 500; cursor: pointer; border: 1px solid var(--border2); background: var(--bg2); color: var(--text); font-family: 'DM Sans', sans-serif; transition: background 0.1s; }
+.btn:hover { background: var(--bg3); }
+.btn-primary { background: var(--blue); border-color: var(--blue-d); color: #fff; }
+.btn-primary:hover { background: var(--blue-d); }
+.btn-danger { background: var(--danger-l); border-color: var(--danger); color: var(--danger); }
+.btn-sm { padding: 4px 12px; font-size: 11px; border-radius: 6px; }
+
+/* ── Table ── */
+.card { background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; margin-bottom: 20px; }
+.card-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--border); }
+.card-title { font-size: 14px; font-weight: 500; }
+.card-subtitle { font-size: 11px; color: var(--text3); margin-top: 1px; }
+table { width: 100%; border-collapse: collapse; }
+thead th { padding: 10px 16px; font-size: 11px; font-weight: 500; color: var(--text3); text-align: left; border-bottom: 1px solid var(--border); background: var(--bg3); }
+tbody tr { border-bottom: 1px solid var(--border); transition: background 0.1s; }
+tbody tr:last-child { border-bottom: none; }
+tbody tr:hover { background: var(--bg3); }
+tbody td { padding: 12px 16px; font-size: 12px; vertical-align: middle; }
+
+/* ── Badges ── */
+.badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 9px; border-radius: 20px; font-size: 10px; font-weight: 500; white-space: nowrap; }
+.badge-dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
+.badge-active  { background: var(--success-l); color: var(--success); }
+.badge-trial   { background: var(--info-l);    color: var(--info);    }
+.badge-suspended { background: var(--red-l);   color: var(--red);     }
+.badge-draft   { background: var(--bg3);       color: var(--text3);   }
+.badge-super   { background: var(--purple-l);  color: var(--purple);  }
+.badge-admin   { background: var(--blue-l);    color: var(--blue-d);  }
+.badge-viewer  { background: var(--gray-l);    color: var(--gray);    }
+
+/* ── Tenant card ── */
+.tenant-row-name { display: flex; align-items: center; gap: 10px; }
+.tenant-logo { width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 500; flex-shrink: 0; }
+.tenant-name { font-weight: 500; font-size: 13px; }
+.tenant-id { font-size: 10px; color: var(--text3); font-family: 'DM Mono', monospace; margin-top: 1px; }
+
+/* ── Usage bar ── */
+.usage-bar { width: 100px; height: 6px; background: var(--bg3); border-radius: 3px; overflow: hidden; }
+.usage-fill { height: 100%; border-radius: 3px; }
+
+/* ── Form / modal ── */
+.form-section { margin-bottom: 20px; }
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.field { margin-bottom: 14px; }
+.field-label { font-size: 11px; font-weight: 500; color: var(--text2); margin-bottom: 5px; }
+.field-hint  { font-size: 11px; color: var(--text3); margin-top: 3px; }
+.field-input, .field-select, .field-textarea {
+  width: 100%; padding: 8px 12px; border-radius: 8px;
+  border: 1px solid var(--border2); background: var(--bg3);
+  color: var(--text); font-size: 12px; font-family: 'DM Sans', sans-serif; outline: none;
+}
+.field-textarea { height: 72px; resize: none; }
+.field-input:focus, .field-select:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(55,138,221,0.1); }
+
+/* ── Tag input ── */
+.tag-row { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px; border: 1px solid var(--border2); border-radius: 8px; background: var(--bg3); min-height: 40px; }
+.tag { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 20px; background: var(--blue-l); color: var(--blue-d); font-size: 11px; font-weight: 500; }
+.tag-x { cursor: pointer; opacity: 0.6; }
+
+/* ── Permissions grid ── */
+.perm-grid { display: grid; grid-template-columns: 1fr 80px 80px 80px; gap: 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.perm-header { display: contents; }
+.perm-header > div { padding: 8px 12px; font-size: 11px; font-weight: 500; color: var(--text3); background: var(--bg3); border-bottom: 1px solid var(--border); text-align: center; }
+.perm-header > div:first-child { text-align: left; }
+.perm-row { display: contents; }
+.perm-row > div { padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 12px; display: flex; align-items: center; justify-content: center; }
+.perm-row > div:first-child { justify-content: flex-start; color: var(--text2); }
+.perm-row:last-child > div { border-bottom: none; }
+.check { width: 16px; height: 16px; border-radius: 4px; border: 1.5px solid var(--border2); background: var(--bg2); display: flex; align-items: center; justify-content: center; cursor: pointer; }
+.check.on { background: var(--blue); border-color: var(--blue-d); color: #fff; font-size: 10px; }
+.check.partial { background: var(--blue-l); border-color: var(--blue); color: var(--blue); font-size: 10px; }
+
+/* ── Tabs ── */
+.tabs { display: flex; border-bottom: 1px solid var(--border); margin-bottom: 20px; }
+.tab { padding: 10px 16px; font-size: 12px; cursor: pointer; color: var(--text3); border-bottom: 2px solid transparent; transition: color 0.1s; }
+.tab:hover { color: var(--text2); }
+.tab.active { color: var(--blue); border-bottom-color: var(--blue); font-weight: 500; }
+
+/* ── Misc ── */
+.mono { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--text3); }
+.text-danger { color: var(--danger); }
+.action-group { display: flex; gap: 6px; }
+.section-label { font-size: 12px; font-weight: 500; color: var(--text2); margin-bottom: 10px; }
+.toggle { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text2); }
+.toggle-track { position: relative; width: 32px; height: 18px; background: var(--border2); border-radius: 9px; cursor: pointer; transition: background 0.2s; flex-shrink: 0; }
+.toggle-track.on { background: var(--blue); }
+.toggle-knob { position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; background: #fff; border-radius: 50%; transition: transform 0.2s; }
+.toggle-track.on .toggle-knob { transform: translateX(14px); }
+.limit-row { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+.limit-label { font-size: 12px; color: var(--text2); flex: 1; }
+.limit-input { width: 80px; padding: 5px 10px; border-radius: 6px; border: 1px solid var(--border2); background: var(--bg3); font-size: 12px; font-family: 'DM Mono', monospace; text-align: right; }
+.limit-unit { font-size: 11px; color: var(--text3); min-width: 60px; }
+.api-key-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.api-key-name { font-size: 12px; font-weight: 500; flex: 1; }
+.api-key-val { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--text3); background: var(--bg3); padding: 3px 10px; border-radius: 6px; }
+.api-key-date { font-size: 11px; color: var(--text3); min-width: 80px; }
+</style>
+</head>
+<body>
+
+<!-- ══════════════════ TOP NAV ══════════════════ -->
+<nav class="top-nav">
+  <div class="tnav-logo">
+    <svg viewBox="0 0 22 22" fill="none">
+      <rect width="22" height="22" rx="5" fill="#378ADD" opacity="0.15"/>
+      <circle cx="5.5" cy="11" r="2.2" fill="#378ADD"/>
+      <circle cx="16.5" cy="6"  r="2.2" fill="#378ADD"/>
+      <circle cx="16.5" cy="16" r="2.2" fill="#378ADD"/>
+      <path d="M7.5 10.3L14.4 7"  stroke="#378ADD" stroke-width="1.2" stroke-linecap="round"/>
+      <path d="M7.5 11.7L14.4 15" stroke="#378ADD" stroke-width="1.2" stroke-linecap="round"/>
+    </svg>
+    <span class="tnav-logo-text">Arch<b>flow</b></span>
+  </div>
+
+  <!-- Contexto de role: alternar para demo -->
+  <span class="tnav-pill" id="role-pill" style="background:var(--purple-l);color:var(--purple)">Superadmin</span>
+
+  <button class="nav-tab active" onclick="showScreen('tenants')">Tenants</button>
+  <button class="nav-tab" onclick="showScreen('global-config')">Configuração global</button>
+  <button class="nav-tab" onclick="showScreen('usage')">Uso &amp; billing</button>
+  <button class="nav-tab" onclick="showScreen('tenant-admin')">⬥ Meu workspace</button>
+
+  <div class="tnav-right">
+    <button onclick="switchRole()" style="padding:4px 12px;border-radius:6px;border:1px solid var(--border);background:var(--bg3);font-size:11px;cursor:pointer;font-family:'DM Sans',sans-serif;color:var(--text2)">Trocar papel →</button>
+    <div class="tnav-user">
+      <div class="avatar" style="background:var(--purple-l);color:var(--purple)">EM</div>
+      <span>Edson Martins</span>
+    </div>
+  </div>
+</nav>
+
+<!-- ══════════════════════════════════════════════
+     TELA 1 — SUPERADMIN: LISTA DE TENANTS
+══════════════════════════════════════════════ -->
+<div id="screen-tenants" class="screen active">
+<div class="app-shell">
+  <div class="sidebar">
+    <div class="sidebar-section">Superadmin</div>
+    <div class="nav-item active"><span class="nav-icon">🏢</span> Tenants</div>
+    <div class="nav-item" onclick="showScreen('global-config')"><span class="nav-icon">⚙</span> Configuração global</div>
+    <div class="nav-item" onclick="showScreen('usage')"><span class="nav-icon">📊</span> Uso &amp; billing</div>
+    <div class="nav-divider"></div>
+    <div class="sidebar-section">Sistema</div>
+    <div class="nav-item"><span class="nav-icon">🔌</span> Modelos LLM</div>
+    <div class="nav-item"><span class="nav-icon">📦</span> Templates globais</div>
+    <div class="nav-item"><span class="nav-icon">🔑</span> Chaves de API</div>
+    <div class="nav-item"><span class="nav-icon">📋</span> Audit log</div>
+    <div class="sidebar-footer">
+      <div class="nav-divider"></div>
+      <div class="nav-item" onclick="showScreen('tenant-admin')"><span class="nav-icon">⬥</span> Entrar como tenant</div>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="page-header">
+      <div>
+        <div class="page-title">Tenants</div>
+        <div class="page-subtitle">Clientes ativos na plataforma ArchFlow</div>
+      </div>
+      <button class="btn btn-primary" onclick="showScreen('new-tenant')">+ Novo tenant</button>
+    </div>
+
+    <!-- Stats -->
+    <div class="stat-grid">
+      <div class="stat-card">
+        <div class="stat-label">Tenants ativos</div>
+        <div class="stat-value">4</div>
+        <div class="stat-delta">↑ 1 este mês</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Execuções hoje</div>
+        <div class="stat-value">1.247</div>
+        <div class="stat-delta">↑ 18% vs ontem</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Tokens consumidos</div>
+        <div class="stat-value">2.4M</div>
+        <div class="stat-delta">↑ 12% vs mês anterior</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Tenants em trial</div>
+        <div class="stat-value">1</div>
+        <div class="stat-delta down">↓ expira em 8 dias</div>
+      </div>
+    </div>
+
+    <!-- Tabela de tenants -->
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">Todos os tenants</div>
+          <div class="card-subtitle">Ordenados por atividade recente</div>
+        </div>
+        <input style="padding:6px 12px;border-radius:7px;border:1px solid var(--border);background:var(--bg3);font-size:12px;width:200px;font-family:'DM Sans',sans-serif" placeholder="Buscar tenant..."/>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Tenant</th>
+            <th>Status</th>
+            <th>Plano</th>
+            <th>Workflows</th>
+            <th>Execuções/dia</th>
+            <th>Uso de tokens</th>
+            <th>Criado em</th>
+            <th>Ações</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>
+              <div class="tenant-row-name">
+                <div class="tenant-logo" style="background:var(--teal-l);color:var(--teal)">RQ</div>
+                <div>
+                  <div class="tenant-name">Rio Quality</div>
+                  <div class="tenant-id">tenant_rio_quality</div>
+                </div>
+              </div>
+            </td>
+            <td><span class="badge badge-active"><span class="badge-dot" style="background:var(--success)"></span>Ativo</span></td>
+            <td><span style="font-size:12px;color:var(--text2)">Enterprise</span></td>
+            <td><span style="font-size:12px">12</span></td>
+            <td><span style="font-size:12px">843</span></td>
+            <td>
+              <div style="display:flex;align-items:center;gap:8px">
+                <div class="usage-bar"><div class="usage-fill" style="width:68%;background:var(--blue)"></div></div>
+                <span class="mono">68%</span>
+              </div>
+            </td>
+            <td><span class="mono">Jan 2026</span></td>
+            <td>
+              <div class="action-group">
+                <button class="btn btn-sm" onclick="showScreen('tenant-admin')">Entrar</button>
+                <button class="btn btn-sm" onclick="showScreen('tenant-detail')">Detalhes</button>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td>
+              <div class="tenant-row-name">
+                <div class="tenant-logo" style="background:var(--amber-l);color:var(--amber)">GM</div>
+                <div>
+                  <div class="tenant-name">Grupo Marra</div>
+                  <div class="tenant-id">tenant_grupo_marra</div>
+                </div>
+              </div>
+            </td>
+            <td><span class="badge badge-active"><span class="badge-dot" style="background:var(--success)"></span>Ativo</span></td>
+            <td><span style="font-size:12px;color:var(--text2)">Professional</span></td>
+            <td><span style="font-size:12px">7</span></td>
+            <td><span style="font-size:12px">312</span></td>
+            <td>
+              <div style="display:flex;align-items:center;gap:8px">
+                <div class="usage-bar"><div class="usage-fill" style="width:31%;background:var(--teal)"></div></div>
+                <span class="mono">31%</span>
+              </div>
+            </td>
+            <td><span class="mono">Fev 2026</span></td>
+            <td>
+              <div class="action-group">
+                <button class="btn btn-sm">Entrar</button>
+                <button class="btn btn-sm">Detalhes</button>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td>
+              <div class="tenant-row-name">
+                <div class="tenant-logo" style="background:var(--coral-l);color:var(--coral)">IT</div>
+                <div>
+                  <div class="tenant-name">IntegrAllTech (interno)</div>
+                  <div class="tenant-id">tenant_integralltech</div>
+                </div>
+              </div>
+            </td>
+            <td><span class="badge badge-active"><span class="badge-dot" style="background:var(--success)"></span>Ativo</span></td>
+            <td><span style="font-size:12px;color:var(--text2)">Internal</span></td>
+            <td><span style="font-size:12px">28</span></td>
+            <td><span style="font-size:12px">92</span></td>
+            <td>
+              <div style="display:flex;align-items:center;gap:8px">
+                <div class="usage-bar"><div class="usage-fill" style="width:9%;background:var(--gray)"></div></div>
+                <span class="mono">9%</span>
+              </div>
+            </td>
+            <td><span class="mono">Dez 2025</span></td>
+            <td>
+              <div class="action-group">
+                <button class="btn btn-sm">Entrar</button>
+                <button class="btn btn-sm">Detalhes</button>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td>
+              <div class="tenant-row-name">
+                <div class="tenant-logo" style="background:var(--blue-l);color:var(--blue)">DX</div>
+                <div>
+                  <div class="tenant-name">Distribuidora Exemplo</div>
+                  <div class="tenant-id">tenant_distrib_exemplo</div>
+                </div>
+              </div>
+            </td>
+            <td><span class="badge badge-trial"><span class="badge-dot" style="background:var(--info)"></span>Trial</span></td>
+            <td><span style="font-size:12px;color:var(--text2)">Trial 30d</span></td>
+            <td><span style="font-size:12px">2</span></td>
+            <td><span style="font-size:12px">0</span></td>
+            <td>
+              <div style="display:flex;align-items:center;gap:8px">
+                <div class="usage-bar"><div class="usage-fill" style="width:0%;background:var(--blue)"></div></div>
+                <span class="mono">0%</span>
+              </div>
+            </td>
+            <td><span class="mono">Abr 2026</span></td>
+            <td>
+              <div class="action-group">
+                <button class="btn btn-sm">Entrar</button>
+                <button class="btn btn-sm btn-danger">Suspender</button>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ══════════════════════════════════════════════
+     TELA 2 — SUPERADMIN: NOVO TENANT
+══════════════════════════════════════════════ -->
+<div id="screen-new-tenant" class="screen">
+<div class="app-shell">
+  <div class="sidebar">
+    <div class="sidebar-section">Superadmin</div>
+    <div class="nav-item" onclick="showScreen('tenants')"><span class="nav-icon">🏢</span> Tenants</div>
+    <div class="nav-item" onclick="showScreen('global-config')"><span class="nav-icon">⚙</span> Configuração global</div>
+    <div class="nav-item" onclick="showScreen('usage')"><span class="nav-icon">📊</span> Uso &amp; billing</div>
+    <div class="nav-divider"></div>
+    <div class="sidebar-section">Sistema</div>
+    <div class="nav-item"><span class="nav-icon">🔌</span> Modelos LLM</div>
+    <div class="nav-item"><span class="nav-icon">📦</span> Templates globais</div>
+    <div class="nav-item"><span class="nav-icon">🔑</span> Chaves de API</div>
+    <div class="nav-item"><span class="nav-icon">📋</span> Audit log</div>
+  </div>
+  <div class="main">
+    <div class="page-header">
+      <div>
+        <div style="font-size:12px;color:var(--text3);margin-bottom:4px;cursor:pointer" onclick="showScreen('tenants')">← Tenants</div>
+        <div class="page-title">Novo tenant</div>
+        <div class="page-subtitle">Criar um novo workspace isolado na plataforma</div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 340px;gap:20px;align-items:start">
+      <div>
+        <!-- Identidade -->
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-header"><div class="card-title">Identidade</div></div>
+          <div style="padding:20px">
+            <div class="form-row">
+              <div class="field">
+                <div class="field-label">Nome do tenant *</div>
+                <input class="field-input" placeholder="Ex: Rio Quality"/>
+                <div class="field-hint">Nome exibido na interface e nos logs</div>
+              </div>
+              <div class="field">
+                <div class="field-label">Tenant ID *</div>
+                <input class="field-input" placeholder="tenant_rio_quality" style="font-family:'DM Mono',monospace"/>
+                <div class="field-hint">Slug único, sem espaços. Gerado automaticamente.</div>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="field">
+                <div class="field-label">E-mail do admin *</div>
+                <input class="field-input" placeholder="admin@rioquality.com.br" type="email"/>
+              </div>
+              <div class="field">
+                <div class="field-label">Setor / vertical</div>
+                <select class="field-select">
+                  <option>Distribuição de alimentos/bebidas</option>
+                  <option>Logística</option>
+                  <option>Varejo</option>
+                  <option>Indústria</option>
+                  <option>Outro</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Plano e limites -->
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-header"><div class="card-title">Plano e limites</div></div>
+          <div style="padding:20px">
+            <div class="form-row" style="margin-bottom:16px">
+              <div class="field">
+                <div class="field-label">Plano</div>
+                <select class="field-select">
+                  <option>Trial 30 dias</option>
+                  <option>Professional</option>
+                  <option selected>Enterprise</option>
+                  <option>Internal</option>
+                </select>
+              </div>
+              <div class="field">
+                <div class="field-label">Vencimento do plano</div>
+                <input class="field-input" type="date" value="2027-04-01"/>
+              </div>
+            </div>
+            <div class="section-label">Limites por tenant</div>
+            <div class="limit-row">
+              <span class="limit-label">Execuções por dia</span>
+              <input class="limit-input" value="5000"/>
+              <span class="limit-unit">execuções</span>
+            </div>
+            <div class="limit-row">
+              <span class="limit-label">Tokens por mês</span>
+              <input class="limit-input" value="10000000"/>
+              <span class="limit-unit">tokens</span>
+            </div>
+            <div class="limit-row">
+              <span class="limit-label">Workflows simultâneos</span>
+              <input class="limit-input" value="20"/>
+              <span class="limit-unit">workflows</span>
+            </div>
+            <div class="limit-row" style="border:none">
+              <span class="limit-label">Usuários máximos</span>
+              <input class="limit-input" value="50"/>
+              <span class="limit-unit">usuários</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Modelos permitidos -->
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-header">
+            <div class="card-title">Modelos LLM permitidos</div>
+            <div class="card-subtitle">Definido pelo superadmin — o admin do tenant escolhe dentro desta lista</div>
+          </div>
+          <div style="padding:20px">
+            <div class="tag-row">
+              <span class="tag">claude-sonnet-4-6 <span class="tag-x">×</span></span>
+              <span class="tag">claude-opus-4-6 <span class="tag-x">×</span></span>
+              <span class="tag">gpt-4o <span class="tag-x">×</span></span>
+              <span style="font-size:12px;color:var(--text3);cursor:pointer">+ Adicionar modelo</span>
+            </div>
+            <div class="field-hint" style="margin-top:8px">Modelos locais (RTX 3060 / Mac Mini M4) podem ser adicionados se o tenant tiver hardware próprio registrado</div>
+          </div>
+        </div>
+
+        <!-- Templates globais -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">Templates globais disponíveis</div>
+            <div class="card-subtitle">Workflows pré-construídos que este tenant pode instanciar</div>
+          </div>
+          <div style="padding:16px 20px;display:flex;flex-direction:column;gap:10px">
+            <label style="display:flex;align-items:center;gap:10px;font-size:12px;cursor:pointer">
+              <input type="checkbox" checked> <span>Sales Copilot — Briefing semanal (WC)</span>
+              <span class="badge" style="background:var(--teal-l);color:var(--teal)">VendaX</span>
+            </label>
+            <label style="display:flex;align-items:center;gap:10px;font-size:12px;cursor:pointer">
+              <input type="checkbox" checked> <span>Customer Support Flow</span>
+              <span class="badge" style="background:var(--blue-l);color:var(--blue-d)">Genérico</span>
+            </label>
+            <label style="display:flex;align-items:center;gap:10px;font-size:12px;cursor:pointer">
+              <input type="checkbox"> <span>Invoice Processing — OCR + aprovação</span>
+              <span class="badge" style="background:var(--blue-l);color:var(--blue-d)">Genérico</span>
+            </label>
+            <label style="display:flex;align-items:center;gap:10px;font-size:12px;cursor:pointer">
+              <input type="checkbox"> <span>Portfolio Guardian — monitor de churn</span>
+              <span class="badge" style="background:var(--teal-l);color:var(--teal)">VendaX</span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <!-- Resumo lateral -->
+      <div style="position:sticky;top:68px">
+        <div class="card">
+          <div class="card-header"><div class="card-title">Resumo</div></div>
+          <div style="padding:16px 18px;display:flex;flex-direction:column;gap:10px">
+            <div style="display:flex;justify-content:space-between;font-size:12px">
+              <span style="color:var(--text3)">Plano</span><span style="font-weight:500">Enterprise</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;font-size:12px">
+              <span style="color:var(--text3)">Execuções/dia</span><span class="mono">5.000</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;font-size:12px">
+              <span style="color:var(--text3)">Tokens/mês</span><span class="mono">10M</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;font-size:12px">
+              <span style="color:var(--text3)">Modelos</span><span class="mono">3 permitidos</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;font-size:12px">
+              <span style="color:var(--text3)">Templates</span><span class="mono">2 selecionados</span>
+            </div>
+            <div style="height:1px;background:var(--border);margin:4px 0"></div>
+            <div style="font-size:11px;color:var(--text3)">Ao criar, o admin receberá um e-mail com link de primeiro acesso e as credenciais iniciais.</div>
+          </div>
+          <div style="padding:0 18px 18px;display:flex;flex-direction:column;gap:8px">
+            <button class="btn btn-primary" style="width:100%" onclick="showScreen('tenants')">Criar tenant</button>
+            <button class="btn" style="width:100%" onclick="showScreen('tenants')">Cancelar</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ══════════════════════════════════════════════
+     TELA 3 — SUPERADMIN: CONFIGURAÇÃO GLOBAL
+══════════════════════════════════════════════ -->
+<div id="screen-global-config" class="screen">
+<div class="app-shell">
+  <div class="sidebar">
+    <div class="sidebar-section">Superadmin</div>
+    <div class="nav-item" onclick="showScreen('tenants')"><span class="nav-icon">🏢</span> Tenants</div>
+    <div class="nav-item active"><span class="nav-icon">⚙</span> Configuração global</div>
+    <div class="nav-item" onclick="showScreen('usage')"><span class="nav-icon">📊</span> Uso &amp; billing</div>
+    <div class="nav-divider"></div>
+    <div class="sidebar-section">Sistema</div>
+    <div class="nav-item"><span class="nav-icon">🔌</span> Modelos LLM</div>
+    <div class="nav-item"><span class="nav-icon">📦</span> Templates globais</div>
+    <div class="nav-item"><span class="nav-icon">🔑</span> Chaves de API</div>
+    <div class="nav-item"><span class="nav-icon">📋</span> Audit log</div>
+  </div>
+  <div class="main">
+    <div class="page-header">
+      <div>
+        <div class="page-title">Configuração global</div>
+        <div class="page-subtitle">Defaults e limites aplicados a todos os tenants</div>
+      </div>
+      <button class="btn btn-primary">Salvar alterações</button>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+      <!-- Modelos disponíveis na plataforma -->
+      <div class="card">
+        <div class="card-header"><div class="card-title">Modelos LLM disponíveis</div></div>
+        <table>
+          <thead><tr><th>Modelo</th><th>Provider</th><th>Status</th><th>Custo/1M tok</th></tr></thead>
+          <tbody>
+            <tr>
+              <td style="font-family:'DM Mono',monospace;font-size:11px">claude-sonnet-4-6</td>
+              <td style="font-size:11px;color:var(--text2)">Anthropic</td>
+              <td><span class="badge badge-active"><span class="badge-dot" style="background:var(--success)"></span>Ativo</span></td>
+              <td class="mono">$3.00</td>
+            </tr>
+            <tr>
+              <td style="font-family:'DM Mono',monospace;font-size:11px">claude-opus-4-6</td>
+              <td style="font-size:11px;color:var(--text2)">Anthropic</td>
+              <td><span class="badge badge-active"><span class="badge-dot" style="background:var(--success)"></span>Ativo</span></td>
+              <td class="mono">$15.00</td>
+            </tr>
+            <tr>
+              <td style="font-family:'DM Mono',monospace;font-size:11px">gpt-4o</td>
+              <td style="font-size:11px;color:var(--text2)">OpenRouter</td>
+              <td><span class="badge badge-active"><span class="badge-dot" style="background:var(--success)"></span>Ativo</span></td>
+              <td class="mono">$5.00</td>
+            </tr>
+            <tr>
+              <td style="font-family:'DM Mono',monospace;font-size:11px">gemma-3-27b</td>
+              <td style="font-size:11px;color:var(--text2)">Local (RTX)</td>
+              <td><span class="badge badge-draft"><span class="badge-dot" style="background:var(--text3)"></span>Beta</span></td>
+              <td class="mono">$0.00</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Limites default -->
+      <div class="card">
+        <div class="card-header"><div class="card-title">Limites default por plano</div></div>
+        <div style="padding:16px 18px">
+          <div class="section-label" style="margin-bottom:12px">Enterprise</div>
+          <div class="limit-row"><span class="limit-label">Execuções/dia</span><input class="limit-input" value="5000"/><span class="limit-unit">execuções</span></div>
+          <div class="limit-row"><span class="limit-label">Tokens/mês</span><input class="limit-input" value="10000000"/><span class="limit-unit">tokens</span></div>
+          <div class="section-label" style="margin-top:14px;margin-bottom:12px">Professional</div>
+          <div class="limit-row"><span class="limit-label">Execuções/dia</span><input class="limit-input" value="1000"/><span class="limit-unit">execuções</span></div>
+          <div class="limit-row" style="border:none"><span class="limit-label">Tokens/mês</span><input class="limit-input" value="2000000"/><span class="limit-unit">tokens</span></div>
+        </div>
+      </div>
+
+      <!-- Toggles globais -->
+      <div class="card">
+        <div class="card-header"><div class="card-title">Funcionalidades globais</div></div>
+        <div style="padding:16px 18px;display:flex;flex-direction:column;gap:14px">
+          <label class="toggle">
+            <div class="toggle-track on" onclick="this.classList.toggle('on')"><div class="toggle-knob"></div></div>
+            Permitir modelos locais (Ollama / RTX)
+          </label>
+          <label class="toggle">
+            <div class="toggle-track on" onclick="this.classList.toggle('on')"><div class="toggle-knob"></div></div>
+            Human-in-the-loop habilitado
+          </label>
+          <label class="toggle">
+            <div class="toggle-track on" onclick="this.classList.toggle('on')"><div class="toggle-knob"></div></div>
+            Brain Sentry (memória de longo prazo)
+          </label>
+          <label class="toggle">
+            <div class="toggle-track" onclick="this.classList.toggle('on')"><div class="toggle-knob"></div></div>
+            Modo debug — trace completo por nó
+          </label>
+          <label class="toggle">
+            <div class="toggle-track on" onclick="this.classList.toggle('on')"><div class="toggle-knob"></div></div>
+            Notificações via Linktor (WhatsApp)
+          </label>
+        </div>
+      </div>
+
+      <!-- Audit log resumo -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">Audit log recente</div>
+          <button class="btn btn-sm">Ver tudo</button>
+        </div>
+        <div style="padding:0 16px">
+          <div style="display:flex;flex-direction:column">
+            <div style="display:flex;gap:10px;align-items:baseline;padding:10px 0;border-bottom:1px solid var(--border);font-size:11px">
+              <span class="mono" style="min-width:80px">09:14:22</span>
+              <span style="color:var(--text3)">superadmin</span>
+              <span style="color:var(--text2)">Criou tenant <b>Distribuidora Exemplo</b></span>
+            </div>
+            <div style="display:flex;gap:10px;align-items:baseline;padding:10px 0;border-bottom:1px solid var(--border);font-size:11px">
+              <span class="mono" style="min-width:80px">08:52:01</span>
+              <span style="color:var(--text3)">superadmin</span>
+              <span style="color:var(--text2)">Atualizou limite tokens de <b>Rio Quality</b>: 5M → 10M</span>
+            </div>
+            <div style="display:flex;gap:10px;align-items:baseline;padding:10px 0;font-size:11px">
+              <span class="mono" style="min-width:80px">yesterday</span>
+              <span style="color:var(--text3)">superadmin</span>
+              <span style="color:var(--text2)">Adicionou modelo <b>claude-opus-4-6</b> à plataforma</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ══════════════════════════════════════════════
+     TELA 4 — ADMIN DO TENANT (Meu workspace)
+══════════════════════════════════════════════ -->
+<div id="screen-tenant-admin" class="screen">
+<div class="app-shell">
+  <div class="sidebar">
+    <div class="sidebar-section">Rio Quality</div>
+    <div class="nav-item active"><span class="nav-icon">👥</span> Usuários</div>
+    <div class="nav-item"><span class="nav-icon">⊞</span> Workflows</div>
+    <div class="nav-item"><span class="nav-icon">▶</span> Execuções</div>
+    <div class="nav-divider"></div>
+    <div class="sidebar-section">Configurações</div>
+    <div class="nav-item"><span class="nav-icon">🔌</span> Modelos e providers</div>
+    <div class="nav-item"><span class="nav-icon">🔑</span> API Keys</div>
+    <div class="nav-item"><span class="nav-icon">🔔</span> Notificações</div>
+    <div class="nav-item"><span class="nav-icon">📊</span> Uso do plano</div>
+    <div class="sidebar-footer">
+      <div class="nav-divider"></div>
+      <div class="nav-item" onclick="showScreen('tenants')"><span class="nav-icon">↩</span> Voltar ao superadmin</div>
+    </div>
+  </div>
+  <div class="main">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:20px;padding:10px 16px;background:var(--amber-l);border:1px solid var(--amber);border-radius:8px;font-size:12px;color:var(--amber)">
+      <span>⚑</span>
+      <span>Você está visualizando como <b>Admin do tenant Rio Quality</b>. <span style="cursor:pointer;text-decoration:underline" onclick="showScreen('tenants')">Voltar ao superadmin →</span></span>
+    </div>
+
+    <div class="page-header">
+      <div>
+        <div class="page-title">Usuários</div>
+        <div class="page-subtitle">Rio Quality · 4 de 50 usuários utilizados</div>
+      </div>
+      <button class="btn btn-primary">+ Convidar usuário</button>
+    </div>
+
+    <!-- Uso rápido -->
+    <div class="stat-grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:20px">
+      <div class="stat-card">
+        <div class="stat-label">Execuções hoje</div>
+        <div class="stat-value">843</div>
+        <div class="stat-delta">Limite: 5.000/dia</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Tokens este mês</div>
+        <div class="stat-value">6.8M</div>
+        <div class="stat-delta">Limite: 10M/mês · 68%</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Usuários ativos</div>
+        <div class="stat-value">4</div>
+        <div class="stat-delta">Limite: 50 usuários</div>
+      </div>
+    </div>
+
+    <!-- Tabela de usuários -->
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-header">
+        <div class="card-title">Membros do workspace</div>
+        <input style="padding:6px 12px;border-radius:7px;border:1px solid var(--border);background:var(--bg3);font-size:12px;width:180px;font-family:'DM Sans',sans-serif" placeholder="Buscar usuário..."/>
+      </div>
+      <table>
+        <thead><tr><th>Usuário</th><th>Papel</th><th>Último acesso</th><th>Workflows criados</th><th>Status</th><th>Ações</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>
+              <div style="display:flex;align-items:center;gap:9px">
+                <div class="avatar" style="background:var(--teal-l);color:var(--teal)">JS</div>
+                <div>
+                  <div style="font-weight:500;font-size:12px">João Silva</div>
+                  <div class="mono">joao.silva@rioquality.com.br</div>
+                </div>
+              </div>
+            </td>
+            <td><span class="badge badge-admin">Admin</span></td>
+            <td class="mono">Hoje, 09:00</td>
+            <td style="font-size:12px">7</td>
+            <td><span class="badge badge-active"><span class="badge-dot" style="background:var(--success)"></span>Ativo</span></td>
+            <td><div class="action-group"><button class="btn btn-sm">Editar</button></div></td>
+          </tr>
+          <tr>
+            <td>
+              <div style="display:flex;align-items:center;gap:9px">
+                <div class="avatar" style="background:var(--blue-l);color:var(--blue-d)">MC</div>
+                <div>
+                  <div style="font-weight:500;font-size:12px">Maria Costa</div>
+                  <div class="mono">maria.costa@rioquality.com.br</div>
+                </div>
+              </div>
+            </td>
+            <td><span class="badge badge-viewer">Viewer</span></td>
+            <td class="mono">Ontem</td>
+            <td style="font-size:12px">0</td>
+            <td><span class="badge badge-active"><span class="badge-dot" style="background:var(--success)"></span>Ativo</span></td>
+            <td><div class="action-group"><button class="btn btn-sm">Editar</button></div></td>
+          </tr>
+          <tr>
+            <td>
+              <div style="display:flex;align-items:center;gap:9px">
+                <div class="avatar" style="background:var(--coral-l);color:var(--coral)">PT</div>
+                <div>
+                  <div style="font-weight:500;font-size:12px">Pedro Teixeira</div>
+                  <div class="mono">pedro.t@rioquality.com.br</div>
+                </div>
+              </div>
+            </td>
+            <td><span class="badge badge-admin">Admin</span></td>
+            <td class="mono">Há 3 dias</td>
+            <td style="font-size:12px">5</td>
+            <td><span class="badge badge-active"><span class="badge-dot" style="background:var(--success)"></span>Ativo</span></td>
+            <td><div class="action-group"><button class="btn btn-sm">Editar</button></div></td>
+          </tr>
+          <tr>
+            <td>
+              <div style="display:flex;align-items:center;gap:9px">
+                <div class="avatar" style="background:var(--gray-l);color:var(--gray)">AL</div>
+                <div>
+                  <div style="font-weight:500;font-size:12px">Ana Lima</div>
+                  <div class="mono">ana.lima@rioquality.com.br</div>
+                </div>
+              </div>
+            </td>
+            <td><span class="badge badge-viewer">Viewer</span></td>
+            <td class="mono">Nunca</td>
+            <td style="font-size:12px">0</td>
+            <td><span class="badge" style="background:var(--warning-l);color:var(--warning)"><span class="badge-dot" style="background:var(--warning)"></span>Convite pendente</span></td>
+            <td><div class="action-group"><button class="btn btn-sm">Reenviar</button><button class="btn btn-sm btn-danger">Revogar</button></div></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Permissões por papel -->
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-header">
+        <div class="card-title">Matriz de permissões</div>
+        <div class="card-subtitle">Definida pelo superadmin — o admin do tenant pode ajustar apenas o papel Viewer</div>
+      </div>
+      <div style="padding:16px 18px">
+        <div class="perm-grid">
+          <div class="perm-header">
+            <div>Permissão</div><div>Admin</div><div>Editor</div><div>Viewer</div>
+          </div>
+          <div class="perm-row"><div>Ver workflows</div><div><div class="check on">✓</div></div><div><div class="check on">✓</div></div><div><div class="check on">✓</div></div></div>
+          <div class="perm-row"><div>Criar/editar workflows</div><div><div class="check on">✓</div></div><div><div class="check on">✓</div></div><div><div class="check"></div></div></div>
+          <div class="perm-row"><div>Executar workflows</div><div><div class="check on">✓</div></div><div><div class="check on">✓</div></div><div><div class="check"></div></div></div>
+          <div class="perm-row"><div>Ver histórico de execuções</div><div><div class="check on">✓</div></div><div><div class="check on">✓</div></div><div><div class="check partial">–</div></div></div>
+          <div class="perm-row"><div>Gerenciar usuários</div><div><div class="check on">✓</div></div><div><div class="check"></div></div><div><div class="check"></div></div></div>
+          <div class="perm-row"><div>Configurar modelos LLM</div><div><div class="check partial">–</div></div><div><div class="check"></div></div><div><div class="check"></div></div></div>
+          <div class="perm-row" style="border:none"><div>Gerenciar API Keys</div><div><div class="check on">✓</div></div><div><div class="check"></div></div><div><div class="check"></div></div></div>
+        </div>
+        <div style="font-size:11px;color:var(--text3);margin-top:10px">✓ Total &nbsp;·&nbsp; – Parcial (somente próprias execuções) &nbsp;·&nbsp; vazio Sem acesso</div>
+      </div>
+    </div>
+
+    <!-- API Keys do tenant -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">API Keys do workspace</div>
+        <button class="btn btn-sm btn-primary">+ Nova chave</button>
+      </div>
+      <div style="padding:0 18px">
+        <div class="api-key-row">
+          <div class="api-key-name">Produção — VendaX</div>
+          <div class="api-key-val">af_live_rq_••••••••3f2a</div>
+          <div class="api-key-date mono">Criada Jan 2026</div>
+          <div class="action-group"><button class="btn btn-sm">Copiar</button><button class="btn btn-sm btn-danger">Revogar</button></div>
+        </div>
+        <div class="api-key-row">
+          <div class="api-key-name">Homologação</div>
+          <div class="api-key-val">af_test_rq_••••••••9c1b</div>
+          <div class="api-key-date mono">Criada Mar 2026</div>
+          <div class="action-group"><button class="btn btn-sm">Copiar</button><button class="btn btn-sm btn-danger">Revogar</button></div>
+        </div>
+        <div class="api-key-row" style="border:none">
+          <div class="api-key-name">Web Component (público)</div>
+          <div class="api-key-val">af_pub_rq_••••••••7d4e</div>
+          <div class="api-key-date mono">Criada Abr 2026</div>
+          <div class="action-group"><button class="btn btn-sm">Copiar</button><button class="btn btn-sm btn-danger">Revogar</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ══════════════════════════════════════════════
+     TELA 5 — SUPERADMIN: USO & BILLING
+══════════════════════════════════════════════ -->
+<div id="screen-usage" class="screen">
+<div class="app-shell">
+  <div class="sidebar">
+    <div class="sidebar-section">Superadmin</div>
+    <div class="nav-item" onclick="showScreen('tenants')"><span class="nav-icon">🏢</span> Tenants</div>
+    <div class="nav-item" onclick="showScreen('global-config')"><span class="nav-icon">⚙</span> Configuração global</div>
+    <div class="nav-item active"><span class="nav-icon">📊</span> Uso &amp; billing</div>
+    <div class="nav-divider"></div>
+    <div class="sidebar-section">Sistema</div>
+    <div class="nav-item"><span class="nav-icon">🔌</span> Modelos LLM</div>
+    <div class="nav-item"><span class="nav-icon">📦</span> Templates globais</div>
+    <div class="nav-item"><span class="nav-icon">🔑</span> Chaves de API</div>
+    <div class="nav-item"><span class="nav-icon">📋</span> Audit log</div>
+  </div>
+  <div class="main">
+    <div class="page-header">
+      <div>
+        <div class="page-title">Uso &amp; billing</div>
+        <div class="page-subtitle">Consumo agregado da plataforma — Abril 2026</div>
+      </div>
+      <button class="btn">Exportar relatório</button>
+    </div>
+
+    <div class="stat-grid" style="margin-bottom:20px">
+      <div class="stat-card">
+        <div class="stat-label">Execuções este mês</div>
+        <div class="stat-value">37.4K</div>
+        <div class="stat-delta">↑ 22% vs março</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Tokens consumidos</div>
+        <div class="stat-value">68.2M</div>
+        <div class="stat-delta">↑ 18% vs março</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Custo estimado</div>
+        <div class="stat-value">R$ 1.240</div>
+        <div class="stat-delta">↑ R$ 180 vs março</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Latência média</div>
+        <div class="stat-value">1.8s</div>
+        <div class="stat-delta">↓ 0.3s vs março</div>
+      </div>
+    </div>
+
+    <!-- Uso por tenant -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">Consumo por tenant — Abril 2026</div>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Tenant</th>
+            <th>Execuções</th>
+            <th>Tokens input</th>
+            <th>Tokens output</th>
+            <th>Custo estimado</th>
+            <th>% do total</th>
+            <th>Limite</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>
+              <div style="display:flex;align-items:center;gap:8px">
+                <div class="tenant-logo" style="background:var(--teal-l);color:var(--teal);width:26px;height:26px;font-size:10px">RQ</div>
+                <span style="font-weight:500;font-size:12px">Rio Quality</span>
+              </div>
+            </td>
+            <td class="mono">26.140</td>
+            <td class="mono">41.2M</td>
+            <td class="mono">12.1M</td>
+            <td style="font-weight:500;font-size:12px">R$ 842</td>
+            <td>
+              <div style="display:flex;align-items:center;gap:8px">
+                <div class="usage-bar" style="width:120px"><div class="usage-fill" style="width:68%;background:var(--blue)"></div></div>
+                <span class="mono">68%</span>
+              </div>
+            </td>
+            <td class="mono">10M tok/mês</td>
+          </tr>
+          <tr>
+            <td>
+              <div style="display:flex;align-items:center;gap:8px">
+                <div class="tenant-logo" style="background:var(--amber-l);color:var(--amber);width:26px;height:26px;font-size:10px">GM</div>
+                <span style="font-weight:500;font-size:12px">Grupo Marra</span>
+              </div>
+            </td>
+            <td class="mono">9.680</td>
+            <td class="mono">19.4M</td>
+            <td class="mono">4.8M</td>
+            <td style="font-weight:500;font-size:12px">R$ 312</td>
+            <td>
+              <div style="display:flex;align-items:center;gap:8px">
+                <div class="usage-bar" style="width:120px"><div class="usage-fill" style="width:48%;background:var(--teal)"></div></div>
+                <span class="mono">48%</span>
+              </div>
+            </td>
+            <td class="mono">5M tok/mês</td>
+          </tr>
+          <tr>
+            <td>
+              <div style="display:flex;align-items:center;gap:8px">
+                <div class="tenant-logo" style="background:var(--coral-l);color:var(--coral);width:26px;height:26px;font-size:10px">IT</div>
+                <span style="font-weight:500;font-size:12px">IntegrAllTech</span>
+              </div>
+            </td>
+            <td class="mono">1.580</td>
+            <td class="mono">5.8M</td>
+            <td class="mono">2.2M</td>
+            <td style="font-weight:500;font-size:12px">R$ 86</td>
+            <td>
+              <div style="display:flex;align-items:center;gap:8px">
+                <div class="usage-bar" style="width:120px"><div class="usage-fill" style="width:9%;background:var(--gray)"></div></div>
+                <span class="mono">9%</span>
+              </div>
+            </td>
+            <td class="mono">∞ internal</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+</div>
+
+<script>
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'))
+  document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'))
+  document.getElementById('screen-' + id).classList.add('active')
+
+  const pill = document.getElementById('role-pill')
+  if (id === 'tenant-admin') {
+    pill.textContent = 'Admin do tenant'
+    pill.style.background = 'var(--blue-l)'
+    pill.style.color = 'var(--blue-d)'
+  } else {
+    pill.textContent = 'Superadmin'
+    pill.style.background = 'var(--purple-l)'
+    pill.style.color = 'var(--purple)'
+  }
+}
+
+function switchRole() {
+  const pill = document.getElementById('role-pill')
+  if (pill.textContent === 'Superadmin') {
+    showScreen('tenant-admin')
+    document.querySelectorAll('.nav-tab')[3].classList.add('active')
+  } else {
+    showScreen('tenants')
+    document.querySelectorAll('.nav-tab')[0].classList.add('active')
+  }
+}
+
+document.querySelectorAll('.nav-tab').forEach((tab, i) => {
+  const screens = ['tenants','global-config','usage','tenant-admin']
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'))
+    tab.classList.add('active')
+    showScreen(screens[i])
+  })
+})
+document.querySelectorAll('.nav-tab')[0].classList.add('active')
+</script>
+</body>
+</html>

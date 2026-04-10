@@ -12,6 +12,7 @@ import java.util.UUID;
  */
 public record Episode(
         String id,
+        String tenantId,
         String contextId,
         String content,
         String summary,
@@ -24,6 +25,7 @@ public record Episode(
         Objects.requireNonNull(contextId, "contextId required");
         Objects.requireNonNull(content, "content required");
         if (id == null) id = UUID.randomUUID().toString();
+        if (tenantId == null) tenantId = "SYSTEM";
         if (type == null) type = EpisodeType.INTERACTION;
         if (importance < 0 || importance > 1) throw new IllegalArgumentException("importance must be 0..1");
         metadata = metadata == null ? Map.of() : Map.copyOf(metadata);
@@ -31,15 +33,23 @@ public record Episode(
     }
 
     public static Episode of(String contextId, String content, double importance) {
-        return new Episode(null, contextId, content, null, EpisodeType.INTERACTION, importance, Map.of(), null);
+        return new Episode(null, "SYSTEM", contextId, content, null, EpisodeType.INTERACTION, importance, Map.of(), null);
     }
 
     public static Episode of(String contextId, String content, EpisodeType type, double importance) {
-        return new Episode(null, contextId, content, null, type, importance, Map.of(), null);
+        return new Episode(null, "SYSTEM", contextId, content, null, type, importance, Map.of(), null);
     }
 
     public static Episode of(String contextId, String content, double importance, Map<String, String> metadata) {
-        return new Episode(null, contextId, content, null, EpisodeType.INTERACTION, importance, metadata, null);
+        return new Episode(null, "SYSTEM", contextId, content, null, EpisodeType.INTERACTION, importance, metadata, null);
+    }
+
+    public static Episode of(String tenantId, String contextId, String content, EpisodeType type, double importance) {
+        return new Episode(null, tenantId, contextId, content, null, type, importance, Map.of(), null);
+    }
+
+    public static Episode of(String tenantId, String contextId, String content, double importance, Map<String, String> metadata) {
+        return new Episode(null, tenantId, contextId, content, null, EpisodeType.INTERACTION, importance, metadata, null);
     }
 
     /**

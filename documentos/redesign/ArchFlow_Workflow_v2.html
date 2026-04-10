@@ -1,0 +1,848 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ArchFlow — Workflow UI v2</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:      #F4F5F7;
+  --bg2:     #FFFFFF;
+  --bg3:     #F8F9FA;
+  --border:  rgba(0,0,0,0.07);
+  --border2: rgba(0,0,0,0.13);
+  --text:    #111827;
+  --text2:   #374151;
+  --text3:   #6B7280;
+  --text4:   #9CA3AF;
+  --blue:    #2563EB; --blue-d: #1D4ED8; --blue-l: #EFF6FF;
+  --purple:  #7C3AED; --purple-l: #F5F3FF;
+  --teal:    #0D9488; --teal-l: #F0FDFA;
+  --coral:   #DC4E26; --coral-l: #FEF2F2;
+  --amber:   #D97706; --amber-l: #FFFBEB;
+  --gray:    #6B7280; --gray-l:  #F9FAFB;
+  --green:   #059669; --green-l: #ECFDF5;
+  --red:     #DC2626; --red-l:   #FEF2F2;
+
+  /* Node category colors */
+  --cat-agent:   #2563EB; --cat-agent-l:   #DBEAFE;
+  --cat-control: #7C3AED; --cat-control-l: #EDE9FE;
+  --cat-data:    #0D9488; --cat-data-l:    #CCFBF1;
+  --cat-tool:    #DC4E26; --cat-tool-l:    #FEE2E2;
+  --cat-vector:  #D97706; --cat-vector-l:  #FEF3C7;
+  --cat-io:      #6B7280; --cat-io-l:      #F3F4F6;
+}
+
+body {
+  font-family: 'DM Sans', -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Demo nav ── */
+.demo-nav {
+  position: fixed; top: 0; left: 0; right: 0; height: 40px;
+  background: #111827; display: flex; align-items: center;
+  padding: 0 16px; gap: 4px; z-index: 200;
+}
+.demo-nav span { font-size: 11px; color: #6B7280; margin-right: 8px; font-family: 'DM Mono', monospace; }
+.demo-tab {
+  padding: 4px 12px; border-radius: 5px; font-size: 11px;
+  cursor: pointer; color: #9CA3AF; background: transparent; border: none;
+  font-family: 'DM Sans', sans-serif;
+}
+.demo-tab:hover { background: rgba(255,255,255,0.08); color: #E5E7EB; }
+.demo-tab.active { background: rgba(255,255,255,0.12); color: #F9FAFB; }
+.screen { display: none; padding-top: 40px; min-height: 100vh; }
+.screen.active { display: block; }
+
+/* ── App shell ── */
+.app-topbar {
+  position: sticky; top: 40px; height: 52px; z-index: 100;
+  background: var(--bg2); border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; padding: 0 16px; gap: 10px;
+}
+.topbar-logo { display: flex; align-items: center; gap: 8px; padding-right: 14px; border-right: 1px solid var(--border); margin-right: 4px; }
+.topbar-logo svg { width: 22px; height: 22px; }
+.topbar-logo-name { font-size: 15px; font-weight: 600; letter-spacing: -0.2px; }
+.topbar-logo-name b { color: var(--blue); font-weight: 600; }
+.topbar-version { font-size: 10px; color: var(--text4); font-family: 'DM Mono', monospace; background: var(--bg3); border: 1px solid var(--border); padding: 2px 7px; border-radius: 20px; }
+.topbar-right { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+.autosave-text { font-size: 11px; color: var(--text4); margin-right: 4px; }
+.workflow-title { font-size: 14px; font-weight: 500; }
+.workflow-badge { font-size: 10px; color: var(--text4); font-family: 'DM Mono', monospace; background: var(--bg3); border: 1px solid var(--border); padding: 2px 7px; border-radius: 20px; margin-left: 6px; }
+
+.app-shell {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  min-height: calc(100vh - 92px);
+}
+
+/* ── Main sidebar ── */
+.main-sidebar {
+  background: var(--bg2); border-right: 1px solid var(--border);
+  padding: 12px 8px; position: sticky; top: 92px;
+  height: calc(100vh - 92px);
+  display: flex; flex-direction: column;
+}
+.sidebar-logo { display: flex; align-items: center; gap: 7px; padding: 6px 8px; margin-bottom: 14px; }
+.sidebar-logo-name { font-size: 15px; font-weight: 600; }
+.sidebar-logo-name b { color: var(--blue); font-weight: 600; }
+.sidebar-badge { font-size: 10px; color: var(--text4); font-family: 'DM Mono', monospace; background: var(--bg3); border: 1px solid var(--border); padding: 1px 6px; border-radius: 10px; }
+.nav-item {
+  display: flex; align-items: center; gap: 9px;
+  padding: 8px 10px; border-radius: 7px;
+  font-size: 13px; color: var(--text2);
+  cursor: pointer; margin-bottom: 2px; font-weight: 400;
+}
+.nav-item:hover { background: var(--bg3); }
+.nav-item.active { background: var(--blue-l); color: var(--blue); font-weight: 500; }
+.nav-item svg { width: 16px; height: 16px; flex-shrink: 0; opacity: 0.65; }
+.nav-item.active svg { opacity: 1; }
+.nav-divider { height: 1px; background: var(--border); margin: 6px 4px; }
+.sidebar-footer { margin-top: auto; }
+.user-row { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-top: 1px solid var(--border); margin-top: 8px; }
+.user-avatar { width: 26px; height: 26px; border-radius: 50%; background: var(--blue-l); color: var(--blue); display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 600; }
+.user-name { font-size: 12px; color: var(--text2); }
+.dark-toggle { margin-left: auto; width: 26px; height: 26px; border-radius: 6px; border: 1px solid var(--border); background: transparent; display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--text3); font-size: 13px; }
+
+/* ── Main content ── */
+.main { background: var(--bg2); }
+.page-main { padding: 28px 32px; }
+.page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 22px; }
+.page-title { font-size: 22px; font-weight: 600; letter-spacing: -0.3px; }
+
+/* ── Buttons ── */
+.btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 16px; border-radius: 7px; font-size: 13px; font-weight: 500;
+  cursor: pointer; font-family: 'DM Sans', sans-serif;
+  border: 1px solid var(--border2); background: var(--bg2); color: var(--text2);
+  transition: background 0.1s;
+}
+.btn:hover { background: var(--bg3); }
+.btn-primary { background: var(--blue); border-color: var(--blue-d); color: #fff; }
+.btn-primary:hover { background: var(--blue-d); }
+.btn-sm { padding: 5px 12px; font-size: 12px; border-radius: 6px; }
+.btn-icon { width: 30px; height: 30px; padding: 0; border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; }
+.btn-run { background: var(--blue); border-color: var(--blue-d); color: #fff; display: inline-flex; align-items: center; gap: 6px; padding: 6px 16px; border-radius: 7px; font-size: 13px; font-weight: 500; cursor: pointer; border-width: 1px; border-style: solid; }
+.btn-run.running { background: #93C5FD; border-color: #60A5FA; }
+
+/* ── Badges ── */
+.badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border-radius: 4px; font-size: 11px; font-weight: 600; letter-spacing: 0.02em; white-space: nowrap; }
+.badge-dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
+.badge-active   { background: var(--green-l); color: var(--green); }
+.badge-draft    { background: var(--gray-l);  color: var(--gray);  }
+.badge-running  { background: var(--blue-l);  color: var(--blue);  }
+.badge-failed   { background: var(--red-l);   color: var(--red);   }
+.badge-completed{ background: var(--green-l); color: var(--green); }
+
+/* ── Workflow cards ── */
+.wf-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.wf-card {
+  background: var(--bg2); border: 1px solid var(--border);
+  border-radius: 10px; padding: 16px; cursor: pointer;
+  transition: border-color 0.1s, box-shadow 0.1s;
+}
+.wf-card:hover { border-color: var(--border2); box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+.wf-card-top { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 12px; }
+.wf-icon { width: 38px; height: 38px; border-radius: 9px; display: flex; align-items: center; justify-content: center; font-size: 17px; flex-shrink: 0; }
+.wf-name { font-size: 14px; font-weight: 600; line-height: 1.3; }
+.wf-desc { font-size: 12px; color: var(--text3); margin-top: 2px; line-height: 1.4; }
+.wf-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+.wf-steps { font-size: 11px; color: var(--text3); }
+.wf-version { font-size: 10px; color: var(--text4); font-family: 'DM Mono', monospace; background: var(--bg3); padding: 2px 7px; border-radius: 5px; }
+.wf-date { font-size: 11px; color: var(--text4); }
+.wf-actions { display: flex; gap: 4px; border-top: 1px solid var(--border); padding-top: 10px; }
+.wf-action-btn { width: 28px; height: 28px; border-radius: 6px; border: 1px solid var(--border); background: transparent; display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--text3); font-size: 13px; }
+.wf-action-btn:hover { background: var(--bg3); color: var(--text2); }
+.wf-action-btn.danger:hover { background: var(--red-l); color: var(--red); border-color: #FCA5A5; }
+.search-bar { width: 100%; padding: 9px 14px 9px 36px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg3); font-size: 13px; color: var(--text); font-family: 'DM Sans', sans-serif; outline: none; margin-bottom: 20px; }
+.search-wrap { position: relative; }
+.search-icon { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); color: var(--text4); pointer-events: none; }
+
+/* ── Editor ── */
+.editor-shell {
+  display: grid;
+  grid-template-rows: 52px 1fr;
+  grid-template-columns: 240px 1fr 310px;
+  height: calc(100vh - 40px);
+  overflow: hidden;
+}
+.editor-topbar {
+  grid-column: 1/-1;
+  display: flex; align-items: center; gap: 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg2); padding: 0 14px;
+}
+.editor-topbar-logo { display: flex; align-items: center; gap: 8px; padding-right: 14px; border-right: 1px solid var(--border); margin-right: 14px; }
+.editor-topbar-logo svg { width: 20px; height: 20px; }
+
+/* Palette */
+.palette {
+  background: var(--bg2); border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.palette-search { padding: 10px 12px; border-bottom: 1px solid var(--border); }
+.palette-search input { width: 100%; padding: 7px 10px; border-radius: 7px; border: 1px solid var(--border); background: var(--bg3); font-size: 12px; color: var(--text); font-family: 'DM Sans', sans-serif; outline: none; }
+.palette-body { flex: 1; overflow-y: auto; padding: 8px 10px; }
+.palette-section-label { font-size: 10px; font-weight: 600; color: var(--text4); letter-spacing: 0.08em; text-transform: uppercase; padding: 8px 0 4px; }
+.palette-item { display: flex; align-items: center; gap: 9px; padding: 7px 8px; border-radius: 7px; cursor: grab; margin-bottom: 2px; border: 1px solid transparent; }
+.palette-item:hover { background: var(--bg3); border-color: var(--border); }
+.palette-icon { width: 26px; height: 26px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 13px; flex-shrink: 0; }
+.palette-item-name { font-size: 12px; font-weight: 500; }
+.palette-item-desc { font-size: 11px; color: var(--text4); }
+
+/* Canvas */
+.canvas-area { position: relative; overflow: hidden; background: var(--bg3); }
+.canvas-dots { position: absolute; inset: 0; background-image: radial-gradient(circle, rgba(0,0,0,0.1) 1px, transparent 1px); background-size: 20px 20px; pointer-events: none; }
+.canvas-edges { position: absolute; inset: 0; pointer-events: none; overflow: visible; }
+
+/* Flow nodes */
+.flow-node {
+  position: absolute; background: var(--bg2);
+  border: 1.5px solid var(--border2); border-radius: 10px;
+  cursor: pointer; min-width: 164px;
+  transition: box-shadow 0.15s, border-color 0.15s;
+  font-family: 'DM Sans', sans-serif;
+}
+.flow-node:hover { box-shadow: 0 0 0 3px rgba(37,99,235,0.12); }
+.flow-node.selected { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(37,99,235,0.18); }
+.fn-header { display: flex; align-items: center; gap: 7px; padding: 8px 10px 7px; border-bottom: 1px solid var(--border); }
+.fn-icon { width: 22px; height: 22px; border-radius: 5px; display: flex; align-items: center; justify-content: center; font-size: 11px; flex-shrink: 0; }
+.fn-name { font-size: 12px; font-weight: 500; }
+.fn-type { font-size: 10px; color: var(--text4); font-family: 'DM Mono', monospace; margin-top: 1px; }
+.fn-body { padding: 6px 10px 8px; }
+.fn-handle { position: absolute; width: 10px; height: 10px; border-radius: 50%; background: var(--bg2); border: 2px solid; }
+.fn-handle.left  { left: -5px;  top: 50%; transform: translateY(-50%); }
+.fn-handle.right { right: -5px; top: 50%; transform: translateY(-50%); }
+
+/* Exec badge */
+.exec-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 500; padding: 2px 8px; border-radius: 10px; }
+
+/* Canvas controls */
+.canvas-controls { position: absolute; bottom: 16px; left: 16px; display: flex; flex-direction: column; gap: 4px; }
+.ctrl-btn { width: 28px; height: 28px; border-radius: 6px; border: 1px solid var(--border2); background: var(--bg2); display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 14px; color: var(--text2); }
+
+/* Minimap */
+.minimap { position: absolute; bottom: 16px; right: 326px; width: 130px; height: 78px; border-radius: 8px; border: 1px solid var(--border2); background: var(--bg2); overflow: hidden; }
+
+/* Exec status bar */
+.exec-bar { position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; background: var(--bg2); border: 1px solid var(--border2); border-radius: 20px; padding: 6px 16px; font-size: 11px; color: var(--text2); white-space: nowrap; }
+
+/* Property panel */
+.props { border-left: 1px solid var(--border); background: var(--bg2); display: flex; flex-direction: column; overflow: hidden; }
+.props-header { padding: 12px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+.props-title { font-size: 13px; font-weight: 600; }
+.props-sub { font-size: 11px; color: var(--text3); font-family: 'DM Mono', monospace; margin-top: 2px; }
+.props-tabs { display: flex; border-bottom: 1px solid var(--border); }
+.props-tab { padding: 9px 14px; font-size: 12px; cursor: pointer; color: var(--text3); border-bottom: 2px solid transparent; }
+.props-tab.active { color: var(--blue); border-bottom-color: var(--blue); font-weight: 500; }
+.props-body { flex: 1; overflow-y: auto; padding: 14px 16px; }
+.prop-field { margin-bottom: 14px; }
+.prop-label { font-size: 11px; font-weight: 500; color: var(--text2); margin-bottom: 5px; }
+.prop-input { width: 100%; padding: 7px 10px; border-radius: 7px; border: 1px solid var(--border2); background: var(--bg3); color: var(--text); font-size: 12px; font-family: 'DM Sans', sans-serif; outline: none; }
+.prop-textarea { width: 100%; padding: 8px 10px; border-radius: 7px; border: 1px solid var(--border2); background: var(--bg3); color: var(--text); font-size: 12px; font-family: 'DM Mono', monospace; height: 82px; resize: none; outline: none; }
+.prop-select { width: 100%; padding: 7px 10px; border-radius: 7px; border: 1px solid var(--border2); background: var(--bg3); color: var(--text); font-size: 12px; font-family: 'DM Sans', sans-serif; }
+.props-section { font-size: 10px; font-weight: 600; color: var(--text4); letter-spacing: 0.07em; text-transform: uppercase; padding-top: 12px; margin-bottom: 8px; border-top: 1px solid var(--border); }
+.log-box { background: var(--bg3); border-radius: 7px; padding: 9px 11px; font-family: 'DM Mono', monospace; font-size: 10px; line-height: 1.8; color: var(--text2); }
+.log-ok { color: var(--green); }
+.log-ts { color: var(--text4); }
+.output-box { background: var(--bg3); border-radius: 7px; padding: 9px 11px; font-family: 'DM Mono', monospace; font-size: 10px; line-height: 1.8; color: var(--text); }
+.props-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; height: 100%; color: var(--text4); text-align: center; padding: 24px; }
+.props-empty-icon { font-size: 28px; opacity: 0.4; }
+.props-empty-title { font-size: 13px; color: var(--text3); font-weight: 500; }
+.props-empty-sub { font-size: 12px; }
+
+/* Execution history */
+.exec-grid { display: flex; flex-direction: column; }
+.exec-col-header { display: grid; grid-template-columns: 160px 1fr 130px 90px 80px 1fr; gap: 0; padding: 9px 20px; font-size: 11px; font-weight: 500; color: var(--text3); border-bottom: 1px solid var(--border); background: var(--bg3); }
+.exec-row { display: grid; grid-template-columns: 160px 1fr 130px 90px 80px 1fr; gap: 0; padding: 13px 20px; border-bottom: 1px solid var(--border); font-size: 12px; align-items: center; cursor: pointer; }
+.exec-row:hover { background: var(--bg3); }
+.exec-row:last-child { border-bottom: none; }
+.exec-id { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--text3); }
+.exec-wf { font-weight: 500; }
+.exec-dur { color: var(--text2); font-family: 'DM Mono', monospace; font-size: 11px; }
+.exec-err { font-size: 11px; color: var(--red); }
+
+/* Empty state */
+.empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 60px 24px; }
+.empty-icon { opacity: 0.25; }
+.empty-title { font-size: 16px; font-weight: 600; color: var(--text2); }
+.empty-sub { font-size: 13px; color: var(--text3); max-width: 260px; text-align: center; line-height: 1.5; }
+</style>
+</head>
+<body>
+
+<!-- Demo navigation -->
+<div class="demo-nav">
+  <span>workflow screens →</span>
+  <button class="demo-tab active"   onclick="go('list')">Workflow list</button>
+  <button class="demo-tab" onclick="go('editor')">Editor (with nodes)</button>
+  <button class="demo-tab" onclick="go('editor-empty')">Editor (empty)</button>
+  <button class="demo-tab" onclick="go('history')">Execution history</button>
+</div>
+
+<!-- ══════════════════════════════════════════════
+     SCREEN 1 — WORKFLOW LIST
+══════════════════════════════════════════════ -->
+<div id="s-list" class="screen active">
+  <!-- Topbar simples (fora do editor) -->
+  <div class="app-topbar">
+    <div class="topbar-logo">
+      <svg viewBox="0 0 22 22" fill="none"><rect width="22" height="22" rx="5" fill="#2563EB" opacity=".12"/><circle cx="5.5" cy="11" r="2.2" fill="#2563EB"/><circle cx="16.5" cy="6" r="2.2" fill="#2563EB"/><circle cx="16.5" cy="16" r="2.2" fill="#2563EB"/><path d="M7.5 10.3L14.4 7" stroke="#2563EB" stroke-width="1.2" stroke-linecap="round"/><path d="M7.5 11.7L14.4 15" stroke="#2563EB" stroke-width="1.2" stroke-linecap="round"/></svg>
+      <span class="topbar-logo-name">Arch<b>flow</b></span>
+    </div>
+    <span class="topbar-version">v2.0</span>
+    <div class="topbar-right">
+      <button class="btn btn-icon" title="Toggle dark mode" style="color:var(--text3)">
+        <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M7.5 1C4 1 1 4 1 7.5S4 14 7.5 14c3.3 0 6-2.5 6.4-5.7C13 9 12.1 9.2 11.2 9.2 8.4 9.2 6.1 7 6.1 4.2c0-.9.2-1.8.6-2.5C6.5 1.2 7 1 7.5 1z" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <div class="app-shell">
+    <div class="main-sidebar">
+      <div class="sidebar-logo">
+        <svg viewBox="0 0 22 22" fill="none" width="18" height="18"><rect width="22" height="22" rx="5" fill="#2563EB" opacity=".12"/><circle cx="5.5" cy="11" r="2.2" fill="#2563EB"/><circle cx="16.5" cy="6" r="2.2" fill="#2563EB"/><circle cx="16.5" cy="16" r="2.2" fill="#2563EB"/><path d="M7.5 10.3L14.4 7" stroke="#2563EB" stroke-width="1.2" stroke-linecap="round"/><path d="M7.5 11.7L14.4 15" stroke="#2563EB" stroke-width="1.2" stroke-linecap="round"/></svg>
+        <span class="sidebar-logo-name">Arch<b>flow</b></span>
+        <span class="sidebar-badge">v2</span>
+      </div>
+      <div class="nav-item active">
+        <svg viewBox="0 0 16 16" fill="none"><rect x="1" y="1" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.3"/><rect x="9" y="1" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.3"/><rect x="1" y="9" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.3"/><rect x="9" y="9" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.3"/></svg>
+        Workflows
+      </div>
+      <div class="nav-item" onclick="go('editor')">
+        <svg viewBox="0 0 16 16" fill="none"><path d="M2 4h12M2 8h8M2 12h5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+        Editor
+      </div>
+      <div class="nav-item" onclick="go('history')">
+        <svg viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6.5" stroke="currentColor" stroke-width="1.3"/><path d="M8 4.5v4l2.5 2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Executions
+      </div>
+      <div class="nav-divider"></div>
+      <div class="nav-item">
+        <svg viewBox="0 0 16 16" fill="none"><rect x="1" y="1" width="14" height="14" rx="3" stroke="currentColor" stroke-width="1.3"/><path d="M5.5 8h5M8 5.5v5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+        Plugins
+      </div>
+      <div class="nav-item">
+        <svg viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="2.5" stroke="currentColor" stroke-width="1.3"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M3.05 12.95l1.41-1.41M11.54 4.46l1.41-1.41" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+        Settings
+      </div>
+      <div class="sidebar-footer">
+        <div class="user-row">
+          <div class="user-avatar">EM</div>
+          <span class="user-name">Edson Martins</span>
+          <button class="dark-toggle" title="Toggle theme">
+            <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M6.5 1C4 1 2 3 2 5.5 2 8 4 10 6.5 10c2.8 0 5-2.1 5-4.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="main">
+      <div class="page-main">
+        <div class="page-header">
+          <span class="page-title">Workflows</span>
+          <button class="btn btn-primary" onclick="go('editor')">
+            <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M6.5 1v11M1 6.5h11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+            New Workflow
+          </button>
+        </div>
+
+        <div class="search-wrap">
+          <svg class="search-icon" width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.3"/><path d="M9.5 9.5L13 13" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+          <input class="search-bar" placeholder="Search workflows…"/>
+        </div>
+
+        <div class="wf-grid">
+          <!-- Card 1 -->
+          <div class="wf-card">
+            <div class="wf-card-top">
+              <div class="wf-icon" style="background:var(--cat-agent-l)">🤖</div>
+              <div>
+                <div class="wf-name">Customer Support Flow</div>
+                <div class="wf-desc">AI-powered customer support automation</div>
+              </div>
+            </div>
+            <div class="wf-meta">
+              <span class="badge badge-active"><span class="badge-dot" style="background:var(--green)"></span>Active</span>
+              <span class="wf-version">v1.2.0</span>
+              <span class="wf-steps">5 steps</span>
+            </div>
+            <div style="font-size:11px;color:var(--text4);margin-bottom:10px">4/1/2026</div>
+            <div class="wf-actions">
+              <button class="wf-action-btn" title="Execute">
+                <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M3 2l8 4.5L3 11V2z" fill="currentColor"/></svg>
+              </button>
+              <button class="wf-action-btn" title="Edit" onclick="go('editor')">
+                <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M9.5 1.5l2 2L4 11H2v-2L9.5 1.5z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>
+              </button>
+              <button class="wf-action-btn danger" title="Delete">
+                <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M2 3.5h9M5 3.5V2.5a.5.5 0 01.5-.5h2a.5.5 0 01.5.5v1M4 3.5l.5 7h4l.5-7" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </button>
+            </div>
+          </div>
+          <!-- Card 2 -->
+          <div class="wf-card">
+            <div class="wf-card-top">
+              <div class="wf-icon" style="background:var(--cat-tool-l)">📄</div>
+              <div>
+                <div class="wf-name">Invoice Processing</div>
+                <div class="wf-desc">Automated invoice extraction and approval</div>
+              </div>
+            </div>
+            <div class="wf-meta">
+              <span class="badge badge-draft"><span class="badge-dot" style="background:var(--gray)"></span>Draft</span>
+              <span class="wf-version">v2.0.0</span>
+              <span class="wf-steps">8 steps</span>
+            </div>
+            <div style="font-size:11px;color:var(--text4);margin-bottom:10px">4/5/2026</div>
+            <div class="wf-actions">
+              <button class="wf-action-btn" title="Execute"><svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M3 2l8 4.5L3 11V2z" fill="currentColor"/></svg></button>
+              <button class="wf-action-btn" title="Edit" onclick="go('editor')"><svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M9.5 1.5l2 2L4 11H2v-2L9.5 1.5z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg></button>
+              <button class="wf-action-btn danger" title="Delete"><svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M2 3.5h9M5 3.5V2.5a.5.5 0 01.5-.5h2a.5.5 0 01.5.5v1M4 3.5l.5 7h4l.5-7" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+            </div>
+          </div>
+          <!-- Card 3 -->
+          <div class="wf-card">
+            <div class="wf-card-top">
+              <div class="wf-icon" style="background:var(--cat-vector-l)">📊</div>
+              <div>
+                <div class="wf-name">Sales Copilot — Briefing</div>
+                <div class="wf-desc">Weekly sales briefing for vendors</div>
+              </div>
+            </div>
+            <div class="wf-meta">
+              <span class="badge badge-active"><span class="badge-dot" style="background:var(--green)"></span>Active</span>
+              <span class="wf-version">v1.0.0</span>
+              <span class="wf-steps">3 steps</span>
+            </div>
+            <div style="font-size:11px;color:var(--text4);margin-bottom:10px">4/8/2026</div>
+            <div class="wf-actions">
+              <button class="wf-action-btn" title="Execute"><svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M3 2l8 4.5L3 11V2z" fill="currentColor"/></svg></button>
+              <button class="wf-action-btn" title="Edit" onclick="go('editor')"><svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M9.5 1.5l2 2L4 11H2v-2L9.5 1.5z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg></button>
+              <button class="wf-action-btn danger" title="Delete"><svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M2 3.5h9M5 3.5V2.5a.5.5 0 01.5-.5h2a.5.5 0 01.5.5v1M4 3.5l.5 7h4l.5-7" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════
+     SCREEN 2 — EDITOR (with nodes + execution)
+══════════════════════════════════════════════ -->
+<div id="s-editor" class="screen">
+<div class="editor-shell">
+
+  <!-- Editor topbar -->
+  <div class="editor-topbar">
+    <div class="editor-topbar-logo">
+      <svg viewBox="0 0 22 22" fill="none" width="20" height="20"><rect width="22" height="22" rx="5" fill="#2563EB" opacity=".12"/><circle cx="5.5" cy="11" r="2.2" fill="#2563EB"/><circle cx="16.5" cy="6" r="2.2" fill="#2563EB"/><circle cx="16.5" cy="16" r="2.2" fill="#2563EB"/><path d="M7.5 10.3L14.4 7" stroke="#2563EB" stroke-width="1.2" stroke-linecap="round"/><path d="M7.5 11.7L14.4 15" stroke="#2563EB" stroke-width="1.2" stroke-linecap="round"/></svg>
+      <span class="topbar-logo-name">Arch<b>flow</b></span>
+    </div>
+    <span class="workflow-title">Customer Support Flow</span>
+    <span class="workflow-badge">v1.2.0</span>
+    <div class="topbar-right">
+      <span class="autosave-text">Saved 3s ago</span>
+      <button class="btn btn-icon" title="Undo" style="font-size:14px">↩</button>
+      <button class="btn btn-icon" title="Redo" style="font-size:14px">↪</button>
+      <button class="btn btn-icon" title="Fit view" style="font-size:13px">⊞</button>
+      <button class="btn btn-sm">Save</button>
+      <button class="btn-run" id="run-btn" onclick="runDemo()">
+        <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M2 1.5l7 4L2 9.5V1.5z" fill="currentColor"/></svg>
+        Execute
+      </button>
+    </div>
+  </div>
+
+  <!-- Palette -->
+  <div class="palette">
+    <div class="palette-search"><input placeholder="Search nodes…"/></div>
+    <div class="palette-body">
+      <div class="palette-section-label">AI / Agents</div>
+      <div class="palette-item"><div class="palette-icon" style="background:var(--cat-agent-l)">🤖</div><div><div class="palette-item-name">Agent</div><div class="palette-item-desc">Autonomous AI agent</div></div></div>
+      <div class="palette-item"><div class="palette-icon" style="background:var(--cat-agent-l)">🧠</div><div><div class="palette-item-name">Assistant</div><div class="palette-item-desc">Interactive assistant</div></div></div>
+      <div class="palette-item"><div class="palette-icon" style="background:var(--cat-agent-l)">💬</div><div><div class="palette-item-name">LLM Chat</div><div class="palette-item-desc">Language model call</div></div></div>
+      <div class="palette-item"><div class="palette-icon" style="background:var(--cat-agent-l)">⚡</div><div><div class="palette-item-name">LLM Streaming</div><div class="palette-item-desc">Streaming LLM response</div></div></div>
+
+      <div class="palette-section-label">Control flow</div>
+      <div class="palette-item"><div class="palette-icon" style="background:var(--cat-control-l)">⑂</div><div><div class="palette-item-name">Condition</div><div class="palette-item-desc">Branch on condition</div></div></div>
+      <div class="palette-item"><div class="palette-icon" style="background:var(--cat-control-l)">⫶</div><div><div class="palette-item-name">Parallel</div><div class="palette-item-desc">Run in parallel</div></div></div>
+      <div class="palette-item"><div class="palette-icon" style="background:var(--cat-control-l)">↻</div><div><div class="palette-item-name">Loop</div><div class="palette-item-desc">Iterate over items</div></div></div>
+      <div class="palette-item"><div class="palette-icon" style="background:var(--cat-control-l)">⋮</div><div><div class="palette-item-name">Switch</div><div class="palette-item-desc">Multi-branch switch</div></div></div>
+
+      <div class="palette-section-label">Data</div>
+      <div class="palette-item"><div class="palette-icon" style="background:var(--cat-data-l)">⇄</div><div><div class="palette-item-name">Transform</div><div class="palette-item-desc">Map and reshape data</div></div></div>
+      <div class="palette-item"><div class="palette-icon" style="background:var(--cat-data-l)">▽</div><div><div class="palette-item-name">Filter</div><div class="palette-item-desc">Filter by condition</div></div></div>
+
+      <div class="palette-section-label">Tools</div>
+      <div class="palette-item"><div class="palette-icon" style="background:var(--cat-tool-l)">⚙</div><div><div class="palette-item-name">Tool</div><div class="palette-item-desc">Execute a tool call</div></div></div>
+      <div class="palette-item"><div class="palette-icon" style="background:var(--cat-tool-l)">⟨⟩</div><div><div class="palette-item-name">Function</div><div class="palette-item-desc">Custom function</div></div></div>
+
+      <div class="palette-section-label">Vector / Memory</div>
+      <div class="palette-item"><div class="palette-icon" style="background:var(--cat-vector-l)">◎</div><div><div class="palette-item-name">Vector search</div><div class="palette-item-desc">Semantic retrieval</div></div></div>
+      <div class="palette-item"><div class="palette-icon" style="background:var(--cat-vector-l)">∿</div><div><div class="palette-item-name">Embedding</div><div class="palette-item-desc">Generate embeddings</div></div></div>
+    </div>
+  </div>
+
+  <!-- Canvas -->
+  <div class="canvas-area" id="canvas">
+    <div class="canvas-dots"></div>
+
+    <svg class="canvas-edges" width="100%" height="100%">
+      <defs>
+        <marker id="arr-blue"   viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M2 2L8 5L2 8" fill="none" stroke="var(--cat-agent)" stroke-width="1.5" stroke-linecap="round"/></marker>
+        <marker id="arr-purple" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M2 2L8 5L2 8" fill="none" stroke="var(--cat-control)" stroke-width="1.5" stroke-linecap="round"/></marker>
+        <marker id="arr-coral"  viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M2 2L8 5L2 8" fill="none" stroke="var(--cat-tool)" stroke-width="1.5" stroke-linecap="round"/></marker>
+        <marker id="arr-gray"   viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M2 2L8 5L2 8" fill="none" stroke="#9CA3AF" stroke-width="1.5" stroke-linecap="round"/></marker>
+      </defs>
+      <!-- Edge 1: executeTask → chat -->
+      <path id="e1" d="M258 154 C 296 154, 296 162, 322 162" fill="none" stroke="var(--cat-agent)" stroke-width="1.5" marker-end="url(#arr-blue)" opacity="0.55"/>
+      <!-- Edge 2: chat → createTicket -->
+      <path id="e2" d="M480 162 C 516 162, 516 210, 542 210" fill="none" stroke="var(--cat-coral)" stroke-width="1.5" marker-end="url(#arr-coral)" opacity="0.55"/>
+    </svg>
+
+    <!-- Node 1: executeTask (selected, completed) -->
+    <div class="flow-node selected" style="left:80px;top:124px;border-color:var(--cat-agent)">
+      <div class="fn-handle right" style="border-color:var(--cat-agent)"></div>
+      <div class="fn-header">
+        <div class="fn-icon" style="background:var(--cat-agent-l)">🤖</div>
+        <div>
+          <div class="fn-name">executeTask</div>
+          <div class="fn-type">AGENT</div>
+        </div>
+      </div>
+      <div class="fn-body">
+        <span class="exec-badge" style="background:var(--green-l);color:var(--green)">✓ Completed · 1.2s</span>
+      </div>
+    </div>
+
+    <!-- Node 2: chat (ASSISTANT, completed) -->
+    <div class="flow-node" style="left:322px;top:134px;border-color:var(--border2)">
+      <div class="fn-handle left"  style="border-color:var(--cat-agent)"></div>
+      <div class="fn-handle right" style="border-color:var(--cat-agent)"></div>
+      <div class="fn-header">
+        <div class="fn-icon" style="background:var(--cat-agent-l)">🧠</div>
+        <div>
+          <div class="fn-name">chat</div>
+          <div class="fn-type">ASSISTANT</div>
+        </div>
+      </div>
+      <div class="fn-body">
+        <span id="node2-badge" class="exec-badge" style="background:var(--green-l);color:var(--green)">✓ Completed · 2.1s</span>
+      </div>
+    </div>
+
+    <!-- Node 3: createTicket (TOOL, running) -->
+    <div class="flow-node" id="node3" style="left:542px;top:180px;border-color:var(--amber);opacity:0.7">
+      <div class="fn-handle left" style="border-color:var(--cat-tool)"></div>
+      <div class="fn-header">
+        <div class="fn-icon" style="background:var(--cat-tool-l)">⚙</div>
+        <div>
+          <div class="fn-name">createTicket</div>
+          <div class="fn-type">TOOL</div>
+        </div>
+      </div>
+      <div class="fn-body">
+        <span id="node3-badge" class="exec-badge" style="background:var(--gray-l);color:var(--gray)">Waiting…</span>
+      </div>
+    </div>
+
+    <!-- Canvas controls -->
+    <div class="canvas-controls">
+      <div class="ctrl-btn">+</div>
+      <div class="ctrl-btn">−</div>
+      <div class="ctrl-btn">⊡</div>
+    </div>
+
+    <!-- Minimap -->
+    <div class="minimap">
+      <div style="position:relative;width:100%;height:100%;background:var(--bg3)">
+        <div style="position:absolute;left:8%;top:32%;width:22%;height:20%;background:var(--cat-agent);opacity:0.35;border-radius:2px"></div>
+        <div style="position:absolute;left:38%;top:34%;width:18%;height:20%;background:var(--cat-agent);opacity:0.25;border-radius:2px"></div>
+        <div style="position:absolute;left:64%;top:46%;width:18%;height:20%;background:var(--cat-tool);opacity:0.2;border-radius:2px"></div>
+        <div style="position:absolute;left:4%;top:22%;width:54%;height:62%;border:1px solid var(--blue);opacity:0.35;border-radius:2px;pointer-events:none"></div>
+      </div>
+    </div>
+
+    <!-- Exec status bar -->
+    <div class="exec-bar" id="exec-bar" style="display:none">
+      <span style="width:7px;height:7px;border-radius:50%;background:var(--amber);flex-shrink:0"></span>
+      Execution running · <span id="exec-count">2</span> of 3 nodes completed
+    </div>
+  </div>
+
+  <!-- Props panel (node selected) -->
+  <div class="props" id="props-panel">
+    <div class="props-header">
+      <div>
+        <div class="props-title">executeTask</div>
+        <div class="props-sub">agent · AI / Agents</div>
+      </div>
+      <button class="btn btn-icon" style="font-size:14px;color:var(--text3)">×</button>
+    </div>
+    <div class="props-tabs">
+      <div class="props-tab active" onclick="switchTab(this,'t-props')">Properties</div>
+      <div class="props-tab" onclick="switchTab(this,'t-logs')">Logs</div>
+      <div class="props-tab" onclick="switchTab(this,'t-output')">Output</div>
+    </div>
+    <div class="props-body">
+      <div id="t-props">
+        <div class="prop-field"><div class="prop-label">Node name</div><input class="prop-input" value="executeTask"/></div>
+        <div class="prop-field">
+          <div class="prop-label">Model</div>
+          <select class="prop-select"><option>claude-sonnet-4-6</option><option>claude-opus-4-6</option><option>gpt-4o</option><option>gemma-3-27b (local)</option></select>
+        </div>
+        <div class="prop-field">
+          <div class="prop-label">System prompt</div>
+          <textarea class="prop-textarea">You are a customer support agent for ArchFlow. Help users resolve issues with workflows and agents.</textarea>
+        </div>
+        <div class="prop-field"><div class="prop-label">Max iterations</div><input class="prop-input" value="10" type="number"/></div>
+        <div class="prop-field"><div class="prop-label">Temperature</div><input class="prop-input" value="0.7" type="number" step="0.1"/></div>
+      </div>
+      <div id="t-logs" style="display:none">
+        <div class="props-section">Last execution</div>
+        <div class="log-box">
+          <div><span class="log-ts">[09:00:01]</span> Agent started</div>
+          <div><span class="log-ts">[09:00:01]</span> Tool call: searchKnowledge</div>
+          <div><span class="log-ts">[09:00:02]</span> <span class="log-ok">✓</span> Found 3 relevant docs</div>
+          <div><span class="log-ts">[09:00:02]</span> Generating response…</div>
+          <div><span class="log-ts">[09:00:03]</span> <span class="log-ok">✓</span> Completed in 1.2s</div>
+        </div>
+      </div>
+      <div id="t-output" style="display:none">
+        <div class="props-section">Output preview</div>
+        <div class="output-box">→ intent: "billing_question"<br>→ confidence: 0.94<br>→ response: "I can help…"<br>→ tools_used: ["searchKnowledge"]</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</div>
+
+<!-- ══════════════════════════════════════════════
+     SCREEN 3 — EDITOR EMPTY
+══════════════════════════════════════════════ -->
+<div id="s-editor-empty" class="screen">
+<div class="editor-shell">
+  <div class="editor-topbar">
+    <div class="editor-topbar-logo">
+      <svg viewBox="0 0 22 22" fill="none" width="20" height="20"><rect width="22" height="22" rx="5" fill="#2563EB" opacity=".12"/><circle cx="5.5" cy="11" r="2.2" fill="#2563EB"/><circle cx="16.5" cy="6" r="2.2" fill="#2563EB"/><circle cx="16.5" cy="16" r="2.2" fill="#2563EB"/><path d="M7.5 10.3L14.4 7" stroke="#2563EB" stroke-width="1.2" stroke-linecap="round"/><path d="M7.5 11.7L14.4 15" stroke="#2563EB" stroke-width="1.2" stroke-linecap="round"/></svg>
+      <span class="topbar-logo-name">Arch<b>flow</b></span>
+    </div>
+    <span class="workflow-title">Untitled workflow</span>
+    <span class="workflow-badge">v1.0.0</span>
+    <div class="topbar-right">
+      <button class="btn btn-icon" style="font-size:14px">↩</button>
+      <button class="btn btn-icon" style="font-size:14px">↪</button>
+      <button class="btn btn-icon" style="font-size:13px">⊞</button>
+      <button class="btn btn-sm">Save</button>
+      <button class="btn-run"><svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M2 1.5l7 4L2 9.5V1.5z" fill="currentColor"/></svg> Execute</button>
+    </div>
+  </div>
+
+  <!-- Palette (same) -->
+  <div class="palette">
+    <div class="palette-search"><input placeholder="Search nodes…"/></div>
+    <div class="palette-body">
+      <div class="palette-section-label">AI / Agents</div>
+      <div class="palette-item"><div class="palette-icon" style="background:var(--cat-agent-l)">🤖</div><div><div class="palette-item-name">Agent</div><div class="palette-item-desc">Autonomous AI agent</div></div></div>
+      <div class="palette-item"><div class="palette-icon" style="background:var(--cat-agent-l)">🧠</div><div><div class="palette-item-name">Assistant</div><div class="palette-item-desc">Interactive assistant</div></div></div>
+      <div class="palette-item"><div class="palette-icon" style="background:var(--cat-agent-l)">💬</div><div><div class="palette-item-name">LLM Chat</div><div class="palette-item-desc">Language model call</div></div></div>
+      <div class="palette-item"><div class="palette-icon" style="background:var(--cat-agent-l)">⚡</div><div><div class="palette-item-name">LLM Streaming</div><div class="palette-item-desc">Streaming LLM response</div></div></div>
+      <div class="palette-section-label">Control flow</div>
+      <div class="palette-item"><div class="palette-icon" style="background:var(--cat-control-l)">⑂</div><div><div class="palette-item-name">Condition</div><div class="palette-item-desc">Branch on condition</div></div></div>
+      <div class="palette-item"><div class="palette-icon" style="background:var(--cat-control-l)">⫶</div><div><div class="palette-item-name">Parallel</div><div class="palette-item-desc">Run in parallel</div></div></div>
+      <div class="palette-item"><div class="palette-icon" style="background:var(--cat-control-l)">↻</div><div><div class="palette-item-name">Loop</div><div class="palette-item-desc">Iterate over items</div></div></div>
+      <div class="palette-item"><div class="palette-icon" style="background:var(--cat-control-l)">⋮</div><div><div class="palette-item-name">Switch</div><div class="palette-item-desc">Multi-branch switch</div></div></div>
+      <div class="palette-section-label">Data</div>
+      <div class="palette-item"><div class="palette-icon" style="background:var(--cat-data-l)">⇄</div><div><div class="palette-item-name">Transform</div><div class="palette-item-desc">Map and reshape data</div></div></div>
+      <div class="palette-item"><div class="palette-icon" style="background:var(--cat-data-l)">▽</div><div><div class="palette-item-name">Filter</div><div class="palette-item-desc">Filter by condition</div></div></div>
+    </div>
+  </div>
+
+  <!-- Canvas empty -->
+  <div class="canvas-area">
+    <div class="canvas-dots"></div>
+    <div class="empty-state">
+      <svg class="empty-icon" width="56" height="56" viewBox="0 0 56 56" fill="none">
+        <circle cx="14" cy="28" r="6" stroke="currentColor" stroke-width="1.8" stroke-dasharray="3 2.5"/>
+        <circle cx="42" cy="16" r="6" stroke="currentColor" stroke-width="1.8" stroke-dasharray="3 2.5"/>
+        <circle cx="42" cy="40" r="6" stroke="currentColor" stroke-width="1.8" stroke-dasharray="3 2.5"/>
+        <path d="M19.5 25.5L36.5 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-dasharray="3 2.5"/>
+        <path d="M19.5 30.5L36.5 38" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-dasharray="3 2.5"/>
+      </svg>
+      <div class="empty-title">No workflow loaded</div>
+      <div class="empty-sub">Create a new workflow or load an existing one to get started</div>
+    </div>
+    <div class="canvas-controls">
+      <div class="ctrl-btn">+</div>
+      <div class="ctrl-btn">−</div>
+      <div class="ctrl-btn">⊡</div>
+    </div>
+  </div>
+
+  <!-- Props panel empty -->
+  <div class="props">
+    <div class="props-header">
+      <div>
+        <div class="props-title" style="color:var(--text3)">No node selected</div>
+      </div>
+    </div>
+    <div class="props-body">
+      <div class="props-empty">
+        <div class="props-empty-icon">◎</div>
+        <div class="props-empty-title">No node selected</div>
+        <div class="props-empty-sub">Click a node on the canvas to view its properties</div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ══════════════════════════════════════════════
+     SCREEN 4 — EXECUTION HISTORY
+══════════════════════════════════════════════ -->
+<div id="s-history" class="screen">
+  <div class="app-topbar">
+    <div class="topbar-logo">
+      <svg viewBox="0 0 22 22" fill="none"><rect width="22" height="22" rx="5" fill="#2563EB" opacity=".12"/><circle cx="5.5" cy="11" r="2.2" fill="#2563EB"/><circle cx="16.5" cy="6" r="2.2" fill="#2563EB"/><circle cx="16.5" cy="16" r="2.2" fill="#2563EB"/><path d="M7.5 10.3L14.4 7" stroke="#2563EB" stroke-width="1.2" stroke-linecap="round"/><path d="M7.5 11.7L14.4 15" stroke="#2563EB" stroke-width="1.2" stroke-linecap="round"/></svg>
+      <span class="topbar-logo-name">Arch<b>flow</b></span>
+    </div>
+    <span class="topbar-version">v2.0</span>
+    <div class="topbar-right">
+      <button class="btn btn-icon" style="color:var(--text3)"><svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M7.5 1C4 1 1 4 1 7.5S4 14 7.5 14c3.3 0 6-2.5 6.4-5.7C13 9 12.1 9.2 11.2 9.2 8.4 9.2 6.1 7 6.1 4.2c0-.9.2-1.8.6-2.5C6.5 1.2 7 1 7.5 1z" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></button>
+    </div>
+  </div>
+  <div class="app-shell">
+    <div class="main-sidebar">
+      <div class="sidebar-logo">
+        <svg viewBox="0 0 22 22" fill="none" width="18" height="18"><rect width="22" height="22" rx="5" fill="#2563EB" opacity=".12"/><circle cx="5.5" cy="11" r="2.2" fill="#2563EB"/><circle cx="16.5" cy="6" r="2.2" fill="#2563EB"/><circle cx="16.5" cy="16" r="2.2" fill="#2563EB"/><path d="M7.5 10.3L14.4 7" stroke="#2563EB" stroke-width="1.2" stroke-linecap="round"/><path d="M7.5 11.7L14.4 15" stroke="#2563EB" stroke-width="1.2" stroke-linecap="round"/></svg>
+        <span class="sidebar-logo-name">Arch<b>flow</b></span>
+        <span class="sidebar-badge">v2</span>
+      </div>
+      <div class="nav-item" onclick="go('list')"><svg viewBox="0 0 16 16" fill="none"><rect x="1" y="1" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.3"/><rect x="9" y="1" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.3"/><rect x="1" y="9" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.3"/><rect x="9" y="9" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.3"/></svg>Workflows</div>
+      <div class="nav-item" onclick="go('editor')"><svg viewBox="0 0 16 16" fill="none"><path d="M2 4h12M2 8h8M2 12h5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>Editor</div>
+      <div class="nav-item active"><svg viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6.5" stroke="currentColor" stroke-width="1.3"/><path d="M8 4.5v4l2.5 2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>Executions</div>
+      <div class="sidebar-footer">
+        <div class="user-row">
+          <div class="user-avatar">EM</div>
+          <span class="user-name">Edson Martins</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="main">
+      <div class="page-main">
+        <div class="page-header">
+          <span class="page-title">Execution History</span>
+          <select style="padding:7px 12px;border-radius:7px;border:1px solid var(--border);background:var(--bg3);font-size:13px;font-family:'DM Sans',sans-serif;color:var(--text2)">
+            <option>All workflows</option>
+            <option>Customer Support Flow</option>
+            <option>Invoice Processing</option>
+          </select>
+        </div>
+
+        <div class="card" style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden">
+          <div class="exec-col-header">
+            <span>Execution ID</span>
+            <span>Workflow</span>
+            <span>Status</span>
+            <span>Started</span>
+            <span>Duration</span>
+            <span>Error</span>
+          </div>
+          <div class="exec-grid">
+            <div class="exec-row">
+              <span class="exec-id">exec-1…</span>
+              <span class="exec-wf">Customer Support Flow</span>
+              <span><span class="badge badge-completed"><span class="badge-dot" style="background:var(--green)"></span>Completed</span></span>
+              <span style="color:var(--text3);font-size:12px">4/9/2026, 7:00 AM</span>
+              <span class="exec-dur">45.0s</span>
+              <span></span>
+            </div>
+            <div class="exec-row">
+              <span class="exec-id">exec-2…</span>
+              <span class="exec-wf">Invoice Processing</span>
+              <span><span class="badge badge-failed"><span class="badge-dot" style="background:var(--red)"></span>Failed</span></span>
+              <span style="color:var(--text3);font-size:12px">4/9/2026, 6:30 AM</span>
+              <span class="exec-dur">1m 0s</span>
+              <span class="exec-err">Timeout connecting to LLM provider</span>
+            </div>
+            <div class="exec-row">
+              <span class="exec-id">exec-3…</span>
+              <span class="exec-wf">Customer Support Flow</span>
+              <span><span class="badge badge-running"><span class="badge-dot" style="background:var(--blue)"></span>Running</span></span>
+              <span style="color:var(--text3);font-size:12px">4/9/2026, 9:00 AM</span>
+              <span class="exec-dur">—</span>
+              <span></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function go(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'))
+  document.querySelectorAll('.demo-tab').forEach(t => t.classList.remove('active'))
+  document.getElementById('s-' + id).classList.add('active')
+  const map = {'list':0,'editor':1,'editor-empty':2,'history':3}
+  if (map[id] !== undefined) document.querySelectorAll('.demo-tab')[map[id]].classList.add('active')
+  window.scrollTo(0,0)
+}
+
+function switchTab(el, tabId) {
+  document.querySelectorAll('.props-tab').forEach(t => t.classList.remove('active'))
+  el.classList.add('active')
+  document.querySelectorAll('#t-props,#t-logs,#t-output').forEach(t => t.style.display='none')
+  document.getElementById(tabId).style.display = 'block'
+}
+
+function runDemo() {
+  const btn = document.getElementById('run-btn')
+  const bar = document.getElementById('exec-bar')
+  const n3  = document.getElementById('node3')
+  const b3  = document.getElementById('node3-badge')
+  const cnt = document.getElementById('exec-count')
+
+  btn.classList.add('running')
+  btn.innerHTML = '<svg width="10" height="10" viewBox="0 0 10 10" fill="none"><rect x="2" y="2" width="2.5" height="6" rx="0.5" fill="currentColor"/><rect x="5.5" y="2" width="2.5" height="6" rx="0.5" fill="currentColor"/></svg> Running…'
+  bar.style.display = 'flex'
+  cnt.textContent = '2'
+
+  setTimeout(() => {
+    n3.style.opacity = '1'
+    n3.style.borderColor = 'var(--amber)'
+    b3.style.background = 'var(--amber-l)'
+    b3.style.color = 'var(--amber)'
+    b3.textContent = '◌ Running…'
+  }, 600)
+
+  setTimeout(() => {
+    n3.style.borderColor = 'var(--border2)'
+    b3.style.background = 'var(--green-l)'
+    b3.style.color = 'var(--green)'
+    b3.textContent = '✓ Completed · 0.9s'
+    cnt.textContent = '3'
+    bar.querySelector('span').style.background = 'var(--green)'
+    bar.innerHTML = bar.innerHTML.replace('running', 'completed')
+    btn.classList.remove('running')
+    btn.innerHTML = '<svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M2 1.5l7 4L2 9.5V1.5z" fill="currentColor"/></svg> Execute'
+  }, 2400)
+}
+</script>
+</body>
+</html>

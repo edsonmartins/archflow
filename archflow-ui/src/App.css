@@ -1,42 +1,161 @@
+/* ── ArchFlow Design System — aligned with HTML reference ────── */
+
 #root {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 2rem;
-  text-align: center;
+  width: 100%;
+  height: 100vh;
+  margin: 0;
+  padding: 0;
 }
 
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: filter 300ms;
-}
-.logo:hover {
-  filter: drop-shadow(0 0 2em #646cffaa);
-}
-.logo.react:hover {
-  filter: drop-shadow(0 0 2em #61dafbaa);
+/* ── Design Tokens (from ArchFlow_Workflow_v2.html) ──────────── */
+
+:root {
+  /* Backgrounds */
+  --bg:      #F4F5F7;
+  --bg2:     #FFFFFF;
+  --bg3:     #F8F9FA;
+
+  /* Borders */
+  --border:  rgba(0,0,0,0.07);
+  --border2: rgba(0,0,0,0.13);
+
+  /* Text hierarchy */
+  --text:    #111827;
+  --text2:   #374151;
+  --text3:   #6B7280;
+  --text4:   #9CA3AF;
+
+  /* Semantic colors */
+  --blue:    #2563EB; --blue-d: #1D4ED8; --blue-l: #EFF6FF;
+  --purple:  #7C3AED; --purple-l: #F5F3FF;
+  --teal:    #0D9488; --teal-l: #F0FDFA;
+  --coral:   #DC4E26; --coral-l: #FEF2F2;
+  --amber:   #D97706; --amber-l: #FFFBEB;
+  --gray:    #6B7280; --gray-l:  #F9FAFB;
+  --green:   #059669; --green-l: #ECFDF5;
+  --red:     #DC2626; --red-l:   #FEF2F2;
+
+  /* Node category colors */
+  --cat-agent:   #2563EB; --cat-agent-l:   #DBEAFE;
+  --cat-control: #7C3AED; --cat-control-l: #EDE9FE;
+  --cat-data:    #0D9488; --cat-data-l:    #CCFBF1;
+  --cat-tool:    #DC4E26; --cat-tool-l:    #FEE2E2;
+  --cat-vector:  #D97706; --cat-vector-l:  #FEF3C7;
+  --cat-io:      #6B7280; --cat-io-l:      #F3F4F6;
+
+  /* Typography */
+  --font-sans:  'DM Sans', -apple-system, sans-serif;
+  --font-mono:  'DM Mono', 'Fira Code', monospace;
+
+  /* Legacy aliases (for existing components) */
+  --color-background-primary:   var(--bg2);
+  --color-background-secondary: var(--bg3);
+  --color-background-tertiary:  var(--bg);
+  --color-border-secondary:     var(--border2);
+  --color-border-tertiary:      var(--border);
+  --color-text-primary:         var(--text);
+  --color-text-secondary:       var(--text2);
+  --color-text-tertiary:        var(--text3);
 }
 
-@keyframes logo-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+[data-mantine-color-scheme='dark'] {
+  --bg:      #111827;
+  --bg2:     #1F2937;
+  --bg3:     #1a1f2e;
+  --border:  rgba(255,255,255,0.08);
+  --border2: rgba(255,255,255,0.13);
+  --text:    #F9FAFB;
+  --text2:   #D1D5DB;
+  --text3:   #9CA3AF;
+  --text4:   #6B7280;
+
+  --color-background-primary:   var(--bg2);
+  --color-background-secondary: var(--bg3);
+  --color-background-tertiary:  var(--bg);
+  --color-border-secondary:     var(--border2);
+  --color-border-tertiary:      var(--border);
+  --color-text-primary:         var(--text);
+  --color-text-secondary:       var(--text2);
+  --color-text-tertiary:        var(--text3);
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  a:nth-of-type(2) .logo {
-    animation: logo-spin infinite 20s linear;
-  }
+body {
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-.card {
-  padding: 2em;
+/* ── Animations ──────────────────────────────────────────────── */
+
+@keyframes archflow-dash {
+  to { stroke-dashoffset: -18; }
 }
 
-.read-the-docs {
-  color: #888;
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.6; }
+}
+
+/* ── Badge system (from HTML reference) ──────────────────────── */
+
+.af-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+.af-badge-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* ── Stat cards (admin pattern) ──────────────────────────────── */
+
+.af-stat-card {
+  padding: 18px 20px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg2);
+}
+.af-stat-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text3);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.af-stat-value {
+  font-size: 28px;
+  font-weight: 600;
+  margin-top: 4px;
+  letter-spacing: -0.5px;
+}
+
+/* ── Override estilos @xyflow/react ───────────────────────────── */
+
+.react-flow__controls-button {
+  background: var(--bg2) !important;
+  border: 1px solid var(--border2) !important;
+  border-radius: 6px !important;
+  box-shadow: none !important;
+}
+
+.react-flow__minimap {
+  border-radius: 8px !important;
+  border: 1px solid var(--border2) !important;
+  box-shadow: none !important;
+  background: var(--bg2) !important;
+}
+
+/* ── Utility classes ─────────────────────────────────────────── */
+
+.font-mono {
+  font-family: var(--font-mono);
 }

@@ -1,0 +1,1286 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ArchFlow — Admin Panel v2</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:        #F4F5F7;
+  --bg2:       #FFFFFF;
+  --bg3:       #F8F9FA;
+  --border:    rgba(0,0,0,0.07);
+  --border2:   rgba(0,0,0,0.13);
+  --text:      #111827;
+  --text2:     #374151;
+  --text3:     #6B7280;
+  --text4:     #9CA3AF;
+
+  /* Blue — primary */
+  --blue:      #2563EB;
+  --blue-d:    #1D4ED8;
+  --blue-l:    #EFF6FF;
+  --blue-m:    #BFDBFE;
+
+  /* Semantic */
+  --green:     #059669; --green-l: #ECFDF5; --green-m: #A7F3D0;
+  --red:       #DC2626; --red-l:   #FEF2F2; --red-m:   #FECACA;
+  --amber:     #D97706; --amber-l: #FFFBEB; --amber-m: #FDE68A;
+  --purple:    #7C3AED; --purple-l:#F5F3FF; --purple-m:#DDD6FE;
+  --teal:      #0D9488; --teal-l:  #F0FDFA; --teal-m:  #99F6E4;
+  --gray:      #6B7280; --gray-l:  #F9FAFB; --gray-m:  #E5E7EB;
+}
+
+body {
+  font-family: 'DM Sans', -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ══════════════════════════════════
+   SCREEN SWITCHER (demo nav)
+══════════════════════════════════ */
+.demo-nav {
+  position: fixed; top: 0; left: 0; right: 0; height: 40px;
+  background: #111827; display: flex; align-items: center;
+  padding: 0 16px; gap: 4px; z-index: 200;
+}
+.demo-nav span { font-size: 11px; color: #6B7280; margin-right: 8px; font-family: 'DM Mono', monospace; }
+.demo-tab {
+  padding: 4px 12px; border-radius: 5px; font-size: 11px;
+  cursor: pointer; color: #9CA3AF; background: transparent; border: none;
+  font-family: 'DM Sans', sans-serif; transition: background 0.1s;
+}
+.demo-tab:hover { background: rgba(255,255,255,0.08); color: #E5E7EB; }
+.demo-tab.active { background: rgba(255,255,255,0.12); color: #F9FAFB; }
+
+.screen { display: none; padding-top: 40px; min-height: 100vh; }
+.screen.active { display: block; }
+
+/* ══════════════════════════════════
+   ADMIN SHELL
+══════════════════════════════════ */
+.admin-topbar {
+  position: sticky; top: 40px; height: 52px; z-index: 100;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center;
+  padding: 0 20px; gap: 10px;
+}
+.admin-topbar-logo {
+  display: flex; align-items: center; gap: 8px;
+}
+.admin-topbar-logo svg { width: 22px; height: 22px; }
+.admin-topbar-logo-text {
+  font-size: 15px; font-weight: 600; color: var(--text);
+  letter-spacing: -0.2px;
+}
+.role-badge {
+  font-size: 10px; font-weight: 600; letter-spacing: 0.06em;
+  text-transform: uppercase; padding: 2px 8px; border-radius: 4px;
+}
+.role-badge.superadmin { background: var(--purple-l); color: var(--purple); }
+.role-badge.workspace  { background: var(--green-l);  color: var(--green);  }
+
+.topbar-right { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+.back-link {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 12px; color: var(--text3); cursor: pointer;
+  text-decoration: none;
+}
+.back-link:hover { color: var(--text2); }
+
+.admin-shell {
+  display: grid;
+  grid-template-columns: 216px 1fr;
+  min-height: calc(100vh - 92px);
+}
+
+/* ══════════════════════════════════
+   SIDEBAR
+══════════════════════════════════ */
+.sidebar {
+  background: var(--bg2);
+  border-right: 1px solid var(--border);
+  padding: 12px 8px;
+  position: sticky; top: 92px;
+  height: calc(100vh - 92px);
+  display: flex; flex-direction: column;
+  overflow-y: auto;
+}
+.sidebar-section {
+  font-size: 10px; font-weight: 600; color: var(--text4);
+  letter-spacing: 0.08em; text-transform: uppercase;
+  padding: 8px 10px 4px;
+}
+.nav-item {
+  display: flex; align-items: center; gap: 9px;
+  padding: 7px 10px; border-radius: 7px;
+  font-size: 13px; color: var(--text2);
+  cursor: pointer; margin-bottom: 1px;
+  transition: background 0.1s, color 0.1s;
+  font-weight: 400;
+}
+.nav-item:hover { background: var(--bg3); color: var(--text); }
+.nav-item.active {
+  background: var(--blue-l); color: var(--blue);
+  font-weight: 500;
+}
+.nav-item svg { width: 16px; height: 16px; flex-shrink: 0; opacity: 0.7; }
+.nav-item.active svg { opacity: 1; }
+.nav-divider { height: 1px; background: var(--border); margin: 6px 4px; }
+.nav-section-disabled .nav-item { color: var(--text4); pointer-events: none; }
+.sidebar-footer { margin-top: auto; padding-top: 8px; border-top: 1px solid var(--border); }
+
+/* ══════════════════════════════════
+   MAIN CONTENT
+══════════════════════════════════ */
+.main { padding: 28px 32px; background: var(--bg); }
+.page-header {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  margin-bottom: 24px;
+}
+.page-title { font-size: 22px; font-weight: 600; letter-spacing: -0.3px; }
+.page-subtitle { font-size: 13px; color: var(--text3); margin-top: 2px; }
+
+/* ══════════════════════════════════
+   STAT CARDS
+══════════════════════════════════ */
+.stat-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 12px; margin-bottom: 24px; }
+.stat-grid-3 { grid-template-columns: repeat(3,1fr); }
+.stat-card {
+  background: var(--bg2); border: 1px solid var(--border);
+  border-radius: 10px; padding: 18px 20px;
+}
+.stat-card-label {
+  font-size: 11px; font-weight: 500; color: var(--text3);
+  text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px;
+}
+.stat-card-value {
+  font-size: 28px; font-weight: 600; letter-spacing: -0.5px;
+  line-height: 1;
+}
+.stat-card-value.blue   { color: var(--blue);  }
+.stat-card-value.green  { color: var(--green); }
+.stat-card-value.amber  { color: var(--amber); }
+.stat-card-value.purple { color: var(--purple);}
+.stat-card-value.default{ color: var(--text);  }
+.stat-card-sub { font-size: 12px; color: var(--text3); margin-top: 6px; }
+.stat-card-sub.up   { color: var(--green); }
+.stat-card-sub.warn { color: var(--amber); }
+
+/* ══════════════════════════════════
+   CARDS
+══════════════════════════════════ */
+.card {
+  background: var(--bg2); border: 1px solid var(--border);
+  border-radius: 10px; overflow: hidden; margin-bottom: 16px;
+}
+.card-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 20px; border-bottom: 1px solid var(--border);
+}
+.card-title { font-size: 14px; font-weight: 600; color: var(--text); }
+.card-subtitle { font-size: 12px; color: var(--text3); margin-top: 2px; }
+.card-body { padding: 20px; }
+
+/* ══════════════════════════════════
+   TABLE
+══════════════════════════════════ */
+table { width: 100%; border-collapse: collapse; }
+thead th {
+  padding: 10px 20px; font-size: 12px; font-weight: 500;
+  color: var(--text3); text-align: left;
+  border-bottom: 1px solid var(--border); background: var(--bg3);
+}
+tbody tr { border-bottom: 1px solid var(--border); }
+tbody tr:last-child { border-bottom: none; }
+tbody tr:hover { background: var(--bg3); }
+tbody td { padding: 13px 20px; font-size: 13px; vertical-align: middle; }
+
+/* ══════════════════════════════════
+   BADGES
+══════════════════════════════════ */
+.badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 9px; border-radius: 4px;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+.badge.active     { background: var(--green-l);  color: var(--green);  }
+.badge.trial      { background: var(--amber-l);  color: var(--amber);  }
+.badge.suspended  { background: var(--red-l);    color: var(--red);    }
+.badge.enterprise { background: var(--blue-l);   color: var(--blue);   }
+.badge.professional{background: var(--teal-l);   color: var(--teal);   }
+.badge.internal   { background: var(--gray-l);   color: var(--gray);   }
+.badge.trial-plan { background: var(--amber-l);  color: var(--amber);  }
+.badge.superadmin { background: var(--purple-l); color: var(--purple); }
+.badge.admin      { background: var(--blue-l);   color: var(--blue);   }
+.badge.editor     { background: var(--teal-l);   color: var(--teal);   }
+.badge.viewer     { background: var(--gray-l);   color: var(--gray);   }
+.badge.production { background: var(--green-l);  color: var(--green);  }
+.badge.staging    { background: var(--amber-l);  color: var(--amber);  }
+.badge.webcomp    { background: var(--blue-l);   color: var(--blue);   }
+.badge.deprecated { background: var(--gray-l);   color: var(--gray);   }
+.badge.beta       { background: var(--amber-l);  color: var(--amber);  }
+.badge.invite     { background: var(--amber-l);  color: var(--amber);  }
+.badge.llm-active { background: var(--green-l);  color: var(--green);  }
+
+/* ══════════════════════════════════
+   BUTTONS
+══════════════════════════════════ */
+.btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 16px; border-radius: 7px; font-size: 13px;
+  font-weight: 500; cursor: pointer; font-family: 'DM Sans', sans-serif;
+  border: 1px solid var(--border2); background: var(--bg2);
+  color: var(--text2); transition: background 0.1s;
+}
+.btn:hover { background: var(--bg3); }
+.btn-primary { background: var(--blue); border-color: var(--blue-d); color: #fff; }
+.btn-primary:hover { background: var(--blue-d); }
+.btn-sm { padding: 4px 12px; font-size: 12px; border-radius: 6px; }
+.btn-icon-sm {
+  width: 28px; height: 28px; padding: 0; border-radius: 6px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: none; background: transparent; cursor: pointer; color: var(--text3);
+}
+.btn-icon-sm:hover { background: var(--bg3); color: var(--text2); }
+.btn-icon-sm.danger:hover { background: var(--red-l); color: var(--red); }
+
+/* ══════════════════════════════════
+   TENANT AVATAR
+══════════════════════════════════ */
+.t-avatar {
+  width: 34px; height: 34px; border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 600; flex-shrink: 0;
+}
+.user-avatar {
+  width: 32px; height: 32px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 600; flex-shrink: 0;
+}
+
+/* ══════════════════════════════════
+   USAGE BAR
+══════════════════════════════════ */
+.usage-wrap { display: flex; flex-direction: column; gap: 3px; }
+.usage-row { display: flex; align-items: center; gap: 8px; }
+.usage-bar { flex: 1; height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; min-width: 80px; max-width: 120px; }
+.usage-fill { height: 100%; border-radius: 3px; }
+.usage-text { font-size: 11px; color: var(--text3); font-family: 'DM Mono', monospace; white-space: nowrap; }
+.usage-label { font-size: 11px; color: var(--text3); }
+
+/* ══════════════════════════════════
+   FORM ELEMENTS
+══════════════════════════════════ */
+.field { margin-bottom: 16px; }
+.field-label { font-size: 12px; font-weight: 500; color: var(--text2); margin-bottom: 5px; display: flex; align-items: center; gap: 4px; }
+.field-required { color: var(--red); }
+.field-hint { font-size: 11px; color: var(--text3); margin-top: 4px; }
+.field-input, .field-select {
+  width: 100%; padding: 8px 12px; border-radius: 7px;
+  border: 1px solid var(--border2); background: var(--bg2);
+  color: var(--text); font-size: 13px; font-family: 'DM Sans', sans-serif;
+  outline: none; transition: border-color 0.1s, box-shadow 0.1s;
+}
+.field-input:focus, .field-select:focus {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px rgba(37,99,235,0.1);
+}
+.field-input.mono { font-family: 'DM Mono', monospace; font-size: 12px; }
+.field-number {
+  width: 100%; padding: 8px 12px; border-radius: 7px;
+  border: 1px solid var(--border2); background: var(--bg2);
+  color: var(--text); font-size: 13px; font-family: 'DM Mono', monospace;
+  outline: none;
+}
+
+/* ══════════════════════════════════
+   TOGGLE SWITCH
+══════════════════════════════════ */
+.toggle-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 0; border-bottom: 1px solid var(--border);
+}
+.toggle-row:last-child { border-bottom: none; }
+.toggle-info { flex: 1; }
+.toggle-label { font-size: 13px; color: var(--text2); font-weight: 400; }
+.toggle-desc  { font-size: 11px; color: var(--text3); margin-top: 2px; }
+.toggle-switch {
+  position: relative; width: 36px; height: 20px; flex-shrink: 0;
+  background: var(--border2); border-radius: 10px;
+  cursor: pointer; transition: background 0.2s;
+}
+.toggle-switch.on { background: var(--blue); }
+.toggle-knob {
+  position: absolute; top: 2px; left: 2px;
+  width: 16px; height: 16px; background: #fff; border-radius: 50%;
+  transition: transform 0.2s; box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+.toggle-switch.on .toggle-knob { transform: translateX(16px); }
+
+/* ══════════════════════════════════
+   PERMISSION MATRIX
+══════════════════════════════════ */
+.perm-table { width: 100%; border-collapse: collapse; }
+.perm-table th {
+  padding: 10px 20px; font-size: 12px; font-weight: 600; color: var(--text2);
+  border-bottom: 1px solid var(--border); text-align: center;
+}
+.perm-table th:first-child { text-align: left; }
+.perm-table td {
+  padding: 11px 20px; font-size: 13px;
+  border-bottom: 1px solid var(--border); text-align: center;
+  color: var(--text3);
+}
+.perm-table tr:last-child td { border-bottom: none; }
+.perm-table td:first-child { text-align: left; color: var(--text2); }
+.perm-check { color: var(--text2); font-size: 14px; }
+.perm-dash  { color: var(--text4); font-size: 14px; }
+
+/* ══════════════════════════════════
+   MONO / MISC
+══════════════════════════════════ */
+.mono { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--text3); }
+.action-group { display: flex; align-items: center; gap: 4px; }
+.key-value {
+  font-family: 'DM Mono', monospace; font-size: 12px; color: var(--text3);
+  display: flex; align-items: center; gap: 6px;
+}
+.copy-btn {
+  width: 20px; height: 20px; border: none; background: transparent;
+  cursor: pointer; color: var(--text4); display: flex; align-items: center; justify-content: center;
+  border-radius: 4px;
+}
+.copy-btn:hover { background: var(--bg3); color: var(--text2); }
+.form-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.summary-row { display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+.summary-row:last-child { border-bottom: none; }
+.summary-key { color: var(--text3); }
+.summary-val { color: var(--text); font-weight: 500; }
+
+/* Plan usage bars (workspace) */
+.plan-usage-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.plan-usage-item { }
+.plan-usage-label { font-size: 13px; color: var(--text2); margin-bottom: 8px; }
+.plan-bar-wrap { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+.plan-bar-nums { font-size: 12px; color: var(--text3); }
+.plan-bar { width: 100%; height: 8px; background: var(--border); border-radius: 4px; overflow: hidden; margin-bottom: 2px; }
+.plan-bar-fill { height: 100%; border-radius: 4px; }
+.plan-bar-pct { font-size: 11px; color: var(--text3); text-align: right; }
+</style>
+</head>
+<body>
+
+<!-- Demo navigation -->
+<div class="demo-nav">
+  <span>admin screens →</span>
+  <button class="demo-tab active"  onclick="go('tenant-list')">Tenant list</button>
+  <button class="demo-tab" onclick="go('tenant-new')">New tenant</button>
+  <button class="demo-tab" onclick="go('global-config')">Global config</button>
+  <button class="demo-tab" onclick="go('usage-billing')">Usage & billing</button>
+  <button class="demo-tab" onclick="go('workspace')">Workspace</button>
+  <button class="demo-tab" onclick="go('users')">Users</button>
+  <button class="demo-tab" onclick="go('api-keys')">API keys</button>
+</div>
+
+<!-- ════════════════════════════════════════════
+     SCREEN 1 — TENANT LIST (superadmin)
+════════════════════════════════════════════ -->
+<div id="s-tenant-list" class="screen active">
+  <div class="admin-topbar">
+    <div class="admin-topbar-logo">
+      <svg viewBox="0 0 22 22" fill="none"><rect width="22" height="22" rx="5" fill="#2563EB" opacity=".12"/><circle cx="5.5" cy="11" r="2.2" fill="#2563EB"/><circle cx="16.5" cy="6" r="2.2" fill="#2563EB"/><circle cx="16.5" cy="16" r="2.2" fill="#2563EB"/><path d="M7.5 10.3L14.4 7" stroke="#2563EB" stroke-width="1.2" stroke-linecap="round"/><path d="M7.5 11.7L14.4 15" stroke="#2563EB" stroke-width="1.2" stroke-linecap="round"/></svg>
+      <span class="admin-topbar-logo-text">Admin</span>
+    </div>
+    <span class="role-badge superadmin">Superadmin</span>
+    <div class="topbar-right">
+      <a class="back-link">← Back to app</a>
+    </div>
+  </div>
+  <div class="admin-shell">
+    <div class="sidebar">
+      <div class="nav-item active">
+        <svg viewBox="0 0 16 16" fill="none"><rect x="1" y="1" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.3"/><rect x="9" y="1" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.3"/><rect x="1" y="9" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.3"/><rect x="9" y="9" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.3"/></svg>
+        Tenants
+      </div>
+      <div class="nav-item" onclick="go('global-config')">
+        <svg viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="2.5" stroke="currentColor" stroke-width="1.3"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M3.05 12.95l1.41-1.41M11.54 4.46l1.41-1.41" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+        Global Config
+      </div>
+      <div class="nav-item" onclick="go('usage-billing')">
+        <svg viewBox="0 0 16 16" fill="none"><rect x="1" y="9" width="3" height="6" rx="1" stroke="currentColor" stroke-width="1.3"/><rect x="6" y="5" width="3" height="10" rx="1" stroke="currentColor" stroke-width="1.3"/><rect x="11" y="1" width="3" height="14" rx="1" stroke="currentColor" stroke-width="1.3"/></svg>
+        Usage &amp; Billing
+      </div>
+      <div class="nav-divider"></div>
+      <div class="sidebar-section">App</div>
+      <div class="nav-section-disabled">
+        <div class="nav-item">
+          <svg viewBox="0 0 16 16" fill="none"><rect x="1" y="3" width="14" height="10" rx="2" stroke="currentColor" stroke-width="1.3"/><path d="M5 8h6M5 11h3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+          Workflows
+        </div>
+        <div class="nav-item">
+          <svg viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6.5" stroke="currentColor" stroke-width="1.3"/><circle cx="8" cy="8" r="2.5" stroke="currentColor" stroke-width="1.3"/></svg>
+          Executions
+        </div>
+      </div>
+    </div>
+    <div class="main">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Tenants</div>
+          <div class="page-subtitle">Manage client workspaces on the ArchFlow platform</div>
+        </div>
+        <button class="btn btn-primary" onclick="go('tenant-new')">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1v12M1 7h12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+          New Tenant
+        </button>
+      </div>
+
+      <div class="stat-grid">
+        <div class="stat-card">
+          <div class="stat-card-label">Active Tenants</div>
+          <div class="stat-card-value green">2</div>
+          <div class="stat-card-sub up">↑ 1 this month</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-card-label">Executions Today</div>
+          <div class="stat-card-value blue">437</div>
+          <div class="stat-card-sub up">↑ 14% vs yesterday</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-card-label">Tokens This Month</div>
+          <div class="stat-card-value default">5.4M</div>
+          <div class="stat-card-sub up">↑ 12% vs last month</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-card-label">Trial Tenants</div>
+          <div class="stat-card-value amber">1</div>
+          <div class="stat-card-sub warn">⚠ expires in 8 days</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">All tenants</div>
+          </div>
+          <input style="padding:6px 12px;border-radius:7px;border:1px solid var(--border);background:var(--bg3);font-size:12px;width:200px;font-family:'DM Sans',sans-serif;outline:none;" placeholder="Search tenants…"/>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Tenant</th><th>Status</th><th>Plan</th>
+              <th>Workflows</th><th>Exec/day</th><th>Token usage</th>
+              <th>Created</th><th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>
+                <div style="display:flex;align-items:center;gap:10px">
+                  <div class="t-avatar" style="background:#DBEAFE;color:#1D4ED8">RI</div>
+                  <div>
+                    <div style="font-weight:500">Rio Quality</div>
+                    <div class="mono">tenant_rio_quality</div>
+                  </div>
+                </div>
+              </td>
+              <td><span class="badge active">ACTIVE</span></td>
+              <td><span class="badge enterprise">ENTERPRISE</span></td>
+              <td>12</td>
+              <td>340</td>
+              <td>
+                <div class="usage-wrap">
+                  <div class="usage-row">
+                    <div class="usage-bar"><div class="usage-fill" style="width:84%;background:#F59E0B"></div></div>
+                    <span class="usage-text">4,200,000</span>
+                  </div>
+                  <div class="usage-text" style="color:var(--text4)">5,000,000 (84%)</div>
+                </div>
+              </td>
+              <td><span class="mono">2025-06</span></td>
+              <td>
+                <div class="action-group">
+                  <button class="btn btn-sm" onclick="go('workspace')">Enter</button>
+                  <button class="btn-icon-sm" title="Settings">
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="2" stroke="currentColor" stroke-width="1.3"/><path d="M7 1v1.5M7 11.5V13M1 7h1.5M11.5 7H13M2.93 2.93l1.06 1.06M10.01 10.01l1.06 1.06M2.93 11.07l1.06-1.06M10.01 3.99l1.06-1.06" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+                  </button>
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td>
+                <div style="display:flex;align-items:center;gap:10px">
+                  <div class="t-avatar" style="background:#D1FAE5;color:#065F46">AC</div>
+                  <div>
+                    <div style="font-weight:500">Acme Corp</div>
+                    <div class="mono">tenant_acme_corp</div>
+                  </div>
+                </div>
+              </td>
+              <td><span class="badge active">ACTIVE</span></td>
+              <td><span class="badge professional">PROFESSIONAL</span></td>
+              <td>5</td>
+              <td>85</td>
+              <td>
+                <div class="usage-wrap">
+                  <div class="usage-row">
+                    <div class="usage-bar"><div class="usage-fill" style="width:60%;background:#2563EB"></div></div>
+                    <span class="usage-text">1,200,000</span>
+                  </div>
+                  <div class="usage-text" style="color:var(--text4)">2,000,000 (60%)</div>
+                </div>
+              </td>
+              <td><span class="mono">2025-09</span></td>
+              <td>
+                <div class="action-group">
+                  <button class="btn btn-sm">Enter</button>
+                  <button class="btn-icon-sm" title="Settings">
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="2" stroke="currentColor" stroke-width="1.3"/><path d="M7 1v1.5M7 11.5V13M1 7h1.5M11.5 7H13M2.93 2.93l1.06 1.06M10.01 10.01l1.06 1.06M2.93 11.07l1.06-1.06M10.01 3.99l1.06-1.06" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+                  </button>
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td>
+                <div style="display:flex;align-items:center;gap:10px">
+                  <div class="t-avatar" style="background:#FEF3C7;color:#92400E">DE</div>
+                  <div>
+                    <div style="font-weight:500">Demo Trial</div>
+                    <div class="mono">tenant_demo</div>
+                  </div>
+                </div>
+              </td>
+              <td><span class="badge trial">TRIAL</span></td>
+              <td><span class="badge trial-plan">TRIAL</span></td>
+              <td>2</td>
+              <td>12</td>
+              <td>
+                <div class="usage-wrap">
+                  <div class="usage-row">
+                    <div class="usage-bar"><div class="usage-fill" style="width:50%;background:#2563EB"></div></div>
+                    <span class="usage-text">50,000</span>
+                  </div>
+                  <div class="usage-text" style="color:var(--text4)">100,000 (50%)</div>
+                </div>
+              </td>
+              <td><span class="mono">2026-04</span></td>
+              <td>
+                <div class="action-group">
+                  <button class="btn btn-sm">Enter</button>
+                  <button class="btn-icon-sm" title="Settings">
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="2" stroke="currentColor" stroke-width="1.3"/><path d="M7 1v1.5M7 11.5V13M1 7h1.5M11.5 7H13M2.93 2.93l1.06 1.06M10.01 10.01l1.06 1.06M2.93 11.07l1.06-1.06M10.01 3.99l1.06-1.06" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+                  </button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════
+     SCREEN 2 — NEW TENANT
+════════════════════════════════════════════ -->
+<div id="s-tenant-new" class="screen">
+  <div class="admin-topbar">
+    <div class="admin-topbar-logo">
+      <svg viewBox="0 0 22 22" fill="none"><rect width="22" height="22" rx="5" fill="#2563EB" opacity=".12"/><circle cx="5.5" cy="11" r="2.2" fill="#2563EB"/><circle cx="16.5" cy="6" r="2.2" fill="#2563EB"/><circle cx="16.5" cy="16" r="2.2" fill="#2563EB"/><path d="M7.5 10.3L14.4 7" stroke="#2563EB" stroke-width="1.2" stroke-linecap="round"/><path d="M7.5 11.7L14.4 15" stroke="#2563EB" stroke-width="1.2" stroke-linecap="round"/></svg>
+      <span class="admin-topbar-logo-text">Admin</span>
+    </div>
+    <span class="role-badge superadmin">Superadmin</span>
+    <div class="topbar-right">
+      <a class="back-link" onclick="go('tenant-list')">← Back</a>
+    </div>
+  </div>
+  <div class="admin-shell">
+    <div class="sidebar">
+      <div class="nav-item active">
+        <svg viewBox="0 0 16 16" fill="none"><rect x="1" y="1" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.3"/><rect x="9" y="1" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.3"/><rect x="1" y="9" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.3"/><rect x="9" y="9" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.3"/></svg>
+        Tenants
+      </div>
+      <div class="nav-item" onclick="go('global-config')">
+        <svg viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="2.5" stroke="currentColor" stroke-width="1.3"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M3.05 12.95l1.41-1.41M11.54 4.46l1.41-1.41" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+        Global Config
+      </div>
+      <div class="nav-item" onclick="go('usage-billing')">
+        <svg viewBox="0 0 16 16" fill="none"><rect x="1" y="9" width="3" height="6" rx="1" stroke="currentColor" stroke-width="1.3"/><rect x="6" y="5" width="3" height="10" rx="1" stroke="currentColor" stroke-width="1.3"/><rect x="11" y="1" width="3" height="14" rx="1" stroke="currentColor" stroke-width="1.3"/></svg>
+        Usage &amp; Billing
+      </div>
+    </div>
+    <div class="main">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Create Tenant</div>
+        </div>
+        <a class="back-link" onclick="go('tenant-list')">← Back</a>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 280px;gap:20px;align-items:start">
+        <div>
+          <div class="card" style="margin-bottom:14px">
+            <div class="card-header"><div class="card-title">Identity</div></div>
+            <div class="card-body">
+              <div class="field">
+                <div class="field-label">Tenant name <span class="field-required">*</span></div>
+                <input class="field-input" placeholder="e.g. Rio Quality"/>
+              </div>
+              <div class="field">
+                <div class="field-label">Tenant ID <span class="field-required">*</span></div>
+                <div class="field-hint" style="margin-bottom:5px">URL-safe slug, must be unique</div>
+                <input class="field-input mono" placeholder="tenant_rio_quality"/>
+              </div>
+              <div class="field">
+                <div class="field-label">Admin email <span class="field-required">*</span></div>
+                <div class="field-hint" style="margin-bottom:5px">Invitation will be sent to this email</div>
+                <input class="field-input" placeholder="admin@client.com" type="email"/>
+              </div>
+              <div class="field" style="margin-bottom:0">
+                <div class="field-label">Sector</div>
+                <select class="field-select">
+                  <option value="">Select sector…</option>
+                  <option>Food distribution</option>
+                  <option>Logistics</option>
+                  <option>Retail</option>
+                  <option>Manufacturing</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header"><div class="card-title">Plan &amp; Limits</div></div>
+            <div class="card-body">
+              <div class="field">
+                <div class="field-label">Plan <span class="field-required">*</span></div>
+                <select class="field-select">
+                  <option>Trial (30 days)</option>
+                  <option selected>Professional</option>
+                  <option>Enterprise</option>
+                  <option>Internal</option>
+                </select>
+              </div>
+              <div class="form-grid-2">
+                <div class="field">
+                  <div class="field-label">Executions/day</div>
+                  <input class="field-number" value="500" type="number"/>
+                </div>
+                <div class="field">
+                  <div class="field-label">Tokens/month</div>
+                  <input class="field-number" value="5000000" type="number"/>
+                </div>
+                <div class="field" style="margin-bottom:0">
+                  <div class="field-label">Max workflows</div>
+                  <input class="field-number" value="20" type="number"/>
+                </div>
+                <div class="field" style="margin-bottom:0">
+                  <div class="field-label">Max users</div>
+                  <input class="field-number" value="10" type="number"/>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Summary -->
+        <div style="position:sticky;top:112px">
+          <div class="card">
+            <div class="card-header"><div class="card-title">Summary</div></div>
+            <div style="padding:16px 20px">
+              <div class="summary-row"><span class="summary-key">Name</span><span class="summary-val" style="color:var(--text3)">—</span></div>
+              <div class="summary-row"><span class="summary-key">ID</span><span class="summary-val" style="color:var(--text3)">—</span></div>
+              <div class="summary-row"><span class="summary-key">Email</span><span class="summary-val" style="color:var(--text3)">—</span></div>
+              <div class="summary-row"><span class="summary-key">Plan</span><span class="summary-val">professional</span></div>
+              <div class="summary-row" style="margin-top:8px"><span class="summary-key">Exec/day</span><span class="summary-val mono" style="font-size:13px">500</span></div>
+              <div class="summary-row"><span class="summary-key">Tokens/mo</span><span class="summary-val mono" style="font-size:13px">5,000,000</span></div>
+              <div class="summary-row"><span class="summary-key">Workflows</span><span class="summary-val mono" style="font-size:13px">20</span></div>
+              <div class="summary-row"><span class="summary-key">Users</span><span class="summary-val mono" style="font-size:13px">10</span></div>
+            </div>
+            <div style="padding:0 20px 20px">
+              <button class="btn btn-primary" style="width:100%" onclick="go('tenant-list')">Create tenant</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════
+     SCREEN 3 — GLOBAL CONFIG
+════════════════════════════════════════════ -->
+<div id="s-global-config" class="screen">
+  <div class="admin-topbar">
+    <div class="admin-topbar-logo">
+      <svg viewBox="0 0 22 22" fill="none"><rect width="22" height="22" rx="5" fill="#2563EB" opacity=".12"/><circle cx="5.5" cy="11" r="2.2" fill="#2563EB"/><circle cx="16.5" cy="6" r="2.2" fill="#2563EB"/><circle cx="16.5" cy="16" r="2.2" fill="#2563EB"/><path d="M7.5 10.3L14.4 7" stroke="#2563EB" stroke-width="1.2" stroke-linecap="round"/><path d="M7.5 11.7L14.4 15" stroke="#2563EB" stroke-width="1.2" stroke-linecap="round"/></svg>
+      <span class="admin-topbar-logo-text">Admin</span>
+    </div>
+    <span class="role-badge superadmin">Superadmin</span>
+    <div class="topbar-right"><a class="back-link">← Back to app</a></div>
+  </div>
+  <div class="admin-shell">
+    <div class="sidebar">
+      <div class="nav-item" onclick="go('tenant-list')">
+        <svg viewBox="0 0 16 16" fill="none"><rect x="1" y="1" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.3"/><rect x="9" y="1" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.3"/><rect x="1" y="9" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.3"/><rect x="9" y="9" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.3"/></svg>
+        Tenants
+      </div>
+      <div class="nav-item active">
+        <svg viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="2.5" stroke="currentColor" stroke-width="1.3"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M3.05 12.95l1.41-1.41M11.54 4.46l1.41-1.41" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+        Global Config
+      </div>
+      <div class="nav-item" onclick="go('usage-billing')">
+        <svg viewBox="0 0 16 16" fill="none"><rect x="1" y="9" width="3" height="6" rx="1" stroke="currentColor" stroke-width="1.3"/><rect x="6" y="5" width="3" height="10" rx="1" stroke="currentColor" stroke-width="1.3"/><rect x="11" y="1" width="3" height="14" rx="1" stroke="currentColor" stroke-width="1.3"/></svg>
+        Usage &amp; Billing
+      </div>
+    </div>
+    <div class="main">
+      <div class="page-header">
+        <div><div class="page-title">Global Configuration</div></div>
+      </div>
+
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-header"><div class="card-title">LLM Models</div></div>
+        <table>
+          <thead><tr><th>Model</th><th>Provider</th><th>Status</th><th>Cost/1M input</th><th>Cost/1M output</th></tr></thead>
+          <tbody>
+            <tr>
+              <td style="font-family:'DM Mono',monospace;font-size:12px">GPT-4o</td>
+              <td style="color:var(--text3)">OpenAI</td>
+              <td><span class="badge llm-active">ACTIVE</span></td>
+              <td style="font-family:'DM Mono',monospace;font-size:12px">$2.50</td>
+              <td style="font-family:'DM Mono',monospace;font-size:12px">$10.00</td>
+            </tr>
+            <tr>
+              <td style="font-family:'DM Mono',monospace;font-size:12px">Claude Sonnet 4.6</td>
+              <td style="color:var(--text3)">Anthropic</td>
+              <td><span class="badge llm-active">ACTIVE</span></td>
+              <td style="font-family:'DM Mono',monospace;font-size:12px">$3.00</td>
+              <td style="font-family:'DM Mono',monospace;font-size:12px">$15.00</td>
+            </tr>
+            <tr>
+              <td style="font-family:'DM Mono',monospace;font-size:12px">Gemma 3 27B</td>
+              <td style="color:var(--text3)">Local</td>
+              <td><span class="badge beta">BETA</span></td>
+              <td style="font-family:'DM Mono',monospace;font-size:12px">$0.00</td>
+              <td style="font-family:'DM Mono',monospace;font-size:12px">$0.00</td>
+            </tr>
+            <tr>
+              <td style="font-family:'DM Mono',monospace;font-size:12px">GPT-3.5 Turbo</td>
+              <td style="color:var(--text3)">OpenAI</td>
+              <td><span class="badge deprecated">DEPRECATED</span></td>
+              <td style="font-family:'DM Mono',monospace;font-size:12px">$0.50</td>
+              <td style="font-family:'DM Mono',monospace;font-size:12px">$1.50</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><div class="card-title">Feature Toggles</div></div>
+        <div style="padding:4px 20px 8px">
+          <div class="toggle-row">
+            <div class="toggle-info">
+              <div class="toggle-label">Allow local models (Ollama / RTX)</div>
+            </div>
+            <div class="toggle-switch on" onclick="this.classList.toggle('on')"><div class="toggle-knob"></div></div>
+          </div>
+          <div class="toggle-row">
+            <div class="toggle-info">
+              <div class="toggle-label">Human-in-the-loop</div>
+            </div>
+            <div class="toggle-switch on" onclick="this.classList.toggle('on')"><div class="toggle-knob"></div></div>
+          </div>
+          <div class="toggle-row">
+            <div class="toggle-info">
+              <div class="toggle-label">Brain Sentry (long-term memory via FalkorDB)</div>
+            </div>
+            <div class="toggle-switch on" onclick="this.classList.toggle('on')"><div class="toggle-knob"></div></div>
+          </div>
+          <div class="toggle-row">
+            <div class="toggle-info">
+              <div class="toggle-label">Debug mode — full trace per node</div>
+            </div>
+            <div class="toggle-switch" onclick="this.classList.toggle('on')"><div class="toggle-knob"></div></div>
+          </div>
+          <div class="toggle-row">
+            <div class="toggle-info">
+              <div class="toggle-label">Linktor notifications (WhatsApp)</div>
+            </div>
+            <div class="toggle-switch" onclick="this.classList.toggle('on')"><div class="toggle-knob"></div></div>
+          </div>
+          <div class="toggle-row">
+            <div class="toggle-info">
+              <div class="toggle-label">Audit log for user actions</div>
+            </div>
+            <div class="toggle-switch on" onclick="this.classList.toggle('on')"><div class="toggle-knob"></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════
+     SCREEN 4 — USAGE & BILLING
+════════════════════════════════════════════ -->
+<div id="s-usage-billing" class="screen">
+  <div class="admin-topbar">
+    <div class="admin-topbar-logo">
+      <svg viewBox="0 0 22 22" fill="none"><rect width="22" height="22" rx="5" fill="#2563EB" opacity=".12"/><circle cx="5.5" cy="11" r="2.2" fill="#2563EB"/><circle cx="16.5" cy="6" r="2.2" fill="#2563EB"/><circle cx="16.5" cy="16" r="2.2" fill="#2563EB"/><path d="M7.5 10.3L14.4 7" stroke="#2563EB" stroke-width="1.2" stroke-linecap="round"/><path d="M7.5 11.7L14.4 15" stroke="#2563EB" stroke-width="1.2" stroke-linecap="round"/></svg>
+      <span class="admin-topbar-logo-text">Admin</span>
+    </div>
+    <span class="role-badge superadmin">Superadmin</span>
+    <div class="topbar-right"><a class="back-link">← Back to app</a></div>
+  </div>
+  <div class="admin-shell">
+    <div class="sidebar">
+      <div class="nav-item" onclick="go('tenant-list')">
+        <svg viewBox="0 0 16 16" fill="none"><rect x="1" y="1" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.3"/><rect x="9" y="1" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.3"/><rect x="1" y="9" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.3"/><rect x="9" y="9" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.3"/></svg>
+        Tenants
+      </div>
+      <div class="nav-item" onclick="go('global-config')">
+        <svg viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="2.5" stroke="currentColor" stroke-width="1.3"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M3.05 12.95l1.41-1.41M11.54 4.46l1.41-1.41" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+        Global Config
+      </div>
+      <div class="nav-item active">
+        <svg viewBox="0 0 16 16" fill="none"><rect x="1" y="9" width="3" height="6" rx="1" stroke="currentColor" stroke-width="1.3"/><rect x="6" y="5" width="3" height="10" rx="1" stroke="currentColor" stroke-width="1.3"/><rect x="11" y="1" width="3" height="14" rx="1" stroke="currentColor" stroke-width="1.3"/></svg>
+        Usage &amp; Billing
+      </div>
+    </div>
+    <div class="main">
+      <div class="page-header">
+        <div><div class="page-title">Usage &amp; Billing</div></div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <select style="padding:7px 12px;border-radius:7px;border:1px solid var(--border2);background:var(--bg2);font-size:13px;font-family:'DM Sans',sans-serif">
+            <option>2026-04</option><option>2026-03</option><option>2026-02</option>
+          </select>
+          <button class="btn">
+            <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M6.5 1v8M3 6.5l3.5 3.5 3.5-3.5M1 11h11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Export CSV
+          </button>
+        </div>
+      </div>
+
+      <div class="stat-grid">
+        <div class="stat-card">
+          <div class="stat-card-label">Executions</div>
+          <div class="stat-card-value default">10,850</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-card-label">Tokens Consumed</div>
+          <div class="stat-card-value default">5.4M</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-card-label">Estimated Cost</div>
+          <div class="stat-card-value default">$67.80</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-card-label">Avg Latency</div>
+          <div class="stat-card-value default">1.2s</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><div class="card-title">Usage by tenant</div></div>
+        <table>
+          <thead><tr><th>Tenant</th><th>Executions</th><th>Tokens In</th><th>Tokens Out</th><th>Est. Cost</th><th>% of Total</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><div style="display:flex;align-items:center;gap:8px"><div class="t-avatar" style="background:#DBEAFE;color:#1D4ED8;width:28px;height:28px;font-size:11px">RI</div><span style="font-weight:500">Rio Quality</span></div></td>
+              <td>8,400</td>
+              <td class="mono">3.2M</td>
+              <td class="mono">1.0M</td>
+              <td style="font-weight:500">$48.50</td>
+              <td>62%</td>
+            </tr>
+            <tr>
+              <td><div style="display:flex;align-items:center;gap:8px"><div class="t-avatar" style="background:#D1FAE5;color:#065F46;width:28px;height:28px;font-size:11px">AC</div><span style="font-weight:500">Acme Corp</span></div></td>
+              <td>2,100</td>
+              <td class="mono">0.8M</td>
+              <td class="mono">0.4M</td>
+              <td style="font-weight:500">$18.20</td>
+              <td>24%</td>
+            </tr>
+            <tr>
+              <td><div style="display:flex;align-items:center;gap:8px"><div class="t-avatar" style="background:#FEF3C7;color:#92400E;width:28px;height:28px;font-size:11px">DE</div><span style="font-weight:500">Demo Trial</span></div></td>
+              <td>350</td>
+              <td class="mono">0.0M</td>
+              <td class="mono">0.0M</td>
+              <td style="font-weight:500">$1.10</td>
+              <td>14%</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════
+     SCREEN 5 — WORKSPACE OVERVIEW (tenant admin)
+════════════════════════════════════════════ -->
+<div id="s-workspace" class="screen">
+  <div class="admin-topbar">
+    <div class="admin-topbar-logo">
+      <svg viewBox="0 0 22 22" fill="none"><rect width="22" height="22" rx="5" fill="#2563EB" opacity=".12"/><circle cx="5.5" cy="11" r="2.2" fill="#2563EB"/><circle cx="16.5" cy="6" r="2.2" fill="#2563EB"/><circle cx="16.5" cy="16" r="2.2" fill="#2563EB"/><path d="M7.5 10.3L14.4 7" stroke="#2563EB" stroke-width="1.2" stroke-linecap="round"/><path d="M7.5 11.7L14.4 15" stroke="#2563EB" stroke-width="1.2" stroke-linecap="round"/></svg>
+      <span class="admin-topbar-logo-text">Admin</span>
+    </div>
+    <span class="role-badge workspace">Workspace</span>
+    <div class="topbar-right"><a class="back-link">← Back to app</a></div>
+  </div>
+  <div class="admin-shell">
+    <div class="sidebar">
+      <div class="nav-item active">
+        <svg viewBox="0 0 16 16" fill="none"><rect x="1" y="9" width="3" height="6" rx="1" stroke="currentColor" stroke-width="1.3"/><rect x="6" y="5" width="3" height="10" rx="1" stroke="currentColor" stroke-width="1.3"/><rect x="11" y="1" width="3" height="14" rx="1" stroke="currentColor" stroke-width="1.3"/></svg>
+        Overview
+      </div>
+      <div class="nav-item" onclick="go('users')">
+        <svg viewBox="0 0 16 16" fill="none"><circle cx="6" cy="5" r="3" stroke="currentColor" stroke-width="1.3"/><path d="M1 13.5c0-2.485 2.239-4.5 5-4.5s5 2.015 5 4.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M13 6.5a2 2 0 100-4 2 2 0 000 4zM15 12c0-1.657-1.343-3-3-3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+        Users
+      </div>
+      <div class="nav-item" onclick="go('api-keys')">
+        <svg viewBox="0 0 16 16" fill="none"><circle cx="6" cy="9" r="4" stroke="currentColor" stroke-width="1.3"/><path d="M9.5 5.5L15 1" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M13 3l1.5 1.5M11 2l1.5 1.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+        API Keys
+      </div>
+    </div>
+    <div class="main">
+      <div class="page-header">
+        <div><div class="page-title">Workspace Overview</div></div>
+      </div>
+
+      <div class="stat-grid">
+        <div class="stat-card">
+          <div class="stat-card-label">Workflows</div>
+          <div class="stat-card-value default">12</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-card-label">Executions Today</div>
+          <div class="stat-card-value blue">340</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-card-label">Users</div>
+          <div class="stat-card-value default">5</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-card-label">API Keys</div>
+          <div class="stat-card-value default">3</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><div class="card-title">Plan Usage</div></div>
+        <div class="card-body">
+          <div class="plan-usage-grid">
+            <div class="plan-usage-item">
+              <div class="plan-usage-label">Executions/day</div>
+              <div class="plan-bar"><div class="plan-bar-fill" style="width:68%;background:#2563EB"></div></div>
+              <div style="display:flex;justify-content:space-between">
+                <span style="font-size:12px;color:var(--text3)">340</span>
+                <span style="font-size:12px;color:var(--text3)">500 (68%)</span>
+              </div>
+            </div>
+            <div class="plan-usage-item">
+              <div class="plan-usage-label">Tokens/month</div>
+              <div class="plan-bar"><div class="plan-bar-fill" style="width:84%;background:#F59E0B"></div></div>
+              <div style="display:flex;justify-content:space-between">
+                <span style="font-size:12px;color:var(--text3)">4,200,000</span>
+                <span style="font-size:12px;color:var(--text3)">5,000,000 (84%)</span>
+              </div>
+            </div>
+            <div class="plan-usage-item">
+              <div class="plan-usage-label">Workflows</div>
+              <div class="plan-bar"><div class="plan-bar-fill" style="width:60%;background:#2563EB"></div></div>
+              <div style="display:flex;justify-content:space-between">
+                <span style="font-size:12px;color:var(--text3)">12</span>
+                <span style="font-size:12px;color:var(--text3)">20 (60%)</span>
+              </div>
+            </div>
+            <div class="plan-usage-item">
+              <div class="plan-usage-label">Users</div>
+              <div class="plan-bar"><div class="plan-bar-fill" style="width:50%;background:#2563EB"></div></div>
+              <div style="display:flex;justify-content:space-between">
+                <span style="font-size:12px;color:var(--text3)">5</span>
+                <span style="font-size:12px;color:var(--text3)">10 (50%)</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════
+     SCREEN 6 — USERS
+════════════════════════════════════════════ -->
+<div id="s-users" class="screen">
+  <div class="admin-topbar">
+    <div class="admin-topbar-logo">
+      <svg viewBox="0 0 22 22" fill="none"><rect width="22" height="22" rx="5" fill="#2563EB" opacity=".12"/><circle cx="5.5" cy="11" r="2.2" fill="#2563EB"/><circle cx="16.5" cy="6" r="2.2" fill="#2563EB"/><circle cx="16.5" cy="16" r="2.2" fill="#2563EB"/><path d="M7.5 10.3L14.4 7" stroke="#2563EB" stroke-width="1.2" stroke-linecap="round"/><path d="M7.5 11.7L14.4 15" stroke="#2563EB" stroke-width="1.2" stroke-linecap="round"/></svg>
+      <span class="admin-topbar-logo-text">Admin</span>
+    </div>
+    <span class="role-badge workspace">Workspace</span>
+    <div class="topbar-right"><a class="back-link">← Back to app</a></div>
+  </div>
+  <div class="admin-shell">
+    <div class="sidebar">
+      <div class="nav-item" onclick="go('workspace')">
+        <svg viewBox="0 0 16 16" fill="none"><rect x="1" y="9" width="3" height="6" rx="1" stroke="currentColor" stroke-width="1.3"/><rect x="6" y="5" width="3" height="10" rx="1" stroke="currentColor" stroke-width="1.3"/><rect x="11" y="1" width="3" height="14" rx="1" stroke="currentColor" stroke-width="1.3"/></svg>
+        Overview
+      </div>
+      <div class="nav-item active">
+        <svg viewBox="0 0 16 16" fill="none"><circle cx="6" cy="5" r="3" stroke="currentColor" stroke-width="1.3"/><path d="M1 13.5c0-2.485 2.239-4.5 5-4.5s5 2.015 5 4.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M13 6.5a2 2 0 100-4 2 2 0 000 4zM15 12c0-1.657-1.343-3-3-3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+        Users
+      </div>
+      <div class="nav-item" onclick="go('api-keys')">
+        <svg viewBox="0 0 16 16" fill="none"><circle cx="6" cy="9" r="4" stroke="currentColor" stroke-width="1.3"/><path d="M9.5 5.5L15 1" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M13 3l1.5 1.5M11 2l1.5 1.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+        API Keys
+      </div>
+    </div>
+    <div class="main">
+      <div class="page-header">
+        <div><div class="page-title">Users</div></div>
+        <button class="btn btn-primary">
+          <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M6.5 1v11M1 6.5h11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+          Invite User
+        </button>
+      </div>
+
+      <!-- Permission matrix -->
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-header"><div class="card-title">Permission Matrix</div></div>
+        <table class="perm-table">
+          <thead><tr><th>Permission</th><th>Admin</th><th>Editor</th><th>Viewer</th></tr></thead>
+          <tbody>
+            <tr><td>View workflows</td><td><span class="perm-check">✓</span></td><td><span class="perm-check">✓</span></td><td><span class="perm-check">✓</span></td></tr>
+            <tr><td>Create/edit workflows</td><td><span class="perm-check">✓</span></td><td><span class="perm-check">✓</span></td><td><span class="perm-dash">—</span></td></tr>
+            <tr><td>Execute workflows</td><td><span class="perm-check">✓</span></td><td><span class="perm-check">✓</span></td><td><span class="perm-dash">—</span></td></tr>
+            <tr><td>Manage users</td><td><span class="perm-check">✓</span></td><td><span class="perm-dash">—</span></td><td><span class="perm-dash">—</span></td></tr>
+            <tr><td>Manage API keys</td><td><span class="perm-check">✓</span></td><td><span class="perm-dash">—</span></td><td><span class="perm-dash">—</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Users table -->
+      <div class="card">
+        <table>
+          <thead><tr><th>User</th><th>Role</th><th>Status</th><th>Last access</th><th>Workflows</th><th>Actions</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>
+                <div style="display:flex;align-items:center;gap:10px">
+                  <div class="user-avatar" style="background:#DBEAFE;color:#1D4ED8">JS</div>
+                  <div>
+                    <div style="font-weight:500">João Silva</div>
+                    <div class="mono">joao@rioquality.com.br</div>
+                  </div>
+                </div>
+              </td>
+              <td><span class="badge admin">ADMIN</span></td>
+              <td><span class="badge active">ACTIVE</span></td>
+              <td class="mono">2026-04-09</td>
+              <td>8</td>
+              <td>
+                <div class="action-group">
+                  <button class="btn-icon-sm"><svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M9.5 1.5l2 2L4 11H2v-2L9.5 1.5z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg></button>
+                  <button class="btn-icon-sm danger"><svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M2 3.5h9M5 3.5V2.5a.5.5 0 01.5-.5h2a.5.5 0 01.5.5v1M4 3.5l.5 7h4l.5-7" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td>
+                <div style="display:flex;align-items:center;gap:10px">
+                  <div class="user-avatar" style="background:#D1FAE5;color:#065F46">MS</div>
+                  <div>
+                    <div style="font-weight:500">Maria Santos</div>
+                    <div class="mono">maria@rioquality.com.br</div>
+                  </div>
+                </div>
+              </td>
+              <td><span class="badge editor">EDITOR</span></td>
+              <td><span class="badge active">ACTIVE</span></td>
+              <td class="mono">2026-04-08</td>
+              <td>4</td>
+              <td>
+                <div class="action-group">
+                  <button class="btn-icon-sm"><svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M9.5 1.5l2 2L4 11H2v-2L9.5 1.5z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg></button>
+                  <button class="btn-icon-sm danger"><svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M2 3.5h9M5 3.5V2.5a.5.5 0 01.5-.5h2a.5.5 0 01.5.5v1M4 3.5l.5 7h4l.5-7" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td>
+                <div style="display:flex;align-items:center;gap:10px">
+                  <div class="user-avatar" style="background:#F3F4F6;color:#374151">PC</div>
+                  <div>
+                    <div style="font-weight:500">Pedro Costa</div>
+                    <div class="mono">pedro@rioquality.com.br</div>
+                  </div>
+                </div>
+              </td>
+              <td><span class="badge viewer">VIEWER</span></td>
+              <td><span class="badge active">ACTIVE</span></td>
+              <td class="mono">2026-04-05</td>
+              <td>0</td>
+              <td>
+                <div class="action-group">
+                  <button class="btn-icon-sm"><svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M9.5 1.5l2 2L4 11H2v-2L9.5 1.5z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg></button>
+                  <button class="btn-icon-sm danger"><svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M2 3.5h9M5 3.5V2.5a.5.5 0 01.5-.5h2a.5.5 0 01.5.5v1M4 3.5l.5 7h4l.5-7" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td>
+                <div style="display:flex;align-items:center;gap:10px">
+                  <div class="user-avatar" style="background:#F3F4F6;color:#374151">AO</div>
+                  <div>
+                    <div style="font-weight:500">Ana Oliveira</div>
+                    <div class="mono">ana@rioquality.com.br</div>
+                  </div>
+                </div>
+              </td>
+              <td><span class="badge editor">EDITOR</span></td>
+              <td><span class="badge invite">INVITE PENDING</span></td>
+              <td class="mono">—</td>
+              <td>0</td>
+              <td>
+                <div class="action-group">
+                  <button class="btn-icon-sm"><svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M9.5 1.5l2 2L4 11H2v-2L9.5 1.5z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg></button>
+                  <button class="btn-icon-sm danger"><svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M2 3.5h9M5 3.5V2.5a.5.5 0 01.5-.5h2a.5.5 0 01.5.5v1M4 3.5l.5 7h4l.5-7" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════
+     SCREEN 7 — API KEYS
+════════════════════════════════════════════ -->
+<div id="s-api-keys" class="screen">
+  <div class="admin-topbar">
+    <div class="admin-topbar-logo">
+      <svg viewBox="0 0 22 22" fill="none"><rect width="22" height="22" rx="5" fill="#2563EB" opacity=".12"/><circle cx="5.5" cy="11" r="2.2" fill="#2563EB"/><circle cx="16.5" cy="6" r="2.2" fill="#2563EB"/><circle cx="16.5" cy="16" r="2.2" fill="#2563EB"/><path d="M7.5 10.3L14.4 7" stroke="#2563EB" stroke-width="1.2" stroke-linecap="round"/><path d="M7.5 11.7L14.4 15" stroke="#2563EB" stroke-width="1.2" stroke-linecap="round"/></svg>
+      <span class="admin-topbar-logo-text">Admin</span>
+    </div>
+    <span class="role-badge workspace">Workspace</span>
+    <div class="topbar-right"><a class="back-link">← Back to app</a></div>
+  </div>
+  <div class="admin-shell">
+    <div class="sidebar">
+      <div class="nav-item" onclick="go('workspace')">
+        <svg viewBox="0 0 16 16" fill="none"><rect x="1" y="9" width="3" height="6" rx="1" stroke="currentColor" stroke-width="1.3"/><rect x="6" y="5" width="3" height="10" rx="1" stroke="currentColor" stroke-width="1.3"/><rect x="11" y="1" width="3" height="14" rx="1" stroke="currentColor" stroke-width="1.3"/></svg>
+        Overview
+      </div>
+      <div class="nav-item" onclick="go('users')">
+        <svg viewBox="0 0 16 16" fill="none"><circle cx="6" cy="5" r="3" stroke="currentColor" stroke-width="1.3"/><path d="M1 13.5c0-2.485 2.239-4.5 5-4.5s5 2.015 5 4.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M13 6.5a2 2 0 100-4 2 2 0 000 4zM15 12c0-1.657-1.343-3-3-3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+        Users
+      </div>
+      <div class="nav-item active">
+        <svg viewBox="0 0 16 16" fill="none"><circle cx="6" cy="9" r="4" stroke="currentColor" stroke-width="1.3"/><path d="M9.5 5.5L15 1" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M13 3l1.5 1.5M11 2l1.5 1.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+        API Keys
+      </div>
+    </div>
+    <div class="main">
+      <div class="page-header">
+        <div><div class="page-title">API Keys</div></div>
+        <button class="btn btn-primary">
+          <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M6.5 1v11M1 6.5h11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+          Create Key
+        </button>
+      </div>
+
+      <div class="card">
+        <table>
+          <thead><tr><th>Name</th><th>Type</th><th>Key</th><th>Created</th><th>Last used</th><th>Actions</th></tr></thead>
+          <tbody>
+            <tr>
+              <td style="font-weight:500">VendaX Backend</td>
+              <td><span class="badge production">PRODUCTION</span></td>
+              <td>
+                <div class="key-value">
+                  af_live_rq_••••••••3f2a
+                  <button class="copy-btn" title="Copy">
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><rect x="4" y="4" width="7" height="7" rx="1.5" stroke="currentColor" stroke-width="1.2"/><path d="M3 8H2a1 1 0 01-1-1V2a1 1 0 011-1h5a1 1 0 011 1v1" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+                  </button>
+                </div>
+              </td>
+              <td class="mono">2026-01-15</td>
+              <td class="mono">2026-04-09</td>
+              <td>
+                <button class="btn-icon-sm danger" title="Revoke">
+                  <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M2 3.5h9M5 3.5V2.5a.5.5 0 01.5-.5h2a.5.5 0 01.5.5v1M4 3.5l.5 7h4l.5-7" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+              </td>
+            </tr>
+            <tr>
+              <td style="font-weight:500">Staging Tests</td>
+              <td><span class="badge staging">STAGING</span></td>
+              <td>
+                <div class="key-value">
+                  af_test_rq_••••••••b8e1
+                  <button class="copy-btn" title="Copy">
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><rect x="4" y="4" width="7" height="7" rx="1.5" stroke="currentColor" stroke-width="1.2"/><path d="M3 8H2a1 1 0 01-1-1V2a1 1 0 011-1h5a1 1 0 011 1v1" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+                  </button>
+                </div>
+              </td>
+              <td class="mono">2026-03-01</td>
+              <td class="mono">2026-04-08</td>
+              <td>
+                <button class="btn-icon-sm danger">
+                  <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M2 3.5h9M5 3.5V2.5a.5.5 0 01.5-.5h2a.5.5 0 01.5.5v1M4 3.5l.5 7h4l.5-7" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+              </td>
+            </tr>
+            <tr>
+              <td style="font-weight:500">Embeddable Designer</td>
+              <td><span class="badge webcomp">WEB COMPONENT</span></td>
+              <td>
+                <div class="key-value">
+                  af_pub_rq_••••••••9d44
+                  <button class="copy-btn" title="Copy">
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><rect x="4" y="4" width="7" height="7" rx="1.5" stroke="currentColor" stroke-width="1.2"/><path d="M3 8H2a1 1 0 01-1-1V2a1 1 0 011-1h5a1 1 0 011 1v1" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+                  </button>
+                </div>
+              </td>
+              <td class="mono">2026-02-20</td>
+              <td class="mono">—</td>
+              <td>
+                <button class="btn-icon-sm danger">
+                  <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M2 3.5h9M5 3.5V2.5a.5.5 0 01.5-.5h2a.5.5 0 01.5.5v1M4 3.5l.5 7h4l.5-7" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function go(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'))
+  document.querySelectorAll('.demo-tab').forEach(t => t.classList.remove('active'))
+  document.getElementById('s-' + id).classList.add('active')
+  const map = {'tenant-list':0,'tenant-new':1,'global-config':2,'usage-billing':3,'workspace':4,'users':5,'api-keys':6}
+  if (map[id] !== undefined) document.querySelectorAll('.demo-tab')[map[id]].classList.add('active')
+  window.scrollTo(0, 0)
+}
+</script>
+</body>
+</html>
