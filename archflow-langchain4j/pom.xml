@@ -27,6 +27,7 @@
         <module>archflow-langchain4j-mcp</module>
         <module>archflow-langchain4j-skills</module>
         <module>archflow-langchain4j-openrouter</module>
+        <module>archflow-langchain4j-realtime</module>
     </modules>
 
     <properties>

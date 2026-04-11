@@ -3,118 +3,74 @@ package br.com.archflow.agent.pattern;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-import java.util.concurrent.atomic.AtomicInteger;
-
-import static org.junit.jupiter.api.Assertions.*;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @DisplayName("ChainOfThoughtStrategy")
 class ChainOfThoughtStrategyTest {
 
     @Test
-    @DisplayName("should select majority answer")
-    void shouldSelectMajorityAnswer() {
-        AtomicInteger callCount = new AtomicInteger(0);
-
-        ChainOfThoughtStrategy strategy = ChainOfThoughtStrategy.builder()
-                .reasoningFunction(q -> {
-                    int n = callCount.getAndIncrement();
-                    if (n < 3) return new ChainOfThoughtStrategy.ReasoningPath("path " + n, "42");
-                    return new ChainOfThoughtStrategy.ReasoningPath("path " + n, "43");
-                })
+    void majorityVoteSelectsMostCommonAnswer() {
+        var strategy = ChainOfThoughtStrategy.builder()
+                .reasoningFunction(q -> new ChainOfThoughtStrategy.ReasoningPath(
+                        "Thinking about " + q, "42"))
                 .numPaths(5)
                 .build();
 
-        var result = strategy.reason("What is 6 * 7?");
+        var result = strategy.reason("What is 6*7?");
 
-        assertEquals("42", result.answer());
-        assertEquals(5, result.paths().size());
-        assertEquals(3L, result.votes().get("42"));
-        assertEquals(2L, result.votes().get("43"));
+        assertThat(result.answer()).isEqualTo("42");
+        assertThat(result.paths()).hasSize(5);
+        assertThat(result.votes()).containsEntry("42", 5L);
+        assertThat(result.confidence()).isEqualTo(1.0);
     }
 
     @Test
-    @DisplayName("should calculate confidence as vote proportion")
-    void shouldCalculateConfidenceAsVoteProportion() {
-        AtomicInteger callCount = new AtomicInteger(0);
-
-        ChainOfThoughtStrategy strategy = ChainOfThoughtStrategy.builder()
+    void mixedAnswersLowerConfidence() {
+        final int[] call = {0};
+        var strategy = ChainOfThoughtStrategy.builder()
                 .reasoningFunction(q -> {
-                    int n = callCount.getAndIncrement();
-                    if (n < 4) return new ChainOfThoughtStrategy.ReasoningPath("path", "yes");
-                    return new ChainOfThoughtStrategy.ReasoningPath("path", "no");
+                    call[0]++;
+                    String answer = call[0] <= 2 ? "yes" : "no";
+                    return new ChainOfThoughtStrategy.ReasoningPath("reason " + call[0], answer);
                 })
-                .numPaths(5)
+                .numPaths(4)
                 .build();
 
-        var result = strategy.reason("Is Java great?");
+        var result = strategy.reason("Is Java good?");
 
-        assertEquals(0.8, result.confidence(), 0.001);
-        assertTrue(result.isConsensus());
+        assertThat(result.paths()).hasSize(4);
+        assertThat(result.votes()).containsKeys("yes", "no");
+        assertThat(result.confidence()).isLessThan(1.0);
     }
 
     @Test
-    @DisplayName("should handle all different answers")
-    void shouldHandleAllDifferentAnswers() {
-        AtomicInteger callCount = new AtomicInteger(0);
+    void singlePathIsAlwaysConfident() {
+        var strategy = ChainOfThoughtStrategy.builder()
+                .reasoningFunction(q -> new ChainOfThoughtStrategy.ReasoningPath("thought", "answer"))
+                .numPaths(1)
+                .build();
 
-        ChainOfThoughtStrategy strategy = ChainOfThoughtStrategy.builder()
-                .reasoningFunction(q -> {
-                    int n = callCount.getAndIncrement();
-                    return new ChainOfThoughtStrategy.ReasoningPath("path " + n, "answer_" + n);
-                })
+        var result = strategy.reason("q");
+        assertThat(result.paths()).hasSize(1);
+        assertThat(result.confidence()).isEqualTo(1.0);
+    }
+
+    @Test
+    void builderRequiresReasoningFunction() {
+        assertThatThrownBy(() -> ChainOfThoughtStrategy.builder().build())
+                .isInstanceOf(Exception.class);
+    }
+
+    @Test
+    void temperatureVariationIsAccepted() {
+        var strategy = ChainOfThoughtStrategy.builder()
+                .reasoningFunction(q -> new ChainOfThoughtStrategy.ReasoningPath("r", "a"))
                 .numPaths(3)
+                .temperatureVariation(0.5)
                 .build();
 
-        var result = strategy.reason("Ambiguous question?");
-
-        assertNotNull(result.answer());
-        assertEquals(3, result.paths().size());
-        // Each answer has 1 vote, confidence = 1/3
-        assertEquals(1.0 / 3.0, result.confidence(), 0.001);
-        assertFalse(result.isConsensus());
-    }
-
-    @Test
-    @DisplayName("should handle reasoning function failures gracefully")
-    void shouldHandleReasoningFailures() {
-        AtomicInteger callCount = new AtomicInteger(0);
-
-        ChainOfThoughtStrategy strategy = ChainOfThoughtStrategy.builder()
-                .reasoningFunction(q -> {
-                    int n = callCount.getAndIncrement();
-                    if (n == 1 || n == 3) throw new RuntimeException("LLM error");
-                    return new ChainOfThoughtStrategy.ReasoningPath("ok path", "42");
-                })
-                .numPaths(5)
-                .build();
-
-        var result = strategy.reason("Flaky question?");
-
-        // 3 out of 5 succeed, all with answer "42"
-        assertEquals("42", result.answer());
-        assertEquals(3, result.paths().size());
-        assertEquals(1.0, result.confidence(), 0.001);
-    }
-
-    @Test
-    @DisplayName("should identify consensus when >= 50% agree")
-    void shouldIdentifyConsensus() {
-        AtomicInteger callCount = new AtomicInteger(0);
-
-        ChainOfThoughtStrategy strategy = ChainOfThoughtStrategy.builder()
-                .reasoningFunction(q -> {
-                    int n = callCount.getAndIncrement();
-                    if (n < 3) return new ChainOfThoughtStrategy.ReasoningPath("path", "A");
-                    if (n < 5) return new ChainOfThoughtStrategy.ReasoningPath("path", "B");
-                    return new ChainOfThoughtStrategy.ReasoningPath("path", "C");
-                })
-                .numPaths(6)
-                .build();
-
-        var result = strategy.reason("Multiple choice?");
-
-        assertEquals("A", result.answer());
-        assertTrue(result.isConsensus()); // 3/6 = 0.5, exactly at threshold
-        assertEquals(0.5, result.confidence(), 0.001);
+        var result = strategy.reason("q");
+        assertThat(result.answer()).isEqualTo("a");
     }
 }

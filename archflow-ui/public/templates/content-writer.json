@@ -1,0 +1,26 @@
+{
+  "id": "content-writer",
+  "name": "Long-form content writer",
+  "icon": "✍️",
+  "summary": "Outlines, drafts and polishes a long-form article from a brief.",
+  "description": "Three-stage agent pipeline: an outline generator builds the structure, a drafter writes each section in parallel, and a final editor polishes tone and consistency. Useful for blog posts, newsletters and product descriptions.",
+  "category": "content",
+  "tags": ["writing", "long-form", "multi-agent"],
+  "complexity": "intermediate",
+  "steps": [
+    { "id": "s1", "type": "input", "componentId": "input", "label": "Brief", "category": "io", "position": { "x": 60, "y": 220 }, "config": {} },
+    { "id": "s2", "type": "agent", "componentId": "agent", "label": "Outliner", "category": "agent", "position": { "x": 280, "y": 220 }, "config": { "role": "outliner" } },
+    { "id": "s3", "type": "parallel", "componentId": "parallel", "label": "Draft sections", "category": "control", "position": { "x": 520, "y": 220 }, "config": {} },
+    { "id": "s4", "type": "agent", "componentId": "agent", "label": "Drafter", "category": "agent", "position": { "x": 760, "y": 220 }, "config": { "role": "drafter" } },
+    { "id": "s5", "type": "agent", "componentId": "agent", "label": "Editor", "category": "agent", "position": { "x": 1000, "y": 220 }, "config": { "role": "editor" } },
+    { "id": "s6", "type": "output", "componentId": "output", "label": "Article", "category": "io", "position": { "x": 1240, "y": 220 }, "config": {} }
+  ],
+  "connections": [
+    { "id": "c1", "sourceId": "s1", "targetId": "s2", "isErrorPath": false },
+    { "id": "c2", "sourceId": "s2", "targetId": "s3", "isErrorPath": false },
+    { "id": "c3", "sourceId": "s3", "targetId": "s4", "isErrorPath": false },
+    { "id": "c4", "sourceId": "s4", "targetId": "s5", "isErrorPath": false },
+    { "id": "c5", "sourceId": "s5", "targetId": "s6", "isErrorPath": false }
+  ],
+  "variables": { "tone": "professional", "word_target": "1500" }
+}

@@ -3,7 +3,6 @@ import {
     Stack, Text, TextInput, NumberInput, Select, Checkbox, Textarea,
     PasswordInput, FileInput, Button, Group,
 } from '@mantine/core';
-import { DateInput } from '@mantine/dates';
 import type { FormDataType, FormField } from '../../services/conversation-api';
 
 interface FormRendererProps {
@@ -184,10 +183,11 @@ function FormFieldInput({
 
         case 'DATE':
             return (
-                <DateInput
+                <TextInput
                     {...common}
-                    value={value ? new Date(value as string) : null}
-                    onChange={(date) => onChange(date?.toISOString() ?? '')}
+                    type="date"
+                    value={(value as string) ?? ''}
+                    onChange={(e) => onChange(e.currentTarget.value)}
                 />
             );
 

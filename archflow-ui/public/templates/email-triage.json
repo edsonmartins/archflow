@@ -1,0 +1,25 @@
+{
+  "id": "email-triage",
+  "name": "Email triage assistant",
+  "icon": "📥",
+  "summary": "Classifies incoming emails, drafts replies and routes high-priority ones to a human.",
+  "description": "Pulls a new email, classifies it (sales, support, spam, urgent), drafts a reply via LLM, and sends low-confidence cases to the human approval queue. Demonstrates the human-in-the-loop pattern.",
+  "category": "productivity",
+  "tags": ["email", "classification", "human-in-the-loop"],
+  "complexity": "intermediate",
+  "steps": [
+    { "id": "s1", "type": "input", "componentId": "input", "label": "New email", "category": "io", "position": { "x": 60, "y": 220 }, "config": {} },
+    { "id": "s2", "type": "llm-chat", "componentId": "llm-chat", "label": "Classify", "category": "agent", "position": { "x": 280, "y": 220 }, "config": { "task": "classify" } },
+    { "id": "s3", "type": "switch", "componentId": "switch", "label": "Route", "category": "control", "position": { "x": 520, "y": 220 }, "config": { "branches": ["sales", "support", "urgent", "spam"] } },
+    { "id": "s4", "type": "agent", "componentId": "agent", "label": "Draft reply", "category": "agent", "position": { "x": 760, "y": 140 }, "config": { "role": "replier" } },
+    { "id": "s5", "type": "tool", "componentId": "tool", "label": "Send", "category": "tool", "position": { "x": 1000, "y": 140 }, "config": { "name": "send_email" } },
+    { "id": "s6", "type": "tool", "componentId": "tool", "label": "Escalate to human", "category": "tool", "position": { "x": 760, "y": 320 }, "config": { "name": "request_approval" } }
+  ],
+  "connections": [
+    { "id": "c1", "sourceId": "s1", "targetId": "s2", "isErrorPath": false },
+    { "id": "c2", "sourceId": "s2", "targetId": "s3", "isErrorPath": false },
+    { "id": "c3", "sourceId": "s3", "targetId": "s4", "isErrorPath": false },
+    { "id": "c4", "sourceId": "s4", "targetId": "s5", "isErrorPath": false },
+    { "id": "c5", "sourceId": "s3", "targetId": "s6", "isErrorPath": true }
+  ]
+}

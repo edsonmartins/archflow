@@ -1,0 +1,30 @@
+{
+  "id": "sac-basic",
+  "name": "Customer support agent",
+  "icon": "🎧",
+  "summary": "Conversational SAC with intent classification, persona routing and tool calls.",
+  "description": "A starter customer support agent that classifies user intent, routes to a specialized persona (order tracking, complaints, FAQ), runs guardrails for PII and identification, and finally calls a tool to fetch the answer. Mirrors the SAC pattern documented in archflow-conversation.",
+  "category": "customer_support",
+  "tags": ["sac", "conversational", "persona", "guardrails"],
+  "complexity": "intermediate",
+  "steps": [
+    { "id": "s1", "type": "input", "componentId": "input", "label": "Inbound message", "category": "io", "position": { "x": 60, "y": 200 }, "config": {} },
+    { "id": "s2", "type": "condition", "componentId": "condition", "label": "Intent router", "category": "control", "position": { "x": 280, "y": 200 }, "config": { "strategy": "llm" } },
+    { "id": "s3", "type": "agent", "componentId": "agent", "label": "Tracking agent", "category": "agent", "position": { "x": 520, "y": 80 }, "config": { "persona": "order_tracking" } },
+    { "id": "s4", "type": "agent", "componentId": "agent", "label": "Complaint agent", "category": "agent", "position": { "x": 520, "y": 200 }, "config": { "persona": "complaint" } },
+    { "id": "s5", "type": "agent", "componentId": "agent", "label": "FAQ agent", "category": "agent", "position": { "x": 520, "y": 320 }, "config": { "persona": "faq" } },
+    { "id": "s6", "type": "tool", "componentId": "tool", "label": "CRM lookup", "category": "tool", "position": { "x": 760, "y": 200 }, "config": { "name": "crm_lookup" } },
+    { "id": "s7", "type": "output", "componentId": "output", "label": "Reply to user", "category": "io", "position": { "x": 1000, "y": 200 }, "config": {} }
+  ],
+  "connections": [
+    { "id": "c1", "sourceId": "s1", "targetId": "s2", "isErrorPath": false },
+    { "id": "c2", "sourceId": "s2", "targetId": "s3", "isErrorPath": false },
+    { "id": "c3", "sourceId": "s2", "targetId": "s4", "isErrorPath": false },
+    { "id": "c4", "sourceId": "s2", "targetId": "s5", "isErrorPath": false },
+    { "id": "c5", "sourceId": "s3", "targetId": "s6", "isErrorPath": false },
+    { "id": "c6", "sourceId": "s4", "targetId": "s6", "isErrorPath": false },
+    { "id": "c7", "sourceId": "s5", "targetId": "s7", "isErrorPath": false },
+    { "id": "c8", "sourceId": "s6", "targetId": "s7", "isErrorPath": false }
+  ],
+  "variables": { "company_name": "Acme", "default_persona": "order_tracking" }
+}

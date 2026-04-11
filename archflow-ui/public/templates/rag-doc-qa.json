@@ -1,0 +1,26 @@
+{
+  "id": "rag-doc-qa",
+  "name": "Document Q&A (RAG)",
+  "icon": "📚",
+  "summary": "Retrieval-augmented assistant that answers questions citing your knowledge base.",
+  "description": "Receives a question, runs a vector search against your knowledge base, builds a prompt with the retrieved chunks and asks an LLM to synthesize an answer. Citations are returned alongside the reply so the UI can render them with the CitationList component.",
+  "category": "rag",
+  "tags": ["rag", "vector", "embeddings", "citations"],
+  "complexity": "starter",
+  "steps": [
+    { "id": "s1", "type": "input", "componentId": "input", "label": "Question", "category": "io", "position": { "x": 60, "y": 200 }, "config": {} },
+    { "id": "s2", "type": "embedding", "componentId": "embedding", "label": "Embed question", "category": "vector", "position": { "x": 280, "y": 200 }, "config": { "model": "text-embedding-3-small" } },
+    { "id": "s3", "type": "vector-search", "componentId": "vector-search", "label": "Retrieve chunks", "category": "vector", "position": { "x": 500, "y": 200 }, "config": { "topK": 6 } },
+    { "id": "s4", "type": "prompt-template", "componentId": "prompt-template", "label": "Build prompt", "category": "io", "position": { "x": 720, "y": 200 }, "config": { "template": "rag.qa" } },
+    { "id": "s5", "type": "llm-streaming", "componentId": "llm-streaming", "label": "Synthesize", "category": "agent", "position": { "x": 940, "y": 200 }, "config": { "model": "gpt-4o" } },
+    { "id": "s6", "type": "output", "componentId": "output", "label": "Answer", "category": "io", "position": { "x": 1160, "y": 200 }, "config": {} }
+  ],
+  "connections": [
+    { "id": "c1", "sourceId": "s1", "targetId": "s2", "isErrorPath": false },
+    { "id": "c2", "sourceId": "s2", "targetId": "s3", "isErrorPath": false },
+    { "id": "c3", "sourceId": "s3", "targetId": "s4", "isErrorPath": false },
+    { "id": "c4", "sourceId": "s4", "targetId": "s5", "isErrorPath": false },
+    { "id": "c5", "sourceId": "s5", "targetId": "s6", "isErrorPath": false }
+  ],
+  "variables": { "kb_collection": "docs", "max_chunks": "6" }
+}

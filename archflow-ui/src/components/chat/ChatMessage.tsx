@@ -1,18 +1,41 @@
-import { Paper, Text, Group, Badge, Stack } from '@mantine/core';
+import { Paper, Text, Group, Badge, Stack, Loader } from '@mantine/core';
 import type { FormDataType } from '../../services/conversation-api';
 import FormRenderer from './FormRenderer';
+import ToolCallBlock, { type ToolCallView } from './ToolCallBlock';
+import CitationList, { type Citation } from './CitationList';
+
+export type MessageRole = 'user' | 'assistant' | 'system' | 'tool';
 
 interface ChatMessageProps {
-    role: 'user' | 'assistant' | 'system' | 'tool';
+    role: MessageRole;
     content: string;
     timestamp?: string;
     formData?: FormDataType;
     onFormSubmit?: (data: Record<string, unknown>) => void;
     onFormCancel?: () => void;
+    /** Optional persona/agent label rendered as a badge on assistant messages. */
+    personaId?: string;
+    personaIcon?: string;
+    /** Tool calls that were made while producing this message. */
+    toolCalls?: ToolCallView[];
+    /** RAG sources cited by this message. */
+    citations?: Citation[];
+    /** True while a delta-stream is still being applied to this message. */
+    streaming?: boolean;
 }
 
 export default function ChatMessage({
-    role, content, timestamp, formData, onFormSubmit, onFormCancel,
+    role,
+    content,
+    timestamp,
+    formData,
+    onFormSubmit,
+    onFormCancel,
+    personaId,
+    personaIcon,
+    toolCalls,
+    citations,
+    streaming,
 }: ChatMessageProps) {
     if (role === 'system') {
         return (
@@ -29,11 +52,17 @@ export default function ChatMessage({
 
     return (
         <Group justify={isUser ? 'flex-end' : 'flex-start'} align="flex-end" my="xs">
-            <Stack gap={2} maw="75%">
+            <Stack gap={4} maw="80%">
                 <Group gap={4} justify={isUser ? 'flex-end' : 'flex-start'}>
                     <Badge size="xs" variant="light" color={roleColor(role)}>
                         {role}
                     </Badge>
+                    {!isUser && personaId && (
+                        <Badge size="xs" variant="outline" color="grape">
+                            {personaIcon ? `${personaIcon} ` : ''}
+                            {personaId}
+                        </Badge>
+                    )}
                     {timestamp && (
                         <Text size="xs" c="dimmed">
                             {formatTime(timestamp)}
@@ -65,9 +94,24 @@ export default function ChatMessage({
                     ) : (
                         <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>
                             {content}
+                            {streaming && (
+                                <span style={{ display: 'inline-flex', marginLeft: 4, verticalAlign: 'middle' }}>
+                                    <Loader size={10} />
+                                </span>
+                            )}
                         </Text>
                     )}
                 </Paper>
+
+                {toolCalls && toolCalls.length > 0 && (
+                    <Stack gap={4}>
+                        {toolCalls.map((tc) => (
+                            <ToolCallBlock key={tc.id} call={tc} />
+                        ))}
+                    </Stack>
+                )}
+
+                {citations && citations.length > 0 && <CitationList citations={citations} />}
             </Stack>
         </Group>
     );
@@ -75,11 +119,16 @@ export default function ChatMessage({
 
 function roleColor(role: string): string {
     switch (role) {
-        case 'user': return 'blue';
-        case 'assistant': return 'gray';
-        case 'tool': return 'teal';
-        case 'system': return 'yellow';
-        default: return 'gray';
+        case 'user':
+            return 'blue';
+        case 'assistant':
+            return 'gray';
+        case 'tool':
+            return 'teal';
+        case 'system':
+            return 'yellow';
+        default:
+            return 'gray';
     }
 }
 

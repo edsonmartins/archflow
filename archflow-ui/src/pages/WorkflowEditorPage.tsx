@@ -1,11 +1,13 @@
-import { useEffect, useCallback, useMemo } from 'react'
+import { useEffect, useCallback, useMemo, useState } from 'react'
 import { useParams }         from 'react-router-dom'
 import { notifications }     from '@mantine/notifications'
 import { FlowCanvas }        from '../components/FlowCanvas/FlowCanvas'
 import { NodePalette }       from '../components/NodePalette'
 import { PropertyPanel }     from '../components/PropertyPanel'
+import YamlEditor            from '../components/CodeEditor/YamlEditor'
 import { useFlowStore }      from '../components/FlowCanvas/store/useFlowStore'
 import { useWorkflowStore }  from '../stores/workflow-store'
+import { workflowYamlApi }   from '../services/workflow-yaml-api'
 import type { FlowNodeData, WorkflowData } from '../components/FlowCanvas/types'
 import { NODE_TYPE_TO_CATEGORY } from '../components/FlowCanvas/constants'
 
@@ -32,6 +34,8 @@ function toWorkflowData(detail: any): WorkflowData {
   return { steps, connections }
 }
 
+type EditorView = 'canvas' | 'yaml'
+
 export function WorkflowEditor() {
   const { id } = useParams<{ id: string }>()
 
@@ -41,10 +45,68 @@ export function WorkflowEditor() {
   const workflowData = useMemo(() => current ? toWorkflowData(current) : null, [current])
   const { selectedNodeId, selectedNodeData, selectNode, startExecution, isExecuting } = useFlowStore()
 
+  // ── YAML view state ───────────────────────────────────────────
+  const [view, setView] = useState<EditorView>('canvas')
+  const [yamlText, setYamlText] = useState<string>('')
+  const [yamlLoading, setYamlLoading] = useState(false)
+  const [yamlError, setYamlError] = useState<string | null>(null)
+  const [yamlDirty, setYamlDirty] = useState(false)
+
   // Carregar workflow ao montar
   useEffect(() => {
     if (id) loadWorkflow(id)
   }, [id])
+
+  // Carrega o YAML do backend quando o usuário abre a aba Code
+  useEffect(() => {
+    if (view !== 'yaml' || !id) return
+    let cancelled = false
+    setYamlLoading(true)
+    setYamlError(null)
+    workflowYamlApi
+      .get(id)
+      .then((dto) => {
+        if (!cancelled) {
+          setYamlText(dto.yaml ?? '')
+          setYamlDirty(false)
+        }
+      })
+      .catch((e: unknown) => {
+        if (!cancelled) {
+          setYamlError(e instanceof Error ? e.message : 'Failed to load YAML')
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setYamlLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [view, id])
+
+  const handleSaveYaml = useCallback(async () => {
+    if (!id) return
+    setYamlError(null)
+    try {
+      const dto = await workflowYamlApi.update(id, yamlText)
+      setYamlText(dto.yaml ?? yamlText)
+      setYamlDirty(false)
+      // Reload the JSON-backed canvas so the next Canvas view picks up the edits
+      await loadWorkflow(id)
+      notifications.show({
+        title: 'YAML saved',
+        message: 'Workflow updated from YAML',
+        color: 'teal',
+      })
+    } catch (e) {
+      setYamlError(e instanceof Error ? e.message : 'Failed to save YAML')
+      notifications.show({
+        title: 'YAML error',
+        message: 'Failed to save YAML',
+        color: 'red',
+      })
+    }
+  }, [id, yamlText, loadWorkflow])
 
   // ── Handlers ──────────────────────────────────────────────────
   const handleNodeSelect = useCallback(
@@ -136,15 +198,57 @@ export function WorkflowEditor() {
             </span>
           )}
 
+          {/* Canvas / Code toggle */}
+          <div
+            role="tablist"
+            style={{
+              display: 'inline-flex',
+              border: '0.5px solid var(--color-border-tertiary)',
+              borderRadius: 7,
+              overflow: 'hidden',
+              marginRight: 6,
+            }}
+          >
+            <button
+              role="tab"
+              aria-selected={view === 'canvas'}
+              data-testid="editor-tab-canvas"
+              onClick={() => setView('canvas')}
+              style={{
+                ...tabBtnStyle,
+                background:
+                  view === 'canvas' ? 'var(--color-background-secondary)' : 'transparent',
+                fontWeight: view === 'canvas' ? 600 : 400,
+              }}
+            >
+              Canvas
+            </button>
+            <button
+              role="tab"
+              aria-selected={view === 'yaml'}
+              data-testid="editor-tab-code"
+              onClick={() => setView('yaml')}
+              style={{
+                ...tabBtnStyle,
+                background:
+                  view === 'yaml' ? 'var(--color-background-secondary)' : 'transparent',
+                fontWeight: view === 'yaml' ? 600 : 400,
+              }}
+            >
+              Code {yamlDirty && '●'}
+            </button>
+          </div>
+
           <button aria-label="Undo" style={iconBtnStyle} title="Undo (⌘Z)">↩</button>
           <button aria-label="Redo" style={iconBtnStyle} title="Redo (⌘⇧Z)">↪</button>
 
           <button
-            onClick={handleSave}
-            disabled={isSaving}
+            onClick={view === 'yaml' ? handleSaveYaml : handleSave}
+            disabled={isSaving || (view === 'yaml' && !yamlDirty)}
             style={{ ...btnStyle, opacity: isSaving ? 0.6 : 1 }}
+            data-testid="editor-save"
           >
-            {isSaving ? 'Saving...' : 'Save'}
+            {isSaving ? 'Saving...' : view === 'yaml' ? 'Save YAML' : 'Save'}
           </button>
 
           <button
@@ -162,34 +266,53 @@ export function WorkflowEditor() {
         </div>
       </div>
 
-      {/* ── Editor body: palette + canvas + property panel ──── */}
-      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-        {/* Palette */}
-        <div style={{ width: 240, flexShrink: 0, overflow: 'hidden' }}>
-          <NodePalette />
-        </div>
+      {/* ── Editor body ──────────────────────────────────────── */}
+      {view === 'canvas' ? (
+        <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+          {/* Palette */}
+          <div style={{ width: 240, flexShrink: 0, overflow: 'hidden' }}>
+            <NodePalette />
+          </div>
 
-        {/* Canvas */}
-        <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
-          {workflowData ? (
-            <FlowCanvas
-              initialWorkflow={workflowData}
-              onNodeSelect={handleNodeSelect}
-              onExecutionRequest={handleExecute}
+          {/* Canvas */}
+          <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+            {workflowData ? (
+              <FlowCanvas
+                initialWorkflow={workflowData}
+                onNodeSelect={handleNodeSelect}
+                onExecutionRequest={handleExecute}
+              />
+            ) : (
+              <EmptyCanvas />
+            )}
+          </div>
+
+          {/* Property panel */}
+          <div style={{ width: 320, flexShrink: 0, overflow: 'hidden' }}>
+            <PropertyPanel
+              nodeId={selectedNodeId}
+              nodeData={selectedNodeData as FlowNodeData | null}
             />
+          </div>
+        </div>
+      ) : (
+        <div style={{ flex: 1, overflow: 'hidden', padding: 12 }}>
+          {yamlLoading ? (
+            <div style={{ padding: 40, textAlign: 'center', color: 'var(--color-text-tertiary)' }}>
+              Loading YAML…
+            </div>
           ) : (
-            <EmptyCanvas />
+            <YamlEditor
+              value={yamlText}
+              onChange={(v) => {
+                setYamlText(v)
+                setYamlDirty(true)
+              }}
+              error={yamlError}
+            />
           )}
         </div>
-
-        {/* Property panel */}
-        <div style={{ width: 320, flexShrink: 0, overflow: 'hidden' }}>
-          <PropertyPanel
-            nodeId={selectedNodeId}
-            nodeData={selectedNodeData as FlowNodeData | null}
-          />
-        </div>
-      </div>
+      )}
     </div>
   )
 }
@@ -252,4 +375,14 @@ const iconBtnStyle: React.CSSProperties = {
   color:        'var(--color-text-secondary)',
   fontSize:     14,
   fontFamily:   'var(--font-sans)',
+}
+
+const tabBtnStyle: React.CSSProperties = {
+  padding:     '4px 14px',
+  border:      'none',
+  cursor:      'pointer',
+  fontSize:    12,
+  fontFamily:  'var(--font-sans)',
+  color:       'var(--color-text-primary)',
+  background:  'transparent',
 }

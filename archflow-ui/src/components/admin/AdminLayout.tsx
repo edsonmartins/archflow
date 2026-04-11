@@ -2,14 +2,16 @@ import { AppShell, NavLink, Group, Text, Badge } from '@mantine/core'
 import {
   IconBuilding, IconUsers, IconKey, IconSettings, IconChartBar,
   IconTopologyRing, IconPlayerPlay, IconShieldCheck, IconArrowLeft,
+  IconActivity,
 } from '@tabler/icons-react'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { useTenantStore } from '../../stores/useTenantStore'
 import { ImpersonationBanner } from './ImpersonationBanner'
 
 const SUPERADMIN_NAV = [
-  { label: 'Tenants',       icon: IconBuilding,    path: '/admin/tenants' },
-  { label: 'Global Config', icon: IconSettings,    path: '/admin/global' },
+  { label: 'Tenants',         icon: IconBuilding,  path: '/admin/tenants' },
+  { label: 'Observability',   icon: IconActivity,  path: '/admin/observability' },
+  { label: 'Global Config',   icon: IconSettings,  path: '/admin/global' },
   { label: 'Usage & Billing', icon: IconChartBar,  path: '/admin/billing' },
 ]
 

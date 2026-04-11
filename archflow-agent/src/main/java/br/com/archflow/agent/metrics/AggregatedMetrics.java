@@ -6,7 +6,7 @@ import java.util.Map;
 /**
  * Métricas agregadas com estatísticas
  */
-record AggregatedMetrics(
+public record AggregatedMetrics(
     Instant timestamp,
     Map<String, Long> counters,
     Map<String, Double> values,
