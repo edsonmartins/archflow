@@ -52,11 +52,8 @@ public class CachingInterceptor implements ToolInterceptor {
         this.defaultTtl = defaultTtl;
         this.maxCacheSize = maxCacheSize;
         this.toolTtls = new ConcurrentHashMap<>();
-        this.cleanupExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
-            Thread thread = new Thread(r, "cache-cleanup");
-            thread.setDaemon(true);
-            return thread;
-        });
+        this.cleanupExecutor = Executors.newSingleThreadScheduledExecutor(
+                Thread.ofVirtual().name("cache-cleanup").factory());
 
         // Executa limpeza a cada minuto
         this.cleanupExecutor.scheduleAtFixedRate(

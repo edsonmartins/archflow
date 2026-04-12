@@ -17,7 +17,7 @@
     <properties>
         <micrometer.version>1.13.4</micrometer.version>
         <opentelemetry.version>1.42.0</opentelemetry.version>
-        <lombok.version>1.18.30</lombok.version>
+        <lombok.version>1.18.40</lombok.version>
         <slf4j.version>2.0.9</slf4j.version>
     </properties>
 
@@ -49,16 +49,6 @@
             <groupId>io.micrometer</groupId>
             <artifactId>micrometer-registry-prometheus</artifactId>
             <version>${micrometer.version}</version>
-        </dependency>
-
-        <!-- Spring integration for health indicator -->
-        <dependency>
-            <groupId>org.springframework</groupId>
-            <artifactId>spring-context</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-actuator</artifactId>
         </dependency>
 
         <!-- Prometheus HTTP Server (optional, for standalone metrics server) -->

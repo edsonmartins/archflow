@@ -23,7 +23,7 @@
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
-            <version>1.18.30</version> <!-- Verifique a versão mais recente -->
+            <version>1.18.40</version> <!-- Verifique a versão mais recente -->
             <scope>provided</scope>
         </dependency>
 

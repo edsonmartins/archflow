@@ -237,20 +237,7 @@ public class ArchFlowAgent implements AutoCloseable {
     }
 
     private ExecutorService createExecutorService() {
-        ThreadFactory threadFactory = r -> {
-            Thread t = new Thread(r);
-            t.setName("archflow-agent-" + t.getId());
-            return t;
-        };
-
-        return new ThreadPoolExecutor(
-                config.resourceConfig().maxThreads(),
-                config.resourceConfig().maxThreads(),
-                60L, TimeUnit.SECONDS,
-                new LinkedBlockingQueue<>(),
-                threadFactory,
-                new ThreadPoolExecutor.CallerRunsPolicy()
-        );
+        return Executors.newVirtualThreadPerTaskExecutor();
     }
 
     private StateManager createStateManager() {

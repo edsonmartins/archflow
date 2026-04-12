@@ -91,10 +91,8 @@ public class StdioClientTransport implements McpTransport {
 
             active.set(true);
 
-            // Start reader thread
-            readerThread = new Thread(this::readLoop, "mcp-client-reader");
-            readerThread.setDaemon(true);
-            readerThread.start();
+            // Start reader on a virtual thread (blocking I/O with subprocess)
+            readerThread = Thread.ofVirtual().name("mcp-client-reader").start(this::readLoop);
 
             log.debug("MCP server process started, PID: {}", process.pid());
 

@@ -15,6 +15,7 @@ import dev.langchain4j.store.embedding.EmbeddingStore;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Adapter para Retrieval Augmented Generation (RAG) Chain do LangChain4j.
@@ -44,6 +45,8 @@ import java.util.Map;
  * @see LangChainRegistry
  */
 public class RagChainAdapter implements LangChainAdapter {
+
+    private final ReentrantLock lock = new ReentrantLock();
     private volatile ConversationalChain chain; // volatile para visibilidade em multi-threading
     private volatile EmbeddingModel embeddingModel;
     private volatile EmbeddingStore<TextSegment> embeddingStore;
@@ -184,67 +187,76 @@ public class RagChainAdapter implements LangChainAdapter {
      * @throws IllegalStateException    se o adapter não estiver configurado
      */
     @Override
-    public synchronized Object execute(String operation, Object input, ExecutionContext context) throws Exception {
-        if (chain == null || embeddingModel == null || embeddingStore == null) {
-            throw new IllegalStateException("Chain, embedding model, or embedding store not configured. Call configure() first.");
-        }
-
+    public Object execute(String operation, Object input, ExecutionContext context) throws Exception {
+        lock.lock();
         try {
-            if ("query".equals(operation)) {
-                if (!(input instanceof String)) {
-                    throw new IllegalArgumentException("Input must be a string for query operation");
-                }
-
-                String query = (String) input;
-                int maxResults = (Integer) config.getOrDefault("retriever.maxResults", 2);
-                double minScore = (Double) config.getOrDefault("retriever.minScore", 0.7);
-
-                // Gera embedding da query
-                var queryEmbedding = embeddingModel.embed(TextSegment.from(query)).content();
-
-                // Busca documentos similares
-                var searchRequest = EmbeddingSearchRequest.builder()
-                        .queryEmbedding(queryEmbedding)
-                        .maxResults(maxResults)
-                        .minScore(minScore)
-                        .build();
-
-                var searchResult = embeddingStore.search(searchRequest);
-                List<EmbeddingMatch<TextSegment>> relevantDocs = searchResult.matches();
-
-                // Constrói o prompt com os documentos relevantes
-                String contextPrompt = relevantDocs.stream()
-                        .map(match -> match.embedded().text())
-                        .reduce((a, b) -> a + "\n" + b)
-                        .orElse("");
-
-                String augmentedPrompt = String.format("""
-                        Based on the following context:
-                        ---
-                        %s
-                        ---
-                        Please answer the question: %s
-                        """, contextPrompt, query);
-
-                // Gera resposta
-                return chain.execute(augmentedPrompt);
-            }
-
-            if ("addDocuments".equals(operation)) {
-                if (!(input instanceof List<?>)) {
-                    throw new IllegalArgumentException("Input must be a List<TextSegment> for addDocuments operation");
-                }
-
-                List<TextSegment> documents = (List<TextSegment>) input;
-                var embeddings = embeddingModel.embedAll(documents).content();
-                embeddingStore.addAll(embeddings, documents);
-                return null;
-            }
-
-            throw new IllegalArgumentException("Unsupported operation: " + operation);
-        } catch (Exception e) {
-            throw new RuntimeException("Error executing operation: " + operation, e);
+            return doExecute(operation, input, context);
+        } finally {
+            lock.unlock();
         }
+    }
+
+    private Object doExecute(String operation, Object input, ExecutionContext context) throws Exception {
+            if (chain == null || embeddingModel == null || embeddingStore == null) {
+                throw new IllegalStateException("Chain, embedding model, or embedding store not configured. Call configure() first.");
+            }
+
+            try {
+                if ("query".equals(operation)) {
+                    if (!(input instanceof String)) {
+                        throw new IllegalArgumentException("Input must be a string for query operation");
+                    }
+
+                    String query = (String) input;
+                    int maxResults = (Integer) config.getOrDefault("retriever.maxResults", 2);
+                    double minScore = (Double) config.getOrDefault("retriever.minScore", 0.7);
+
+                    // Gera embedding da query
+                    var queryEmbedding = embeddingModel.embed(TextSegment.from(query)).content();
+
+                    // Busca documentos similares
+                    var searchRequest = EmbeddingSearchRequest.builder()
+                            .queryEmbedding(queryEmbedding)
+                            .maxResults(maxResults)
+                            .minScore(minScore)
+                            .build();
+
+                    var searchResult = embeddingStore.search(searchRequest);
+                    List<EmbeddingMatch<TextSegment>> relevantDocs = searchResult.matches();
+
+                    // Constrói o prompt com os documentos relevantes
+                    String contextPrompt = relevantDocs.stream()
+                            .map(match -> match.embedded().text())
+                            .reduce((a, b) -> a + "\n" + b)
+                            .orElse("");
+
+                    String augmentedPrompt = String.format("""
+                            Based on the following context:
+                            ---
+                            %s
+                            ---
+                            Please answer the question: %s
+                            """, contextPrompt, query);
+
+                    // Gera resposta
+                    return chain.execute(augmentedPrompt);
+                }
+
+                if ("addDocuments".equals(operation)) {
+                    if (!(input instanceof List<?>)) {
+                        throw new IllegalArgumentException("Input must be a List<TextSegment> for addDocuments operation");
+                    }
+
+                    List<TextSegment> documents = (List<TextSegment>) input;
+                    var embeddings = embeddingModel.embedAll(documents).content();
+                    embeddingStore.addAll(embeddings, documents);
+                    return null;
+                }
+
+                throw new IllegalArgumentException("Unsupported operation: " + operation);
+            } catch (Exception e) {
+                throw new RuntimeException("Error executing operation: " + operation, e);
+            }
     }
 
     /**

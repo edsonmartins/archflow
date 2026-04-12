@@ -9,6 +9,7 @@ import dev.langchain4j.model.openai.OpenAiChatModel;
 import dev.langchain4j.memory.ChatMemory;
 
 import java.util.Map;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -32,6 +33,8 @@ import java.util.logging.Logger;
  * </ul>
  */
 public class OpenRouterChatAdapter implements LangChainAdapter {
+
+    private final ReentrantLock lock = new ReentrantLock();
     private static final Logger logger = Logger.getLogger(OpenRouterChatAdapter.class.getName());
     private static final String DEFAULT_BASE_URL = "https://openrouter.ai/api/v1";
     private static final String DEFAULT_MODEL = "openai/gpt-4o-mini";
@@ -90,24 +93,33 @@ public class OpenRouterChatAdapter implements LangChainAdapter {
     }
 
     @Override
-    public synchronized Object execute(String operation, Object input, ExecutionContext context) throws Exception {
-        if (model == null) {
-            throw new IllegalStateException("Adapter not configured. Call configure() first.");
-        }
-
-        // Resolve modelo por tenant/agente via ExecutionContext.variables
-        ChatModel resolved = resolveModel(context);
-
+    public Object execute(String operation, Object input, ExecutionContext context) throws Exception {
+        lock.lock();
         try {
-            return executeWithModel(resolved, operation, input, context);
-        } catch (Exception e) {
-            if (fallbackModel != null) {
-                logger.log(Level.WARNING,
-                        "OpenRouter call failed, falling back to local provider: " + e.getMessage());
-                return executeWithModel(fallbackModel, operation, input, context);
-            }
-            throw e;
+            return doExecute(operation, input, context);
+        } finally {
+            lock.unlock();
         }
+    }
+
+    private Object doExecute(String operation, Object input, ExecutionContext context) throws Exception {
+            if (model == null) {
+                throw new IllegalStateException("Adapter not configured. Call configure() first.");
+            }
+
+            // Resolve modelo por tenant/agente via ExecutionContext.variables
+            ChatModel resolved = resolveModel(context);
+
+            try {
+                return executeWithModel(resolved, operation, input, context);
+            } catch (Exception e) {
+                if (fallbackModel != null) {
+                    logger.log(Level.WARNING,
+                            "OpenRouter call failed, falling back to local provider: " + e.getMessage());
+                    return executeWithModel(fallbackModel, operation, input, context);
+                }
+                throw e;
+            }
     }
 
     /**

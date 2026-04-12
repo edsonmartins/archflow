@@ -54,11 +54,8 @@ public class EventStreamRegistry {
         this.executionEmitters = new ConcurrentHashMap<>();
         this.heartbeatIntervalMs = heartbeatIntervalMs;
         this.emitterTimeoutMs = emitterTimeoutMs;
-        this.scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
-            Thread t = new Thread(r, "event-stream-registry");
-            t.setDaemon(true);
-            return t;
-        });
+        this.scheduler = Executors.newSingleThreadScheduledExecutor(
+                Thread.ofVirtual().name("event-stream-registry").factory());
 
         startHeartbeat();
         startCleanup();

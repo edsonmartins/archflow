@@ -82,11 +82,7 @@ public class StdioServerTransport implements McpTransport {
         this.input = input;
         this.output = output;
         this.objectMapper = objectMapper;
-        this.executorService = Executors.newSingleThreadExecutor(r -> {
-            Thread t = new Thread(r, "mcp-stdio-reader");
-            t.setDaemon(true);
-            return t;
-        });
+        this.executorService = Executors.newVirtualThreadPerTaskExecutor();
         this.pendingRequests = new ConcurrentHashMap<>();
     }
 
@@ -99,10 +95,8 @@ public class StdioServerTransport implements McpTransport {
         active = true;
         log.debug("STDIO transport starting");
 
-        // Start reader thread
-        readerThread = new Thread(this::readLoop, "mcp-stdio-reader");
-        readerThread.setDaemon(false);
-        readerThread.start();
+        // Start reader on a virtual thread (blocking I/O)
+        readerThread = Thread.ofVirtual().name("mcp-stdio-reader").start(this::readLoop);
 
         log.debug("STDIO transport started");
     }

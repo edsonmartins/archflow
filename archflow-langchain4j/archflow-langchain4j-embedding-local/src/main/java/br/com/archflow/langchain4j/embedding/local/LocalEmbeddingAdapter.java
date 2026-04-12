@@ -16,6 +16,7 @@ import java.nio.LongBuffer;
 import java.nio.file.Paths;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 
 /**
@@ -44,6 +45,7 @@ import java.util.stream.Collectors;
  * </ul>
  */
 public class LocalEmbeddingAdapter implements LangChainAdapter, EmbeddingModel {
+    private final ReentrantLock lock = new ReentrantLock();
     private volatile OrtEnvironment env;
     private volatile OrtSession session;
     private volatile SpTokenizer tokenizer;
@@ -170,43 +172,52 @@ public class LocalEmbeddingAdapter implements LangChainAdapter, EmbeddingModel {
      * @throws RuntimeException         se ocorrer um erro durante a execução
      */
     @Override
-    public synchronized Object execute(String operation, Object input, ExecutionContext context) throws Exception {
-        if (session == null || env == null || tokenizer == null) {
-            throw new IllegalStateException("Embedding model not configured. Call configure() first.");
+    public Object execute(String operation, Object input, ExecutionContext context) throws Exception {
+        lock.lock();
+        try {
+            return doExecute(operation, input, context);
+        } finally {
+            lock.unlock();
         }
+    }
 
-        if ("embed".equals(operation)) {
-            if (input instanceof String) {
-                return embed(TextSegment.from((String) input));
-            }
-            if (input instanceof TextSegment) {
-                return embed((TextSegment) input);
-            }
-            throw new IllegalArgumentException("Input must be a String or TextSegment for embed operation");
-        }
-
-        if ("embedBatch".equals(operation)) {
-            if (!(input instanceof List)) {
-                throw new IllegalArgumentException("Input must be a List for embedBatch operation");
-            }
-            List<?> inputs = (List<?>) input;
-            if (inputs.isEmpty()) {
-                throw new IllegalArgumentException("Input list cannot be empty");
+    private Object doExecute(String operation, Object input, ExecutionContext context) throws Exception {
+            if (session == null || env == null || tokenizer == null) {
+                throw new IllegalStateException("Embedding model not configured. Call configure() first.");
             }
 
-            if (inputs.get(0) instanceof String) {
-                List<TextSegment> segments = ((List<String>) input).stream()
-                        .map(TextSegment::from)
-                        .toList();
-                return embedAll(segments);
+            if ("embed".equals(operation)) {
+                if (input instanceof String) {
+                    return embed(TextSegment.from((String) input));
+                }
+                if (input instanceof TextSegment) {
+                    return embed((TextSegment) input);
+                }
+                throw new IllegalArgumentException("Input must be a String or TextSegment for embed operation");
             }
-            if (inputs.get(0) instanceof TextSegment) {
-                return embedAll((List<TextSegment>) input);
-            }
-            throw new IllegalArgumentException("Input must be a List of String or TextSegment for embedBatch operation");
-        }
 
-        throw new IllegalArgumentException("Unsupported operation: " + operation);
+            if ("embedBatch".equals(operation)) {
+                if (!(input instanceof List)) {
+                    throw new IllegalArgumentException("Input must be a List for embedBatch operation");
+                }
+                List<?> inputs = (List<?>) input;
+                if (inputs.isEmpty()) {
+                    throw new IllegalArgumentException("Input list cannot be empty");
+                }
+
+                if (inputs.get(0) instanceof String) {
+                    List<TextSegment> segments = ((List<String>) input).stream()
+                            .map(TextSegment::from)
+                            .toList();
+                    return embedAll(segments);
+                }
+                if (inputs.get(0) instanceof TextSegment) {
+                    return embedAll((List<TextSegment>) input);
+                }
+                throw new IllegalArgumentException("Input must be a List of String or TextSegment for embedBatch operation");
+            }
+
+            throw new IllegalArgumentException("Unsupported operation: " + operation);
     }
 
     @Override

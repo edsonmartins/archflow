@@ -14,6 +14,8 @@ import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.logging.Logger;
 
 public class DefaultFlowEngine implements FlowEngine {
@@ -25,6 +27,7 @@ public class DefaultFlowEngine implements FlowEngine {
     private final FlowValidator flowValidator;
     private final MemoryRestorer memoryRestorer;
     private final Map<String, FlowExecution> activeExecutions;
+    private final ExecutorService virtualExecutor = Executors.newVirtualThreadPerTaskExecutor();
 
     public DefaultFlowEngine(ExecutionManager executionManager,
                              FlowRepository flowRepository,
@@ -49,6 +52,7 @@ public class DefaultFlowEngine implements FlowEngine {
     @Override
     public CompletableFuture<FlowResult> startFlow(String flowId, Map<String, Object> input) {
         return CompletableFuture.supplyAsync(() -> {
+            // Uses virtual thread executor for I/O-bound flow execution
             try {
                 Flow flow = flowRepository.findById(flowId)
                         .orElseThrow(() -> new FlowNotFoundException(flowId));
@@ -64,12 +68,13 @@ public class DefaultFlowEngine implements FlowEngine {
                 handleExecutionError(flowId, e);
                 throw new FlowEngineException("Error starting flow: " + flowId, e);
             }
-        });
+        }, virtualExecutor);
     }
 
     @Override
     public CompletableFuture<FlowResult> execute(Flow flow, ExecutionContext context) {
         return CompletableFuture.supplyAsync(() -> {
+            // Uses virtual thread executor for I/O-bound flow execution
             try {
                 flowValidator.validate(flow);
 
@@ -86,12 +91,13 @@ public class DefaultFlowEngine implements FlowEngine {
                 handleExecutionError(flow.getId(), e);
                 throw new FlowEngineException("Error executing flow: " + flow.getId(), e);
             }
-        });
+        }, virtualExecutor);
     }
 
     @Override
     public CompletableFuture<FlowResult> resumeFlow(String flowId, ExecutionContext context) {
         return CompletableFuture.supplyAsync(() -> {
+            // Uses virtual thread executor for I/O-bound flow execution
             try {
                 Flow flow = flowRepository.findById(flowId)
                         .orElseThrow(() -> new FlowNotFoundException(flowId));
@@ -139,7 +145,7 @@ public class DefaultFlowEngine implements FlowEngine {
                 handleExecutionError(flowId, e);
                 throw new FlowEngineException("Error resuming flow: " + flowId, e);
             }
-        });
+        }, virtualExecutor);
     }
 
     @Override

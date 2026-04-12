@@ -13,13 +13,13 @@
     <description>Framework open source para automação de agentes IA em Java</description>
 
     <properties>
-        <java.version>17</java.version>
-        <maven.compiler.source>17</maven.compiler.source>
-        <maven.compiler.target>17</maven.compiler.target>
+        <java.version>25</java.version>
+        <maven.compiler.source>25</maven.compiler.source>
+        <maven.compiler.target>25</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <langchain4j.version>1.12.2</langchain4j.version>
         <camel.version>4.3.0</camel.version>
-        <spring-boot.version>3.3.0</spring-boot.version>
+        <spring-boot.version>4.0.0</spring-boot.version>
     </properties>
 
     <modules>
@@ -76,6 +76,7 @@
                 <artifactId>lombok</artifactId>
                 <optional>true</optional>
             </dependency>
+
         </dependencies>
     </dependencyManagement>
 
@@ -94,7 +95,7 @@
                             <path>
                                 <groupId>org.projectlombok</groupId>
                                 <artifactId>lombok</artifactId>
-                                <version>1.18.30</version>
+                                <version>1.18.40</version>
                             </path>
                         </annotationProcessorPaths>
                     </configuration>
@@ -144,7 +145,7 @@
                 <plugin>
                     <groupId>org.jacoco</groupId>
                     <artifactId>jacoco-maven-plugin</artifactId>
-                    <version>0.8.11</version>
+                    <version>0.8.13</version>
                     <executions>
                         <execution>
                             <goals>
@@ -172,7 +173,7 @@
                     <plugin>
                         <groupId>org.jacoco</groupId>
                         <artifactId>jacoco-maven-plugin</artifactId>
-                        <version>0.8.11</version>
+                        <version>0.8.13</version>
                         <executions>
                             <execution>
                                 <id>prepare-agent</id>

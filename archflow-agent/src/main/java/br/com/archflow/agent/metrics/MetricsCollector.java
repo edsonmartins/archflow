@@ -28,11 +28,8 @@ public class MetricsCollector implements Closeable {
 
     public MetricsCollector(AgentConfig config) {
         this.config = config;
-        this.scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
-            Thread t = new Thread(r, "metrics-collector");
-            t.setDaemon(true);
-            return t;
-        });
+        this.scheduler = Executors.newSingleThreadScheduledExecutor(
+                Thread.ofVirtual().name("metrics-collector").factory());
         this.activeFlows = new ConcurrentHashMap<>();
         this.registry = new MetricsRegistry();
         this.aggregator = new MetricsAggregator(registry);

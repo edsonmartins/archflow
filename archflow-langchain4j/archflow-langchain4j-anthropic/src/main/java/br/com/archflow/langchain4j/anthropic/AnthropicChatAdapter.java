@@ -10,6 +10,7 @@ import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.memory.ChatMemory;
 
 import java.util.Map;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Adapter para integração com o modelo de chat da Anthropic (Claude) no LangChain4j 1.10.0.
@@ -35,6 +36,8 @@ import java.util.Map;
  * @see AnthropicChatModel
  */
 public class AnthropicChatAdapter implements LangChainAdapter {
+
+    private final ReentrantLock lock = new ReentrantLock();
     private ChatModel model;
     private Map<String, Object> config;
 
@@ -129,45 +132,54 @@ public class AnthropicChatAdapter implements LangChainAdapter {
      * @throws RuntimeException se ocorrer um erro durante a execução
      */
     @Override
-    public synchronized Object execute(String operation, Object input, ExecutionContext context) throws Exception {
-        if (model == null) {
-            throw new IllegalStateException("Adapter not configured. Call configure() first.");
-        }
-
+    public Object execute(String operation, Object input, ExecutionContext context) throws Exception {
+        lock.lock();
         try {
-            if ("generate".equals(operation)) {
-                if (!(input instanceof String)) {
-                    throw new IllegalArgumentException("Input must be a string for 'generate' operation");
-                }
-                // LangChain4j 1.10.0: ChatModel.chat(String) retorna String diretamente
-                return model.chat((String) input);
-            }
-
-            if ("chat".equals(operation)) {
-                if (!(input instanceof String)) {
-                    throw new IllegalArgumentException("Chat input must be a string");
-                }
-
-                ChatMemory memory = context.getChatMemory();
-                if (memory == null) {
-                    throw new IllegalStateException("Chat memory not available in context");
-                }
-
-                // LangChain4j 1.10.0: Usa ChatModel.chat() com mensagens da memória
-                UserMessage userMessage = UserMessage.from((String) input);
-                memory.add(userMessage);
-
-                // ChatModel.chat(List<ChatMessage>) retorna ChatResponse
-                ChatResponse response = model.chat(memory.messages());
-                memory.add(response.aiMessage());
-
-                return response.aiMessage().text();
-            }
-
-            throw new IllegalArgumentException("Unsupported operation: " + operation);
-        } catch (Exception e) {
-            throw new RuntimeException("Error executing operation: " + operation, e);
+            return doExecute(operation, input, context);
+        } finally {
+            lock.unlock();
         }
+    }
+
+    private Object doExecute(String operation, Object input, ExecutionContext context) throws Exception {
+            if (model == null) {
+                throw new IllegalStateException("Adapter not configured. Call configure() first.");
+            }
+
+            try {
+                if ("generate".equals(operation)) {
+                    if (!(input instanceof String)) {
+                        throw new IllegalArgumentException("Input must be a string for 'generate' operation");
+                    }
+                    // LangChain4j 1.10.0: ChatModel.chat(String) retorna String diretamente
+                    return model.chat((String) input);
+                }
+
+                if ("chat".equals(operation)) {
+                    if (!(input instanceof String)) {
+                        throw new IllegalArgumentException("Chat input must be a string");
+                    }
+
+                    ChatMemory memory = context.getChatMemory();
+                    if (memory == null) {
+                        throw new IllegalStateException("Chat memory not available in context");
+                    }
+
+                    // LangChain4j 1.10.0: Usa ChatModel.chat() com mensagens da memória
+                    UserMessage userMessage = UserMessage.from((String) input);
+                    memory.add(userMessage);
+
+                    // ChatModel.chat(List<ChatMessage>) retorna ChatResponse
+                    ChatResponse response = model.chat(memory.messages());
+                    memory.add(response.aiMessage());
+
+                    return response.aiMessage().text();
+                }
+
+                throw new IllegalArgumentException("Unsupported operation: " + operation);
+            } catch (Exception e) {
+                throw new RuntimeException("Error executing operation: " + operation, e);
+            }
     }
 
     /**

@@ -1,32 +1,30 @@
 package br.com.archflow.observability.health;
 
-import org.springframework.boot.actuate.health.Health;
-import org.springframework.boot.actuate.health.HealthIndicator;
-import org.springframework.stereotype.Component;
-
 import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryMXBean;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 /**
- * Custom health indicator for archflow platform.
+ * Archflow platform health check.
  *
- * <p>Reports health status including:
- * <ul>
- *   <li>Uptime</li>
- *   <li>Memory usage</li>
- *   <li>Component status</li>
- * </ul>
+ * <p>Framework-agnostic health indicator that reports uptime, memory usage
+ * and component status. When running under Spring Boot, this can be
+ * registered as a {@code HealthContributor} via a thin adapter in the
+ * bootstrap module.
  */
-@Component
-public class ArchflowHealthIndicator implements HealthIndicator {
+public class ArchflowHealthIndicator {
 
     private static final Instant START_TIME = Instant.now();
     private static final long MEMORY_THRESHOLD_PERCENT = 90;
 
-    @Override
-    public Health health() {
+    public enum Status { UP, DOWN }
+
+    public record HealthResult(Status status, Map<String, Object> details) {}
+
+    public HealthResult health() {
         MemoryMXBean memoryBean = ManagementFactory.getMemoryMXBean();
         long heapUsed = memoryBean.getHeapMemoryUsage().getUsed();
         long heapMax = memoryBean.getHeapMemoryUsage().getMax();
@@ -34,25 +32,31 @@ public class ArchflowHealthIndicator implements HealthIndicator {
 
         Duration uptime = Duration.between(START_TIME, Instant.now());
 
-        Health.Builder builder = heapPercent < MEMORY_THRESHOLD_PERCENT
-                ? Health.up()
-                : Health.down();
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("uptime", formatDuration(uptime));
+        details.put("uptimeSeconds", uptime.toSeconds());
+        details.put("heapUsed", formatBytes(heapUsed));
+        details.put("heapMax", formatBytes(heapMax));
+        details.put("heapUsagePercent", heapPercent);
+        details.put("processors", Runtime.getRuntime().availableProcessors());
+        details.put("javaVersion", System.getProperty("java.version"));
+        details.put("vmName", System.getProperty("java.vm.name"));
 
-        return builder
-                .withDetail("version", "1.0.0")
-                .withDetail("uptime", formatDuration(uptime))
-                .withDetail("uptimeSeconds", uptime.getSeconds())
-                .withDetail("heap.used.mb", heapUsed / (1024 * 1024))
-                .withDetail("heap.max.mb", heapMax / (1024 * 1024))
-                .withDetail("heap.percent", heapPercent)
-                .withDetail("processors", Runtime.getRuntime().availableProcessors())
-                .build();
+        Status status = heapPercent < MEMORY_THRESHOLD_PERCENT ? Status.UP : Status.DOWN;
+        return new HealthResult(status, details);
     }
 
-    private String formatDuration(Duration duration) {
+    private static String formatDuration(Duration duration) {
         long hours = duration.toHours();
         long minutes = duration.toMinutesPart();
         long seconds = duration.toSecondsPart();
         return String.format("%dh %dm %ds", hours, minutes, seconds);
+    }
+
+    private static String formatBytes(long bytes) {
+        if (bytes < 1024) return bytes + " B";
+        if (bytes < 1024 * 1024) return String.format("%.1f KB", bytes / 1024.0);
+        if (bytes < 1024 * 1024 * 1024) return String.format("%.1f MB", bytes / (1024.0 * 1024));
+        return String.format("%.1f GB", bytes / (1024.0 * 1024 * 1024));
     }
 }

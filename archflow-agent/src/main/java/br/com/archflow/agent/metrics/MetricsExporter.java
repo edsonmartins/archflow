@@ -49,11 +49,9 @@ class MetricsExporter {
         this.backend = getConfigValue("metrics.export.backend", "log");
         this.exportUrl = getConfigValue("metrics.export.url", "");
         this.async = Boolean.parseBoolean(getConfigValue("metrics.export.async", "true"));
-        this.executor = this.async ? Executors.newSingleThreadExecutor(r -> {
-            Thread t = new Thread(r, "metrics-exporter");
-            t.setDaemon(true);
-            return t;
-        }) : null;
+        this.executor = this.async
+                ? Executors.newVirtualThreadPerTaskExecutor()
+                : null;
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(5))
                 .build();

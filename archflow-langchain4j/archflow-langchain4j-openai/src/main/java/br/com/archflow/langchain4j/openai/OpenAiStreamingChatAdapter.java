@@ -14,6 +14,7 @@ import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
 import dev.langchain4j.memory.ChatMemory;
 
 import java.util.Map;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 
@@ -39,6 +40,8 @@ import java.util.function.Consumer;
  * </ul>
  */
 public class OpenAiStreamingChatAdapter implements LangChainAdapter {
+
+    private final ReentrantLock lock = new ReentrantLock();
     private StreamingChatModel model;
     private Map<String, Object> config;
 
@@ -96,32 +99,41 @@ public class OpenAiStreamingChatAdapter implements LangChainAdapter {
     }
 
     @Override
-    public synchronized Object execute(String operation, Object input, ExecutionContext context) throws Exception {
-        if (model == null) {
-            throw new IllegalStateException("Adapter not configured. Call configure() first.");
+    public Object execute(String operation, Object input, ExecutionContext context) throws Exception {
+        lock.lock();
+        try {
+            return doExecute(operation, input, context);
+        } finally {
+            lock.unlock();
         }
+    }
 
-        if ("generateStream".equals(operation)) {
-            if (!(input instanceof String)) {
-                throw new IllegalArgumentException("Input must be a string for 'generateStream' operation");
-            }
-            return generateStream((String) input);
-        }
-
-        if ("chatStream".equals(operation)) {
-            if (!(input instanceof String)) {
-                throw new IllegalArgumentException("Chat input must be a string");
+    private Object doExecute(String operation, Object input, ExecutionContext context) throws Exception {
+            if (model == null) {
+                throw new IllegalStateException("Adapter not configured. Call configure() first.");
             }
 
-            ChatMemory memory = context.getChatMemory();
-            if (memory == null) {
-                throw new IllegalStateException("Chat memory not available in context");
+            if ("generateStream".equals(operation)) {
+                if (!(input instanceof String)) {
+                    throw new IllegalArgumentException("Input must be a string for 'generateStream' operation");
+                }
+                return generateStream((String) input);
             }
 
-            return chatStream((String) input, memory);
-        }
+            if ("chatStream".equals(operation)) {
+                if (!(input instanceof String)) {
+                    throw new IllegalArgumentException("Chat input must be a string");
+                }
 
-        throw new IllegalArgumentException("Unsupported operation: " + operation);
+                ChatMemory memory = context.getChatMemory();
+                if (memory == null) {
+                    throw new IllegalStateException("Chat memory not available in context");
+                }
+
+                return chatStream((String) input, memory);
+            }
+
+            throw new IllegalArgumentException("Unsupported operation: " + operation);
     }
 
     /**

@@ -1,5 +1,5 @@
 # ---- Stage 1: Build backend ----
-FROM maven:3.9-eclipse-temurin-17 AS backend-build
+FROM maven:3.9-eclipse-temurin-25 AS backend-build
 
 WORKDIR /app
 
@@ -50,7 +50,7 @@ COPY archflow-ui/ .
 RUN npm run build
 
 # ---- Stage 3: Runtime ----
-FROM eclipse-temurin:17-jre-alpine
+FROM eclipse-temurin:25-jre-alpine
 
 RUN addgroup -S archflow && adduser -S archflow -G archflow
 

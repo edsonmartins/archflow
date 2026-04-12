@@ -10,6 +10,7 @@ import dev.langchain4j.model.openai.OpenAiChatModel;
 import dev.langchain4j.memory.ChatMemory;
 
 import java.util.Map;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Adapter para integração com o modelo de chat da OpenAI no LangChain4j 1.10.0.
@@ -35,6 +36,8 @@ import java.util.Map;
  * @see OpenAiChatModel
  */
 public class OpenAiChatAdapter implements LangChainAdapter {
+
+    private final ReentrantLock lock = new ReentrantLock();
     private ChatModel model;
     private Map<String, Object> config;
 
@@ -132,17 +135,25 @@ public class OpenAiChatAdapter implements LangChainAdapter {
      * @throws RuntimeException se ocorrer um erro durante a execução (ex.: falha de rede)
      */
     @Override
-    public synchronized Object execute(String operation, Object input, ExecutionContext context) throws Exception {
-        if (model == null) {
-            throw new IllegalStateException("Adapter not configured. Call configure() first.");
-        }
+    public Object execute(String operation, Object input, ExecutionContext context) throws Exception {
+        lock.lock();
+        try {
+            if (model == null) {
+                throw new IllegalStateException("Adapter not configured. Call configure() first.");
+            }
 
+            return doExecute(operation, input, context);
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    private Object doExecute(String operation, Object input, ExecutionContext context) throws Exception {
         try {
             if ("generate".equals(operation)) {
                 if (!(input instanceof String)) {
                     throw new IllegalArgumentException("Input must be a string for 'generate' operation");
                 }
-                // LangChain4j 1.10.0: ChatModel.chat(String) retorna String diretamente
                 return model.chat((String) input);
             }
 
@@ -156,11 +167,9 @@ public class OpenAiChatAdapter implements LangChainAdapter {
                     throw new IllegalStateException("Chat memory not available in context");
                 }
 
-                // LangChain4j 1.10.0: Usa ChatModel.chat() com mensagens da memória
                 UserMessage userMessage = UserMessage.from((String) input);
                 memory.add(userMessage);
 
-                // ChatModel.chat(List<ChatMessage>) retorna ChatResponse
                 ChatResponse response = model.chat(memory.messages());
                 memory.add(response.aiMessage());
 
@@ -173,11 +182,6 @@ public class OpenAiChatAdapter implements LangChainAdapter {
         }
     }
 
-    /**
-     * Libera recursos utilizados pelo adapter.
-     *
-     * <p>Define o modelo e as configurações como null, permitindo que o garbage collector os libere.
-     */
     @Override
     public void shutdown() {
         this.model = null;
