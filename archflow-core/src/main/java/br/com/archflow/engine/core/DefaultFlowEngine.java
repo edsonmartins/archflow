@@ -26,6 +26,7 @@ public class DefaultFlowEngine implements FlowEngine {
     private final StateManager stateManager;
     private final FlowValidator flowValidator;
     private final MemoryRestorer memoryRestorer;
+    private final TraceRecorder traceRecorder;
     private final Map<String, FlowExecution> activeExecutions;
     private final ExecutorService virtualExecutor = Executors.newVirtualThreadPerTaskExecutor();
 
@@ -33,7 +34,7 @@ public class DefaultFlowEngine implements FlowEngine {
                              FlowRepository flowRepository,
                              StateManager stateManager,
                              FlowValidator flowValidator) {
-        this(executionManager, flowRepository, stateManager, flowValidator, null);
+        this(executionManager, flowRepository, stateManager, flowValidator, null, null);
     }
 
     public DefaultFlowEngine(ExecutionManager executionManager,
@@ -41,18 +42,29 @@ public class DefaultFlowEngine implements FlowEngine {
                              StateManager stateManager,
                              FlowValidator flowValidator,
                              MemoryRestorer memoryRestorer) {
+        this(executionManager, flowRepository, stateManager, flowValidator, memoryRestorer, null);
+    }
+
+    public DefaultFlowEngine(ExecutionManager executionManager,
+                             FlowRepository flowRepository,
+                             StateManager stateManager,
+                             FlowValidator flowValidator,
+                             MemoryRestorer memoryRestorer,
+                             TraceRecorder traceRecorder) {
         this.executionManager = executionManager;
         this.flowRepository = flowRepository;
         this.stateManager = stateManager;
         this.flowValidator = flowValidator;
         this.memoryRestorer = memoryRestorer;
+        this.traceRecorder = traceRecorder;
         this.activeExecutions = new ConcurrentHashMap<>();
     }
 
     @Override
     public CompletableFuture<FlowResult> startFlow(String flowId, Map<String, Object> input) {
         return CompletableFuture.supplyAsync(() -> {
-            // Uses virtual thread executor for I/O-bound flow execution
+            long startMs = System.currentTimeMillis();
+            notifyTraceStart(flowId, null, null);
             try {
                 Flow flow = flowRepository.findById(flowId)
                         .orElseThrow(() -> new FlowNotFoundException(flowId));
@@ -63,7 +75,9 @@ public class DefaultFlowEngine implements FlowEngine {
                 FlowExecution execution = new FlowExecution(flow, context);
                 activeExecutions.put(flowId, execution);
 
-                return executionManager.executeFlow(flow, context);
+                FlowResult result = executionManager.executeFlow(flow, context);
+                notifyTraceEnd(flowId, context.getTenantId(), result, System.currentTimeMillis() - startMs);
+                return result;
             } catch (Exception e) {
                 handleExecutionError(flowId, e);
                 throw new FlowEngineException("Error starting flow: " + flowId, e);
@@ -74,19 +88,23 @@ public class DefaultFlowEngine implements FlowEngine {
     @Override
     public CompletableFuture<FlowResult> execute(Flow flow, ExecutionContext context) {
         return CompletableFuture.supplyAsync(() -> {
-            // Uses virtual thread executor for I/O-bound flow execution
+            long startMs = System.currentTimeMillis();
+            String tenantId = context.getTenantId();
+            notifyTraceStart(flow.getId(), tenantId, null);
             try {
                 flowValidator.validate(flow);
 
                 if (context.getState() == null) {
-                    FlowState initialState = createInitialState(flow.getId(), context.getTenantId());
+                    FlowState initialState = createInitialState(flow.getId(), tenantId);
                     context.setState(initialState);
                 }
 
                 FlowExecution execution = new FlowExecution(flow, context);
                 activeExecutions.put(flow.getId(), execution);
 
-                return executionManager.executeFlow(flow, context);
+                FlowResult result = executionManager.executeFlow(flow, context);
+                notifyTraceEnd(flow.getId(), tenantId, result, System.currentTimeMillis() - startMs);
+                return result;
             } catch (Exception e) {
                 handleExecutionError(flow.getId(), e);
                 throw new FlowEngineException("Error executing flow: " + flow.getId(), e);
@@ -97,7 +115,8 @@ public class DefaultFlowEngine implements FlowEngine {
     @Override
     public CompletableFuture<FlowResult> resumeFlow(String flowId, ExecutionContext context) {
         return CompletableFuture.supplyAsync(() -> {
-            // Uses virtual thread executor for I/O-bound flow execution
+            long startMs = System.currentTimeMillis();
+            notifyTraceStart(flowId, context.getTenantId(), null);
             try {
                 Flow flow = flowRepository.findById(flowId)
                         .orElseThrow(() -> new FlowNotFoundException(flowId));
@@ -140,7 +159,9 @@ public class DefaultFlowEngine implements FlowEngine {
                 FlowExecution execution = new FlowExecution(flow, context);
                 activeExecutions.put(flowId, execution);
 
-                return executionManager.executeFlow(flow, context);
+                FlowResult result = executionManager.executeFlow(flow, context);
+                notifyTraceEnd(flowId, context.getTenantId(), result, System.currentTimeMillis() - startMs);
+                return result;
             } catch (Exception e) {
                 handleExecutionError(flowId, e);
                 throw new FlowEngineException("Error resuming flow: " + flowId, e);
@@ -239,6 +260,26 @@ public class DefaultFlowEngine implements FlowEngine {
                 .executionPaths(new ArrayList<>())
                 .metrics(FlowMetrics.builder().build())
                 .build();
+    }
+
+    private void notifyTraceStart(String flowId, String tenantId, String personaId) {
+        if (traceRecorder != null) {
+            try {
+                traceRecorder.onFlowStart(flowId, tenantId, personaId);
+            } catch (Exception ex) {
+                logger.warning("TraceRecorder.onFlowStart failed: " + ex.getMessage());
+            }
+        }
+    }
+
+    private void notifyTraceEnd(String flowId, String tenantId, FlowResult result, long durationMs) {
+        if (traceRecorder != null) {
+            try {
+                traceRecorder.onFlowEnd(flowId, tenantId, result, durationMs);
+            } catch (Exception ex) {
+                logger.warning("TraceRecorder.onFlowEnd failed: " + ex.getMessage());
+            }
+        }
     }
 
     private void handleExecutionError(String flowId, Exception e) {
