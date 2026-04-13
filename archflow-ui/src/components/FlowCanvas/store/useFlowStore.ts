@@ -1,5 +1,6 @@
 import { create } from 'zustand'
-import type { NodeExecutionState } from '../types'
+import type { FlowNodeData, NodeExecutionState } from '../types'
+import type { Node } from '@xyflow/react'
 
 interface FlowStore {
   // ── Estado de execução ─────────────────────────────────────────
@@ -7,9 +8,13 @@ interface FlowStore {
   executionId:    string | null
   executionState: Record<string, NodeExecutionState>
 
+  // ── Nós (espelho do React Flow) ────────────────────────────────
+  nodes: Node<FlowNodeData>[]
+  setNodes: (nodes: Node<FlowNodeData>[]) => void
+
   // ── Nó selecionado ─────────────────────────────────────────────
   selectedNodeId:   string | null
-  selectedNodeData: Record<string, unknown> | null
+  selectedNodeData: FlowNodeData | null
 
   // ── Ações ──────────────────────────────────────────────────────
   startExecution:   (executionId: string) => void
@@ -17,16 +22,22 @@ interface FlowStore {
   finishExecution:  () => void
   abortExecution:   () => void
 
-  selectNode:   (nodeId: string | null, data: Record<string, unknown> | null) => void
-  clearSelection: () => void
+  selectNode:       (nodeId: string | null, data: FlowNodeData | null) => void
+  clearSelection:   () => void
+  updateNodeConfig: (nodeId: string, key: string, value: unknown) => void
+  updateNodeLabel:  (nodeId: string, label: string) => void
 }
 
 export const useFlowStore = create<FlowStore>((set, get) => ({
   isExecuting:      false,
   executionId:      null,
   executionState:   {},
+  nodes:            [],
   selectedNodeId:   null,
   selectedNodeData: null,
+
+  // ── Nós ────────────────────────────────────────────────────────
+  setNodes: (nodes) => set({ nodes }),
 
   // ── Execução ───────────────────────────────────────────────────
   startExecution: (executionId) =>
@@ -64,6 +75,43 @@ export const useFlowStore = create<FlowStore>((set, get) => ({
 
   clearSelection: () =>
     set({ selectedNodeId: null, selectedNodeData: null }),
+
+  // ── Atualização de config de nó ────────────────────────────────
+  updateNodeConfig: (nodeId, key, value) =>
+    set(state => {
+      const nodes = state.nodes.map(n => {
+        if (n.id !== nodeId) return n
+        return {
+          ...n,
+          data: {
+            ...n.data,
+            config: { ...n.data.config, [key]: value },
+          },
+        }
+      })
+      const updated = nodes.find(n => n.id === nodeId)
+      return {
+        nodes,
+        selectedNodeData: state.selectedNodeId === nodeId && updated
+          ? updated.data
+          : state.selectedNodeData,
+      }
+    }),
+
+  updateNodeLabel: (nodeId, label) =>
+    set(state => {
+      const nodes = state.nodes.map(n => {
+        if (n.id !== nodeId) return n
+        return { ...n, data: { ...n.data, label } }
+      })
+      const updated = nodes.find(n => n.id === nodeId)
+      return {
+        nodes,
+        selectedNodeData: state.selectedNodeId === nodeId && updated
+          ? updated.data
+          : state.selectedNodeData,
+      }
+    }),
 }))
 
 // ── Hook para simular execução (dev/demo) ────────────────────────

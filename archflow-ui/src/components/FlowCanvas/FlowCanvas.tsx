@@ -1,4 +1,4 @@
-import { useCallback, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import {
   ReactFlow,
   Background,
@@ -71,7 +71,51 @@ export function FlowCanvas({
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges)
 
-  const { executionState } = useFlowStore()
+  const { executionState, setNodes: syncNodes, nodes: storeNodes } = useFlowStore()
+
+  // Track whether an update came from the store (PropertyPanel edit)
+  // or from React Flow (drag/drop, connect, delete). Prevents ping-pong
+  // between the two sync effects during remount.
+  const fromStoreRef = useRef(false)
+  const localNodesRef = useRef(nodes)
+  localNodesRef.current = nodes
+
+  // React Flow → Zustand: publish local node changes so PropertyPanel
+  // can read the latest config via `selectedNodeData`.
+  useEffect(() => {
+    if (fromStoreRef.current) {
+      // We just pushed a store update into React Flow; skip the echo.
+      fromStoreRef.current = false
+      return
+    }
+    syncNodes(nodes)
+  }, [nodes, syncNodes])
+
+  // Zustand → React Flow: apply `updateNodeConfig`/`updateNodeLabel`
+  // mutations from PropertyPanel back into React Flow's state. We only
+  // touch nodes whose id exists on the canvas and whose data reference
+  // differs, so the no-op path is free.
+  useEffect(() => {
+    if (storeNodes.length === 0) return
+    const current = localNodesRef.current
+    // Guard against stale store data from a previous FlowCanvas mount:
+    // if the store's node ids don't match the canvas, skip.
+    const canvasIds = new Set(current.map(n => n.id))
+    const matching = storeNodes.filter(s => canvasIds.has(s.id))
+    if (matching.length === 0) return
+
+    let changed = false
+    const next = current.map(n => {
+      const storeNode = matching.find(s => s.id === n.id)
+      if (!storeNode || storeNode.data === n.data) return n
+      changed = true
+      return { ...n, data: storeNode.data }
+    })
+    if (changed) {
+      fromStoreRef.current = true
+      setNodes(next)
+    }
+  }, [storeNodes, setNodes])
 
   // ── Conexão entre nós ──────────────────────────────────────────
   const onConnect: OnConnect = useCallback(
