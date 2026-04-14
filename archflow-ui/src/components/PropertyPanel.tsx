@@ -1,6 +1,6 @@
 import {
   Select, TextInput, Textarea, NumberInput, Divider, ScrollArea, Tabs,
-  Accordion, Switch, MultiSelect, Badge, Text,
+  Accordion, Switch, TagsInput, Badge, Text,
 } from '@mantine/core'
 import { useFlowStore }     from './FlowCanvas/store/useFlowStore'
 import type { FlowNodeData } from './FlowCanvas/types'
@@ -105,12 +105,12 @@ function NodeHeader({ nodeData }: { nodeData: FlowNodeData }) {
   return (
     <div style={{ padding: '12px 16px', borderBottom: '0.5px solid var(--color-border-tertiary)', display: 'flex', alignItems: 'center', gap: 10 }}>
       <div style={{ width: 32, height: 32, borderRadius: 8, background: cat.colorLight, border: `1px solid ${cat.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, flexShrink: 0 }}>
-        {(nodeData.config?.icon as string) ?? '\u25CF'}
+        {(nodeData.config?.icon as string) ?? '●'}
       </div>
       <div>
         <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--color-text-primary)' }}>{nodeData.label}</div>
         <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-mono)' }}>
-          {nodeData.nodeType} \u00b7 {cat.label}
+          {nodeData.nodeType} · {cat.label}
         </div>
       </div>
     </div>
@@ -191,7 +191,14 @@ function NodeFields({ nodeId, nodeData }: { nodeId: string; nodeData: FlowNodeDa
               if (firstModel) update('model', firstModel.id)
             }}
             size="xs"
-            data={providers.map(p => ({ value: p.id, label: p.displayName, group: p.group }))}
+            data={(() => {
+              const groups = new Map<string, { value: string; label: string }[]>()
+              providers.forEach(p => {
+                if (!groups.has(p.group)) groups.set(p.group, [])
+                groups.get(p.group)!.push({ value: p.id, label: p.displayName })
+              })
+              return Array.from(groups.entries()).map(([group, items]) => ({ group, items }))
+            })()}
             styles={FIELD_STYLES}
           />
 
@@ -369,25 +376,19 @@ function NodeFields({ nodeId, nodeData }: { nodeId: string; nodeData: FlowNodeDa
                       styles={FIELD_STYLES}
                     />
                   )}
-                  <MultiSelect
+                  <TagsInput
                     label="Enabled tools (whitelist)"
                     value={getConfig<string[]>(nodeData, 'enabledTools', [])}
                     onChange={v => update('enabledTools', v)}
-                    data={getConfig<string[]>(nodeData, 'enabledTools', [])}
-                    searchable
-                    creatable
-                    getCreateLabel={q => `+ Add "${q}"`}
+                    placeholder="Add tool..."
                     size="xs"
                     styles={FIELD_STYLES}
                   />
-                  <MultiSelect
+                  <TagsInput
                     label="Disabled tools (blacklist)"
                     value={getConfig<string[]>(nodeData, 'disabledTools', [])}
                     onChange={v => update('disabledTools', v)}
-                    data={getConfig<string[]>(nodeData, 'disabledTools', [])}
-                    searchable
-                    creatable
-                    getCreateLabel={q => `+ Add "${q}"`}
+                    placeholder="Add tool..."
                     size="xs"
                     styles={FIELD_STYLES}
                   />
@@ -439,14 +440,11 @@ function NodeFields({ nodeId, nodeData }: { nodeId: string; nodeData: FlowNodeDa
               <Accordion.Control>MCP Servers</Accordion.Control>
               <Accordion.Panel>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  <MultiSelect
+                  <TagsInput
                     label="Connected servers"
                     value={getConfig<string[]>(nodeData, 'mcpServers', [])}
                     onChange={v => update('mcpServers', v)}
-                    data={getConfig<string[]>(nodeData, 'mcpServers', [])}
-                    searchable
-                    creatable
-                    getCreateLabel={q => `+ Add "${q}"`}
+                    placeholder="Add server name..."
                     size="xs"
                     styles={FIELD_STYLES}
                   />
