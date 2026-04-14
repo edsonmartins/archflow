@@ -232,7 +232,11 @@ public class ArchFlowAgent implements AutoCloseable {
                 executionManager,
                 flowRepository,
                 stateManager,
-                flowValidator
+                flowValidator,
+                null,  // memoryRestorer
+                null,  // traceRecorder
+                config.maxConcurrentFlows(),
+                config.defaultFlowTimeout()
         );
     }
 
@@ -274,7 +278,7 @@ public class ArchFlowAgent implements AutoCloseable {
     protected ParallelExecutor createParallelExecutor() {
         return new DefaultParallelExecutor(
                 executorService,
-                config.maxConcurrentFlows()
+                config.maxParallelStepsPerFlow()
         );
     }
 }

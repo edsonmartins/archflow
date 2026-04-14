@@ -28,7 +28,6 @@ public class DefaultFlowExecutor implements FlowExecutor {
     private final ClassLoader pluginClassLoader;
     private final MetricsCollector metricsCollector;
     private final Map<String, StepExecution> activeExecutions;
-    private volatile Flow currentFlow;
 
     public DefaultFlowExecutor(ClassLoader pluginClassLoader, MetricsCollector metricsCollector) {
         this.pluginClassLoader = pluginClassLoader;
@@ -40,7 +39,6 @@ public class DefaultFlowExecutor implements FlowExecutor {
     public FlowResult execute(Flow flow, ExecutionContext context) {
         String flowId = flow.getId();
         Thread.currentThread().setContextClassLoader(pluginClassLoader);
-        this.currentFlow = flow;
 
         try {
             logger.info("Iniciando execução do fluxo: " + flowId);
@@ -91,7 +89,8 @@ public class DefaultFlowExecutor implements FlowExecutor {
             metricsCollector.recordFlowError(flowId, e);
             throw new RuntimeException("Erro executando fluxo: " + flowId, e);
         } finally {
-            this.currentFlow = null;
+            // Flow-scoped state is already on the stack (local variable).
+            // No shared field to clear.
         }
     }
 

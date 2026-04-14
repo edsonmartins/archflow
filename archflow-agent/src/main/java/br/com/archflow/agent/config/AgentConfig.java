@@ -11,18 +11,19 @@ public record AgentConfig(
     // Configurações básicas
     String agentId,
     String pluginsPath,
-    
+
     // Configurações de execução
     int maxConcurrentFlows,
+    int maxParallelStepsPerFlow,
     long defaultFlowTimeout,
     RetryConfig retryConfig,
-    
+
     // Configurações de recursos
     ResourceConfig resourceConfig,
-    
+
     // Configurações de monitoramento
     MonitoringConfig monitoringConfig,
-    
+
     // Configurações extras
     Map<String, Object> extraConfig
 ) {
@@ -33,6 +34,7 @@ public record AgentConfig(
         private String agentId = "default";
         private String pluginsPath = "plugins";
         private int maxConcurrentFlows = 10;
+        private int maxParallelStepsPerFlow = 5;
         private long defaultFlowTimeout = 3600000; // 1 hora
         private RetryConfig retryConfig = new RetryConfig(3, 1000, 2.0);
         private ResourceConfig resourceConfig = new ResourceConfig(
@@ -59,6 +61,11 @@ public record AgentConfig(
 
         public Builder maxConcurrentFlows(int maxConcurrentFlows) {
             this.maxConcurrentFlows = maxConcurrentFlows;
+            return this;
+        }
+
+        public Builder maxParallelStepsPerFlow(int maxParallelStepsPerFlow) {
+            this.maxParallelStepsPerFlow = maxParallelStepsPerFlow;
             return this;
         }
 
@@ -92,6 +99,7 @@ public record AgentConfig(
                 agentId,
                 pluginsPath,
                 maxConcurrentFlows,
+                maxParallelStepsPerFlow,
                 defaultFlowTimeout,
                 retryConfig,
                 resourceConfig,
