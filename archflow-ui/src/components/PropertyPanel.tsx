@@ -6,101 +6,10 @@ import { useFlowStore }     from './FlowCanvas/store/useFlowStore'
 import type { FlowNodeData } from './FlowCanvas/types'
 import { NODE_CATEGORIES }  from './FlowCanvas/constants'
 import { FIELD_STYLES, MONO_INPUT } from './PropertyPanel/fieldStyles'
+import { useWorkflowConfig } from './PropertyPanel/useWorkflowConfig'
+import type { ProviderInfo } from '../services/workflow-config-api'
 
-// ── Provider / model data (will be API-driven in production) ─────
-const PROVIDERS = [
-  {
-    id: 'openai', displayName: 'OpenAI', group: 'Cloud',
-    models: [
-      { id: 'gpt-4o',       name: 'GPT-4o',       contextWindow: 128000, maxTemperature: 2.0 },
-      { id: 'gpt-4o-mini',  name: 'GPT-4o Mini',  contextWindow: 128000, maxTemperature: 2.0 },
-      { id: 'gpt-4-turbo',  name: 'GPT-4 Turbo',  contextWindow: 128000, maxTemperature: 2.0 },
-      { id: 'o1',           name: 'o1',            contextWindow: 200000, maxTemperature: 1.0 },
-      { id: 'o3-mini',      name: 'o3 Mini',       contextWindow: 200000, maxTemperature: 1.0 },
-    ],
-  },
-  {
-    id: 'anthropic', displayName: 'Anthropic', group: 'Cloud',
-    models: [
-      { id: 'claude-sonnet-4-6',        name: 'Claude Sonnet 4.6',    contextWindow: 200000, maxTemperature: 1.0 },
-      { id: 'claude-opus-4-6',          name: 'Claude Opus 4.6',      contextWindow: 200000, maxTemperature: 1.0 },
-      { id: 'claude-3-5-sonnet-latest', name: 'Claude 3.5 Sonnet',    contextWindow: 200000, maxTemperature: 1.0 },
-      { id: 'claude-3-haiku-20240307',  name: 'Claude 3 Haiku',       contextWindow: 200000, maxTemperature: 1.0 },
-    ],
-  },
-  {
-    id: 'azure-openai', displayName: 'Azure OpenAI', group: 'Cloud',
-    models: [
-      { id: 'azure-gpt-4o',      name: 'GPT-4o (Azure)',      contextWindow: 128000, maxTemperature: 2.0 },
-      { id: 'azure-gpt-4o-mini', name: 'GPT-4o Mini (Azure)', contextWindow: 128000, maxTemperature: 2.0 },
-    ],
-  },
-  {
-    id: 'gemini', displayName: 'Gemini', group: 'Cloud',
-    models: [
-      { id: 'gemini-2.0-flash-exp', name: 'Gemini 2.0 Flash',  contextWindow: 1048576, maxTemperature: 2.0 },
-      { id: 'gemini-1.5-pro',       name: 'Gemini 1.5 Pro',    contextWindow: 2097152, maxTemperature: 2.0 },
-      { id: 'gemini-1.5-flash',     name: 'Gemini 1.5 Flash',  contextWindow: 1048576, maxTemperature: 2.0 },
-    ],
-  },
-  {
-    id: 'mistral', displayName: 'Mistral', group: 'Cloud',
-    models: [
-      { id: 'mistral-large-latest', name: 'Mistral Large',   contextWindow: 128000, maxTemperature: 1.5 },
-      { id: 'mistral-medium',       name: 'Mistral Medium',  contextWindow: 32000,  maxTemperature: 1.5 },
-      { id: 'codestral-latest',     name: 'Codestral',       contextWindow: 32000,  maxTemperature: 1.0 },
-    ],
-  },
-  {
-    id: 'cohere', displayName: 'Cohere', group: 'Cloud',
-    models: [
-      { id: 'command-r-plus', name: 'Command R+', contextWindow: 128000, maxTemperature: 1.0 },
-      { id: 'command-r',      name: 'Command R',  contextWindow: 128000, maxTemperature: 1.0 },
-    ],
-  },
-  {
-    id: 'deepseek', displayName: 'DeepSeek', group: 'Cloud',
-    models: [
-      { id: 'deepseek-chat',     name: 'DeepSeek Chat',     contextWindow: 64000, maxTemperature: 2.0 },
-      { id: 'deepseek-coder',    name: 'DeepSeek Coder',    contextWindow: 64000, maxTemperature: 2.0 },
-      { id: 'deepseek-reasoner', name: 'DeepSeek Reasoner', contextWindow: 64000, maxTemperature: 1.0 },
-    ],
-  },
-  {
-    id: 'openrouter', displayName: 'OpenRouter', group: 'Cloud',
-    models: [
-      { id: 'openrouter/auto',            name: 'Auto (best available)', contextWindow: 128000, maxTemperature: 2.0 },
-      { id: 'meta-llama/llama-3.3-70b',   name: 'Llama 3.3 70B',        contextWindow: 128000, maxTemperature: 2.0 },
-      { id: 'google/gemma-2-27b-it',      name: 'Gemma 2 27B',          contextWindow: 8192,   maxTemperature: 2.0 },
-    ],
-  },
-  {
-    id: 'bedrock', displayName: 'AWS Bedrock', group: 'Cloud',
-    models: [
-      { id: 'bedrock-claude-3-sonnet', name: 'Claude 3 Sonnet (Bedrock)', contextWindow: 200000, maxTemperature: 1.0 },
-      { id: 'bedrock-llama-3-70b',     name: 'Llama 3 70B (Bedrock)',     contextWindow: 8192,   maxTemperature: 1.0 },
-    ],
-  },
-  {
-    id: 'ollama', displayName: 'Ollama (local)', group: 'Local',
-    models: [
-      { id: 'llama3.3',       name: 'Llama 3.3',       contextWindow: 128000, maxTemperature: 2.0 },
-      { id: 'mistral',        name: 'Mistral 7B',      contextWindow: 32000,  maxTemperature: 1.5 },
-      { id: 'qwen2.5',        name: 'Qwen 2.5',        contextWindow: 128000, maxTemperature: 2.0 },
-      { id: 'deepseek-coder', name: 'DeepSeek Coder',  contextWindow: 16000,  maxTemperature: 2.0 },
-      { id: 'gemma-3-27b',    name: 'Gemma 3 27B',     contextWindow: 8192,   maxTemperature: 2.0 },
-      { id: 'phi3',           name: 'Phi-3',           contextWindow: 128000, maxTemperature: 2.0 },
-    ],
-  },
-]
-
-const AGENT_PATTERNS = [
-  { value: 'react',           label: 'ReAct (Reason + Act)',              desc: 'Iterative thought-action-observation loop. Best for multi-step tool use.' },
-  { value: 'plan-execute',    label: 'Plan and Execute',                  desc: 'Separates planning from execution. Cost-efficient for complex tasks.' },
-  { value: 'rewoo',           label: 'ReWOO (Reasoning Without Observation)', desc: 'Plans all tool calls upfront. 82% fewer tokens than ReAct.' },
-  { value: 'chain-of-thought', label: 'Chain of Thought',                 desc: 'Multiple reasoning paths with majority vote. Best for analytical tasks.' },
-]
-
+// ── Embedding model catalog (tiny, kept local) ──────────────────
 const EMBEDDING_MODELS = [
   { provider: 'openai', models: [
     { id: 'text-embedding-3-large', name: 'text-embedding-3-large', dimensions: 3072 },
@@ -118,12 +27,12 @@ function getConfig<T>(data: FlowNodeData, key: string, fallback: T): T {
   return (data.config?.[key] as T) ?? fallback
 }
 
-function findProvider(providerId: string) {
-  return PROVIDERS.find(p => p.id === providerId)
+function findProvider(providers: ProviderInfo[], providerId: string) {
+  return providers.find(p => p.id === providerId)
 }
 
-function findModel(providerId: string, modelId: string) {
-  return findProvider(providerId)?.models.find(m => m.id === modelId)
+function findModel(providers: ProviderInfo[], providerId: string, modelId: string) {
+  return findProvider(providers, providerId)?.models.find(m => m.id === modelId)
 }
 
 function ctxLabel(ctx: number) {
@@ -211,6 +120,7 @@ function NodeHeader({ nodeData }: { nodeData: FlowNodeData }) {
 // ── Node Fields (all gaps implemented) ──────────────────────────
 function NodeFields({ nodeId, nodeData }: { nodeId: string; nodeData: FlowNodeData }) {
   const { updateNodeConfig, updateNodeLabel } = useFlowStore()
+  const { providers, patterns, personas, governance } = useWorkflowConfig()
 
   const isAgent     = ['agent', 'assistant', 'llm-chat', 'llm-streaming'].includes(nodeData.nodeType)
   const isTool      = ['tool', 'function', 'custom'].includes(nodeData.nodeType)
@@ -220,12 +130,25 @@ function NodeFields({ nodeId, nodeData }: { nodeId: string; nodeData: FlowNodeDa
   const update = (key: string, value: unknown) => updateNodeConfig(nodeId, key, value)
 
   // Derived state for agent nodes
-  const providerId = getConfig(nodeData, 'provider', 'anthropic')
-  const modelId    = getConfig(nodeData, 'model', 'claude-sonnet-4-6')
-  const provider   = findProvider(providerId)
-  const model      = findModel(providerId, modelId)
+  const providerId = getConfig(nodeData, 'provider', providers[0]?.id ?? 'anthropic')
+  const modelId    = getConfig(nodeData, 'model', providers[0]?.models[0]?.id ?? 'claude-sonnet-4-6')
+  const provider   = findProvider(providers, providerId)
+  const model      = findModel(providers, providerId, modelId)
   const maxTemp    = model?.maxTemperature ?? 2.0
   const ctxWindow  = model?.contextWindow ?? 128000
+
+  // Persona selector options ("custom" = free-text system prompt)
+  const personaOptions = [
+    { value: '__custom__', label: 'Custom (free text)' },
+    ...personas.map(p => ({ value: p.id, label: p.label })),
+  ]
+  const personaId = getConfig(nodeData, 'personaId', '__custom__')
+
+  // Governance profile selector
+  const governanceOptions = [
+    { value: '__custom__', label: 'Custom' },
+    ...governance.map(g => ({ value: g.id, label: g.name })),
+  ]
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -250,11 +173,11 @@ function NodeFields({ nodeId, nodeData }: { nodeId: string; nodeData: FlowNodeDa
               value={getConfig(nodeData, 'agentPattern', 'react')}
               onChange={v => update('agentPattern', v)}
               size="xs"
-              data={AGENT_PATTERNS.map(p => ({ value: p.value, label: p.label }))}
+              data={patterns.map(p => ({ value: p.id, label: p.label }))}
               styles={FIELD_STYLES}
             />
             <Text size="xs" c="dimmed" mt={4} lh={1.4}>
-              {AGENT_PATTERNS.find(p => p.value === getConfig(nodeData, 'agentPattern', 'react'))?.desc}
+              {patterns.find(p => p.id === getConfig(nodeData, 'agentPattern', 'react'))?.description}
             </Text>
           </div>
 
@@ -264,11 +187,11 @@ function NodeFields({ nodeId, nodeData }: { nodeId: string; nodeData: FlowNodeDa
             value={providerId}
             onChange={v => {
               update('provider', v)
-              const firstModel = PROVIDERS.find(p => p.id === v)?.models[0]
+              const firstModel = providers.find(p => p.id === v)?.models[0]
               if (firstModel) update('model', firstModel.id)
             }}
             size="xs"
-            data={PROVIDERS.map(p => ({ value: p.id, label: p.displayName, group: p.group }))}
+            data={providers.map(p => ({ value: p.id, label: p.displayName, group: p.group }))}
             styles={FIELD_STYLES}
           />
 
@@ -290,6 +213,24 @@ function NodeFields({ nodeId, nodeData }: { nodeId: string; nodeData: FlowNodeDa
             )}
           </div>
 
+          {/* Gap 10: Persona selector */}
+          {personas.length > 0 && (
+            <Select
+              label="Persona"
+              value={personaId}
+              onChange={v => {
+                update('personaId', v)
+                if (v && v !== '__custom__') {
+                  const p = personas.find(pp => pp.id === v)
+                  if (p) update('systemPrompt', p.description)
+                }
+              }}
+              size="xs"
+              data={personaOptions}
+              styles={FIELD_STYLES}
+            />
+          )}
+
           {/* System prompt */}
           <div>
             <div style={{ fontSize: 11, fontWeight: 500, color: 'var(--color-text-secondary)', marginBottom: 5 }}>
@@ -302,6 +243,7 @@ function NodeFields({ nodeId, nodeData }: { nodeId: string; nodeData: FlowNodeDa
               minRows={3}
               maxRows={6}
               autosize
+              disabled={personas.length > 0 && personaId !== '__custom__'}
               size="xs"
               styles={{ input: { fontSize: 12, fontFamily: 'var(--font-mono)' } }}
             />
@@ -405,6 +347,28 @@ function NodeFields({ nodeId, nodeData }: { nodeId: string; nodeData: FlowNodeDa
               <Accordion.Control>Governance</Accordion.Control>
               <Accordion.Panel>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  {governance.length > 0 && (
+                    <Select
+                      label="Profile"
+                      value={getConfig(nodeData, 'governanceProfileId', '__custom__')}
+                      onChange={v => {
+                        update('governanceProfileId', v)
+                        if (v && v !== '__custom__') {
+                          const g = governance.find(gg => gg.id === v)
+                          if (g) {
+                            update('enabledTools', g.enabledTools)
+                            update('disabledTools', g.disabledTools)
+                            update('escalationThreshold', g.escalationThreshold)
+                            update('maxToolExecutions', g.maxToolExecutions)
+                            update('customInstructions', g.customInstructions)
+                          }
+                        }
+                      }}
+                      size="xs"
+                      data={governanceOptions}
+                      styles={FIELD_STYLES}
+                    />
+                  )}
                   <MultiSelect
                     label="Enabled tools (whitelist)"
                     value={getConfig<string[]>(nodeData, 'enabledTools', [])}
