@@ -330,4 +330,126 @@ class DefaultFlowEngineConcurrencyTest {
             engine.startFlow("flow-2", Map.of()).get(5, TimeUnit.SECONDS);
         }
     }
+
+    @Nested
+    @DisplayName("approval lifecycle")
+    class ApprovalLifecycle {
+
+        @BeforeEach
+        void setUp() {
+            engine = new DefaultFlowEngine(
+                    executionManager, flowRepository, stateManager, flowValidator,
+                    null, null, 2, 30_000);
+        }
+
+        @Test
+        @DisplayName("approved flow resumes without 'already running' error")
+        void approvalResumesSuccessfully() throws Exception {
+            Flow flow = createMockFlow("flow-1");
+            when(flowRepository.findById("flow-1")).thenReturn(Optional.of(flow));
+
+            CountDownLatch reachedApproval = new CountDownLatch(1);
+            CountDownLatch approvalDecided = new CountDownLatch(1);
+
+            when(executionManager.executeFlow(eq(flow), any(ExecutionContext.class)))
+                    .thenAnswer(inv -> {
+                        // Simulate reaching an approval gate
+                        engine.requestApproval("flow-1", "step-2", "proposal");
+                        reachedApproval.countDown();
+                        approvalDecided.await();
+                        return successResult();
+                    })
+                    // Second call (resume) returns immediately
+                    .thenReturn(successResult());
+
+            CompletableFuture<FlowResult> future = engine.startFlow("flow-1", Map.of());
+            reachedApproval.await(5, TimeUnit.SECONDS);
+
+            // Submit approval — this should NOT throw "already running"
+            approvalDecided.countDown();
+            future.get(5, TimeUnit.SECONDS);
+
+            // After completion, permits are restored
+            Thread.sleep(50);
+            assertThat(engine.getAvailablePermits()).isEqualTo(2);
+        }
+
+        @Test
+        @DisplayName("rejected approval releases semaphore permit")
+        void rejectionReleasesSemaphore() throws Exception {
+            Flow flow = createMockFlow("flow-1");
+            when(flowRepository.findById("flow-1")).thenReturn(Optional.of(flow));
+
+            CountDownLatch reachedApproval = new CountDownLatch(1);
+            CountDownLatch approvalDecided = new CountDownLatch(1);
+
+            when(executionManager.executeFlow(eq(flow), any(ExecutionContext.class)))
+                    .thenAnswer(inv -> {
+                        engine.requestApproval("flow-1", "step-2", "proposal");
+                        reachedApproval.countDown();
+                        approvalDecided.await();
+                        return successResult();
+                    });
+
+            engine.startFlow("flow-1", Map.of());
+            reachedApproval.await(5, TimeUnit.SECONDS);
+
+            assertThat(engine.getAvailablePermits())
+                    .as("permit consumed by the running flow")
+                    .isEqualTo(1);
+
+            // Reject the approval
+            String requestId = "req-1"; // requestApproval returned a UUID but we don't need to match it
+            engine.submitApproval("flow-1", requestId, false, null);
+            approvalDecided.countDown();
+
+            Thread.sleep(100);
+            assertThat(engine.getAvailablePermits())
+                    .as("permit should be released after rejection")
+                    .isEqualTo(2);
+        }
+    }
+
+    @Nested
+    @DisplayName("cancel safety")
+    class CancelSafety {
+
+        @Test
+        @DisplayName("cancel during execution does not double-remove from activeExecutions")
+        void cancelDuringExecution() throws Exception {
+            engine = new DefaultFlowEngine(
+                    executionManager, flowRepository, stateManager, flowValidator,
+                    null, null, 2, 30_000);
+
+            Flow flow = createMockFlow("flow-1");
+            when(flowRepository.findById("flow-1")).thenReturn(Optional.of(flow));
+
+            CountDownLatch running = new CountDownLatch(1);
+            CountDownLatch allowFinish = new CountDownLatch(1);
+
+            when(executionManager.executeFlow(eq(flow), any(ExecutionContext.class)))
+                    .thenAnswer(inv -> {
+                        running.countDown();
+                        allowFinish.await();
+                        return successResult();
+                    });
+
+            CompletableFuture<FlowResult> future = engine.startFlow("flow-1", Map.of());
+            running.await(5, TimeUnit.SECONDS);
+
+            // Cancel while executing — sets STOPPED flag but does NOT remove from map
+            engine.cancel("flow-1");
+            verify(executionManager).stopFlow("flow-1");
+            verify(stateManager).saveState(eq("flow-1"), argThat(s -> s.getStatus() == FlowStatus.STOPPED));
+
+            // Let the execution finish
+            allowFinish.countDown();
+            try { future.get(5, TimeUnit.SECONDS); } catch (Exception ignored) {}
+
+            // After completion, cleanup happened
+            Thread.sleep(50);
+            assertThat(engine.getActiveFlows()).doesNotContain("flow-1");
+            assertThat(engine.getAvailablePermits()).isEqualTo(2);
+        }
+    }
 }

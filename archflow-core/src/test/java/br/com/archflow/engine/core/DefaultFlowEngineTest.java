@@ -344,7 +344,7 @@ class DefaultFlowEngineTest {
     class CancelTest {
 
         @Test
-        @DisplayName("should cancel and remove active flow")
+        @DisplayName("should cancel active flow — state STOPPED + executor notified")
         void shouldCancelActiveFlow() throws Exception {
             var flow = createMockFlow("flow-1");
             var expectedResult = createMockResult();
@@ -352,16 +352,23 @@ class DefaultFlowEngineTest {
             when(flowRepository.findById("flow-1")).thenReturn(Optional.of(flow));
             when(executionManager.executeFlow(eq(flow), any(ExecutionContext.class)))
                     .thenAnswer(inv -> {
+                        // cancel() sets the STOPPED state and notifies the executor
+                        // but does NOT remove from activeExecutions — that's done
+                        // by submitFlow's finally block after the executor returns.
+                        // This prevents the race where cancel() and submitFlow()
+                        // both call remove() and confuse the cleanup path.
                         engine.cancel("flow-1");
 
                         verify(stateManager).saveState(eq("flow-1"), argThat(state ->
                                 state.getStatus() == FlowStatus.STOPPED));
                         verify(executionManager).stopFlow("flow-1");
-                        assertThat(engine.getActiveFlows()).doesNotContain("flow-1");
                         return expectedResult;
                     });
 
             engine.startFlow("flow-1", Map.of()).get();
+
+            // After the virtual thread finishes, the flow is cleaned up.
+            assertThat(engine.getActiveFlows()).doesNotContain("flow-1");
         }
 
         @Test

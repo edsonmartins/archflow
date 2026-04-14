@@ -297,10 +297,14 @@ public class DefaultFlowEngine implements FlowEngine {
     @Override
     public void cancel(String flowId) {
         try {
-            FlowExecution execution = activeExecutions.remove(flowId);
+            FlowExecution execution = activeExecutions.get(flowId);
             if (execution == null) {
                 throw new FlowNotFoundException(flowId);
             }
+            // Mark as cancelled — submitFlow's finally block will see the
+            // STOPPED status and skip re-removing. The entry stays in the
+            // map so the executor can still check state; the finally block
+            // in submitFlow handles the actual map cleanup.
             execution.cancel();
             stateManager.saveState(flowId, execution.getContext().getState());
             executionManager.stopFlow(flowId);
@@ -361,14 +365,26 @@ public class DefaultFlowEngine implements FlowEngine {
                     .build();
             execution.getContext().setState(rejectedState);
             stateManager.saveState(flowId, rejectedState);
-            activeExecutions.remove(flowId);
             executionManager.stopFlow(flowId);
+            // Note: we do NOT release the semaphore or remove from
+            // activeExecutions here — the original submitFlow() virtual
+            // thread is still running, blocked inside executionManager.
+            // executeFlow. stopFlow signals it to unblock; its finally
+            // block will release the permit and remove the map entry
+            // exactly once.
             return CompletableFuture.completedFuture(null);
         }
 
         if (editedPayload != null) {
             execution.getContext().set("approvalPayload", editedPayload);
         }
+
+        // Remove the current entry so resumeFlow → submitFlow can
+        // re-register via putIfAbsent without hitting "already running".
+        // The original submitFlow virtual thread is still running and
+        // will release its own permit when it unblocks and returns.
+        activeExecutions.remove(flowId);
+
         return resumeFlow(flowId, execution.getContext());
     }
 

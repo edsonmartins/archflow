@@ -99,7 +99,10 @@ public class DefaultFlowExecutor implements FlowExecutor {
         String stepId = result.getStepId();
         logger.info("Processando resultado do step: " + stepId);
 
-        StepExecution execution = activeExecutions.get(stepId);
+        // Lookup uses the flow-scoped key. We search for any entry
+        // ending with ":stepId" — the flowId prefix was set in executeStep.
+        String scopedKey = findScopedKey(stepId);
+        StepExecution execution = scopedKey != null ? activeExecutions.get(scopedKey) : null;
         if (execution == null) {
             logger.warning("Step execution não encontrada para: " + stepId);
             return;
@@ -124,12 +127,21 @@ public class DefaultFlowExecutor implements FlowExecutor {
             }
 
             // Remove execução ativa
-            activeExecutions.remove(stepId);
+            activeExecutions.remove(scopedKey);
 
         } catch (Exception e) {
             logger.severe("Erro processando resultado do step " + stepId + ": " + e.getMessage());
             execution.fail(e);
         }
+    }
+
+    /** Finds the flow-scoped key for a stepId (format "flowId:stepId"). */
+    private String findScopedKey(String stepId) {
+        String suffix = ":" + stepId;
+        for (String key : activeExecutions.keySet()) {
+            if (key.endsWith(suffix)) return key;
+        }
+        return null;
     }
 
     private void handleSuccess(StepExecution execution, StepResult result) {
@@ -197,12 +209,14 @@ public class DefaultFlowExecutor implements FlowExecutor {
 
     private StepResult executeStep(FlowStep step, ExecutionContext context, Flow flow) {
         String stepId = step.getId();
-        logger.info("Executando step: " + stepId);
+        String scopedKey = flow.getId() + ":" + stepId;
+        logger.info("Executando step: " + stepId + " (flow: " + flow.getId() + ")");
 
         try {
-            // Registra execução ativa
+            // Registra execução ativa com key scoped por flow para evitar
+            // colisão entre flows concorrentes com step IDs iguais
             StepExecution execution = new StepExecution(flow, step, context);
-            activeExecutions.put(stepId, execution);
+            activeExecutions.put(scopedKey, execution);
 
             return step.execute(context)
                     .whenComplete((result, error) -> {
