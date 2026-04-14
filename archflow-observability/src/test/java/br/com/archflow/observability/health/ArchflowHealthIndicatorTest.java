@@ -56,4 +56,61 @@ class ArchflowHealthIndicatorTest {
 
         assertNotNull(health.details().get("javaVersion"));
     }
+
+    @Test
+    @DisplayName("should include VM name")
+    void shouldIncludeVmName() {
+        ArchflowHealthIndicator indicator = new ArchflowHealthIndicator();
+        var health = indicator.health();
+
+        assertNotNull(health.details().get("vmName"));
+    }
+
+    @Test
+    @DisplayName("should have non-negative heap usage percentage")
+    void shouldHaveNonNegativeHeapUsagePercent() {
+        ArchflowHealthIndicator indicator = new ArchflowHealthIndicator();
+        var health = indicator.health();
+
+        long heapPercent = (long) health.details().get("heapUsagePercent");
+        assertTrue(heapPercent >= 0);
+    }
+
+    @Test
+    @DisplayName("status should be UP when heap usage is below 90 percent")
+    void statusShouldBeUpWhenHeapUsageBelowThreshold() {
+        // Under normal test conditions heap usage should be well below 90%
+        ArchflowHealthIndicator indicator = new ArchflowHealthIndicator();
+        var health = indicator.health();
+
+        long heapPercent = (long) health.details().get("heapUsagePercent");
+        if (heapPercent < 90) {
+            assertEquals(ArchflowHealthIndicator.Status.UP, health.status());
+        }
+        // DOWN path requires heap > 90% which cannot be reliably induced
+        // in a unit test without JVM-level manipulation
+    }
+
+    @Test
+    @DisplayName("should format heapUsed as a human-readable string")
+    void shouldFormatHeapUsedAsHumanReadable() {
+        ArchflowHealthIndicator indicator = new ArchflowHealthIndicator();
+        var health = indicator.health();
+
+        String heapUsed = (String) health.details().get("heapUsed");
+        assertTrue(
+                heapUsed.endsWith(" B") || heapUsed.endsWith("KB") || heapUsed.endsWith("MB") || heapUsed.endsWith("GB"),
+                "heapUsed should be a formatted size string, was: " + heapUsed
+        );
+    }
+
+    @Test
+    @DisplayName("should include non-negative uptimeSeconds")
+    void shouldHaveNonNegativeUptimeSeconds() {
+        ArchflowHealthIndicator indicator = new ArchflowHealthIndicator();
+        var health = indicator.health();
+
+        long uptimeSeconds = (long) health.details().get("uptimeSeconds");
+        assertTrue(uptimeSeconds >= 0);
+    }
 }
