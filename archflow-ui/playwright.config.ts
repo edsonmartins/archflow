@@ -10,8 +10,9 @@ export default defineConfig({
   use: {
     baseURL: 'http://127.0.0.1:4173',
     viewport: { width: 1366, height: 900 },
-    trace: 'on-first-retry',
+    trace: process.env.PW_TRACE ? 'on' : 'on-first-retry',
     screenshot: 'only-on-failure',
+    video: process.env.PW_VIDEO ? 'on' : 'off',
   },
   webServer: {
     command: 'npm run dev -- --host 127.0.0.1 --port 4173',
