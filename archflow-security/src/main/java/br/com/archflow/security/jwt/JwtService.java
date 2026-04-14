@@ -137,7 +137,7 @@ public class JwtService {
             throw new JwtException("Token expired", e);
         } catch (MalformedJwtException e) {
             throw new JwtException("Invalid token format", e);
-        } catch (SecurityException e) {
+        } catch (io.jsonwebtoken.security.SecurityException e) {
             throw new JwtException("Invalid token signature", e);
         } catch (IllegalArgumentException e) {
             throw new JwtException("Token is null or empty", e);

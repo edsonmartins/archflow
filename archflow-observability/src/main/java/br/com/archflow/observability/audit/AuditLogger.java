@@ -74,7 +74,7 @@ public class AuditLogger {
                 if (instance == null) {
                     instance = new AuditLogger(repository, asyncEnabled);
                     log.info("AuditLogger initialized with repository: {}",
-                            repository.getClass().getSimpleName());
+                            instance.repository.getClass().getSimpleName());
                 }
             }
         }

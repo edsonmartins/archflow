@@ -1,7 +1,6 @@
 package br.com.archflow.security.jwt;
 
 import io.jsonwebtoken.Claims;
-import io.jsonwebtoken.security.SignatureException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -115,9 +114,9 @@ class JwtServiceTest {
         // Corrupt the signature portion (last segment of the JWT)
         String tampered = token.substring(0, token.length() - 5) + "XXXXX";
 
-        // The JJWT SecurityException escapes the validateToken catch block because
-        // the source catches java.lang.SecurityException, not io.jsonwebtoken.security.SecurityException
-        assertThrows(SignatureException.class, () -> jwtService.validateToken(tampered));
+        // Fixed: io.jsonwebtoken.security.SecurityException is now caught and wrapped
+        var ex = assertThrows(JwtService.JwtException.class, () -> jwtService.validateToken(tampered));
+        assertEquals("Invalid token signature", ex.getMessage());
     }
 
     @Test
@@ -125,8 +124,9 @@ class JwtServiceTest {
         JwtService otherService = new JwtService("completely-different-key-for-signing!!");
         String token = otherService.generateAccessToken("user-1", "alice");
 
-        // Same reason as tampered token — SignatureException propagates uncaught
-        assertThrows(SignatureException.class, () -> jwtService.validateToken(token));
+        // Fixed: signature mismatch is now correctly caught and wrapped in JwtException
+        var ex = assertThrows(JwtService.JwtException.class, () -> jwtService.validateToken(token));
+        assertEquals("Invalid token signature", ex.getMessage());
     }
 
     // ========== isTokenValid ==========
@@ -153,14 +153,13 @@ class JwtServiceTest {
     }
 
     @Test
-    void isTokenValid_throwsForTamperedToken() {
-        // isTokenValid catches JwtService.JwtException (inner class), not the JJWT
-        // SignatureException that propagates from a tampered signature. The result is
-        // that SignatureException escapes — document and assert this actual behaviour.
+    void isTokenValid_returnsFalseForTamperedToken() {
+        // Fixed: tampered signature is now correctly caught by validateToken,
+        // so isTokenValid returns false instead of throwing SignatureException
         String token = jwtService.generateAccessToken("user-1", "alice");
         String tampered = token.substring(0, token.length() - 4) + "ZZZZ";
 
-        assertThrows(SignatureException.class, () -> jwtService.isTokenValid(tampered));
+        assertFalse(jwtService.isTokenValid(tampered));
     }
 
     // ========== extractUserId / extractUsername ==========
