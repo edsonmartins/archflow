@@ -51,12 +51,55 @@ public class WorkflowConfigControllerImpl implements WorkflowConfigController {
     private final Supplier<List<GovernanceProfile>> governanceSupplier;
     private final Supplier<List<McpServerDto>> mcpServerSupplier;
 
+    private static final List<Persona> DEFAULT_PERSONAS = List.of(
+            Persona.of("order_tracking", "Order Tracking",
+                    "prompts/order_tracking", List.of("crm_lookup", "order_status"),
+                    "order", "tracking", "delivery"),
+            Persona.of("customer_support", "Customer Support",
+                    "prompts/customer_support", List.of("crm_lookup", "ticket_create"),
+                    "help", "support", "issue", "problem"),
+            Persona.of("product_recommendation", "Product Recommendation",
+                    "prompts/product_recommendation", List.of("search_products", "recommend"),
+                    "recommend", "suggest", "product"),
+            Persona.of("code_review", "Code Review",
+                    "prompts/code_review", List.of("lint_diff", "sast_diff"),
+                    "review", "pull.?request", "merge.?request"),
+            Persona.of("data_analysis", "Data Analysis",
+                    "prompts/data_analysis", List.of("query_db", "chart_generate"),
+                    "data", "analysis", "report", "metric")
+    );
+
+    private static final List<GovernanceProfile> DEFAULT_GOVERNANCE = List.of(
+            GovernanceProfile.builder()
+                    .id("default")
+                    .name("Default")
+                    .systemPrompt("You are a helpful assistant.")
+                    .escalationThreshold(0.4)
+                    .maxToolExecutions(10)
+                    .build(),
+            GovernanceProfile.builder()
+                    .id("strict")
+                    .name("Strict")
+                    .systemPrompt("You are a careful assistant that always verifies before acting.")
+                    .escalationThreshold(0.7)
+                    .maxToolExecutions(5)
+                    .customInstructions("Never disclose PII. Always confirm destructive actions.")
+                    .build(),
+            GovernanceProfile.builder()
+                    .id("autonomous")
+                    .name("Autonomous")
+                    .systemPrompt("You are an autonomous agent. Execute tasks efficiently.")
+                    .escalationThreshold(0.2)
+                    .maxToolExecutions(50)
+                    .build()
+    );
+
     /**
-     * Creates an implementation with empty persona, governance and MCP
-     * catalogs. Useful for a minimal bootstrap or unit tests.
+     * Creates an implementation with built-in default personas and
+     * governance profiles. MCP servers default to empty.
      */
     public WorkflowConfigControllerImpl() {
-        this(Collections::emptyList, Collections::emptyList, Collections::emptyList);
+        this(() -> DEFAULT_PERSONAS, () -> DEFAULT_GOVERNANCE, Collections::emptyList);
     }
 
     public WorkflowConfigControllerImpl(

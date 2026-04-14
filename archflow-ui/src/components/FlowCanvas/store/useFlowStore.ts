@@ -1,6 +1,7 @@
 import { create } from 'zustand'
-import type { FlowNodeData, NodeExecutionState } from '../types'
-import type { Node } from '@xyflow/react'
+import type { FlowNodeData, NodeExecutionState, WorkflowData } from '../types'
+import type { Node, Edge } from '@xyflow/react'
+import { NODE_CATEGORIES } from '../constants'
 
 interface FlowStore {
   // ── Estado de execução ─────────────────────────────────────────
@@ -8,9 +9,11 @@ interface FlowStore {
   executionId:    string | null
   executionState: Record<string, NodeExecutionState>
 
-  // ── Nós (espelho do React Flow) ────────────────────────────────
+  // ── Nós e arestas (espelho do React Flow) ──────────────────────
   nodes: Node<FlowNodeData>[]
+  edges: Edge[]
   setNodes: (nodes: Node<FlowNodeData>[]) => void
+  setEdges: (edges: Edge[]) => void
 
   // ── Nó selecionado ─────────────────────────────────────────────
   selectedNodeId:   string | null
@@ -26,6 +29,7 @@ interface FlowStore {
   clearSelection:   () => void
   updateNodeConfig: (nodeId: string, key: string, value: unknown) => void
   updateNodeLabel:  (nodeId: string, label: string) => void
+  getCanvasSnapshot: () => WorkflowData
 }
 
 export const useFlowStore = create<FlowStore>((set, get) => ({
@@ -33,11 +37,13 @@ export const useFlowStore = create<FlowStore>((set, get) => ({
   executionId:      null,
   executionState:   {},
   nodes:            [],
+  edges:            [],
   selectedNodeId:   null,
   selectedNodeData: null,
 
-  // ── Nós ────────────────────────────────────────────────────────
+  // ── Nós e arestas ──────────────────────────────────────────────
   setNodes: (nodes) => set({ nodes }),
+  setEdges: (edges) => set({ edges }),
 
   // ── Execução ───────────────────────────────────────────────────
   startExecution: (executionId) =>
@@ -112,6 +118,27 @@ export const useFlowStore = create<FlowStore>((set, get) => ({
           : state.selectedNodeData,
       }
     }),
+
+  getCanvasSnapshot: () => {
+    const { nodes, edges } = get()
+    return {
+      steps: nodes.map(n => ({
+        id:          n.id,
+        type:        n.data.nodeType,
+        componentId: n.data.componentId,
+        label:       n.data.label,
+        category:    (n.type ?? 'tool') as keyof typeof NODE_CATEGORIES,
+        position:    n.position,
+        config:      n.data.config,
+      })),
+      connections: edges.map(e => ({
+        id:          e.id,
+        sourceId:    e.source,
+        targetId:    e.target,
+        isErrorPath: (e.data as any)?.isErrorPath ?? false,
+      })),
+    }
+  },
 }))
 
 // ── Hook para simular execução (dev/demo) ────────────────────────

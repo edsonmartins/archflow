@@ -40,8 +40,32 @@ export function WorkflowEditor() {
   const { id } = useParams<{ id: string }>()
 
   const { currentWorkflow: current, fetchWorkflow: loadWorkflow, updateWorkflow, loading: isSaving } = useWorkflowStore()
+  const { getCanvasSnapshot } = useFlowStore()
   const lastSavedAt: number | null = null // TODO: track save timestamp
-  const saveWorkflow = async () => { if (current) await updateWorkflow(current.id, current) }
+
+  const saveWorkflow = async () => {
+    if (!current) return
+    const snapshot = getCanvasSnapshot()
+    const merged = {
+      ...current,
+      steps: snapshot.steps.map(s => ({
+        id:            s.id,
+        type:          s.type?.toUpperCase(),
+        componentId:   s.componentId,
+        operation:     s.label,
+        position:      s.position,
+        configuration: s.config ?? {},
+        connections:   snapshot.connections
+          .filter(c => c.sourceId === s.id)
+          .map(c => ({
+            sourceId:    c.sourceId,
+            targetId:    c.targetId,
+            isErrorPath: c.isErrorPath,
+          })),
+      })),
+    }
+    await updateWorkflow(current.id, merged)
+  }
   const workflowData = useMemo(() => current ? toWorkflowData(current) : null, [current])
   const { selectedNodeId, selectedNodeData, selectNode, startExecution, isExecuting } = useFlowStore()
 

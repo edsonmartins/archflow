@@ -71,7 +71,7 @@ export function FlowCanvas({
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges)
 
-  const { executionState, setNodes: syncNodes, nodes: storeNodes } = useFlowStore()
+  const { executionState, setNodes: syncNodes, setEdges: syncEdges, nodes: storeNodes } = useFlowStore()
 
   // Track whether an update came from the store (PropertyPanel edit)
   // or from React Flow (drag/drop, connect, delete). Prevents ping-pong
@@ -80,16 +80,20 @@ export function FlowCanvas({
   const localNodesRef = useRef(nodes)
   localNodesRef.current = nodes
 
-  // React Flow → Zustand: publish local node changes so PropertyPanel
-  // can read the latest config via `selectedNodeData`.
+  // React Flow → Zustand: publish local node/edge changes so PropertyPanel
+  // can read the latest config via `selectedNodeData`, and so
+  // `getCanvasSnapshot()` returns current state for the save flow.
   useEffect(() => {
     if (fromStoreRef.current) {
-      // We just pushed a store update into React Flow; skip the echo.
       fromStoreRef.current = false
       return
     }
     syncNodes(nodes)
   }, [nodes, syncNodes])
+
+  useEffect(() => {
+    syncEdges(edges)
+  }, [edges, syncEdges])
 
   // Zustand → React Flow: apply `updateNodeConfig`/`updateNodeLabel`
   // mutations from PropertyPanel back into React Flow's state. We only

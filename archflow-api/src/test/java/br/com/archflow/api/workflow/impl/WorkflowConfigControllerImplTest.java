@@ -78,11 +78,14 @@ class WorkflowConfigControllerImplTest {
     }
 
     @Test
-    @DisplayName("empty constructor returns empty persona/governance/mcp lists")
-    void emptyDefaults() {
+    @DisplayName("default constructor returns built-in personas, governance and empty MCP")
+    void builtInDefaults() {
         var controller = new WorkflowConfigControllerImpl();
-        assertThat(controller.listPersonas()).isEmpty();
-        assertThat(controller.listGovernanceProfiles()).isEmpty();
+        assertThat(controller.listPersonas()).isNotEmpty();
+        assertThat(controller.listPersonas()).anyMatch(p -> "order_tracking".equals(p.id()));
+        assertThat(controller.listGovernanceProfiles()).isNotEmpty();
+        assertThat(controller.listGovernanceProfiles()).anyMatch(g -> "default".equals(g.id()));
+        assertThat(controller.listGovernanceProfiles()).anyMatch(g -> "strict".equals(g.id()));
         assertThat(controller.listMcpServers()).isEmpty();
     }
 
