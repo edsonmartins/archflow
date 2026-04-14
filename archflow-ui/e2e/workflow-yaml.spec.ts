@@ -83,6 +83,15 @@ async function mockApi(page: Page) {
             await json(route, { count: 0 });
             return;
         }
+        if (path.startsWith('/workflow/') && method === 'GET') {
+            if (path === '/workflow/providers') await json(route, []);
+            else if (path === '/workflow/agent-patterns') await json(route, []);
+            else if (path === '/workflow/personas') await json(route, []);
+            else if (path === '/workflow/governance-profiles') await json(route, []);
+            else if (path === '/workflow/mcp-servers') await json(route, []);
+            else await route.continue();
+            return;
+        }
         if (path === '/executions' && method === 'GET') {
             await json(route, []);
             return;

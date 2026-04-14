@@ -171,6 +171,41 @@ async function mockApi(page: Page, options: MockApiOptions = {}) {
       return;
     }
 
+    // Workflow editor config endpoints
+    if (path === '/workflow/providers' && method === 'GET') {
+      await json(route, [
+        { id: 'anthropic', displayName: 'Anthropic', requiresApiKey: true, supportsStreaming: true, group: 'Cloud',
+          models: [{ id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6', contextWindow: 200000, maxTemperature: 1.0 }] },
+        { id: 'openai', displayName: 'OpenAI', requiresApiKey: true, supportsStreaming: true, group: 'Cloud',
+          models: [{ id: 'gpt-4o', name: 'GPT-4o', contextWindow: 128000, maxTemperature: 2.0 }] },
+      ]);
+      return;
+    }
+    if (path === '/workflow/agent-patterns' && method === 'GET') {
+      await json(route, [
+        { id: 'react', label: 'ReAct', description: 'Reason + Act loop' },
+        { id: 'plan-execute', label: 'Plan and Execute', description: 'Plan then execute' },
+      ]);
+      return;
+    }
+    if (path === '/workflow/personas' && method === 'GET') {
+      await json(route, [
+        { id: 'order_tracking', label: 'Order Tracking', description: 'Tracks orders', promptId: 'prompts/order' },
+      ]);
+      return;
+    }
+    if (path === '/workflow/governance-profiles' && method === 'GET') {
+      await json(route, [
+        { id: 'default', name: 'Default', systemPrompt: 'You are helpful.', enabledTools: [], disabledTools: [],
+          escalationThreshold: 0.4, maxToolExecutions: 10, customInstructions: '' },
+      ]);
+      return;
+    }
+    if (path === '/workflow/mcp-servers' && method === 'GET') {
+      await json(route, []);
+      return;
+    }
+
     if (path === '/workflows' && method === 'GET') {
       if (options.failWorkflowList) {
         await json(route, options.failWorkflowList.message, options.failWorkflowList.status ?? 500);
