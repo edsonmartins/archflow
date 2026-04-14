@@ -1,6 +1,7 @@
 package br.com.archflow.agent.execution;
 
 import br.com.archflow.engine.execution.FlowExecutor;
+import br.com.archflow.engine.lifecycle.FlowLifecycleListener;
 import br.com.archflow.model.enums.ExecutionStatus;
 import br.com.archflow.model.flow.*;
 import br.com.archflow.agent.metrics.MetricsCollector;
@@ -27,11 +28,18 @@ public class DefaultFlowExecutor implements FlowExecutor {
 
     private final ClassLoader pluginClassLoader;
     private final MetricsCollector metricsCollector;
+    private final FlowLifecycleListener lifecycleListener;
     private final Map<String, StepExecution> activeExecutions;
 
     public DefaultFlowExecutor(ClassLoader pluginClassLoader, MetricsCollector metricsCollector) {
+        this(pluginClassLoader, metricsCollector, FlowLifecycleListener.NO_OP);
+    }
+
+    public DefaultFlowExecutor(ClassLoader pluginClassLoader, MetricsCollector metricsCollector,
+                               FlowLifecycleListener lifecycleListener) {
         this.pluginClassLoader = pluginClassLoader;
         this.metricsCollector = metricsCollector;
+        this.lifecycleListener = lifecycleListener != null ? lifecycleListener : FlowLifecycleListener.NO_OP;
         this.activeExecutions = new ConcurrentHashMap<>();
     }
 
@@ -202,15 +210,22 @@ public class DefaultFlowExecutor implements FlowExecutor {
     }
 
     private List<StepResult> executeSteps(List<FlowStep> steps, ExecutionContext context, Flow flow) {
-        return steps.stream()
-                .map(step -> executeStep(step, context, flow))
-                .toList();
+        int stepCount = steps.size();
+        List<StepResult> results = new java.util.ArrayList<>(stepCount);
+        for (int i = 0; i < stepCount; i++) {
+            results.add(executeStep(steps.get(i), context, flow, i, stepCount));
+        }
+        return results;
     }
 
-    private StepResult executeStep(FlowStep step, ExecutionContext context, Flow flow) {
+    private StepResult executeStep(FlowStep step, ExecutionContext context, Flow flow,
+                                   int stepIndex, int stepCount) {
         String stepId = step.getId();
         String scopedKey = flow.getId() + ":" + stepId;
         logger.info("Executando step: " + stepId + " (flow: " + flow.getId() + ")");
+
+        long startNs = System.nanoTime();
+        safeLifecycle(() -> lifecycleListener.onStepStarted(flow, step, context, stepIndex, stepCount));
 
         try {
             // Registra execução ativa com key scoped por flow para evitar
@@ -218,20 +233,42 @@ public class DefaultFlowExecutor implements FlowExecutor {
             StepExecution execution = new StepExecution(flow, step, context);
             activeExecutions.put(scopedKey, execution);
 
-            return step.execute(context)
-                    .whenComplete((result, error) -> {
+            StepResult result = step.execute(context)
+                    .whenComplete((r, error) -> {
                         if (error != null) {
                             logger.severe("Erro executando step " + stepId + ": " + error.getMessage());
                             handleResult(createErrorResult(step, error));
                         } else {
-                            handleResult(result);
+                            handleResult(r);
                         }
                     })
                     .get();
 
+            long durationMs = (System.nanoTime() - startNs) / 1_000_000;
+            if (result.getStatus() == StepStatus.SKIPPED) {
+                safeLifecycle(() -> lifecycleListener.onStepSkipped(flow, step, context));
+            } else if (result.getStatus().isError()) {
+                Throwable cause = result.getErrors().isEmpty() ? null
+                        : new RuntimeException(result.getErrors().get(0).message());
+                safeLifecycle(() -> lifecycleListener.onStepFailed(flow, step, context, cause, durationMs));
+            } else {
+                safeLifecycle(() -> lifecycleListener.onStepCompleted(flow, step, context, durationMs));
+            }
+            return result;
+
         } catch (Exception e) {
+            long durationMs = (System.nanoTime() - startNs) / 1_000_000;
             logger.severe("Erro executando step: " + stepId + " - " + e.getMessage());
+            safeLifecycle(() -> lifecycleListener.onStepFailed(flow, step, context, e, durationMs));
             return createErrorResult(step, e);
+        }
+    }
+
+    private void safeLifecycle(Runnable callback) {
+        try {
+            callback.run();
+        } catch (Exception e) {
+            logger.warning("FlowLifecycleListener callback failed (swallowed): " + e.getMessage());
         }
     }
 

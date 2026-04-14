@@ -8,9 +8,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 
 /**
  * Registro de emitters de streaming ativos.
@@ -32,6 +34,7 @@ public class EventStreamRegistry {
 
     private final ConcurrentHashMap<String, EventStreamEmitter> emitters;
     private final ConcurrentHashMap<String, Set<String>> executionEmitters;
+    private final CopyOnWriteArrayList<Consumer<ArchflowEvent>> globalListeners;
     private final ScheduledExecutorService scheduler;
     private final long heartbeatIntervalMs;
     private final long emitterTimeoutMs;
@@ -52,6 +55,7 @@ public class EventStreamRegistry {
     public EventStreamRegistry(long heartbeatIntervalMs, long emitterTimeoutMs) {
         this.emitters = new ConcurrentHashMap<>();
         this.executionEmitters = new ConcurrentHashMap<>();
+        this.globalListeners = new CopyOnWriteArrayList<>();
         this.heartbeatIntervalMs = heartbeatIntervalMs;
         this.emitterTimeoutMs = emitterTimeoutMs;
         this.scheduler = Executors.newSingleThreadScheduledExecutor(
@@ -184,14 +188,53 @@ public class EventStreamRegistry {
         return result;
     }
 
+    // ── Global listeners ───────────────────────────────────────────
+
+    /**
+     * Registers a global listener that will receive EVERY event broadcast
+     * through this registry, regardless of the execution channel.
+     *
+     * <p>Use case: the protobuf publisher subscribes here to capture all
+     * events without needing to subscribe to individual emitters.
+     *
+     * @param listener callback invoked on each event (must be non-null)
+     */
+    public void addGlobalListener(Consumer<ArchflowEvent> listener) {
+        globalListeners.add(listener);
+    }
+
+    /**
+     * Removes a previously-registered global listener.
+     *
+     * @param listener the listener to remove
+     */
+    public void removeGlobalListener(Consumer<ArchflowEvent> listener) {
+        globalListeners.remove(listener);
+    }
+
+    // ── Broadcast ──────────────────────────────────────────────────
+
     /**
      * Envia um evento para todos os emitters de uma execução.
+     *
+     * <p>Also notifies global listeners (e.g., protobuf publisher).
+     * Exceptions in individual emitters / listeners are caught and logged
+     * so a single failing subscriber cannot block others.
      *
      * @param executionId ID da execução
      * @param event Evento a enviar
      * @return Número de emitters que receberam o evento
      */
     public int broadcast(String executionId, ArchflowEvent event) {
+        // Notify global listeners first (fire-and-forget)
+        for (Consumer<ArchflowEvent> listener : globalListeners) {
+            try {
+                listener.accept(event);
+            } catch (Exception e) {
+                log.debug("[{}] Global listener error (swallowed): {}", executionId, e.getMessage());
+            }
+        }
+
         List<EventStreamEmitter> execEmitters = getEmitters(executionId);
         int sent = 0;
 

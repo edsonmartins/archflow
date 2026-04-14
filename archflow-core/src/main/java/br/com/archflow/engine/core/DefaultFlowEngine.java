@@ -3,6 +3,7 @@ package br.com.archflow.engine.core;
 import br.com.archflow.engine.api.FlowEngine;
 import br.com.archflow.engine.exceptions.FlowEngineException;
 import br.com.archflow.engine.exceptions.FlowNotFoundException;
+import br.com.archflow.engine.lifecycle.FlowLifecycleListener;
 import br.com.archflow.engine.persistence.FlowRepository;
 import br.com.archflow.model.engine.DefaultExecutionContext;
 import br.com.archflow.model.engine.ExecutionContext;
@@ -36,6 +37,7 @@ public class DefaultFlowEngine implements FlowEngine {
     private final FlowValidator flowValidator;
     private final MemoryRestorer memoryRestorer;
     private final TraceRecorder traceRecorder;
+    private final FlowLifecycleListener lifecycleListener;
     private final Map<String, FlowExecution> activeExecutions;
     private final ExecutorService virtualExecutor = Executors.newVirtualThreadPerTaskExecutor();
 
@@ -66,7 +68,8 @@ public class DefaultFlowEngine implements FlowEngine {
                              StateManager stateManager,
                              FlowValidator flowValidator) {
         this(executionManager, flowRepository, stateManager, flowValidator,
-                null, null, DEFAULT_MAX_CONCURRENT_FLOWS, DEFAULT_FLOW_TIMEOUT_MS);
+                null, null, DEFAULT_MAX_CONCURRENT_FLOWS, DEFAULT_FLOW_TIMEOUT_MS,
+                FlowLifecycleListener.NO_OP);
     }
 
     public DefaultFlowEngine(ExecutionManager executionManager,
@@ -75,7 +78,8 @@ public class DefaultFlowEngine implements FlowEngine {
                              FlowValidator flowValidator,
                              MemoryRestorer memoryRestorer) {
         this(executionManager, flowRepository, stateManager, flowValidator,
-                memoryRestorer, null, DEFAULT_MAX_CONCURRENT_FLOWS, DEFAULT_FLOW_TIMEOUT_MS);
+                memoryRestorer, null, DEFAULT_MAX_CONCURRENT_FLOWS, DEFAULT_FLOW_TIMEOUT_MS,
+                FlowLifecycleListener.NO_OP);
     }
 
     public DefaultFlowEngine(ExecutionManager executionManager,
@@ -85,7 +89,8 @@ public class DefaultFlowEngine implements FlowEngine {
                              MemoryRestorer memoryRestorer,
                              TraceRecorder traceRecorder) {
         this(executionManager, flowRepository, stateManager, flowValidator,
-                memoryRestorer, traceRecorder, DEFAULT_MAX_CONCURRENT_FLOWS, DEFAULT_FLOW_TIMEOUT_MS);
+                memoryRestorer, traceRecorder, DEFAULT_MAX_CONCURRENT_FLOWS, DEFAULT_FLOW_TIMEOUT_MS,
+                FlowLifecycleListener.NO_OP);
     }
 
     public DefaultFlowEngine(ExecutionManager executionManager,
@@ -96,12 +101,32 @@ public class DefaultFlowEngine implements FlowEngine {
                              TraceRecorder traceRecorder,
                              int maxConcurrentFlows,
                              long flowTimeoutMs) {
+        this(executionManager, flowRepository, stateManager, flowValidator,
+                memoryRestorer, traceRecorder, maxConcurrentFlows, flowTimeoutMs,
+                FlowLifecycleListener.NO_OP);
+    }
+
+    /**
+     * Full constructor that includes a {@link FlowLifecycleListener}.
+     *
+     * @param lifecycleListener lifecycle observer; use {@link FlowLifecycleListener#NO_OP} for none
+     */
+    public DefaultFlowEngine(ExecutionManager executionManager,
+                             FlowRepository flowRepository,
+                             StateManager stateManager,
+                             FlowValidator flowValidator,
+                             MemoryRestorer memoryRestorer,
+                             TraceRecorder traceRecorder,
+                             int maxConcurrentFlows,
+                             long flowTimeoutMs,
+                             FlowLifecycleListener lifecycleListener) {
         this.executionManager = executionManager;
         this.flowRepository = flowRepository;
         this.stateManager = stateManager;
         this.flowValidator = flowValidator;
         this.memoryRestorer = memoryRestorer;
         this.traceRecorder = traceRecorder;
+        this.lifecycleListener = lifecycleListener != null ? lifecycleListener : FlowLifecycleListener.NO_OP;
         this.activeExecutions = new ConcurrentHashMap<>();
         this.flowSemaphore = new Semaphore(maxConcurrentFlows > 0 ? maxConcurrentFlows : DEFAULT_MAX_CONCURRENT_FLOWS);
         this.flowTimeoutMs = flowTimeoutMs > 0 ? flowTimeoutMs : DEFAULT_FLOW_TIMEOUT_MS;
@@ -226,14 +251,20 @@ public class DefaultFlowEngine implements FlowEngine {
                 }
 
                 notifyTraceStart(flowId, tenantId, null);
+                int stepCount = flow.getSteps() != null ? flow.getSteps().size() : 0;
+                safeLifecycle(() -> lifecycleListener.onFlowStarted(flow, context, stepCount));
 
                 try {
                     FlowResult result = executionManager.executeFlow(flow, context);
-                    notifyTraceEnd(flowId, tenantId, result, System.currentTimeMillis() - startMs);
+                    long durationMs = System.currentTimeMillis() - startMs;
+                    notifyTraceEnd(flowId, tenantId, result, durationMs);
+                    safeLifecycle(() -> lifecycleListener.onFlowCompleted(flow, context, result, durationMs));
                     return result;
                 } catch (Exception execError) {
+                    long durationMs = System.currentTimeMillis() - startMs;
                     // Save error state while the execution is still in the map
                     saveErrorState(flowId, execution, execError);
+                    safeLifecycle(() -> lifecycleListener.onFlowFailed(flow, context, execError, durationMs));
                     throw execError;
                 } finally {
                     activeExecutions.remove(flowId);
@@ -459,6 +490,18 @@ public class DefaultFlowEngine implements FlowEngine {
             } catch (Exception ex) {
                 logger.warning("TraceRecorder.onFlowEnd failed: " + ex.getMessage());
             }
+        }
+    }
+
+    /**
+     * Invokes a lifecycle callback, swallowing any exception to ensure
+     * monitoring failures never affect the execution path.
+     */
+    private void safeLifecycle(Runnable callback) {
+        try {
+            callback.run();
+        } catch (Exception e) {
+            logger.warning("FlowLifecycleListener callback failed (swallowed): " + e.getMessage());
         }
     }
 

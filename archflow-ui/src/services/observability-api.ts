@@ -99,6 +99,16 @@ export interface MetricSeriesDto {
     values: number[];
 }
 
+export interface RunningFlowDto {
+    flowId: string;
+    tenantId: string | null;
+    startedAt: string;
+    currentStepId: string | null;
+    stepIndex: number;
+    stepCount: number;
+    durationMs: number;
+}
+
 export interface AuditEntryDto {
     id: string;
     timestamp: string;
@@ -180,4 +190,15 @@ export const observabilityApi = {
 
     auditExportUrl: (filter?: ObservabilityFilter) =>
         `/api/admin/observability/audit/export${buildQuery(filter)}`,
+
+    listRunningFlows: (tenantId?: string) =>
+        api.get<RunningFlowDto[]>(
+            `/admin/observability/running${tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : ''}`,
+        ),
+
+    cancelRunningFlow: (flowId: string, tenantId?: string) =>
+        api.post<void>(
+            `/admin/observability/running/${encodeURIComponent(flowId)}/cancel${tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : ''}`,
+            {},
+        ),
 };

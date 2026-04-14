@@ -1,0 +1,128 @@
+syntax = "proto3";
+
+package archflow.events.v1;
+
+option java_package = "br.com.archflow.events.proto.generated";
+option java_outer_classname = "FlowEventsProto";
+option java_multiple_files = true;
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Enumerations — mirror of ArchflowDomain and ArchflowEventType
+// ──────────────────────────────────────────────────────────────────────────────
+
+enum Domain {
+    DOMAIN_UNSPECIFIED  = 0;
+    DOMAIN_CHAT         = 1;
+    DOMAIN_THINKING     = 2;
+    DOMAIN_TOOL         = 3;
+    DOMAIN_AUDIT        = 4;
+    DOMAIN_INTERACTION  = 5;
+    DOMAIN_SYSTEM       = 6;
+    DOMAIN_PAYLOAD      = 7;
+    DOMAIN_FLOW         = 8;
+}
+
+enum EventType {
+    EVENT_TYPE_UNSPECIFIED = 0;
+    // Universal
+    START       = 1;
+    END         = 2;
+    ERROR       = 3;
+    // Chat
+    DELTA       = 4;
+    MESSAGE     = 5;
+    // Thinking
+    THINKING    = 6;
+    REFLECTION  = 7;
+    VERIFICATION = 8;
+    // Tool
+    TOOL_START  = 9;
+    PROGRESS    = 10;
+    RESULT      = 11;
+    TOOL_ERROR  = 12;
+    // Audit
+    TRACE       = 13;
+    SPAN        = 14;
+    METRIC      = 15;
+    LOG         = 16;
+    // Interaction
+    SUSPEND     = 17;
+    FORM        = 18;
+    RESUME      = 19;
+    CANCEL      = 20;
+    // System
+    CONNECTED    = 21;
+    DISCONNECTED = 22;
+    HEARTBEAT    = 23;
+    // Payload
+    PAYLOAD_CHUNK    = 24;
+    PAYLOAD_COMPLETE = 25;
+    // Flow lifecycle
+    FLOW_STARTED    = 26;
+    FLOW_COMPLETED  = 27;
+    FLOW_FAILED     = 28;
+    STEP_STARTED    = 29;
+    STEP_COMPLETED  = 30;
+    STEP_FAILED     = 31;
+    STEP_SKIPPED    = 32;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// ScalarValue — type-safe variant that avoids well-known-types dependency.
+// Keeps wire format compact and removes the protobuf Any overhead.
+// ──────────────────────────────────────────────────────────────────────────────
+
+message ScalarValue {
+    oneof kind {
+        string  string_value = 1;
+        int64   int_value    = 2;
+        double  double_value = 3;
+        bool    bool_value   = 4;
+        bytes   bytes_value  = 5;
+        bool    null_value   = 6; // true ↔ JSON null
+    }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// EventEnvelope — routing metadata
+// ──────────────────────────────────────────────────────────────────────────────
+
+message EventEnvelope {
+    Domain    domain          = 1;
+    EventType type            = 2;
+    string    id              = 3;  // UUID
+    int64     timestamp_millis = 4; // epoch ms
+    string    correlation_id  = 5;  // optional
+    string    execution_id    = 6;  // optional
+    string    tenant_id       = 7;  // optional
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// FlowEvent — one event with payload data + optional metadata
+// ──────────────────────────────────────────────────────────────────────────────
+
+message FlowEvent {
+    EventEnvelope                envelope = 1;
+    map<string, ScalarValue>     data     = 2;
+    map<string, ScalarValue>     metadata = 3;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// FlowEventBatch — sent by standalone agents to the ArchFlow server
+// ──────────────────────────────────────────────────────────────────────────────
+
+message FlowEventBatch {
+    string           source_agent_id      = 1;
+    int64            batch_created_millis = 2;
+    repeated FlowEvent events             = 3;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// IngestResponse — returned by POST /api/events/ingest
+// ──────────────────────────────────────────────────────────────────────────────
+
+message IngestResponse {
+    int32  accepted = 1;
+    int32  rejected = 2;
+    string message  = 3;
+}

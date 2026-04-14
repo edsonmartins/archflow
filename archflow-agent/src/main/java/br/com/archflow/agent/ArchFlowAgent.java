@@ -9,12 +9,16 @@ import br.com.archflow.agent.metrics.MetricsCollector;
 import br.com.archflow.agent.persistence.InMemoryFlowRepository;
 import br.com.archflow.agent.persistence.InMemoryStateRepository;
 import br.com.archflow.agent.plugin.FlowPluginManager;
+import br.com.archflow.agent.streaming.EventStreamRegistry;
+import br.com.archflow.agent.streaming.RegistryFlowLifecycleListener;
+import br.com.archflow.agent.streaming.RunningFlowsRegistry;
 import br.com.archflow.engine.api.FlowEngine;
 import br.com.archflow.engine.core.DefaultFlowEngine;
 import br.com.archflow.engine.core.ExecutionManager;
 import br.com.archflow.engine.core.StateManager;
 import br.com.archflow.engine.execution.FlowExecutor;
 import br.com.archflow.engine.execution.ParallelExecutor;
+import br.com.archflow.engine.lifecycle.FlowLifecycleListener;
 import br.com.archflow.engine.persistence.FlowRepository;
 import br.com.archflow.engine.persistence.StateRepository;
 import br.com.archflow.engine.validation.DefaultFlowValidator;
@@ -43,6 +47,8 @@ public class ArchFlowAgent implements AutoCloseable {
     private final FlowEngine flowEngine;
     private final ExecutorService executorService;
     private final StateManager stateManager;
+    private final EventStreamRegistry eventStreamRegistry;
+    private final RunningFlowsRegistry runningFlowsRegistry;
 
     public ArchFlowAgent(AgentConfig config) {
         this.config = config;
@@ -55,6 +61,10 @@ public class ArchFlowAgent implements AutoCloseable {
         this.pluginManager = new FlowPluginManager(config.pluginsPath());
         this.stateManager = createStateManager();
 
+        // Inicializa infraestrutura de streaming + observabilidade
+        this.eventStreamRegistry = new EventStreamRegistry();
+        this.runningFlowsRegistry = new RunningFlowsRegistry();
+
         // Inicializa engine de execução
         this.flowEngine = createFlowEngine();
 
@@ -63,6 +73,25 @@ public class ArchFlowAgent implements AutoCloseable {
 
     protected StateManager getStateManager() {
         return this.stateManager;
+    }
+
+    /**
+     * Returns the SSE event stream registry.
+     * Used by the protobuf publisher (Fase C) to register a global listener.
+     *
+     * @return the shared EventStreamRegistry
+     */
+    public EventStreamRegistry getEventStreamRegistry() {
+        return this.eventStreamRegistry;
+    }
+
+    /**
+     * Returns the running flows registry for observability endpoints.
+     *
+     * @return the shared RunningFlowsRegistry
+     */
+    public RunningFlowsRegistry getRunningFlowsRegistry() {
+        return this.runningFlowsRegistry;
     }
 
     /**
@@ -208,6 +237,7 @@ public class ArchFlowAgent implements AutoCloseable {
 
             pluginManager.clearPlugins();
             metricsCollector.close();
+            eventStreamRegistry.shutdown();
 
             logger.info("ArchFlow Agent finalizado com sucesso");
 
@@ -219,8 +249,11 @@ public class ArchFlowAgent implements AutoCloseable {
     }
 
     private FlowEngine createFlowEngine() {
+        FlowLifecycleListener lifecycleListener = new RegistryFlowLifecycleListener(
+                eventStreamRegistry, runningFlowsRegistry);
+
         ExecutionManager executionManager = new DefaultExecutionManager(
-                createFlowExecutor(),
+                createFlowExecutor(lifecycleListener),
                 createParallelExecutor(),
                 executorService
         );
@@ -236,7 +269,8 @@ public class ArchFlowAgent implements AutoCloseable {
                 null,  // memoryRestorer
                 null,  // traceRecorder
                 config.maxConcurrentFlows(),
-                config.defaultFlowTimeout()
+                config.defaultFlowTimeout(),
+                lifecycleListener
         );
     }
 
@@ -269,9 +303,14 @@ public class ArchFlowAgent implements AutoCloseable {
 
     // Métodos protected para facilitar testes e extensões
     protected FlowExecutor createFlowExecutor() {
+        return createFlowExecutor(FlowLifecycleListener.NO_OP);
+    }
+
+    protected FlowExecutor createFlowExecutor(FlowLifecycleListener lifecycleListener) {
         return new DefaultFlowExecutor(
                 pluginManager.getPluginClassLoader(),
-                metricsCollector
+                metricsCollector,
+                lifecycleListener
         );
     }
 

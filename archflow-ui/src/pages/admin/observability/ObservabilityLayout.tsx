@@ -5,12 +5,14 @@ import {
     IconAlertCircle,
     IconChartBar,
     IconHistory,
+    IconPlayerPlay,
     IconRadar2,
     IconTimeline,
 } from '@tabler/icons-react';
 
 const TABS = [
     { value: 'overview', label: 'Overview', path: '/admin/observability', icon: IconActivity },
+    { value: 'running', label: 'Running flows', path: '/admin/observability/running', icon: IconPlayerPlay },
     { value: 'traces', label: 'Traces', path: '/admin/observability/traces', icon: IconTimeline },
     { value: 'metrics', label: 'Metrics', path: '/admin/observability/metrics', icon: IconChartBar },
     { value: 'audit', label: 'Audit log', path: '/admin/observability/audit', icon: IconHistory },
@@ -55,6 +57,7 @@ function resolveActiveTab(pathname: string): string {
     if (pathname.startsWith('/admin/observability/traces')) return 'traces';
     if (pathname.startsWith('/admin/observability/metrics')) return 'metrics';
     if (pathname.startsWith('/admin/observability/audit')) return 'audit';
+    if (pathname.startsWith('/admin/observability/running')) return 'running';
     if (pathname.startsWith('/admin/observability/live')) return 'live';
     return 'overview';
 }

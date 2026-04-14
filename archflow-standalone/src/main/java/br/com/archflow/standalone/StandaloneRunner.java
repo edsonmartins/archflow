@@ -4,11 +4,13 @@ import br.com.archflow.agent.ArchFlowAgent;
 import br.com.archflow.agent.config.AgentConfig;
 import br.com.archflow.agent.config.ResourceConfig;
 import br.com.archflow.agent.config.RetryConfig;
+import br.com.archflow.events.proto.ProtobufEventPublisher;
 import br.com.archflow.model.flow.FlowResult;
 import br.com.archflow.standalone.model.SerializableFlow;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
@@ -47,6 +49,7 @@ public class StandaloneRunner implements AutoCloseable {
 
     private final FlowSerializer serializer;
     private ArchFlowAgent agent;
+    private ProtobufEventPublisher eventPublisher;
 
     public StandaloneRunner() {
         this.serializer = new FlowSerializer();
@@ -98,6 +101,16 @@ public class StandaloneRunner implements AutoCloseable {
 
         agent = new ArchFlowAgent(config);
 
+        // Wire up protobuf publisher if --events-url was provided
+        if (args.eventsUrl != null) {
+            String agentId = args.agentId != null ? args.agentId : "standalone-" + flow.getId();
+            eventPublisher = new ProtobufEventPublisher(
+                    agent.getEventStreamRegistry(),
+                    URI.create(args.eventsUrl),
+                    agentId);
+            log.info("Protobuf event publisher started → {}", args.eventsUrl);
+        }
+
         // Prepare input
         Map<String, Object> input = new HashMap<>(args.variables);
         if (args.inputText != null) {
@@ -146,6 +159,13 @@ public class StandaloneRunner implements AutoCloseable {
 
     @Override
     public void close() throws Exception {
+        if (eventPublisher != null) {
+            try {
+                eventPublisher.close();
+            } catch (Exception e) {
+                log.warn("Error closing event publisher: {}", e.getMessage());
+            }
+        }
         if (agent != null) {
             agent.close();
         }
@@ -183,7 +203,9 @@ public class StandaloneRunner implements AutoCloseable {
             Map<String, Object> variables,
             int timeoutSeconds,
             int maxThreads,
-            String pluginsPath
+            String pluginsPath,
+            String eventsUrl,
+            String agentId
     ) {
         public static CliArgs parse(String[] args) {
             String workflowPath = args[0];
@@ -192,21 +214,26 @@ public class StandaloneRunner implements AutoCloseable {
             int timeout = 300;
             int threads = 4;
             String plugins = null;
+            String eventsUrl = null;
+            String agentId = null;
 
             for (int i = 1; i < args.length; i++) {
                 switch (args[i]) {
-                    case "--input" -> inputText = args[++i];
-                    case "--var" -> {
+                    case "--input"      -> inputText = args[++i];
+                    case "--var"        -> {
                         String[] kv = args[++i].split("=", 2);
                         variables.put(kv[0], kv.length > 1 ? kv[1] : "");
                     }
-                    case "--timeout" -> timeout = Integer.parseInt(args[++i]);
-                    case "--threads" -> threads = Integer.parseInt(args[++i]);
-                    case "--plugins" -> plugins = args[++i];
+                    case "--timeout"    -> timeout = Integer.parseInt(args[++i]);
+                    case "--threads"    -> threads = Integer.parseInt(args[++i]);
+                    case "--plugins"    -> plugins = args[++i];
+                    case "--events-url" -> eventsUrl = args[++i];
+                    case "--agent-id"   -> agentId = args[++i];
                 }
             }
 
-            return new CliArgs(workflowPath, inputText, variables, timeout, threads, plugins);
+            return new CliArgs(workflowPath, inputText, variables, timeout, threads,
+                    plugins, eventsUrl, agentId);
         }
     }
 }

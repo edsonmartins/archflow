@@ -153,6 +153,29 @@ public final class ObservabilityDtos {
             String traceId
     ) {}
 
+    // ── Running flows ──────────────────────────────────────────────
+
+    /**
+     * Snapshot of a currently-executing flow, used by the Running Flows dashboard.
+     *
+     * @param flowId        flow identifier
+     * @param tenantId      tenant identifier (may be null in single-tenant deployments)
+     * @param startedAt     instant the flow began executing
+     * @param currentStepId identifier of the step currently executing (null if not yet started)
+     * @param stepIndex     0-based index of the current step (-1 if unknown)
+     * @param stepCount     total number of steps in the flow
+     * @param durationMs    elapsed time in milliseconds since the flow started
+     */
+    public record RunningFlowDto(
+            String flowId,
+            String tenantId,
+            Instant startedAt,
+            String currentStepId,
+            int stepIndex,
+            int stepCount,
+            long durationMs
+    ) {}
+
     // ── Filter inputs ─────────────────────────────────────────────
 
     /**

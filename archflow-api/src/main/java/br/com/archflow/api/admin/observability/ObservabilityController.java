@@ -6,6 +6,7 @@ import br.com.archflow.api.admin.observability.ObservabilityDtos.MetricSeriesDto
 import br.com.archflow.api.admin.observability.ObservabilityDtos.MetricsSnapshotDto;
 import br.com.archflow.api.admin.observability.ObservabilityDtos.OverviewDto;
 import br.com.archflow.api.admin.observability.ObservabilityDtos.PageDto;
+import br.com.archflow.api.admin.observability.ObservabilityDtos.RunningFlowDto;
 import br.com.archflow.api.admin.observability.ObservabilityDtos.TraceDetailDto;
 import br.com.archflow.api.admin.observability.ObservabilityDtos.TraceSummaryDto;
 
@@ -51,4 +52,27 @@ public interface ObservabilityController {
      * {@code text/csv} content type.
      */
     String exportAuditCsv(FilterDto filter);
+
+    // ── Running flows ──────────────────────────────────────────────
+
+    /**
+     * Returns a snapshot of all flows currently executing.
+     *
+     * @param tenantId optional tenant filter; null means all tenants (superadmin only)
+     * @return list of running flow snapshots, empty when none are active
+     */
+    List<RunningFlowDto> listRunningFlows(String tenantId);
+
+    /**
+     * Requests cancellation of a running flow.
+     *
+     * <p>The authenticated caller's tenant is checked against the flow's
+     * tenant to prevent cross-tenant cancellation.
+     *
+     * @param tenantId      the authenticated caller's tenant
+     * @param flowId        flow to cancel
+     * @throws IllegalArgumentException  if the flow is not running
+     * @throws SecurityException         if tenantId does not match the flow's tenant
+     */
+    void cancelFlow(String tenantId, String flowId);
 }

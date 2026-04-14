@@ -36,6 +36,7 @@ const ApiKeys           = lazy(() => import('./pages/admin/tenant/ApiKeys'));
 // Observability pages — lazy loaded
 const ObservabilityLayout  = lazy(() => import('./pages/admin/observability/ObservabilityLayout'));
 const ObservabilityOverview = lazy(() => import('./pages/admin/observability/ObservabilityOverview'));
+const RunningFlowsPage     = lazy(() => import('./pages/admin/observability/RunningFlowsPage'));
 const TracesPage           = lazy(() => import('./pages/admin/observability/TracesPage'));
 const TraceDetailPage      = lazy(() => import('./pages/admin/observability/TraceDetailPage'));
 const MetricsPage          = lazy(() => import('./pages/admin/observability/MetricsPage'));
@@ -94,6 +95,7 @@ function App() {
                             {/* Observability */}
                             <Route path="observability" element={<ObservabilityLayout />}>
                                 <Route index element={<ObservabilityOverview />} />
+                                <Route path="running" element={<RunningFlowsPage />} />
                                 <Route path="traces" element={<TracesPage />} />
                                 <Route path="traces/:id" element={<TraceDetailPage />} />
                                 <Route path="metrics" element={<MetricsPage />} />

@@ -3,7 +3,9 @@ package br.com.archflow.api.admin.observability.impl;
 import br.com.archflow.agent.metrics.AggregatedMetrics;
 import br.com.archflow.agent.metrics.MetricsCollector;
 import br.com.archflow.agent.streaming.EventStreamRegistry;
+import br.com.archflow.agent.streaming.RunningFlowsRegistry;
 import br.com.archflow.api.admin.observability.ObservabilityDtos.AuditEntryDto;
+import br.com.archflow.api.admin.observability.ObservabilityDtos.RunningFlowDto;
 import br.com.archflow.api.admin.observability.ObservabilityDtos.FilterDto;
 import br.com.archflow.api.admin.observability.ObservabilityDtos.MetricSeriesDto;
 import br.com.archflow.api.admin.observability.ObservabilityDtos.MetricStatsDto;
@@ -54,16 +56,27 @@ public class ObservabilityService {
     private final InMemoryTraceStore traceStore;
     private final AuditRepository auditRepository;
     private final EventStreamRegistry eventStreamRegistry;
+    private final RunningFlowsRegistry runningFlowsRegistry;
 
     public ObservabilityService(
             MetricsCollector metricsCollector,
             InMemoryTraceStore traceStore,
             AuditRepository auditRepository,
             EventStreamRegistry eventStreamRegistry) {
+        this(metricsCollector, traceStore, auditRepository, eventStreamRegistry, null);
+    }
+
+    public ObservabilityService(
+            MetricsCollector metricsCollector,
+            InMemoryTraceStore traceStore,
+            AuditRepository auditRepository,
+            EventStreamRegistry eventStreamRegistry,
+            RunningFlowsRegistry runningFlowsRegistry) {
         this.metricsCollector = metricsCollector;
         this.traceStore = traceStore != null ? traceStore : new InMemoryTraceStore();
         this.auditRepository = auditRepository;
         this.eventStreamRegistry = eventStreamRegistry;
+        this.runningFlowsRegistry = runningFlowsRegistry;
     }
 
     public InMemoryTraceStore traceStore() {
@@ -244,6 +257,64 @@ public class ObservabilityService {
                     .append(csv(e.ipAddress())).append('\n');
         }
         return sb.toString();
+    }
+
+    // ── Running flows ─────────────────────────────────────────────
+
+    /**
+     * Returns a snapshot of currently executing flows.
+     *
+     * @param tenantId optional tenant filter; null returns all tenants
+     * @return list of running flow snapshots, empty when none
+     */
+    public List<RunningFlowDto> listRunningFlows(String tenantId) {
+        if (runningFlowsRegistry == null) return List.of();
+
+        List<RunningFlowsRegistry.ActiveFlow> flows = tenantId != null
+                ? runningFlowsRegistry.snapshotForTenant(tenantId)
+                : runningFlowsRegistry.snapshot();
+
+        return flows.stream()
+                .map(f -> new RunningFlowDto(
+                        f.flowId(),
+                        f.tenantId(),
+                        f.startedAt(),
+                        f.currentStepId(),
+                        f.stepIndex(),
+                        f.stepCount(),
+                        f.durationMs()))
+                .toList();
+    }
+
+    /**
+     * Requests cancellation of a running flow after validating tenant ownership.
+     *
+     * @param callerTenantId  authenticated caller's tenant
+     * @param flowId          flow to cancel
+     * @throws IllegalArgumentException if the flow is not currently running
+     * @throws SecurityException        if the caller's tenant does not own the flow
+     */
+    public void cancelFlow(String callerTenantId, String flowId) {
+        if (runningFlowsRegistry == null) {
+            throw new IllegalArgumentException("Flow not running: " + flowId);
+        }
+
+        var active = runningFlowsRegistry.find(flowId)
+                .orElseThrow(() -> new IllegalArgumentException("Flow not running: " + flowId));
+
+        // Cross-tenant protection: only the owning tenant (or superadmin with null) may cancel
+        if (callerTenantId != null && !callerTenantId.equals(active.tenantId())) {
+            throw new SecurityException("Tenant " + callerTenantId
+                    + " is not authorized to cancel flow " + flowId
+                    + " owned by " + active.tenantId());
+        }
+
+        // The actual cancellation signal is delivered via the engine.
+        // This service layer only handles validation; the HTTP adapter should
+        // call FlowEngine.cancel(flowId) directly or via a dedicated CancelService.
+        // We remove from registry here as an optimistic update; the lifecycle
+        // listener will also remove it when the flow actually stops.
+        runningFlowsRegistry.flowEnded(flowId);
     }
 
     // ── helpers ───────────────────────────────────────────────────

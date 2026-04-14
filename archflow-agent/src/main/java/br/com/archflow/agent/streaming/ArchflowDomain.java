@@ -99,7 +99,23 @@ public enum ArchflowDomain {
      *   <li>payload_complete - Payload rico completo</li>
      * </ul>
      */
-    PAYLOAD("payload");
+    PAYLOAD("payload"),
+
+    /**
+     * Domínio para lifecycle de fluxos e steps.
+     *
+     * <p>Eventos neste domínio incluem:
+     * <ul>
+     *   <li>flow_started - Início de um fluxo</li>
+     *   <li>flow_completed - Conclusão bem-sucedida de um fluxo</li>
+     *   <li>flow_failed - Falha na execução de um fluxo</li>
+     *   <li>step_started - Início de um step</li>
+     *   <li>step_completed - Conclusão bem-sucedida de um step</li>
+     *   <li>step_failed - Falha na execução de um step</li>
+     *   <li>step_skipped - Step ignorado (condição não atendida)</li>
+     * </ul>
+     */
+    FLOW("flow");
 
     private final String value;
 

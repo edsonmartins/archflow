@@ -164,7 +164,46 @@ public enum ArchflowEventType {
     /**
      * Payload rico completo.
      */
-    PAYLOAD_COMPLETE("payload_complete");
+    PAYLOAD_COMPLETE("payload_complete"),
+
+    // ========================
+    // Eventos do Domain FLOW
+    // ========================
+
+    /**
+     * Início de execução de um fluxo.
+     */
+    FLOW_STARTED("flow_started"),
+
+    /**
+     * Conclusão bem-sucedida de um fluxo.
+     */
+    FLOW_COMPLETED("flow_completed"),
+
+    /**
+     * Falha na execução de um fluxo.
+     */
+    FLOW_FAILED("flow_failed"),
+
+    /**
+     * Início de execução de um step.
+     */
+    STEP_STARTED("step_started"),
+
+    /**
+     * Conclusão bem-sucedida de um step.
+     */
+    STEP_COMPLETED("step_completed"),
+
+    /**
+     * Falha na execução de um step.
+     */
+    STEP_FAILED("step_failed"),
+
+    /**
+     * Step ignorado (condição não atendida).
+     */
+    STEP_SKIPPED("step_skipped");
 
     private final String value;
 

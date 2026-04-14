@@ -7,6 +7,7 @@ import br.com.archflow.api.admin.observability.ObservabilityDtos.MetricSeriesDto
 import br.com.archflow.api.admin.observability.ObservabilityDtos.MetricsSnapshotDto;
 import br.com.archflow.api.admin.observability.ObservabilityDtos.OverviewDto;
 import br.com.archflow.api.admin.observability.ObservabilityDtos.PageDto;
+import br.com.archflow.api.admin.observability.ObservabilityDtos.RunningFlowDto;
 import br.com.archflow.api.admin.observability.ObservabilityDtos.TraceDetailDto;
 import br.com.archflow.api.admin.observability.ObservabilityDtos.TraceSummaryDto;
 
@@ -65,5 +66,15 @@ public class ObservabilityControllerImpl implements ObservabilityController {
     @Override
     public String exportAuditCsv(FilterDto filter) {
         return service.exportAuditCsv(filter);
+    }
+
+    @Override
+    public List<RunningFlowDto> listRunningFlows(String tenantId) {
+        return service.listRunningFlows(tenantId);
+    }
+
+    @Override
+    public void cancelFlow(String tenantId, String flowId) {
+        service.cancelFlow(tenantId, flowId);
     }
 }

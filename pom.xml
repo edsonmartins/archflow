@@ -39,6 +39,7 @@
         <module>archflow-langchain4j</module>
         <module>archflow-plugin-loader</module>
         <module>archflow-brainsentry</module>
+        <module>archflow-events-proto</module>
         <module>archflow-standalone</module>
     </modules>
 

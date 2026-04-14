@@ -67,6 +67,11 @@
         </dependency>
         <dependency>
             <groupId>br.com.archflow</groupId>
+            <artifactId>archflow-events-proto</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>br.com.archflow</groupId>
             <artifactId>archflow-standalone</artifactId>
             <version>${project.version}</version>
         </dependency>
