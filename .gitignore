@@ -46,6 +46,10 @@ secrets.yml
 secrets.yaml
 service-account.json
 
+### Test artifacts ###
+test-results/
+playwright-report/
+
 ### OS Files ###
 .DS_Store
 Thumbs.db
