@@ -92,6 +92,7 @@
                     <configuration>
                         <target>${maven.compiler.target}</target>
                         <source>${maven.compiler.source}</source>
+                        <parameters>true</parameters>
                         <annotationProcessorPaths>
                             <path>
                                 <groupId>org.projectlombok</groupId>

@@ -24,5 +24,17 @@ export default defineConfig({
   },
   define: {
     __ARCHFLOW_VERSION__: JSON.stringify('1.0.0-beta.1')
+  },
+  server: {
+    proxy: {
+      '/api': {
+        target: 'http://localhost:8080',
+        changeOrigin: true
+      },
+      '/archflow': {
+        target: 'http://localhost:8080',
+        changeOrigin: true
+      }
+    }
   }
 })
