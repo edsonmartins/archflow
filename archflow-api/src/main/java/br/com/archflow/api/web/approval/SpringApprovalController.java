@@ -6,15 +6,21 @@ import br.com.archflow.api.approval.dto.ApprovalSubmitRequest;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
-@RequestMapping("/archflow/approvals")
+@RequestMapping({"/archflow/approvals", "/api/approvals"})
 public class SpringApprovalController {
 
     private final ApprovalController delegate;
 
     public SpringApprovalController(ApprovalController delegate) {
         this.delegate = delegate;
+    }
+
+    @GetMapping("/pending/count")
+    public Map<String, Integer> pendingCount(@RequestParam(required = false) String tenantId) {
+        return Map.of("count", delegate.listPending(tenantId).size());
     }
 
     @PostMapping("/{requestId}")

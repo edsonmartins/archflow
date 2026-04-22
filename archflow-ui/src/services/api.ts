@@ -49,11 +49,15 @@ export const api = {
 
 // Auth API
 export const authApi = {
-    login: (username: string, password: string) =>
-        api.post<{ token: string; refreshToken: string }>('/auth/login', { username, password }),
-    refresh: (refreshToken: string) =>
-        api.post<{ token: string; refreshToken: string }>('/auth/refresh', { refreshToken }),
-    me: () => api.get<{ id: string; username: string; name: string; roles: string[] }>('/auth/me'),
+    login: async (username: string, password: string) => {
+        const res = await api.post<{ accessToken: string; refreshToken: string; userId: string; username: string; email: string; roles: string[] }>('/auth/login', { username, password });
+        return { token: res.accessToken, refreshToken: res.refreshToken, userId: res.userId, username: res.username, email: res.email, roles: res.roles };
+    },
+    refresh: async (refreshToken: string) => {
+        const res = await api.post<{ accessToken: string; refreshToken: string }>('/auth/refresh', { refreshToken });
+        return { token: res.accessToken, refreshToken: res.refreshToken };
+    },
+    me: () => api.get<{ id: string; username: string; email: string; roles: string[] }>('/auth/me'),
     logout: () => api.post('/auth/logout'),
 };
 

@@ -1,4 +1,11 @@
-import { expect, test, type Page, type Route } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
+import { installSession } from './support/api';
+import {
+  type EditorStep,
+  type EditorWorkflow,
+  installEditorApi,
+  renderWorkflowYaml,
+} from './support/editor';
 
 /**
  * Full user journey through the workflow editor.
@@ -32,64 +39,7 @@ import { expect, test, type Page, type Route } from '@playwright/test';
  * FlowCanvas → PropertyPanel).
  */
 
-const user = { id: 'user-e2e', username: 'admin', name: 'Admin', roles: ['admin'] };
-
-type Step = {
-  id: string;
-  type: string;
-  componentId: string;
-  operation: string;
-  position: { x: number; y: number };
-  configuration: Record<string, unknown>;
-  connections: Array<{ sourceId: string; targetId: string; isErrorPath: boolean }>;
-};
-
-type Workflow = {
-  id: string;
-  metadata: { name: string; description: string; version: string; category: string; tags: string[] };
-  steps: Step[];
-  configuration: Record<string, unknown>;
-};
-
-const providers = [
-  {
-    id: 'anthropic', displayName: 'Anthropic', requiresApiKey: true, supportsStreaming: true, group: 'Cloud',
-    models: [
-      { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6', contextWindow: 200000, maxTemperature: 1.0 },
-      { id: 'claude-opus-4-6',   name: 'Claude Opus 4.6',   contextWindow: 200000, maxTemperature: 1.0 },
-    ],
-  },
-  {
-    id: 'openai', displayName: 'OpenAI', requiresApiKey: true, supportsStreaming: true, group: 'Cloud',
-    models: [
-      { id: 'gpt-4o',      name: 'GPT-4o',      contextWindow: 128000, maxTemperature: 2.0 },
-      { id: 'gpt-4o-mini', name: 'GPT-4o Mini', contextWindow: 128000, maxTemperature: 2.0 },
-    ],
-  },
-];
-
-const patterns = [
-  { id: 'react',            label: 'ReAct (Reason + Act)',              description: 'Iterative loop' },
-  { id: 'plan-execute',     label: 'Plan and Execute',                  description: 'Plan then execute' },
-  { id: 'rewoo',            label: 'ReWOO (Reasoning Without Observation)', description: '82% fewer tokens' },
-  { id: 'chain-of-thought', label: 'Chain of Thought',                  description: 'Majority vote' },
-];
-
-const personas = [
-  { id: 'customer_support', label: 'Customer Support', description: 'Handles customer queries with empathy', promptId: 'p/support' },
-  { id: 'order_tracking',  label: 'Order Tracking',   description: 'Tracks orders and deliveries',          promptId: 'p/orders' },
-];
-
-const governanceProfiles = [
-  { id: 'default', name: 'Default', systemPrompt: 'You are helpful.',
-    enabledTools: [], disabledTools: [],
-    escalationThreshold: 0.4, maxToolExecutions: 10, customInstructions: '' },
-  { id: 'strict', name: 'Strict', systemPrompt: 'Be very careful.',
-    enabledTools: ['crm_lookup'], disabledTools: ['execute_code'],
-    escalationThreshold: 0.75, maxToolExecutions: 5, customInstructions: 'No PII disclosure.' },
-];
-
-function initialWorkflow(): Workflow {
+function initialWorkflow(): EditorWorkflow {
   return {
     id: 'wf-journey',
     metadata: {
@@ -147,93 +97,16 @@ function initialWorkflow(): Workflow {
   };
 }
 
-// Mutable backend state — preserved across navigation so "save → reload" works.
-let storedWorkflow: Workflow;
-let storedYaml: string;
-let putCount: number;
-let lastPut: Workflow | null;
-
-function renderYaml(wf: Workflow): string {
-  const stepsYaml = wf.steps.map(s => {
-    const cfgLines = Object.entries(s.configuration)
-      .map(([k, v]) => `      ${k}: ${JSON.stringify(v)}`)
-      .join('\n');
-    const connsYaml = s.connections.length
-      ? `    connections:\n${s.connections.map(c => `      - { sourceId: ${c.sourceId}, targetId: ${c.targetId}, isErrorPath: ${c.isErrorPath} }`).join('\n')}`
-      : '';
-    return `  - id: ${s.id}\n    type: ${s.type}\n    componentId: ${s.componentId}\n    operation: ${s.operation}\n    configuration:\n${cfgLines}\n${connsYaml}`;
-  }).join('\n');
-  return `id: ${wf.id}\nmetadata:\n  name: ${wf.metadata.name}\n  version: ${wf.metadata.version}\nsteps:\n${stepsYaml}\n`;
-}
-
 async function mockApi(page: Page) {
-  storedWorkflow = initialWorkflow();
-  storedYaml = renderYaml(storedWorkflow);
-  putCount = 0;
-  lastPut = null;
-
-  await page.route('**/api/**', async (route) => {
-    const url  = new URL(route.request().url());
-    const path = url.pathname.replace(/^\/api/, '');
-    const method = route.request().method();
-
-    // ── Auth
-    if (path === '/auth/login' && method === 'POST') return json(route, { token: 'e2e-token', refreshToken: 'e2e-refresh-token' });
-    if (path === '/auth/me'    && method === 'GET')  return json(route, user);
-
-    // ── Approvals badge
-    if (path === '/approvals/pending/count' && method === 'GET') return json(route, { count: 0 });
-    if (path === '/approvals/pending'       && method === 'GET') return json(route, []);
-
-    // ── Workflow editor config
-    if (path === '/workflow/providers'           && method === 'GET') return json(route, providers);
-    if (path === '/workflow/agent-patterns'      && method === 'GET') return json(route, patterns);
-    if (path === '/workflow/personas'            && method === 'GET') return json(route, personas);
-    if (path === '/workflow/governance-profiles' && method === 'GET') return json(route, governanceProfiles);
-    if (path === '/workflow/mcp-servers'         && method === 'GET') return json(route, []);
-
-    // ── Workflow CRUD (stateful)
-    if (path === '/workflows' && method === 'GET') return json(route, [{
-      id: storedWorkflow.id,
-      name: storedWorkflow.metadata.name,
-      description: storedWorkflow.metadata.description,
-      version: storedWorkflow.metadata.version,
-      status: 'draft',
-      updatedAt: new Date().toISOString(),
-      stepCount: storedWorkflow.steps.length,
-    }]);
-    if (path === '/workflows/wf-journey' && method === 'GET')  return json(route, storedWorkflow);
-    if (path === '/workflows/wf-journey' && method === 'PUT') {
-      putCount += 1;
-      lastPut = route.request().postDataJSON() as Workflow;
-      storedWorkflow = lastPut;
-      storedYaml = renderYaml(storedWorkflow);
-      return json(route, storedWorkflow);
-    }
-
-    // ── YAML
-    if (path === '/workflows/wf-journey/yaml' && method === 'GET')
-      return json(route, { id: 'wf-journey', yaml: storedYaml, version: storedWorkflow.metadata.version });
-
-    if (path === '/executions' && method === 'GET') return json(route, []);
-
-    return route.continue();
+  return installEditorApi(page, {
+    workflowId: 'wf-journey',
+    initialWorkflow,
+    initialYaml: (workflow) => renderWorkflowYaml(workflow),
   });
 }
 
 async function authenticate(page: Page) {
-  await page.addInitScript(() => {
-    localStorage.setItem('archflow_token', 'e2e-token');
-    localStorage.setItem('archflow_refresh_token', 'e2e-refresh-token');
-  });
-}
-
-async function json(route: Route, body: unknown, status = 200) {
-  return route.fulfill({
-    status,
-    contentType: 'application/json',
-    body: JSON.stringify(body),
-  });
+  await installSession(page);
 }
 
 /**
@@ -252,7 +125,7 @@ test.describe('Workflow editor — full user journey', () => {
     const errors: string[] = [];
     page.on('pageerror', (e) => errors.push(e.message));
 
-    await mockApi(page);
+    const state = await mockApi(page);
     await authenticate(page);
     await page.goto('/editor/wf-journey');
 
@@ -319,11 +192,11 @@ test.describe('Workflow editor — full user journey', () => {
     //  STEP 4 — Save the workflow
     // ════════════════════════════════════════════════════════════════
     await page.getByTestId('editor-save').click();
-    await expect.poll(() => putCount, { timeout: 5000 }).toBeGreaterThan(0);
+    await expect.poll(() => state.getPutCount(), { timeout: 5000 }).toBeGreaterThan(0);
     await expect(page.getByText('Workflow saved successfully')).toBeVisible({ timeout: 5000 });
 
     // ── Verify the captured PUT payload includes every edit
-    const put = lastPut!;
+    const put = state.getLastPut()!;
     const intake   = put.steps.find(s => s.id === 'step-intake')!;
     const crm      = put.steps.find(s => s.id === 'step-crm')!;
     const response = put.steps.find(s => s.id === 'step-response')!;

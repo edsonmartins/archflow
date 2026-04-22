@@ -19,7 +19,7 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: `/bin/zsh -lc 'cd .. && JAVA_HOME=/Users/edsonmartins/.sdkman/candidates/java/25.0.2-graalce PATH=/Users/edsonmartins/.sdkman/candidates/java/25.0.2-graalce/bin:$PATH mvn -pl archflow-api -am -DskipTests install && JAVA_HOME=/Users/edsonmartins/.sdkman/candidates/java/25.0.2-graalce PATH=/Users/edsonmartins/.sdkman/candidates/java/25.0.2-graalce/bin:$PATH mvn -pl archflow-api spring-boot:run'`,
+      command: `/bin/zsh -lc 'cd .. && JAVA_HOME=/Users/edsonmartins/.sdkman/candidates/java/25.0.2-graalce PATH=/Users/edsonmartins/.sdkman/candidates/java/25.0.2-graalce/bin:$PATH mvn -pl archflow-conversation -am -DskipTests -Dmaven.javadoc.skip=true -Dmaven.source.skip=true install && JAVA_HOME=/Users/edsonmartins/.sdkman/candidates/java/25.0.2-graalce PATH=/Users/edsonmartins/.sdkman/candidates/java/25.0.2-graalce/bin:$PATH mvn -pl archflow-api spring-boot:run'`,
       url: `${apiBase}/workflows`,
       reuseExistingServer: !process.env.CI,
       timeout: 240_000,

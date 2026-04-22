@@ -26,7 +26,7 @@ const CAT_ICONS: Record<string, { emoji: string; bg: string }> = {
 
 export default function WorkflowListPage() {
     const navigate = useNavigate();
-    const { workflows, loading, error, fetchWorkflows, deleteWorkflow, executeWorkflow } = useWorkflowStore();
+    const { workflows, loading, error, fetchWorkflows, deleteWorkflow, executeWorkflow, createWorkflow } = useWorkflowStore();
     const [search, setSearch] = useState('');
     const [deleteId, setDeleteId] = useState<string | null>(null);
 
@@ -40,6 +40,16 @@ export default function WorkflowListPage() {
 
     const handleDelete = async () => { if (deleteId) { await deleteWorkflow(deleteId); setDeleteId(null); } };
     const handleExecute = async (id: string) => { try { const eid = await executeWorkflow(id); navigate(`/executions?id=${eid}`); } catch {} };
+    const handleNew = async () => {
+        try {
+            const created = await createWorkflow({
+                metadata: { name: 'Untitled Workflow', description: '', version: '1.0.0', category: '', tags: [] },
+                steps: [],
+                configuration: {},
+            });
+            navigate(`/editor/${created.id}`);
+        } catch {}
+    };
 
     return (
         <Stack gap="md" pos="relative">
@@ -49,7 +59,7 @@ export default function WorkflowListPage() {
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
                 <span style={{ fontSize: 22, fontWeight: 600, letterSpacing: '-0.3px', color: 'var(--text)' }}>Workflows</span>
                 <button
-                    onClick={() => navigate('/editor')}
+                    onClick={handleNew}
                     style={{
                         display: 'inline-flex', alignItems: 'center', gap: 6,
                         padding: '7px 16px', borderRadius: 7, fontSize: 13, fontWeight: 500,

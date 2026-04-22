@@ -1,11 +1,5 @@
-import { expect, test, type Page, type Route } from '@playwright/test';
-
-const user = {
-    id: 'user-e2e',
-    username: 'admin',
-    name: 'Admin User',
-    roles: ['admin'],
-};
+import { expect, test, type Page } from '@playwright/test';
+import { adminUser, authHandlers, fulfillJson, installApiRouter, installSession } from './support/api';
 
 const workflowDetail = {
     id: 'wf-yaml',
@@ -52,67 +46,43 @@ let storedYaml = initialYaml;
 
 async function mockApi(page: Page) {
     storedYaml = initialYaml;
-    await page.route('**/api/**', async (route) => {
-        const url = new URL(route.request().url());
-        const path = url.pathname.replace(/^\/api/, '');
-        const method = route.request().method();
-
-        if (path === '/auth/login' && method === 'POST') {
-            await json(route, { token: 'e2e-token', refreshToken: 'e2e-refresh-token' });
-            return;
-        }
-        if (path === '/auth/me' && method === 'GET') {
-            await json(route, user);
-            return;
-        }
-        if (path === '/workflows/wf-yaml' && method === 'GET') {
-            await json(route, workflowDetail);
-            return;
-        }
-        if (path === '/workflows/wf-yaml/yaml' && method === 'GET') {
-            await json(route, { id: 'wf-yaml', yaml: storedYaml, version: '1.0.0' });
-            return;
-        }
-        if (path === '/workflows/wf-yaml/yaml' && method === 'PUT') {
-            const body = route.request().postDataJSON() as { yaml?: string };
+    await installApiRouter(page, [
+        ...authHandlers(adminUser, { loginShape: 'token', workflows: [] }),
+        async ({ path, method, route }) => {
+            if (path !== '/workflows/wf-yaml' || method !== 'GET') return false;
+            await fulfillJson(route, workflowDetail);
+            return true;
+        },
+        async ({ path, method, route }) => {
+            if (path !== '/workflows/wf-yaml/yaml' || method !== 'GET') return false;
+            await fulfillJson(route, { id: 'wf-yaml', yaml: storedYaml, version: '1.0.0' });
+            return true;
+        },
+        async ({ path, method, request, route }) => {
+            if (path !== '/workflows/wf-yaml/yaml' || method !== 'PUT') return false;
+            const body = request.postDataJSON() as { yaml?: string };
             if (typeof body.yaml === 'string') storedYaml = body.yaml;
-            await json(route, { id: 'wf-yaml', yaml: storedYaml, version: '1.0.1' });
-            return;
-        }
-        if (path === '/approvals/pending/count' && method === 'GET') {
-            await json(route, { count: 0 });
-            return;
-        }
-        if (path.startsWith('/workflow/') && method === 'GET') {
-            if (path === '/workflow/providers') await json(route, []);
-            else if (path === '/workflow/agent-patterns') await json(route, []);
-            else if (path === '/workflow/personas') await json(route, []);
-            else if (path === '/workflow/governance-profiles') await json(route, []);
-            else if (path === '/workflow/mcp-servers') await json(route, []);
-            else await route.continue();
-            return;
-        }
-        if (path === '/executions' && method === 'GET') {
-            await json(route, []);
-            return;
-        }
-        await route.continue();
-    });
+            await fulfillJson(route, { id: 'wf-yaml', yaml: storedYaml, version: '1.0.1' });
+            return true;
+        },
+        async ({ path, method, route }) => {
+            if (!path.startsWith('/workflow/') || method !== 'GET') return false;
+            if (['/workflow/providers', '/workflow/agent-patterns', '/workflow/personas', '/workflow/governance-profiles', '/workflow/mcp-servers'].includes(path)) {
+                await fulfillJson(route, []);
+                return true;
+            }
+            return false;
+        },
+        async ({ path, method, route }) => {
+            if (path !== '/executions' || method !== 'GET') return false;
+            await fulfillJson(route, []);
+            return true;
+        },
+    ]);
 }
 
 async function authenticate(page: Page) {
-    await page.addInitScript(() => {
-        localStorage.setItem('archflow_token', 'e2e-token');
-        localStorage.setItem('archflow_refresh_token', 'e2e-refresh-token');
-    });
-}
-
-async function json(route: Route, body: unknown, status = 200) {
-    await route.fulfill({
-        status,
-        contentType: 'application/json',
-        body: JSON.stringify(body),
-    });
+    await installSession(page);
 }
 
 test.describe('Workflow editor YAML round-trip', () => {

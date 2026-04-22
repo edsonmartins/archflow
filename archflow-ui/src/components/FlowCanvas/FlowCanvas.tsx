@@ -153,7 +153,7 @@ export function FlowCanvas({
       if (!raw) return
 
       const nodeInfo = JSON.parse(raw) as {
-        type: string
+        type?: string
         componentId: string
         label: string
         category: keyof typeof NODE_CATEGORIES
@@ -171,7 +171,7 @@ export function FlowCanvas({
         data: {
           label:       nodeInfo.label,
           componentId: nodeInfo.componentId,
-          nodeType:    nodeInfo.type,
+          nodeType:    nodeInfo.type ?? nodeInfo.componentId,
           status:      'idle',
           config:      {},
         },

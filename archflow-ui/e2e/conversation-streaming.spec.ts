@@ -1,11 +1,5 @@
-import { expect, test, type Page, type Route } from '@playwright/test';
-
-const user = {
-    id: 'user-e2e',
-    username: 'admin',
-    name: 'Admin User',
-    roles: ['admin'],
-};
+import { expect, test, type Page } from '@playwright/test';
+import { adminUser, authHandlers, fulfillJson, installApiRouter, installSession } from './support/api';
 
 const conversation = {
     id: 'conv-streaming-1',
@@ -43,50 +37,35 @@ const initialMessages = [
  *   5. chat.end
  */
 async function mockApi(page: Page) {
-    await page.route('**/api/**', async (route) => {
-        const url = new URL(route.request().url());
-        const path = url.pathname.replace(/^\/api/, '');
-        const method = route.request().method();
-
-        if (path === '/auth/login' && method === 'POST') {
-            await json(route, { token: 'e2e-token', refreshToken: 'e2e-refresh-token' });
-            return;
-        }
-
-        if (path === '/auth/me' && method === 'GET') {
-            await json(route, user);
-            return;
-        }
-
-        if (path === '/conversations' && method === 'GET') {
-            await json(route, {
+    await installApiRouter(page, [
+        ...authHandlers(adminUser, { loginShape: 'token' }),
+        async ({ path, method, route }) => {
+            if (path !== '/conversations' || method !== 'GET') return false;
+            await fulfillJson(route, {
                 items: [conversation],
                 page: 1,
                 pageSize: 100,
                 total: 1,
             });
-            return;
-        }
-
-        if (path === `/conversations/${conversation.id}` && method === 'GET') {
-            await json(route, conversation);
-            return;
-        }
-
-        if (path === `/conversations/${conversation.id}/messages` && method === 'GET') {
-            await json(route, initialMessages);
-            return;
-        }
-
-        if (path === `/conversations/${conversation.id}/messages` && method === 'POST') {
-            await json(route, { messageId: 'm-2' });
-            return;
-        }
-
-        if (
-            path === `/stream/${conversation.tenantId}/${conversation.id}` &&
-            method === 'GET'
-        ) {
+            return true;
+        },
+        async ({ path, method, route }) => {
+            if (path !== `/conversations/${conversation.id}` || method !== 'GET') return false;
+            await fulfillJson(route, conversation);
+            return true;
+        },
+        async ({ path, method, route }) => {
+            if (path !== `/conversations/${conversation.id}/messages` || method !== 'GET') return false;
+            await fulfillJson(route, initialMessages);
+            return true;
+        },
+        async ({ path, method, route }) => {
+            if (path !== `/conversations/${conversation.id}/messages` || method !== 'POST') return false;
+            await fulfillJson(route, { messageId: 'm-2' });
+            return true;
+        },
+        async ({ path, method, route }) => {
+            if (path !== `/stream/${conversation.tenantId}/${conversation.id}` || method !== 'GET') return false;
             const body = buildSseBody();
             await route.fulfill({
                 status: 200,
@@ -97,11 +76,9 @@ async function mockApi(page: Page) {
                 },
                 body,
             });
-            return;
-        }
-
-        await route.continue();
-    });
+            return true;
+        },
+    ]);
 }
 
 function buildSseBody(): string {
@@ -163,19 +140,8 @@ function toolEvent(type: string, id: string, data: Record<string, unknown>) {
     };
 }
 
-async function json(route: Route, body: unknown, status = 200) {
-    await route.fulfill({
-        status,
-        contentType: 'application/json',
-        body: JSON.stringify(body),
-    });
-}
-
 async function authenticate(page: Page) {
-    await page.addInitScript(() => {
-        localStorage.setItem('archflow_token', 'e2e-token');
-        localStorage.setItem('archflow_refresh_token', 'e2e-refresh-token');
-    });
+    await installSession(page);
 }
 
 test.describe('Conversations streaming surface', () => {

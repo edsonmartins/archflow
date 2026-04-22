@@ -58,7 +58,9 @@
       "Bash(/usr/libexec/java_home -V)",
       "Bash(~/.sdkman/candidates/java/25.0.2-graalce/bin/javap -classpath ~/.m2/repository/io/jsonwebtoken/jjwt-api/0.12.6/jjwt-api-0.12.6.jar io.jsonwebtoken.SignatureException)",
       "Bash(~/.sdkman/candidates/java/25.0.2-graalce/bin/javap -classpath ~/.m2/repository/io/jsonwebtoken/jjwt-api/0.12.6/jjwt-api-0.12.6.jar io.jsonwebtoken.security.SecurityException)",
-      "Bash(JAVA_HOME=/Library/Java/JavaVirtualMachines/jdk-25.jdk/Contents/Home mvn test -pl archflow-langchain4j/archflow-langchain4j-provider-hub -Dtest=\"LLMProviderHubTest,ProviderSwitcherTest\" -DfailIfNoTests=false)"
+      "Bash(JAVA_HOME=/Library/Java/JavaVirtualMachines/jdk-25.jdk/Contents/Home mvn test -pl archflow-langchain4j/archflow-langchain4j-provider-hub -Dtest=\"LLMProviderHubTest,ProviderSwitcherTest\" -DfailIfNoTests=false)",
+      "Bash(echo \"Frontend PID: $!\")",
+      "Bash(lsof -ti:8080)"
     ]
   }
 }

@@ -4,6 +4,7 @@ import br.com.archflow.api.admin.dto.UserDto;
 import br.com.archflow.api.admin.dto.UserDto.*;
 import br.com.archflow.api.admin.dto.ApiKeyDto;
 import br.com.archflow.api.admin.dto.ApiKeyDto.*;
+import br.com.archflow.api.admin.dto.WorkspaceSummaryDto;
 
 import java.util.List;
 
@@ -30,6 +31,8 @@ import java.util.List;
  * </ul>
  */
 public interface WorkspaceController {
+    WorkspaceSummaryDto getSummary();
+
     // Users
     List<UserDto> listUsers();
     UserDto inviteUser(InviteUserRequest request);

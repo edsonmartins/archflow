@@ -104,7 +104,7 @@ export const BaseNode = memo(function BaseNode({
               marginTop:  1,
             }}
           >
-            {data.nodeType.toUpperCase()}
+            {(data.nodeType ?? data.componentId ?? '').toUpperCase()}
           </div>
         </div>
       </div>

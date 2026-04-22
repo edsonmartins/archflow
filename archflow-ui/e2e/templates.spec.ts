@@ -1,30 +1,14 @@
-import { expect, test, type Page, type Route } from '@playwright/test';
-
-const user = {
-    id: 'user-e2e',
-    username: 'admin',
-    name: 'Admin User',
-    roles: ['admin'],
-};
+import { expect, test, type Page } from '@playwright/test';
+import { adminUser, authHandlers, fulfillJson, installApiRouter, installSession } from './support/api';
 
 let createdWorkflowId = 'wf-from-template';
 
 async function mockApi(page: Page) {
-    await page.route('**/api/**', async (route) => {
-        const url = new URL(route.request().url());
-        const path = url.pathname.replace(/^\/api/, '');
-        const method = route.request().method();
-
-        if (path === '/auth/login' && method === 'POST') {
-            await json(route, { token: 'e2e-token', refreshToken: 'e2e-refresh-token' });
-            return;
-        }
-        if (path === '/auth/me' && method === 'GET') {
-            await json(route, user);
-            return;
-        }
-        if (path === '/workflows' && method === 'POST') {
-            const body = route.request().postDataJSON() as Record<string, unknown>;
+    await installApiRouter(page, [
+        ...authHandlers(adminUser, { loginShape: 'token' }),
+        async ({ path, method, request, route }) => {
+            if (path !== '/workflows' || method !== 'POST') return false;
+            const body = request.postDataJSON() as Record<string, unknown>;
             const meta = (body?.metadata ?? {}) as Record<string, unknown>;
             const created = {
                 id: createdWorkflowId,
@@ -32,11 +16,12 @@ async function mockApi(page: Page) {
                 steps: body?.steps ?? [],
                 configuration: body?.configuration ?? {},
             };
-            await json(route, created, 201);
-            return;
-        }
-        if (path === `/workflows/${createdWorkflowId}` && method === 'GET') {
-            await json(route, {
+            await fulfillJson(route, created, 201);
+            return true;
+        },
+        async ({ path, method, route }) => {
+            if (path !== `/workflows/${createdWorkflowId}` || method !== 'GET') return false;
+            await fulfillJson(route, {
                 id: createdWorkflowId,
                 metadata: {
                     name: 'Customer support agent (copy)',
@@ -48,25 +33,13 @@ async function mockApi(page: Page) {
                 steps: [],
                 configuration: {},
             });
-            return;
-        }
-        await route.continue();
-    });
+            return true;
+        },
+    ]);
 }
 
 async function authenticate(page: Page) {
-    await page.addInitScript(() => {
-        localStorage.setItem('archflow_token', 'e2e-token');
-        localStorage.setItem('archflow_refresh_token', 'e2e-refresh-token');
-    });
-}
-
-async function json(route: Route, body: unknown, status = 200) {
-    await route.fulfill({
-        status,
-        contentType: 'application/json',
-        body: JSON.stringify(body),
-    });
+    await installSession(page);
 }
 
 test.describe('Templates gallery', () => {

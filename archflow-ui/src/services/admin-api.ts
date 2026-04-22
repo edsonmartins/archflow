@@ -95,6 +95,29 @@ export const userApi = {
   revoke:  (id: string)                 => request<void>('POST', `/admin/workspace/users/${id}/revoke`),
 }
 
+export interface WorkspaceSummary {
+  tenantId: string
+  tenantName: string
+  plan: PlanType
+  status: 'active' | 'trial' | 'suspended'
+  executionsToday: number
+  tokensThisMonth: number
+  workflowCount: number
+  userCount: number
+  apiKeyCount: number
+  limits: {
+    executionsPerDay: number
+    tokensPerMonth: number
+    maxWorkflows: number
+    maxUsers: number
+    allowedModels: string[]
+  }
+}
+
+export const workspaceApi = {
+  summary: () => request<WorkspaceSummary>('GET', '/admin/workspace/summary'),
+}
+
 // ── API Keys (tenant admin) ─────────────────────────────────────
 
 export interface ApiKey {

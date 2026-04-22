@@ -5,6 +5,7 @@ import br.com.archflow.api.admin.dto.ApiKeyDto;
 import br.com.archflow.api.admin.dto.ApiKeyDto.*;
 import br.com.archflow.api.admin.dto.UserDto;
 import br.com.archflow.api.admin.dto.UserDto.*;
+import br.com.archflow.api.admin.dto.WorkspaceSummaryDto;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -18,6 +19,9 @@ public class SpringWorkspaceController {
     public SpringWorkspaceController(WorkspaceController delegate) {
         this.delegate = delegate;
     }
+
+    @GetMapping("/summary")
+    public WorkspaceSummaryDto getSummary() { return delegate.getSummary(); }
 
     @GetMapping("/users")
     public List<UserDto> listUsers() { return delegate.listUsers(); }

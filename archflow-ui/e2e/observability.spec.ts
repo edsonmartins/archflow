@@ -1,11 +1,5 @@
-import { expect, test, type Page, type Route } from '@playwright/test';
-
-const user = {
-    id: 'user-admin',
-    username: 'admin',
-    name: 'Admin User',
-    roles: ['superadmin'],
-};
+import { expect, test, type Page } from '@playwright/test';
+import { authHandlers, fulfillJson, installApiRouter, installSession, superadminUser } from './support/api';
 
 const overview = {
     totalExecutionsToday: 42,
@@ -149,61 +143,43 @@ const metricSeries = [
 ];
 
 async function mockApi(page: Page) {
-    await page.route('**/api/**', async (route) => {
-        const url = new URL(route.request().url());
-        const path = url.pathname.replace(/^\/api/, '');
-        const method = route.request().method();
-
-        if (path === '/auth/login' && method === 'POST') {
-            await json(route, { token: 'e2e-token', refreshToken: 'e2e-refresh-token' });
-            return;
-        }
-        if (path === '/auth/me' && method === 'GET') {
-            await json(route, user);
-            return;
-        }
-        if (path === '/admin/observability/overview') {
-            await json(route, overview);
-            return;
-        }
-        if (path === '/admin/observability/traces' && method === 'GET') {
-            await json(route, traces);
-            return;
-        }
-        if (path === '/admin/observability/traces/trace-aaaa-1111') {
-            await json(route, traceDetail);
-            return;
-        }
-        if (path === '/admin/observability/metrics' && method === 'GET') {
-            await json(route, metricsSnapshot);
-            return;
-        }
-        if (path === '/admin/observability/metrics/series') {
-            await json(route, metricSeries);
-            return;
-        }
-        if (path === '/admin/observability/audit' && method === 'GET') {
-            await json(route, audit);
-            return;
-        }
-        await route.continue();
-    });
+    await installApiRouter(page, [
+        ...authHandlers(superadminUser, { loginShape: 'token' }),
+        async ({ path, route }) => {
+            if (path !== '/admin/observability/overview') return false;
+            await fulfillJson(route, overview);
+            return true;
+        },
+        async ({ path, method, route }) => {
+            if (path !== '/admin/observability/traces' || method !== 'GET') return false;
+            await fulfillJson(route, traces);
+            return true;
+        },
+        async ({ path, route }) => {
+            if (path !== '/admin/observability/traces/trace-aaaa-1111') return false;
+            await fulfillJson(route, traceDetail);
+            return true;
+        },
+        async ({ path, method, route }) => {
+            if (path !== '/admin/observability/metrics' || method !== 'GET') return false;
+            await fulfillJson(route, metricsSnapshot);
+            return true;
+        },
+        async ({ path, route }) => {
+            if (path !== '/admin/observability/metrics/series') return false;
+            await fulfillJson(route, metricSeries);
+            return true;
+        },
+        async ({ path, method, route }) => {
+            if (path !== '/admin/observability/audit' || method !== 'GET') return false;
+            await fulfillJson(route, audit);
+            return true;
+        },
+    ]);
 }
 
 async function authenticateAsSuperadmin(page: Page) {
-    await page.addInitScript(() => {
-        localStorage.setItem('archflow_token', 'e2e-token');
-        localStorage.setItem('archflow_refresh_token', 'e2e-refresh-token');
-        sessionStorage.setItem('archflow_role', 'superadmin');
-    });
-}
-
-async function json(route: Route, body: unknown, status = 200) {
-    await route.fulfill({
-        status,
-        contentType: 'application/json',
-        body: JSON.stringify(body),
-    });
+    await installSession(page, { role: 'superadmin' });
 }
 
 test.describe('Admin observability surface', () => {

@@ -1,4 +1,7 @@
-import { Stack, SimpleGrid } from '@mantine/core'
+import { Stack, SimpleGrid, Paper, Text, LoadingOverlay, Alert } from '@mantine/core'
+import { IconAlertCircle } from '@tabler/icons-react'
+import { useEffect, useState } from 'react'
+import { workspaceApi, type WorkspaceSummary } from '../../../services/admin-api'
 import { UsageBar } from '../../../components/admin/UsageBar'
 
 function StatCard({ label, value, color }: { label: string; value: string | number; color?: string }) {
@@ -14,26 +17,64 @@ function StatCard({ label, value, color }: { label: string; value: string | numb
 }
 
 export default function WorkspaceOverview() {
+  const [summary, setSummary] = useState<WorkspaceSummary | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    setError(null)
+
+    workspaceApi.summary()
+      .then((dto) => {
+        if (!cancelled) setSummary(dto)
+      })
+      .catch((e) => {
+        if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to load workspace')
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   return (
-    <Stack gap="md">
+    <Stack gap="md" pos="relative">
+      <LoadingOverlay visible={loading} />
+      {error && (
+        <Alert color="red" icon={<IconAlertCircle size={16} />}>
+          {error}
+        </Alert>
+      )}
+
       <span style={{ fontSize: 22, fontWeight: 600, letterSpacing: '-0.3px', color: 'var(--text)' }}>Workspace Overview</span>
 
       <SimpleGrid cols={{ base: 2, lg: 4 }} spacing="md">
-        <StatCard label="Workflows" value={12} />
-        <StatCard label="Executions today" value={340} color="var(--blue)" />
-        <StatCard label="Users" value={5} />
-        <StatCard label="API Keys" value={3} />
+        <StatCard label="Workflows" value={summary?.workflowCount ?? '—'} />
+        <StatCard label="Executions today" value={summary?.executionsToday ?? '—'} color="var(--blue)" />
+        <StatCard label="Users" value={summary?.userCount ?? '—'} />
+        <StatCard label="API Keys" value={summary?.apiKeyCount ?? '—'} />
       </SimpleGrid>
 
-      <div style={{ border: '1px solid var(--border)', borderRadius: 10, background: 'var(--bg2)', padding: '20px' }}>
-        <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 16, color: 'var(--text)' }}>Plan Usage</div>
-        <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
-          <UsageBar current={340} limit={500} label="Executions/day" />
-          <UsageBar current={4200000} limit={5000000} label="Tokens/month" />
-          <UsageBar current={12} limit={20} label="Workflows" />
-          <UsageBar current={5} limit={10} label="Users" />
-        </SimpleGrid>
-      </div>
+      <Paper withBorder p="lg" radius="lg">
+        <Text fw={600} size="sm" mb="md">Plan Usage</Text>
+        {summary ? (
+          <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+            <UsageBar current={summary.executionsToday} limit={summary.limits.executionsPerDay} label="Executions/day" />
+            <UsageBar current={summary.tokensThisMonth} limit={summary.limits.tokensPerMonth} label="Tokens/month" />
+            <UsageBar current={summary.workflowCount} limit={summary.limits.maxWorkflows} label="Workflows" />
+            <UsageBar current={summary.userCount} limit={summary.limits.maxUsers} label="Users" />
+          </SimpleGrid>
+        ) : (
+          <Text size="sm" c="dimmed">
+            Workspace summary is unavailable right now.
+          </Text>
+        )}
+      </Paper>
     </Stack>
   )
 }

@@ -1,43 +1,80 @@
 import {
   Title, Table, Badge, Text, Paper, Stack, Group, Button, ActionIcon,
-  Tooltip, Modal, TextInput, Select, CopyButton,
+  Tooltip, Modal, TextInput, Select, CopyButton, LoadingOverlay, Alert,
 } from '@mantine/core'
-import { IconPlus, IconCopy, IconTrash, IconCheck } from '@tabler/icons-react'
-import { useState } from 'react'
+import { IconPlus, IconCopy, IconTrash, IconCheck, IconAlertCircle } from '@tabler/icons-react'
+import { useEffect, useState } from 'react'
 import { notifications } from '@mantine/notifications'
+import { apiKeyApi, type ApiKey } from '../../../services/admin-api'
 
-const TYPE_CONFIG: Record<string, { color: string; prefix: string; label: string }> = {
-  production:    { color: 'green',  prefix: 'af_live_', label: 'Production' },
-  staging:       { color: 'yellow', prefix: 'af_test_', label: 'Staging' },
-  web_component: { color: 'blue',   prefix: 'af_pub_',  label: 'Web Component' },
+const TYPE_CONFIG: Record<string, { color: string; label: string }> = {
+  production:    { color: 'green',  label: 'Production' },
+  staging:       { color: 'yellow', label: 'Staging' },
+  web_component: { color: 'blue',   label: 'Web Component' },
 }
 
-const MOCK_KEYS = [
-  { id: 'k1', name: 'VendaX Backend',     type: 'production',    maskedKey: 'af_live_rq_••••••••3f2a', createdAt: '2026-01-15', lastUsedAt: '2026-04-09' },
-  { id: 'k2', name: 'Staging Tests',      type: 'staging',       maskedKey: 'af_test_rq_••••••••b8e1', createdAt: '2026-03-01', lastUsedAt: '2026-04-08' },
-  { id: 'k3', name: 'Embeddable Designer', type: 'web_component', maskedKey: 'af_pub_rq_••••••••9d44', createdAt: '2026-02-20', lastUsedAt: null },
-]
-
 export default function ApiKeys() {
+  const [keys, setKeys] = useState<ApiKey[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
   const [keyName, setKeyName] = useState('')
   const [keyType, setKeyType] = useState<string | null>('production')
   const [newKey, setNewKey] = useState<string | null>(null)
 
-  const handleCreate = () => {
-    const generated = `${TYPE_CONFIG[keyType!]?.prefix}rq_${Math.random().toString(36).slice(2, 18)}`
-    setNewKey(generated)
-    notifications.show({ title: 'API Key created', message: 'Copy the key now — it won\'t be shown again', color: 'teal' })
+  const load = async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      setKeys(await apiKeyApi.list())
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load API keys')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    void load()
+  }, [])
+
+  const handleCreate = async () => {
+    if (!keyType || !keyName) return
+    try {
+      const created = await apiKeyApi.create({ name: keyName, type: keyType as any })
+      setKeys((prev) => [...prev, created])
+      setNewKey(created.fullKey)
+      notifications.show({ title: 'API Key created', message: 'Copy the key now — it won\'t be shown again', color: 'teal' })
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to create key')
+    }
+  }
+
+  const handleRevoke = async (key: ApiKey) => {
+    try {
+      await apiKeyApi.revoke(key.id)
+      setKeys((prev) => prev.filter((entry) => entry.id !== key.id))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to revoke key')
+    }
   }
 
   return (
-    <Stack gap="md">
+    <Stack gap="md" pos="relative">
+      <LoadingOverlay visible={loading} />
+
       <Group justify="space-between">
         <Title order={3}>API Keys</Title>
-        <Button leftSection={<IconPlus size={16} />} onClick={() => { setCreateOpen(true); setNewKey(null); setKeyName(''); }}>
+        <Button leftSection={<IconPlus size={16} />} onClick={() => { setCreateOpen(true); setNewKey(null); setKeyName('') }}>
           Create Key
         </Button>
       </Group>
+
+      {error && (
+        <Alert color="red" icon={<IconAlertCircle size={16} />}>
+          {error}
+        </Alert>
+      )}
 
       <Paper withBorder radius="lg" style={{ overflow: 'hidden' }}>
         <Table striped highlightOnHover>
@@ -52,8 +89,8 @@ export default function ApiKeys() {
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
-            {MOCK_KEYS.map(k => {
-              const cfg = TYPE_CONFIG[k.type]
+            {keys.map(k => {
+              const cfg = TYPE_CONFIG[k.type] ?? { color: 'gray', label: k.type }
               return (
                 <Table.Tr key={k.id}>
                   <Table.Td><Text size="sm" fw={500}>{k.name}</Text></Table.Td>
@@ -76,7 +113,7 @@ export default function ApiKeys() {
                   <Table.Td><Text size="xs" c="dimmed">{k.lastUsedAt ?? '—'}</Text></Table.Td>
                   <Table.Td>
                     <Tooltip label="Revoke">
-                      <ActionIcon variant="subtle" color="red" size="sm">
+                      <ActionIcon variant="subtle" color="red" size="sm" onClick={() => void handleRevoke(k)}>
                         <IconTrash size={14} />
                       </ActionIcon>
                     </Tooltip>
@@ -113,13 +150,13 @@ export default function ApiKeys() {
               <TextInput label="Key name" required placeholder="My integration" value={keyName}
                 onChange={e => setKeyName(e.currentTarget.value)} />
               <Select label="Type" required data={[
-                { value: 'production',    label: 'Production (af_live_)' },
-                { value: 'staging',       label: 'Staging (af_test_)' },
-                { value: 'web_component', label: 'Web Component (af_pub_)' },
+                { value: 'production',    label: 'Production' },
+                { value: 'staging',       label: 'Staging' },
+                { value: 'web_component', label: 'Web Component' },
               ]} value={keyType} onChange={setKeyType} />
               <Group justify="flex-end">
                 <Button variant="light" onClick={() => setCreateOpen(false)}>Cancel</Button>
-                <Button onClick={handleCreate} disabled={!keyName}>Create</Button>
+                <Button onClick={() => void handleCreate()} disabled={!keyName}>Create</Button>
               </Group>
             </>
           )}

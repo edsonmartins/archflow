@@ -1,12 +1,7 @@
-import { Title, Table, Text, Paper, Stack, Group, Select, Button, SimpleGrid } from '@mantine/core'
-import { IconDownload } from '@tabler/icons-react'
-import { useState } from 'react'
-
-const MOCK_USAGE = [
-  { tenant: 'Rio Quality',  exec: 8400, tokIn: 3200000,  tokOut: 1000000, cost: 48.50,  pct: 62 },
-  { tenant: 'Acme Corp',    exec: 2100, tokIn: 800000,   tokOut: 400000,  cost: 18.20,  pct: 24 },
-  { tenant: 'Demo Trial',   exec: 350,  tokIn: 40000,    tokOut: 10000,   cost: 1.10,   pct: 14 },
-]
+import { Title, Table, Text, Paper, Stack, Group, Select, Button, SimpleGrid, LoadingOverlay, Alert } from '@mantine/core'
+import { IconDownload, IconAlertCircle } from '@tabler/icons-react'
+import { useEffect, useMemo, useState } from 'react'
+import { usageApi, type TenantUsageRow } from '../../../services/admin-api'
 
 function StatCard({ label, value }: { label: string; value: string }) {
   return (
@@ -22,23 +17,69 @@ function StatCard({ label, value }: { label: string; value: string }) {
 
 export default function UsageBilling() {
   const [month, setMonth] = useState<string | null>('2026-04')
+  const [rows, setRows] = useState<TenantUsageRow[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!month) return
+    let cancelled = false
+    setLoading(true)
+    setError(null)
+
+    usageApi.byTenant(month)
+      .then((dto) => {
+        if (!cancelled) setRows(dto)
+      })
+      .catch((e) => {
+        if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to load usage')
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [month])
+
+  const totals = useMemo(() => {
+    const executions = rows.reduce((sum, row) => sum + row.executions, 0)
+    const tokens = rows.reduce((sum, row) => sum + row.tokensInput + row.tokensOutput, 0)
+    const cost = rows.reduce((sum, row) => sum + row.estimatedCost, 0)
+    return { executions, tokens, cost }
+  }, [rows])
 
   return (
-    <Stack gap="md">
+    <Stack gap="md" pos="relative">
+      <LoadingOverlay visible={loading} />
+
       <Group justify="space-between">
         <Title order={3}>Usage & Billing</Title>
         <Group gap="sm">
           <Select size="sm" w={140} data={['2026-04', '2026-03', '2026-02', '2026-01']}
             value={month} onChange={setMonth} />
-          <Button variant="light" leftSection={<IconDownload size={14} />} size="sm">Export CSV</Button>
+          <Button
+            component="a"
+            href={usageApi.exportCsv(month ?? '')}
+            variant="light"
+            leftSection={<IconDownload size={14} />}
+            size="sm"
+          >Export CSV</Button>
         </Group>
       </Group>
 
+      {error && (
+        <Alert color="red" icon={<IconAlertCircle size={16} />}>
+          {error}
+        </Alert>
+      )}
+
       <SimpleGrid cols={{ base: 2, lg: 4 }} spacing="md">
-        <StatCard label="Executions" value="10,850" />
-        <StatCard label="Tokens consumed" value="5.4M" />
-        <StatCard label="Estimated cost" value="$67.80" />
-        <StatCard label="Avg latency" value="1.2s" />
+        <StatCard label="Executions" value={totals.executions.toLocaleString()} />
+        <StatCard label="Tokens consumed" value={`${(totals.tokens / 1_000_000).toFixed(1)}M`} />
+        <StatCard label="Estimated cost" value={`$${totals.cost.toFixed(2)}`} />
+        <StatCard label="Tenants" value={String(rows.length)} />
       </SimpleGrid>
 
       <Paper withBorder radius="lg" style={{ overflow: 'hidden' }}>
@@ -54,14 +95,14 @@ export default function UsageBilling() {
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
-            {MOCK_USAGE.map(r => (
-              <Table.Tr key={r.tenant}>
-                <Table.Td><Text size="sm" fw={500}>{r.tenant}</Text></Table.Td>
-                <Table.Td><Text size="sm">{r.exec.toLocaleString()}</Text></Table.Td>
-                <Table.Td><Text size="sm">{(r.tokIn / 1000000).toFixed(1)}M</Text></Table.Td>
-                <Table.Td><Text size="sm">{(r.tokOut / 1000000).toFixed(1)}M</Text></Table.Td>
-                <Table.Td><Text size="sm" fw={500}>${r.cost.toFixed(2)}</Text></Table.Td>
-                <Table.Td><Text size="sm">{r.pct}%</Text></Table.Td>
+            {rows.map(r => (
+              <Table.Tr key={r.tenantId}>
+                <Table.Td><Text size="sm" fw={500}>{r.tenantName}</Text></Table.Td>
+                <Table.Td><Text size="sm">{r.executions.toLocaleString()}</Text></Table.Td>
+                <Table.Td><Text size="sm">{(r.tokensInput / 1000000).toFixed(1)}M</Text></Table.Td>
+                <Table.Td><Text size="sm">{(r.tokensOutput / 1000000).toFixed(1)}M</Text></Table.Td>
+                <Table.Td><Text size="sm" fw={500}>${r.estimatedCost.toFixed(2)}</Text></Table.Td>
+                <Table.Td><Text size="sm">{r.percentOfTotal}%</Text></Table.Td>
               </Table.Tr>
             ))}
           </Table.Tbody>

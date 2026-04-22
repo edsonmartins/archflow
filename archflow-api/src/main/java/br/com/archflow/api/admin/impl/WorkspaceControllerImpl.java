@@ -5,6 +5,7 @@ import br.com.archflow.api.admin.dto.UserDto;
 import br.com.archflow.api.admin.dto.UserDto.*;
 import br.com.archflow.api.admin.dto.ApiKeyDto;
 import br.com.archflow.api.admin.dto.ApiKeyDto.*;
+import br.com.archflow.api.admin.dto.WorkspaceSummaryDto;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -28,6 +29,28 @@ public class WorkspaceControllerImpl implements WorkspaceController {
 
         apiKeys.put("k1", new ApiKeyDto("k1", "VendaX Backend", "production", "af_live_",
                 "af_live_rq_••••••••3f2a", "2026-01-15", "2026-04-09"));
+    }
+
+    @Override
+    public WorkspaceSummaryDto getSummary() {
+        return new WorkspaceSummaryDto(
+                "tenant_rio_quality",
+                "Rio Quality",
+                "enterprise",
+                "active",
+                340,
+                4_200_000,
+                12,
+                users.size(),
+                apiKeys.size(),
+                new WorkspaceSummaryDto.WorkspaceLimitsDto(
+                        500,
+                        5_000_000,
+                        20,
+                        10,
+                        List.of("gpt-4o", "claude-sonnet-4-6")
+                )
+        );
     }
 
     // ── Users ───────────────────────────────────────────────────────

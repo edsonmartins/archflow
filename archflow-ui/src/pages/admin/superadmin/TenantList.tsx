@@ -1,17 +1,12 @@
 import {
-  Title, Table, Badge, Text, Paper, Stack, Group, Button, ActionIcon, Tooltip,
-  SimpleGrid, LoadingOverlay,
+  Title, Table, Badge, Text, Paper, Stack, Group, Button, SimpleGrid, LoadingOverlay, Alert,
 } from '@mantine/core'
-import { IconPlus, IconLogin, IconSettings } from '@tabler/icons-react'
+import { IconPlus, IconAlertCircle } from '@tabler/icons-react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { tenantApi, type TenantStats } from '../../../services/admin-api'
 import { useTenantStore } from '../../../stores/useTenantStore'
 import { UsageBar } from '../../../components/admin/UsageBar'
-
-const MOCK_TENANTS = [
-  { id: 'tenant_rio_quality', name: 'Rio Quality', plan: 'enterprise' as const, status: 'active' as const, workflows: 12, execPerDay: 340, tokensUsed: 4200000, tokensLimit: 5000000, createdAt: '2025-06' },
-  { id: 'tenant_acme_corp',   name: 'Acme Corp',   plan: 'professional' as const, status: 'active' as const, workflows: 5,  execPerDay: 85,  tokensUsed: 1200000, tokensLimit: 2000000, createdAt: '2025-09' },
-  { id: 'tenant_demo',        name: 'Demo Trial',   plan: 'trial' as const,        status: 'trial' as const,  workflows: 2,  execPerDay: 12,  tokensUsed: 50000,   tokensLimit: 100000,  createdAt: '2026-04' },
-]
 
 const PLAN_COLORS: Record<string, string> = {
   enterprise:   'blue',
@@ -40,16 +35,60 @@ function StatCard({ label, value, color }: { label: string; value: string | numb
 
 export default function TenantList() {
   const navigate = useNavigate()
-  const { startImpersonation } = useTenantStore()
+  const { startImpersonation, setTenants } = useTenantStore()
+  const [tenants, setTenantRows] = useState<Array<{
+    id: string
+    name: string
+    plan: string
+    status: string
+    usage?: { tokensThisMonth: number }
+    limits?: { tokensPerMonth: number }
+    createdAt?: string
+    usageCount?: { workflows: number; executions: number }
+  }>>([])
+  const [stats, setStats] = useState<TenantStats | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  const handleImpersonate = (tenant: typeof MOCK_TENANTS[0]) => {
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    setError(null)
+
+    Promise.all([tenantApi.list(), tenantApi.stats()])
+      .then(([tenantList, statsDto]) => {
+        if (cancelled) return
+        setTenants(tenantList)
+        setTenantRows(tenantList as typeof tenants)
+        setStats(statsDto)
+      })
+      .catch((e) => {
+        if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to load tenants')
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [setTenants])
+
+  const handleImpersonate = (tenant: typeof tenants[number]) => {
     sessionStorage.setItem('archflow_impersonate_tenant', tenant.id)
-    startImpersonation({ id: tenant.id, name: tenant.name, plan: tenant.plan, status: tenant.status })
+    startImpersonation({
+      id: tenant.id,
+      name: tenant.name,
+      plan: tenant.plan as any,
+      status: tenant.status as any,
+    })
     navigate('/admin/workspace')
   }
 
   return (
-    <Stack gap="md">
+    <Stack gap="md" pos="relative">
+      <LoadingOverlay visible={loading} />
+
       <Group justify="space-between">
         <Title order={3}>Tenants</Title>
         <Button leftSection={<IconPlus size={16} />} onClick={() => navigate('/admin/tenants/new')}>
@@ -57,11 +96,17 @@ export default function TenantList() {
         </Button>
       </Group>
 
+      {error && (
+        <Alert color="red" icon={<IconAlertCircle size={16} />}>
+          {error}
+        </Alert>
+      )}
+
       <SimpleGrid cols={{ base: 2, lg: 4 }} spacing="md">
-        <StatCard label="Active tenants" value={2} color="var(--green)" />
-        <StatCard label="Executions today" value="437" color="var(--blue)" />
-        <StatCard label="Tokens this month" value="5.4M" color="var(--text)" />
-        <StatCard label="Trial tenants" value={1} color="var(--amber)" />
+        <StatCard label="Active tenants" value={stats?.totalActive ?? '—'} color="var(--green)" />
+        <StatCard label="Executions today" value={stats?.executionsToday ?? '—'} color="var(--blue)" />
+        <StatCard label="Tokens this month" value={stats ? `${(stats.tokensThisMonth / 1_000_000).toFixed(1)}M` : '—'} color="var(--text)" />
+        <StatCard label="Trial tenants" value={stats?.totalTrial ?? '—'} color="var(--amber)" />
       </SimpleGrid>
 
       <Paper withBorder radius="lg" style={{ overflow: 'hidden' }}>
@@ -71,15 +116,13 @@ export default function TenantList() {
               <Table.Th>Tenant</Table.Th>
               <Table.Th>Status</Table.Th>
               <Table.Th>Plan</Table.Th>
-              <Table.Th>Workflows</Table.Th>
-              <Table.Th>Exec/day</Table.Th>
-              <Table.Th w={160}>Token usage</Table.Th>
               <Table.Th>Created</Table.Th>
+              <Table.Th w={160}>Token usage</Table.Th>
               <Table.Th w={100}>Actions</Table.Th>
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
-            {MOCK_TENANTS.map(t => (
+            {tenants.map(t => (
               <Table.Tr key={t.id}>
                 <Table.Td>
                   <Group gap="sm" wrap="nowrap">
@@ -97,14 +140,16 @@ export default function TenantList() {
                     </div>
                   </Group>
                 </Table.Td>
-                <Table.Td><Badge color={STATUS_COLORS[t.status]} size="sm">{t.status}</Badge></Table.Td>
-                <Table.Td><Badge variant="light" color={PLAN_COLORS[t.plan]} size="sm">{t.plan}</Badge></Table.Td>
-                <Table.Td><Text size="sm">{t.workflows}</Text></Table.Td>
-                <Table.Td><Text size="sm">{t.execPerDay}</Text></Table.Td>
+                <Table.Td><Badge color={STATUS_COLORS[t.status] ?? 'gray'} size="sm">{t.status}</Badge></Table.Td>
+                <Table.Td><Badge variant="light" color={PLAN_COLORS[t.plan] ?? 'gray'} size="sm">{t.plan}</Badge></Table.Td>
+                <Table.Td><Text size="xs" c="dimmed">{t.createdAt ?? '—'}</Text></Table.Td>
                 <Table.Td>
-                  <UsageBar current={t.tokensUsed} limit={t.tokensLimit} />
+                  {t.usage?.tokensThisMonth !== undefined && t.limits?.tokensPerMonth ? (
+                    <UsageBar current={t.usage.tokensThisMonth} limit={t.limits.tokensPerMonth} />
+                  ) : (
+                    <Text size="xs" c="dimmed">—</Text>
+                  )}
                 </Table.Td>
-                <Table.Td><Text size="xs" c="dimmed">{t.createdAt}</Text></Table.Td>
                 <Table.Td>
                   <Group gap={4}>
                     <button
@@ -127,6 +172,13 @@ export default function TenantList() {
                 </Table.Td>
               </Table.Tr>
             ))}
+            {!loading && tenants.length === 0 && (
+              <Table.Tr>
+                <Table.Td colSpan={6}>
+                  <Text size="sm" c="dimmed" ta="center" py="md">No tenants found.</Text>
+                </Table.Td>
+              </Table.Tr>
+            )}
           </Table.Tbody>
         </Table>
       </Paper>

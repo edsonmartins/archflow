@@ -23,6 +23,21 @@ class WorkspaceControllerImplTest {
     }
 
     @Nested
+    @DisplayName("Summary")
+    class Summary {
+
+        @Test
+        @DisplayName("should return workspace summary")
+        void shouldReturnWorkspaceSummary() {
+            var summary = controller.getSummary();
+            assertThat(summary.tenantId()).isEqualTo("tenant_rio_quality");
+            assertThat(summary.userCount()).isEqualTo(controller.listUsers().size());
+            assertThat(summary.apiKeyCount()).isEqualTo(controller.listApiKeys().size());
+            assertThat(summary.limits().maxUsers()).isGreaterThan(0);
+        }
+    }
+
+    @Nested
     @DisplayName("Users")
     class Users {
 

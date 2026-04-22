@@ -1,9 +1,11 @@
 import {
-  Title, TextInput, Select, NumberInput, Button, Paper, Stack, Group, Divider, Text,
+  Title, TextInput, Select, NumberInput, Button, Paper, Stack, Group, Divider, Text, Alert,
 } from '@mantine/core'
+import { IconAlertCircle } from '@tabler/icons-react'
 import { notifications } from '@mantine/notifications'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { tenantApi } from '../../../services/admin-api'
 
 export default function TenantNew() {
   const navigate = useNavigate()
@@ -16,10 +18,34 @@ export default function TenantNew() {
   const [tokenLimit, setTokenLimit] = useState<number>(5000000)
   const [maxWorkflows, setMaxWorkflows] = useState<number>(20)
   const [maxUsers, setMaxUsers] = useState<number>(10)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  const handleCreate = () => {
-    notifications.show({ title: 'Tenant created', message: `${name} created successfully`, color: 'teal' })
-    navigate('/admin/tenants')
+  const handleCreate = async () => {
+    if (!plan || !sector) return
+    setLoading(true)
+    setError(null)
+    try {
+      await tenantApi.create({
+        name,
+        tenantId,
+        adminEmail: email,
+        sector,
+        plan: plan as any,
+        limits: {
+          executionsPerDay: execLimit,
+          tokensPerMonth: tokenLimit,
+          maxWorkflows,
+          maxUsers,
+        },
+      })
+      notifications.show({ title: 'Tenant created', message: `${name} created successfully`, color: 'teal' })
+      navigate('/admin/tenants')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to create tenant')
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
@@ -29,13 +55,19 @@ export default function TenantNew() {
         <Button variant="subtle" onClick={() => navigate('/admin/tenants')}>← Back</Button>
       </Group>
 
+      {error && (
+        <Alert color="red" icon={<IconAlertCircle size={16} />}>
+          {error}
+        </Alert>
+      )}
+
       <div style={{ display: 'flex', gap: 20 }}>
         <Stack gap="md" style={{ flex: 1 }}>
           <Paper withBorder p="lg" radius="lg">
             <Text fw={600} size="sm" mb="md">Identity</Text>
             <Stack gap="sm">
               <TextInput label="Tenant name" required value={name}
-                onChange={e => { setName(e.currentTarget.value); setTenantId(e.currentTarget.value.toLowerCase().replace(/\s+/g, '_')) }} />
+                onChange={e => { setName(e.currentTarget.value); setTenantId(e.currentTarget.value.toLowerCase().trim().replace(/\s+/g, '_')) }} />
               <TextInput label="Tenant ID" required value={tenantId} onChange={e => setTenantId(e.currentTarget.value)}
                 description="URL-safe slug, must be unique" styles={{ input: { fontFamily: 'var(--font-mono)', fontSize: 12 } }} />
               <TextInput label="Admin email" required value={email} onChange={e => setEmail(e.currentTarget.value)}
@@ -64,7 +96,6 @@ export default function TenantNew() {
           </Paper>
         </Stack>
 
-        {/* Summary panel */}
         <Paper withBorder p="lg" radius="lg" w={280} style={{ flexShrink: 0, position: 'sticky', top: 80, alignSelf: 'flex-start' }}>
           <Text fw={600} size="sm" mb="md">Summary</Text>
           <Stack gap="xs">
@@ -78,7 +109,7 @@ export default function TenantNew() {
             <SummaryRow label="Workflows" value={String(maxWorkflows)} />
             <SummaryRow label="Users" value={String(maxUsers)} />
           </Stack>
-          <Button fullWidth mt="lg" onClick={handleCreate} disabled={!name || !email}>
+          <Button fullWidth mt="lg" onClick={handleCreate} disabled={!name || !email || !sector || !plan} loading={loading}>
             Create tenant
           </Button>
         </Paper>

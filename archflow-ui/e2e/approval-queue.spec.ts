@@ -1,11 +1,5 @@
-import { expect, test, type Page, type Route } from '@playwright/test';
-
-const user = {
-    id: 'user-e2e',
-    username: 'admin',
-    name: 'Admin User',
-    roles: ['admin'],
-};
+import { expect, test, type Page } from '@playwright/test';
+import { adminUser, authHandlers, fulfillJson, installApiRouter, installSession } from './support/api';
 
 interface ApprovalRow {
     requestId: string;
@@ -51,71 +45,48 @@ async function mockApi(page: Page) {
     pending = pendingSeed.map((p) => ({ ...p }));
     submitted = [];
 
-    await page.route('**/api/**', async (route) => {
-        const url = new URL(route.request().url());
-        const path = url.pathname.replace(/^\/api/, '');
-        const method = route.request().method();
-
-        if (path === '/auth/login' && method === 'POST') {
-            await json(route, { token: 'e2e-token', refreshToken: 'e2e-refresh-token' });
-            return;
-        }
-        if (path === '/auth/me' && method === 'GET') {
-            await json(route, user);
-            return;
-        }
-        if (path === '/approvals/pending' && method === 'GET') {
-            await json(route, pending);
-            return;
-        }
-        if (path === '/approvals/pending/count' && method === 'GET') {
-            await json(route, { count: pending.length });
-            return;
-        }
-        if (path.startsWith('/approvals/') && method === 'GET') {
+    await installApiRouter(page, [
+        ...authHandlers(adminUser, { loginShape: 'token', workflows: [], includeApprovals: false }),
+        async ({ path, method, route }) => {
+            if (path !== '/approvals/pending' || method !== 'GET') return false;
+            await fulfillJson(route, pending);
+            return true;
+        },
+        async ({ path, method, route }) => {
+            if (path !== '/approvals/pending/count' || method !== 'GET') return false;
+            await fulfillJson(route, { count: pending.length });
+            return true;
+        },
+        async ({ path, method, route }) => {
+            if (!path.startsWith('/approvals/') || method !== 'GET') return false;
             const id = path.substring('/approvals/'.length);
             const row = pending.find((p) => p.requestId === id);
             if (!row) {
                 await route.fulfill({ status: 404, body: 'not found' });
-                return;
+                return true;
             }
-            await json(route, row);
-            return;
-        }
-        if (path.startsWith('/approvals/') && method === 'POST') {
+            await fulfillJson(route, row);
+            return true;
+        },
+        async ({ path, method, request, route }) => {
+            if (!path.startsWith('/approvals/') || method !== 'POST') return false;
             const id = path.substring('/approvals/'.length);
-            const body = route.request().postDataJSON() as { decision: string };
+            const body = request.postDataJSON() as { decision: string };
             submitted.push({ id, decision: body.decision });
             const row = pending.find((p) => p.requestId === id);
             if (row) {
                 pending = pending.filter((p) => p.requestId !== id);
-                await json(route, { ...row, status: body.decision });
-                return;
+                await fulfillJson(route, { ...row, status: body.decision });
+                return true;
             }
             await route.fulfill({ status: 404, body: 'not found' });
-            return;
-        }
-        if (path === '/workflows' && method === 'GET') {
-            await json(route, []);
-            return;
-        }
-        await route.continue();
-    });
+            return true;
+        },
+    ]);
 }
 
 async function authenticate(page: Page) {
-    await page.addInitScript(() => {
-        localStorage.setItem('archflow_token', 'e2e-token');
-        localStorage.setItem('archflow_refresh_token', 'e2e-refresh-token');
-    });
-}
-
-async function json(route: Route, body: unknown, status = 200) {
-    await route.fulfill({
-        status,
-        contentType: 'application/json',
-        body: JSON.stringify(body),
-    });
+    await installSession(page);
 }
 
 test.describe('Approval queue', () => {

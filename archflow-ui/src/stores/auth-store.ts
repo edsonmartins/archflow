@@ -5,6 +5,7 @@ interface User {
     id: string;
     username: string;
     name: string;
+    email: string;
     roles: string[];
 }
 
@@ -56,8 +57,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         if (!get().token) return;
         set({ loading: true });
         try {
-            const user = await authApi.me();
-            set({ user, loading: false });
+            const res = await authApi.me();
+            set({ user: { ...res, name: res.username, email: res.email ?? '' }, loading: false });
         } catch {
             set({ user: null, loading: false });
         }

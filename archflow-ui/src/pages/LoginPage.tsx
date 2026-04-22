@@ -1,7 +1,7 @@
 import {
-    Paper, TextInput, PasswordInput, Button, Stack, Text, Alert, Center, Box,
+    Paper, TextInput, PasswordInput, Button, Stack, Text, Alert, Center, Box, Code,
 } from '@mantine/core';
-import { IconLock, IconAlertCircle } from '@tabler/icons-react';
+import { IconLock, IconAlertCircle, IconInfoCircle } from '@tabler/icons-react';
 import { useState, FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../stores/auth-store';
@@ -86,6 +86,19 @@ export default function LoginPage() {
                         </Stack>
                     </form>
                 </Paper>
+
+                <Alert
+                    icon={<IconInfoCircle size={16} />}
+                    color="blue"
+                    variant="light"
+                    mt="md"
+                    radius="lg"
+                    title="Dev credentials"
+                >
+                    <Text size="sm">
+                        Username: <Code>admin</Code> &nbsp; Password: <Code>admin123</Code>
+                    </Text>
+                </Alert>
             </Box>
         </Center>
     );
