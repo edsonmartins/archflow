@@ -8,6 +8,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
+import java.util.LinkedHashSet;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -106,6 +107,15 @@ public class DefaultConversationService implements ConversationService {
     public List<ConversationMessage> getMessages(String conversationId) {
         List<ConversationMessage> messages = messageStore.get(conversationId);
         return messages != null ? Collections.unmodifiableList(messages) : List.of();
+    }
+
+    @Override
+    public List<String> listConversationIds() {
+        LinkedHashSet<String> ids = new LinkedHashSet<>(messageStore.keySet());
+        for (SuspendedConversation conversation : conversationManager.getActiveConversations()) {
+            ids.add(conversation.getConversationId());
+        }
+        return List.copyOf(ids);
     }
 
     @Override

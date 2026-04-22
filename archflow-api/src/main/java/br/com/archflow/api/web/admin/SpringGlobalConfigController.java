@@ -76,4 +76,9 @@ public class SpringGlobalConfigController {
     public List<UsageRowDto> getUsageByTenant(@RequestParam(defaultValue = "") String month) {
         return delegate.getUsageByTenant(month);
     }
+
+    @GetMapping(value = "/usage/export", produces = "text/csv")
+    public String exportUsageCsv(@RequestParam(defaultValue = "") String month) {
+        return delegate.exportUsageCsv(month);
+    }
 }

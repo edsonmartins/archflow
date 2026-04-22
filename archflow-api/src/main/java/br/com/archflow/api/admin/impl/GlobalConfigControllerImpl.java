@@ -90,4 +90,29 @@ public class GlobalConfigControllerImpl implements GlobalConfigController {
                 new UsageRowDto("tenant_demo", "Demo Trial", 350, 40_000, 10_000, 1.10, 14, 100_000)
         );
     }
+
+    @Override
+    public String exportUsageCsv(String month) {
+        StringBuilder csv = new StringBuilder();
+        csv.append("tenantId,tenantName,executions,tokensInput,tokensOutput,estimatedCost,percentOfTotal,planLimit\n");
+        for (UsageRowDto row : getUsageByTenant(month)) {
+            csv.append(csvValue(row.tenantId())).append(',')
+                    .append(csvValue(row.tenantName())).append(',')
+                    .append(row.executions()).append(',')
+                    .append(row.tokensInput()).append(',')
+                    .append(row.tokensOutput()).append(',')
+                    .append(row.estimatedCost()).append(',')
+                    .append(row.percentOfTotal()).append(',')
+                    .append(row.planLimit()).append('\n');
+        }
+        return csv.toString();
+    }
+
+    private static String csvValue(String value) {
+        if (value == null) return "";
+        if (value.contains(",") || value.contains("\"") || value.contains("\n")) {
+            return "\"" + value.replace("\"", "\"\"") + "\"";
+        }
+        return value;
+    }
 }

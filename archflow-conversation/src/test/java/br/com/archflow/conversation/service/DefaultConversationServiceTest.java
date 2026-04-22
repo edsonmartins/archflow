@@ -171,6 +171,17 @@ class DefaultConversationServiceTest {
     }
 
     @Test
+    @DisplayName("should list known conversation ids from messages and suspended state")
+    void shouldListKnownConversationIds() {
+        service.addMessage(ConversationMessage.user("conv-message-only", "Hello"));
+        service.suspend("conv-suspended", "wf-1", sampleForm());
+
+        List<String> ids = service.listConversationIds();
+
+        assertThat(ids).contains("conv-message-only", "conv-suspended");
+    }
+
+    @Test
     @DisplayName("should cleanup expired")
     void shouldCleanupExpired() {
         // Arrange - suspend with very short timeout

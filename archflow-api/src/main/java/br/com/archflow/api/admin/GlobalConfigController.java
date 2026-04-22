@@ -28,4 +28,5 @@ public interface GlobalConfigController {
     void updateToggles(FeatureTogglesDto toggles);
     List<AuditEntryDto> getAuditLog(int limit);
     List<UsageRowDto> getUsageByTenant(String month);
+    String exportUsageCsv(String month);
 }

@@ -32,6 +32,8 @@ public interface ConversationService {
 
     List<ConversationMessage> getMessages(String conversationId);
 
+    List<String> listConversationIds();
+
     List<SuspendedConversation> getActiveConversations();
 
     int cleanupExpired();
