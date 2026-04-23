@@ -17,6 +17,8 @@ import br.com.archflow.api.conversation.impl.ConversationControllerImpl;
 import br.com.archflow.api.events.impl.EventControllerImpl;
 import br.com.archflow.api.events.ingest.impl.EventIngestControllerImpl;
 import br.com.archflow.api.marketplace.impl.MarketplaceControllerImpl;
+import br.com.archflow.api.realtime.DevRealtimeAdapter;
+import br.com.archflow.api.realtime.SpringRealtimeController;
 import br.com.archflow.api.template.impl.TemplateControllerImpl;
 import br.com.archflow.api.workflow.impl.WorkflowConfigControllerImpl;
 import br.com.archflow.api.workflow.impl.WorkflowYamlControllerImpl;
@@ -32,6 +34,7 @@ import br.com.archflow.security.auth.InMemoryUserRepository;
 import br.com.archflow.security.auth.UserRepository;
 import br.com.archflow.security.jwt.JwtService;
 import br.com.archflow.security.password.PasswordService;
+import br.com.archflow.langchain4j.realtime.spi.RealtimeAdapter;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -168,6 +171,22 @@ public class ArchflowBeanConfiguration {
     @ConditionalOnMissingBean
     public ObservabilityControllerImpl observabilityControllerImpl(ObservabilityService service) {
         return new ObservabilityControllerImpl(service);
+    }
+
+    // =========================================================================
+    // Controller implementations — Realtime
+    // =========================================================================
+
+    @Bean
+    @ConditionalOnMissingBean
+    public RealtimeAdapter realtimeAdapter() {
+        return new DevRealtimeAdapter();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public SpringRealtimeController springRealtimeController(RealtimeAdapter realtimeAdapter) {
+        return new SpringRealtimeController(realtimeAdapter);
     }
 
     // =========================================================================

@@ -24,6 +24,82 @@ async function impersonateWorkspace(page: import('@playwright/test').Page) {
   await expect(page.getByTestId('impersonation-banner')).toBeVisible();
 }
 
+async function installRealtimeBrowserFakes(page: import('@playwright/test').Page) {
+  await page.addInitScript(() => {
+    const fakeStream = {
+      getTracks: () => [
+        {
+          stop() {},
+          kind: 'audio',
+          enabled: true,
+        },
+      ],
+    } as unknown as MediaStream;
+
+    Object.defineProperty(navigator, 'mediaDevices', {
+      configurable: true,
+      value: {
+        getUserMedia: () => Promise.resolve(fakeStream),
+      },
+    });
+
+    class FakeAudioContext {
+      sampleRate = 24_000;
+      destination = {} as AudioDestinationNode;
+      audioWorklet = undefined;
+
+      createMediaStreamSource() {
+        return { connect: () => undefined };
+      }
+
+      createScriptProcessor() {
+        let callback: ((e: { inputBuffer: { getChannelData: () => Float32Array } }) => void) | null = null;
+        return {
+          connect: () => {
+            setTimeout(() => {
+              callback?.({
+                inputBuffer: {
+                  getChannelData: () => new Float32Array([0.1, -0.1, 0.2, -0.2]),
+                },
+              });
+            }, 60);
+          },
+          disconnect: () => undefined,
+          set onaudioprocess(fn: ((e: { inputBuffer: { getChannelData: () => Float32Array } }) => void) | null) {
+            callback = fn;
+          },
+          get onaudioprocess() {
+            return callback;
+          },
+        };
+      }
+
+      createBuffer() {
+        return { copyToChannel: () => undefined } as unknown as AudioBuffer;
+      }
+
+      createBufferSource() {
+        return {
+          buffer: null as AudioBuffer | null,
+          connect: () => undefined,
+          onended: null as null | (() => void),
+          start() {
+            if (typeof this.onended === 'function') {
+              setTimeout(() => this.onended && this.onended(), 0);
+            }
+          },
+        };
+      }
+
+      close() {
+        return Promise.resolve();
+      }
+    }
+
+    (window as unknown as { AudioContext: typeof FakeAudioContext }).AudioContext = FakeAudioContext;
+  });
+}
+
 test.describe('Real backend smoke', () => {
   test('enforces auth and role gating on admin routes', async ({ page }) => {
     await page.goto('/admin/tenants');
@@ -345,6 +421,20 @@ test.describe('Real backend smoke', () => {
     await page.getByTestId('mic-button').click();
     await expect(page.getByTestId('voice-status')).toContainText('error');
     await expect(page.getByRole('alert')).toContainText(/Microphone permission denied|denied|Failed to start session/i);
+  });
+
+  test('streams realtime voice transcripts through the real backend websocket', async ({ page }) => {
+    await installRealtimeBrowserFakes(page);
+    await login(page);
+
+    await page.goto('/playground/voice');
+    await expect(page.getByRole('heading', { name: 'Voice playground' })).toBeVisible();
+    await expect(page.getByTestId('voice-status')).toContainText('idle');
+
+    await page.getByTestId('mic-button').click();
+    await expect(page.getByTestId('voice-status')).toContainText(/recording|speaking/);
+    await expect(page.getByText('quero rastrear meu pedido')).toBeVisible();
+    await expect(page.getByText(/Pedido localizado.*default/i)).toBeVisible();
   });
 
   test('loads observability pages against the real backend', async ({ page, request }) => {
