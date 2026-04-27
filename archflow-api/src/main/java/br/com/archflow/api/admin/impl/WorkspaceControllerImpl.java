@@ -25,8 +25,16 @@ public class WorkspaceControllerImpl implements WorkspaceController {
     private final Map<String, ApiKeyDto> apiKeys = new ConcurrentHashMap<>();
     private final Map<String, String> apiKeyFullValues = new ConcurrentHashMap<>();
 
+    /** No-arg constructor — used by tests; seeds demo data + tenant_demo fallback. */
     public WorkspaceControllerImpl() {
-        this("tenant_demo");
+        this("tenant_demo", true);
+    }
+
+    /**
+     * Production constructor: pass {@code null} fallback + {@code false} seed.
+     */
+    public WorkspaceControllerImpl(String fallbackTenantId) {
+        this(fallbackTenantId, fallbackTenantId != null);
     }
 
     /**
@@ -34,15 +42,19 @@ public class WorkspaceControllerImpl implements WorkspaceController {
      *                         pass {@code null} in production so missing
      *                         tenant context fails fast instead of silently
      *                         serving one shared demo workspace.
+     * @param seedDemoData     when {@code true}, pre-populates demo users
+     *                         and API keys for the dev workspace; production
+     *                         deployments MUST pass {@code false}.
      */
-    public WorkspaceControllerImpl(String fallbackTenantId) {
+    public WorkspaceControllerImpl(String fallbackTenantId, boolean seedDemoData) {
         this.fallbackTenantId = fallbackTenantId;
-        // Seed demo data
-        users.put("u1", new UserDto("u1", "João Silva", "joao@rioquality.com.br", "admin", "active", "2026-04-09", 8));
-        users.put("u2", new UserDto("u2", "Maria Santos", "maria@rioquality.com.br", "editor", "active", "2026-04-08", 4));
+        if (seedDemoData) {
+            users.put("u1", new UserDto("u1", "João Silva", "joao@rioquality.com.br", "admin", "active", "2026-04-09", 8));
+            users.put("u2", new UserDto("u2", "Maria Santos", "maria@rioquality.com.br", "editor", "active", "2026-04-08", 4));
 
-        apiKeys.put("k1", new ApiKeyDto("k1", "VendaX Backend", "production", "af_live_",
-                "af_live_rq_••••••••3f2a", "2026-01-15", "2026-04-09"));
+            apiKeys.put("k1", new ApiKeyDto("k1", "VendaX Backend", "production", "af_live_",
+                    "af_live_rq_••••••••3f2a", "2026-01-15", "2026-04-09"));
+        }
     }
 
     /**

@@ -161,19 +161,24 @@ public class ArchflowBeanConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public TenantControllerImpl tenantControllerImpl() {
-        return new TenantControllerImpl();
+    public TenantControllerImpl tenantControllerImpl(
+            @Value("${archflow.admin.seedDemoData:false}") boolean seedDemoData) {
+        // Default false so production never returns the fixture tenant in
+        // listTenants(). Dev profile (application-dev.yml) overrides to
+        // true so the local UI has something to render.
+        return new TenantControllerImpl(seedDemoData);
     }
 
     @Bean
     @ConditionalOnMissingBean
     public WorkspaceControllerImpl workspaceControllerImpl(
-            @Value("${archflow.admin.tenantFallback:}") String tenantFallback) {
-        // The property is intentionally empty by default so production
+            @Value("${archflow.admin.tenantFallback:}") String tenantFallback,
+            @Value("${archflow.admin.seedDemoData:false}") boolean seedDemoData) {
+        // The fallback is intentionally empty by default so production
         // deployments fail loud when the X-Tenant-Id header / security
-        // filter is not wired. Dev profiles should set it to a demo id.
+        // filter is not wired. Dev profiles should set both props.
         String fallback = (tenantFallback == null || tenantFallback.isBlank()) ? null : tenantFallback;
-        return new WorkspaceControllerImpl(fallback);
+        return new WorkspaceControllerImpl(fallback, seedDemoData);
     }
 
     @Bean

@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { adminUser, authHandlers, fulfillJson, installApiRouter, installSession } from './support/api';
 
-let createdWorkflowId = 'wf-from-template';
+const createdWorkflowId = 'wf-from-template';
 
 async function mockApi(page: Page) {
     await installApiRouter(page, [

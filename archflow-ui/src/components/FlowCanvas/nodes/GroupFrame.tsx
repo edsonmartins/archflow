@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { NodeResizer, type NodeProps } from '@xyflow/react'
+import { NodeResizer, type Node, type NodeProps } from '@xyflow/react'
 import type { FlowNodeData } from '../types'
 import { useFlowStore } from '../store/useFlowStore'
 
@@ -10,7 +10,7 @@ import { useFlowStore } from '../store/useFlowStore'
  * visually grouped but are NOT actually parented in React Flow (we keep
  * the workflow graph flat to preserve YAML round-trip simplicity).
  */
-export function GroupFrameNode({ id, data, selected }: NodeProps<FlowNodeData>) {
+export function GroupFrameNode({ id, data, selected }: NodeProps<Node<FlowNodeData>>) {
     const { updateNodeConfig } = useFlowStore()
     const label = (data.config?.label as string) ?? data.label ?? 'Group'
     const color = (data.config?.color as string) ?? '#7C3AED'

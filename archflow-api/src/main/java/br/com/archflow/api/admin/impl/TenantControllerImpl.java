@@ -17,12 +17,24 @@ public class TenantControllerImpl implements TenantController {
     private static final Logger log = LoggerFactory.getLogger(TenantControllerImpl.class);
     private final Map<String, TenantDto> tenants = new ConcurrentHashMap<>();
 
+    /** No-arg constructor seeds demo tenants — used by tests / dev profile. */
     public TenantControllerImpl() {
-        // Seed with demo data
-        var limits = new TenantLimitsDto(500, 5_000_000, 20, 10, List.of("gpt-4o", "claude-sonnet-4-6"), List.of("hitl", "brainSentry"));
-        var usage = new TenantUsageDto(340, 4_200_000, 12, 5);
-        tenants.put("tenant_rio_quality", new TenantDto("tenant_rio_quality", "Rio Quality", "enterprise", "active",
-                "admin@rioquality.com.br", "Food Distribution", limits, usage, limits.allowedModels(), "2025-06"));
+        this(true);
+    }
+
+    /**
+     * @param seedDemoData when {@code true}, pre-populates a demo tenant so
+     *                     the dev workspace flows have something to render.
+     *                     Production deployments MUST pass {@code false}
+     *                     so real tenants are not shadowed by fixture data.
+     */
+    public TenantControllerImpl(boolean seedDemoData) {
+        if (seedDemoData) {
+            var limits = new TenantLimitsDto(500, 5_000_000, 20, 10, List.of("gpt-4o", "claude-sonnet-4-6"), List.of("hitl", "brainSentry"));
+            var usage = new TenantUsageDto(340, 4_200_000, 12, 5);
+            tenants.put("tenant_rio_quality", new TenantDto("tenant_rio_quality", "Rio Quality", "enterprise", "active",
+                    "admin@rioquality.com.br", "Food Distribution", limits, usage, limits.allowedModels(), "2025-06"));
+        }
     }
 
     @Override

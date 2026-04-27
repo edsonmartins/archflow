@@ -1,0 +1,15 @@
+# Development profile: enables in-memory demo seed data and tenant fallback
+# so the local UI/E2E flows render meaningful content without requiring a
+# fully-configured auth pipeline. Production (prod profile) leaves these
+# off so no fixture data leaks into real deployments.
+
+archflow:
+  admin:
+    # Resolves to this tenant when X-Tenant-Id is missing — DEV ONLY.
+    tenantFallback: tenant_demo
+    # Pre-populates demo users, API keys, and the "Rio Quality" tenant.
+    seedDemoData: true
+    impersonation:
+      # Allows X-Impersonate-Tenant header for the dev workspace switcher.
+      # Production must keep this off until JWT-role auth is wired.
+      enabled: true

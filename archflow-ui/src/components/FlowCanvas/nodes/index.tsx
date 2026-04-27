@@ -1,4 +1,4 @@
-import { type NodeProps } from '@xyflow/react'
+import { type Node, type NodeProps } from '@xyflow/react'
 import { ShapedNode }     from './ShapedNode'
 import { NODE_CATEGORIES, PALETTE_NODES } from '../constants'
 import type { FlowNodeData } from '../types'
@@ -10,7 +10,7 @@ import type { FlowNodeData } from '../types'
  * under the matching type name.
  */
 function makeNode(category: keyof typeof NODE_CATEGORIES) {
-  return function CategoryNode({ id, data, selected }: NodeProps<FlowNodeData>) {
+  return function CategoryNode({ id, data, selected }: NodeProps<Node<FlowNodeData>>) {
     const paletteEntry = PALETTE_NODES.find(p => p.componentId === data.componentId)
     const icon = paletteEntry?.icon ?? '●'
 

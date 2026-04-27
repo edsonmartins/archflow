@@ -41,7 +41,7 @@ export default function WorkflowListPage() {
     }, [search, workflows]);
 
     const handleDelete = async () => { if (deleteId) { await deleteWorkflow(deleteId); setDeleteId(null); } };
-    const handleExecute = async (id: string) => { try { const eid = await executeWorkflow(id); navigate(`/executions?id=${eid}`); } catch {} };
+    const handleExecute = async (id: string) => { try { const eid = await executeWorkflow(id); navigate(`/executions?id=${eid}`); } catch { /* surfaced via store error state */ } };
     const handleNew = async () => {
         try {
             const created = await createWorkflow({
@@ -50,7 +50,7 @@ export default function WorkflowListPage() {
                 configuration: {},
             });
             navigate(`/editor/${created.id}`);
-        } catch {}
+        } catch { /* surfaced via store error state */ }
     };
 
     return (

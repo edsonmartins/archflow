@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { NodeResizer, type NodeProps } from '@xyflow/react'
+import { NodeResizer, type Node, type NodeProps } from '@xyflow/react'
 import type { FlowNodeData } from '../types'
 import { useFlowStore } from '../store/useFlowStore'
 
@@ -9,7 +9,7 @@ import { useFlowStore } from '../store/useFlowStore'
  * "Post-processing"). Has no handles and renders behind regular nodes
  * in z-order — purely visual scaffolding for large workflows.
  */
-export function SectionDividerNode({ id, data, selected }: NodeProps<FlowNodeData>) {
+export function SectionDividerNode({ id, data, selected }: NodeProps<Node<FlowNodeData>>) {
     const { updateNodeConfig } = useFlowStore()
     const label = (data.config?.label as string) ?? data.label ?? 'Section'
     const color = (data.config?.color as string) ?? '#0D9488'

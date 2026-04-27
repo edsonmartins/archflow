@@ -12,6 +12,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
  * Executor para execução paralela de steps
@@ -19,14 +21,28 @@ import java.util.concurrent.Semaphore;
 public class DefaultParallelExecutor implements ParallelExecutor {
     private static final Logger logger = LoggerFactory.getLogger(DefaultParallelExecutor.class.getName());
 
+    /** Default per-step ceiling — chosen so a hung provider does not jam the executor pool indefinitely. */
+    private static final long DEFAULT_STEP_TIMEOUT_MS = 5 * 60_000L;
+    /** Default aggregate ceiling — covers the longest legitimate parallel batch we expect. */
+    private static final long DEFAULT_TOTAL_TIMEOUT_MS = 10 * 60_000L;
+
     private final ExecutorService executorService;
     private final int maxConcurrent;
     private final Semaphore semaphore;
+    private final long stepTimeoutMs;
+    private final long totalTimeoutMs;
 
     public DefaultParallelExecutor(ExecutorService executorService, int maxConcurrent) {
+        this(executorService, maxConcurrent, DEFAULT_STEP_TIMEOUT_MS, DEFAULT_TOTAL_TIMEOUT_MS);
+    }
+
+    public DefaultParallelExecutor(ExecutorService executorService, int maxConcurrent,
+                                   long stepTimeoutMs, long totalTimeoutMs) {
         this.executorService = executorService;
         this.maxConcurrent = maxConcurrent;
         this.semaphore = new Semaphore(maxConcurrent);
+        this.stepTimeoutMs = stepTimeoutMs;
+        this.totalTimeoutMs = totalTimeoutMs;
     }
 
     @Override
@@ -35,25 +51,33 @@ public class DefaultParallelExecutor implements ParallelExecutor {
             throw new IllegalArgumentException("ExecutionContext cannot be null");
         }
 
+        List<CompletableFuture<StepResult>> futures = steps.stream()
+            .map(step -> executeStepAsync(step, context))
+            .toList();
+
+        CompletableFuture<Void> allOf = CompletableFuture.allOf(
+            futures.toArray(new CompletableFuture[0])
+        );
+
         try {
-            // Cria tasks para cada step
-            List<CompletableFuture<StepResult>> futures = steps.stream()
-                .map(step -> executeStepAsync(step, context))
-                .toList();
-
-            // Aguarda conclusão de todos
-            CompletableFuture<Void> allOf = CompletableFuture.allOf(
-                futures.toArray(new CompletableFuture[0])
-            );
-
-            // Retorna resultados
+            // Aggregate ceiling — without a timeout the calling thread can
+            // hang forever if any step's underlying provider stalls.
             return allOf.thenApply(v -> futures.stream()
                 .map(CompletableFuture::join)
                 .toList()
-            ).get();
-
+            ).get(totalTimeoutMs, TimeUnit.MILLISECONDS);
+        } catch (TimeoutException e) {
+            // Cancel any still-running step so its semaphore permit and
+            // worker thread are released promptly instead of leaking.
+            futures.forEach(f -> f.cancel(true));
+            logger.error("Parallel execution exceeded {}ms aggregate timeout", totalTimeoutMs);
+            throw new RuntimeException("Parallel execution timed out after " + totalTimeoutMs + "ms", e);
+        } catch (InterruptedException e) {
+            futures.forEach(f -> f.cancel(true));
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Parallel execution interrupted", e);
         } catch (Exception e) {
-            logger.error("Erro na execução paralela: " + e.getMessage());
+            logger.error("Erro na execução paralela: {}", e.getMessage());
             throw new RuntimeException("Erro na execução paralela", e);
         }
     }
@@ -69,7 +93,12 @@ public class DefaultParallelExecutor implements ParallelExecutor {
                 semaphore.acquire();
                 acquired = true;
                 logger.info("Iniciando execução paralela do step: {}", step.getId());
-                return step.execute(context).get();
+                // Per-step ceiling — without it a misbehaving step.execute()
+                // future can pin a worker thread + permit indefinitely.
+                return step.execute(context).get(stepTimeoutMs, TimeUnit.MILLISECONDS);
+            } catch (TimeoutException e) {
+                throw new CompletionException("Step execution timed out after "
+                        + stepTimeoutMs + "ms: " + step.getId(), e);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 throw new CompletionException("Step execution interrupted: " + step.getId(), e);

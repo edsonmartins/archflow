@@ -5,6 +5,11 @@ spring:
     active: ${SPRING_PROFILES_ACTIVE:dev}
   jackson:
     default-property-inclusion: non_null
+    # Frontend expects ISO8601 strings for java.time.Instant (e.g.
+    # "2026-04-27T10:00:00Z"), not numeric timestamps or epoch arrays.
+    # Disable timestamp serialization to lock in the contract.
+    serialization:
+      write-dates-as-timestamps: false
 
 server:
   port: ${SERVER_PORT:8080}

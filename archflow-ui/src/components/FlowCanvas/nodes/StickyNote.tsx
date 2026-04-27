@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { NodeResizer, type NodeProps } from '@xyflow/react'
+import { NodeResizer, type Node, type NodeProps } from '@xyflow/react'
 import type { FlowNodeData } from '../types'
 import { useFlowStore } from '../store/useFlowStore'
 
@@ -11,7 +11,7 @@ import { useFlowStore } from '../store/useFlowStore'
  * "sticky-note"} so it round-trips through the existing workflow JSON
  * without any backend changes.</p>
  */
-export function StickyNoteNode({ id, data, selected }: NodeProps<FlowNodeData>) {
+export function StickyNoteNode({ id, data, selected }: NodeProps<Node<FlowNodeData>>) {
     const { updateNodeConfig } = useFlowStore()
     const text = (data.config?.text as string) ?? ''
     const color = (data.config?.color as string) ?? '#FEF3C7' // yellow

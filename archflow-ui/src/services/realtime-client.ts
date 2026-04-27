@@ -129,19 +129,19 @@ export class RealtimeClient {
             try {
                 this.workletNode.port.onmessage = null;
                 this.workletNode.disconnect();
-            } catch {}
+            } catch { /* node already disconnected */ }
             this.workletNode = null;
         }
         if (this.legacyProcessor) {
             try {
                 this.legacyProcessor.disconnect();
-            } catch {}
+            } catch { /* processor already disconnected */ }
             this.legacyProcessor = null;
         }
         if (this.audioContext) {
             try {
                 await this.audioContext.close();
-            } catch {}
+            } catch { /* context already closed */ }
             this.audioContext = null;
         }
         if (this.mediaStream) {
@@ -151,7 +151,7 @@ export class RealtimeClient {
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
             try {
                 this.ws.close();
-            } catch {}
+            } catch { /* socket already closing */ }
         }
         this.ws = null;
         this.setStatus('closed');
@@ -175,7 +175,7 @@ export class RealtimeClient {
                 reject(new Error('WebSocket connect timeout'));
                 try {
                     ws.close();
-                } catch {}
+                } catch { /* socket never opened */ }
             }, 5000);
 
             ws.onopen = () => {

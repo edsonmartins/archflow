@@ -2,6 +2,10 @@ import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: './e2e',
+  // *.real.spec.ts targets the live Spring backend (port 8080) — those
+  // need an actual server, run via `npm run test:e2e:real`. Excluding
+  // them here keeps the mock-based suite hermetic.
+  testIgnore: '**/*.real.spec.ts',
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
