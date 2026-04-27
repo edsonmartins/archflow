@@ -31,6 +31,19 @@ import java.util.*;
  * }</pre>
  */
 public class PgVectorStoreAdapter implements LangChainAdapter, dev.langchain4j.store.embedding.EmbeddingStore<TextSegment>, AutoCloseable {
+
+    /**
+     * Strict whitelist for valid PostgreSQL identifier characters. Since
+     * table names are spliced into SQL via {@code String.format("%s",...)}
+     * (JDBC does not parameterize identifiers), any user-controlled value
+     * here must be validated up front to prevent SQL injection.
+     * Lowercase/uppercase letters, digits, and underscore only; must not
+     * start with a digit. Schema-qualified names (e.g. {@code foo.bar})
+     * are NOT accepted.
+     */
+    private static final java.util.regex.Pattern VALID_TABLE_NAME =
+            java.util.regex.Pattern.compile("^[A-Za-z_][A-Za-z0-9_]{0,62}$");
+
     private volatile HikariDataSource dataSource;
     private String tableName;
     private int dimension;
@@ -58,8 +71,16 @@ public class PgVectorStoreAdapter implements LangChainAdapter, dev.langchain4j.s
         }
 
         String tableName = (String) properties.get("pgvector.table");
-        if (tableName != null && tableName.trim().isEmpty()) {
-            throw new IllegalArgumentException("PgVector table name cannot be empty if provided");
+        if (tableName != null) {
+            if (tableName.trim().isEmpty()) {
+                throw new IllegalArgumentException("PgVector table name cannot be empty if provided");
+            }
+            if (!VALID_TABLE_NAME.matcher(tableName).matches()) {
+                throw new IllegalArgumentException(
+                        "PgVector table name must match " + VALID_TABLE_NAME.pattern()
+                                + " (letters, digits, underscore; max 63 chars; cannot start with a digit). "
+                                + "Got: " + tableName);
+            }
         }
 
         Object dimension = properties.get("pgvector.dimension");

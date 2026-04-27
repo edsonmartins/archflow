@@ -8,6 +8,10 @@ async function login(page: import('@playwright/test').Page, options?: { role?: s
       window.sessionStorage.setItem('archflow_role', role);
     }, options.role);
   }
+  // Pin English so text-based selectors stay stable.
+  await page.addInitScript(() => {
+    window.localStorage.setItem('archflow-language', 'en');
+  });
 
   await page.goto('/login');
   await page.getByLabel('Username').fill('admin');

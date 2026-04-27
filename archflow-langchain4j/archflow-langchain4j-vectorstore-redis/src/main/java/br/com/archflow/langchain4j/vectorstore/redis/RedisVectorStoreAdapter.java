@@ -73,9 +73,24 @@ public class RedisVectorStoreAdapter implements LangChainAdapter, EmbeddingStore
         this.jedisPool = new JedisPool(host, port);
     }
 
+    /**
+     * Returns the current pool or throws if the adapter was shut down /
+     * never configured. Snapshots {@code jedisPool} into a local so a
+     * concurrent {@code shutdown()} cannot turn it into {@code null}
+     * between the null-check and the {@code getResource()} call.
+     */
+    private JedisPool requirePool() {
+        JedisPool pool = this.jedisPool;
+        if (pool == null) {
+            throw new IllegalStateException(
+                    "RedisVectorStoreAdapter not configured or already shut down");
+        }
+        return pool;
+    }
+
     @Override
     public void add(String id, Embedding embedding) {
-        try (Jedis jedis = jedisPool.getResource()) {
+        try (Jedis jedis = requirePool().getResource()) {
             String key = prefix + id;
             // Converte vetor para string armazenável no Redis
             String vectorStr = vectorToString(embedding.vector());
@@ -94,7 +109,7 @@ public class RedisVectorStoreAdapter implements LangChainAdapter, EmbeddingStore
     public String add(Embedding embedding, TextSegment embedded) {
         String id = java.util.UUID.randomUUID().toString();
         add(id, embedding);
-        try (Jedis jedis = jedisPool.getResource()) {
+        try (Jedis jedis = requirePool().getResource()) {
             String key = prefix + id;
             jedis.hset(key, "text", embedded.text());
             // Armazena metadados do TextSegment
@@ -113,7 +128,7 @@ public class RedisVectorStoreAdapter implements LangChainAdapter, EmbeddingStore
     @Override
     public List<String> addAll(List<Embedding> embeddings) {
         List<String> ids = new ArrayList<>();
-        try (Jedis jedis = jedisPool.getResource()) {
+        try (Jedis jedis = requirePool().getResource()) {
             Pipeline p = jedis.pipelined();
             for (Embedding embedding : embeddings) {
                 String id = java.util.UUID.randomUUID().toString();
@@ -128,7 +143,7 @@ public class RedisVectorStoreAdapter implements LangChainAdapter, EmbeddingStore
 
     @Override
     public void addAll(List<String> ids, List<Embedding> embeddings, List<TextSegment> embedded) {
-        try (Jedis jedis = jedisPool.getResource()) {
+        try (Jedis jedis = requirePool().getResource()) {
             Pipeline p = jedis.pipelined();
             for (int i = 0; i < ids.size(); i++) {
                 String key = prefix + ids.get(i);
@@ -157,7 +172,7 @@ public class RedisVectorStoreAdapter implements LangChainAdapter, EmbeddingStore
 
         // Busca todas as chaves com o prefixo usando KEYS
         List<Candidate> candidates = new ArrayList<>();
-        try (Jedis jedis = jedisPool.getResource()) {
+        try (Jedis jedis = requirePool().getResource()) {
             Set<String> keys = jedis.keys(prefix + "*");
 
             for (String key : keys) {
@@ -196,27 +211,106 @@ public class RedisVectorStoreAdapter implements LangChainAdapter, EmbeddingStore
         return new EmbeddingSearchResult<>(matches);
     }
 
+    /**
+     * Removes a single embedding by its ID. Matches the
+     * {@code EmbeddingStore#remove(String)} contract (void return).
+     */
     @Override
-    public Object execute(String operation, Object input, ExecutionContext context) throws Exception {
-        if (jedisPool == null) {
-            throw new IllegalStateException("Vector store not configured. Call configure() first.");
+    public void remove(String id) {
+        if (id == null) {
+            throw new IllegalArgumentException("id cannot be null");
         }
-
-        if ("search".equals(operation)) {
-            if (!(input instanceof EmbeddingSearchRequest)) {
-                throw new IllegalArgumentException("Input must be an EmbeddingSearchRequest for search operation");
-            }
-            return search((EmbeddingSearchRequest) input);
+        try (Jedis jedis = requirePool().getResource()) {
+            jedis.del(prefix + id);
         }
+    }
 
-        throw new IllegalArgumentException("Unsupported operation: " + operation);
+    /**
+     * Removes multiple embeddings by ID. Missing ids are silently skipped.
+     */
+    @Override
+    public void removeAll(Collection<String> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return;
+        }
+        String[] keys = ids.stream()
+                .filter(Objects::nonNull)
+                .map(id -> prefix + id)
+                .toArray(String[]::new);
+        if (keys.length == 0) {
+            return;
+        }
+        try (Jedis jedis = requirePool().getResource()) {
+            jedis.del(keys);
+        }
+    }
+
+    /**
+     * Removes every embedding stored under {@link #prefix}. Uses SCAN
+     * in batches rather than KEYS+DEL so it does not block Redis on
+     * large keyspaces.
+     */
+    @Override
+    public void removeAll() {
+        try (Jedis jedis = requirePool().getResource()) {
+            redis.clients.jedis.params.ScanParams params =
+                    new redis.clients.jedis.params.ScanParams().match(prefix + "*").count(500);
+            String cursor = redis.clients.jedis.params.ScanParams.SCAN_POINTER_START;
+            do {
+                redis.clients.jedis.resps.ScanResult<String> result = jedis.scan(cursor, params);
+                List<String> batch = result.getResult();
+                if (!batch.isEmpty()) {
+                    jedis.del(batch.toArray(new String[0]));
+                }
+                cursor = result.getCursor();
+            } while (!redis.clients.jedis.params.ScanParams.SCAN_POINTER_START.equals(cursor));
+        }
     }
 
     @Override
-    public void shutdown() {
-        if (jedisPool != null) {
-            jedisPool.close();
-            jedisPool = null;
+    @SuppressWarnings("unchecked")
+    public Object execute(String operation, Object input, ExecutionContext context) throws Exception {
+        // Snapshot the pool once via requirePool so this method cannot
+        // observe a null after passing the check inside downstream calls.
+        requirePool();
+
+        switch (operation) {
+            case "search":
+                if (!(input instanceof EmbeddingSearchRequest)) {
+                    throw new IllegalArgumentException(
+                            "Input must be an EmbeddingSearchRequest for search operation");
+                }
+                return search((EmbeddingSearchRequest) input);
+            case "remove":
+                if (input instanceof String) {
+                    remove((String) input);
+                    return null;
+                }
+                if (input instanceof Collection<?>) {
+                    removeAll(((Collection<?>) input).stream()
+                            .map(Object::toString).collect(Collectors.toList()));
+                    return null;
+                }
+                throw new IllegalArgumentException(
+                        "Input must be a String id or Collection<String> for remove operation");
+            case "removeAll":
+                if (input != null) {
+                    throw new IllegalArgumentException(
+                            "Input must be null for removeAll operation");
+                }
+                removeAll();
+                return null;
+            default:
+                throw new IllegalArgumentException("Unsupported operation: " + operation);
+        }
+    }
+
+    @Override
+    public synchronized void shutdown() {
+        JedisPool pool = this.jedisPool;
+        if (pool != null) {
+            this.jedisPool = null;
+            pool.close();
         }
         this.config = null;
     }

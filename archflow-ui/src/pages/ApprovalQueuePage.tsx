@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import {
     Alert,
     Badge,
@@ -18,6 +19,7 @@ import { useTenantStore } from '../stores/useTenantStore';
 
 export default function ApprovalQueuePage() {
     const navigate = useNavigate();
+    const { t } = useTranslation();
     const { impersonating, currentRole } = useTenantStore();
     const tenantId = impersonating ?? (currentRole === 'superadmin' ? 'all' : 'default');
 
@@ -33,7 +35,7 @@ export default function ApprovalQueuePage() {
             const rows = await approvalApi.listPending(tenantId);
             setItems(rows);
         } catch (e) {
-            setError(e instanceof Error ? e.message : 'Failed to load approvals');
+            setError(e instanceof Error ? e.message : t('approvals.loadError'));
             setItems([]);
         } finally {
             setLoading(false);
@@ -60,11 +62,8 @@ export default function ApprovalQueuePage() {
         <Stack p="md" gap="md">
             <Group justify="space-between">
                 <Stack gap={0}>
-                    <Title order={2}>Approval queue</Title>
-                    <Text size="sm" c="dimmed">
-                        Pending human-in-the-loop decisions. Click a row to review the
-                        proposal and decide.
-                    </Text>
+                    <Title order={2}>{t('approvals.title')}</Title>
+                    <Text size="sm" c="dimmed">{t('approvals.subtitle')}</Text>
                 </Stack>
                 <Button
                     variant="default"
@@ -72,13 +71,13 @@ export default function ApprovalQueuePage() {
                     onClick={load}
                     data-testid="approvals-refresh"
                 >
-                    Refresh
+                    {t('common.refresh')}
                 </Button>
             </Group>
 
             <Group gap="sm" wrap="wrap">
                 <TextInput
-                    placeholder="Search by request id, flow id, description..."
+                    placeholder={t('approvals.search')}
                     leftSection={<IconSearch size={14} />}
                     value={search}
                     onChange={(e) => setSearch(e.currentTarget.value)}
@@ -86,7 +85,7 @@ export default function ApprovalQueuePage() {
                     data-testid="approvals-search"
                 />
                 <Badge size="lg" variant="light" color="orange">
-                    {items.length} pending
+                    {t('approvals.pending', { count: items.length })}
                 </Badge>
             </Group>
 
@@ -99,18 +98,18 @@ export default function ApprovalQueuePage() {
             <Paper withBorder radius="md">
                 {filtered.length === 0 && !loading ? (
                     <Text size="sm" c="dimmed" ta="center" p="md">
-                        No pending approvals.
+                        {t('approvals.empty')}
                     </Text>
                 ) : (
                     <Table striped highlightOnHover>
                         <Table.Thead>
                             <Table.Tr>
-                                <Table.Th>Request</Table.Th>
-                                <Table.Th>Flow</Table.Th>
-                                <Table.Th>Step</Table.Th>
-                                <Table.Th>Description</Table.Th>
-                                <Table.Th>Waiting</Table.Th>
-                                <Table.Th>Expires</Table.Th>
+                                <Table.Th>{t('approvals.table.request')}</Table.Th>
+                                <Table.Th>{t('approvals.table.flow')}</Table.Th>
+                                <Table.Th>{t('approvals.table.step')}</Table.Th>
+                                <Table.Th>{t('approvals.table.description')}</Table.Th>
+                                <Table.Th>{t('approvals.table.waiting')}</Table.Th>
+                                <Table.Th>{t('approvals.table.expires')}</Table.Th>
                             </Table.Tr>
                         </Table.Thead>
                         <Table.Tbody>
@@ -138,11 +137,11 @@ export default function ApprovalQueuePage() {
                                     <Table.Td>
                                         <Text size="sm">{row.description ?? '—'}</Text>
                                     </Table.Td>
-                                    <Table.Td>{formatWait(row.createdAt)}</Table.Td>
+                                    <Table.Td>{formatWait(row.createdAt, t)}</Table.Td>
                                     <Table.Td>
                                         {row.expiresAt ? (
                                             <Text size="xs" c={isUrgent(row.expiresAt) ? 'red' : 'dimmed'}>
-                                                {formatRelative(row.expiresAt)}
+                                                {formatRelative(row.expiresAt, t)}
                                             </Text>
                                         ) : (
                                             '—'
@@ -158,21 +157,23 @@ export default function ApprovalQueuePage() {
     );
 }
 
-function formatWait(createdAt: string | null): string {
+type TFn = (key: string, opts?: Record<string, unknown>) => string;
+
+function formatWait(createdAt: string | null, t: TFn): string {
     if (!createdAt) return '—';
     try {
         const diff = Date.now() - new Date(createdAt).getTime();
-        return formatDuration(diff) + ' ago';
+        return t('approvals.time.ago', { dur: formatDuration(diff) });
     } catch {
         return createdAt;
     }
 }
 
-function formatRelative(iso: string): string {
+function formatRelative(iso: string, t: TFn): string {
     try {
         const diff = new Date(iso).getTime() - Date.now();
-        if (diff <= 0) return 'expired';
-        return 'in ' + formatDuration(diff);
+        if (diff <= 0) return t('approvals.time.expired');
+        return t('approvals.time.inFuture', { dur: formatDuration(diff) });
     } catch {
         return iso;
     }

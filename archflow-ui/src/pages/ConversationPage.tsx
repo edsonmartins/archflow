@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import {
     ActionIcon,
     Alert,
@@ -25,6 +26,8 @@ import { conversationApi, type Conversation } from '../services/conversation-api
  */
 export default function ConversationPage() {
     const navigate = useNavigate();
+    const { t, i18n } = useTranslation();
+    const locale = i18n.resolvedLanguage ?? i18n.language;
     const { id } = useParams<{ id: string }>();
     const [conversation, setConversation] = useState<Conversation | null>(null);
     const [loading, setLoading] = useState(false);
@@ -42,7 +45,7 @@ export default function ConversationPage() {
             })
             .catch((err) => {
                 if (!cancelled) {
-                    setError(err instanceof Error ? err.message : 'Failed to load');
+                    setError(err instanceof Error ? err.message : t('conversationDetail.loadError'));
                     setConversation(null);
                 }
             })
@@ -52,13 +55,14 @@ export default function ConversationPage() {
         return () => {
             cancelled = true;
         };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [id]);
 
     if (!id) {
         return (
             <Stack p="md">
                 <Alert color="red" icon={<IconAlertCircle size={16} />}>
-                    Missing conversation id.
+                    {t('conversationDetail.missingId')}
                 </Alert>
             </Stack>
         );
@@ -68,14 +72,14 @@ export default function ConversationPage() {
         <Stack h="100%" gap={0}>
             <Group justify="space-between" px="md" py="sm" style={{ borderBottom: '1px solid var(--mantine-color-gray-3)' }}>
                 <Group gap="sm">
-                    <Tooltip label="Back to conversations">
+                    <Tooltip label={t('conversationDetail.back')}>
                         <ActionIcon variant="subtle" onClick={() => navigate('/conversations')}>
                             <IconArrowLeft size={18} />
                         </ActionIcon>
                     </Tooltip>
                     <Stack gap={0}>
                         <Title order={4}>
-                            {conversation?.title ?? `Conversation ${id.slice(0, 8)}`}
+                            {conversation?.title ?? t('conversationDetail.title', { id: id.slice(0, 8) })}
                         </Title>
                         <Group gap={6}>
                             <Text size="xs" c="dimmed" ff="DM Mono, monospace">
@@ -83,7 +87,7 @@ export default function ConversationPage() {
                             </Text>
                             {conversation?.status && (
                                 <Badge size="xs" variant="light">
-                                    {conversation.status}
+                                    {t(`conversations.statuses.${conversation.status}`, { defaultValue: conversation.status })}
                                 </Badge>
                             )}
                             {conversation?.persona && (
@@ -94,7 +98,7 @@ export default function ConversationPage() {
                         </Group>
                     </Stack>
                 </Group>
-                <Tooltip label="Refresh conversation metadata">
+                <Tooltip label={t('conversationDetail.refresh')}>
                     <ActionIcon
                         variant="subtle"
                         onClick={() => {
@@ -133,33 +137,33 @@ export default function ConversationPage() {
                     ) : conversation ? (
                         <ScrollArea h="100%">
                             <Stack gap="md">
-                                <Section label="Tenant">
+                                <Section label={t('conversationDetail.section.tenant')}>
                                     <Text size="sm">{conversation.tenantId ?? '—'}</Text>
                                 </Section>
-                                <Section label="User">
+                                <Section label={t('conversationDetail.section.user')}>
                                     <Text size="sm">{conversation.userId ?? '—'}</Text>
                                 </Section>
-                                <Section label="Channel">
+                                <Section label={t('conversationDetail.section.channel')}>
                                     <Text size="sm">{conversation.channel ?? '—'}</Text>
                                 </Section>
-                                <Section label="Created">
+                                <Section label={t('conversationDetail.section.created')}>
                                     <Text size="xs" c="dimmed">
-                                        {formatDate(conversation.createdAt)}
+                                        {formatDate(conversation.createdAt, locale)}
                                     </Text>
                                 </Section>
-                                <Section label="Updated">
+                                <Section label={t('conversationDetail.section.updated')}>
                                     <Text size="xs" c="dimmed">
-                                        {formatDate(conversation.updatedAt)}
+                                        {formatDate(conversation.updatedAt, locale)}
                                     </Text>
                                 </Section>
                                 {conversation.workflowId && (
-                                    <Section label="Workflow">
+                                    <Section label={t('conversationDetail.section.workflow')}>
                                         <Text size="xs" ff="DM Mono, monospace">
                                             {conversation.workflowId}
                                         </Text>
                                     </Section>
                                 )}
-                                <Section label="Raw">
+                                <Section label={t('conversationDetail.section.raw')}>
                                     <Paper
                                         withBorder
                                         radius="sm"
@@ -179,7 +183,7 @@ export default function ConversationPage() {
                         </ScrollArea>
                     ) : (
                         <Text size="sm" c="dimmed">
-                            No metadata.
+                            {t('conversationDetail.noMetadata')}
                         </Text>
                     )}
                 </Paper>
@@ -199,9 +203,9 @@ function Section({ label, children }: { label: string; children: React.ReactNode
     );
 }
 
-function formatDate(iso: string): string {
+function formatDate(iso: string, locale: string): string {
     try {
-        return new Date(iso).toLocaleString();
+        return new Date(iso).toLocaleString(locale);
     } catch {
         return iso;
     }

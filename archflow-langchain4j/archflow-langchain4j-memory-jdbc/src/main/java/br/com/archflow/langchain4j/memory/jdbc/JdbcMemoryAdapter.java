@@ -136,19 +136,55 @@ public class JdbcMemoryAdapter implements LangChainAdapter {
     }
 
     private void trimMessages(String tenantId, String sessionId) throws SQLException {
-        String sql = """
-            DELETE FROM chat_messages WHERE id IN (
-                SELECT id FROM chat_messages
-                WHERE tenant_id = ? AND session_id = ?
-                ORDER BY id DESC
-                OFFSET ?
-            )
+        // Cross-DB: MySQL < 8 rejects bare OFFSET without LIMIT; PostgreSQL
+        // and SQL Server accept OFFSET alone but differ in FETCH syntax.
+        // Solution: a two-step delete that reads the surviving IDs with
+        // an explicit LIMIT, then deletes everything NOT in that set.
+        //
+        // This also sidesteps MySQL's "can't update table used in subquery"
+        // restriction because we materialize the id list in Java.
+        List<Long> keepIds = new ArrayList<>();
+        String selectSql = """
+            SELECT id FROM chat_messages
+            WHERE tenant_id = ? AND session_id = ?
+            ORDER BY id DESC
+            LIMIT ?
             """;
         try (Connection conn = dataSource.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
+             PreparedStatement ps = conn.prepareStatement(selectSql)) {
             ps.setString(1, tenantId);
             ps.setString(2, sessionId);
             ps.setInt(3, maxMessages);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    keepIds.add(rs.getLong(1));
+                }
+            }
+        } catch (SQLException e) {
+            // If the SELECT fails we skip trimming — the caller will retry
+            // on the next message. We log at FINE because a failure here
+            // is not user-visible.
+            logger.log(Level.FINE, "Trim skipped: unable to list surviving ids", e);
+            return;
+        }
+
+        String deleteSql;
+        if (keepIds.isEmpty()) {
+            // Nothing to keep — delete everything for this session.
+            deleteSql = "DELETE FROM chat_messages WHERE tenant_id = ? AND session_id = ?";
+        } else {
+            // Preserve only the most recent maxMessages ids.
+            String placeholders = keepIds.stream().map(i -> "?").collect(java.util.stream.Collectors.joining(","));
+            deleteSql = "DELETE FROM chat_messages WHERE tenant_id = ? AND session_id = ? "
+                    + "AND id NOT IN (" + placeholders + ")";
+        }
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement ps = conn.prepareStatement(deleteSql)) {
+            ps.setString(1, tenantId);
+            ps.setString(2, sessionId);
+            for (int i = 0; i < keepIds.size(); i++) {
+                ps.setLong(3 + i, keepIds.get(i));
+            }
             ps.executeUpdate();
         } catch (SQLException e) {
             logger.log(Level.FINE, "Trim not supported or no excess messages", e);

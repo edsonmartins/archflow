@@ -1,6 +1,7 @@
 import { Title, Table, Text, Paper, Stack, Group, Select, Button, SimpleGrid, LoadingOverlay, Alert } from '@mantine/core'
 import { IconDownload, IconAlertCircle } from '@tabler/icons-react'
 import { useEffect, useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { usageApi, type TenantUsageRow } from '../../../services/admin-api'
 
 function StatCard({ label, value }: { label: string; value: string }) {
@@ -16,6 +17,8 @@ function StatCard({ label, value }: { label: string; value: string }) {
 }
 
 export default function UsageBilling() {
+  const { t, i18n } = useTranslation()
+  const locale = i18n.resolvedLanguage ?? i18n.language
   const [month, setMonth] = useState<string | null>('2026-04')
   const [rows, setRows] = useState<TenantUsageRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -32,7 +35,7 @@ export default function UsageBilling() {
         if (!cancelled) setRows(dto)
       })
       .catch((e) => {
-        if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to load usage')
+        if (!cancelled) setError(e instanceof Error ? e.message : t('admin.superadmin.usage.loadFailed'))
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
@@ -41,6 +44,7 @@ export default function UsageBilling() {
     return () => {
       cancelled = true
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [month])
 
   const totals = useMemo(() => {
@@ -55,7 +59,7 @@ export default function UsageBilling() {
       <LoadingOverlay visible={loading} />
 
       <Group justify="space-between">
-        <Title order={3}>Usage & Billing</Title>
+        <Title order={3}>{t('admin.superadmin.usage.title')}</Title>
         <Group gap="sm">
           <Select size="sm" w={140} data={['2026-04', '2026-03', '2026-02', '2026-01']}
             value={month} onChange={setMonth} />
@@ -65,7 +69,7 @@ export default function UsageBilling() {
             variant="light"
             leftSection={<IconDownload size={14} />}
             size="sm"
-          >Export CSV</Button>
+          >{t('admin.superadmin.usage.exportCsv')}</Button>
         </Group>
       </Group>
 
@@ -76,29 +80,29 @@ export default function UsageBilling() {
       )}
 
       <SimpleGrid cols={{ base: 2, lg: 4 }} spacing="md">
-        <StatCard label="Executions" value={totals.executions.toLocaleString()} />
-        <StatCard label="Tokens consumed" value={`${(totals.tokens / 1_000_000).toFixed(1)}M`} />
-        <StatCard label="Estimated cost" value={`$${totals.cost.toFixed(2)}`} />
-        <StatCard label="Tenants" value={String(rows.length)} />
+        <StatCard label={t('admin.superadmin.usage.stats.executions')} value={totals.executions.toLocaleString(locale)} />
+        <StatCard label={t('admin.superadmin.usage.stats.tokens')}     value={`${(totals.tokens / 1_000_000).toFixed(1)}M`} />
+        <StatCard label={t('admin.superadmin.usage.stats.cost')}       value={`$${totals.cost.toFixed(2)}`} />
+        <StatCard label={t('admin.superadmin.usage.stats.tenants')}    value={String(rows.length)} />
       </SimpleGrid>
 
       <Paper withBorder radius="lg" style={{ overflow: 'hidden' }}>
         <Table striped highlightOnHover>
           <Table.Thead>
             <Table.Tr>
-              <Table.Th>Tenant</Table.Th>
-              <Table.Th>Executions</Table.Th>
-              <Table.Th>Tokens In</Table.Th>
-              <Table.Th>Tokens Out</Table.Th>
-              <Table.Th>Est. Cost</Table.Th>
-              <Table.Th>% of Total</Table.Th>
+              <Table.Th>{t('admin.superadmin.usage.columns.tenant')}</Table.Th>
+              <Table.Th>{t('admin.superadmin.usage.columns.executions')}</Table.Th>
+              <Table.Th>{t('admin.superadmin.usage.columns.tokensIn')}</Table.Th>
+              <Table.Th>{t('admin.superadmin.usage.columns.tokensOut')}</Table.Th>
+              <Table.Th>{t('admin.superadmin.usage.columns.cost')}</Table.Th>
+              <Table.Th>{t('admin.superadmin.usage.columns.percent')}</Table.Th>
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
             {rows.map(r => (
               <Table.Tr key={r.tenantId}>
                 <Table.Td><Text size="sm" fw={500}>{r.tenantName}</Text></Table.Td>
-                <Table.Td><Text size="sm">{r.executions.toLocaleString()}</Text></Table.Td>
+                <Table.Td><Text size="sm">{r.executions.toLocaleString(locale)}</Text></Table.Td>
                 <Table.Td><Text size="sm">{(r.tokensInput / 1000000).toFixed(1)}M</Text></Table.Td>
                 <Table.Td><Text size="sm">{(r.tokensOutput / 1000000).toFixed(1)}M</Text></Table.Td>
                 <Table.Td><Text size="sm" fw={500}>${r.estimatedCost.toFixed(2)}</Text></Table.Td>

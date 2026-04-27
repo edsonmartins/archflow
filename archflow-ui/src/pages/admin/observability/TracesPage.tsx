@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import {
     Alert,
     Badge,
@@ -20,16 +21,17 @@ import {
     type TraceSummaryDto,
 } from '../../../services/observability-api';
 
-const STATUS_OPTIONS = [
-    { value: 'all', label: 'All' },
-    { value: 'OK', label: 'OK' },
-    { value: 'ERROR', label: 'Error' },
-];
-
 const PAGE_SIZE = 50;
 
 export default function TracesPage() {
     const navigate = useNavigate();
+    const { t, i18n } = useTranslation();
+    const locale = i18n.resolvedLanguage ?? i18n.language;
+    const STATUS_OPTIONS = [
+        { value: 'all', label: t('admin.observability.traces.statusAll') },
+        { value: 'OK', label: 'OK' },
+        { value: 'ERROR', label: 'Error' },
+    ];
     const [traces, setTraces] = useState<TraceSummaryDto[]>([]);
     const [total, setTotal] = useState(0);
     const [page, setPage] = useState(0);
@@ -57,7 +59,7 @@ export default function TracesPage() {
                 setTraces(res.items);
                 setTotal(res.total);
             })
-            .catch((e) => setError(e instanceof Error ? e.message : 'Failed to load traces'))
+            .catch((e) => setError(e instanceof Error ? e.message : t('admin.observability.traces.loadFailed')))
             .finally(() => setLoading(false));
     };
 
@@ -70,7 +72,7 @@ export default function TracesPage() {
         <Stack gap="sm">
             <Group gap="sm" wrap="wrap" align="flex-end">
                 <TextInput
-                    placeholder="Search by trace id, flow id, execution id..."
+                    placeholder={t('admin.observability.traces.search')}
                     leftSection={<IconSearch size={14} />}
                     value={search}
                     onChange={(e) => {
@@ -81,7 +83,7 @@ export default function TracesPage() {
                     data-testid="traces-search"
                 />
                 <Select
-                    label="Status"
+                    label={t('admin.observability.traces.status')}
                     data={STATUS_OPTIONS}
                     value={statusFilter}
                     onChange={(v) => {
@@ -96,7 +98,7 @@ export default function TracesPage() {
                     leftSection={<IconRefresh size={14} />}
                     onClick={() => load()}
                 >
-                    Refresh
+                    {t('common.refresh')}
                 </Button>
             </Group>
 
@@ -110,53 +112,53 @@ export default function TracesPage() {
                 <LoadingOverlay visible={loading} zIndex={5} />
                 {traces.length === 0 && !loading ? (
                     <Text size="sm" c="dimmed" ta="center" p="md">
-                        No traces captured yet.
+                        {t('admin.observability.traces.empty')}
                     </Text>
                 ) : (
                     <Table striped highlightOnHover>
                         <Table.Thead>
                             <Table.Tr>
-                                <Table.Th>Trace ID</Table.Th>
-                                <Table.Th>Tenant</Table.Th>
-                                <Table.Th>Persona</Table.Th>
-                                <Table.Th>Started</Table.Th>
-                                <Table.Th>Duration</Table.Th>
-                                <Table.Th>Spans</Table.Th>
-                                <Table.Th>Status</Table.Th>
+                                <Table.Th>{t('admin.observability.traces.cols.traceId')}</Table.Th>
+                                <Table.Th>{t('admin.observability.traces.cols.tenant')}</Table.Th>
+                                <Table.Th>{t('admin.observability.traces.cols.persona')}</Table.Th>
+                                <Table.Th>{t('admin.observability.traces.cols.started')}</Table.Th>
+                                <Table.Th>{t('admin.observability.traces.cols.duration')}</Table.Th>
+                                <Table.Th>{t('admin.observability.traces.cols.spans')}</Table.Th>
+                                <Table.Th>{t('admin.observability.traces.cols.status')}</Table.Th>
                             </Table.Tr>
                         </Table.Thead>
                         <Table.Tbody>
-                            {traces.map((t) => (
+                            {traces.map((row) => (
                                 <Table.Tr
-                                    key={t.traceId}
+                                    key={row.traceId}
                                     style={{ cursor: 'pointer' }}
-                                    onClick={() => navigate(`/admin/observability/traces/${t.traceId}`)}
+                                    onClick={() => navigate(`/admin/observability/traces/${row.traceId}`)}
                                 >
                                     <Table.Td>
                                         <Text size="xs" ff="DM Mono, monospace">
-                                            {t.traceId.slice(0, 12)}
+                                            {row.traceId.slice(0, 12)}
                                         </Text>
                                     </Table.Td>
-                                    <Table.Td>{t.tenantId ?? '—'}</Table.Td>
+                                    <Table.Td>{row.tenantId ?? '—'}</Table.Td>
                                     <Table.Td>
-                                        {t.personaId ? (
+                                        {row.personaId ? (
                                             <Badge size="xs" variant="outline" color="grape">
-                                                {t.personaId}
+                                                {row.personaId}
                                             </Badge>
                                         ) : (
                                             '—'
                                         )}
                                     </Table.Td>
-                                    <Table.Td>{formatTime(t.startedAt)}</Table.Td>
-                                    <Table.Td>{t.durationMs} ms</Table.Td>
-                                    <Table.Td>{t.spanCount}</Table.Td>
+                                    <Table.Td>{formatTime(row.startedAt, t, locale)}</Table.Td>
+                                    <Table.Td>{row.durationMs} ms</Table.Td>
+                                    <Table.Td>{row.spanCount}</Table.Td>
                                     <Table.Td>
                                         <Badge
                                             size="xs"
                                             variant="light"
-                                            color={statusColor(t.status)}
+                                            color={statusColor(row.status)}
                                         >
-                                            {t.status}
+                                            {row.status}
                                         </Badge>
                                     </Table.Td>
                                 </Table.Tr>
@@ -168,7 +170,11 @@ export default function TracesPage() {
 
             <Group justify="space-between">
                 <Text size="xs" c="dimmed">
-                    Showing {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, total)} of {total}
+                    {t('admin.observability.audit.showing', {
+                        from: page * PAGE_SIZE + 1,
+                        to: Math.min((page + 1) * PAGE_SIZE, total),
+                        total,
+                    })}
                 </Text>
                 <Group gap="xs">
                     <Button
@@ -177,7 +183,7 @@ export default function TracesPage() {
                         disabled={page === 0}
                         onClick={() => setPage((p) => Math.max(0, p - 1))}
                     >
-                        Previous
+                        {t('admin.observability.audit.previous')}
                     </Button>
                     <Button
                         variant="default"
@@ -185,7 +191,7 @@ export default function TracesPage() {
                         disabled={(page + 1) * PAGE_SIZE >= total}
                         onClick={() => setPage((p) => p + 1)}
                     >
-                        Next
+                        {t('admin.observability.audit.next')}
                     </Button>
                 </Group>
             </Group>
@@ -199,16 +205,18 @@ function statusColor(status: string): string {
     return 'gray';
 }
 
-function formatTime(iso: string): string {
+type TFn = (key: string, opts?: Record<string, unknown>) => string;
+
+function formatTime(iso: string, t: TFn, locale: string): string {
     try {
         const d = new Date(iso);
         const diffMs = Date.now() - d.getTime();
-        if (diffMs < 60_000) return 'just now';
+        if (diffMs < 60_000) return t('admin.observability.traces.time.justNow');
         const mins = Math.floor(diffMs / 60_000);
-        if (mins < 60) return `${mins}m ago`;
+        if (mins < 60) return t('admin.observability.traces.time.minutesAgo', { n: mins });
         const hours = Math.floor(mins / 60);
-        if (hours < 24) return `${hours}h ago`;
-        return d.toLocaleString();
+        if (hours < 24) return t('admin.observability.traces.time.hoursAgo', { n: hours });
+        return d.toLocaleString(locale);
     } catch {
         return iso;
     }

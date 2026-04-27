@@ -56,7 +56,14 @@ public class LocalEmbeddingAdapter implements LangChainAdapter, EmbeddingModel {
     private int gpuDeviceId;
     private boolean usePooling;
     private boolean useCache;
-    private Map<String, int[]> tokenCache; // Cache de tokenização
+    /**
+     * Hard cap on the tokenization cache. Without a bound, unique input
+     * strings (user queries, one-shot prompts) accumulate indefinitely
+     * and can exhaust the heap on long-running services.
+     */
+    private static final int DEFAULT_TOKEN_CACHE_MAX = 10_000;
+    private int tokenCacheMax = DEFAULT_TOKEN_CACHE_MAX;
+    private Map<String, int[]> tokenCache; // Cache de tokenização (LRU)
     private Map<String, Object> config;
 
     /**
@@ -137,7 +144,19 @@ public class LocalEmbeddingAdapter implements LangChainAdapter, EmbeddingModel {
         this.gpuDeviceId = (Integer) properties.getOrDefault("local.gpuDeviceId", 0);
         this.usePooling = (Boolean) properties.getOrDefault("local.usePooling", false);
         this.useCache = (Boolean) properties.getOrDefault("local.useCache", true);
-        this.tokenCache = useCache ? new ConcurrentHashMap<>() : null;
+        this.tokenCacheMax = (Integer) properties.getOrDefault("local.tokenCacheMax", DEFAULT_TOKEN_CACHE_MAX);
+        // Bounded LRU: wraps a LinkedHashMap(accessOrder=true) with
+        // Collections.synchronizedMap for thread safety. The eldest entry
+        // is evicted once size exceeds the cap. All reads that update
+        // access order go through the same monitor, which is sufficient
+        // since tokenCache lookups are on the critical path but cheap.
+        this.tokenCache = useCache ? java.util.Collections.synchronizedMap(
+                new java.util.LinkedHashMap<String, int[]>(16, 0.75f, true) {
+                    @Override
+                    protected boolean removeEldestEntry(Map.Entry<String, int[]> eldest) {
+                        return size() > tokenCacheMax;
+                    }
+                }) : null;
 
         try {
             // Inicializa o ONNX Runtime

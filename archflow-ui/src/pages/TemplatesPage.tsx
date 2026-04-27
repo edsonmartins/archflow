@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import {
     Badge,
     Card,
@@ -31,15 +32,17 @@ const COMPLEXITY_COLOR: Record<WorkflowTemplate['complexity'], string> = {
 
 type Complexity = WorkflowTemplate['complexity'] | 'all';
 
-const COMPLEXITIES: { value: Complexity; label: string }[] = [
-    { value: 'all', label: 'Any complexity' },
-    { value: 'starter', label: 'Starter' },
-    { value: 'intermediate', label: 'Intermediate' },
-    { value: 'advanced', label: 'Advanced' },
-];
+const COMPLEXITY_VALUES: Complexity[] = ['all', 'starter', 'intermediate', 'advanced'];
 
 export default function TemplatesPage() {
     const navigate = useNavigate();
+    const { t } = useTranslation();
+    const complexityLabel = (v: Complexity) => {
+        if (v === 'all') return t('templates.complexityAny');
+        if (v === 'starter') return t('templates.complexityStarter');
+        if (v === 'intermediate') return t('templates.complexityIntermediate');
+        return t('templates.complexityAdvanced');
+    };
     const [search, setSearch] = useState('');
     const [category, setCategory] = useState<TemplateCategory | 'all'>('all');
     const [complexity, setComplexity] = useState<Complexity>('all');
@@ -79,16 +82,13 @@ export default function TemplatesPage() {
     return (
         <Stack p="md" gap="md">
             <Stack gap={4}>
-                <Title order={2}>Templates</Title>
-                <Text size="sm" c="dimmed">
-                    Start from a pre-built workflow and adapt it to your needs. Click any
-                    card to see the canvas preview, then clone it into your workspace.
-                </Text>
+                <Title order={2}>{t('templates.title')}</Title>
+                <Text size="sm" c="dimmed">{t('templates.subtitle')}</Text>
             </Stack>
 
             <Group gap="sm" wrap="wrap" align="flex-end">
                 <TextInput
-                    placeholder="Search templates..."
+                    placeholder={t('templates.search')}
                     leftSection={<IconSearch size={14} />}
                     value={search}
                     onChange={(e) => setSearch(e.currentTarget.value)}
@@ -96,8 +96,8 @@ export default function TemplatesPage() {
                     data-testid="templates-search"
                 />
                 <Select
-                    label="Complexity"
-                    data={COMPLEXITIES.map((c) => ({ value: c.value, label: c.label }))}
+                    label={t('templates.complexity')}
+                    data={COMPLEXITY_VALUES.map((c) => ({ value: c, label: complexityLabel(c) }))}
                     value={complexity}
                     onChange={(v) => setComplexity((v as Complexity) ?? 'all')}
                     w={180}
@@ -108,7 +108,7 @@ export default function TemplatesPage() {
             <Chip.Group value={category} onChange={(v) => setCategory(v as TemplateCategory | 'all')}>
                 <Group gap="xs" wrap="wrap">
                     <Chip value="all" size="xs" variant="light">
-                        All
+                        {t('templates.all')}
                     </Chip>
                     {(Object.entries(TEMPLATE_CATEGORIES) as [TemplateCategory, { label: string; color: string }][])
                         .map(([key, meta]) => (
@@ -125,7 +125,7 @@ export default function TemplatesPage() {
                 </Center>
             ) : filtered.length === 0 ? (
                 <Text size="sm" c="dimmed" ta="center" py="lg">
-                    No templates match your search.
+                    {t('templates.noMatches')}
                 </Text>
             ) : (
                 <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="md">
@@ -161,10 +161,10 @@ function TemplateCard({
                 radius="md"
                 padding="md"
                 h="100%"
-                style={(theme) => ({
+                style={{
                     transition: 'transform 0.12s, box-shadow 0.12s',
                     cursor: 'pointer',
-                })}
+                }}
                 styles={{
                     root: {
                         '&:hover': {

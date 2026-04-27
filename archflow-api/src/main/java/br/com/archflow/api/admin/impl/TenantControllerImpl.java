@@ -63,35 +63,54 @@ public class TenantControllerImpl implements TenantController {
 
     @Override
     public TenantDto updateTenant(String tenantId, TenantDto update) {
-        TenantDto existing = getTenant(tenantId);
-        var updated = new TenantDto(tenantId,
-                update.name() != null ? update.name() : existing.name(),
-                update.plan() != null ? update.plan() : existing.plan(),
-                update.status() != null ? update.status() : existing.status(),
-                update.adminEmail() != null ? update.adminEmail() : existing.adminEmail(),
-                update.sector() != null ? update.sector() : existing.sector(),
-                update.limits() != null ? update.limits() : existing.limits(),
-                existing.usage(),
-                update.allowedModels() != null ? update.allowedModels() : existing.allowedModels(),
-                existing.createdAt());
-        tenants.put(tenantId, updated);
+        // Fail fast when the body tries to rename a tenant via the URL
+        // path. Previously the path won silently, which masked client
+        // bugs and could let a caller target the wrong tenant.
+        if (update != null && update.id() != null
+                && !update.id().isBlank() && !update.id().equals(tenantId)) {
+            throw new IllegalArgumentException(
+                    "tenantId in body (" + update.id()
+                            + ") does not match path variable (" + tenantId + ")");
+        }
+        // compute() guarantees the read-modify-write runs under the map's
+        // bucket lock so concurrent suspend/activate/updateTenant on the
+        // same tenantId serialize instead of racing.
+        TenantDto updated = tenants.compute(tenantId, (id, existing) -> {
+            if (existing == null) {
+                throw new IllegalArgumentException("Tenant not found: " + tenantId);
+            }
+            return new TenantDto(tenantId,
+                    update.name() != null ? update.name() : existing.name(),
+                    update.plan() != null ? update.plan() : existing.plan(),
+                    update.status() != null ? update.status() : existing.status(),
+                    update.adminEmail() != null ? update.adminEmail() : existing.adminEmail(),
+                    update.sector() != null ? update.sector() : existing.sector(),
+                    update.limits() != null ? update.limits() : existing.limits(),
+                    existing.usage(),
+                    update.allowedModels() != null ? update.allowedModels() : existing.allowedModels(),
+                    existing.createdAt());
+        });
         return updated;
     }
 
     @Override
     public void suspendTenant(String tenantId) {
         log.info("Suspending tenant: {}", tenantId);
-        TenantDto t = getTenant(tenantId);
-        tenants.put(tenantId, new TenantDto(t.id(), t.name(), t.plan(), "suspended",
-                t.adminEmail(), t.sector(), t.limits(), t.usage(), t.allowedModels(), t.createdAt()));
+        tenants.compute(tenantId, (id, t) -> {
+            if (t == null) throw new IllegalArgumentException("Tenant not found: " + tenantId);
+            return new TenantDto(t.id(), t.name(), t.plan(), "suspended",
+                    t.adminEmail(), t.sector(), t.limits(), t.usage(), t.allowedModels(), t.createdAt());
+        });
     }
 
     @Override
     public void activateTenant(String tenantId) {
         log.info("Activating tenant: {}", tenantId);
-        TenantDto t = getTenant(tenantId);
-        tenants.put(tenantId, new TenantDto(t.id(), t.name(), t.plan(), "active",
-                t.adminEmail(), t.sector(), t.limits(), t.usage(), t.allowedModels(), t.createdAt()));
+        tenants.compute(tenantId, (id, t) -> {
+            if (t == null) throw new IllegalArgumentException("Tenant not found: " + tenantId);
+            return new TenantDto(t.id(), t.name(), t.plan(), "active",
+                    t.adminEmail(), t.sector(), t.limits(), t.usage(), t.allowedModels(), t.createdAt());
+        });
     }
 
     @Override

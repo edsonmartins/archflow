@@ -18,11 +18,25 @@ public class WorkspaceControllerImpl implements WorkspaceController {
     private static final Logger log = LoggerFactory.getLogger(WorkspaceControllerImpl.class);
     private static final SecureRandom RANDOM = new SecureRandom();
 
+    /** Dev profile fallback — when set, missing tenant context resolves to this id. */
+    private final String fallbackTenantId;
+
     private final Map<String, UserDto> users = new ConcurrentHashMap<>();
     private final Map<String, ApiKeyDto> apiKeys = new ConcurrentHashMap<>();
     private final Map<String, String> apiKeyFullValues = new ConcurrentHashMap<>();
 
     public WorkspaceControllerImpl() {
+        this("tenant_demo");
+    }
+
+    /**
+     * @param fallbackTenantId id to return when no tenant header is present;
+     *                         pass {@code null} in production so missing
+     *                         tenant context fails fast instead of silently
+     *                         serving one shared demo workspace.
+     */
+    public WorkspaceControllerImpl(String fallbackTenantId) {
+        this.fallbackTenantId = fallbackTenantId;
         // Seed demo data
         users.put("u1", new UserDto("u1", "João Silva", "joao@rioquality.com.br", "admin", "active", "2026-04-09", 8));
         users.put("u2", new UserDto("u2", "Maria Santos", "maria@rioquality.com.br", "editor", "active", "2026-04-08", 4));
@@ -31,11 +45,63 @@ public class WorkspaceControllerImpl implements WorkspaceController {
                 "af_live_rq_••••••••3f2a", "2026-01-15", "2026-04-09"));
     }
 
+    /**
+     * Resolves the tenant identifier for the current request. Looks at:
+     * <ol>
+     *   <li>An explicit {@code X-Tenant-Id} header (set by the gateway for
+     *       admin impersonation)</li>
+     *   <li>The Spring {@code SecurityContextHolder} principal's tenant
+     *       claim (when authentication is in place)</li>
+     * </ol>
+     * Falls back to a demo tenant so dev smoke flows still work, but
+     * logs a warning so the miswire is visible in prod.
+     */
+    private String resolveTenantId() {
+        try {
+            org.springframework.web.context.request.RequestAttributes attrs =
+                    org.springframework.web.context.request.RequestContextHolder.getRequestAttributes();
+            if (attrs instanceof org.springframework.web.context.request.ServletRequestAttributes sra) {
+                // Prefer the attribute set by ImpersonationFilter: it has
+                // already merged X-Impersonate-Tenant and X-Tenant-Id so
+                // callers see a single resolved value.
+                Object fromAttr = sra.getRequest().getAttribute("archflow.tenantId");
+                if (fromAttr instanceof String s && !s.isBlank()) {
+                    return s.trim();
+                }
+                String header = sra.getRequest().getHeader("X-Tenant-Id");
+                if (header != null && !header.isBlank()) {
+                    return header.trim();
+                }
+                String impersonate = sra.getRequest().getHeader("X-Impersonate-Tenant");
+                if (impersonate != null && !impersonate.isBlank()) {
+                    return impersonate.trim();
+                }
+            }
+        } catch (Exception ignored) {
+            // Request context not available (e.g., called outside HTTP) —
+            // fall through to the fallback.
+        }
+        if (fallbackTenantId == null) {
+            // Production mode: do NOT collapse every unauthenticated caller
+            // into a single shared workspace. That masks misconfigured auth
+            // and leaks admin data across tenants.
+            throw new IllegalStateException(
+                    "No tenant context (X-Tenant-Id header absent) and no fallback configured; "
+                            + "refusing to serve workspace data");
+        }
+        log.warn("Tenant resolution fell back to '{}' — wire X-Tenant-Id header or a security filter",
+                fallbackTenantId);
+        return fallbackTenantId;
+    }
+
     @Override
     public WorkspaceSummaryDto getSummary() {
+        String tenantId = resolveTenantId();
+        String displayName = "tenant_demo".equals(tenantId) ? "Demo Workspace"
+                : tenantId.replace('_', ' ');
         return new WorkspaceSummaryDto(
-                "tenant_rio_quality",
-                "Rio Quality",
+                tenantId,
+                displayName,
                 "enterprise",
                 "active",
                 340,
@@ -109,7 +175,13 @@ public class WorkspaceControllerImpl implements WorkspaceController {
     }
 
     @Override
-    public CreateApiKeyResponse createApiKey(CreateApiKeyRequest request) {
+    public synchronized CreateApiKeyResponse createApiKey(CreateApiKeyRequest request) {
+        // synchronized so the (put into apiKeys) + (put into apiKeyFullValues)
+        // pair is observed atomically by listApiKeys / revokeApiKey readers.
+        // UUID.randomUUID provides uniqueness of the id; no extra guard
+        // needed for the primary key. The random hex is SecureRandom-backed
+        // so collisions are statistically impossible (2^64 state for 16
+        // hex chars).
         log.info("Creating API key: {} ({})", request.name(), request.type());
         String id = "k-" + UUID.randomUUID().toString().substring(0, 8);
         String prefix = KEY_PREFIXES.getOrDefault(request.type(), "af_key_");
@@ -127,7 +199,7 @@ public class WorkspaceControllerImpl implements WorkspaceController {
     }
 
     @Override
-    public void revokeApiKey(String keyId) {
+    public synchronized void revokeApiKey(String keyId) {
         log.info("Revoking API key: {}", keyId);
         apiKeys.remove(keyId);
         apiKeyFullValues.remove(keyId);

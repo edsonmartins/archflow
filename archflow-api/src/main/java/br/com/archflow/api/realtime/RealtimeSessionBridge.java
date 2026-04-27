@@ -35,7 +35,14 @@ public class RealtimeSessionBridge implements AutoCloseable {
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private final RealtimeSession session;
-    private volatile Consumer<String> outboundSink = frame -> {};
+    /**
+     * Holds the outbound sink lambda. Using an
+     * {@link java.util.concurrent.atomic.AtomicReference} instead of a
+     * plain volatile lets us swap it atomically and compare against the
+     * previous value if we ever need to detect double-registrations.
+     */
+    private final java.util.concurrent.atomic.AtomicReference<Consumer<String>> outboundSink =
+            new java.util.concurrent.atomic.AtomicReference<>(frame -> {});
 
     public RealtimeSessionBridge(RealtimeSession session) {
         this.session = session;
@@ -53,7 +60,7 @@ public class RealtimeSessionBridge implements AutoCloseable {
      * framework WebSocket session.
      */
     public void outbound(Consumer<String> sink) {
-        this.outboundSink = sink != null ? sink : frame -> {};
+        this.outboundSink.set(sink != null ? sink : frame -> {});
     }
 
     /**
@@ -116,7 +123,7 @@ public class RealtimeSessionBridge implements AutoCloseable {
             Map<String, Object> envelope = Map.of(
                     "type", message.type(),
                     "data", message.data());
-            outboundSink.accept(MAPPER.writeValueAsString(envelope));
+            outboundSink.get().accept(MAPPER.writeValueAsString(envelope));
         } catch (Exception e) {
             log.warn("failed to serialize outbound {}: {}", message.type(), e.getMessage());
         }

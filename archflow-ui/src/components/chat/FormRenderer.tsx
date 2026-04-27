@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
     Stack, Text, TextInput, NumberInput, Select, Checkbox, Textarea,
     PasswordInput, FileInput, Button, Group,
@@ -13,6 +14,7 @@ interface FormRendererProps {
 }
 
 export default function FormRenderer({ formData, onSubmit, onCancel, loading }: FormRendererProps) {
+    const { t } = useTranslation();
     const [values, setValues] = useState<Record<string, unknown>>(() => {
         const initial: Record<string, unknown> = {};
         for (const field of formData.fields) {
@@ -45,7 +47,7 @@ export default function FormRenderer({ formData, onSubmit, onCancel, loading }: 
             if (field.required) {
                 const val = values[field.id];
                 if (val === undefined || val === null || val === '') {
-                    newErrors[field.id] = `${field.label} is required`;
+                    newErrors[field.id] = t('chat.form.required', { label: field.label });
                 }
             }
         }
@@ -54,6 +56,7 @@ export default function FormRenderer({ formData, onSubmit, onCancel, loading }: 
             return;
         }
         onSubmit(values);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [formData.fields, values, onSubmit]);
 
     return (
@@ -78,11 +81,11 @@ export default function FormRenderer({ formData, onSubmit, onCancel, loading }: 
             <Group justify="flex-end" mt="xs">
                 {onCancel && (
                     <Button variant="default" size="xs" onClick={onCancel} disabled={loading}>
-                        {formData.cancelLabel || 'Cancel'}
+                        {formData.cancelLabel || t('chat.form.cancel')}
                     </Button>
                 )}
                 <Button size="xs" onClick={handleSubmit} loading={loading}>
-                    {formData.submitLabel || 'Submit'}
+                    {formData.submitLabel || t('chat.form.submit')}
                 </Button>
             </Group>
         </Stack>

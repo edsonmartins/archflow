@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
     Alert,
     Badge,
@@ -17,6 +18,8 @@ import Sparkline from '../../../components/charts/Sparkline';
 import { observabilityApi, type OverviewDto } from '../../../services/observability-api';
 
 export default function ObservabilityOverview() {
+    const { t, i18n } = useTranslation();
+    const locale = i18n.resolvedLanguage ?? i18n.language;
     const [data, setData] = useState<OverviewDto | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -30,7 +33,7 @@ export default function ObservabilityOverview() {
                 if (!cancelled) setData(d);
             })
             .catch((e) => {
-                if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to load overview');
+                if (!cancelled) setError(e instanceof Error ? e.message : t('admin.observability.loadFailed'));
             })
             .finally(() => {
                 if (!cancelled) setLoading(false);
@@ -38,6 +41,7 @@ export default function ObservabilityOverview() {
         return () => {
             cancelled = true;
         };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     if (loading) {
@@ -62,38 +66,38 @@ export default function ObservabilityOverview() {
         <Stack gap="md">
             <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }} spacing="md">
                 <StatCard
-                    label="Executions today"
-                    value={formatNumber(data.totalExecutionsToday)}
+                    label={t('admin.observability.overview.execToday')}
+                    value={formatNumber(locale, data.totalExecutionsToday)}
                     icon={<IconBolt size={18} />}
                     sparkline={data.latencySparkline}
                 />
                 <StatCard
-                    label="Success rate"
+                    label={t('admin.observability.overview.successRate')}
                     value={`${(data.successRate * 100).toFixed(1)}%`}
                     icon={<IconCheck size={18} />}
-                    hint={`${(data.errorRate * 100).toFixed(1)}% errors`}
+                    hint={t('admin.observability.overview.errorsPct', { pct: (data.errorRate * 100).toFixed(1) })}
                 />
                 <StatCard
-                    label="Avg latency"
+                    label={t('admin.observability.overview.avgLatency')}
                     value={`${Math.round(data.avgLatencyMs)} ms`}
                     icon={<IconClock size={18} />}
-                    hint={`p95 ${Math.round(data.p95LatencyMs)} ms`}
+                    hint={t('admin.observability.overview.p95', { ms: Math.round(data.p95LatencyMs) })}
                 />
                 <StatCard
-                    label="Active streams"
+                    label={t('admin.observability.overview.activeStreams')}
                     value={String(data.activeStreams)}
                     icon={<IconRadar2 size={18} />}
-                    hint={`${formatNumber(data.totalAuditEventsToday)} audit events today`}
+                    hint={t('admin.observability.overview.auditEventsToday', { count: formatNumber(locale, data.totalAuditEventsToday) })}
                 />
             </SimpleGrid>
 
             <Paper withBorder radius="md" p="md">
                 <Title order={5} mb="xs">
-                    Top personas (last 24h)
+                    {t('admin.observability.overview.topPersonas')}
                 </Title>
                 {data.topPersonas.length === 0 ? (
                     <Text size="sm" c="dimmed">
-                        No persona activity yet.
+                        {t('admin.observability.overview.noPersonas')}
                     </Text>
                 ) : (
                     <Stack gap={6}>
@@ -104,7 +108,7 @@ export default function ObservabilityOverview() {
                                         {p.personaId}
                                     </Badge>
                                     <Text size="sm" c="dimmed">
-                                        {p.executionCount} execution{p.executionCount === 1 ? '' : 's'}
+                                        {t('admin.observability.overview.exec', { count: p.executionCount })}
                                     </Text>
                                 </Group>
                                 <Badge
@@ -112,7 +116,7 @@ export default function ObservabilityOverview() {
                                     variant="light"
                                     color={p.successRate >= 0.9 ? 'teal' : p.successRate >= 0.7 ? 'yellow' : 'red'}
                                 >
-                                    {(p.successRate * 100).toFixed(1)}% ok
+                                    {t('admin.observability.overview.okPct', { pct: (p.successRate * 100).toFixed(1) })}
                                 </Badge>
                             </Group>
                         ))}
@@ -161,6 +165,6 @@ function StatCard({
     );
 }
 
-function formatNumber(n: number): string {
-    return new Intl.NumberFormat('en-US').format(n);
+function formatNumber(locale: string, n: number): string {
+    return new Intl.NumberFormat(locale).format(n);
 }

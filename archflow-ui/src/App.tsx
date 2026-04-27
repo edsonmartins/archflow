@@ -21,6 +21,19 @@ import TemplateDetailPage from './pages/TemplateDetailPage';
 import VoicePlaygroundPage from './pages/VoicePlaygroundPage';
 import ApprovalQueuePage from './pages/ApprovalQueuePage';
 import ApprovalDetailPage from './pages/ApprovalDetailPage';
+import MarketplacePage from './pages/MarketplacePage';
+import MarketplaceDetailPage from './pages/MarketplaceDetailPage';
+import SkillsPage from './pages/SkillsPage';
+import McpServersPage from './pages/McpServersPage';
+import McpServerDetailPage from './pages/McpServerDetailPage';
+import BrainSentryConfigPage from './pages/BrainSentryConfigPage';
+import LinktorConfigPage from './pages/LinktorConfigPage';
+import LinktorInboxPage from './pages/LinktorInboxPage';
+import LinktorConversationPage from './pages/LinktorConversationPage';
+import ScheduledTriggersPage from './pages/ScheduledTriggersPage';
+import ExecutionDetailPage from './pages/ExecutionDetailPage';
+import AgentPlaygroundPage from './pages/AgentPlaygroundPage';
+import ScopedApiKeysPage from './pages/admin/tenant/ScopedApiKeysPage';
 
 // Admin pages — lazy loaded
 const AdminLayout       = lazy(() => import('./components/admin/AdminLayout'));
@@ -74,6 +87,10 @@ function App() {
                             <Route path="/playground/voice" element={<VoicePlaygroundPage />} />
                             <Route path="/approvals" element={<ApprovalQueuePage />} />
                             <Route path="/approvals/:id" element={<ApprovalDetailPage />} />
+                            <Route path="/marketplace" element={<MarketplacePage />} />
+                            <Route path="/marketplace/:id" element={<MarketplaceDetailPage />} />
+                            <Route path="/executions/:id" element={<ExecutionDetailPage />} />
+                            <Route path="/playground/agent" element={<AgentPlaygroundPage />} />
                         </Route>
 
                         {/* Admin routes */}
@@ -91,6 +108,15 @@ function App() {
                             <Route path="workspace" element={<WorkspaceOverview />} />
                             <Route path="workspace/users" element={<UserManagement />} />
                             <Route path="workspace/keys" element={<ApiKeys />} />
+                            <Route path="workspace/api-keys" element={<ScopedApiKeysPage />} />
+                            <Route path="skills" element={<SkillsPage />} />
+                            <Route path="mcp" element={<McpServersPage />} />
+                            <Route path="mcp/:name" element={<McpServerDetailPage />} />
+                            <Route path="brainsentry" element={<BrainSentryConfigPage />} />
+                            <Route path="linktor" element={<LinktorConfigPage />} />
+                            <Route path="linktor/inbox" element={<LinktorInboxPage />} />
+                            <Route path="linktor/inbox/:id" element={<LinktorConversationPage />} />
+                            <Route path="triggers" element={<ScheduledTriggersPage />} />
 
                             {/* Observability */}
                             <Route path="observability" element={<ObservabilityLayout />}>

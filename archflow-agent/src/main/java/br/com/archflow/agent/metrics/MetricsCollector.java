@@ -19,6 +19,15 @@ import java.time.Instant;
 public class MetricsCollector implements Closeable {
     private static final Logger logger = Logger.getLogger(MetricsCollector.class.getName());
 
+    /**
+     * Hard cap on how long an entry can sit in {@link #activeFlows} before
+     * the stale-entry sweeper evicts it. Flows that neither complete nor
+     * fail (crash, interrupted executor, missed callback) otherwise
+     * accumulate indefinitely.
+     */
+    private static final long STALE_FLOW_TTL_MS = TimeUnit.HOURS.toMillis(2);
+    private static final long STALE_FLOW_SWEEP_INTERVAL_S = 300; // every 5 min
+
     private final AgentConfig config;
     private final ScheduledExecutorService scheduler;
     private final Map<String, FlowMetricsContext> activeFlows;
@@ -38,6 +47,7 @@ public class MetricsCollector implements Closeable {
         if (config.monitoringConfig().metricsEnabled()) {
             startPeriodicCollection();
         }
+        startStaleFlowSweeper();
     }
 
     /**
@@ -157,5 +167,32 @@ public class MetricsCollector implements Closeable {
                 logger.warning("Erro coletando métricas: " + e.getMessage());
             }
         }, interval, interval, TimeUnit.SECONDS);
+    }
+
+    /**
+     * Removes {@link FlowMetricsContext} entries older than
+     * {@link #STALE_FLOW_TTL_MS}. Protects against memory leaks when a
+     * flow crashes before {@code recordFlowCompletion} is called, since
+     * the {@code activeFlows} map would otherwise grow without bound.
+     */
+    private void startStaleFlowSweeper() {
+        scheduler.scheduleAtFixedRate(() -> {
+            try {
+                int removed = 0;
+                for (Map.Entry<String, FlowMetricsContext> e : activeFlows.entrySet()) {
+                    if (e.getValue().getDurationMillis() > STALE_FLOW_TTL_MS) {
+                        if (activeFlows.remove(e.getKey(), e.getValue())) {
+                            removed++;
+                        }
+                    }
+                }
+                if (removed > 0) {
+                    logger.info("Evicted " + removed + " stale active-flow metrics contexts");
+                    registry.incrementCounter("flows_abandoned_evicted");
+                }
+            } catch (Exception ex) {
+                logger.warning("Stale flow sweeper failed: " + ex.getMessage());
+            }
+        }, STALE_FLOW_SWEEP_INTERVAL_S, STALE_FLOW_SWEEP_INTERVAL_S, TimeUnit.SECONDS);
     }
 }

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
     Alert,
     Badge,
@@ -21,6 +22,8 @@ import {
 const PAGE_SIZE = 50;
 
 export default function AuditLogPage() {
+    const { t, i18n } = useTranslation();
+    const locale = i18n.resolvedLanguage ?? i18n.language;
     const [entries, setEntries] = useState<AuditEntryDto[]>([]);
     const [total, setTotal] = useState(0);
     const [page, setPage] = useState(0);
@@ -48,15 +51,16 @@ export default function AuditLogPage() {
                 setEntries(res.items);
                 setTotal(res.total);
             })
-            .catch((e) => setError(e instanceof Error ? e.message : 'Failed to load audit log'))
+            .catch((e) => setError(e instanceof Error ? e.message : t('admin.observability.audit.loadFailed')))
             .finally(() => setLoading(false));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [filter]);
 
     return (
         <Stack gap="sm">
             <Group gap="sm" wrap="wrap" align="flex-end">
                 <TextInput
-                    placeholder="Filter by actor (user id or username)..."
+                    placeholder={t('admin.observability.audit.filterActor')}
                     leftSection={<IconSearch size={14} />}
                     value={actor}
                     onChange={(e) => {
@@ -67,7 +71,7 @@ export default function AuditLogPage() {
                     data-testid="audit-actor"
                 />
                 <TextInput
-                    placeholder="Action (e.g. WORKFLOW_EXECUTE)"
+                    placeholder={t('admin.observability.audit.filterAction')}
                     value={action}
                     onChange={(e) => {
                         setPage(0);
@@ -84,7 +88,7 @@ export default function AuditLogPage() {
                     download="audit-log.csv"
                     data-testid="audit-export"
                 >
-                    Export CSV
+                    {t('admin.observability.audit.exportCsv')}
                 </Button>
             </Group>
 
@@ -98,18 +102,18 @@ export default function AuditLogPage() {
                 <LoadingOverlay visible={loading} zIndex={5} />
                 {entries.length === 0 && !loading ? (
                     <Text size="sm" c="dimmed" ta="center" p="md">
-                        No audit entries yet.
+                        {t('admin.observability.audit.empty')}
                     </Text>
                 ) : (
                     <Table striped highlightOnHover>
                         <Table.Thead>
                             <Table.Tr>
-                                <Table.Th>When</Table.Th>
-                                <Table.Th>Actor</Table.Th>
-                                <Table.Th>Action</Table.Th>
-                                <Table.Th>Resource</Table.Th>
-                                <Table.Th>Result</Table.Th>
-                                <Table.Th>Trace</Table.Th>
+                                <Table.Th>{t('admin.observability.audit.cols.when')}</Table.Th>
+                                <Table.Th>{t('admin.observability.audit.cols.actor')}</Table.Th>
+                                <Table.Th>{t('admin.observability.audit.cols.action')}</Table.Th>
+                                <Table.Th>{t('admin.observability.audit.cols.resource')}</Table.Th>
+                                <Table.Th>{t('admin.observability.audit.cols.result')}</Table.Th>
+                                <Table.Th>{t('admin.observability.audit.cols.trace')}</Table.Th>
                             </Table.Tr>
                         </Table.Thead>
                         <Table.Tbody>
@@ -117,7 +121,7 @@ export default function AuditLogPage() {
                                 <Table.Tr key={e.id}>
                                     <Table.Td>
                                         <Text size="xs" c="dimmed">
-                                            {formatTime(e.timestamp)}
+                                            {formatTime(e.timestamp, locale)}
                                         </Text>
                                     </Table.Td>
                                     <Table.Td>
@@ -139,7 +143,7 @@ export default function AuditLogPage() {
                                     </Table.Td>
                                     <Table.Td>
                                         <Badge size="xs" variant="light" color={e.success ? 'teal' : 'red'}>
-                                            {e.success ? 'success' : 'failed'}
+                                            {e.success ? t('admin.observability.audit.resultSuccess') : t('admin.observability.audit.resultFailed')}
                                         </Badge>
                                     </Table.Td>
                                     <Table.Td>
@@ -160,8 +164,11 @@ export default function AuditLogPage() {
 
             <Group justify="space-between">
                 <Text size="xs" c="dimmed">
-                    Showing {total === 0 ? 0 : page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, total)} of{' '}
-                    {total}
+                    {t('admin.observability.audit.showing', {
+                        from: total === 0 ? 0 : page * PAGE_SIZE + 1,
+                        to: Math.min((page + 1) * PAGE_SIZE, total),
+                        total,
+                    })}
                 </Text>
                 <Group gap="xs">
                     <Button
@@ -170,7 +177,7 @@ export default function AuditLogPage() {
                         disabled={page === 0}
                         onClick={() => setPage((p) => Math.max(0, p - 1))}
                     >
-                        Previous
+                        {t('admin.observability.audit.previous')}
                     </Button>
                     <Button
                         variant="default"
@@ -178,7 +185,7 @@ export default function AuditLogPage() {
                         disabled={(page + 1) * PAGE_SIZE >= total}
                         onClick={() => setPage((p) => p + 1)}
                     >
-                        Next
+                        {t('admin.observability.audit.next')}
                     </Button>
                 </Group>
             </Group>
@@ -186,9 +193,9 @@ export default function AuditLogPage() {
     );
 }
 
-function formatTime(iso: string): string {
+function formatTime(iso: string, locale: string): string {
     try {
-        return new Date(iso).toLocaleString();
+        return new Date(iso).toLocaleString(locale);
     } catch {
         return iso;
     }

@@ -54,6 +54,14 @@ public class OpenAiRealtimeSession implements RealtimeSession {
     private volatile Consumer<RealtimeMessage> messageListener = m -> {};
     private volatile Consumer<RealtimeSessionStatus> statusListener = s -> {};
     private volatile boolean closed = false;
+    /**
+     * Optional hook invoked exactly once when the session closes (either
+     * via {@link #close()} or via remote peer closing the transport).
+     * Used by the adapter to deregister the session from its tracking
+     * set so long-lived servers do not leak closed-but-still-referenced
+     * sessions.
+     */
+    private volatile Runnable closeHook;
 
     public OpenAiRealtimeSession(
             String tenantId,
@@ -78,8 +86,26 @@ public class OpenAiRealtimeSession implements RealtimeSession {
             if (!closed) {
                 closed = true;
                 statusListener.accept(RealtimeSessionStatus.CLOSED);
+                fireCloseHook();
             }
         });
+    }
+
+    /** Register a one-shot hook invoked when this session closes. */
+    public void setCloseHook(Runnable hook) {
+        this.closeHook = hook;
+    }
+
+    private void fireCloseHook() {
+        Runnable h = this.closeHook;
+        this.closeHook = null;
+        if (h != null) {
+            try {
+                h.run();
+            } catch (Exception e) {
+                log.warn("[{}] closeHook failed: {}", sessionId, e.getMessage());
+            }
+        }
     }
 
     /**
@@ -161,6 +187,7 @@ public class OpenAiRealtimeSession implements RealtimeSession {
         } catch (Exception ignored) {
         }
         statusListener.accept(RealtimeSessionStatus.CLOSED);
+        fireCloseHook();
     }
 
     // ── Inbound handling ──────────────────────────────────────────

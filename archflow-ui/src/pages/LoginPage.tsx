@@ -4,6 +4,7 @@ import {
 import { IconLock, IconAlertCircle, IconInfoCircle } from '@tabler/icons-react';
 import { useState, FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '../stores/auth-store';
 
 function ArchflowLogo() {
@@ -21,6 +22,7 @@ function ArchflowLogo() {
 
 export default function LoginPage() {
     const navigate = useNavigate();
+    const { t } = useTranslation();
     const { login, loading, error, clearError } = useAuthStore();
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
@@ -40,8 +42,8 @@ export default function LoginPage() {
             <Box w={400}>
                 <Stack align="center" mb="xl" gap="xs">
                     <ArchflowLogo />
-                    <Text fw={700} size="xl" mt="xs">Archflow</Text>
-                    <Text c="dimmed" size="sm">Agent orchestration platform</Text>
+                    <Text fw={700} size="xl" mt="xs">{t('common.appName')}</Text>
+                    <Text c="dimmed" size="sm">{t('login.tagline')}</Text>
                 </Stack>
 
                 <Paper withBorder shadow="md" p="xl" radius="lg">
@@ -59,8 +61,8 @@ export default function LoginPage() {
                             )}
 
                             <TextInput
-                                label="Username"
-                                placeholder="your-username"
+                                label={t('login.username')}
+                                placeholder={t('login.usernamePlaceholder')}
                                 required
                                 value={username}
                                 onChange={(e) => setUsername(e.currentTarget.value)}
@@ -68,8 +70,8 @@ export default function LoginPage() {
                             />
 
                             <PasswordInput
-                                label="Password"
-                                placeholder="your-password"
+                                label={t('login.password')}
+                                placeholder={t('login.passwordPlaceholder')}
                                 required
                                 value={password}
                                 onChange={(e) => setPassword(e.currentTarget.value)}
@@ -81,7 +83,7 @@ export default function LoginPage() {
                                 loading={loading}
                                 leftSection={<IconLock size={16} />}
                             >
-                                Sign in
+                                {t('login.signIn')}
                             </Button>
                         </Stack>
                     </form>
@@ -93,10 +95,10 @@ export default function LoginPage() {
                     variant="light"
                     mt="md"
                     radius="lg"
-                    title="Dev credentials"
+                    title={t('login.devCredentials')}
                 >
                     <Text size="sm">
-                        Username: <Code>admin</Code> &nbsp; Password: <Code>admin123</Code>
+                        {t('login.username')}: <Code>admin</Code> &nbsp; {t('login.password')}: <Code>admin123</Code>
                     </Text>
                 </Alert>
             </Box>

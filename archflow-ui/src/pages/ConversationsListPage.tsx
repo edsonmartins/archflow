@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import {
     Alert,
     Badge,
@@ -22,16 +23,8 @@ import {
     type ConversationStatus,
 } from '../services/conversation-api';
 
-const STATUS_OPTIONS: { value: ConversationListParams['status']; label: string }[] = [
-    { value: 'ALL', label: 'All' },
-    { value: 'ACTIVE', label: 'Active' },
-    { value: 'AWAITING_HUMAN', label: 'Awaiting human' },
-    { value: 'SUSPENDED', label: 'Suspended' },
-    { value: 'ESCALATED', label: 'Escalated' },
-    { value: 'CLOSED', label: 'Closed' },
-    { value: 'COMPLETED', label: 'Completed' },
-    { value: 'CANCELLED', label: 'Cancelled' },
-];
+const STATUS_VALUES: ConversationListParams['status'][] =
+    ['ALL', 'ACTIVE', 'AWAITING_HUMAN', 'SUSPENDED', 'ESCALATED', 'CLOSED', 'COMPLETED', 'CANCELLED'];
 
 const STATUS_COLOR: Record<ConversationStatus, string> = {
     ACTIVE: 'teal',
@@ -45,6 +38,7 @@ const STATUS_COLOR: Record<ConversationStatus, string> = {
 
 export default function ConversationsListPage() {
     const navigate = useNavigate();
+    const { t, i18n } = useTranslation();
     const [conversations, setConversations] = useState<Conversation[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -65,14 +59,14 @@ export default function ConversationsListPage() {
             } catch (err) {
                 console.error(err);
                 setError(
-                    err instanceof Error ? err.message : 'Failed to load conversations',
+                    err instanceof Error ? err.message : t('conversations.loadError'),
                 );
                 setConversations([]);
             } finally {
                 setLoading(false);
             }
         },
-        [search, status],
+        [search, status, t],
     );
 
     useEffect(() => {
@@ -82,28 +76,28 @@ export default function ConversationsListPage() {
     return (
         <Stack p="md" gap="md">
             <Group justify="space-between">
-                <Title order={2}>Conversations</Title>
+                <Title order={2}>{t('conversations.title')}</Title>
                 <Button
                     leftSection={<IconRefresh size={16} />}
                     variant="subtle"
                     size="sm"
                     onClick={() => load()}
                 >
-                    Refresh
+                    {t('common.refresh')}
                 </Button>
             </Group>
 
             <Group gap="sm" wrap="wrap">
                 <TextInput
-                    placeholder="Search by user, conversation id..."
+                    placeholder={t('conversations.search')}
                     leftSection={<IconSearch size={14} />}
                     value={search}
                     onChange={(e) => setSearch(e.currentTarget.value)}
                     style={{ flex: 1, minWidth: 240 }}
                 />
                 <Select
-                    placeholder="Status"
-                    data={STATUS_OPTIONS.map((o) => ({ value: String(o.value), label: o.label }))}
+                    placeholder={t('conversations.status')}
+                    data={STATUS_VALUES.map((v) => ({ value: String(v), label: t(`conversations.statuses.${v}`) }))}
                     value={String(status)}
                     onChange={(v) => setStatus((v as ConversationListParams['status']) ?? 'ALL')}
                     w={180}
@@ -120,19 +114,19 @@ export default function ConversationsListPage() {
                 <LoadingOverlay visible={loading} zIndex={10} />
                 {conversations.length === 0 && !loading ? (
                     <Text size="sm" c="dimmed" ta="center" p="md">
-                        No conversations found.
+                        {t('conversations.empty')}
                     </Text>
                 ) : (
                     <Table highlightOnHover striped>
                         <Table.Thead>
                             <Table.Tr>
-                                <Table.Th>ID</Table.Th>
-                                <Table.Th>User</Table.Th>
-                                <Table.Th>Channel</Table.Th>
-                                <Table.Th>Persona</Table.Th>
-                                <Table.Th>Status</Table.Th>
-                                <Table.Th>Updated</Table.Th>
-                                <Table.Th>Messages</Table.Th>
+                                <Table.Th>{t('conversations.table.id')}</Table.Th>
+                                <Table.Th>{t('conversations.table.user')}</Table.Th>
+                                <Table.Th>{t('conversations.table.channel')}</Table.Th>
+                                <Table.Th>{t('conversations.table.persona')}</Table.Th>
+                                <Table.Th>{t('conversations.table.status')}</Table.Th>
+                                <Table.Th>{t('conversations.table.updated')}</Table.Th>
+                                <Table.Th>{t('conversations.table.messages')}</Table.Th>
                             </Table.Tr>
                         </Table.Thead>
                         <Table.Tbody>
@@ -164,10 +158,10 @@ export default function ConversationsListPage() {
                                             variant="light"
                                             color={STATUS_COLOR[c.status] ?? 'gray'}
                                         >
-                                            {c.status}
+                                            {t(`conversations.statuses.${c.status}`, { defaultValue: c.status })}
                                         </Badge>
                                     </Table.Td>
-                                    <Table.Td>{formatRelative(c.updatedAt)}</Table.Td>
+                                    <Table.Td>{formatRelative(c.updatedAt, t, i18n.resolvedLanguage ?? i18n.language)}</Table.Td>
                                     <Table.Td>{c.messageCount ?? '—'}</Table.Td>
                                 </Table.Tr>
                             ))}
@@ -179,19 +173,21 @@ export default function ConversationsListPage() {
     );
 }
 
-function formatRelative(iso: string): string {
+type TFn = (key: string, opts?: Record<string, unknown>) => string;
+
+function formatRelative(iso: string, t: TFn, locale: string): string {
     try {
         const d = new Date(iso);
         const diffMs = Date.now() - d.getTime();
         const diffSec = Math.floor(diffMs / 1000);
-        if (diffSec < 60) return `${diffSec}s ago`;
+        if (diffSec < 60) return t('conversations.time.seconds', { n: diffSec });
         const diffMin = Math.floor(diffSec / 60);
-        if (diffMin < 60) return `${diffMin}m ago`;
+        if (diffMin < 60) return t('conversations.time.minutes', { n: diffMin });
         const diffH = Math.floor(diffMin / 60);
-        if (diffH < 24) return `${diffH}h ago`;
+        if (diffH < 24) return t('conversations.time.hours', { n: diffH });
         const diffD = Math.floor(diffH / 24);
-        if (diffD < 7) return `${diffD}d ago`;
-        return d.toLocaleDateString();
+        if (diffD < 7) return t('conversations.time.days', { n: diffD });
+        return d.toLocaleDateString(locale);
     } catch {
         return iso;
     }

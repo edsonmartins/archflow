@@ -1,12 +1,15 @@
 import { Title, Table, Badge, Text, Paper, Stack, Switch, Group, Divider, LoadingOverlay, Alert } from '@mantine/core'
 import { IconAlertCircle } from '@tabler/icons-react'
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { notifications } from '@mantine/notifications'
 import { globalConfigApi, type GlobalFeatureToggles, type LLMModel, type PlanDefaults } from '../../../services/admin-api'
 
 const STATUS_COLORS: Record<string, string> = { active: 'green', beta: 'orange', deprecated: 'gray' }
 
 export default function GlobalConfig() {
+  const { t, i18n } = useTranslation()
+  const locale = i18n.resolvedLanguage ?? i18n.language
   const [models, setModels] = useState<LLMModel[]>([])
   const [plans, setPlans] = useState<PlanDefaults[]>([])
   const [toggles, setToggles] = useState<GlobalFeatureToggles | null>(null)
@@ -30,7 +33,7 @@ export default function GlobalConfig() {
         setToggles(togglesDto)
       })
       .catch((e) => {
-        if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to load configuration')
+        if (!cancelled) setError(e instanceof Error ? e.message : t('admin.superadmin.globalConfig.loadFailed'))
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
@@ -39,6 +42,7 @@ export default function GlobalConfig() {
     return () => {
       cancelled = true
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const updateToggle = async (key: keyof GlobalFeatureToggles) => {
@@ -49,7 +53,7 @@ export default function GlobalConfig() {
       await globalConfigApi.updateToggles(next)
     } catch (e) {
       setToggles(toggles)
-      setError(e instanceof Error ? e.message : 'Failed to update toggles')
+      setError(e instanceof Error ? e.message : t('admin.superadmin.globalConfig.updateTogglesFailed'))
     }
   }
 
@@ -58,17 +62,17 @@ export default function GlobalConfig() {
     setModels(models.map((entry) => entry.id === model.id ? { ...entry, status: active ? 'active' : 'deprecated' } : entry))
     try {
       await globalConfigApi.toggleModel(model.id, active)
-      notifications.show({ title: 'Model updated', message: model.name, color: 'teal' })
+      notifications.show({ title: t('admin.superadmin.globalConfig.modelUpdated'), message: model.name, color: 'teal' })
     } catch (e) {
       setModels(previous)
-      setError(e instanceof Error ? e.message : 'Failed to update model')
+      setError(e instanceof Error ? e.message : t('admin.superadmin.globalConfig.updateModelFailed'))
     }
   }
 
   return (
     <Stack gap="md" pos="relative">
       <LoadingOverlay visible={loading} />
-      <Title order={3}>Global Configuration</Title>
+      <Title order={3}>{t('admin.superadmin.globalConfig.title')}</Title>
 
       {error && (
         <Alert color="red" icon={<IconAlertCircle size={16} />}>
@@ -77,16 +81,16 @@ export default function GlobalConfig() {
       )}
 
       <Paper withBorder p="lg" radius="lg">
-        <Text fw={600} size="sm" mb="md">LLM Models</Text>
+        <Text fw={600} size="sm" mb="md">{t('admin.superadmin.globalConfig.models')}</Text>
         <Table striped highlightOnHover>
           <Table.Thead>
             <Table.Tr>
-              <Table.Th>Model</Table.Th>
-              <Table.Th>Provider</Table.Th>
-              <Table.Th>Status</Table.Th>
-              <Table.Th>Cost/1M input</Table.Th>
-              <Table.Th>Cost/1M output</Table.Th>
-              <Table.Th>Enabled</Table.Th>
+              <Table.Th>{t('admin.superadmin.globalConfig.modelCols.model')}</Table.Th>
+              <Table.Th>{t('admin.superadmin.globalConfig.modelCols.provider')}</Table.Th>
+              <Table.Th>{t('admin.superadmin.globalConfig.modelCols.status')}</Table.Th>
+              <Table.Th>{t('admin.superadmin.globalConfig.modelCols.inputCost')}</Table.Th>
+              <Table.Th>{t('admin.superadmin.globalConfig.modelCols.outputCost')}</Table.Th>
+              <Table.Th>{t('admin.superadmin.globalConfig.modelCols.enabled')}</Table.Th>
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
@@ -111,15 +115,15 @@ export default function GlobalConfig() {
       </Paper>
 
       <Paper withBorder p="lg" radius="lg">
-        <Text fw={600} size="sm" mb="md">Plan Defaults</Text>
+        <Text fw={600} size="sm" mb="md">{t('admin.superadmin.globalConfig.plans')}</Text>
         <Table striped highlightOnHover>
           <Table.Thead>
             <Table.Tr>
-              <Table.Th>Plan</Table.Th>
-              <Table.Th>Executions/day</Table.Th>
-              <Table.Th>Tokens/month</Table.Th>
-              <Table.Th>Max workflows</Table.Th>
-              <Table.Th>Max users</Table.Th>
+              <Table.Th>{t('admin.superadmin.globalConfig.planCols.plan')}</Table.Th>
+              <Table.Th>{t('admin.superadmin.globalConfig.planCols.execPerDay')}</Table.Th>
+              <Table.Th>{t('admin.superadmin.globalConfig.planCols.tokensPerMonth')}</Table.Th>
+              <Table.Th>{t('admin.superadmin.globalConfig.planCols.maxWorkflows')}</Table.Th>
+              <Table.Th>{t('admin.superadmin.globalConfig.planCols.maxUsers')}</Table.Th>
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
@@ -127,7 +131,7 @@ export default function GlobalConfig() {
               <Table.Tr key={plan.plan}>
                 <Table.Td><Badge variant="light">{plan.plan}</Badge></Table.Td>
                 <Table.Td>{plan.executionsPerDay}</Table.Td>
-                <Table.Td>{plan.tokensPerMonth.toLocaleString()}</Table.Td>
+                <Table.Td>{plan.tokensPerMonth.toLocaleString(locale)}</Table.Td>
                 <Table.Td>{plan.maxWorkflows}</Table.Td>
                 <Table.Td>{plan.maxUsers}</Table.Td>
               </Table.Tr>
@@ -137,15 +141,15 @@ export default function GlobalConfig() {
       </Paper>
 
       <Paper withBorder p="lg" radius="lg">
-        <Text fw={600} size="sm" mb="md">Feature Toggles</Text>
+        <Text fw={600} size="sm" mb="md">{t('admin.superadmin.globalConfig.toggles')}</Text>
         {toggles && (
           <Stack gap="sm">
-            <Switch label="Allow local models (Ollama / RTX)" checked={toggles.allowLocalModels} onChange={() => updateToggle('allowLocalModels')} />
-            <Switch label="Human-in-the-loop" checked={toggles.humanInTheLoop} onChange={() => updateToggle('humanInTheLoop')} />
-            <Switch label="Brain Sentry (long-term memory via FalkorDB)" checked={toggles.brainSentry} onChange={() => updateToggle('brainSentry')} />
-            <Switch label="Debug mode — full trace per node" checked={toggles.debugMode} onChange={() => updateToggle('debugMode')} />
-            <Switch label="Linktor notifications (WhatsApp)" checked={toggles.linktorNotifications} onChange={() => updateToggle('linktorNotifications')} />
-            <Switch label="Audit log for user actions" checked={toggles.auditLog} onChange={() => updateToggle('auditLog')} />
+            <Switch label={t('admin.superadmin.globalConfig.toggleLabels.allowLocalModels')}     checked={toggles.allowLocalModels}     onChange={() => updateToggle('allowLocalModels')} />
+            <Switch label={t('admin.superadmin.globalConfig.toggleLabels.humanInTheLoop')}       checked={toggles.humanInTheLoop}       onChange={() => updateToggle('humanInTheLoop')} />
+            <Switch label={t('admin.superadmin.globalConfig.toggleLabels.brainSentry')}          checked={toggles.brainSentry}          onChange={() => updateToggle('brainSentry')} />
+            <Switch label={t('admin.superadmin.globalConfig.toggleLabels.debugMode')}            checked={toggles.debugMode}            onChange={() => updateToggle('debugMode')} />
+            <Switch label={t('admin.superadmin.globalConfig.toggleLabels.linktorNotifications')} checked={toggles.linktorNotifications} onChange={() => updateToggle('linktorNotifications')} />
+            <Switch label={t('admin.superadmin.globalConfig.toggleLabels.auditLog')}             checked={toggles.auditLog}             onChange={() => updateToggle('auditLog')} />
           </Stack>
         )}
       </Paper>

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import {
     ActionIcon,
     Alert,
@@ -22,6 +23,7 @@ import { observabilityApi, type TraceDetailDto } from '../../../services/observa
 export default function TraceDetailPage() {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
+    const { t } = useTranslation();
     const [trace, setTrace] = useState<TraceDetailDto | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -36,7 +38,7 @@ export default function TraceDetailPage() {
                 if (!cancelled) setTrace(t);
             })
             .catch((e) => {
-                if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to load trace');
+                if (!cancelled) setError(e instanceof Error ? e.message : t('admin.observability.traceDetail.loadFailed'));
             })
             .finally(() => {
                 if (!cancelled) setLoading(false);
@@ -44,6 +46,7 @@ export default function TraceDetailPage() {
         return () => {
             cancelled = true;
         };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [id]);
 
     if (loading) {
@@ -57,7 +60,7 @@ export default function TraceDetailPage() {
     if (error || !trace) {
         return (
             <Alert color="red" icon={<IconAlertCircle size={16} />}>
-                {error ?? 'Trace not found.'}
+                {error ?? t('admin.observability.traceDetail.notFound')}
             </Alert>
         );
     }
@@ -68,13 +71,13 @@ export default function TraceDetailPage() {
     return (
         <Stack gap="md">
             <Group gap="sm">
-                <Tooltip label="Back to traces">
+                <Tooltip label={t('admin.observability.traceDetail.back')}>
                     <ActionIcon variant="subtle" onClick={() => navigate('/admin/observability/traces')}>
                         <IconArrowLeft size={18} />
                     </ActionIcon>
                 </Tooltip>
                 <Stack gap={0} style={{ flex: 1 }}>
-                    <Title order={3}>Trace {trace.traceId.slice(0, 12)}</Title>
+                    <Title order={3}>{t('admin.observability.traceDetail.title', { id: trace.traceId.slice(0, 12) })}</Title>
                     <Group gap={6}>
                         <Text size="xs" c="dimmed" ff="DM Mono, monospace">
                             {trace.traceId}
@@ -93,11 +96,11 @@ export default function TraceDetailPage() {
 
             <Paper withBorder radius="md" p="md">
                 <Group gap="xl">
-                    <Meta label="Tenant" value={trace.tenantId ?? '—'} />
-                    <Meta label="Flow" value={trace.flowId ?? '—'} />
-                    <Meta label="Execution" value={trace.executionId ?? '—'} />
-                    <Meta label="Duration" value={`${trace.durationMs} ms`} />
-                    <Meta label="Spans" value={String(trace.spans.length)} />
+                    <Meta label={t('admin.observability.traceDetail.meta.tenant')}    value={trace.tenantId ?? '—'} />
+                    <Meta label={t('admin.observability.traceDetail.meta.flow')}      value={trace.flowId ?? '—'} />
+                    <Meta label={t('admin.observability.traceDetail.meta.execution')} value={trace.executionId ?? '—'} />
+                    <Meta label={t('admin.observability.traceDetail.meta.duration')}  value={`${trace.durationMs} ms`} />
+                    <Meta label={t('admin.observability.traceDetail.meta.spans')}     value={String(trace.spans.length)} />
                 </Group>
                 {trace.error && (
                     <Alert mt="xs" color="red" icon={<IconAlertCircle size={14} />} variant="light">
@@ -108,11 +111,11 @@ export default function TraceDetailPage() {
 
             <Paper withBorder radius="md" p="md">
                 <Title order={5} mb="xs">
-                    Span timeline
+                    {t('admin.observability.traceDetail.timeline')}
                 </Title>
                 {trace.spans.length === 0 ? (
                     <Text size="sm" c="dimmed">
-                        No spans captured for this trace.
+                        {t('admin.observability.traceDetail.noSpans')}
                     </Text>
                 ) : (
                     <Stack gap={6}>
@@ -174,15 +177,15 @@ export default function TraceDetailPage() {
 
             <Paper withBorder radius="md" p="md">
                 <Title order={5} mb="xs">
-                    Span attributes
+                    {t('admin.observability.traceDetail.attributes')}
                 </Title>
                 <ScrollArea h={240}>
                     <Table striped>
                         <Table.Thead>
                             <Table.Tr>
-                                <Table.Th>Span</Table.Th>
-                                <Table.Th>Attribute</Table.Th>
-                                <Table.Th>Value</Table.Th>
+                                <Table.Th>{t('admin.observability.traceDetail.attrCols.span')}</Table.Th>
+                                <Table.Th>{t('admin.observability.traceDetail.attrCols.attribute')}</Table.Th>
+                                <Table.Th>{t('admin.observability.traceDetail.attrCols.value')}</Table.Th>
                             </Table.Tr>
                         </Table.Thead>
                         <Table.Tbody>

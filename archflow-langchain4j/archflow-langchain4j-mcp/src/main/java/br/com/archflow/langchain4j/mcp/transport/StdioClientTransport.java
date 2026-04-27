@@ -50,6 +50,13 @@ public class StdioClientTransport implements McpTransport {
     private Consumer<Throwable> errorHandler;
 
     /**
+     * Additional environment variables applied to the subprocess before
+     * it is started. {@code null} keeps the parent process environment
+     * unchanged. Never exposed outside of this class.
+     */
+    private java.util.Map<String, String> extraEnvironment;
+
+    /**
      * Create a new STDIO client transport.
      *
      * @param command Command to execute
@@ -73,6 +80,19 @@ public class StdioClientTransport implements McpTransport {
         this.pendingRequests = new ConcurrentHashMap<>();
     }
 
+    /**
+     * Registers extra environment variables that will be merged on top
+     * of the parent process environment when the subprocess starts.
+     * Must be called before {@link #start()}; later calls are no-ops
+     * once the process has spawned.
+     *
+     * <p>Used by integrations (e.g. Linktor) that drive an MCP server
+     * via credentials that must not appear on the shell command line.
+     */
+    public void setEnvironment(java.util.Map<String, String> env) {
+        this.extraEnvironment = env;
+    }
+
     @Override
     public void start() throws IOException {
         if (active.get()) {
@@ -84,6 +104,17 @@ public class StdioClientTransport implements McpTransport {
         try {
             ProcessBuilder pb = new ProcessBuilder(command);
             pb.redirectErrorStream(false);
+            if (extraEnvironment != null && !extraEnvironment.isEmpty()) {
+                java.util.Map<String, String> procEnv = pb.environment();
+                for (java.util.Map.Entry<String, String> e : extraEnvironment.entrySet()) {
+                    if (e.getKey() == null) continue;
+                    if (e.getValue() == null) {
+                        procEnv.remove(e.getKey());
+                    } else {
+                        procEnv.put(e.getKey(), e.getValue());
+                    }
+                }
+            }
             process = pb.start();
 
             input = new BufferedReader(new InputStreamReader(process.getInputStream()));

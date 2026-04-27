@@ -27,10 +27,12 @@ class WorkspaceControllerImplTest {
     class Summary {
 
         @Test
-        @DisplayName("should return workspace summary")
+        @DisplayName("should return workspace summary resolved from tenant context")
         void shouldReturnWorkspaceSummary() {
+            // Without HTTP context or X-Tenant-Id header, the controller
+            // falls back to tenant_demo (documented in resolveTenantId).
             var summary = controller.getSummary();
-            assertThat(summary.tenantId()).isEqualTo("tenant_rio_quality");
+            assertThat(summary.tenantId()).isEqualTo("tenant_demo");
             assertThat(summary.userCount()).isEqualTo(controller.listUsers().size());
             assertThat(summary.apiKeyCount()).isEqualTo(controller.listApiKeys().size());
             assertThat(summary.limits().maxUsers()).isGreaterThan(0);

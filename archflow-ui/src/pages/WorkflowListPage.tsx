@@ -8,6 +8,7 @@ import {
 } from '@tabler/icons-react';
 import { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { useWorkflowStore } from '../stores/workflow-store';
 
 const STATUS_BADGE: Record<string, { bg: string; color: string; dot: string }> = {
@@ -26,6 +27,7 @@ const CAT_ICONS: Record<string, { emoji: string; bg: string }> = {
 
 export default function WorkflowListPage() {
     const navigate = useNavigate();
+    const { t, i18n } = useTranslation();
     const { workflows, loading, error, fetchWorkflows, deleteWorkflow, executeWorkflow, createWorkflow } = useWorkflowStore();
     const [search, setSearch] = useState('');
     const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -43,7 +45,7 @@ export default function WorkflowListPage() {
     const handleNew = async () => {
         try {
             const created = await createWorkflow({
-                metadata: { name: 'Untitled Workflow', description: '', version: '1.0.0', category: '', tags: [] },
+                metadata: { name: t('workflows.untitledName'), description: '', version: '1.0.0', category: '', tags: [] },
                 steps: [],
                 configuration: {},
             });
@@ -57,7 +59,7 @@ export default function WorkflowListPage() {
             {error && <Alert color="red" icon={<IconAlertCircle size={16} />}>{error}</Alert>}
 
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
-                <span style={{ fontSize: 22, fontWeight: 600, letterSpacing: '-0.3px', color: 'var(--text)' }}>Workflows</span>
+                <span style={{ fontSize: 22, fontWeight: 600, letterSpacing: '-0.3px', color: 'var(--text)' }}>{t('workflows.title')}</span>
                 <button
                     onClick={handleNew}
                     style={{
@@ -68,7 +70,7 @@ export default function WorkflowListPage() {
                     }}
                 >
                     <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M6.5 1v11M1 6.5h11" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/></svg>
-                    New Workflow
+                    {t('workflows.newWorkflow')}
                 </button>
             </div>
 
@@ -78,7 +80,7 @@ export default function WorkflowListPage() {
                 <input
                     value={search}
                     onChange={e => setSearch(e.target.value)}
-                    placeholder="Search workflows…"
+                    placeholder={t('workflows.search')}
                     style={{
                         width: '100%', padding: '9px 14px 9px 36px', borderRadius: 8,
                         border: '1px solid var(--border)', background: 'var(--bg3)',
@@ -97,10 +99,10 @@ export default function WorkflowListPage() {
                         <line x1="23" y1="35" x2="41" y2="44" stroke="currentColor" strokeWidth="2" strokeDasharray="4 3"/>
                     </svg>
                     <span style={{ fontSize: 16, fontWeight: 600, color: 'var(--text2)' }}>
-                        {workflows.length === 0 ? 'No workflows yet' : 'No matching workflows'}
+                        {workflows.length === 0 ? t('workflows.empty') : t('workflows.noMatches')}
                     </span>
                     <span style={{ fontSize: 13, color: 'var(--text3)', maxWidth: 260, textAlign: 'center', lineHeight: 1.5 }}>
-                        {workflows.length === 0 ? 'Create your first AI workflow to get started' : 'Try adjusting your search terms'}
+                        {workflows.length === 0 ? t('workflows.emptyHint') : t('workflows.noMatchesHint')}
                     </span>
                     {workflows.length === 0 && (
                         <button onClick={() => navigate('/editor')} style={{
@@ -109,7 +111,7 @@ export default function WorkflowListPage() {
                             display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 4,
                         }}>
                             <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M6.5 1v11M1 6.5h11" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/></svg>
-                            Create Workflow
+                            {t('workflows.createWorkflow')}
                         </button>
                     )}
                 </div>
@@ -147,25 +149,25 @@ export default function WorkflowListPage() {
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
                                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 9px', borderRadius: 4, fontSize: 11, fontWeight: 600, letterSpacing: '0.02em', background: badge.bg, color: badge.color }}>
                                         <span style={{ width: 5, height: 5, borderRadius: '50%', background: badge.dot, flexShrink: 0 }}></span>
-                                        {w.status.charAt(0).toUpperCase() + w.status.slice(1)}
+                                        {t(`workflows.status.${w.status}`, { defaultValue: w.status.charAt(0).toUpperCase() + w.status.slice(1) })}
                                     </span>
                                     <span style={{ fontSize: 10, color: 'var(--text4)', fontFamily: 'var(--font-mono)', background: 'var(--bg3)', padding: '2px 7px', borderRadius: 5 }}>{w.version}</span>
-                                    <span style={{ fontSize: 11, color: 'var(--text3)' }}>{w.stepCount} steps</span>
+                                    <span style={{ fontSize: 11, color: 'var(--text3)' }}>{t('workflows.stepCount', { count: w.stepCount })}</span>
                                 </div>
 
-                                <div style={{ fontSize: 11, color: 'var(--text4)', marginBottom: 10 }}>{new Date(w.updatedAt).toLocaleDateString()}</div>
+                                <div style={{ fontSize: 11, color: 'var(--text4)', marginBottom: 10 }}>{new Date(w.updatedAt).toLocaleDateString(i18n.resolvedLanguage ?? i18n.language)}</div>
 
                                 {/* Actions with border-top */}
                                 <div style={{ display: 'flex', gap: 4, borderTop: '1px solid var(--border)', paddingTop: 10 }} onClick={e => e.stopPropagation()}>
-                                    <button title="Execute" className="wf-act-btn" onClick={() => handleExecute(w.id)}
+                                    <button title={t('workflows.actions.execute')} className="wf-act-btn" onClick={() => handleExecute(w.id)}
                                         style={actBtnStyle}>
                                         <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2.5 1.5l7 4.5-7 4.5V1.5z" fill="#6B7280"/></svg>
                                     </button>
-                                    <button title="Edit" className="wf-act-btn" onClick={() => navigate(`/editor/${w.id}`)}
+                                    <button title={t('workflows.actions.edit')} className="wf-act-btn" onClick={() => navigate(`/editor/${w.id}`)}
                                         style={actBtnStyle}>
                                         <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M8.5 1.5l2 2L3.5 11H1.5v-2L8.5 1.5z" stroke="#6B7280" strokeWidth="1.2" strokeLinejoin="round"/></svg>
                                     </button>
-                                    <button title="Delete" className="wf-act-btn-danger" onClick={() => setDeleteId(w.id)}
+                                    <button title={t('workflows.actions.delete')} className="wf-act-btn-danger" onClick={() => setDeleteId(w.id)}
                                         style={actBtnStyle}
                                         onMouseEnter={e => { e.currentTarget.style.background = '#FEF2F2'; }}
                                         onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}>
@@ -178,11 +180,11 @@ export default function WorkflowListPage() {
                 </div>
             )}
 
-            <Modal opened={!!deleteId} onClose={() => setDeleteId(null)} title="Delete Workflow" centered>
-                <Text size="sm">Are you sure? This action cannot be undone.</Text>
+            <Modal opened={!!deleteId} onClose={() => setDeleteId(null)} title={t('workflows.deleteModal.title')} centered>
+                <Text size="sm">{t('workflows.deleteModal.message')}</Text>
                 <Group justify="flex-end" mt="md">
-                    <Button variant="light" onClick={() => setDeleteId(null)}>Cancel</Button>
-                    <Button color="red" onClick={handleDelete}>Delete</Button>
+                    <Button variant="light" onClick={() => setDeleteId(null)}>{t('common.cancel')}</Button>
+                    <Button color="red" onClick={handleDelete}>{t('common.delete')}</Button>
                 </Group>
             </Modal>
         </Stack>

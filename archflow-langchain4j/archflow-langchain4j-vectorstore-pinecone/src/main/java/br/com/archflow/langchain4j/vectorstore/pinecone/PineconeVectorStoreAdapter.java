@@ -20,6 +20,8 @@ import org.apache.http.util.EntityUtils;
 
 import java.io.IOException;
 import java.util.*;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 /**
@@ -37,6 +39,7 @@ import java.util.stream.Collectors;
  * }</pre>
  */
 public class PineconeVectorStoreAdapter implements LangChainAdapter, dev.langchain4j.store.embedding.EmbeddingStore<TextSegment>, AutoCloseable {
+    private static final Logger logger = Logger.getLogger(PineconeVectorStoreAdapter.class.getName());
     private static final ObjectMapper objectMapper = new ObjectMapper();
     private volatile CloseableHttpClient httpClient;
     private String apiKey;
@@ -146,7 +149,7 @@ public class PineconeVectorStoreAdapter implements LangChainAdapter, dev.langcha
             try (CloseableHttpResponse response = httpClient.execute(post)) {
                 int statusCode = response.getStatusLine().getStatusCode();
                 if (statusCode != 200) {
-                    throw new RuntimeException("Failed to upsert vectors to Pinecone: " + EntityUtils.toString(response.getEntity()));
+                    throw PineconeApiException.of("upsert vectors", statusCode, response);
                 }
             }
         } catch (IOException e) {
@@ -178,7 +181,7 @@ public class PineconeVectorStoreAdapter implements LangChainAdapter, dev.langcha
             try (CloseableHttpResponse response = httpClient.execute(post)) {
                 int statusCode = response.getStatusLine().getStatusCode();
                 if (statusCode != 200) {
-                    throw new RuntimeException("Failed to search vectors in Pinecone: " + EntityUtils.toString(response.getEntity()));
+                    throw PineconeApiException.of("search vectors", statusCode, response);
                 }
 
                 String jsonResponse = EntityUtils.toString(response.getEntity());
@@ -324,7 +327,7 @@ public class PineconeVectorStoreAdapter implements LangChainAdapter, dev.langcha
             try (CloseableHttpResponse response = httpClient.execute(delete)) {
                 int statusCode = response.getStatusLine().getStatusCode();
                 if (statusCode != 200) {
-                    throw new RuntimeException("Failed to remove vector from Pinecone: " + EntityUtils.toString(response.getEntity()));
+                    throw PineconeApiException.of("remove vector", statusCode, response);
                 }
             }
         } catch (IOException e) {
@@ -340,7 +343,7 @@ public class PineconeVectorStoreAdapter implements LangChainAdapter, dev.langcha
             try (CloseableHttpResponse response = httpClient.execute(delete)) {
                 int statusCode = response.getStatusLine().getStatusCode();
                 if (statusCode != 200) {
-                    throw new RuntimeException("Failed to remove all vectors from Pinecone: " + EntityUtils.toString(response.getEntity()));
+                    throw PineconeApiException.of("remove all vectors", statusCode, response);
                 }
             }
         } catch (IOException e) {
@@ -379,13 +382,18 @@ public class PineconeVectorStoreAdapter implements LangChainAdapter, dev.langcha
 
     @Override
     public void shutdown() {
-        if (httpClient != null) {
+        CloseableHttpClient client = this.httpClient;
+        if (client != null) {
             try {
-                httpClient.close();
+                client.close();
             } catch (IOException e) {
-                // Logar o erro se houver sistema de log
+                logger.log(Level.WARNING,
+                        "Failed to close Pinecone HTTP client cleanly; "
+                        + "connection may be leaked on the remote side",
+                        e);
+            } finally {
+                this.httpClient = null;
             }
-            httpClient = null;
         }
         this.config = null;
     }
@@ -415,5 +423,37 @@ public class PineconeVectorStoreAdapter implements LangChainAdapter, dev.langcha
         }
     }
 
+    /**
+     * Typed exception that preserves the Pinecone HTTP status code so
+     * callers can differentiate auth (401/403), quota (429), and server
+     * (5xx) failures without parsing error strings.
+     */
+    public static class PineconeApiException extends RuntimeException {
+        private final int statusCode;
 
+        public PineconeApiException(String message, int statusCode) {
+            super(message);
+            this.statusCode = statusCode;
+        }
+
+        public int getStatusCode() {
+            return statusCode;
+        }
+
+        static PineconeApiException of(String action, int statusCode, CloseableHttpResponse response) {
+            String body = "";
+            try {
+                if (response.getEntity() != null) {
+                    body = EntityUtils.toString(response.getEntity());
+                }
+            } catch (IOException ignored) {
+                // body stays empty — the status code is still informative
+            }
+            return new PineconeApiException(
+                    "Pinecone API failure on " + action
+                            + " (statusCode=" + statusCode + ", body="
+                            + (body == null || body.isEmpty() ? "<empty>" : body) + ")",
+                    statusCode);
+        }
+    }
 }

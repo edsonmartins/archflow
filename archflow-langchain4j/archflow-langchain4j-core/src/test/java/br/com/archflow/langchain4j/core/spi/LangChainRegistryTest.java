@@ -96,14 +96,19 @@ class LangChainRegistryTest {
     // -------------------------------------------------------------------------
 
     @SuppressWarnings("unchecked")
-    private static Map<String, LangChainAdapterFactory> getFactoriesMap() throws Exception {
-        Field f = LangChainRegistry.class.getDeclaredField("factories");
+    private static Map<String, java.util.List<LangChainAdapterFactory>> getFactoriesMap() throws Exception {
+        // The factories map stores a list of factories per provider id
+        // (since the same provider can back multiple adapter types).
+        Class<?> holder = Class.forName(LangChainRegistry.class.getName() + "$Holder");
+        Field f = holder.getDeclaredField("FACTORIES");
         f.setAccessible(true);
-        return (Map<String, LangChainAdapterFactory>) f.get(null);
+        return (Map<String, java.util.List<LangChainAdapterFactory>>) f.get(null);
     }
 
     private static void registerFactory(LangChainAdapterFactory factory) throws Exception {
-        getFactoriesMap().put(factory.getProvider(), factory);
+        getFactoriesMap()
+                .computeIfAbsent(factory.getProvider(), k -> new java.util.ArrayList<>())
+                .add(factory);
     }
 
     /** Creates a stub adapter with no-op methods. */

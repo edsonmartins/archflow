@@ -1,5 +1,6 @@
 import { Anchor, Badge, Group, Paper, Stack, Text } from '@mantine/core';
 import { IconFileText, IconLink } from '@tabler/icons-react';
+import { useTranslation } from 'react-i18next';
 
 export interface Citation {
     /** Stable id (used as React key). */
@@ -18,7 +19,7 @@ export interface Citation {
 
 interface CitationListProps {
     citations: Citation[];
-    /** Title above the list. Defaults to "Sources". */
+    /** Title above the list. Defaults to the translated "Sources". */
     label?: string;
 }
 
@@ -29,8 +30,10 @@ interface CitationListProps {
  * list with title, optional URL, snippet, and a score badge for retrieval
  * quality. Empty arrays render nothing.
  */
-export default function CitationList({ citations, label = 'Sources' }: CitationListProps) {
+export default function CitationList({ citations, label }: CitationListProps) {
+    const { t } = useTranslation();
     if (!citations || citations.length === 0) return null;
+    const heading = label ?? t('chat.citations.sourcesCount', { count: citations.length });
 
     return (
         <Paper
@@ -40,7 +43,7 @@ export default function CitationList({ citations, label = 'Sources' }: CitationL
             style={(theme) => ({ backgroundColor: theme.colors.gray[0] })}
         >
             <Text size="xs" c="dimmed" tt="uppercase" style={{ letterSpacing: 0.5 }} mb={4}>
-                {label} ({citations.length})
+                {heading}
             </Text>
             <Stack gap={6}>
                 {citations.map((c, idx) => (

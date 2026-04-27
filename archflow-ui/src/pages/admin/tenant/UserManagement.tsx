@@ -4,12 +4,14 @@ import {
 } from '@mantine/core'
 import { IconPlus, IconPencil, IconTrash, IconAlertCircle } from '@tabler/icons-react'
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { notifications } from '@mantine/notifications'
 import { userApi, type TenantUser } from '../../../services/admin-api'
 
 const ROLE_COLORS: Record<string, string> = { admin: 'blue', editor: 'teal', viewer: 'gray' }
 
 export default function UserManagement() {
+  const { t } = useTranslation()
   const [users, setUsers] = useState<TenantUser[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -25,7 +27,7 @@ export default function UserManagement() {
     try {
       setUsers(await userApi.list())
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load users')
+      setError(e instanceof Error ? e.message : t('admin.tenant.users.loadFailed'))
     } finally {
       setLoading(false)
     }
@@ -40,11 +42,11 @@ export default function UserManagement() {
     try {
       const created = await userApi.invite({ email: inviteEmail, role: inviteRole })
       setUsers((prev) => [...prev, created])
-      notifications.show({ title: 'Invitation sent', message: `Invite sent to ${inviteEmail}`, color: 'teal' })
+      notifications.show({ title: t('admin.tenant.users.inviteSent'), message: t('admin.tenant.users.inviteSentMsg', { email: inviteEmail }), color: 'teal' })
       setInviteOpen(false)
       setInviteEmail('')
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to invite user')
+      setError(e instanceof Error ? e.message : t('admin.tenant.users.inviteFailed'))
     }
   }
 
@@ -55,7 +57,7 @@ export default function UserManagement() {
       setUsers((prev) => prev.map((user) => user.id === updated.id ? updated : user))
       setEditingUser(null)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to update user')
+      setError(e instanceof Error ? e.message : t('admin.tenant.users.updateFailed'))
     }
   }
 
@@ -68,7 +70,7 @@ export default function UserManagement() {
       }
       setUsers((prev) => prev.filter((entry) => entry.id !== user.id))
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to remove user')
+      setError(e instanceof Error ? e.message : t('admin.tenant.users.removeFailed'))
     }
   }
 
@@ -77,9 +79,9 @@ export default function UserManagement() {
       <LoadingOverlay visible={loading} />
 
       <Group justify="space-between">
-        <Title order={3}>Users</Title>
+        <Title order={3}>{t('admin.tenant.users.title')}</Title>
         <Button leftSection={<IconPlus size={16} />} onClick={() => setInviteOpen(true)}>
-          Invite User
+          {t('admin.tenant.users.invite')}
         </Button>
       </Group>
 
@@ -90,26 +92,26 @@ export default function UserManagement() {
       )}
 
       <Paper withBorder p="md" radius="lg">
-        <Text fw={600} size="sm" mb="sm">Permission Matrix</Text>
+        <Text fw={600} size="sm" mb="sm">{t('admin.tenant.users.permissionsTitle')}</Text>
         <Table withColumnBorders>
           <Table.Thead>
             <Table.Tr>
-              <Table.Th>Permission</Table.Th>
-              <Table.Th ta="center">Admin</Table.Th>
-              <Table.Th ta="center">Editor</Table.Th>
-              <Table.Th ta="center">Viewer</Table.Th>
+              <Table.Th>{t('admin.tenant.users.permissions.header')}</Table.Th>
+              <Table.Th ta="center">{t('admin.tenant.users.permissions.admin')}</Table.Th>
+              <Table.Th ta="center">{t('admin.tenant.users.permissions.editor')}</Table.Th>
+              <Table.Th ta="center">{t('admin.tenant.users.permissions.viewer')}</Table.Th>
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
             {[
-              ['View workflows', true, true, true],
-              ['Create/edit workflows', true, true, false],
-              ['Execute workflows', true, true, false],
-              ['Manage users', true, false, false],
-              ['Manage API keys', true, false, false],
-            ].map(([perm, admin, editor, viewer]) => (
-              <Table.Tr key={perm as string}>
-                <Table.Td><Text size="sm">{perm as string}</Text></Table.Td>
+              ['viewWorkflows',     true, true,  true ],
+              ['editWorkflows',     true, true,  false],
+              ['executeWorkflows',  true, true,  false],
+              ['manageUsers',       true, false, false],
+              ['manageApiKeys',     true, false, false],
+            ].map(([permKey, admin, editor, viewer]) => (
+              <Table.Tr key={permKey as string}>
+                <Table.Td><Text size="sm">{t(`admin.tenant.users.permissions.${permKey as string}`)}</Text></Table.Td>
                 <Table.Td ta="center">{admin  ? '✓' : '—'}</Table.Td>
                 <Table.Td ta="center">{editor ? '✓' : '—'}</Table.Td>
                 <Table.Td ta="center">{viewer ? '✓' : '—'}</Table.Td>
@@ -123,12 +125,12 @@ export default function UserManagement() {
         <Table striped highlightOnHover>
           <Table.Thead>
             <Table.Tr>
-              <Table.Th>User</Table.Th>
-              <Table.Th>Role</Table.Th>
-              <Table.Th>Status</Table.Th>
-              <Table.Th>Last access</Table.Th>
-              <Table.Th>Workflows</Table.Th>
-              <Table.Th w={80}>Actions</Table.Th>
+              <Table.Th>{t('admin.tenant.users.columns.user')}</Table.Th>
+              <Table.Th>{t('admin.tenant.users.columns.role')}</Table.Th>
+              <Table.Th>{t('admin.tenant.users.columns.status')}</Table.Th>
+              <Table.Th>{t('admin.tenant.users.columns.lastAccess')}</Table.Th>
+              <Table.Th>{t('admin.tenant.users.columns.workflows')}</Table.Th>
+              <Table.Th w={80}>{t('admin.tenant.users.columns.actions')}</Table.Th>
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
@@ -150,22 +152,22 @@ export default function UserManagement() {
                     </div>
                   </Group>
                 </Table.Td>
-                <Table.Td><Badge color={ROLE_COLORS[u.role] ?? 'gray'} size="sm">{u.role}</Badge></Table.Td>
+                <Table.Td><Badge color={ROLE_COLORS[u.role] ?? 'gray'} size="sm">{t(`admin.tenant.users.roles.${u.role}`, { defaultValue: u.role })}</Badge></Table.Td>
                 <Table.Td>
                   <Badge color={u.status === 'active' ? 'green' : 'orange'} size="sm" variant="light">
-                    {u.status === 'invited' ? 'Invite pending' : 'Active'}
+                    {u.status === 'invited' ? t('admin.tenant.users.status.invited') : t('admin.tenant.users.status.active')}
                   </Badge>
                 </Table.Td>
                 <Table.Td><Text size="xs" c="dimmed">{u.lastAccessAt ?? '—'}</Text></Table.Td>
                 <Table.Td><Text size="sm">{u.workflowCount}</Text></Table.Td>
                 <Table.Td>
                   <Group gap={4}>
-                    <Tooltip label="Edit role">
+                    <Tooltip label={t('admin.tenant.users.editTooltip')}>
                       <ActionIcon variant="subtle" size="sm" onClick={() => { setEditingUser(u); setEditRole(u.role) }}>
                         <IconPencil size={14} />
                       </ActionIcon>
                     </Tooltip>
-                    <Tooltip label={u.status === 'invited' ? 'Revoke invite' : 'Remove'}>
+                    <Tooltip label={u.status === 'invited' ? t('admin.tenant.users.revokeInvite') : t('admin.tenant.users.remove')}>
                       <ActionIcon variant="subtle" color="red" size="sm" onClick={() => void handleRemove(u)}>
                         <IconTrash size={14} />
                       </ActionIcon>
@@ -178,33 +180,33 @@ export default function UserManagement() {
         </Table>
       </Paper>
 
-      <Modal opened={inviteOpen} onClose={() => setInviteOpen(false)} title="Invite User" centered>
+      <Modal opened={inviteOpen} onClose={() => setInviteOpen(false)} title={t('admin.tenant.users.inviteTitle')} centered>
         <Stack gap="md">
-          <TextInput label="Email" required placeholder="user@company.com" value={inviteEmail}
+          <TextInput label={t('admin.tenant.users.form.email')} required placeholder={t('admin.tenant.users.form.emailPlaceholder')} value={inviteEmail}
             onChange={e => setInviteEmail(e.currentTarget.value)} />
-          <Select label="Role" required data={[
-            { value: 'admin', label: 'Admin' },
-            { value: 'editor', label: 'Editor' },
-            { value: 'viewer', label: 'Viewer' },
+          <Select label={t('admin.tenant.users.form.role')} required data={[
+            { value: 'admin', label: t('admin.tenant.users.roles.admin') },
+            { value: 'editor', label: t('admin.tenant.users.roles.editor') },
+            { value: 'viewer', label: t('admin.tenant.users.roles.viewer') },
           ]} value={inviteRole} onChange={setInviteRole} />
           <Group justify="flex-end">
-            <Button variant="light" onClick={() => setInviteOpen(false)}>Cancel</Button>
-            <Button onClick={() => void handleInvite()} disabled={!inviteEmail}>Send Invite</Button>
+            <Button variant="light" onClick={() => setInviteOpen(false)}>{t('common.cancel')}</Button>
+            <Button onClick={() => void handleInvite()} disabled={!inviteEmail}>{t('admin.tenant.users.sendInvite')}</Button>
           </Group>
         </Stack>
       </Modal>
 
-      <Modal opened={editingUser !== null} onClose={() => setEditingUser(null)} title="Edit role" centered>
+      <Modal opened={editingUser !== null} onClose={() => setEditingUser(null)} title={t('admin.tenant.users.editRole')} centered>
         <Stack gap="md">
           <Text size="sm">{editingUser?.name}</Text>
-          <Select label="Role" data={[
-            { value: 'admin', label: 'Admin' },
-            { value: 'editor', label: 'Editor' },
-            { value: 'viewer', label: 'Viewer' },
+          <Select label={t('admin.tenant.users.form.role')} data={[
+            { value: 'admin', label: t('admin.tenant.users.roles.admin') },
+            { value: 'editor', label: t('admin.tenant.users.roles.editor') },
+            { value: 'viewer', label: t('admin.tenant.users.roles.viewer') },
           ]} value={editRole} onChange={setEditRole} />
           <Group justify="flex-end">
-            <Button variant="light" onClick={() => setEditingUser(null)}>Cancel</Button>
-            <Button onClick={() => void handleRoleSave()} disabled={!editRole}>Save</Button>
+            <Button variant="light" onClick={() => setEditingUser(null)}>{t('common.cancel')}</Button>
+            <Button onClick={() => void handleRoleSave()} disabled={!editRole}>{t('admin.tenant.users.save')}</Button>
           </Group>
         </Stack>
       </Modal>

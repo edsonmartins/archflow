@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Badge, Button, Center, Group, Loader, ScrollArea, Stack, Text, TextInput } from '@mantine/core';
 import { IconSend } from '@tabler/icons-react';
 import ChatMessage from './ChatMessage';
@@ -41,6 +42,7 @@ interface PendingAssistant {
 }
 
 export default function ChatPanel({ conversationId, workflowId, tenantId }: ChatPanelProps) {
+    const { t } = useTranslation();
     const [messages, setMessages] = useState<ConversationMessage[]>([]);
     const [pending, setPending] = useState<PendingAssistant | null>(null);
     const [input, setInput] = useState('');
@@ -321,7 +323,7 @@ export default function ChatPanel({ conversationId, workflowId, tenantId }: Chat
                 {
                     id: crypto.randomUUID(),
                     role: 'system',
-                    content: 'Failed to send message. Please try again.',
+                    content: t('chat.sendFailed'),
                     timestamp: new Date().toISOString(),
                 },
             ]);
@@ -329,6 +331,7 @@ export default function ChatPanel({ conversationId, workflowId, tenantId }: Chat
         } finally {
             inputRef.current?.focus();
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [input, sending, conversationId]);
 
     const handleFormSubmit = useCallback(
@@ -347,7 +350,7 @@ export default function ChatPanel({ conversationId, workflowId, tenantId }: Chat
                     {
                         id: crypto.randomUUID(),
                         role: 'system',
-                        content: 'Failed to submit form. Please try again.',
+                        content: t('chat.submitFormFailed'),
                         timestamp: new Date().toISOString(),
                     },
                 ]);
@@ -355,6 +358,7 @@ export default function ChatPanel({ conversationId, workflowId, tenantId }: Chat
                 setSending(false);
             }
         },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
         [resumeToken],
     );
 
@@ -369,13 +373,14 @@ export default function ChatPanel({ conversationId, workflowId, tenantId }: Chat
                 {
                     id: crypto.randomUUID(),
                     role: 'system',
-                    content: 'Conversation cancelled.',
+                    content: t('chat.conversationCancelled'),
                     timestamp: new Date().toISOString(),
                 },
             ]);
         } catch (err) {
             console.error('Failed to cancel conversation:', err);
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [conversationId]);
 
     const handleKeyDown = useCallback(
@@ -400,7 +405,7 @@ export default function ChatPanel({ conversationId, workflowId, tenantId }: Chat
         <Stack h="100%" gap={0}>
             {/* Stream status indicator */}
             <Group justify="flex-end" px="sm" py={4}>
-                <StreamBadge status={streamStatus} />
+                <StreamBadge status={streamStatus} t={t} />
             </Group>
 
             {/* Messages area */}
@@ -409,8 +414,8 @@ export default function ChatPanel({ conversationId, workflowId, tenantId }: Chat
                     <Center h={200}>
                         <Text size="sm" c="dimmed">
                             {workflowId
-                                ? 'Start a conversation with this workflow.'
-                                : 'No messages yet.'}
+                                ? t('chat.startWithWorkflow')
+                                : t('chat.noMessages')}
                         </Text>
                     </Center>
                 )}
@@ -469,7 +474,7 @@ export default function ChatPanel({ conversationId, workflowId, tenantId }: Chat
             >
                 <TextInput
                     ref={inputRef}
-                    placeholder="Type a message..."
+                    placeholder={t('chat.placeholder')}
                     size="sm"
                     style={{ flex: 1 }}
                     value={input}
@@ -483,7 +488,7 @@ export default function ChatPanel({ conversationId, workflowId, tenantId }: Chat
                     disabled={!input.trim() || sending || !!suspendedForm}
                     leftSection={<IconSend size={16} />}
                 >
-                    Send
+                    {t('chat.send')}
                 </Button>
             </Group>
         </Stack>
@@ -503,19 +508,18 @@ function matchesToolCall(
     return tc.name === name && tc.status === 'running';
 }
 
-function StreamBadge({ status }: { status: StreamStatus }) {
-    const map: Record<StreamStatus, { color: string; label: string }> = {
-        idle: { color: 'gray', label: 'idle' },
-        connecting: { color: 'yellow', label: 'connecting' },
-        open: { color: 'teal', label: 'live' },
-        reconnecting: { color: 'yellow', label: 'reconnecting' },
-        closed: { color: 'gray', label: 'closed' },
-        error: { color: 'red', label: 'error' },
+function StreamBadge({ status, t }: { status: StreamStatus; t: (k: string) => string }) {
+    const colorMap: Record<StreamStatus, string> = {
+        idle: 'gray',
+        connecting: 'yellow',
+        open: 'teal',
+        reconnecting: 'yellow',
+        closed: 'gray',
+        error: 'red',
     };
-    const { color, label } = map[status];
     return (
-        <Badge size="xs" variant="dot" color={color}>
-            {label}
+        <Badge size="xs" variant="dot" color={colorMap[status]}>
+            {t(`chat.stream.${status}`)}
         </Badge>
     );
 }

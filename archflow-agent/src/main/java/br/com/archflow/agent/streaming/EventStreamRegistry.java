@@ -354,26 +354,37 @@ public class EventStreamRegistry {
     private void startCleanup() {
         scheduler.scheduleAtFixedRate(() -> {
             try {
-                int removed = 0;
                 long now = System.currentTimeMillis();
-
+                // Two-pass: collect expired keys first so the removal
+                // loop does not mutate the same ConcurrentHashMap it is
+                // iterating. ConcurrentHashMap's weakly-consistent
+                // iterator tolerates concurrent mutation, but separating
+                // the phases makes the atomicity of each remove(key,val)
+                // obvious and avoids accidental double-removal in edge
+                // cases where a second thread concurrently recreates an
+                // emitter for the same key.
+                java.util.List<Map.Entry<String, EventStreamEmitter>> toRemove =
+                        new java.util.ArrayList<>();
                 for (Map.Entry<String, EventStreamEmitter> entry : emitters.entrySet()) {
                     EventStreamEmitter emitter = entry.getValue();
-
-                    // Remove se completado ou expirado
                     if (emitter.isCompleted() ||
                         (now - emitter.getCreatedAt()) > emitterTimeoutMs) {
-                        emitters.remove(entry.getKey());
+                        toRemove.add(entry);
+                    }
+                }
 
-                        // Remove da associação de execution
-                        Set<String> execEmitters = executionEmitters.get(emitter.getExecutionId());
+                int removed = 0;
+                for (Map.Entry<String, EventStreamEmitter> entry : toRemove) {
+                    // remove(key, value) only removes if the value hasn't
+                    // been replaced by a new registration with the same key.
+                    if (emitters.remove(entry.getKey(), entry.getValue())) {
+                        Set<String> execEmitters = executionEmitters.get(entry.getValue().getExecutionId());
                         if (execEmitters != null) {
                             execEmitters.remove(entry.getKey());
                             if (execEmitters.isEmpty()) {
-                                executionEmitters.remove(emitter.getExecutionId());
+                                executionEmitters.remove(entry.getValue().getExecutionId());
                             }
                         }
-
                         removed++;
                     }
                 }

@@ -61,6 +61,14 @@ public class DefaultFlowEngine implements FlowEngine {
     /** Gauge: number of flows currently executing. */
     private final AtomicInteger activeFlowCount = new AtomicInteger(0);
 
+    /**
+     * Serializes transition operations (pause/cancel/requestApproval/
+     * submitApproval) so check-then-act against {@link #activeExecutions}
+     * cannot interleave. Readers (getFlowStatus, startFlow) do not need
+     * to acquire this lock.
+     */
+    private final Object transitionLock = new Object();
+
     // ── Constructors ────────────────────────────────────────────────
 
     public DefaultFlowEngine(ExecutionManager executionManager,
@@ -312,111 +320,133 @@ public class DefaultFlowEngine implements FlowEngine {
 
     @Override
     public void pause(String flowId) {
-        try {
-            FlowExecution execution = activeExecutions.get(flowId);
-            if (execution == null) {
-                throw new FlowNotFoundException(flowId);
+        // Atomic check+act on the map entry: the lambda runs under the
+        // map's bucket lock so a concurrent cancel/submitApproval on the
+        // same flowId waits its turn. stateManager/executionManager I/O
+        // is intentionally kept out of the lambda to avoid blocking the
+        // bucket, which is acceptable here because the state transition
+        // (execution.pause()) is idempotent within a single terminal state.
+        synchronized (transitionLock) {
+            try {
+                FlowExecution execution = activeExecutions.computeIfPresent(flowId, (id, e) -> {
+                    e.pause();
+                    return e;
+                });
+                if (execution == null) {
+                    throw new FlowNotFoundException(flowId);
+                }
+                stateManager.saveState(flowId, execution.getContext().getState());
+                executionManager.pauseFlow(flowId);
+            } catch (Exception e) {
+                throw new FlowEngineException("Error pausing flow: " + flowId, e);
             }
-            execution.pause();
-            stateManager.saveState(flowId, execution.getContext().getState());
-            executionManager.pauseFlow(flowId);
-        } catch (Exception e) {
-            throw new FlowEngineException("Error pausing flow: " + flowId, e);
         }
     }
 
     @Override
     public void cancel(String flowId) {
-        try {
-            FlowExecution execution = activeExecutions.get(flowId);
-            if (execution == null) {
-                throw new FlowNotFoundException(flowId);
+        synchronized (transitionLock) {
+            try {
+                FlowExecution execution = activeExecutions.computeIfPresent(flowId, (id, e) -> {
+                    e.cancel();
+                    return e;
+                });
+                if (execution == null) {
+                    throw new FlowNotFoundException(flowId);
+                }
+                // Mark as cancelled — submitFlow's finally block will see the
+                // STOPPED status and skip re-removing. The entry stays in the
+                // map so the executor can still check state; the finally block
+                // in submitFlow handles the actual map cleanup.
+                stateManager.saveState(flowId, execution.getContext().getState());
+                executionManager.stopFlow(flowId);
+            } catch (Exception e) {
+                throw new FlowEngineException("Error canceling flow: " + flowId, e);
             }
-            // Mark as cancelled — submitFlow's finally block will see the
-            // STOPPED status and skip re-removing. The entry stays in the
-            // map so the executor can still check state; the finally block
-            // in submitFlow handles the actual map cleanup.
-            execution.cancel();
-            stateManager.saveState(flowId, execution.getContext().getState());
-            executionManager.stopFlow(flowId);
-        } catch (Exception e) {
-            throw new FlowEngineException("Error canceling flow: " + flowId, e);
         }
     }
 
     @Override
     public String requestApproval(String flowId, String stepId, Object proposal) {
-        FlowExecution execution = activeExecutions.get(flowId);
-        if (execution == null) {
-            throw new FlowNotFoundException(flowId);
+        synchronized (transitionLock) {
+            FlowExecution execution = activeExecutions.get(flowId);
+            if (execution == null) {
+                throw new FlowNotFoundException(flowId);
+            }
+
+            FlowState currentState = execution.getContext().getState();
+            FlowState awaitingState = FlowState.builder()
+                    .tenantId(currentState.getTenantId())
+                    .flowId(currentState.getFlowId())
+                    .status(FlowStatus.AWAITING_APPROVAL)
+                    .currentStepId(stepId != null ? stepId : currentState.getCurrentStepId())
+                    .variables(currentState.getVariables())
+                    .executionPaths(currentState.getExecutionPaths())
+                    .metrics(currentState.getMetrics())
+                    .error(currentState.getError())
+                    .build();
+
+            execution.getContext().setState(awaitingState);
+            stateManager.saveState(flowId, awaitingState);
+
+            String requestId = java.util.UUID.randomUUID().toString();
+            logger.info("Flow " + flowId + " awaiting approval: requestId=" + requestId);
+            return requestId;
         }
-
-        FlowState currentState = execution.getContext().getState();
-        FlowState awaitingState = FlowState.builder()
-                .tenantId(currentState.getTenantId())
-                .flowId(currentState.getFlowId())
-                .status(FlowStatus.AWAITING_APPROVAL)
-                .currentStepId(stepId != null ? stepId : currentState.getCurrentStepId())
-                .variables(currentState.getVariables())
-                .executionPaths(currentState.getExecutionPaths())
-                .metrics(currentState.getMetrics())
-                .error(currentState.getError())
-                .build();
-
-        execution.getContext().setState(awaitingState);
-        stateManager.saveState(flowId, awaitingState);
-
-        String requestId = java.util.UUID.randomUUID().toString();
-        logger.info("Flow " + flowId + " awaiting approval: requestId=" + requestId);
-        return requestId;
     }
 
     @Override
     public CompletableFuture<FlowResult> submitApproval(String flowId, String requestId,
                                                          boolean approved, Object editedPayload) {
-        FlowExecution execution = activeExecutions.get(flowId);
-        if (execution == null) {
-            throw new FlowNotFoundException(flowId);
+        ExecutionContext contextForResume;
+        // The entire validate+remove sequence runs under transitionLock so
+        // concurrent pause/cancel/submitApproval observe a consistent view.
+        // resumeFlow (which re-registers via putIfAbsent) must also run
+        // under the lock so a concurrent pause between our remove() and
+        // resumeFlow's register does not see a phantom-missing flow.
+        synchronized (transitionLock) {
+            FlowExecution execution = activeExecutions.get(flowId);
+            if (execution == null) {
+                throw new FlowNotFoundException(flowId);
+            }
+
+            FlowState currentState = execution.getContext().getState();
+            if (currentState.getStatus() != FlowStatus.AWAITING_APPROVAL) {
+                throw new FlowEngineException("Flow is not awaiting approval: " + flowId);
+            }
+
+            if (!approved) {
+                FlowState rejectedState = FlowState.builder()
+                        .tenantId(currentState.getTenantId())
+                        .flowId(currentState.getFlowId())
+                        .status(FlowStatus.STOPPED)
+                        .currentStepId(currentState.getCurrentStepId())
+                        .variables(currentState.getVariables())
+                        .executionPaths(currentState.getExecutionPaths())
+                        .metrics(currentState.getMetrics())
+                        .build();
+                execution.getContext().setState(rejectedState);
+                stateManager.saveState(flowId, rejectedState);
+                executionManager.stopFlow(flowId);
+                // Note: we do NOT release the semaphore or remove from
+                // activeExecutions here — the original submitFlow() virtual
+                // thread is still running, blocked inside executionManager.
+                // executeFlow. stopFlow signals it to unblock; its finally
+                // block will release the permit and remove the map entry
+                // exactly once.
+                return CompletableFuture.completedFuture(null);
+            }
+
+            if (editedPayload != null) {
+                execution.getContext().set("approvalPayload", editedPayload);
+            }
+
+            // Remove the current entry so resumeFlow → submitFlow can
+            // re-register via putIfAbsent without hitting "already running".
+            activeExecutions.remove(flowId);
+            contextForResume = execution.getContext();
+            return resumeFlow(flowId, contextForResume);
         }
-
-        FlowState currentState = execution.getContext().getState();
-        if (currentState.getStatus() != FlowStatus.AWAITING_APPROVAL) {
-            throw new FlowEngineException("Flow is not awaiting approval: " + flowId);
-        }
-
-        if (!approved) {
-            FlowState rejectedState = FlowState.builder()
-                    .tenantId(currentState.getTenantId())
-                    .flowId(currentState.getFlowId())
-                    .status(FlowStatus.STOPPED)
-                    .currentStepId(currentState.getCurrentStepId())
-                    .variables(currentState.getVariables())
-                    .executionPaths(currentState.getExecutionPaths())
-                    .metrics(currentState.getMetrics())
-                    .build();
-            execution.getContext().setState(rejectedState);
-            stateManager.saveState(flowId, rejectedState);
-            executionManager.stopFlow(flowId);
-            // Note: we do NOT release the semaphore or remove from
-            // activeExecutions here — the original submitFlow() virtual
-            // thread is still running, blocked inside executionManager.
-            // executeFlow. stopFlow signals it to unblock; its finally
-            // block will release the permit and remove the map entry
-            // exactly once.
-            return CompletableFuture.completedFuture(null);
-        }
-
-        if (editedPayload != null) {
-            execution.getContext().set("approvalPayload", editedPayload);
-        }
-
-        // Remove the current entry so resumeFlow → submitFlow can
-        // re-register via putIfAbsent without hitting "already running".
-        // The original submitFlow virtual thread is still running and
-        // will release its own permit when it unblocks and returns.
-        activeExecutions.remove(flowId);
-
-        return resumeFlow(flowId, execution.getContext());
     }
 
     @Override

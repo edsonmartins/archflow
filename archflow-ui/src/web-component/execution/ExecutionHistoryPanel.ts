@@ -9,9 +9,16 @@
  * - History navigation
  */
 
+import i18next from 'i18next';
 import type { ExecutionStore } from './ExecutionStore';
 import type { ExecutionHistoryEntry, ExecutionState } from './execution-types';
 import { ExecutionState as ES, formatDuration, formatTimestamp } from './execution-types';
+
+// Shorthand against the i18next singleton — it's initialized in
+// `src/web-component/index.ts` (and again in `src/main.tsx` when the
+// web component runs alongside the React app).
+const t = (key: string, fallback?: string): string =>
+  i18next.t(`webComponent.history.${key}`, { defaultValue: fallback ?? key });
 
 // ==========================================================================
 // History Panel Configuration
@@ -136,16 +143,16 @@ export class ExecutionHistoryPanel {
 
     this.container.innerHTML = `
       <div class="archflow-history-panel__header">
-        <span class="archflow-history-panel__title">Execution History</span>
+        <span class="archflow-history-panel__title">${t('title')}</span>
         <div class="archflow-history-panel__actions">
           ${this.options.enableRerun ? `
-            <button class="archflow-history-panel__action" data-action="clear" title="Clear history">
+            <button class="archflow-history-panel__action" data-action="clear" title="${t('clear')}">
               <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
                 <path d="M3 4H11M3 4V11C3 11.55 3.45 12 4 12H10C10.55 12 11 11.55 11 11V4M3 4H4M5 4V3M9 4V3M4.5 7H9.5" stroke="currentColor" stroke-width="1" stroke-linecap="round"/>
               </svg>
             </button>
           ` : ''}
-          <button class="archflow-history-panel__action" data-action="close" title="Close">
+          <button class="archflow-history-panel__action" data-action="close" title="${t('close')}">
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
               <path d="M10 4L4 10M4 4L10 10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
             </svg>
@@ -184,11 +191,11 @@ export class ExecutionHistoryPanel {
           <div class="archflow-history-entry__meta">
             <span class="archflow-history-entry__time">${formatTimestamp(entry.startTime)}</span>
             <span class="archflow-history-entry__separator">•</span>
-            <span class="archflow-history-entry__duration">${entry.duration ? formatDuration(entry.duration) : 'Running...'}</span>
+            <span class="archflow-history-entry__duration">${entry.duration ? formatDuration(entry.duration) : t('running')}</span>
           </div>
         </div>
         ${this.options.enableRerun && entry.state === ES.COMPLETED ? `
-          <button class="archflow-history-entry__rerun" data-action="rerun" data-entry-id="${entry.executionId}" title="Re-run">
+          <button class="archflow-history-entry__rerun" data-action="rerun" data-entry-id="${entry.executionId}" title="${t('rerun')}">
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
               <path d="M7 3V5M7 9V11M3 7H5M9 7H11M4.22 4.22L5.64 5.64M8.36 8.36L9.78 9.78M4.22 9.78L5.64 8.36M8.36 5.64L9.78 4.22"
                     stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
@@ -206,8 +213,8 @@ export class ExecutionHistoryPanel {
           <circle cx="16" cy="16" r="12" stroke="currentColor" stroke-width="1.5" stroke-dasharray="4 2"/>
           <path d="M16 10V16L20 18" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
         </svg>
-        <p class="archflow-history-panel__empty-text">No executions yet</p>
-        <p class="archflow-history-panel__empty-hint">Run a workflow to see history here</p>
+        <p class="archflow-history-panel__empty-text">${t('empty')}</p>
+        <p class="archflow-history-panel__empty-hint">${t('emptyHint')}</p>
       </div>
     `;
   }
@@ -221,29 +228,29 @@ export class ExecutionHistoryPanel {
     return `
       <div class="archflow-history-details">
         <div class="archflow-history-details__header">
-          <span class="archflow-history-details__title">Execution Details</span>
+          <span class="archflow-history-details__title">${t('details')}</span>
           <button class="archflow-history-details__close" data-action="close-details">×</button>
         </div>
         <div class="archflow-history-details__content">
           <div class="archflow-history-details__section">
-            <h4 class="archflow-history-details__section-title">Information</h4>
+            <h4 class="archflow-history-details__section-title">${t('info')}</h4>
             <div class="archflow-history-details__info">
               <div class="archflow-history-details__info-row">
-                <span class="archflow-history-details__label">ID:</span>
+                <span class="archflow-history-details__label">${t('id')}</span>
                 <span class="archflow-history-details__value">${entry.executionId}</span>
               </div>
               <div class="archflow-history-details__info-row">
-                <span class="archflow-history-details__label">State:</span>
+                <span class="archflow-history-details__label">${t('state')}</span>
                 <span class="archflow-history-details__value archflow-history-details__value--${entry.state.toLowerCase()}">
                   ${this._getStateLabel(entry.state)}
                 </span>
               </div>
               <div class="archflow-history-details__info-row">
-                <span class="archflow-history-details__label">Started:</span>
-                <span class="archflow-history-details__value">${new Date(entry.startTime).toLocaleString()}</span>
+                <span class="archflow-history-details__label">${t('started')}</span>
+                <span class="archflow-history-details__value">${new Date(entry.startTime).toLocaleString(i18next.language)}</span>
               </div>
               <div class="archflow-history-details__info-row">
-                <span class="archflow-history-details__label">Duration:</span>
+                <span class="archflow-history-details__label">${t('duration')}</span>
                 <span class="archflow-history-details__value">${entry.duration ? formatDuration(entry.duration) : '-'}</span>
               </div>
             </div>
@@ -251,24 +258,24 @@ export class ExecutionHistoryPanel {
 
           ${result.metrics ? `
             <div class="archflow-history-details__section">
-              <h4 class="archflow-history-details__section-title">Metrics</h4>
+              <h4 class="archflow-history-details__section-title">${t('metrics')}</h4>
               <div class="archflow-history-details__metrics">
                 <div class="archflow-history-details__metric">
                   <span class="archflow-history-details__metric-value">${result.metrics.nodesExecuted || 0}</span>
-                  <span class="archflow-history-details__metric-label">Nodes</span>
+                  <span class="archflow-history-details__metric-label">${t('metricNodes')}</span>
                 </div>
                 <div class="archflow-history-details__metric">
                   <span class="archflow-history-details__metric-value">${result.metrics.nodesSucceeded || 0}✓</span>
-                  <span class="archflow-history-details__metric-label">Success</span>
+                  <span class="archflow-history-details__metric-label">${t('metricSuccess')}</span>
                 </div>
                 <div class="archflow-history-details__metric">
                   <span class="archflow-history-details__metric-value">${result.metrics.nodesFailed || 0}✕</span>
-                  <span class="archflow-history-details__metric-label">Failed</span>
+                  <span class="archflow-history-details__metric-label">${t('metricFailed')}</span>
                 </div>
                 ${result.metrics.totalTokens ? `
                   <div class="archflow-history-details__metric">
-                    <span class="archflow-history-details__metric-value">${result.metrics.totalTokens.toLocaleString()}</span>
-                    <span class="archflow-history-details__metric-label">Tokens</span>
+                    <span class="archflow-history-details__metric-value">${result.metrics.totalTokens.toLocaleString(i18next.language)}</span>
+                    <span class="archflow-history-details__metric-label">${t('metricTokens')}</span>
                   </div>
                 ` : ''}
               </div>
@@ -277,14 +284,14 @@ export class ExecutionHistoryPanel {
 
           ${Object.keys(result.output || {}).length > 0 ? `
             <div class="archflow-history-details__section">
-              <h4 class="archflow-history-details__section-title">Output</h4>
+              <h4 class="archflow-history-details__section-title">${t('output')}</h4>
               <pre class="archflow-history-details__output">${JSON.stringify(result.output, null, 2)}</pre>
             </div>
           ` : ''}
 
           ${result.errors && result.errors.length > 0 ? `
             <div class="archflow-history-details__section">
-              <h4 class="archflow-history-details__section-title">Errors</h4>
+              <h4 class="archflow-history-details__section-title">${t('errors')}</h4>
               <div class="archflow-history-details__errors">
                 ${result.errors.map(err => `
                   <div class="archflow-history-details__error">
@@ -328,15 +335,7 @@ export class ExecutionHistoryPanel {
   }
 
   private _getStateLabel(state: ExecutionState): string {
-    const labels: Record<ExecutionState, string> = {
-      [ES.IDLE]: 'Idle',
-      [ES.RUNNING]: 'Running',
-      [ES.PAUSED]: 'Paused',
-      [ES.COMPLETED]: 'Completed',
-      [ES.FAILED]: 'Failed',
-      [ES.CANCELLED]: 'Cancelled'
-    };
-    return labels[state] || state;
+    return i18next.t(`webComponent.history.states.${state}`, { defaultValue: state });
   }
 
   private _attachEventListeners(): void {

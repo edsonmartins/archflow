@@ -88,11 +88,13 @@ public class SpringWorkflowCrudController {
 
     // ── helpers ──────────────────────────────────────────────────
 
-    @SuppressWarnings("unchecked")
     private Map<String, Object> toSummary(Map<String, Object> wf) {
-        var meta = (Map<String, Object>) wf.getOrDefault("metadata", Map.of());
-        var steps = wf.getOrDefault("steps", List.of());
-        int stepCount = steps instanceof List<?> l ? l.size() : 0;
+        // Null-safe accessors: a malformed workflow JSON document (e.g.
+        // metadata stored as a string instead of a map) would previously
+        // ClassCastException through the controller and return 500. Fall
+        // back to safe defaults instead.
+        Map<String, Object> meta = asMap(wf.get("metadata"));
+        int stepCount = asList(wf.get("steps")).size();
         return Map.of(
                 "id", wf.getOrDefault("id", ""),
                 "name", meta.getOrDefault("name", "Untitled"),
@@ -104,13 +106,24 @@ public class SpringWorkflowCrudController {
         );
     }
 
-    @SuppressWarnings("unchecked")
     private String workflowName(Map<String, Object> workflow) {
-        var metadata = workflow.get("metadata");
-        if (metadata instanceof Map<?, ?> meta) {
-            var name = meta.get("name");
-            return name != null ? name.toString() : "Untitled";
+        Map<String, Object> metadata = asMap(workflow.get("metadata"));
+        Object name = metadata.get("name");
+        return name != null ? name.toString() : "Untitled";
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> asMap(Object value) {
+        if (value instanceof Map<?, ?> raw) {
+            // Accepting a Map<?,?> at runtime is safe because we only read
+            // via Object keys/values below; the unchecked cast suppresses
+            // a javac warning but never produces a ClassCastException.
+            return (Map<String, Object>) raw;
         }
-        return "Untitled";
+        return Map.of();
+    }
+
+    private static List<?> asList(Object value) {
+        return value instanceof List<?> l ? l : List.of();
     }
 }

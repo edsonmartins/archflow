@@ -250,6 +250,11 @@ public class ConversationalAgent implements AIAgent, ComponentPlugin {
         Analysis analysis = intentClassifier.classify(lastMessage, intentDescriptions);
 
         if (analysis.confidence() < escalationThreshold) {
+            // Fire the registered escalation channel (if any) as a
+            // side-effect so human handoff happens automatically — the
+            // decision value is still returned to the caller so the
+            // flow can react (e.g. stop further tool calls).
+            tryEscalateToChannel(context, analysis);
             return new Decision(
                     "escalate",
                     "Low confidence in intent classification; escalate to human",
@@ -517,5 +522,44 @@ public class ConversationalAgent implements AIAgent, ComponentPlugin {
      */
     public static Builder builder() {
         return new Builder();
+    }
+
+    /**
+     * Best-effort hand-off to the process-wide escalation channel.
+     *
+     * <p>Looks up {@code conversationId} / {@code tenantId} in the
+     * {@link ExecutionContext} variables (agent runners put them there
+     * when serving a specific Linktor/Webchat conversation) and calls
+     * {@link br.com.archflow.model.escalation.EscalationChannels#tryEscalate}.
+     *
+     * <p>Never throws: if the channel is not configured, or the
+     * context lacks identifiers, the decision is still returned to the
+     * caller — escalation is a side-effect, not a precondition for
+     * returning the right decision.</p>
+     */
+    private void tryEscalateToChannel(ExecutionContext context, Analysis analysis) {
+        if (context == null) return;
+        Object conversationId = context.get("conversationId");
+        if (!(conversationId instanceof String convId) || convId.isBlank()) return;
+        String tenantId = context.getTenantId();
+        if (tenantId == null || tenantId.isBlank()) return;
+
+        try {
+            br.com.archflow.model.escalation.EscalationChannels.tryEscalate(
+                    new br.com.archflow.model.escalation.EscalationRequest(
+                            tenantId,
+                            convId,
+                            /* targetUserId */ null,
+                            "Low confidence: " + analysis.confidence(),
+                            Map.of(
+                                    "intent",      analysis.intent() != null ? analysis.intent() : "unknown",
+                                    "confidence",  analysis.confidence(),
+                                    "agent",       COMPONENT_ID
+                            )));
+        } catch (Exception e) {
+            // Never fail the decision because of escalation plumbing.
+            // A real deployment wires a logger via ComponentPlugin.
+            System.err.println("[ConversationalAgent] escalation failed: " + e.getMessage());
+        }
     }
 }

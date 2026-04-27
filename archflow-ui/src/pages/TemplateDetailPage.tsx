@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import {
     ActionIcon,
     Alert,
@@ -30,6 +31,7 @@ import { NODE_CATEGORIES } from '../components/FlowCanvas/constants';
 export default function TemplateDetailPage() {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
+    const { t } = useTranslation();
     const [template, setTemplate] = useState<WorkflowTemplate | undefined>(() =>
         id ? templateApi.get(id) : undefined,
     );
@@ -58,10 +60,10 @@ export default function TemplateDetailPage() {
         return (
             <Stack p="md" gap="md">
                 <Alert color="red" icon={<IconAlertCircle size={16} />}>
-                    Template not found.
+                    {t('templates.detail.notFound')}
                 </Alert>
                 <Button variant="default" onClick={() => navigate('/templates')}>
-                    Back to templates
+                    {t('templates.detail.back')}
                 </Button>
             </Stack>
         );
@@ -75,14 +77,14 @@ export default function TemplateDetailPage() {
         try {
             const created = await templateApi.clone(template.id);
             notifications.show({
-                title: 'Workflow created',
-                message: `${template.name} cloned to your workspace`,
+                title: t('templates.detail.created'),
+                message: t('templates.detail.createdMsg', { name: template.name }),
                 color: 'teal',
                 icon: <IconCheck size={16} />,
             });
             navigate(`/editor/${created.id}`);
         } catch (e) {
-            setError(e instanceof Error ? e.message : 'Failed to clone template');
+            setError(e instanceof Error ? e.message : t('templates.detail.cloneFailed'));
         } finally {
             setCloning(false);
         }
@@ -91,7 +93,7 @@ export default function TemplateDetailPage() {
     return (
         <Stack p="md" gap="md">
             <Group gap="sm">
-                <Tooltip label="Back to templates">
+                <Tooltip label={t('templates.detail.back')}>
                     <ActionIcon variant="subtle" onClick={() => navigate('/templates')}>
                         <IconArrowLeft size={18} />
                     </ActionIcon>
@@ -111,7 +113,7 @@ export default function TemplateDetailPage() {
                     loading={cloning}
                     data-testid="template-clone"
                 >
-                    Use this template
+                    {t('templates.detail.use')}
                 </Button>
             </Group>
 
@@ -138,7 +140,7 @@ export default function TemplateDetailPage() {
             <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="md">
                 <Paper withBorder p="md" radius="md">
                     <Title order={5} mb="xs">
-                        About this template
+                        {t('templates.detail.about')}
                     </Title>
                     <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>
                         {template.description}
@@ -147,7 +149,7 @@ export default function TemplateDetailPage() {
 
                 <Paper withBorder p="md" radius="md">
                     <Title order={5} mb="xs">
-                        Pipeline ({template.steps.length} steps)
+                        {t('templates.detail.pipeline', { count: template.steps.length })}
                     </Title>
                     <List size="sm" spacing={4}>
                         {template.steps.map((s, idx) => (
@@ -164,7 +166,7 @@ export default function TemplateDetailPage() {
                                         variant="dot"
                                         color={categoryColor(s.category)}
                                     >
-                                        {NODE_CATEGORIES[s.category].label}
+                                        {t(`categories.${s.category}`, { defaultValue: NODE_CATEGORIES[s.category].label })}
                                     </Badge>
                                 </Group>
                             </List.Item>
@@ -175,7 +177,7 @@ export default function TemplateDetailPage() {
                 {template.variables && Object.keys(template.variables).length > 0 && (
                     <Paper withBorder p="md" radius="md">
                         <Title order={5} mb="xs">
-                            Default variables
+                            {t('templates.detail.variables')}
                         </Title>
                         <Stack gap={4}>
                             {Object.entries(template.variables).map(([k, v]) => (
@@ -193,8 +195,8 @@ export default function TemplateDetailPage() {
 
                 <Paper withBorder p="md" radius="md">
                     <Group justify="space-between" mb="xs">
-                        <Title order={5}>Workflow JSON</Title>
-                        <Tooltip label="Copy">
+                        <Title order={5}>{t('templates.detail.workflowJson')}</Title>
+                        <Tooltip label={t('templates.detail.copy')}>
                             <ActionIcon
                                 variant="subtle"
                                 onClick={() => {
@@ -206,8 +208,8 @@ export default function TemplateDetailPage() {
                                         ),
                                     );
                                     notifications.show({
-                                        title: 'Copied',
-                                        message: 'Workflow JSON copied to clipboard',
+                                        title: t('templates.detail.copied'),
+                                        message: t('templates.detail.copiedMsg'),
                                         color: 'teal',
                                     });
                                 }}

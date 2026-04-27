@@ -4,6 +4,7 @@ import {
 import { IconPlus, IconAlertCircle } from '@tabler/icons-react'
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { tenantApi, type TenantStats } from '../../../services/admin-api'
 import { useTenantStore } from '../../../stores/useTenantStore'
 import { UsageBar } from '../../../components/admin/UsageBar'
@@ -35,6 +36,7 @@ function StatCard({ label, value, color }: { label: string; value: string | numb
 
 export default function TenantList() {
   const navigate = useNavigate()
+  const { t } = useTranslation()
   const { startImpersonation, setTenants } = useTenantStore()
   const [tenants, setTenantRows] = useState<Array<{
     id: string
@@ -63,7 +65,7 @@ export default function TenantList() {
         setStats(statsDto)
       })
       .catch((e) => {
-        if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to load tenants')
+        if (!cancelled) setError(e instanceof Error ? e.message : t('admin.superadmin.tenants.loadFailed'))
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
@@ -72,6 +74,7 @@ export default function TenantList() {
     return () => {
       cancelled = true
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [setTenants])
 
   const handleImpersonate = (tenant: typeof tenants[number]) => {
@@ -90,9 +93,9 @@ export default function TenantList() {
       <LoadingOverlay visible={loading} />
 
       <Group justify="space-between">
-        <Title order={3}>Tenants</Title>
+        <Title order={3}>{t('admin.superadmin.tenants.title')}</Title>
         <Button leftSection={<IconPlus size={16} />} onClick={() => navigate('/admin/tenants/new')}>
-          New Tenant
+          {t('admin.superadmin.tenants.newTenant')}
         </Button>
       </Group>
 
@@ -103,27 +106,30 @@ export default function TenantList() {
       )}
 
       <SimpleGrid cols={{ base: 2, lg: 4 }} spacing="md">
-        <StatCard label="Active tenants" value={stats?.totalActive ?? '—'} color="var(--green)" />
-        <StatCard label="Executions today" value={stats?.executionsToday ?? '—'} color="var(--blue)" />
-        <StatCard label="Tokens this month" value={stats ? `${(stats.tokensThisMonth / 1_000_000).toFixed(1)}M` : '—'} color="var(--text)" />
-        <StatCard label="Trial tenants" value={stats?.totalTrial ?? '—'} color="var(--amber)" />
+        <StatCard label={t('admin.superadmin.tenants.stats.active')} value={stats?.totalActive ?? '—'} color="var(--green)" />
+        <StatCard label={t('admin.superadmin.tenants.stats.executionsToday')} value={stats?.executionsToday ?? '—'} color="var(--blue)" />
+        <StatCard label={t('admin.superadmin.tenants.stats.tokensMonth')} value={stats ? `${(stats.tokensThisMonth / 1_000_000).toFixed(1)}M` : '—'} color="var(--text)" />
+        <StatCard label={t('admin.superadmin.tenants.stats.trial')} value={stats?.totalTrial ?? '—'} color="var(--amber)" />
       </SimpleGrid>
 
       <Paper withBorder radius="lg" style={{ overflow: 'hidden' }}>
         <Table striped highlightOnHover>
           <Table.Thead>
             <Table.Tr>
-              <Table.Th>Tenant</Table.Th>
-              <Table.Th>Status</Table.Th>
-              <Table.Th>Plan</Table.Th>
-              <Table.Th>Created</Table.Th>
-              <Table.Th w={160}>Token usage</Table.Th>
-              <Table.Th w={100}>Actions</Table.Th>
+              <Table.Th>{t('admin.superadmin.tenants.columns.tenant')}</Table.Th>
+              <Table.Th>{t('admin.superadmin.tenants.columns.status')}</Table.Th>
+              <Table.Th>{t('admin.superadmin.tenants.columns.plan')}</Table.Th>
+              <Table.Th>{t('admin.superadmin.tenants.columns.created')}</Table.Th>
+              <Table.Th w={160}>{t('admin.superadmin.tenants.columns.tokenUsage')}</Table.Th>
+              <Table.Th w={100}>{t('admin.superadmin.tenants.columns.actions')}</Table.Th>
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
-            {tenants.map(t => (
-              <Table.Tr key={t.id}>
+            {/* Local variable is `tenant` so we don't shadow the
+                useTranslation() `t` function — calling that on a tenant
+                object would silently break rendering. */}
+            {tenants.map(tenant => (
+              <Table.Tr key={tenant.id}>
                 <Table.Td>
                   <Group gap="sm" wrap="nowrap">
                     <div style={{
@@ -132,20 +138,20 @@ export default function TenantList() {
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
                       fontWeight: 700, fontSize: 12,
                     }}>
-                      {t.name.slice(0, 2).toUpperCase()}
+                      {tenant.name.slice(0, 2).toUpperCase()}
                     </div>
                     <div>
-                      <Text size="sm" fw={500}>{t.name}</Text>
-                      <Text size="xs" c="dimmed" ff="monospace">{t.id}</Text>
+                      <Text size="sm" fw={500}>{tenant.name}</Text>
+                      <Text size="xs" c="dimmed" ff="monospace">{tenant.id}</Text>
                     </div>
                   </Group>
                 </Table.Td>
-                <Table.Td><Badge color={STATUS_COLORS[t.status] ?? 'gray'} size="sm">{t.status}</Badge></Table.Td>
-                <Table.Td><Badge variant="light" color={PLAN_COLORS[t.plan] ?? 'gray'} size="sm">{t.plan}</Badge></Table.Td>
-                <Table.Td><Text size="xs" c="dimmed">{t.createdAt ?? '—'}</Text></Table.Td>
+                <Table.Td><Badge color={STATUS_COLORS[tenant.status] ?? 'gray'} size="sm">{tenant.status}</Badge></Table.Td>
+                <Table.Td><Badge variant="light" color={PLAN_COLORS[tenant.plan] ?? 'gray'} size="sm">{tenant.plan}</Badge></Table.Td>
+                <Table.Td><Text size="xs" c="dimmed">{tenant.createdAt ?? '—'}</Text></Table.Td>
                 <Table.Td>
-                  {t.usage?.tokensThisMonth !== undefined && t.limits?.tokensPerMonth ? (
-                    <UsageBar current={t.usage.tokensThisMonth} limit={t.limits.tokensPerMonth} />
+                  {tenant.usage?.tokensThisMonth !== undefined && tenant.limits?.tokensPerMonth ? (
+                    <UsageBar current={tenant.usage.tokensThisMonth} limit={tenant.limits.tokensPerMonth} />
                   ) : (
                     <Text size="xs" c="dimmed">—</Text>
                   )}
@@ -153,15 +159,15 @@ export default function TenantList() {
                 <Table.Td>
                   <Group gap={4}>
                     <button
-                      onClick={() => handleImpersonate(t)}
+                      onClick={() => handleImpersonate(tenant)}
                       style={{
                         padding: '5px 12px', borderRadius: 6, fontSize: 12, fontWeight: 500,
                         cursor: 'pointer', fontFamily: 'var(--font-sans)',
                         border: '1px solid var(--border2)', background: 'var(--bg2)', color: 'var(--text2)',
                       }}
-                    >Enter</button>
+                    >{t('admin.superadmin.tenants.enter')}</button>
                     <button
-                      onClick={() => navigate(`/admin/tenants/${t.id}`)}
+                      onClick={() => navigate(`/admin/tenants/${tenant.id}`)}
                       style={{
                         width: 28, height: 28, borderRadius: 6, border: 'none',
                         background: 'transparent', cursor: 'pointer', color: 'var(--text3)',
@@ -175,7 +181,7 @@ export default function TenantList() {
             {!loading && tenants.length === 0 && (
               <Table.Tr>
                 <Table.Td colSpan={6}>
-                  <Text size="sm" c="dimmed" ta="center" py="md">No tenants found.</Text>
+                  <Text size="sm" c="dimmed" ta="center" py="md">{t('admin.superadmin.tenants.empty')}</Text>
                 </Table.Td>
               </Table.Tr>
             )}

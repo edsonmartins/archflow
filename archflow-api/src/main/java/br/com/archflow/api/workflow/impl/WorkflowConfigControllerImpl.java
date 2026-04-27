@@ -102,6 +102,15 @@ public class WorkflowConfigControllerImpl implements WorkflowConfigController {
         this(() -> DEFAULT_PERSONAS, () -> DEFAULT_GOVERNANCE, Collections::emptyList);
     }
 
+    /**
+     * Convenience overload that keeps the default personas / governance
+     * but replaces the MCP server supplier — used by the bean config to
+     * inject dynamic MCP registrations (e.g. the Linktor integration).
+     */
+    public WorkflowConfigControllerImpl(Supplier<List<McpServerDto>> mcpServerSupplier) {
+        this(() -> DEFAULT_PERSONAS, () -> DEFAULT_GOVERNANCE, mcpServerSupplier);
+    }
+
     public WorkflowConfigControllerImpl(
             Supplier<List<Persona>> personaSupplier,
             Supplier<List<GovernanceProfile>> governanceSupplier,

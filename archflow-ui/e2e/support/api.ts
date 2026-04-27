@@ -56,12 +56,27 @@ export async function installSession(
         ({ currentRole, currentToken, currentRefreshToken }) => {
             localStorage.setItem('archflow_token', currentToken);
             localStorage.setItem('archflow_refresh_token', currentRefreshToken);
+            // Pin the UI language to English so text-based test selectors
+            // remain stable regardless of the runner's browser locale or
+            // any `archflow-language` value left over from a prior run.
+            localStorage.setItem('archflow-language', 'en');
             if (currentRole) {
                 sessionStorage.setItem('archflow_role', currentRole);
             }
         },
         { currentRole: role, currentToken: token, currentRefreshToken: refreshToken },
     );
+}
+
+/**
+ * Force the UI language to English for tests that don't go through
+ * `installSession` (e.g. login flow tests where the user is not yet
+ * authenticated). Call before `page.goto()`.
+ */
+export async function pinLanguageEn(page: Page) {
+    await page.addInitScript(() => {
+        localStorage.setItem('archflow-language', 'en');
+    });
 }
 
 export async function installApiRouter(

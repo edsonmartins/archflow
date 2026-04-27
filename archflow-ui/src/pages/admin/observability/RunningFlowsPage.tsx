@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
     ActionIcon,
     Badge,
@@ -21,8 +22,8 @@ const POLL_INTERVAL_MS = 2_000;
 /**
  * Formats millisecond duration as "1m 23s" or "45s" or "< 1s".
  */
-function formatDuration(ms: number): string {
-    if (ms < 1000) return '< 1s';
+function formatDuration(ms: number, shortLabel: string): string {
+    if (ms < 1000) return shortLabel;
     const s = Math.floor(ms / 1000);
     const m = Math.floor(s / 60);
     const sec = s % 60;
@@ -39,9 +40,11 @@ function formatDuration(ms: number): string {
  * 4. Cancel button with confirmation modal.
  */
 export default function RunningFlowsPage() {
+    const { t, i18n } = useTranslation();
+    const locale = i18n.resolvedLanguage ?? i18n.language;
     const [flows, setFlows] = useState<RunningFlowDto[]>([]);
     const [loading, setLoading] = useState(true);
-    const [tick, setTick] = useState(0);
+    const [, setTick] = useState(0);
     const [confirmCancel, setConfirmCancel] = useState<string | null>(null);
     const [cancelling, setCancelling] = useState(false);
 
@@ -99,12 +102,12 @@ export default function RunningFlowsPage() {
     return (
         <Stack gap="md">
             <Group justify="space-between">
-                <Text fw={600} size="lg">Running flows</Text>
+                <Text fw={600} size="lg">{t('admin.observability.running.title')}</Text>
                 <Group gap="xs">
                     <Badge variant="light" color={flows.length > 0 ? 'green' : 'gray'}>
-                        {flows.length} active
+                        {t('admin.observability.running.activeCount', { count: flows.length })}
                     </Badge>
-                    <Tooltip label="Refresh now">
+                    <Tooltip label={t('admin.observability.running.refreshNow')}>
                         <ActionIcon variant="subtle" onClick={fetchFlows}>
                             <IconRefresh size={16} />
                         </ActionIcon>
@@ -114,15 +117,15 @@ export default function RunningFlowsPage() {
 
             {loading && (
                 <Center py="xl">
-                    <Text c="dimmed" size="sm">Loading…</Text>
+                    <Text c="dimmed" size="sm">{t('admin.observability.running.loading')}</Text>
                 </Center>
             )}
 
             {!loading && flows.length === 0 && (
                 <Center py="xl">
                     <Stack align="center" gap="xs">
-                        <Text c="dimmed" size="sm">No flows running right now</Text>
-                        <Text c="dimmed" size="xs">The table will auto-refresh every 2 seconds</Text>
+                        <Text c="dimmed" size="sm">{t('admin.observability.running.empty')}</Text>
+                        <Text c="dimmed" size="xs">{t('admin.observability.running.emptyHint')}</Text>
                     </Stack>
                 </Center>
             )}
@@ -132,13 +135,13 @@ export default function RunningFlowsPage() {
                     <Table striped highlightOnHover withTableBorder withColumnBorders>
                         <Table.Thead>
                             <Table.Tr>
-                                <Table.Th>Flow</Table.Th>
-                                <Table.Th>Tenant</Table.Th>
-                                <Table.Th>Started</Table.Th>
-                                <Table.Th>Current step</Table.Th>
-                                <Table.Th>Progress</Table.Th>
-                                <Table.Th>Duration</Table.Th>
-                                <Table.Th>Actions</Table.Th>
+                                <Table.Th>{t('admin.observability.running.cols.flow')}</Table.Th>
+                                <Table.Th>{t('admin.observability.running.cols.tenant')}</Table.Th>
+                                <Table.Th>{t('admin.observability.running.cols.started')}</Table.Th>
+                                <Table.Th>{t('admin.observability.running.cols.currentStep')}</Table.Th>
+                                <Table.Th>{t('admin.observability.running.cols.progress')}</Table.Th>
+                                <Table.Th>{t('admin.observability.running.cols.duration')}</Table.Th>
+                                <Table.Th>{t('admin.observability.running.cols.actions')}</Table.Th>
                             </Table.Tr>
                         </Table.Thead>
                         <Table.Tbody>
@@ -159,7 +162,7 @@ export default function RunningFlowsPage() {
                                         </Table.Td>
                                         <Table.Td>
                                             <Text size="sm" c="dimmed">
-                                                {new Date(flow.startedAt).toLocaleTimeString()}
+                                                {new Date(flow.startedAt).toLocaleTimeString(locale)}
                                             </Text>
                                         </Table.Td>
                                         <Table.Td>
@@ -188,11 +191,11 @@ export default function RunningFlowsPage() {
                                         </Table.Td>
                                         <Table.Td>
                                             <Text size="sm" ff="monospace">
-                                                {formatDuration(dur)}
+                                                {formatDuration(dur, t('admin.observability.running.durShort'))}
                                             </Text>
                                         </Table.Td>
                                         <Table.Td>
-                                            <Tooltip label="Cancel flow">
+                                            <Tooltip label={t('admin.observability.running.cancelTooltip')}>
                                                 <ActionIcon
                                                     color="red"
                                                     variant="subtle"
@@ -214,28 +217,28 @@ export default function RunningFlowsPage() {
             <Modal
                 opened={confirmCancel !== null}
                 onClose={() => setConfirmCancel(null)}
-                title="Cancel flow?"
+                title={t('admin.observability.running.cancelTitle')}
                 centered
                 size="sm"
             >
                 <Stack gap="md">
                     <Text size="sm">
-                        Are you sure you want to cancel{' '}
+                        {t('admin.observability.running.cancelPrompt')}{' '}
                         <Text component="span" fw={600} ff="monospace">
                             {confirmCancel}
                         </Text>
-                        ? This action cannot be undone.
+                        {t('admin.observability.running.cancelWarn')}
                     </Text>
                     <Group justify="flex-end" gap="xs">
                         <Button variant="default" onClick={() => setConfirmCancel(null)}>
-                            Keep running
+                            {t('admin.observability.running.keepRunning')}
                         </Button>
                         <Button
                             color="red"
                             loading={cancelling}
                             onClick={handleCancelConfirm}
                         >
-                            Cancel flow
+                            {t('admin.observability.running.cancelBtn')}
                         </Button>
                     </Group>
                 </Stack>

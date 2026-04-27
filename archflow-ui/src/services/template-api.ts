@@ -1,9 +1,49 @@
-import { workflowApi, type WorkflowDetail } from './api';
+import { api, workflowApi, type WorkflowDetail } from './api';
 import {
     listTemplates as bundledList,
     getTemplate as bundledGet,
     type WorkflowTemplate,
 } from '../data/templates';
+
+/**
+ * Shape returned by {@code GET /api/templates}. We only consume the
+ * fields needed for the gallery; the backend may add others over time.
+ */
+interface BackendTemplate {
+    id: string;
+    displayName: string;
+    description: string;
+    category: string;
+    version?: string;
+    author?: string;
+    icon?: string;
+    complexity?: string;
+    tags?: string[];
+    stepCount?: number;
+}
+
+function toWorkflowTemplate(bt: BackendTemplate): WorkflowTemplate {
+    const fallback = bundledGet(bt.id);
+    return fallback
+        ? { ...fallback, name: bt.displayName ?? fallback.name, summary: bt.description ?? fallback.summary }
+        : {
+            id: bt.id,
+            name: bt.displayName,
+            icon: bt.icon ?? '📄',
+            summary: bt.description,
+            description: bt.description,
+            category: (bt.category as WorkflowTemplate['category']) ?? 'productivity',
+            tags: bt.tags ?? [],
+            complexity: (bt.complexity as WorkflowTemplate['complexity']) ?? 'starter',
+            steps: [],
+            connections: [],
+        };
+}
+
+async function loadFromBackend(): Promise<WorkflowTemplate[]> {
+    const items = await api.get<BackendTemplate[]>('/templates');
+    return items.map(toWorkflowTemplate);
+}
 
 /**
  * Templates are served as static JSON files from `/templates/index.json`
@@ -59,6 +99,14 @@ async function loadFromPublic(): Promise<WorkflowTemplate[]> {
 }
 
 async function resolveList(): Promise<WorkflowTemplate[]> {
+    // Priority: backend API → public/ JSON → bundled list. Any stage
+    // can fail independently; the next is tried automatically.
+    try {
+        const backend = await loadFromBackend();
+        if (backend.length > 0) return backend;
+    } catch (err) {
+        console.warn('[templates] backend unavailable, falling back to /templates/*.json', err);
+    }
     try {
         const external = await loadFromPublic();
         if (external.length > 0) return external;

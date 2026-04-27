@@ -1,4 +1,5 @@
 import { Progress, Group, Text } from '@mantine/core'
+import { useTranslation } from 'react-i18next'
 
 interface UsageBarProps {
   current: number
@@ -8,6 +9,8 @@ interface UsageBarProps {
 }
 
 export function UsageBar({ current, limit, label, unit = '' }: UsageBarProps) {
+  const { i18n } = useTranslation()
+  const locale = i18n.resolvedLanguage ?? i18n.language
   const pct = limit > 0 ? Math.min((current / limit) * 100, 100) : 0
   const color = pct >= 90 ? 'red' : pct >= 70 ? 'yellow' : 'blue'
 
@@ -17,10 +20,10 @@ export function UsageBar({ current, limit, label, unit = '' }: UsageBarProps) {
       <Progress value={pct} color={color} size="sm" radius="xl" />
       <Group justify="space-between" mt={2}>
         <Text size="xs" c="dimmed">
-          {current.toLocaleString()}{unit}
+          {current.toLocaleString(locale)}{unit}
         </Text>
         <Text size="xs" c="dimmed">
-          {limit.toLocaleString()}{unit} ({pct.toFixed(0)}%)
+          {limit.toLocaleString(locale)}{unit} ({pct.toFixed(0)}%)
         </Text>
       </Group>
     </div>

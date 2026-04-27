@@ -1,14 +1,15 @@
 import { Stack, LoadingOverlay, Alert } from '@mantine/core';
 import { IconAlertCircle } from '@tabler/icons-react';
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useWorkflowStore } from '../stores/workflow-store';
 
-const STATUS_BADGE: Record<string, { bg: string; color: string; dot: string; label: string }> = {
-    RUNNING:   { bg: 'var(--blue-l)',  color: 'var(--blue)',  dot: 'var(--blue)',  label: 'Running' },
-    COMPLETED: { bg: 'var(--green-l)', color: 'var(--green)', dot: 'var(--green)', label: 'Completed' },
-    FAILED:    { bg: 'var(--red-l)',   color: 'var(--red)',   dot: 'var(--red)',   label: 'Failed' },
-    PAUSED:    { bg: 'var(--amber-l)', color: 'var(--amber)', dot: 'var(--amber)', label: 'Paused' },
-    CANCELLED: { bg: 'var(--gray-l)',  color: 'var(--gray)',  dot: 'var(--gray)',  label: 'Cancelled' },
+const STATUS_BADGE: Record<string, { bg: string; color: string; dot: string }> = {
+    RUNNING:   { bg: 'var(--blue-l)',  color: 'var(--blue)',  dot: 'var(--blue)'  },
+    COMPLETED: { bg: 'var(--green-l)', color: 'var(--green)', dot: 'var(--green)' },
+    FAILED:    { bg: 'var(--red-l)',   color: 'var(--red)',   dot: 'var(--red)'   },
+    PAUSED:    { bg: 'var(--amber-l)', color: 'var(--amber)', dot: 'var(--amber)' },
+    CANCELLED: { bg: 'var(--gray-l)',  color: 'var(--gray)',  dot: 'var(--gray)'  },
 };
 
 function formatDuration(ms: number | null): string {
@@ -24,6 +25,8 @@ function formatDuration(ms: number | null): string {
 const COL_GRID = '160px 1fr 130px 90px 80px 1fr';
 
 export default function ExecutionHistoryPage() {
+    const { t, i18n } = useTranslation();
+    const locale = i18n.resolvedLanguage ?? i18n.language;
     const { executions, workflows, loading, error, fetchExecutions, fetchWorkflows } = useWorkflowStore();
     const [filterWorkflow, setFilterWorkflow] = useState('');
 
@@ -37,7 +40,7 @@ export default function ExecutionHistoryPage() {
 
             {/* Header */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <span style={{ fontSize: 22, fontWeight: 600, letterSpacing: '-0.3px', color: 'var(--text)' }}>Execution History</span>
+                <span style={{ fontSize: 22, fontWeight: 600, letterSpacing: '-0.3px', color: 'var(--text)' }}>{t('executions.title')}</span>
                 <select
                     value={filterWorkflow}
                     onChange={e => setFilterWorkflow(e.target.value)}
@@ -50,7 +53,7 @@ export default function ExecutionHistoryPage() {
                         backgroundRepeat: 'no-repeat', backgroundPosition: 'right 10px center',
                     }}
                 >
-                    <option value="">All workflows</option>
+                    <option value="">{t('executions.allWorkflows')}</option>
                     {workflows.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
                 </select>
             </div>
@@ -61,8 +64,8 @@ export default function ExecutionHistoryPage() {
                         <circle cx="24" cy="24" r="18" stroke="currentColor" strokeWidth="2" strokeDasharray="4 3"/>
                         <path d="M24 14v10l7 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
                     </svg>
-                    <span style={{ fontSize: 16, fontWeight: 600, color: 'var(--text2)' }}>No executions yet</span>
-                    <span style={{ fontSize: 13, color: 'var(--text3)', maxWidth: 260, textAlign: 'center' }}>Execute a workflow to see results here</span>
+                    <span style={{ fontSize: 16, fontWeight: 600, color: 'var(--text2)' }}>{t('executions.empty')}</span>
+                    <span style={{ fontSize: 13, color: 'var(--text3)', maxWidth: 260, textAlign: 'center' }}>{t('executions.emptyHint')}</span>
                 </div>
             ) : (
                 <div style={{ border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden', background: 'var(--bg2)' }}>
@@ -73,12 +76,12 @@ export default function ExecutionHistoryPage() {
                         color: 'var(--text3)', borderBottom: '1px solid var(--border)',
                         background: 'var(--bg3)',
                     }}>
-                        <span>Execution ID</span>
-                        <span>Workflow</span>
-                        <span>Status</span>
-                        <span>Started</span>
-                        <span>Duration</span>
-                        <span>Error</span>
+                        <span>{t('executions.cols.id')}</span>
+                        <span>{t('executions.cols.workflow')}</span>
+                        <span>{t('executions.cols.status')}</span>
+                        <span>{t('executions.cols.started')}</span>
+                        <span>{t('executions.cols.duration')}</span>
+                        <span>{t('executions.cols.error')}</span>
                     </div>
 
                     {/* Rows */}
@@ -110,11 +113,11 @@ export default function ExecutionHistoryPage() {
                                         animation: isRunning ? 'pulse 1.5s ease-in-out infinite' : 'none',
                                     }}>
                                         <span style={{ width: 5, height: 5, borderRadius: '50%', background: badge.dot }}></span>
-                                        {badge.label}
+                                        {t(`executions.statuses.${exec.status}`, { defaultValue: exec.status })}
                                     </span>
                                 </span>
                                 <span style={{ fontSize: 11, color: 'var(--text3)' }}>
-                                    {new Date(exec.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                    {new Date(exec.startedAt).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}
                                 </span>
                                 <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text2)' }}>
                                     {isRunning ? '…' : formatDuration(exec.duration)}

@@ -18,7 +18,11 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 
-import { AgentNode, ControlNode, DataNode, ToolNode, VectorNode, IONode } from './nodes/index'
+import {
+  AgentNode, ControlNode, DataNode, ToolNode, VectorNode, IONode,
+  KnowledgeNode, IntegrationNode,
+  StickyNoteNode, GroupFrameNode, SectionDividerNode,
+} from './nodes/index'
 import { FlowEdge }      from './edges/FlowEdge'
 import { useFlowStore }  from './store/useFlowStore'
 import { NODE_CATEGORIES } from './constants'
@@ -26,12 +30,20 @@ import type { FlowNodeData, WorkflowData } from './types'
 
 // ── Registro de tipos ────────────────────────────────────────────
 const nodeTypes: NodeTypes = {
-  agent:   AgentNode,
-  control: ControlNode,
-  data:    DataNode,
-  tool:    ToolNode,
-  vector:  VectorNode,
-  io:      IONode,
+  agent:       AgentNode,
+  control:     ControlNode,
+  data:        DataNode,
+  tool:        ToolNode,
+  vector:      VectorNode,
+  io:          IONode,
+  knowledge:   KnowledgeNode,
+  integration: IntegrationNode,
+  // Auxiliary shapes — render under their componentId so the drop
+  // handler in `onDrop` resolves to the right component (we use the
+  // componentId as the React Flow `type`, not the category).
+  'sticky-note':     StickyNoteNode,
+  'group-frame':     GroupFrameNode,
+  'section-divider': SectionDividerNode,
 }
 
 const edgeTypes = {
@@ -164,10 +176,21 @@ export function FlowCanvas({
         y: event.clientY,
       })
 
+      // Annotation shapes are not generic category cards — each has
+      // its own dedicated React Flow component (StickyNote / GroupFrame
+      // / SectionDivider), so we register them under their componentId
+      // and route by that. Default sizes also differ per shape.
+      const isAnnotation = nodeInfo.category === 'annotation'
+      const defaultSize: Record<string, { width: number; height: number }> = {
+        'sticky-note':     { width: 220, height: 140 },
+        'group-frame':     { width: 360, height: 220 },
+        'section-divider': { width: 480, height: 36  },
+      }
       const newNode: Node<FlowNodeData> = {
         id:       `node-${Date.now()}`,
-        type:     nodeInfo.category,
+        type:     isAnnotation ? nodeInfo.componentId : nodeInfo.category,
         position,
+        ...(isAnnotation ? { ...defaultSize[nodeInfo.componentId] } : {}),
         data: {
           label:       nodeInfo.label,
           componentId: nodeInfo.componentId,
@@ -242,7 +265,7 @@ export function FlowCanvas({
           type: 'flow',
           animated: false,
         }}
-        deleteKeyCode={readonly ? null : 'Backspace'}
+        deleteKeyCode={readonly ? null : ['Backspace', 'Delete']}
         nodesDraggable={!readonly}
         nodesConnectable={!readonly}
         elementsSelectable={!readonly}
@@ -301,18 +324,23 @@ function minimapNodeColor(node: Node): string {
 }
 
 function workflowToNodes(wf: WorkflowData): Node<FlowNodeData>[] {
-  return wf.steps.map(step => ({
-    id:       step.id,
-    type:     step.category,
-    position: step.position,
-    data: {
-      label:       step.label,
-      componentId: step.componentId,
-      nodeType:    step.type,
-      status:      'idle',
-      config:      step.config ?? {},
-    },
-  }))
+  return wf.steps.map(step => {
+    const isAnnotation = step.category === 'annotation'
+    return {
+      id:       step.id,
+      // Same routing as in onDrop: annotations use their componentId
+      // as the React Flow type; everything else uses the category.
+      type:     isAnnotation ? step.componentId : step.category,
+      position: step.position,
+      data: {
+        label:       step.label,
+        componentId: step.componentId,
+        nodeType:    step.type,
+        status:      'idle',
+        config:      step.config ?? {},
+      },
+    }
+  })
 }
 
 function workflowToEdges(wf: WorkflowData): Edge[] {

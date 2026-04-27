@@ -1,0 +1,1265 @@
+{
+    "common": {
+        "create": "Create",
+        "custom": "Custom",
+        "customFreeText": "Custom (free text)",
+        "save": "Save",
+        "saving": "Saving...",
+        "cancel": "Cancel",
+        "delete": "Delete",
+        "edit": "Edit",
+        "refresh": "Refresh",
+        "loading": "Loading...",
+        "new": "New",
+        "close": "Close",
+        "back": "Back",
+        "appName": "Archflow"
+    },
+    "nav": {
+        "workflows": "Workflows",
+        "editor": "Editor",
+        "executions": "Executions",
+        "conversations": "Conversations",
+        "approvals": "Approvals",
+        "templates": "Templates",
+        "marketplace": "Marketplace",
+        "agentLab": "Agent lab",
+        "voice": "Voice",
+        "toggleSidebar": "Toggle sidebar",
+        "expandSidebar": "Expand sidebar",
+        "collapseSidebar": "Collapse sidebar"
+    },
+    "header": {
+        "lightMode": "Light mode",
+        "darkMode": "Dark mode",
+        "logout": "Logout",
+        "language": "Language"
+    },
+    "workflows": {
+        "title": "Workflows",
+        "subtitle": "Design and manage your AI workflows",
+        "newWorkflow": "New Workflow",
+        "createWorkflow": "Create Workflow",
+        "untitledName": "Untitled Workflow",
+        "search": "Search workflows…",
+        "empty": "No workflows yet",
+        "emptyHint": "Create your first AI workflow to get started",
+        "noMatches": "No matching workflows",
+        "noMatchesHint": "Try adjusting your search terms",
+        "stepCount_one": "{{count}} step",
+        "stepCount_other": "{{count}} steps",
+        "updatedAt": "Updated {{when}}",
+        "status": {
+            "draft": "Draft",
+            "active": "Active",
+            "paused": "Paused",
+            "failed": "Failed",
+            "archived": "Archived"
+        },
+        "actions": {
+            "execute": "Execute",
+            "edit": "Edit",
+            "delete": "Delete"
+        },
+        "deleteModal": {
+            "title": "Delete Workflow",
+            "message": "Are you sure? This action cannot be undone."
+        }
+    },
+    "editor": {
+        "save": "Save",
+        "saveYaml": "Save YAML",
+        "canvas": "Canvas",
+        "code": "Code",
+        "run": "Run",
+        "back": "Back to list",
+        "saved": "Saved",
+        "savedAt": "Saved at {{time}}",
+        "unsavedChanges": "Unsaved changes",
+        "palette": {
+            "title": "Components",
+            "search": "Search components...",
+            "empty": "No components match your search."
+        },
+        "properties": {
+            "title": "Properties",
+            "empty": "Select a node to edit its properties.",
+            "emptyHint": "Click a node on the canvas to view its properties",
+            "noNodeSelected": "No node selected",
+            "tabs": {
+                "properties": "Properties",
+                "logs": "Logs",
+                "output": "Output"
+            },
+            "togglePalette": "Toggle components panel",
+            "toggleProperties": "Toggle properties panel",
+            "fields": {
+                "nodeName": "Node name",
+                "assistantType": "Assistant type",
+                "agentType": "Agent type",
+                "executionStrategy": "Execution strategy",
+                "provider": "Provider",
+                "model": "Model",
+                "persona": "Persona",
+                "systemPrompt": "System prompt",
+                "systemPromptPlaceholder": "You are a helpful assistant...",
+                "temperature": "Temperature",
+                "maxTokens": "Max tokens",
+                "maxIterations": "Max iterations",
+                "advanced": "Advanced",
+                "timeoutSec": "Timeout (seconds)",
+                "memoryBackend": "Memory backend",
+                "memoryOptions": {
+                    "in-memory": "In-Memory (default)",
+                    "redis": "Redis",
+                    "jdbc": "JDBC (PostgreSQL)"
+                },
+                "redisUrl": "Redis URL",
+                "jdbcDatasource": "JDBC datasource",
+                "datasourceNamePlaceholder": "datasource-name",
+                "governance": "Governance",
+                "profile": "Profile",
+                "enabledTools": "Enabled tools (whitelist)",
+                "disabledTools": "Disabled tools (blacklist)",
+                "addTool": "Add tool...",
+                "escalationThreshold": "Escalation threshold",
+                "escalationHint": "Confidence below this triggers escalation (0.0-1.0)",
+                "maxToolExecutions": "Max tool executions",
+                "humanEscalation": "Human escalation",
+                "customInstructions": "Custom instructions",
+                "customInstructionsPlaceholder": "Additional governance rules...",
+                "mcpServers": "MCP Servers",
+                "connectedServers": "Connected servers",
+                "addServer": "Add server name...",
+                "transport": "Transport",
+                "transportOptions": {
+                    "stdio": "STDIO (subprocess)",
+                    "sse": "SSE (HTTP)"
+                },
+                "command": "Command",
+                "commandPlaceholder": "python server.py",
+                "serverUrl": "Server URL",
+                "serverUrlPlaceholder": "http://localhost:8080/mcp",
+                "tool": "Tool",
+                "toolId": "Tool ID",
+                "onError": "On error",
+                "onErrorOptions": {
+                    "stop": "Stop execution",
+                    "continue": "Continue (ignore)",
+                    "retry": "Retry with policy"
+                },
+                "retryMaxAttempts": "Max attempts",
+                "retryInitialDelay": "Initial delay (ms)",
+                "retryBackoff": "Backoff multiplier",
+                "vectorBackend": "Vector backend",
+                "vectorBackendOptions": {
+                    "pgvector": "PGVector (PostgreSQL)",
+                    "pinecone": "Pinecone",
+                    "redis": "Redis Vector",
+                    "in-memory": "In-Memory"
+                },
+                "pineconeApiKey": "Pinecone API key",
+                "environment": "Environment",
+                "environmentPlaceholder": "us-east-1-aws",
+                "indexName": "Index name",
+                "datasource": "Datasource",
+                "tableName": "Table name",
+                "dimensions": "Dimensions",
+                "keyPrefix": "Key prefix",
+                "topK": "Top K results",
+                "embeddingProvider": "Embedding provider",
+                "embeddingProviderOptions": {
+                    "openai": "OpenAI",
+                    "local": "Local (ONNX)"
+                },
+                "maxMessages": "Max messages",
+                "vectorStore": "Vector store",
+                "llmProvider": "LLM provider",
+                "topKRetrieval": "Top-K retrieval",
+                "minScore": "Min score (0..1)",
+                "approvalTitle": "Approval title",
+                "approvalDescription": "Description shown to the reviewer",
+                "approvalDescriptionHint": "Explain what the human is deciding on. Variables like {{agent.decision}} are resolved from context.",
+                "proposalPayload": "Proposal payload (JSON)",
+                "proposalPayloadHint": "Shown to the reviewer alongside the description. Supports {{mustache}} substitution.",
+                "timeoutMin": "Timeout (minutes)",
+                "onTimeout": "On timeout",
+                "onTimeoutOptions": {
+                    "reject": "Reject (default)",
+                    "approve": "Auto-approve",
+                    "escalate": "Escalate to fallback channel"
+                },
+                "conversationIdSource": "Conversation id source",
+                "conversationIdHint": "Expression resolved against the execution context. Default uses conversationId from the upstream Linktor trigger.",
+                "messageText": "Message text",
+                "messageTextHint": "Supports {{mustache}} — e.g. Hello {{contact.name}}",
+                "failurePolicy": "Failure policy",
+                "failurePolicyOptions": {
+                    "warn": "Warn and continue",
+                    "stop": "Stop the flow",
+                    "retry": "Retry with backoff"
+                },
+                "targetUser": "Target user (optional)",
+                "targetUserHint": "Leave blank to return the conversation to the queue and let Linktor routing rules pick an agent.",
+                "reason": "Reason",
+                "expression": "Expression",
+                "expressionHint": "Boolean expression evaluated against the context. Use ${path.to.value} to reference upstream outputs.",
+                "errorBranchHint_pre": "Outgoing connections marked with",
+                "errorBranchLabel": "error",
+                "errorBranchHint_post": "take the FALSE branch automatically.",
+                "switchExpression": "Switch expression",
+                "switchExpressionHint": "Value compared against each case label.",
+                "switchCases": "Cases (one per line)",
+                "switchCasesHint": "The keyword `default` matches anything unmatched by the other cases.",
+                "collectionExpression": "Collection expression",
+                "itemVariable": "Item variable name",
+                "itemVariableHint": "Each iteration binds the current element under this name in the context.",
+                "runInParallel": "Run iterations in parallel",
+                "waitStrategy": "Wait strategy",
+                "waitStrategyOptions": {
+                    "all": "All branches must complete",
+                    "any": "First completed wins (race)",
+                    "majority": "Majority (n/2 + 1)"
+                },
+                "failFast": "Fail fast if any branch errors",
+                "mergeStrategy": "Merge strategy",
+                "mergeStrategyOptions": {
+                    "concat": "Concat (append arrays)",
+                    "deepMerge": "Deep merge objects",
+                    "firstNonNull": "First non-null",
+                    "last": "Last writer wins"
+                },
+                "outputVariable": "Output variable",
+                "outputVariableHint": "Context path where the merged result is written.",
+                "inputExpression": "Input expression",
+                "transformExpression": "Expression",
+                "transformFilter": "Predicate (item ⇒ boolean)",
+                "transformReduce": "Reducer (acc, item) ⇒ acc",
+                "transformMap": "Mapper (item ⇒ newItem)",
+                "transformHint": "Dialect: JSONata-style (current impl uses a simple ${path} + arithmetic/boolean evaluator).",
+                "reduceInitial": "Initial accumulator",
+                "promptChunk": "Chunk content",
+                "promptTemplate": "Template (with {{vars}})",
+                "promptChunkHint": "Static block of prompt. Combined with sibling chunks via their order.",
+                "promptTemplateHint": "Mustache-style template. Variables resolve against the flow context.",
+                "requiredVariables": "Required variables",
+                "addVariable": "add variable",
+                "requiredVariablesHint": "Flow will fail-fast if any listed variable is missing at render time.",
+                "chunkOrder": "Chunk order",
+                "expectedInputs": "Expected input fields",
+                "exportedOutputs": "Exported output fields",
+                "fieldNamePlaceholder": "field name",
+                "jsonSchema": "JSON schema (optional)",
+                "jsonSchemaHint": "If provided, validates the payload at the flow boundary.",
+                "rejectIfMissing": "Reject execution if input is missing",
+                "mcpServer": "MCP server",
+                "pickServer": "Pick a server",
+                "noMcpServers": "No MCP servers configured",
+                "pickTool": "Pick a tool",
+                "pickServerFirst": "Pick a server first",
+                "loadingEllipsis": "Loading…",
+                "argumentsJson": "Arguments (JSON)",
+                "argumentsHint": "Passed as the tool's arguments object. Supports {{mustache}} against the flow context.",
+                "workflowToInvoke": "Workflow to invoke",
+                "loadingWorkflows": "Loading workflows…",
+                "pickWorkflow": "Pick a workflow",
+                "inputMapping": "Input mapping (JSON)",
+                "inputMappingHint": "Forwarded as the nested flow's input. Supports {{mustache}} substitution from the parent context.",
+                "fireAndForget": "Fire and forget (do not wait for completion)",
+                "operation": "Operation",
+                "skillsOps": {
+                    "list": "List available skills",
+                    "activate": "Activate skill",
+                    "deactivate": "Deactivate skill",
+                    "read": "Read a skill resource",
+                    "active": "Get currently active skills"
+                },
+                "skillPick": "Pick a skill",
+                "noSkills": "No skills configured on backend",
+                "skillLabel": "Skill",
+                "skillActiveSuffix": " (active)",
+                "resourceName": "Resource name",
+                "logs": {
+                    "noData": "No execution data yet",
+                    "noOutput": "No output available",
+                    "nodeStarted": "[{{ts}}] Node started",
+                    "completedIn": "[{{ts}}] Completed in {{ms}}ms",
+                    "running": "[{{ts}}] Running..."
+                }
+            }
+        }
+    },
+    "executions": {
+        "title": "Execution History",
+        "allWorkflows": "All workflows",
+        "empty": "No executions yet",
+        "emptyHint": "Execute a workflow to see results here",
+        "cols": {
+            "id": "Execution ID",
+            "workflow": "Workflow",
+            "status": "Status",
+            "started": "Started",
+            "duration": "Duration",
+            "error": "Error"
+        },
+        "statuses": {
+            "RUNNING": "Running",
+            "COMPLETED": "Completed",
+            "FAILED": "Failed",
+            "PAUSED": "Paused",
+            "CANCELLED": "Cancelled"
+        }
+    },
+    "triggers": {
+        "title": "Scheduled triggers",
+        "newTrigger": "New trigger",
+        "info": "Triggers fire on the server's local time using Quartz cron expressions (6 or 7 fields: <code>sec min hour day-of-month month day-of-week [year]</code>). When a trigger fires it submits an InvocationRequest to the agent queue — the same path as the \"Invoke\" button in the playground.",
+        "loading": "Loading…",
+        "empty": "No triggers yet.",
+        "table": {
+            "name": "Name",
+            "cron": "Cron",
+            "tenant": "Tenant",
+            "agent": "Agent",
+            "status": "Status",
+            "lastFired": "Last fired"
+        },
+        "status": {
+            "enabled": "enabled",
+            "paused": "paused"
+        },
+        "fireNow": "Fire now",
+        "edit": "Edit",
+        "delete": "Delete",
+        "editTitle": "Edit trigger",
+        "newTitle": "New trigger",
+        "name": "Name",
+        "cron": "Cron expression",
+        "cronHint": "Quartz format: sec min hour day-of-month month day-of-week [year]",
+        "tenant": "Tenant id",
+        "agent": "Agent",
+        "payload": "Payload (JSON)",
+        "enabled": "Enabled",
+        "confirmDelete": "Delete trigger \"{{name}}\"?",
+        "invalidJson": "Invalid JSON payload",
+        "invalidJsonMsg": "Payload must be a valid JSON object",
+        "saveFailed": "Save failed",
+        "deleteFailed": "Delete failed",
+        "fireFailed": "Fire failed",
+        "fired": "Fired",
+        "firedMsg": "Submitted invocation for {{name}}"
+    },
+    "admin": {
+        "layout": {
+            "admin": "Admin",
+            "superadmin": "SUPERADMIN",
+            "workspace": "WORKSPACE",
+            "backToApp": "← Back to app",
+            "workflows": "Workflows",
+            "executions": "Executions",
+            "tenants": "Tenants",
+            "observability": "Observability",
+            "globalConfig": "Global Config",
+            "usageBilling": "Usage & Billing",
+            "overview": "Overview",
+            "users": "Users",
+            "apiKeys": "API Keys"
+        },
+        "impersonation": {
+            "viewingAs": "Viewing as admin of <b>{{name}}</b>. All actions are recorded in the audit log.",
+            "back": "Back to superadmin →"
+        },
+        "observability": {
+            "title": "Observability",
+            "loadFailed": "Failed to load overview",
+            "tabs": {
+                "overview": "Overview",
+                "running": "Running flows",
+                "traces": "Traces",
+                "metrics": "Metrics",
+                "audit": "Audit log",
+                "live": "Live events"
+            },
+            "overview": {
+                "execToday": "Executions today",
+                "successRate": "Success rate",
+                "errorsPct": "{{pct}}% errors",
+                "avgLatency": "Avg latency",
+                "p95": "p95 {{ms}} ms",
+                "activeStreams": "Active streams",
+                "auditEventsToday": "{{count}} audit events today",
+                "topPersonas": "Top personas (last 24h)",
+                "noPersonas": "No persona activity yet.",
+                "exec_one": "{{count}} execution",
+                "exec_other": "{{count}} executions",
+                "okPct": "{{pct}}% ok"
+            },
+            "metrics": {
+                "loadFailed": "Failed to load metrics",
+                "metric": "Metric",
+                "bucket": "Bucket",
+                "bucketValues": {
+                    "60": "1 min",
+                    "300": "5 min",
+                    "900": "15 min"
+                },
+                "metricValues": {
+                    "latency_ms": "Latency (ms)",
+                    "throughput": "Throughput (count)",
+                    "error_rate": "Error rate"
+                },
+                "buckets": "{{count}} buckets",
+                "noSamples": "No samples in the selected window.",
+                "counters": "Counters",
+                "gauges": "Gauges",
+                "histograms": "Histogram stats",
+                "noHistograms": "No histogram data yet.",
+                "histCols": {
+                    "metric": "Metric",
+                    "count": "Count",
+                    "min": "Min",
+                    "max": "Max",
+                    "mean": "Mean",
+                    "median": "Median"
+                },
+                "noData": "No data."
+            },
+            "audit": {
+                "loadFailed": "Failed to load audit log",
+                "filterActor": "Filter by actor (user id or username)...",
+                "filterAction": "Action (e.g. WORKFLOW_EXECUTE)",
+                "exportCsv": "Export CSV",
+                "empty": "No audit entries yet.",
+                "showing": "Showing {{from}}–{{to}} of {{total}}",
+                "previous": "Previous",
+                "next": "Next",
+                "resultSuccess": "success",
+                "resultFailed": "failed",
+                "cols": {
+                    "when": "When",
+                    "actor": "Actor",
+                    "action": "Action",
+                    "resource": "Resource",
+                    "result": "Result",
+                    "trace": "Trace"
+                }
+            },
+            "traces": {
+                "loadFailed": "Failed to load traces",
+                "search": "Search by trace id, flow id, execution id...",
+                "status": "Status",
+                "statusAll": "All",
+                "empty": "No traces captured yet.",
+                "cols": {
+                    "traceId": "Trace ID",
+                    "tenant": "Tenant",
+                    "persona": "Persona",
+                    "started": "Started",
+                    "duration": "Duration",
+                    "spans": "Spans",
+                    "status": "Status"
+                },
+                "time": {
+                    "justNow": "just now",
+                    "minutesAgo": "{{n}}m ago",
+                    "hoursAgo": "{{n}}h ago"
+                }
+            },
+            "traceDetail": {
+                "title": "Trace {{id}}",
+                "back": "Back to traces",
+                "notFound": "Trace not found.",
+                "loadFailed": "Failed to load trace",
+                "meta": {
+                    "tenant": "Tenant",
+                    "flow": "Flow",
+                    "execution": "Execution",
+                    "duration": "Duration",
+                    "spans": "Spans"
+                },
+                "timeline": "Span timeline",
+                "noSpans": "No spans captured for this trace.",
+                "attributes": "Span attributes",
+                "attrCols": {
+                    "span": "Span",
+                    "attribute": "Attribute",
+                    "value": "Value"
+                }
+            },
+            "running": {
+                "title": "Running flows",
+                "activeCount": "{{count}} active",
+                "refreshNow": "Refresh now",
+                "loading": "Loading…",
+                "empty": "No flows running right now",
+                "emptyHint": "The table will auto-refresh every 2 seconds",
+                "cols": {
+                    "flow": "Flow",
+                    "tenant": "Tenant",
+                    "started": "Started",
+                    "currentStep": "Current step",
+                    "progress": "Progress",
+                    "duration": "Duration",
+                    "actions": "Actions"
+                },
+                "cancelTooltip": "Cancel flow",
+                "cancelTitle": "Cancel flow?",
+                "cancelPrompt": "Are you sure you want to cancel",
+                "cancelWarn": "? This action cannot be undone.",
+                "keepRunning": "Keep running",
+                "cancelBtn": "Cancel flow",
+                "durShort": "< 1s"
+            },
+            "live": {
+                "openFailed": "Failed to open stream",
+                "tenantId": "Tenant id",
+                "sessionId": "Session id",
+                "tenantPlaceholder": "acme",
+                "sessionPlaceholder": "conversation-123",
+                "pause": "Pause",
+                "resume": "Resume",
+                "clear": "Clear",
+                "detach": "Detach",
+                "attach": "Attach",
+                "eventFeed": "Event feed",
+                "waiting": "Waiting for events…",
+                "attachHint": "Attach to a tenant/session to start streaming.",
+                "cols": {
+                    "time": "Time",
+                    "domain": "Domain",
+                    "type": "Type",
+                    "payload": "Payload"
+                }
+            }
+        },
+        "superadmin": {
+            "tenants": {
+                "title": "Tenants",
+                "newTenant": "New Tenant",
+                "loadFailed": "Failed to load tenants",
+                "empty": "No tenants found.",
+                "stats": {
+                    "active": "Active tenants",
+                    "executionsToday": "Executions today",
+                    "tokensMonth": "Tokens this month",
+                    "trial": "Trial tenants"
+                },
+                "columns": {
+                    "tenant": "Tenant",
+                    "status": "Status",
+                    "plan": "Plan",
+                    "created": "Created",
+                    "tokenUsage": "Token usage",
+                    "actions": "Actions"
+                },
+                "enter": "Enter"
+            },
+            "tenantDetail": {
+                "title": "Tenant Detail",
+                "back": "← Back",
+                "loadFailed": "Failed to load tenant",
+                "updateFailed": "Failed to update tenant",
+                "deleteFailed": "Failed to delete tenant",
+                "activated": "Tenant activated",
+                "suspended": "Tenant suspended",
+                "deleted": "Tenant deleted",
+                "identity": "Identity",
+                "planStatus": "Plan & Status",
+                "usage": "Usage",
+                "plan": "Plan",
+                "status": "Status",
+                "allowedModels": "Allowed models",
+                "name": "Name",
+                "tenantId": "Tenant ID",
+                "admin": "Admin",
+                "sector": "Sector",
+                "created": "Created",
+                "activate": "Activate",
+                "suspend": "Suspend",
+                "delete": "Delete",
+                "bars": {
+                    "execPerDay": "Executions/day",
+                    "tokensPerMonth": "Tokens/month",
+                    "workflows": "Workflows",
+                    "users": "Users"
+                }
+            },
+            "tenantNew": {
+                "title": "Create Tenant",
+                "back": "← Back",
+                "createFailed": "Failed to create tenant",
+                "created": "Tenant created",
+                "createdMsg": "{{name}} created successfully",
+                "identity": "Identity",
+                "planLimits": "Plan & Limits",
+                "summary": "Summary",
+                "form": {
+                    "name": "Tenant name",
+                    "id": "Tenant ID",
+                    "idHint": "URL-safe slug, must be unique",
+                    "email": "Admin email",
+                    "emailHint": "Invitation will be sent to this email",
+                    "sector": "Sector",
+                    "plan": "Plan",
+                    "execPerDay": "Executions/day",
+                    "tokensPerMonth": "Tokens/month",
+                    "maxWorkflows": "Max workflows",
+                    "maxUsers": "Max users"
+                },
+                "plans": {
+                    "trial": "Trial (30 days)",
+                    "professional": "Professional",
+                    "enterprise": "Enterprise",
+                    "internal": "Internal"
+                },
+                "summaryRows": {
+                    "name": "Name",
+                    "id": "ID",
+                    "email": "Email",
+                    "plan": "Plan",
+                    "exec": "Exec/day",
+                    "tokensMo": "Tokens/mo",
+                    "workflows": "Workflows",
+                    "users": "Users"
+                },
+                "createBtn": "Create tenant"
+            },
+            "usage": {
+                "title": "Usage & Billing",
+                "exportCsv": "Export CSV",
+                "loadFailed": "Failed to load usage",
+                "stats": {
+                    "executions": "Executions",
+                    "tokens": "Tokens consumed",
+                    "cost": "Estimated cost",
+                    "tenants": "Tenants"
+                },
+                "columns": {
+                    "tenant": "Tenant",
+                    "executions": "Executions",
+                    "tokensIn": "Tokens In",
+                    "tokensOut": "Tokens Out",
+                    "cost": "Est. Cost",
+                    "percent": "% of Total"
+                }
+            },
+            "globalConfig": {
+                "title": "Global Configuration",
+                "loadFailed": "Failed to load configuration",
+                "updateTogglesFailed": "Failed to update toggles",
+                "updateModelFailed": "Failed to update model",
+                "modelUpdated": "Model updated",
+                "models": "LLM Models",
+                "plans": "Plan Defaults",
+                "toggles": "Feature Toggles",
+                "modelCols": {
+                    "model": "Model",
+                    "provider": "Provider",
+                    "status": "Status",
+                    "inputCost": "Cost/1M input",
+                    "outputCost": "Cost/1M output",
+                    "enabled": "Enabled"
+                },
+                "planCols": {
+                    "plan": "Plan",
+                    "execPerDay": "Executions/day",
+                    "tokensPerMonth": "Tokens/month",
+                    "maxWorkflows": "Max workflows",
+                    "maxUsers": "Max users"
+                },
+                "toggleLabels": {
+                    "allowLocalModels": "Allow local models (Ollama / RTX)",
+                    "humanInTheLoop": "Human-in-the-loop",
+                    "brainSentry": "Brain Sentry (long-term memory via FalkorDB)",
+                    "debugMode": "Debug mode — full trace per node",
+                    "linktorNotifications": "Linktor notifications (WhatsApp)",
+                    "auditLog": "Audit log for user actions"
+                }
+            }
+        },
+        "tenant": {
+            "workspace": {
+                "title": "Workspace Overview",
+                "loadFailed": "Failed to load workspace",
+                "summaryUnavailable": "Workspace summary is unavailable right now.",
+                "planUsage": "Plan Usage",
+                "stats": {
+                    "workflows": "Workflows",
+                    "executionsToday": "Executions today",
+                    "users": "Users",
+                    "apiKeys": "API Keys"
+                },
+                "bars": {
+                    "execPerDay": "Executions/day",
+                    "tokensPerMonth": "Tokens/month",
+                    "workflows": "Workflows",
+                    "users": "Users"
+                }
+            },
+            "apiKeys": {
+                "title": "API Keys",
+                "create": "Create Key",
+                "createTitle": "Create API Key",
+                "loadFailed": "Failed to load API keys",
+                "createFailed": "Failed to create key",
+                "revokeFailed": "Failed to revoke key",
+                "created": "API Key created",
+                "createdHint": "Copy the key now — it won't be shown again",
+                "newKeyLabel": "Your new API key:",
+                "storeWarning": "This key will not be shown again. Store it securely.",
+                "done": "Done",
+                "copied": "Copied",
+                "copiedExcl": "Copied!",
+                "copy": "Copy",
+                "revoke": "Revoke",
+                "columns": {
+                    "name": "Name",
+                    "type": "Type",
+                    "key": "Key",
+                    "created": "Created",
+                    "lastUsed": "Last used",
+                    "actions": "Actions"
+                },
+                "form": {
+                    "name": "Key name",
+                    "namePlaceholder": "My integration",
+                    "type": "Type"
+                },
+                "types": {
+                    "production": "Production",
+                    "staging": "Staging",
+                    "web_component": "Web Component"
+                }
+            },
+            "users": {
+                "title": "Users",
+                "invite": "Invite User",
+                "inviteTitle": "Invite User",
+                "loadFailed": "Failed to load users",
+                "inviteFailed": "Failed to invite user",
+                "updateFailed": "Failed to update user",
+                "removeFailed": "Failed to remove user",
+                "inviteSent": "Invitation sent",
+                "inviteSentMsg": "Invite sent to {{email}}",
+                "sendInvite": "Send Invite",
+                "editRole": "Edit role",
+                "save": "Save",
+                "permissionsTitle": "Permission Matrix",
+                "permissions": {
+                    "header": "Permission",
+                    "admin": "Admin",
+                    "editor": "Editor",
+                    "viewer": "Viewer",
+                    "viewWorkflows": "View workflows",
+                    "editWorkflows": "Create/edit workflows",
+                    "executeWorkflows": "Execute workflows",
+                    "manageUsers": "Manage users",
+                    "manageApiKeys": "Manage API keys"
+                },
+                "columns": {
+                    "user": "User",
+                    "role": "Role",
+                    "status": "Status",
+                    "lastAccess": "Last access",
+                    "workflows": "Workflows",
+                    "actions": "Actions"
+                },
+                "status": {
+                    "active": "Active",
+                    "invited": "Invite pending"
+                },
+                "form": {
+                    "email": "Email",
+                    "emailPlaceholder": "user@company.com",
+                    "role": "Role"
+                },
+                "roles": {
+                    "admin": "Admin",
+                    "editor": "Editor",
+                    "viewer": "Viewer"
+                },
+                "editTooltip": "Edit role",
+                "revokeInvite": "Revoke invite",
+                "remove": "Remove"
+            },
+            "scopedKeys": {
+                "title": "Scoped API keys",
+                "new": "New key",
+                "info": "These keys belong to the scoped/expirable system (/api/apikeys) — distinct from the admin workspace dev keys. They carry explicit scopes.",
+                "created": "Key created — copy the secret now",
+                "createdHint": "This is the only time the secret will be shown.",
+                "dismiss": "Dismiss",
+                "empty": "No keys yet.",
+                "loadFailed": "API keys",
+                "createFailed": "Create failed",
+                "revoked": "Revoked",
+                "revokedMsg": "Key {{id}} revoked",
+                "revokeFailed": "Revoke failed",
+                "newTitle": "New scoped API key",
+                "columns": {
+                    "name": "Name",
+                    "keyId": "Key ID",
+                    "scopes": "Scopes",
+                    "created": "Created",
+                    "expires": "Expires",
+                    "status": "Status",
+                    "actions": "Actions"
+                },
+                "form": {
+                    "name": "Name",
+                    "scopes": "Scopes"
+                },
+                "status": {
+                    "active": "active",
+                    "revoked": "revoked"
+                },
+                "revoke": "Revoke"
+            }
+        }
+    },
+    "webComponent": {
+        "history": {
+            "title": "Execution History",
+            "clear": "Clear history",
+            "close": "Close",
+            "rerun": "Re-run",
+            "running": "Running...",
+            "empty": "No executions yet",
+            "emptyHint": "Run a workflow to see history here",
+            "details": "Execution Details",
+            "info": "Information",
+            "id": "ID:",
+            "state": "State:",
+            "started": "Started:",
+            "duration": "Duration:",
+            "metrics": "Metrics",
+            "metricNodes": "Nodes",
+            "metricSuccess": "Success",
+            "metricFailed": "Failed",
+            "metricTokens": "Tokens",
+            "output": "Output",
+            "errors": "Errors",
+            "states": {
+                "IDLE": "Idle",
+                "RUNNING": "Running",
+                "PAUSED": "Paused",
+                "COMPLETED": "Completed",
+                "FAILED": "Failed",
+                "CANCELLED": "Cancelled"
+            }
+        }
+    },
+    "agentPlayground": {
+        "title": "Agent Playground",
+        "info": "Trigger an agent directly (on-demand) or send a conversational message. Both require an <code>AgentInvocationQueue</code> wired on the backend.",
+        "tenantId": "Tenant ID",
+        "sessionId": "Session ID (optional)",
+        "sessionPlaceholder": "auto-generated if blank",
+        "agent": "Agent",
+        "agentPlaceholder": "Pick an agent from the catalog",
+        "agentLabel": "agent",
+        "assistantLabel": "assistant",
+        "tabs": {
+            "invoke": "Invoke (payload)",
+            "message": "Message (chat)"
+        },
+        "jsonPayload": "JSON payload",
+        "invokeBtn": "Invoke agent",
+        "message": "Message",
+        "sendBtn": "Send message",
+        "response": "Response",
+        "selectFirst": "Select an agent first",
+        "emptyMessage": "Empty message",
+        "invoked": "Invoked",
+        "accepted": "Accepted",
+        "requestIdMsg": "requestId: {{id}}",
+        "invokeFailed": "Invoke failed",
+        "sendFailed": "Send failed"
+    },
+    "voicePlayground": {
+        "title": "Voice playground",
+        "subtitle": "Talk to an ArchFlow agent in real time. Pick a persona, tap the mic and speak — your audio is streamed to the realtime adapter and the transcript appears below as the agent responds.",
+        "persona": "Persona",
+        "personaHint": "The agent role used for this session",
+        "reset": "Reset",
+        "startFailed": "Failed to start session",
+        "micHint": "Audio is streamed as PCM16 24kHz frames over a WebSocket scoped to your tenant. Nothing is recorded server-side beyond the transcript.",
+        "transcript": "Transcript",
+        "status": {
+            "idle": "idle",
+            "requesting_mic": "requesting mic",
+            "connecting": "connecting",
+            "recording": "recording",
+            "speaking": "speaking",
+            "closed": "closed",
+            "error": "error"
+        }
+    },
+    "brainSentry": {
+        "title": "BrainSentry",
+        "info": "BrainSentry is a long-term agent memory system. When enabled, the <code>BrainSentryInterceptor</code> enriches tool-execution prompts with relevant memories and stores new episodes. The API key is stored server-side and never sent back to the browser in plain text.",
+        "enable": "Enable BrainSentry integration",
+        "baseUrl": "Base URL",
+        "apiKey": "API key",
+        "apiKeyHint": "Leave the masked placeholder to keep the existing key",
+        "tenantTag": "Tenant tag",
+        "maxTokenBudget": "Max token budget",
+        "timeout": "Timeout (seconds)",
+        "deepAnalysis": "Force deep LLM analysis on every interception",
+        "saved": "Configuration saved",
+        "saveFailed": "Save failed",
+        "credsCard": "Need credentials? Run BrainSentry locally: <code>docker compose -f brain-sentry/docker-compose.dev.yml up</code>"
+    },
+    "login": {
+        "tagline": "Agent orchestration platform",
+        "username": "Username",
+        "usernamePlaceholder": "your-username",
+        "password": "Password",
+        "passwordPlaceholder": "your-password",
+        "signIn": "Sign in",
+        "devCredentials": "Dev credentials",
+        "credsTpl": "Username: admin · Password: admin123"
+    },
+    "executionDetail": {
+        "title": "Execution {{id}}",
+        "viewTrace": "View trace",
+        "back": "Back"
+    },
+    "marketplace": {
+        "title": "Marketplace",
+        "installExt": "Install extension",
+        "searchPlaceholder": "Search extensions",
+        "searchBtn": "Search",
+        "allTab": "All ({{count}})",
+        "empty": "No extensions match the current filter.",
+        "loadFailed": "Failed to load extensions",
+        "installed": "installed",
+        "uninstall": "Uninstall",
+        "uninstallHint": "Remove this extension from the registry",
+        "notInstalled": "Not installed",
+        "notInstalledHint": "Extension has already been fetched; install via modal",
+        "installTitle": "Install extension",
+        "manifestPath": "Manifest path",
+        "manifestHint": "Path to manifest.json inside the configured extensions directory",
+        "submitInstall": "Install",
+        "authorBy": "by {{author}}",
+        "by": "Author",
+        "idLabel": "ID",
+        "permissions": "Permissions:",
+        "installedOk": "Installed",
+        "installedOkMsg": "{{name}} installed successfully",
+        "uninstallOk": "Uninstalled",
+        "uninstallOkMsg": "{{name}} removed",
+        "manifestRequired": "Manifest path is required",
+        "installFailed": "Install failed",
+        "uninstallFailed": "Uninstall failed",
+        "back": "Back"
+    },
+    "templates": {
+        "title": "Templates",
+        "subtitle": "Start from a pre-built workflow and adapt it to your needs. Click any card to see the canvas preview, then clone it into your workspace.",
+        "search": "Search templates...",
+        "complexity": "Complexity",
+        "complexityAny": "Any complexity",
+        "complexityStarter": "Starter",
+        "complexityIntermediate": "Intermediate",
+        "complexityAdvanced": "Advanced",
+        "all": "All",
+        "noMatches": "No templates match your search.",
+        "stepsShort": "{{count}} steps",
+        "detail": {
+            "back": "Back to templates",
+            "notFound": "Template not found.",
+            "use": "Use this template",
+            "about": "About this template",
+            "pipeline": "Pipeline ({{count}} steps)",
+            "variables": "Default variables",
+            "workflowJson": "Workflow JSON",
+            "copy": "Copy",
+            "copied": "Copied",
+            "copiedMsg": "Workflow JSON copied to clipboard",
+            "created": "Workflow created",
+            "createdMsg": "{{name}} cloned to your workspace",
+            "cloneFailed": "Failed to clone template"
+        }
+    },
+    "mcp": {
+        "servers": {
+            "title": "MCP Servers",
+            "emptyTitle": "No MCP servers are registered on this instance.",
+            "emptyHint": "Configure MCP servers in the backend Spring context (see <code>McpInspectionControllerImpl</code>) and they will show up here.",
+            "inspect": "Inspect"
+        },
+        "detail": {
+            "reconnect": "Reconnect",
+            "back": "Back",
+            "inspecting": "Inspecting…",
+            "inspectFailed": "Failed to inspect",
+            "serverError": "Server reported an error",
+            "connected": "connected",
+            "offline": "offline",
+            "tools": "Tools ({{count}})",
+            "prompts": "Prompts ({{count}})",
+            "resources": "Resources ({{count}})",
+            "noTools": "No tools exposed.",
+            "noPrompts": "No prompt templates.",
+            "noResources": "No resources exposed."
+        }
+    },
+    "skills": {
+        "title": "Skills",
+        "emptyTitle": "No skills configured.",
+        "emptyHint": "Set <code>archflow.skills.directory</code> in application properties and restart the backend to load skills from the filesystem.",
+        "active": "Active",
+        "inactive": "Inactive",
+        "badgeActive": "active",
+        "resources_one": "{{count}} resource",
+        "resources_other": "{{count}} resources",
+        "activateFailed": "Activate failed",
+        "deactivateFailed": "Deactivate failed"
+    },
+    "linktor": {
+        "config": {
+            "title": "Linktor",
+            "info": "Linktor is an open-source omnichannel messaging platform (WhatsApp, Telegram, Instagram, SMS, Email, Webchat…). Once enabled, it shows up under MCP Servers and as a selectable server inside the workflow editor, giving agents direct access to ~51 Linktor tools (send message, list conversations, drive VRE visual responses, etc.).",
+            "enable": "Enable Linktor integration",
+            "baseUrl": "Linktor API base URL",
+            "baseUrlHint": "Forwarded to the MCP server as LINKTOR_API_URL",
+            "apiKey": "API key",
+            "apiKeyHint": "LINKTOR_API_KEY. Leave masked placeholder to preserve.",
+            "accessToken": "Access token (optional)",
+            "accessTokenHint": "LINKTOR_ACCESS_TOKEN for user-scoped access.",
+            "mcpCommand": "MCP command",
+            "mcpCommandHint": "Path or command to the linktor-mcp binary. Space-separated args are supported.",
+            "timeout": "Timeout (seconds)",
+            "saved": "Configuration saved — it will be picked up on the next request.",
+            "saveFailed": "Save failed",
+            "installTitle": "Install the MCP server",
+            "installHint": "<code>npm install -g @linktor/mcp-server</code> — the binary <code>linktor-mcp</code> is added to your PATH. Alternatively, run <code>node /path/to/linktor-mcp-server/dist/index.js</code>."
+        },
+        "inbox": {
+            "title": "Linktor Inbox",
+            "tabs": {
+                "conversations": "Conversations ({{count}})",
+                "contacts": "Contacts",
+                "channels": "Channels"
+            },
+            "emptyConversations": "No conversations yet.",
+            "emptyContacts": "No contacts.",
+            "emptyChannels": "No channels configured.",
+            "open": "Open",
+            "columns": {
+                "id": "ID",
+                "status": "Status",
+                "channel": "Channel",
+                "lastMessage": "Last message",
+                "updated": "Updated",
+                "name": "Name",
+                "email": "Email",
+                "phone": "Phone",
+                "tags": "Tags"
+            }
+        },
+        "conversation": {
+            "title": "Conversation",
+            "back": "Back",
+            "noMessages": "No messages yet.",
+            "reply": "Reply",
+            "sendFailed": "Send failed",
+            "handoff": "Hand off to human",
+            "assigneePlaceholder": "Target user id (leave blank to return to queue)",
+            "assign": "Assign",
+            "assigned": "Assigned",
+            "assignedMsg": "Conversation handed off to {{assignee}}",
+            "assignFailed": "Assign failed",
+            "markResolved": "Mark resolved",
+            "resolved": "Resolved",
+            "resolvedMsg": "Conversation marked as resolved",
+            "resolveFailed": "Resolve failed"
+        },
+        "status": {
+            "open": "open",
+            "assigned": "assigned",
+            "resolved": "resolved"
+        }
+    },
+    "chat": {
+        "roles": {
+            "user": "user",
+            "assistant": "assistant",
+            "tool": "tool",
+            "system": "system"
+        },
+        "toolCall": {
+            "running": "running",
+            "success": "success",
+            "error": "error",
+            "toggle": "toggle",
+            "input": "input",
+            "output": "output",
+            "errorLabel": "error"
+        },
+        "citations": {
+            "sources": "Sources",
+            "sourcesCount": "Sources ({{count}})"
+        },
+        "form": {
+            "cancel": "Cancel",
+            "submit": "Submit",
+            "required": "{{label}} is required"
+        },
+        "send": "Send",
+        "placeholder": "Type a message...",
+        "startWithWorkflow": "Start a conversation with this workflow.",
+        "noMessages": "No messages yet.",
+        "sendFailed": "Failed to send message. Please try again.",
+        "submitFormFailed": "Failed to submit form. Please try again.",
+        "conversationCancelled": "Conversation cancelled.",
+        "stream": {
+            "idle": "idle",
+            "connecting": "connecting",
+            "open": "live",
+            "reconnecting": "reconnecting",
+            "closed": "closed",
+            "error": "error"
+        }
+    },
+    "conversationDetail": {
+        "title": "Conversation {{id}}",
+        "back": "Back to conversations",
+        "refresh": "Refresh conversation metadata",
+        "missingId": "Missing conversation id.",
+        "loadError": "Failed to load",
+        "noMetadata": "No metadata.",
+        "section": {
+            "tenant": "Tenant",
+            "user": "User",
+            "channel": "Channel",
+            "created": "Created",
+            "updated": "Updated",
+            "workflow": "Workflow",
+            "raw": "Raw"
+        }
+    },
+    "conversations": {
+        "title": "Conversations",
+        "search": "Search by user, conversation id...",
+        "status": "Status",
+        "empty": "No conversations found.",
+        "loadError": "Failed to load conversations",
+        "table": {
+            "id": "ID",
+            "user": "User",
+            "channel": "Channel",
+            "persona": "Persona",
+            "status": "Status",
+            "updated": "Updated",
+            "messages": "Messages"
+        },
+        "statuses": {
+            "ALL": "All",
+            "ACTIVE": "Active",
+            "AWAITING_HUMAN": "Awaiting human",
+            "SUSPENDED": "Suspended",
+            "ESCALATED": "Escalated",
+            "CLOSED": "Closed",
+            "COMPLETED": "Completed",
+            "CANCELLED": "Cancelled"
+        },
+        "time": {
+            "seconds": "{{n}}s ago",
+            "minutes": "{{n}}m ago",
+            "hours": "{{n}}h ago",
+            "days": "{{n}}d ago"
+        }
+    },
+    "approvals": {
+        "title": "Approval queue",
+        "subtitle": "Pending human-in-the-loop decisions. Click a row to review the proposal and decide.",
+        "search": "Search by request id, flow id, description...",
+        "pending": "{{count}} pending",
+        "empty": "No pending approvals.",
+        "loadError": "Failed to load approvals",
+        "notFound": "Approval not found.",
+        "backToQueue": "Back to queue",
+        "table": {
+            "request": "Request",
+            "flow": "Flow",
+            "step": "Step",
+            "description": "Description",
+            "waiting": "Waiting",
+            "expires": "Expires"
+        },
+        "detail": {
+            "heading": "Approval {{id}}",
+            "tenant": "Tenant",
+            "flow": "Flow",
+            "step": "Step",
+            "created": "Created",
+            "expires": "Expires",
+            "proposal": "Proposal",
+            "editBeforeApprove": "Edit before approve",
+            "yourDecision": "Your decision",
+            "commentPlaceholder": "Optional comment (free-form)",
+            "approve": "Approve",
+            "saveAndApprove": "Save & approve",
+            "reject": "Reject",
+            "cancelEdit": "Cancel edit",
+            "decisionSubmitted": "Decision submitted",
+            "submitFailed": "Failed to submit decision",
+            "invalidJson": "Edited payload is not valid JSON"
+        },
+        "time": {
+            "expired": "expired",
+            "inFuture": "in {{dur}}",
+            "ago": "{{dur}} ago"
+        }
+    },
+    "categories": {
+        "agent": "AI / Agents",
+        "control": "Control flow",
+        "data": "Data",
+        "tool": "Tools / Functions",
+        "vector": "Vector / Memory",
+        "io": "I/O",
+        "knowledge": "Knowledge",
+        "integration": "Integration",
+        "annotation": "Annotations"
+    },
+    "nodes": {
+        "agent":            { "label": "Agent",           "description": "Autonomous AI agent" },
+        "assistant":        { "label": "Assistant",       "description": "Interactive assistant" },
+        "llm-chat":         { "label": "LLM Chat",        "description": "Language model call" },
+        "llm-streaming":    { "label": "LLM Streaming",   "description": "Streaming LLM response" },
+        "condition":        { "label": "Condition",       "description": "Branch on condition" },
+        "parallel":         { "label": "Parallel",        "description": "Run branches in parallel" },
+        "loop":             { "label": "Loop",            "description": "Iterate over items" },
+        "switch":           { "label": "Switch",          "description": "Multi-branch switch" },
+        "transform":        { "label": "Transform",       "description": "Map and reshape data" },
+        "map":              { "label": "Map",             "description": "Map over collection" },
+        "filter":           { "label": "Filter",          "description": "Filter by condition" },
+        "reduce":           { "label": "Reduce",          "description": "Reduce to single value" },
+        "merge":            { "label": "Merge",           "description": "Merge multiple inputs" },
+        "tool":             { "label": "Tool",            "description": "Execute a tool call" },
+        "function":         { "label": "Function",        "description": "Custom code function" },
+        "custom":           { "label": "Custom",          "description": "Custom component" },
+        "vector-search":    { "label": "Vector search",   "description": "Semantic retrieval" },
+        "vector-store":     { "label": "Vector store",    "description": "Store embeddings" },
+        "embedding":        { "label": "Embedding",       "description": "Generate embeddings" },
+        "rag":              { "label": "RAG chain",       "description": "Retrieval-augmented generation" },
+        "memory":           { "label": "Memory",          "description": "Conversational memory store" },
+        "prompt-template":  { "label": "Prompt template", "description": "Parameterized prompt" },
+        "prompt-chunk":     { "label": "Prompt chunk",    "description": "Partial prompt block" },
+        "input":            { "label": "Input",           "description": "Workflow entry point" },
+        "output":           { "label": "Output",          "description": "Workflow exit point" },
+        "skills":           { "label": "Skills",          "description": "Activate and read playbook skills" },
+        "approval":         { "label": "Human approval",  "description": "Pause for a human decision (HITL)" },
+        "subflow":          { "label": "Subflow",         "description": "Invoke another workflow as a step" },
+        "mcp-tool":         { "label": "MCP tool",        "description": "Call a tool on a registered MCP server" },
+        "linktor-send":     { "label": "Linktor send",     "description": "Post a message to a Linktor conversation" },
+        "linktor-escalate": { "label": "Linktor escalate", "description": "Hand a conversation off to a human agent" },
+        "sticky-note":      { "label": "Sticky note",      "description": "Yellow comment / annotation card" },
+        "group-frame":      { "label": "Group frame",      "description": "Bounding box that visually groups nodes" },
+        "section-divider":  { "label": "Section divider",  "description": "Labeled horizontal divider" }
+    }
+}

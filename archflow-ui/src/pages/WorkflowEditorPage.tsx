@@ -1,6 +1,11 @@
 import { useEffect, useCallback, useMemo, useState } from 'react'
 import { useParams }         from 'react-router-dom'
+import { useTranslation }    from 'react-i18next'
 import { notifications }     from '@mantine/notifications'
+import {
+    IconChevronLeft,
+    IconChevronRight,
+} from '@tabler/icons-react'
 import { FlowCanvas }        from '../components/FlowCanvas/FlowCanvas'
 import { NodePalette }       from '../components/NodePalette'
 import { PropertyPanel }     from '../components/PropertyPanel'
@@ -10,6 +15,66 @@ import { useWorkflowStore }  from '../stores/workflow-store'
 import { workflowYamlApi }   from '../services/workflow-yaml-api'
 import type { FlowNodeData, WorkflowData } from '../components/FlowCanvas/types'
 import { NODE_TYPE_TO_CATEGORY } from '../components/FlowCanvas/constants'
+
+/**
+ * Floating chevron button that sits flush to the canvas edge and
+ * opens / closes one of the side panels. Rendered absolutely so it
+ * stays visible when its panel is 0-width. The chevron direction
+ * flips to show which way the panel will move on click.
+ *
+ * <p>Implemented as a native {@code <button>} instead of Mantine's
+ * {@code ActionIcon} because React Flow captures pointer events
+ * aggressively on its root element — stopping propagation on a raw
+ * button guarantees the click is handled before reaching the canvas,
+ * no matter the z-index stacking context React Flow creates.</p>
+ */
+function PanelToggle({
+    side, open, onToggle, label, testId,
+}: {
+    side:     'left' | 'right'
+    open:     boolean
+    onToggle: () => void
+    label:    string
+    testId?:  string
+}) {
+    const pointLeft = (side === 'left') === open
+    const Icon = pointLeft ? IconChevronLeft : IconChevronRight
+    return (
+        <button
+            type="button"
+            title={label}
+            aria-label={label}
+            data-testid={testId}
+            onMouseDown={e => e.stopPropagation()}
+            onClick={e => {
+                e.stopPropagation()
+                e.preventDefault()
+                onToggle()
+            }}
+            style={{
+                position:        'absolute',
+                top:             12,
+                [side]:          8,
+                zIndex:          1000,
+                width:           26,
+                height:          26,
+                borderRadius:    6,
+                border:          '1px solid var(--mantine-color-default-border, #E2E8F0)',
+                background:      'var(--mantine-color-body, #FFFFFF)',
+                color:           'var(--mantine-color-text, #0F172A)',
+                display:         'flex',
+                alignItems:      'center',
+                justifyContent:  'center',
+                boxShadow:       '0 2px 6px rgba(15,23,42,0.14)',
+                cursor:          'pointer',
+                padding:         0,
+                pointerEvents:   'auto',
+            }}
+        >
+            <Icon size={14} stroke={2.5} />
+        </button>
+    )
+}
 
 function toWorkflowData(detail: any): WorkflowData {
   const steps = (detail.steps ?? []).map((step: any, i: number) => ({
@@ -38,10 +103,39 @@ type EditorView = 'canvas' | 'yaml'
 
 export function WorkflowEditor() {
   const { id } = useParams<{ id: string }>()
+  const { t } = useTranslation()
 
   const { currentWorkflow: current, fetchWorkflow: loadWorkflow, updateWorkflow, loading: isSaving } = useWorkflowStore()
   const { getCanvasSnapshot } = useFlowStore()
-  const lastSavedAt: number | null = null // TODO: track save timestamp
+  // Timestamp (epoch millis) of the most recent successful save. Used
+  // by the "saved N seconds ago" indicator in the toolbar.
+  const [lastSavedAt, setLastSavedAt] = useState<number | null>(null)
+  // Side panel visibility — persisted so the user's preference
+  // survives navigating away from the editor. Plain useState (reading
+  // once from localStorage) avoids the async-hydration quirk that was
+  // preventing the toggle buttons from firing on first click.
+  const [paletteVisible, _setPaletteVisible] = useState<boolean>(() => {
+    try { return localStorage.getItem('archflow-editor-palette-visible') !== 'false' }
+    catch { return true }
+  })
+  const [propertiesVisible, _setPropertiesVisible] = useState<boolean>(() => {
+    try { return localStorage.getItem('archflow-editor-properties-visible') !== 'false' }
+    catch { return true }
+  })
+  const setPaletteVisible = (updater: boolean | ((v: boolean) => boolean)) => {
+    _setPaletteVisible(prev => {
+      const next = typeof updater === 'function' ? updater(prev) : updater
+      try { localStorage.setItem('archflow-editor-palette-visible', String(next)) } catch { /* ignore */ }
+      return next
+    })
+  }
+  const setPropertiesVisible = (updater: boolean | ((v: boolean) => boolean)) => {
+    _setPropertiesVisible(prev => {
+      const next = typeof updater === 'function' ? updater(prev) : updater
+      try { localStorage.setItem('archflow-editor-properties-visible', String(next)) } catch { /* ignore */ }
+      return next
+    })
+  }
 
   const saveWorkflow = async () => {
     if (!current) return
@@ -65,6 +159,7 @@ export function WorkflowEditor() {
       })),
     }
     await updateWorkflow(current.id, merged)
+    setLastSavedAt(Date.now())
   }
   const workflowData = useMemo(() => current ? toWorkflowData(current) : null, [current])
   const { selectedNodeId, selectedNodeData, selectNode, startExecution, isExecuting } = useFlowStore()
@@ -115,6 +210,7 @@ export function WorkflowEditor() {
       const dto = await workflowYamlApi.update(id, yamlText)
       setYamlText(dto.yaml ?? yamlText)
       setYamlDirty(false)
+      setLastSavedAt(Date.now())
       // Reload the JSON-backed canvas so the next Canvas view picks up the edits
       await loadWorkflow(id)
       notifications.show({
@@ -245,7 +341,7 @@ export function WorkflowEditor() {
                 fontWeight: view === 'canvas' ? 600 : 400,
               }}
             >
-              Canvas
+              {t('editor.canvas')}
             </button>
             <button
               role="tab"
@@ -259,7 +355,7 @@ export function WorkflowEditor() {
                 fontWeight: view === 'yaml' ? 600 : 400,
               }}
             >
-              Code {yamlDirty && '●'}
+              {t('editor.code')} {yamlDirty && '●'}
             </button>
           </div>
 
@@ -272,7 +368,7 @@ export function WorkflowEditor() {
             style={{ ...btnStyle, opacity: isSaving ? 0.6 : 1 }}
             data-testid="editor-save"
           >
-            {isSaving ? 'Saving...' : view === 'yaml' ? 'Save YAML' : 'Save'}
+            {isSaving ? t('common.saving') : view === 'yaml' ? t('editor.saveYaml') : t('editor.save')}
           </button>
 
           <button
@@ -285,20 +381,30 @@ export function WorkflowEditor() {
               color: '#fff',
             }}
           >
-            {isExecuting ? '◌ Running...' : '▶ Execute'}
+            {isExecuting ? `◌ ${t('common.loading')}` : `▶ ${t('editor.run')}`}
           </button>
         </div>
       </div>
 
       {/* ── Editor body ──────────────────────────────────────── */}
       {view === 'canvas' ? (
-        <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-          {/* Palette */}
-          <div style={{ width: 240, flexShrink: 0, overflow: 'hidden' }}>
+        <div style={{ display: 'flex', flex: 1, overflow: 'hidden', position: 'relative' }}>
+          {/* Palette — animates width between 240 and 0. A thin edge
+              button stays visible at all times so the user can bring
+              it back without hunting a menu. */}
+          <div
+            style={{
+              width:      paletteVisible ? 240 : 0,
+              flexShrink: 0,
+              overflow:   'hidden',
+              transition: 'width 0.18s ease',
+            }}
+          >
             <NodePalette />
           </div>
 
-          {/* Canvas */}
+          {/* Canvas — gains the reclaimed space automatically via
+              flex:1. Absolute toggles float over the canvas edges. */}
           <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
             {workflowData ? (
               <FlowCanvas
@@ -309,10 +415,32 @@ export function WorkflowEditor() {
             ) : (
               <EmptyCanvas />
             )}
+
+            <PanelToggle
+              side="left"
+              open={paletteVisible}
+              onToggle={() => setPaletteVisible(v => !v)}
+              label={t('editor.properties.togglePalette')}
+              testId="toggle-palette"
+            />
+            <PanelToggle
+              side="right"
+              open={propertiesVisible}
+              onToggle={() => setPropertiesVisible(v => !v)}
+              label={t('editor.properties.toggleProperties')}
+              testId="toggle-properties"
+            />
           </div>
 
-          {/* Property panel */}
-          <div style={{ width: 320, flexShrink: 0, overflow: 'hidden' }}>
+          {/* Property panel — same collapse animation. */}
+          <div
+            style={{
+              width:      propertiesVisible ? 320 : 0,
+              flexShrink: 0,
+              overflow:   'hidden',
+              transition: 'width 0.18s ease',
+            }}
+          >
             <PropertyPanel
               nodeId={selectedNodeId}
               nodeData={selectedNodeData as FlowNodeData | null}

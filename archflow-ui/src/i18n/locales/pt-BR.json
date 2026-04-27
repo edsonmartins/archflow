@@ -1,0 +1,1265 @@
+{
+    "common": {
+        "create": "Criar",
+        "custom": "Personalizado",
+        "customFreeText": "Personalizado (texto livre)",
+        "save": "Salvar",
+        "saving": "Salvando...",
+        "cancel": "Cancelar",
+        "delete": "Excluir",
+        "edit": "Editar",
+        "refresh": "Atualizar",
+        "loading": "Carregando...",
+        "new": "Novo",
+        "close": "Fechar",
+        "back": "Voltar",
+        "appName": "Archflow"
+    },
+    "nav": {
+        "workflows": "Fluxos",
+        "editor": "Editor",
+        "executions": "Execuções",
+        "conversations": "Conversas",
+        "approvals": "Aprovações",
+        "templates": "Modelos",
+        "marketplace": "Marketplace",
+        "agentLab": "Agent lab",
+        "voice": "Voz",
+        "toggleSidebar": "Alternar menu lateral",
+        "expandSidebar": "Expandir menu lateral",
+        "collapseSidebar": "Recolher menu lateral"
+    },
+    "header": {
+        "lightMode": "Modo claro",
+        "darkMode": "Modo escuro",
+        "logout": "Sair",
+        "language": "Idioma"
+    },
+    "workflows": {
+        "title": "Fluxos",
+        "subtitle": "Projete e gerencie seus fluxos de IA",
+        "newWorkflow": "Novo Fluxo",
+        "createWorkflow": "Criar Fluxo",
+        "untitledName": "Fluxo sem título",
+        "search": "Buscar fluxos…",
+        "empty": "Nenhum fluxo ainda",
+        "emptyHint": "Crie seu primeiro fluxo de IA para começar",
+        "noMatches": "Nenhum fluxo corresponde",
+        "noMatchesHint": "Ajuste os termos da busca",
+        "stepCount_one": "{{count}} passo",
+        "stepCount_other": "{{count}} passos",
+        "updatedAt": "Atualizado {{when}}",
+        "status": {
+            "draft": "Rascunho",
+            "active": "Ativo",
+            "paused": "Pausado",
+            "failed": "Falhou",
+            "archived": "Arquivado"
+        },
+        "actions": {
+            "execute": "Executar",
+            "edit": "Editar",
+            "delete": "Excluir"
+        },
+        "deleteModal": {
+            "title": "Excluir fluxo",
+            "message": "Tem certeza? Esta ação não pode ser desfeita."
+        }
+    },
+    "editor": {
+        "save": "Salvar",
+        "saveYaml": "Salvar YAML",
+        "canvas": "Canvas",
+        "code": "Código",
+        "run": "Executar",
+        "back": "Voltar à lista",
+        "saved": "Salvo",
+        "savedAt": "Salvo às {{time}}",
+        "unsavedChanges": "Alterações não salvas",
+        "palette": {
+            "title": "Componentes",
+            "search": "Buscar componentes...",
+            "empty": "Nenhum componente encontrado."
+        },
+        "properties": {
+            "title": "Propriedades",
+            "empty": "Selecione um nó para editar as propriedades.",
+            "emptyHint": "Clique em um nó no canvas para ver suas propriedades",
+            "noNodeSelected": "Nenhum nó selecionado",
+            "tabs": {
+                "properties": "Propriedades",
+                "logs": "Logs",
+                "output": "Saída"
+            },
+            "togglePalette": "Alternar painel de componentes",
+            "toggleProperties": "Alternar painel de propriedades",
+            "fields": {
+                "nodeName": "Nome do nó",
+                "assistantType": "Tipo de assistente",
+                "agentType": "Tipo de agente",
+                "executionStrategy": "Estratégia de execução",
+                "provider": "Provedor",
+                "model": "Modelo",
+                "persona": "Persona",
+                "systemPrompt": "System prompt",
+                "systemPromptPlaceholder": "Você é um assistente útil...",
+                "temperature": "Temperatura",
+                "maxTokens": "Tokens máx.",
+                "maxIterations": "Iterações máx.",
+                "advanced": "Avançado",
+                "timeoutSec": "Timeout (segundos)",
+                "memoryBackend": "Backend de memória",
+                "memoryOptions": {
+                    "in-memory": "Em memória (padrão)",
+                    "redis": "Redis",
+                    "jdbc": "JDBC (PostgreSQL)"
+                },
+                "redisUrl": "URL do Redis",
+                "jdbcDatasource": "Datasource JDBC",
+                "datasourceNamePlaceholder": "nome-do-datasource",
+                "governance": "Governança",
+                "profile": "Perfil",
+                "enabledTools": "Ferramentas permitidas (whitelist)",
+                "disabledTools": "Ferramentas bloqueadas (blacklist)",
+                "addTool": "Adicionar ferramenta...",
+                "escalationThreshold": "Limiar de escalação",
+                "escalationHint": "Confiança abaixo deste valor dispara escalação (0.0-1.0)",
+                "maxToolExecutions": "Execuções máx. de ferramentas",
+                "humanEscalation": "Escalação humana",
+                "customInstructions": "Instruções personalizadas",
+                "customInstructionsPlaceholder": "Regras adicionais de governança...",
+                "mcpServers": "Servidores MCP",
+                "connectedServers": "Servidores conectados",
+                "addServer": "Adicionar nome do servidor...",
+                "transport": "Transporte",
+                "transportOptions": {
+                    "stdio": "STDIO (subprocesso)",
+                    "sse": "SSE (HTTP)"
+                },
+                "command": "Comando",
+                "commandPlaceholder": "python server.py",
+                "serverUrl": "URL do servidor",
+                "serverUrlPlaceholder": "http://localhost:8080/mcp",
+                "tool": "Ferramenta",
+                "toolId": "ID da ferramenta",
+                "onError": "Em caso de erro",
+                "onErrorOptions": {
+                    "stop": "Parar execução",
+                    "continue": "Continuar (ignorar)",
+                    "retry": "Tentar novamente com política"
+                },
+                "retryMaxAttempts": "Tentativas máx.",
+                "retryInitialDelay": "Atraso inicial (ms)",
+                "retryBackoff": "Multiplicador de backoff",
+                "vectorBackend": "Backend de vetores",
+                "vectorBackendOptions": {
+                    "pgvector": "PGVector (PostgreSQL)",
+                    "pinecone": "Pinecone",
+                    "redis": "Redis Vector",
+                    "in-memory": "Em memória"
+                },
+                "pineconeApiKey": "Chave de API Pinecone",
+                "environment": "Ambiente",
+                "environmentPlaceholder": "us-east-1-aws",
+                "indexName": "Nome do índice",
+                "datasource": "Datasource",
+                "tableName": "Nome da tabela",
+                "dimensions": "Dimensões",
+                "keyPrefix": "Prefixo da chave",
+                "topK": "Top K resultados",
+                "embeddingProvider": "Provedor de embeddings",
+                "embeddingProviderOptions": {
+                    "openai": "OpenAI",
+                    "local": "Local (ONNX)"
+                },
+                "maxMessages": "Mensagens máx.",
+                "vectorStore": "Vector store",
+                "llmProvider": "Provedor LLM",
+                "topKRetrieval": "Top-K recuperação",
+                "minScore": "Score mín. (0..1)",
+                "approvalTitle": "Título da aprovação",
+                "approvalDescription": "Descrição exibida para o revisor",
+                "approvalDescriptionHint": "Explique o que o humano está decidindo. Variáveis como {{agent.decision}} são resolvidas do contexto.",
+                "proposalPayload": "Payload da proposta (JSON)",
+                "proposalPayloadHint": "Mostrado ao revisor junto com a descrição. Suporta substituição {{mustache}}.",
+                "timeoutMin": "Timeout (minutos)",
+                "onTimeout": "Em caso de timeout",
+                "onTimeoutOptions": {
+                    "reject": "Rejeitar (padrão)",
+                    "approve": "Aprovação automática",
+                    "escalate": "Escalar para canal de fallback"
+                },
+                "conversationIdSource": "Origem do id da conversa",
+                "conversationIdHint": "Expressão avaliada contra o contexto de execução. Padrão usa conversationId do trigger Linktor anterior.",
+                "messageText": "Texto da mensagem",
+                "messageTextHint": "Suporta {{mustache}} — ex.: Olá {{contact.name}}",
+                "failurePolicy": "Política de falha",
+                "failurePolicyOptions": {
+                    "warn": "Avisar e continuar",
+                    "stop": "Parar o fluxo",
+                    "retry": "Tentar novamente com backoff"
+                },
+                "targetUser": "Usuário alvo (opcional)",
+                "targetUserHint": "Deixe em branco para devolver a conversa à fila e deixar as regras de roteamento Linktor escolherem um agente.",
+                "reason": "Motivo",
+                "expression": "Expressão",
+                "expressionHint": "Expressão booleana avaliada contra o contexto. Use ${path.to.value} para referenciar saídas anteriores.",
+                "errorBranchHint_pre": "Conexões de saída marcadas com",
+                "errorBranchLabel": "erro",
+                "errorBranchHint_post": "seguem o ramo FALSE automaticamente.",
+                "switchExpression": "Expressão do switch",
+                "switchExpressionHint": "Valor comparado contra cada rótulo de case.",
+                "switchCases": "Cases (um por linha)",
+                "switchCasesHint": "A palavra-chave `default` corresponde a qualquer coisa não pareada por outros cases.",
+                "collectionExpression": "Expressão da coleção",
+                "itemVariable": "Nome da variável do item",
+                "itemVariableHint": "Cada iteração associa o elemento atual a este nome no contexto.",
+                "runInParallel": "Executar iterações em paralelo",
+                "waitStrategy": "Estratégia de espera",
+                "waitStrategyOptions": {
+                    "all": "Todos os ramos precisam completar",
+                    "any": "Primeiro que completar vence (race)",
+                    "majority": "Maioria (n/2 + 1)"
+                },
+                "failFast": "Falhar rapidamente se qualquer ramo der erro",
+                "mergeStrategy": "Estratégia de merge",
+                "mergeStrategyOptions": {
+                    "concat": "Concat (anexar arrays)",
+                    "deepMerge": "Deep merge de objetos",
+                    "firstNonNull": "Primeiro não-nulo",
+                    "last": "Último escritor vence"
+                },
+                "outputVariable": "Variável de saída",
+                "outputVariableHint": "Caminho no contexto onde o resultado mesclado é escrito.",
+                "inputExpression": "Expressão de entrada",
+                "transformExpression": "Expressão",
+                "transformFilter": "Predicado (item ⇒ boolean)",
+                "transformReduce": "Redutor (acc, item) ⇒ acc",
+                "transformMap": "Mapper (item ⇒ novoItem)",
+                "transformHint": "Dialeto: estilo JSONata (impl atual usa avaliador simples ${path} + aritmético/booleano).",
+                "reduceInitial": "Acumulador inicial",
+                "promptChunk": "Conteúdo do chunk",
+                "promptTemplate": "Template (com {{vars}})",
+                "promptChunkHint": "Bloco estático de prompt. Combinado com chunks irmãos pela ordem.",
+                "promptTemplateHint": "Template estilo Mustache. Variáveis são resolvidas contra o contexto do fluxo.",
+                "requiredVariables": "Variáveis obrigatórias",
+                "addVariable": "adicionar variável",
+                "requiredVariablesHint": "O fluxo falhará imediatamente se qualquer variável listada estiver ausente no render.",
+                "chunkOrder": "Ordem do chunk",
+                "expectedInputs": "Campos de entrada esperados",
+                "exportedOutputs": "Campos de saída exportados",
+                "fieldNamePlaceholder": "nome do campo",
+                "jsonSchema": "JSON schema (opcional)",
+                "jsonSchemaHint": "Se fornecido, valida o payload no limite do fluxo.",
+                "rejectIfMissing": "Rejeitar execução se a entrada estiver ausente",
+                "mcpServer": "Servidor MCP",
+                "pickServer": "Escolha um servidor",
+                "noMcpServers": "Nenhum servidor MCP configurado",
+                "pickTool": "Escolha uma ferramenta",
+                "pickServerFirst": "Escolha um servidor primeiro",
+                "loadingEllipsis": "Carregando…",
+                "argumentsJson": "Argumentos (JSON)",
+                "argumentsHint": "Passado como objeto de argumentos da ferramenta. Suporta {{mustache}} contra o contexto do fluxo.",
+                "workflowToInvoke": "Fluxo a invocar",
+                "loadingWorkflows": "Carregando fluxos…",
+                "pickWorkflow": "Escolha um fluxo",
+                "inputMapping": "Mapeamento de entrada (JSON)",
+                "inputMappingHint": "Encaminhado como entrada do fluxo aninhado. Suporta substituição {{mustache}} do contexto pai.",
+                "fireAndForget": "Fire and forget (não aguardar a conclusão)",
+                "operation": "Operação",
+                "skillsOps": {
+                    "list": "Listar skills disponíveis",
+                    "activate": "Ativar skill",
+                    "deactivate": "Desativar skill",
+                    "read": "Ler recurso de skill",
+                    "active": "Obter skills ativas no momento"
+                },
+                "skillPick": "Escolha uma skill",
+                "noSkills": "Nenhuma skill configurada no backend",
+                "skillLabel": "Skill",
+                "skillActiveSuffix": " (ativa)",
+                "resourceName": "Nome do recurso",
+                "logs": {
+                    "noData": "Sem dados de execução ainda",
+                    "noOutput": "Sem saída disponível",
+                    "nodeStarted": "[{{ts}}] Nó iniciado",
+                    "completedIn": "[{{ts}}] Concluído em {{ms}}ms",
+                    "running": "[{{ts}}] Executando..."
+                }
+            }
+        }
+    },
+    "executions": {
+        "title": "Histórico de execuções",
+        "allWorkflows": "Todos os fluxos",
+        "empty": "Nenhuma execução ainda",
+        "emptyHint": "Execute um fluxo para ver resultados aqui",
+        "cols": {
+            "id": "ID da execução",
+            "workflow": "Fluxo",
+            "status": "Status",
+            "started": "Início",
+            "duration": "Duração",
+            "error": "Erro"
+        },
+        "statuses": {
+            "RUNNING": "Em execução",
+            "COMPLETED": "Concluída",
+            "FAILED": "Falhou",
+            "PAUSED": "Pausada",
+            "CANCELLED": "Cancelada"
+        }
+    },
+    "triggers": {
+        "title": "Gatilhos agendados",
+        "newTrigger": "Novo gatilho",
+        "info": "Os gatilhos disparam no horário local do servidor usando expressões cron do Quartz (6 ou 7 campos: <code>seg min hora dia-do-mês mês dia-da-semana [ano]</code>). Ao disparar, submete um InvocationRequest na fila do agente — o mesmo caminho do botão \"Invocar\" do playground.",
+        "loading": "Carregando…",
+        "empty": "Nenhum gatilho ainda.",
+        "table": {
+            "name": "Nome",
+            "cron": "Cron",
+            "tenant": "Tenant",
+            "agent": "Agente",
+            "status": "Status",
+            "lastFired": "Último disparo"
+        },
+        "status": {
+            "enabled": "ativo",
+            "paused": "pausado"
+        },
+        "fireNow": "Disparar agora",
+        "edit": "Editar",
+        "delete": "Excluir",
+        "editTitle": "Editar gatilho",
+        "newTitle": "Novo gatilho",
+        "name": "Nome",
+        "cron": "Expressão cron",
+        "cronHint": "Formato Quartz: seg min hora dia-do-mês mês dia-da-semana [ano]",
+        "tenant": "Id do tenant",
+        "agent": "Agente",
+        "payload": "Payload (JSON)",
+        "enabled": "Ativo",
+        "confirmDelete": "Excluir gatilho \"{{name}}\"?",
+        "invalidJson": "Payload JSON inválido",
+        "invalidJsonMsg": "O payload deve ser um objeto JSON válido",
+        "saveFailed": "Falha ao salvar",
+        "deleteFailed": "Falha ao excluir",
+        "fireFailed": "Falha ao disparar",
+        "fired": "Disparado",
+        "firedMsg": "Invocação submetida para {{name}}"
+    },
+    "admin": {
+        "layout": {
+            "admin": "Admin",
+            "superadmin": "SUPERADMIN",
+            "workspace": "WORKSPACE",
+            "backToApp": "← Voltar ao app",
+            "workflows": "Fluxos",
+            "executions": "Execuções",
+            "tenants": "Tenants",
+            "observability": "Observabilidade",
+            "globalConfig": "Configuração global",
+            "usageBilling": "Uso e cobrança",
+            "overview": "Visão geral",
+            "users": "Usuários",
+            "apiKeys": "Chaves de API"
+        },
+        "impersonation": {
+            "viewingAs": "Vendo como admin de <b>{{name}}</b>. Todas as ações são registradas no log de auditoria.",
+            "back": "Voltar ao superadmin →"
+        },
+        "observability": {
+            "title": "Observabilidade",
+            "loadFailed": "Falha ao carregar visão geral",
+            "tabs": {
+                "overview": "Visão geral",
+                "running": "Fluxos em execução",
+                "traces": "Traces",
+                "metrics": "Métricas",
+                "audit": "Log de auditoria",
+                "live": "Eventos ao vivo"
+            },
+            "overview": {
+                "execToday": "Execuções hoje",
+                "successRate": "Taxa de sucesso",
+                "errorsPct": "{{pct}}% de erros",
+                "avgLatency": "Latência média",
+                "p95": "p95 {{ms}} ms",
+                "activeStreams": "Streams ativos",
+                "auditEventsToday": "{{count}} eventos de auditoria hoje",
+                "topPersonas": "Top personas (últimas 24h)",
+                "noPersonas": "Nenhuma atividade de persona ainda.",
+                "exec_one": "{{count}} execução",
+                "exec_other": "{{count}} execuções",
+                "okPct": "{{pct}}% ok"
+            },
+            "metrics": {
+                "loadFailed": "Falha ao carregar métricas",
+                "metric": "Métrica",
+                "bucket": "Bucket",
+                "bucketValues": {
+                    "60": "1 min",
+                    "300": "5 min",
+                    "900": "15 min"
+                },
+                "metricValues": {
+                    "latency_ms": "Latência (ms)",
+                    "throughput": "Vazão (count)",
+                    "error_rate": "Taxa de erro"
+                },
+                "buckets": "{{count}} buckets",
+                "noSamples": "Sem amostras na janela selecionada.",
+                "counters": "Contadores",
+                "gauges": "Gauges",
+                "histograms": "Estatísticas de histograma",
+                "noHistograms": "Sem dados de histograma ainda.",
+                "histCols": {
+                    "metric": "Métrica",
+                    "count": "Total",
+                    "min": "Mín",
+                    "max": "Máx",
+                    "mean": "Média",
+                    "median": "Mediana"
+                },
+                "noData": "Sem dados."
+            },
+            "audit": {
+                "loadFailed": "Falha ao carregar log de auditoria",
+                "filterActor": "Filtrar por ator (id ou username)...",
+                "filterAction": "Ação (ex.: WORKFLOW_EXECUTE)",
+                "exportCsv": "Exportar CSV",
+                "empty": "Nenhum registro de auditoria ainda.",
+                "showing": "Exibindo {{from}}–{{to}} de {{total}}",
+                "previous": "Anterior",
+                "next": "Próximo",
+                "resultSuccess": "sucesso",
+                "resultFailed": "falha",
+                "cols": {
+                    "when": "Quando",
+                    "actor": "Ator",
+                    "action": "Ação",
+                    "resource": "Recurso",
+                    "result": "Resultado",
+                    "trace": "Trace"
+                }
+            },
+            "traces": {
+                "loadFailed": "Falha ao carregar traces",
+                "search": "Buscar por trace id, flow id, execution id...",
+                "status": "Status",
+                "statusAll": "Todos",
+                "empty": "Nenhum trace capturado ainda.",
+                "cols": {
+                    "traceId": "ID do trace",
+                    "tenant": "Tenant",
+                    "persona": "Persona",
+                    "started": "Início",
+                    "duration": "Duração",
+                    "spans": "Spans",
+                    "status": "Status"
+                },
+                "time": {
+                    "justNow": "agora",
+                    "minutesAgo": "há {{n}}min",
+                    "hoursAgo": "há {{n}}h"
+                }
+            },
+            "traceDetail": {
+                "title": "Trace {{id}}",
+                "back": "Voltar aos traces",
+                "notFound": "Trace não encontrado.",
+                "loadFailed": "Falha ao carregar trace",
+                "meta": {
+                    "tenant": "Tenant",
+                    "flow": "Fluxo",
+                    "execution": "Execução",
+                    "duration": "Duração",
+                    "spans": "Spans"
+                },
+                "timeline": "Linha do tempo dos spans",
+                "noSpans": "Nenhum span capturado para este trace.",
+                "attributes": "Atributos dos spans",
+                "attrCols": {
+                    "span": "Span",
+                    "attribute": "Atributo",
+                    "value": "Valor"
+                }
+            },
+            "running": {
+                "title": "Fluxos em execução",
+                "activeCount": "{{count}} ativo(s)",
+                "refreshNow": "Atualizar agora",
+                "loading": "Carregando…",
+                "empty": "Nenhum fluxo em execução no momento",
+                "emptyHint": "A tabela atualiza automaticamente a cada 2 segundos",
+                "cols": {
+                    "flow": "Fluxo",
+                    "tenant": "Tenant",
+                    "started": "Início",
+                    "currentStep": "Passo atual",
+                    "progress": "Progresso",
+                    "duration": "Duração",
+                    "actions": "Ações"
+                },
+                "cancelTooltip": "Cancelar fluxo",
+                "cancelTitle": "Cancelar fluxo?",
+                "cancelPrompt": "Tem certeza que deseja cancelar",
+                "cancelWarn": "? Esta ação não pode ser desfeita.",
+                "keepRunning": "Manter rodando",
+                "cancelBtn": "Cancelar fluxo",
+                "durShort": "< 1s"
+            },
+            "live": {
+                "openFailed": "Falha ao abrir stream",
+                "tenantId": "ID do tenant",
+                "sessionId": "ID da sessão",
+                "tenantPlaceholder": "acme",
+                "sessionPlaceholder": "conversation-123",
+                "pause": "Pausar",
+                "resume": "Retomar",
+                "clear": "Limpar",
+                "detach": "Desconectar",
+                "attach": "Conectar",
+                "eventFeed": "Feed de eventos",
+                "waiting": "Aguardando eventos…",
+                "attachHint": "Conecte-se a um tenant/sessão para iniciar o streaming.",
+                "cols": {
+                    "time": "Hora",
+                    "domain": "Domínio",
+                    "type": "Tipo",
+                    "payload": "Payload"
+                }
+            }
+        },
+        "superadmin": {
+            "tenants": {
+                "title": "Tenants",
+                "newTenant": "Novo tenant",
+                "loadFailed": "Falha ao carregar tenants",
+                "empty": "Nenhum tenant encontrado.",
+                "stats": {
+                    "active": "Tenants ativos",
+                    "executionsToday": "Execuções hoje",
+                    "tokensMonth": "Tokens no mês",
+                    "trial": "Tenants em trial"
+                },
+                "columns": {
+                    "tenant": "Tenant",
+                    "status": "Status",
+                    "plan": "Plano",
+                    "created": "Criado em",
+                    "tokenUsage": "Uso de tokens",
+                    "actions": "Ações"
+                },
+                "enter": "Entrar"
+            },
+            "tenantDetail": {
+                "title": "Detalhe do tenant",
+                "back": "← Voltar",
+                "loadFailed": "Falha ao carregar tenant",
+                "updateFailed": "Falha ao atualizar tenant",
+                "deleteFailed": "Falha ao excluir tenant",
+                "activated": "Tenant ativado",
+                "suspended": "Tenant suspenso",
+                "deleted": "Tenant excluído",
+                "identity": "Identidade",
+                "planStatus": "Plano e status",
+                "usage": "Uso",
+                "plan": "Plano",
+                "status": "Status",
+                "allowedModels": "Modelos permitidos",
+                "name": "Nome",
+                "tenantId": "ID do tenant",
+                "admin": "Admin",
+                "sector": "Setor",
+                "created": "Criado em",
+                "activate": "Ativar",
+                "suspend": "Suspender",
+                "delete": "Excluir",
+                "bars": {
+                    "execPerDay": "Execuções/dia",
+                    "tokensPerMonth": "Tokens/mês",
+                    "workflows": "Fluxos",
+                    "users": "Usuários"
+                }
+            },
+            "tenantNew": {
+                "title": "Criar tenant",
+                "back": "← Voltar",
+                "createFailed": "Falha ao criar tenant",
+                "created": "Tenant criado",
+                "createdMsg": "{{name}} criado com sucesso",
+                "identity": "Identidade",
+                "planLimits": "Plano e limites",
+                "summary": "Resumo",
+                "form": {
+                    "name": "Nome do tenant",
+                    "id": "ID do tenant",
+                    "idHint": "Slug URL-safe, precisa ser único",
+                    "email": "E-mail do admin",
+                    "emailHint": "O convite será enviado para este e-mail",
+                    "sector": "Setor",
+                    "plan": "Plano",
+                    "execPerDay": "Execuções/dia",
+                    "tokensPerMonth": "Tokens/mês",
+                    "maxWorkflows": "Máx. fluxos",
+                    "maxUsers": "Máx. usuários"
+                },
+                "plans": {
+                    "trial": "Trial (30 dias)",
+                    "professional": "Professional",
+                    "enterprise": "Enterprise",
+                    "internal": "Interno"
+                },
+                "summaryRows": {
+                    "name": "Nome",
+                    "id": "ID",
+                    "email": "E-mail",
+                    "plan": "Plano",
+                    "exec": "Exec/dia",
+                    "tokensMo": "Tokens/mês",
+                    "workflows": "Fluxos",
+                    "users": "Usuários"
+                },
+                "createBtn": "Criar tenant"
+            },
+            "usage": {
+                "title": "Uso e cobrança",
+                "exportCsv": "Exportar CSV",
+                "loadFailed": "Falha ao carregar uso",
+                "stats": {
+                    "executions": "Execuções",
+                    "tokens": "Tokens consumidos",
+                    "cost": "Custo estimado",
+                    "tenants": "Tenants"
+                },
+                "columns": {
+                    "tenant": "Tenant",
+                    "executions": "Execuções",
+                    "tokensIn": "Tokens In",
+                    "tokensOut": "Tokens Out",
+                    "cost": "Custo est.",
+                    "percent": "% do total"
+                }
+            },
+            "globalConfig": {
+                "title": "Configuração global",
+                "loadFailed": "Falha ao carregar configuração",
+                "updateTogglesFailed": "Falha ao atualizar toggles",
+                "updateModelFailed": "Falha ao atualizar modelo",
+                "modelUpdated": "Modelo atualizado",
+                "models": "Modelos LLM",
+                "plans": "Padrões de plano",
+                "toggles": "Toggles de funcionalidades",
+                "modelCols": {
+                    "model": "Modelo",
+                    "provider": "Provedor",
+                    "status": "Status",
+                    "inputCost": "Custo/1M input",
+                    "outputCost": "Custo/1M output",
+                    "enabled": "Ativo"
+                },
+                "planCols": {
+                    "plan": "Plano",
+                    "execPerDay": "Execuções/dia",
+                    "tokensPerMonth": "Tokens/mês",
+                    "maxWorkflows": "Máx. fluxos",
+                    "maxUsers": "Máx. usuários"
+                },
+                "toggleLabels": {
+                    "allowLocalModels": "Permitir modelos locais (Ollama / RTX)",
+                    "humanInTheLoop": "Human-in-the-loop",
+                    "brainSentry": "Brain Sentry (memória de longo prazo via FalkorDB)",
+                    "debugMode": "Modo debug — trace completo por nó",
+                    "linktorNotifications": "Notificações Linktor (WhatsApp)",
+                    "auditLog": "Log de auditoria para ações de usuário"
+                }
+            }
+        },
+        "tenant": {
+            "workspace": {
+                "title": "Visão geral do workspace",
+                "loadFailed": "Falha ao carregar workspace",
+                "summaryUnavailable": "Resumo do workspace indisponível no momento.",
+                "planUsage": "Uso do plano",
+                "stats": {
+                    "workflows": "Fluxos",
+                    "executionsToday": "Execuções hoje",
+                    "users": "Usuários",
+                    "apiKeys": "Chaves de API"
+                },
+                "bars": {
+                    "execPerDay": "Execuções/dia",
+                    "tokensPerMonth": "Tokens/mês",
+                    "workflows": "Fluxos",
+                    "users": "Usuários"
+                }
+            },
+            "apiKeys": {
+                "title": "Chaves de API",
+                "create": "Criar chave",
+                "createTitle": "Criar chave de API",
+                "loadFailed": "Falha ao carregar chaves",
+                "createFailed": "Falha ao criar chave",
+                "revokeFailed": "Falha ao revogar chave",
+                "created": "Chave de API criada",
+                "createdHint": "Copie a chave agora — ela não será mostrada novamente",
+                "newKeyLabel": "Sua nova chave de API:",
+                "storeWarning": "Esta chave não será mostrada novamente. Guarde com segurança.",
+                "done": "Pronto",
+                "copied": "Copiado",
+                "copiedExcl": "Copiado!",
+                "copy": "Copiar",
+                "revoke": "Revogar",
+                "columns": {
+                    "name": "Nome",
+                    "type": "Tipo",
+                    "key": "Chave",
+                    "created": "Criada em",
+                    "lastUsed": "Último uso",
+                    "actions": "Ações"
+                },
+                "form": {
+                    "name": "Nome da chave",
+                    "namePlaceholder": "Minha integração",
+                    "type": "Tipo"
+                },
+                "types": {
+                    "production": "Produção",
+                    "staging": "Homologação",
+                    "web_component": "Web Component"
+                }
+            },
+            "users": {
+                "title": "Usuários",
+                "invite": "Convidar usuário",
+                "inviteTitle": "Convidar usuário",
+                "loadFailed": "Falha ao carregar usuários",
+                "inviteFailed": "Falha ao convidar usuário",
+                "updateFailed": "Falha ao atualizar usuário",
+                "removeFailed": "Falha ao remover usuário",
+                "inviteSent": "Convite enviado",
+                "inviteSentMsg": "Convite enviado para {{email}}",
+                "sendInvite": "Enviar convite",
+                "editRole": "Editar função",
+                "save": "Salvar",
+                "permissionsTitle": "Matriz de permissões",
+                "permissions": {
+                    "header": "Permissão",
+                    "admin": "Admin",
+                    "editor": "Editor",
+                    "viewer": "Visualizador",
+                    "viewWorkflows": "Ver fluxos",
+                    "editWorkflows": "Criar/editar fluxos",
+                    "executeWorkflows": "Executar fluxos",
+                    "manageUsers": "Gerenciar usuários",
+                    "manageApiKeys": "Gerenciar chaves de API"
+                },
+                "columns": {
+                    "user": "Usuário",
+                    "role": "Função",
+                    "status": "Status",
+                    "lastAccess": "Último acesso",
+                    "workflows": "Fluxos",
+                    "actions": "Ações"
+                },
+                "status": {
+                    "active": "Ativo",
+                    "invited": "Convite pendente"
+                },
+                "form": {
+                    "email": "E-mail",
+                    "emailPlaceholder": "usuario@empresa.com",
+                    "role": "Função"
+                },
+                "roles": {
+                    "admin": "Admin",
+                    "editor": "Editor",
+                    "viewer": "Visualizador"
+                },
+                "editTooltip": "Editar função",
+                "revokeInvite": "Revogar convite",
+                "remove": "Remover"
+            },
+            "scopedKeys": {
+                "title": "Chaves de API com escopo",
+                "new": "Nova chave",
+                "info": "Estas chaves pertencem ao sistema com escopos/expiração (/api/apikeys) — distintas das chaves de dev do workspace. Carregam escopos explícitos.",
+                "created": "Chave criada — copie o segredo agora",
+                "createdHint": "Esta é a única vez em que o segredo será exibido.",
+                "dismiss": "Fechar",
+                "empty": "Nenhuma chave ainda.",
+                "loadFailed": "Chaves de API",
+                "createFailed": "Falha ao criar",
+                "revoked": "Revogada",
+                "revokedMsg": "Chave {{id}} revogada",
+                "revokeFailed": "Falha ao revogar",
+                "newTitle": "Nova chave com escopo",
+                "columns": {
+                    "name": "Nome",
+                    "keyId": "ID da chave",
+                    "scopes": "Escopos",
+                    "created": "Criada em",
+                    "expires": "Expira",
+                    "status": "Status",
+                    "actions": "Ações"
+                },
+                "form": {
+                    "name": "Nome",
+                    "scopes": "Escopos"
+                },
+                "status": {
+                    "active": "ativa",
+                    "revoked": "revogada"
+                },
+                "revoke": "Revogar"
+            }
+        }
+    },
+    "webComponent": {
+        "history": {
+            "title": "Histórico de execuções",
+            "clear": "Limpar histórico",
+            "close": "Fechar",
+            "rerun": "Re-executar",
+            "running": "Executando...",
+            "empty": "Nenhuma execução ainda",
+            "emptyHint": "Execute um fluxo para ver o histórico aqui",
+            "details": "Detalhes da execução",
+            "info": "Informações",
+            "id": "ID:",
+            "state": "Estado:",
+            "started": "Início:",
+            "duration": "Duração:",
+            "metrics": "Métricas",
+            "metricNodes": "Nós",
+            "metricSuccess": "Sucesso",
+            "metricFailed": "Falhas",
+            "metricTokens": "Tokens",
+            "output": "Saída",
+            "errors": "Erros",
+            "states": {
+                "IDLE": "Ocioso",
+                "RUNNING": "Em execução",
+                "PAUSED": "Pausado",
+                "COMPLETED": "Concluído",
+                "FAILED": "Falhou",
+                "CANCELLED": "Cancelado"
+            }
+        }
+    },
+    "agentPlayground": {
+        "title": "Agent Playground",
+        "info": "Dispare um agente diretamente (on-demand) ou envie uma mensagem conversacional. Ambos exigem um <code>AgentInvocationQueue</code> configurado no backend.",
+        "tenantId": "ID do tenant",
+        "sessionId": "ID da sessão (opcional)",
+        "sessionPlaceholder": "gerado automaticamente se vazio",
+        "agent": "Agente",
+        "agentPlaceholder": "Selecione um agente do catálogo",
+        "agentLabel": "agente",
+        "assistantLabel": "assistente",
+        "tabs": {
+            "invoke": "Invocar (payload)",
+            "message": "Mensagem (chat)"
+        },
+        "jsonPayload": "Payload JSON",
+        "invokeBtn": "Invocar agente",
+        "message": "Mensagem",
+        "sendBtn": "Enviar mensagem",
+        "response": "Resposta",
+        "selectFirst": "Selecione um agente primeiro",
+        "emptyMessage": "Mensagem vazia",
+        "invoked": "Invocado",
+        "accepted": "Aceito",
+        "requestIdMsg": "requestId: {{id}}",
+        "invokeFailed": "Falha ao invocar",
+        "sendFailed": "Falha ao enviar"
+    },
+    "voicePlayground": {
+        "title": "Playground de voz",
+        "subtitle": "Converse com um agente ArchFlow em tempo real. Escolha uma persona, toque no microfone e fale — seu áudio é transmitido ao adaptador de realtime e a transcrição aparece abaixo conforme o agente responde.",
+        "persona": "Persona",
+        "personaHint": "Papel do agente usado nesta sessão",
+        "reset": "Resetar",
+        "startFailed": "Falha ao iniciar sessão",
+        "micHint": "O áudio é transmitido como frames PCM16 24kHz por WebSocket com escopo por tenant. Nada é gravado no servidor além da transcrição.",
+        "transcript": "Transcrição",
+        "status": {
+            "idle": "ocioso",
+            "requesting_mic": "solicitando mic",
+            "connecting": "conectando",
+            "recording": "gravando",
+            "speaking": "falando",
+            "closed": "encerrado",
+            "error": "erro"
+        }
+    },
+    "brainSentry": {
+        "title": "BrainSentry",
+        "info": "BrainSentry é um sistema de memória de longo prazo para agentes. Quando ativo, o <code>BrainSentryInterceptor</code> enriquece os prompts de execução de ferramentas com memórias relevantes e armazena novos episódios. A chave de API fica no servidor e nunca retorna em texto puro ao navegador.",
+        "enable": "Ativar integração BrainSentry",
+        "baseUrl": "URL base",
+        "apiKey": "Chave de API",
+        "apiKeyHint": "Mantenha o placeholder mascarado para preservar a chave existente",
+        "tenantTag": "Tag do tenant",
+        "maxTokenBudget": "Orçamento máx. de tokens",
+        "timeout": "Timeout (segundos)",
+        "deepAnalysis": "Forçar análise LLM profunda em toda interceptação",
+        "saved": "Configuração salva",
+        "saveFailed": "Falha ao salvar",
+        "credsCard": "Precisa de credenciais? Rode o BrainSentry localmente: <code>docker compose -f brain-sentry/docker-compose.dev.yml up</code>"
+    },
+    "login": {
+        "tagline": "Plataforma de orquestração de agentes",
+        "username": "Usuário",
+        "usernamePlaceholder": "seu-usuario",
+        "password": "Senha",
+        "passwordPlaceholder": "sua-senha",
+        "signIn": "Entrar",
+        "devCredentials": "Credenciais de dev",
+        "credsTpl": "Usuário: admin · Senha: admin123"
+    },
+    "executionDetail": {
+        "title": "Execução {{id}}",
+        "viewTrace": "Ver trace",
+        "back": "Voltar"
+    },
+    "marketplace": {
+        "title": "Marketplace",
+        "installExt": "Instalar extensão",
+        "searchPlaceholder": "Buscar extensões",
+        "searchBtn": "Buscar",
+        "allTab": "Todas ({{count}})",
+        "empty": "Nenhuma extensão corresponde ao filtro atual.",
+        "loadFailed": "Falha ao carregar extensões",
+        "installed": "instalada",
+        "uninstall": "Desinstalar",
+        "uninstallHint": "Remover esta extensão do registro",
+        "notInstalled": "Não instalada",
+        "notInstalledHint": "Extensão já foi obtida; instale pelo modal",
+        "installTitle": "Instalar extensão",
+        "manifestPath": "Caminho do manifest",
+        "manifestHint": "Caminho para manifest.json dentro do diretório de extensões configurado",
+        "submitInstall": "Instalar",
+        "authorBy": "por {{author}}",
+        "by": "Autor",
+        "idLabel": "ID",
+        "permissions": "Permissões:",
+        "installedOk": "Instalada",
+        "installedOkMsg": "{{name}} instalada com sucesso",
+        "uninstallOk": "Desinstalada",
+        "uninstallOkMsg": "{{name}} removida",
+        "manifestRequired": "O caminho do manifest é obrigatório",
+        "installFailed": "Falha ao instalar",
+        "uninstallFailed": "Falha ao desinstalar",
+        "back": "Voltar"
+    },
+    "templates": {
+        "title": "Modelos",
+        "subtitle": "Comece com um fluxo pronto e adapte ao seu caso. Clique em um card para visualizar o canvas e depois clone para seu workspace.",
+        "search": "Buscar modelos...",
+        "complexity": "Complexidade",
+        "complexityAny": "Qualquer complexidade",
+        "complexityStarter": "Iniciante",
+        "complexityIntermediate": "Intermediário",
+        "complexityAdvanced": "Avançado",
+        "all": "Todos",
+        "noMatches": "Nenhum modelo corresponde à busca.",
+        "stepsShort": "{{count}} passos",
+        "detail": {
+            "back": "Voltar aos modelos",
+            "notFound": "Modelo não encontrado.",
+            "use": "Usar este modelo",
+            "about": "Sobre este modelo",
+            "pipeline": "Pipeline ({{count}} passos)",
+            "variables": "Variáveis padrão",
+            "workflowJson": "JSON do fluxo",
+            "copy": "Copiar",
+            "copied": "Copiado",
+            "copiedMsg": "JSON do fluxo copiado para a área de transferência",
+            "created": "Fluxo criado",
+            "createdMsg": "{{name}} clonado para seu workspace",
+            "cloneFailed": "Falha ao clonar modelo"
+        }
+    },
+    "mcp": {
+        "servers": {
+            "title": "Servidores MCP",
+            "emptyTitle": "Nenhum servidor MCP registrado nesta instância.",
+            "emptyHint": "Configure os servidores MCP no contexto Spring do backend (veja <code>McpInspectionControllerImpl</code>) e eles aparecerão aqui.",
+            "inspect": "Inspecionar"
+        },
+        "detail": {
+            "reconnect": "Reconectar",
+            "back": "Voltar",
+            "inspecting": "Inspecionando…",
+            "inspectFailed": "Falha ao inspecionar",
+            "serverError": "O servidor retornou um erro",
+            "connected": "conectado",
+            "offline": "offline",
+            "tools": "Ferramentas ({{count}})",
+            "prompts": "Prompts ({{count}})",
+            "resources": "Recursos ({{count}})",
+            "noTools": "Nenhuma ferramenta exposta.",
+            "noPrompts": "Nenhum template de prompt.",
+            "noResources": "Nenhum recurso exposto."
+        }
+    },
+    "skills": {
+        "title": "Skills",
+        "emptyTitle": "Nenhuma skill configurada.",
+        "emptyHint": "Defina <code>archflow.skills.directory</code> nas propriedades da aplicação e reinicie o backend para carregar skills do filesystem.",
+        "active": "Ativa",
+        "inactive": "Inativa",
+        "badgeActive": "ativa",
+        "resources_one": "{{count}} recurso",
+        "resources_other": "{{count}} recursos",
+        "activateFailed": "Falha ao ativar",
+        "deactivateFailed": "Falha ao desativar"
+    },
+    "linktor": {
+        "config": {
+            "title": "Linktor",
+            "info": "Linktor é uma plataforma de mensageria omnichannel open source (WhatsApp, Telegram, Instagram, SMS, Email, Webchat…). Quando ativada, aparece em Servidores MCP e como servidor disponível no editor de fluxos, dando aos agentes acesso a ~51 ferramentas Linktor (enviar mensagem, listar conversas, controlar respostas visuais VRE, etc.).",
+            "enable": "Ativar integração Linktor",
+            "baseUrl": "URL base da API Linktor",
+            "baseUrlHint": "Encaminhado ao servidor MCP como LINKTOR_API_URL",
+            "apiKey": "Chave de API",
+            "apiKeyHint": "LINKTOR_API_KEY. Mantenha o placeholder mascarado para preservar.",
+            "accessToken": "Token de acesso (opcional)",
+            "accessTokenHint": "LINKTOR_ACCESS_TOKEN para acesso em escopo de usuário.",
+            "mcpCommand": "Comando MCP",
+            "mcpCommandHint": "Caminho ou comando para o binário linktor-mcp. Argumentos separados por espaço são suportados.",
+            "timeout": "Timeout (segundos)",
+            "saved": "Configuração salva — será aplicada na próxima requisição.",
+            "saveFailed": "Falha ao salvar",
+            "installTitle": "Instale o servidor MCP",
+            "installHint": "<code>npm install -g @linktor/mcp-server</code> — o binário <code>linktor-mcp</code> é adicionado ao PATH. Alternativamente, rode <code>node /caminho/para/linktor-mcp-server/dist/index.js</code>."
+        },
+        "inbox": {
+            "title": "Inbox Linktor",
+            "tabs": {
+                "conversations": "Conversas ({{count}})",
+                "contacts": "Contatos",
+                "channels": "Canais"
+            },
+            "emptyConversations": "Nenhuma conversa ainda.",
+            "emptyContacts": "Nenhum contato.",
+            "emptyChannels": "Nenhum canal configurado.",
+            "open": "Abrir",
+            "columns": {
+                "id": "ID",
+                "status": "Status",
+                "channel": "Canal",
+                "lastMessage": "Última mensagem",
+                "updated": "Atualizada",
+                "name": "Nome",
+                "email": "E-mail",
+                "phone": "Telefone",
+                "tags": "Tags"
+            }
+        },
+        "conversation": {
+            "title": "Conversa",
+            "back": "Voltar",
+            "noMessages": "Nenhuma mensagem ainda.",
+            "reply": "Resposta",
+            "sendFailed": "Falha ao enviar",
+            "handoff": "Transferir para humano",
+            "assigneePlaceholder": "ID do usuário alvo (vazio devolve à fila)",
+            "assign": "Atribuir",
+            "assigned": "Atribuída",
+            "assignedMsg": "Conversa transferida para {{assignee}}",
+            "assignFailed": "Falha ao atribuir",
+            "markResolved": "Marcar como resolvida",
+            "resolved": "Resolvida",
+            "resolvedMsg": "Conversa marcada como resolvida",
+            "resolveFailed": "Falha ao resolver"
+        },
+        "status": {
+            "open": "aberta",
+            "assigned": "atribuída",
+            "resolved": "resolvida"
+        }
+    },
+    "chat": {
+        "roles": {
+            "user": "usuário",
+            "assistant": "assistente",
+            "tool": "ferramenta",
+            "system": "sistema"
+        },
+        "toolCall": {
+            "running": "executando",
+            "success": "sucesso",
+            "error": "erro",
+            "toggle": "alternar",
+            "input": "entrada",
+            "output": "saída",
+            "errorLabel": "erro"
+        },
+        "citations": {
+            "sources": "Fontes",
+            "sourcesCount": "Fontes ({{count}})"
+        },
+        "form": {
+            "cancel": "Cancelar",
+            "submit": "Enviar",
+            "required": "{{label}} é obrigatório"
+        },
+        "send": "Enviar",
+        "placeholder": "Digite uma mensagem...",
+        "startWithWorkflow": "Inicie uma conversa com este fluxo.",
+        "noMessages": "Nenhuma mensagem ainda.",
+        "sendFailed": "Falha ao enviar a mensagem. Tente novamente.",
+        "submitFormFailed": "Falha ao enviar o formulário. Tente novamente.",
+        "conversationCancelled": "Conversa cancelada.",
+        "stream": {
+            "idle": "ocioso",
+            "connecting": "conectando",
+            "open": "ao vivo",
+            "reconnecting": "reconectando",
+            "closed": "encerrado",
+            "error": "erro"
+        }
+    },
+    "conversationDetail": {
+        "title": "Conversa {{id}}",
+        "back": "Voltar às conversas",
+        "refresh": "Atualizar metadados da conversa",
+        "missingId": "ID da conversa ausente.",
+        "loadError": "Falha ao carregar",
+        "noMetadata": "Sem metadados.",
+        "section": {
+            "tenant": "Tenant",
+            "user": "Usuário",
+            "channel": "Canal",
+            "created": "Criada em",
+            "updated": "Atualizada em",
+            "workflow": "Fluxo",
+            "raw": "Bruto"
+        }
+    },
+    "conversations": {
+        "title": "Conversas",
+        "search": "Buscar por usuário, id da conversa...",
+        "status": "Status",
+        "empty": "Nenhuma conversa encontrada.",
+        "loadError": "Falha ao carregar conversas",
+        "table": {
+            "id": "ID",
+            "user": "Usuário",
+            "channel": "Canal",
+            "persona": "Persona",
+            "status": "Status",
+            "updated": "Atualizada",
+            "messages": "Mensagens"
+        },
+        "statuses": {
+            "ALL": "Todas",
+            "ACTIVE": "Ativa",
+            "AWAITING_HUMAN": "Aguardando humano",
+            "SUSPENDED": "Suspensa",
+            "ESCALATED": "Escalada",
+            "CLOSED": "Encerrada",
+            "COMPLETED": "Concluída",
+            "CANCELLED": "Cancelada"
+        },
+        "time": {
+            "seconds": "há {{n}}s",
+            "minutes": "há {{n}}min",
+            "hours": "há {{n}}h",
+            "days": "há {{n}}d"
+        }
+    },
+    "approvals": {
+        "title": "Fila de aprovações",
+        "subtitle": "Decisões pendentes de humano (HITL). Clique em uma linha para revisar a proposta e decidir.",
+        "search": "Buscar por id da solicitação, id do fluxo, descrição...",
+        "pending": "{{count}} pendente(s)",
+        "empty": "Nenhuma aprovação pendente.",
+        "loadError": "Falha ao carregar aprovações",
+        "notFound": "Aprovação não encontrada.",
+        "backToQueue": "Voltar à fila",
+        "table": {
+            "request": "Solicitação",
+            "flow": "Fluxo",
+            "step": "Passo",
+            "description": "Descrição",
+            "waiting": "Aguardando",
+            "expires": "Expira"
+        },
+        "detail": {
+            "heading": "Aprovação {{id}}",
+            "tenant": "Tenant",
+            "flow": "Fluxo",
+            "step": "Passo",
+            "created": "Criada em",
+            "expires": "Expira em",
+            "proposal": "Proposta",
+            "editBeforeApprove": "Editar antes de aprovar",
+            "yourDecision": "Sua decisão",
+            "commentPlaceholder": "Comentário opcional (livre)",
+            "approve": "Aprovar",
+            "saveAndApprove": "Salvar e aprovar",
+            "reject": "Rejeitar",
+            "cancelEdit": "Cancelar edição",
+            "decisionSubmitted": "Decisão enviada",
+            "submitFailed": "Falha ao enviar decisão",
+            "invalidJson": "Payload editado não é um JSON válido"
+        },
+        "time": {
+            "expired": "expirada",
+            "inFuture": "em {{dur}}",
+            "ago": "há {{dur}}"
+        }
+    },
+    "categories": {
+        "agent": "IA / Agentes",
+        "control": "Controle de fluxo",
+        "data": "Dados",
+        "tool": "Ferramentas / Funções",
+        "vector": "Vetores / Memória",
+        "io": "Entrada / Saída",
+        "knowledge": "Conhecimento",
+        "integration": "Integração",
+        "annotation": "Anotações"
+    },
+    "nodes": {
+        "agent":            { "label": "Agente",             "description": "Agente de IA autônomo" },
+        "assistant":        { "label": "Assistente",         "description": "Assistente interativo" },
+        "llm-chat":         { "label": "LLM Chat",           "description": "Chamada a modelo de linguagem" },
+        "llm-streaming":    { "label": "LLM Streaming",      "description": "Resposta do LLM em streaming" },
+        "condition":        { "label": "Condição",           "description": "Ramificação condicional" },
+        "parallel":         { "label": "Paralelo",           "description": "Executa ramos em paralelo" },
+        "loop":             { "label": "Loop",               "description": "Itera sobre itens" },
+        "switch":           { "label": "Switch",             "description": "Ramificação múltipla" },
+        "transform":        { "label": "Transformar",        "description": "Mapeia e remodela dados" },
+        "map":              { "label": "Map",                "description": "Mapeia sobre a coleção" },
+        "filter":           { "label": "Filtro",             "description": "Filtra por condição" },
+        "reduce":           { "label": "Reduce",             "description": "Reduz a um único valor" },
+        "merge":            { "label": "Merge",              "description": "Mescla várias entradas" },
+        "tool":             { "label": "Ferramenta",         "description": "Executa uma chamada de ferramenta" },
+        "function":         { "label": "Função",             "description": "Função personalizada" },
+        "custom":           { "label": "Customizado",        "description": "Componente personalizado" },
+        "vector-search":    { "label": "Busca vetorial",     "description": "Recuperação semântica" },
+        "vector-store":     { "label": "Vector store",       "description": "Armazena embeddings" },
+        "embedding":        { "label": "Embedding",          "description": "Gera embeddings" },
+        "rag":              { "label": "Cadeia RAG",         "description": "Geração aumentada por recuperação" },
+        "memory":           { "label": "Memória",            "description": "Memória de conversação" },
+        "prompt-template":  { "label": "Template de prompt", "description": "Prompt parametrizado" },
+        "prompt-chunk":     { "label": "Trecho de prompt",   "description": "Bloco parcial de prompt" },
+        "input":            { "label": "Entrada",            "description": "Ponto de entrada do fluxo" },
+        "output":           { "label": "Saída",              "description": "Ponto de saída do fluxo" },
+        "skills":           { "label": "Skills",             "description": "Ativa e lê playbooks de skills" },
+        "approval":         { "label": "Aprovação humana",   "description": "Pausa para decisão humana (HITL)" },
+        "subflow":          { "label": "Subfluxo",           "description": "Invoca outro fluxo como passo" },
+        "mcp-tool":         { "label": "Ferramenta MCP",     "description": "Chama ferramenta em servidor MCP" },
+        "linktor-send":     { "label": "Linktor enviar",     "description": "Posta mensagem em uma conversa Linktor" },
+        "linktor-escalate": { "label": "Linktor escalar",    "description": "Escala a conversa para um humano" },
+        "sticky-note":      { "label": "Nota adesiva",       "description": "Card de comentário / anotação amarelo" },
+        "group-frame":      { "label": "Quadro de grupo",    "description": "Caixa que agrupa nós visualmente" },
+        "section-divider":  { "label": "Separador de seção", "description": "Divisor horizontal com rótulo" }
+    }
+}

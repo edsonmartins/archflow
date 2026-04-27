@@ -180,6 +180,20 @@ export async function installEditorApi<TWorkflow extends EditorWorkflow>(
             await fulfillJson(route, []);
             return true;
         },
+        // Catalog endpoints — return empty arrays so PropertyPanel falls
+        // into the "no catalog" branch (TextInput "Tool ID" instead of
+        // Select "Tool"). Without this the useCatalog hook applies its
+        // baked-in fallback list, which would cause the editor-journey
+        // spec to see a populated Select where it expects a free-text
+        // Tool ID input.
+        async ({ path, method, route }) => {
+            if (!['/catalog/agents', '/catalog/assistants', '/catalog/tools',
+                  '/catalog/embeddings', '/catalog/memories',
+                  '/catalog/vectorstores', '/catalog/chains'].includes(path)) return false;
+            if (method !== 'GET') return false;
+            await fulfillJson(route, []);
+            return true;
+        },
         async ({ path, method, route }) => {
             if (path !== '/executions' || method !== 'GET') return false;
             await fulfillJson(route, []);

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import {
     ActionIcon,
     Alert,
@@ -30,6 +31,7 @@ import { useTenantStore } from '../stores/useTenantStore';
 export default function ApprovalDetailPage() {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
+    const { t, i18n } = useTranslation();
     const { impersonating, currentRole } = useTenantStore();
     const tenantId = impersonating ?? (currentRole === 'superadmin' ? 'all' : 'default');
 
@@ -53,7 +55,7 @@ export default function ApprovalDetailPage() {
                 setEditedPayload(JSON.stringify(dto.proposal, null, 2));
             })
             .catch((e) => {
-                if (!cancelled) setError(e instanceof Error ? e.message : 'Not found');
+                if (!cancelled) setError(e instanceof Error ? e.message : t('approvals.notFound'));
             })
             .finally(() => {
                 if (!cancelled) setLoading(false);
@@ -61,6 +63,7 @@ export default function ApprovalDetailPage() {
         return () => {
             cancelled = true;
         };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [id]);
 
     const decide = async (decision: 'APPROVED' | 'REJECTED' | 'EDITED') => {
@@ -73,7 +76,7 @@ export default function ApprovalDetailPage() {
                 try {
                     parsedPayload = JSON.parse(editedPayload);
                 } catch {
-                    throw new Error('Edited payload is not valid JSON');
+                    throw new Error(t('approvals.detail.invalidJson'));
                 }
             }
             const result = await approvalApi.submit(id, {
@@ -83,7 +86,7 @@ export default function ApprovalDetailPage() {
                 responderId: 'me',
             });
             notifications.show({
-                title: 'Decision submitted',
+                title: t('approvals.detail.decisionSubmitted'),
                 message: `${decision} · ${result.requestId.slice(0, 12)}`,
                 color:
                     decision === 'APPROVED'
@@ -94,7 +97,7 @@ export default function ApprovalDetailPage() {
             });
             navigate('/approvals');
         } catch (e) {
-            setError(e instanceof Error ? e.message : 'Failed to submit decision');
+            setError(e instanceof Error ? e.message : t('approvals.detail.submitFailed'));
         } finally {
             setSubmitting(false);
         }
@@ -112,10 +115,10 @@ export default function ApprovalDetailPage() {
         return (
             <Stack p="md">
                 <Alert color="red" icon={<IconAlertCircle size={16} />}>
-                    {error ?? 'Approval not found.'}
+                    {error ?? t('approvals.notFound')}
                 </Alert>
                 <Button variant="default" onClick={() => navigate('/approvals')}>
-                    Back to queue
+                    {t('approvals.backToQueue')}
                 </Button>
             </Stack>
         );
@@ -124,13 +127,13 @@ export default function ApprovalDetailPage() {
     return (
         <Stack p="md" gap="md">
             <Group gap="sm">
-                <Tooltip label="Back to queue">
+                <Tooltip label={t('approvals.backToQueue')}>
                     <ActionIcon variant="subtle" onClick={() => navigate('/approvals')}>
                         <IconArrowLeft size={18} />
                     </ActionIcon>
                 </Tooltip>
                 <Stack gap={0} style={{ flex: 1 }}>
-                    <Title order={3}>Approval {approval.requestId.slice(0, 12)}</Title>
+                    <Title order={3}>{t('approvals.detail.heading', { id: approval.requestId.slice(0, 12) })}</Title>
                     <Group gap={6}>
                         <Text size="xs" c="dimmed" ff="DM Mono, monospace">
                             {approval.requestId}
@@ -144,11 +147,11 @@ export default function ApprovalDetailPage() {
 
             <Paper withBorder radius="md" p="md">
                 <Group gap="xl">
-                    <Meta label="Tenant" value={approval.tenantId ?? '—'} />
-                    <Meta label="Flow" value={approval.flowId ?? '—'} />
-                    <Meta label="Step" value={approval.stepId ?? '—'} />
-                    <Meta label="Created" value={formatDate(approval.createdAt)} />
-                    <Meta label="Expires" value={formatDate(approval.expiresAt)} />
+                    <Meta label={t('approvals.detail.tenant')} value={approval.tenantId ?? '—'} />
+                    <Meta label={t('approvals.detail.flow')} value={approval.flowId ?? '—'} />
+                    <Meta label={t('approvals.detail.step')} value={approval.stepId ?? '—'} />
+                    <Meta label={t('approvals.detail.created')} value={formatDate(approval.createdAt, i18n.resolvedLanguage ?? i18n.language)} />
+                    <Meta label={t('approvals.detail.expires')} value={formatDate(approval.expiresAt, i18n.resolvedLanguage ?? i18n.language)} />
                 </Group>
                 {approval.description && (
                     <Paper mt="sm" p="sm" radius="sm" bg="var(--mantine-color-gray-0)">
@@ -159,7 +162,7 @@ export default function ApprovalDetailPage() {
 
             <Paper withBorder radius="md" p="md">
                 <Group justify="space-between" mb="xs">
-                    <Title order={5}>Proposal</Title>
+                    <Title order={5}>{t('approvals.detail.proposal')}</Title>
                     {!editMode && (
                         <Button
                             size="xs"
@@ -168,7 +171,7 @@ export default function ApprovalDetailPage() {
                             onClick={() => setEditMode(true)}
                             data-testid="approval-edit-toggle"
                         >
-                            Edit before approve
+                            {t('approvals.detail.editBeforeApprove')}
                         </Button>
                     )}
                 </Group>
@@ -193,10 +196,10 @@ export default function ApprovalDetailPage() {
 
             <Paper withBorder radius="md" p="md">
                 <Title order={5} mb="xs">
-                    Your decision
+                    {t('approvals.detail.yourDecision')}
                 </Title>
                 <Textarea
-                    placeholder="Optional comment (free-form)"
+                    placeholder={t('approvals.detail.commentPlaceholder')}
                     minRows={2}
                     autosize
                     value={comment}
@@ -211,7 +214,7 @@ export default function ApprovalDetailPage() {
                         onClick={() => decide(editMode ? 'EDITED' : 'APPROVED')}
                         data-testid="approval-approve"
                     >
-                        {editMode ? 'Save & approve' : 'Approve'}
+                        {editMode ? t('approvals.detail.saveAndApprove') : t('approvals.detail.approve')}
                     </Button>
                     <Button
                         leftSection={<IconX size={14} />}
@@ -221,11 +224,11 @@ export default function ApprovalDetailPage() {
                         onClick={() => decide('REJECTED')}
                         data-testid="approval-reject"
                     >
-                        Reject
+                        {t('approvals.detail.reject')}
                     </Button>
                     {editMode && (
                         <Button variant="subtle" onClick={() => setEditMode(false)}>
-                            Cancel edit
+                            {t('approvals.detail.cancelEdit')}
                         </Button>
                     )}
                 </Group>
@@ -247,10 +250,10 @@ function Meta({ label, value }: { label: string; value: string }) {
     );
 }
 
-function formatDate(iso: string | null): string {
+function formatDate(iso: string | null, locale: string): string {
     if (!iso) return '—';
     try {
-        return new Date(iso).toLocaleString();
+        return new Date(iso).toLocaleString(locale);
     } catch {
         return iso;
     }

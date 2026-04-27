@@ -1,8 +1,10 @@
-import { Group, Text, Button } from '@mantine/core'
+import { Text, Button } from '@mantine/core'
 import { IconFlag } from '@tabler/icons-react'
+import { Trans, useTranslation } from 'react-i18next'
 import { useTenantStore } from '../../stores/useTenantStore'
 
 export function ImpersonationBanner() {
+  const { t } = useTranslation()
   const { impersonating, exitImpersonation } = useTenantStore()
   if (!impersonating) return null
 
@@ -21,8 +23,11 @@ export function ImpersonationBanner() {
     >
       <IconFlag size={16} color="#854F0B" />
       <Text size="sm" c="#854F0B" style={{ flex: 1 }}>
-        Viewing as admin of <b>{impersonating.name}</b>.
-        All actions are recorded in the audit log.
+        <Trans
+          i18nKey="admin.impersonation.viewingAs"
+          values={{ name: impersonating.name }}
+          components={{ b: <b /> }}
+        />
       </Text>
       <Button
         size="xs"
@@ -33,7 +38,7 @@ export function ImpersonationBanner() {
           exitImpersonation()
         }}
       >
-        Back to superadmin →
+        {t('admin.impersonation.back')}
       </Button>
     </div>
   )

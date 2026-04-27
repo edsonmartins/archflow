@@ -95,43 +95,48 @@ public class ArchFlowAgent implements AutoCloseable {
     }
 
     /**
-     * Executa um fluxo de forma assíncrona
+     * Executa um fluxo de forma assíncrona.
+     *
+     * <p>Setup síncrono (metrics start, plugin load, repository save) é
+     * executado na thread chamadora — se falhar, devolvemos uma future
+     * já concluída excepcionalmente. A execução propriamente dita usa
+     * {@link FlowEngine#startFlow} e sua future é retornada diretamente
+     * (sem {@code supplyAsync + get} aninhado, que podia levar a
+     * bloqueio prolongado sem timeout propagável).</p>
      */
     public CompletableFuture<FlowResult> executeFlow(Flow flow, Map<String, Object> input) {
         String flowId = flow.getId();
         logger.info("Iniciando execução do fluxo: " + flowId);
 
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                // Registra início da execução
-                metricsCollector.recordFlowStart(flowId);
+        try {
+            metricsCollector.recordFlowStart(flowId);
+            pluginManager.loadPluginsForFlow(flow);
+            flowRepository.save(flow);
+        } catch (Exception e) {
+            logger.severe("Erro preparando fluxo: " + flowId + " - " + e.getMessage());
+            metricsCollector.recordFlowError(flowId, e);
+            return CompletableFuture.failedFuture(
+                    new RuntimeException("Erro executando fluxo: " + flowId, e));
+        }
 
-                // Carrega plugins necessários
-                pluginManager.loadPluginsForFlow(flow);
-
-                // Salva fluxo no repositório
-                flowRepository.save(flow);
-
-                // Inicia execução
-                return flowEngine.startFlow(flowId, input)
-                        .whenComplete((result, error) -> {
-                            if (error != null) {
-                                logger.severe("Erro executando fluxo " + flowId + ": " + error.getMessage());
-                                metricsCollector.recordFlowError(flowId, error);
-                            } else {
-                                logger.info("Fluxo " + flowId + " concluído com status: " + result.getStatus());
-                                metricsCollector.recordFlowCompletion(flowId, result.getMetrics(),
-                                        result.getStatus() == ExecutionStatus.COMPLETED);
-                            }
-                        })
-                        .get(); // Aguarda conclusão
-
-            } catch (Exception e) {
-                logger.severe("Erro executando fluxo: " + flowId + " - " + e.getMessage());
-                metricsCollector.recordFlowError(flowId, e);
-                throw new RuntimeException("Erro executando fluxo: " + flowId, e);
-            }
-        }, executorService);
+        try {
+            return flowEngine.startFlow(flowId, input)
+                    .whenComplete((result, error) -> {
+                        if (error != null) {
+                            logger.severe("Erro executando fluxo " + flowId + ": " + error.getMessage());
+                            metricsCollector.recordFlowError(flowId, error);
+                        } else if (result != null) {
+                            logger.info("Fluxo " + flowId + " concluído com status: " + result.getStatus());
+                            metricsCollector.recordFlowCompletion(flowId, result.getMetrics(),
+                                    result.getStatus() == ExecutionStatus.COMPLETED);
+                        }
+                    });
+        } catch (Exception e) {
+            logger.severe("Erro executando fluxo: " + flowId + " - " + e.getMessage());
+            metricsCollector.recordFlowError(flowId, e);
+            return CompletableFuture.failedFuture(
+                    new RuntimeException("Erro executando fluxo: " + flowId, e));
+        }
     }
 
     /**
@@ -163,49 +168,54 @@ public class ArchFlowAgent implements AutoCloseable {
     }
 
     /**
-     * Retoma a execução de um fluxo pausado
+     * Retoma a execução de um fluxo pausado.
+     * Ver {@link #executeFlow} para a rationale de evitar
+     * {@code supplyAsync + get}.
      */
     public CompletableFuture<FlowResult> resumeFlow(String flowId) {
         logger.info("Retomando fluxo: " + flowId);
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                // Carrega estado atual
-                FlowState state = getStateManager().loadState(flowId);
-                if (state == null) {
-                    throw new IllegalStateException("Estado não encontrado para fluxo: " + flowId);
-                }
 
-                // Carrega fluxo do repositório
-                Flow flow = flowRepository.findById(flowId)
-                        .orElseThrow(() -> new IllegalStateException("Fluxo não encontrado: " + flowId));
-
-                // Cria contexto para retomada
-                ExecutionContext context = FlowContextBuilder.forFlow(flow)
-                        .withInitialVariables(state.getVariables())
-                        .withAdditionalContext(Map.of(
-                                "resumeTime", System.currentTimeMillis(),
-                                "previousState", state.getStatus()
-                        ))
-                        .build();
-
-                // Retoma execução
-                return flowEngine.resumeFlow(flowId, context)
-                        .whenComplete((result, error) -> {
-                            if (error != null) {
-                                logger.severe("Erro retomando fluxo " + flowId + ": " + error.getMessage());
-                                metricsCollector.recordFlowError(flowId, error);
-                            } else {
-                                logger.info("Fluxo " + flowId + " retomado com status: " + result.getStatus());
-                                metricsCollector.recordFlowStatus(flowId, FlowStatus.RUNNING);
-                            }
-                        })
-                        .get();
-
-            } catch (Exception e) {
-                logger.severe("Erro retomando fluxo: " + flowId + " - " + e.getMessage());
-                throw new RuntimeException("Erro retomando fluxo: " + flowId, e);
+        FlowState state;
+        Flow flow;
+        ExecutionContext context;
+        try {
+            state = getStateManager().loadState(flowId);
+            if (state == null) {
+                throw new IllegalStateException("Estado não encontrado para fluxo: " + flowId);
             }
-        }, executorService);
+
+            flow = flowRepository.findById(flowId)
+                    .orElseThrow(() -> new IllegalStateException("Fluxo não encontrado: " + flowId));
+
+            context = FlowContextBuilder.forFlow(flow)
+                    .withInitialVariables(state.getVariables())
+                    .withAdditionalContext(Map.of(
+                            "resumeTime", System.currentTimeMillis(),
+                            "previousState", state.getStatus()
+                    ))
+                    .build();
+        } catch (Exception e) {
+            logger.severe("Erro retomando fluxo: " + flowId + " - " + e.getMessage());
+            return CompletableFuture.failedFuture(
+                    new RuntimeException("Erro retomando fluxo: " + flowId, e));
+        }
+
+        try {
+            return flowEngine.resumeFlow(flowId, context)
+                    .whenComplete((result, error) -> {
+                        if (error != null) {
+                            logger.severe("Erro retomando fluxo " + flowId + ": " + error.getMessage());
+                            metricsCollector.recordFlowError(flowId, error);
+                        } else if (result != null) {
+                            logger.info("Fluxo " + flowId + " retomado com status: " + result.getStatus());
+                            metricsCollector.recordFlowStatus(flowId, FlowStatus.RUNNING);
+                        }
+                    });
+        } catch (Exception e) {
+            logger.severe("Erro retomando fluxo: " + flowId + " - " + e.getMessage());
+            return CompletableFuture.failedFuture(
+                    new RuntimeException("Erro retomando fluxo: " + flowId, e));
+        }
     }
 
     /**
@@ -249,8 +259,18 @@ public class ArchFlowAgent implements AutoCloseable {
     }
 
     private FlowEngine createFlowEngine() {
-        FlowLifecycleListener lifecycleListener = new RegistryFlowLifecycleListener(
-                eventStreamRegistry, runningFlowsRegistry);
+        // Compose: the streaming/observability listener is always active
+        // and additional listeners (e.g. the Linktor flow publisher) are
+        // pulled from the process-wide registry at engine construction.
+        br.com.archflow.engine.lifecycle.CompositeFlowLifecycleListener composite =
+                new br.com.archflow.engine.lifecycle.CompositeFlowLifecycleListener();
+        composite.add(new RegistryFlowLifecycleListener(
+                eventStreamRegistry, runningFlowsRegistry));
+        for (FlowLifecycleListener extra :
+                br.com.archflow.engine.lifecycle.FlowLifecycleListeners.snapshot()) {
+            composite.add(extra);
+        }
+        FlowLifecycleListener lifecycleListener = composite;
 
         ExecutionManager executionManager = new DefaultExecutionManager(
                 createFlowExecutor(lifecycleListener),

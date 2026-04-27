@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ActionIcon, Badge, Code, Collapse, Group, Loader, Paper, Stack, Text } from '@mantine/core';
 import { IconCheck, IconChevronDown, IconChevronRight, IconTool, IconX } from '@tabler/icons-react';
 
@@ -34,6 +35,7 @@ interface ToolCallBlockProps {
  * arrive on the SSE stream.
  */
 export default function ToolCallBlock({ call, defaultOpen = false }: ToolCallBlockProps) {
+    const { t } = useTranslation();
     const [open, setOpen] = useState(defaultOpen);
 
     const statusColor =
@@ -57,7 +59,7 @@ export default function ToolCallBlock({ call, defaultOpen = false }: ToolCallBlo
                 onClick={() => setOpen((o) => !o)}
             >
                 <Group gap={6} wrap="nowrap" style={{ minWidth: 0, flex: 1 }}>
-                    <ActionIcon size="xs" variant="subtle" aria-label="toggle">
+                    <ActionIcon size="xs" variant="subtle" aria-label={t('chat.toolCall.toggle')}>
                         {open ? <IconChevronDown size={14} /> : <IconChevronRight size={14} />}
                     </ActionIcon>
                     <IconTool size={14} />
@@ -68,19 +70,19 @@ export default function ToolCallBlock({ call, defaultOpen = false }: ToolCallBlo
                         {call.status === 'running' && (
                             <Group gap={4} wrap="nowrap">
                                 <Loader size={8} color={statusColor} />
-                                running
+                                {t('chat.toolCall.running')}
                             </Group>
                         )}
                         {call.status === 'success' && (
                             <Group gap={4} wrap="nowrap">
                                 <IconCheck size={10} />
-                                success
+                                {t('chat.toolCall.success')}
                             </Group>
                         )}
                         {call.status === 'error' && (
                             <Group gap={4} wrap="nowrap">
                                 <IconX size={10} />
-                                error
+                                {t('chat.toolCall.error')}
                             </Group>
                         )}
                     </Badge>
@@ -103,19 +105,19 @@ export default function ToolCallBlock({ call, defaultOpen = false }: ToolCallBlo
             <Collapse in={open}>
                 <Stack gap={6} mt="xs">
                     {call.input && Object.keys(call.input).length > 0 && (
-                        <Section label="input">
+                        <Section label={t('chat.toolCall.input')}>
                             <Code block>{prettyJson(call.input)}</Code>
                         </Section>
                     )}
 
                     {call.status === 'success' && call.output !== undefined && (
-                        <Section label="output">
+                        <Section label={t('chat.toolCall.output')}>
                             <Code block>{prettyJson(call.output)}</Code>
                         </Section>
                     )}
 
                     {call.status === 'error' && call.error && (
-                        <Section label="error">
+                        <Section label={t('chat.toolCall.errorLabel')}>
                             <Code block c="red">
                                 {call.error}
                             </Code>

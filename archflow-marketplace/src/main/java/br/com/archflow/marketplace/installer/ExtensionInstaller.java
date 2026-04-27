@@ -142,11 +142,19 @@ public class ExtensionInstaller {
     /**
      * Loads a manifest from a file.
      *
+     * <p>The {@code manifestPath} must resolve to a location under the
+     * configured {@code extensionsDir}. Any attempt to read outside that
+     * directory (e.g. {@code ../../etc/passwd}) is rejected up front —
+     * this is the primary defense against path-traversal from the
+     * marketplace REST endpoint which accepts a user-supplied path.
+     *
      * @param manifestPath Path to the manifest.json file
      * @return Parsed ExtensionManifest
-     * @throws IOException If the file cannot be read or parsed
+     * @throws IOException If the file cannot be read or parsed, or if
+     *                     the path escapes {@code extensionsDir}
      */
     public ExtensionManifest loadManifest(Path manifestPath) throws IOException {
+        ensureWithinExtensionsDir(manifestPath);
         if (!Files.exists(manifestPath)) {
             throw new IOException("Manifest file not found: " + manifestPath);
         }
@@ -259,6 +267,28 @@ public class ExtensionInstaller {
         } catch (IOException | NoSuchAlgorithmException e) {
             log.error("Failed to calculate checksum for {}", file, e);
             return Optional.empty();
+        }
+    }
+
+    /**
+     * Ensures a path stays under {@link #extensionsDir}. Resolves both
+     * paths to absolute+normalized form so {@code ../} cannot escape and
+     * symlinks (via {@code toRealPath}) cannot smuggle a child out.
+     *
+     * @throws IOException if the path escapes the extensions directory
+     */
+    private void ensureWithinExtensionsDir(Path candidate) throws IOException {
+        if (extensionsDir == null) {
+            // No root configured — refuse user-supplied paths entirely.
+            throw new IOException("Extensions directory is not configured; refusing to read " + candidate);
+        }
+        Path baseAbs = extensionsDir.toAbsolutePath().normalize();
+        Path candAbs = candidate.toAbsolutePath().normalize();
+        if (!candAbs.startsWith(baseAbs)) {
+            log.warn("Rejected manifest path outside extensions dir: {} (base={})",
+                    candAbs, baseAbs);
+            throw new IOException(
+                    "Manifest path is outside the configured extensions directory");
         }
     }
 

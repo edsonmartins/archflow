@@ -1,4 +1,5 @@
 import { Paper, Text, Group, Badge, Stack, Loader } from '@mantine/core';
+import { useTranslation } from 'react-i18next';
 import type { FormDataType } from '../../services/conversation-api';
 import FormRenderer from './FormRenderer';
 import ToolCallBlock, { type ToolCallView } from './ToolCallBlock';
@@ -37,6 +38,8 @@ export default function ChatMessage({
     citations,
     streaming,
 }: ChatMessageProps) {
+    const { t, i18n } = useTranslation();
+    const locale = i18n.resolvedLanguage ?? i18n.language;
     if (role === 'system') {
         return (
             <Group justify="center" my="xs">
@@ -55,7 +58,7 @@ export default function ChatMessage({
             <Stack gap={4} maw="80%">
                 <Group gap={4} justify={isUser ? 'flex-end' : 'flex-start'}>
                     <Badge size="xs" variant="light" color={roleColor(role)}>
-                        {role}
+                        {t(`chat.roles.${role}`, { defaultValue: role })}
                     </Badge>
                     {!isUser && personaId && (
                         <Badge size="xs" variant="outline" color="grape">
@@ -65,7 +68,7 @@ export default function ChatMessage({
                     )}
                     {timestamp && (
                         <Text size="xs" c="dimmed">
-                            {formatTime(timestamp)}
+                            {formatTime(timestamp, locale)}
                         </Text>
                     )}
                 </Group>
@@ -132,9 +135,9 @@ function roleColor(role: string): string {
     }
 }
 
-function formatTime(timestamp: string): string {
+function formatTime(timestamp: string, locale: string): string {
     try {
-        return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        return new Date(timestamp).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' });
     } catch {
         return timestamp;
     }

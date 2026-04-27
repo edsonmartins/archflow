@@ -26,21 +26,32 @@ import java.util.stream.Collectors;
 public class DefaultFlowExecutor implements FlowExecutor {
     private static final Logger logger = Logger.getLogger(DefaultFlowExecutor.class.getName());
 
+    /** Default per-step execution timeout (ms). Prevents a misbehaving
+     * plugin from blocking a flow thread indefinitely. */
+    private static final long DEFAULT_STEP_TIMEOUT_MS = 10 * 60 * 1000L; // 10 min
+
     private final ClassLoader pluginClassLoader;
     private final MetricsCollector metricsCollector;
     private final FlowLifecycleListener lifecycleListener;
     private final Map<String, StepExecution> activeExecutions;
+    private final long stepTimeoutMs;
 
     public DefaultFlowExecutor(ClassLoader pluginClassLoader, MetricsCollector metricsCollector) {
-        this(pluginClassLoader, metricsCollector, FlowLifecycleListener.NO_OP);
+        this(pluginClassLoader, metricsCollector, FlowLifecycleListener.NO_OP, DEFAULT_STEP_TIMEOUT_MS);
     }
 
     public DefaultFlowExecutor(ClassLoader pluginClassLoader, MetricsCollector metricsCollector,
                                FlowLifecycleListener lifecycleListener) {
+        this(pluginClassLoader, metricsCollector, lifecycleListener, DEFAULT_STEP_TIMEOUT_MS);
+    }
+
+    public DefaultFlowExecutor(ClassLoader pluginClassLoader, MetricsCollector metricsCollector,
+                               FlowLifecycleListener lifecycleListener, long stepTimeoutMs) {
         this.pluginClassLoader = pluginClassLoader;
         this.metricsCollector = metricsCollector;
         this.lifecycleListener = lifecycleListener != null ? lifecycleListener : FlowLifecycleListener.NO_OP;
         this.activeExecutions = new ConcurrentHashMap<>();
+        this.stepTimeoutMs = stepTimeoutMs > 0 ? stepTimeoutMs : DEFAULT_STEP_TIMEOUT_MS;
     }
 
     @Override
@@ -112,7 +123,23 @@ public class DefaultFlowExecutor implements FlowExecutor {
         String scopedKey = findScopedKey(stepId);
         StepExecution execution = scopedKey != null ? activeExecutions.get(scopedKey) : null;
         if (execution == null) {
-            logger.warning("Step execution não encontrada para: " + stepId);
+            // Truly unknown stepId — either never registered or already
+            // fully processed and cleaned up. Fail loudly so the caller
+            // sees the mismatch. The idempotency guard below ensures we
+            // do NOT reach here for a second legitimate delivery of a
+            // step whose execution entry is still present.
+            throw new IllegalStateException(
+                    "Step execution not registered for stepId=" + stepId
+                    + " (scopedKey=" + scopedKey + ")");
+        }
+
+        // Idempotency: if the step future's whenComplete fires AND the
+        // executor's explicit timeout path also dispatches a result (or
+        // a plugin misbehaves and completes twice), we must process
+        // exactly once. CAS on a per-step AtomicBoolean gives us that
+        // with zero locking.
+        if (!execution.markHandled()) {
+            logger.fine("Step " + stepId + " already handled; ignoring duplicate result");
             return;
         }
 
@@ -233,7 +260,7 @@ public class DefaultFlowExecutor implements FlowExecutor {
             StepExecution execution = new StepExecution(flow, step, context);
             activeExecutions.put(scopedKey, execution);
 
-            StepResult result = step.execute(context)
+            CompletableFuture<StepResult> stepFuture = step.execute(context)
                     .whenComplete((r, error) -> {
                         if (error != null) {
                             logger.severe("Erro executando step " + stepId + ": " + error.getMessage());
@@ -241,8 +268,21 @@ public class DefaultFlowExecutor implements FlowExecutor {
                         } else {
                             handleResult(r);
                         }
-                    })
-                    .get();
+                    });
+
+            StepResult result;
+            try {
+                result = stepFuture.get(stepTimeoutMs, TimeUnit.MILLISECONDS);
+            } catch (TimeoutException te) {
+                // Try to unblock the step; the whenComplete hook above will
+                // fire with a CancellationException and clear activeExecutions
+                // via handleResult. We return a synthetic error so the flow
+                // engine can route to the error path.
+                stepFuture.cancel(true);
+                long durationMs = (System.nanoTime() - startNs) / 1_000_000;
+                safeLifecycle(() -> lifecycleListener.onStepFailed(flow, step, context, te, durationMs));
+                return createErrorResult(step, te);
+            }
 
             long durationMs = (System.nanoTime() - startNs) / 1_000_000;
             if (result.getStatus() == StepStatus.SKIPPED) {
@@ -310,12 +350,20 @@ public class DefaultFlowExecutor implements FlowExecutor {
         private final ExecutionContext context;
         private final String flowId;
         private volatile boolean failed;
+        /** CAS guard so handleResult runs at most once per step execution. */
+        private final java.util.concurrent.atomic.AtomicBoolean handled =
+                new java.util.concurrent.atomic.AtomicBoolean(false);
 
         public StepExecution(Flow flow, FlowStep step, ExecutionContext context) {
             this.flow = flow;
             this.step = step;
             this.context = context;
             this.flowId = context.getState().getFlowId();
+        }
+
+        /** @return {@code true} if this call is the first to mark the execution handled */
+        public boolean markHandled() {
+            return handled.compareAndSet(false, true);
         }
 
         public Flow getFlow() {

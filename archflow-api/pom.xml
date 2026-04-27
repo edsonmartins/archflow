@@ -75,10 +75,101 @@
             <artifactId>archflow-standalone</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <!-- Built-in plugins so the CatalogController can surface them in the UI. -->
+        <dependency>
+            <groupId>br.com.archflow.plugins</groupId>
+            <artifactId>archflow-plugin-agents</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>br.com.archflow.plugins</groupId>
+            <artifactId>archflow-plugin-assistants</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>br.com.archflow.plugins</groupId>
+            <artifactId>archflow-plugin-tools</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- Skills and MCP adapters exposed via admin endpoints. -->
+        <dependency>
+            <groupId>br.com.archflow</groupId>
+            <artifactId>archflow-langchain4j-skills</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>br.com.archflow</groupId>
+            <artifactId>archflow-langchain4j-mcp</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- LangChain4j adapters so CatalogController can surface every
+             SPI-registered provider (chat / embedding / memory / vectorstore / chain). -->
+        <dependency>
+            <groupId>br.com.archflow</groupId>
+            <artifactId>archflow-langchain4j-openai</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>br.com.archflow</groupId>
+            <artifactId>archflow-langchain4j-anthropic</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>br.com.archflow</groupId>
+            <artifactId>archflow-langchain4j-openrouter</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>br.com.archflow</groupId>
+            <artifactId>archflow-langchain4j-memory-jdbc</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>br.com.archflow</groupId>
+            <artifactId>archflow-langchain4j-memory-redis</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>br.com.archflow</groupId>
+            <artifactId>archflow-langchain4j-embedding-openai</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>br.com.archflow</groupId>
+            <artifactId>archflow-langchain4j-embedding-local</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>br.com.archflow</groupId>
+            <artifactId>archflow-langchain4j-vectorstore-pgvector</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>br.com.archflow</groupId>
+            <artifactId>archflow-langchain4j-vectorstore-redis</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>br.com.archflow</groupId>
+            <artifactId>archflow-langchain4j-vectorstore-pinecone</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>br.com.archflow</groupId>
+            <artifactId>archflow-langchain4j-chain-rag</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         <dependency>
             <groupId>br.com.archflow</groupId>
             <artifactId>archflow-langchain4j-provider-hub</artifactId>
             <version>${project.version}</version>
+        </dependency>
+
+        <!-- Quartz scheduler for cron-based triggers. -->
+        <dependency>
+            <groupId>org.quartz-scheduler</groupId>
+            <artifactId>quartz</artifactId>
+            <version>2.3.2</version>
         </dependency>
 
         <!-- Spring Boot (application layer) -->

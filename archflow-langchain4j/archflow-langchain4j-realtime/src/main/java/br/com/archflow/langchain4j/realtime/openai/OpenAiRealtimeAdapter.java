@@ -7,9 +7,14 @@ import br.com.archflow.langchain4j.realtime.spi.RealtimeTransport;
 
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.util.Collections;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BiFunction;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
  * {@link RealtimeAdapter} implementation that proxies voice sessions
@@ -30,6 +35,8 @@ import java.util.function.BiFunction;
  */
 public class OpenAiRealtimeAdapter implements RealtimeAdapter {
 
+    private static final Logger logger = Logger.getLogger(OpenAiRealtimeAdapter.class.getName());
+
     public static final String PROVIDER_ID = "openai";
     private static final String DEFAULT_BASE_URL = "wss://api.openai.com/v1/realtime";
     private static final String DEFAULT_MODEL = "gpt-4o-realtime-preview";
@@ -40,6 +47,15 @@ public class OpenAiRealtimeAdapter implements RealtimeAdapter {
     private String model = DEFAULT_MODEL;
     private String voice = DEFAULT_VOICE;
     private String instructions = "You are a helpful voice assistant.";
+
+    /**
+     * Sessions opened by this adapter. Tracked so {@link #shutdown()}
+     * can deterministically close every open WebSocket rather than
+     * leaving them to the GC (which would leak file descriptors and
+     * keep the provider charging tokens on zombie sessions).
+     */
+    private final Set<OpenAiRealtimeSession> openSessions =
+            Collections.newSetFromMap(new ConcurrentHashMap<>());
 
     /**
      * Test hook: function (endpoint, apiKey) -> transport. Defaults to
@@ -83,14 +99,31 @@ public class OpenAiRealtimeAdapter implements RealtimeAdapter {
         RealtimeTransport transport = transportFactory.apply(endpoint, apiKey);
         OpenAiRealtimeSession session = new OpenAiRealtimeSession(
                 tenantId, personaId, voice, instructions, transport);
+        // Register deregister hook BEFORE open() so that even if the
+        // transport fails immediately and fires onClose, the tracking
+        // set is kept tidy.
+        session.setCloseHook(() -> openSessions.remove(session));
         session.open();
+        openSessions.add(session);
         return session;
     }
 
     @Override
     public void shutdown() {
-        // Nothing shared across sessions today; placeholder for future
-        // connection-pool style improvements.
+        // Snapshot and clear the tracking set before iterating so a
+        // concurrent openSession() cannot add to it while we close.
+        Set<OpenAiRealtimeSession> snapshot = Set.copyOf(openSessions);
+        openSessions.clear();
+        for (OpenAiRealtimeSession session : snapshot) {
+            try {
+                session.close();
+            } catch (Exception e) {
+                logger.log(Level.WARNING,
+                        "Failed to close OpenAI realtime session "
+                                + session.sessionId() + " during adapter shutdown",
+                        e);
+            }
+        }
     }
 
     /**

@@ -11,11 +11,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class GlobalConfigControllerImpl implements GlobalConfigController {
     private static final Logger log = LoggerFactory.getLogger(GlobalConfigControllerImpl.class);
 
-    private final List<LLMModelDto> models = new ArrayList<>(List.of(
+    // CopyOnWriteArrayList + index-based replaceAll serialize mutations and
+    // give concurrent readers a safe snapshot without explicit locking.
+    private final List<LLMModelDto> models = new CopyOnWriteArrayList<>(List.of(
             new LLMModelDto("gpt-4o", "GPT-4o", "OpenAI", "active", 2.50, 10.00),
             new LLMModelDto("claude-sonnet-4-6", "Claude Sonnet 4.6", "Anthropic", "active", 3.00, 15.00),
             new LLMModelDto("gemma-3-27b", "Gemma 3 27B", "Local", "beta", 0, 0),
@@ -28,7 +32,8 @@ public class GlobalConfigControllerImpl implements GlobalConfigController {
             "trial", new PlanDefaultsDto("trial", 50, 100_000, 3, 2)
     ));
 
-    private FeatureTogglesDto toggles = new FeatureTogglesDto(true, true, true, false, false, true);
+    private final AtomicReference<FeatureTogglesDto> toggles =
+            new AtomicReference<>(new FeatureTogglesDto(true, true, true, false, false, true));
 
     @Override
     public List<LLMModelDto> getModels() {
@@ -38,14 +43,13 @@ public class GlobalConfigControllerImpl implements GlobalConfigController {
     @Override
     public void toggleModel(String modelId, ToggleModelRequest request) {
         log.info("Toggle model {}: active={}", modelId, request.active());
-        for (int i = 0; i < models.size(); i++) {
-            if (models.get(i).id().equals(modelId)) {
-                var m = models.get(i);
-                models.set(i, new LLMModelDto(m.id(), m.name(), m.provider(),
-                        request.active() ? "active" : "deprecated", m.costInputPer1M(), m.costOutputPer1M()));
-                return;
-            }
-        }
+        // replaceAll on CopyOnWriteArrayList acquires a lock and performs
+        // the in-place remap atomically, so concurrent toggles serialize.
+        models.replaceAll(m -> m.id().equals(modelId)
+                ? new LLMModelDto(m.id(), m.name(), m.provider(),
+                        request.active() ? "active" : "deprecated",
+                        m.costInputPer1M(), m.costOutputPer1M())
+                : m);
     }
 
     @Override
@@ -61,13 +65,13 @@ public class GlobalConfigControllerImpl implements GlobalConfigController {
 
     @Override
     public FeatureTogglesDto getToggles() {
-        return toggles;
+        return toggles.get();
     }
 
     @Override
     public void updateToggles(FeatureTogglesDto newToggles) {
         log.info("Update feature toggles");
-        this.toggles = newToggles;
+        this.toggles.set(newToggles);
     }
 
     @Override

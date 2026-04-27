@@ -17,6 +17,7 @@ import java.util.*;
 import java.util.concurrent.CompletableFuture;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @DisplayName("DefaultFlowExecutor")
 class DefaultFlowExecutorTest {
@@ -91,10 +92,15 @@ class DefaultFlowExecutorTest {
     }
 
     @Test
-    @DisplayName("handleResult ignores unknown stepId without throwing")
+    @DisplayName("handleResult throws IllegalStateException for unknown stepId")
     void handleResultUnknown() {
+        // Previously this silently logged a warning and returned, which
+        // masked double-delivery of step results. The new contract is to
+        // fail fast so the caller sees the mismatch.
         StepResult result = completedResult("unknown-step", "x");
-        executor.handleResult(result);
+        assertThatThrownBy(() -> executor.handleResult(result))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("unknown-step");
     }
 
     @Test

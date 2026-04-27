@@ -17,6 +17,11 @@
  * ```
  */
 
+// Side-effect import: initializes the i18next instance so any UI text
+// rendered inside the web component (in particular ExecutionHistoryPanel
+// which is plain DOM, not React) can resolve translation keys via
+// `i18next.t(...)`. Idempotent — `init()` only runs the first time.
+import '../i18n';
 import { ArchflowDesigner } from './core/ArchflowDesigner';
 
 // Export main component

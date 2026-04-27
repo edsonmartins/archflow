@@ -60,8 +60,14 @@ public class DefaultParallelExecutor implements ParallelExecutor {
 
     private CompletableFuture<StepResult> executeStepAsync(FlowStep step, ExecutionContext context) {
         return CompletableFuture.supplyAsync(() -> {
+            // Track whether we actually acquired a permit. If acquire()
+            // throws (e.g. thread interrupted while blocked), we must NOT
+            // call release() or we inflate the permit count past
+            // maxConcurrent and break the concurrency cap permanently.
+            boolean acquired = false;
             try {
                 semaphore.acquire();
+                acquired = true;
                 logger.info("Iniciando execução paralela do step: {}", step.getId());
                 return step.execute(context).get();
             } catch (InterruptedException e) {
@@ -70,7 +76,9 @@ public class DefaultParallelExecutor implements ParallelExecutor {
             } catch (Exception e) {
                 throw new CompletionException("Error executing step: " + step.getId(), e);
             } finally {
-                semaphore.release();
+                if (acquired) {
+                    semaphore.release();
+                }
             }
         }, executorService);
     }

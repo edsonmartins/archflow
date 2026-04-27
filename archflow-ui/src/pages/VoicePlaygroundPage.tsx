@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
     Alert,
     Badge,
@@ -18,12 +19,18 @@ import {
     type RealtimeMessage,
     type RealtimeStatus,
 } from '../services/realtime-client';
+import { workflowConfigApi } from '../services/workflow-config-api';
 
-const PERSONAS = [
+/**
+ * Static fallback personas used while the backend call resolves or in
+ * offline dev. Kept small and local to avoid a blank dropdown when
+ * {@code /workflow/personas} is unreachable.
+ */
+const FALLBACK_PERSONAS = [
     { value: 'order_tracking', label: '🚚 Order tracking' },
-    { value: 'complaint', label: '🛡️ Complaint handler' },
-    { value: 'sales', label: '💼 Sales assistant' },
-    { value: 'general', label: '🤖 General assistant' },
+    { value: 'complaint',      label: '🛡️ Complaint handler' },
+    { value: 'sales',          label: '💼 Sales assistant' },
+    { value: 'general',        label: '🤖 General assistant' },
 ];
 
 /**
@@ -36,11 +43,46 @@ const PERSONAS = [
  * `/realtime/{tenantId}/{personaId}` WebSocket endpoint.
  */
 export default function VoicePlaygroundPage() {
-    const [persona, setPersona] = useState<string>(PERSONAS[0].value);
-    const [status, setStatus] = useState<RealtimeStatus>('idle');
-    const [turns, setTurns] = useState<TranscriptTurn[]>([]);
-    const [error, setError] = useState<string | null>(null);
+    const { t } = useTranslation();
+    const [personas, setPersonas] = useState(FALLBACK_PERSONAS);
+    const [persona, setPersona]   = useState<string>(FALLBACK_PERSONAS[0].value);
+    const [status, setStatus]     = useState<RealtimeStatus>('idle');
+    const [turns, setTurns]       = useState<TranscriptTurn[]>([]);
+    const [error, setError]       = useState<string | null>(null);
     const clientRef = useRef<RealtimeClient | null>(null);
+
+    // Pull the real persona list from the backend so this page doesn't
+    // drift from `/workflow/personas`. Falls back silently on failure.
+    useEffect(() => {
+        let cancelled = false;
+        workflowConfigApi.getPersonas()
+            .then(list => {
+                if (cancelled || list.length === 0) return;
+                const mapped = list.map(p => ({ value: p.id, label: p.label }));
+                setPersonas(mapped);
+                // Preserve current selection if still valid; else switch to first.
+                setPersona(prev => mapped.some(p => p.value === prev) ? prev : mapped[0].value);
+            })
+            .catch(() => { /* keep fallback */ });
+        return () => { cancelled = true };
+    }, []);
+
+    /**
+     * Stores the last {@code offStatus + offMessage} combo registered
+     * against {@code clientRef}. Kept as a {@link useRef} so we never
+     * need to attach the unsubscribe functions to the client instance
+     * itself (which required unsafe casts to add an {@code __off}
+     * property). Cleanup always goes through {@link disposeListeners}.
+     */
+    const listenerOffRef = useRef<(() => void) | null>(null);
+
+    const disposeListeners = useCallback(() => {
+        const off = listenerOffRef.current;
+        if (off) {
+            try { off(); } catch { /* ignore — listeners are best-effort */ }
+            listenerOffRef.current = null;
+        }
+    }, []);
 
     const ensureClient = useCallback(() => {
         if (clientRef.current) return clientRef.current;
@@ -56,9 +98,7 @@ export default function VoicePlaygroundPage() {
                 setError(m.data.message);
             }
         });
-
-        // Track cleanups on the client itself so we can dispose later.
-        (client as unknown as { __off: () => void }).__off = () => {
+        listenerOffRef.current = () => {
             offStatus();
             offMessage();
         };
@@ -73,7 +113,7 @@ export default function VoicePlaygroundPage() {
         try {
             await client.start();
         } catch (e) {
-            setError(e instanceof Error ? e.message : 'Failed to start session');
+            setError(e instanceof Error ? e.message : t('voicePlayground.startFailed'));
         }
     };
 
@@ -83,17 +123,17 @@ export default function VoicePlaygroundPage() {
         await client.stop();
     };
 
-    const handleReset = () => {
+    const handleReset = useCallback(() => {
         const client = clientRef.current;
         if (client) {
             client.stop().catch(() => {});
-            (client as unknown as { __off?: () => void }).__off?.();
         }
+        disposeListeners();
         clientRef.current = null;
         setTurns([]);
         setStatus('idle');
         setError(null);
-    };
+    }, [disposeListeners]);
 
     // Reset client when persona changes mid-session
     useEffect(() => {
@@ -108,27 +148,25 @@ export default function VoicePlaygroundPage() {
             const client = clientRef.current;
             if (client) {
                 client.stop().catch(() => {});
-                (client as unknown as { __off?: () => void }).__off?.();
             }
+            disposeListeners();
         };
-    }, []);
+    }, [disposeListeners]);
 
     return (
         <Stack p="md" gap="md">
             <Stack gap={4}>
-                <Title order={2}>Voice playground</Title>
+                <Title order={2}>{t('voicePlayground.title')}</Title>
                 <Text size="sm" c="dimmed">
-                    Talk to an ArchFlow agent in real time. Pick a persona, tap the mic
-                    and speak — your audio is streamed to the realtime adapter and the
-                    transcript appears below as the agent responds.
+                    {t('voicePlayground.subtitle')}
                 </Text>
             </Stack>
 
             <Group gap="sm" wrap="nowrap" align="flex-end">
                 <Select
-                    label="Persona"
-                    description="The agent role used for this session"
-                    data={PERSONAS}
+                    label={t('voicePlayground.persona')}
+                    description={t('voicePlayground.personaHint')}
+                    data={personas}
                     value={persona}
                     onChange={(v) => v && setPersona(v)}
                     w={260}
@@ -140,7 +178,7 @@ export default function VoicePlaygroundPage() {
                     onClick={handleReset}
                     data-testid="voice-reset"
                 >
-                    Reset
+                    {t('voicePlayground.reset')}
                 </Button>
                 <Badge
                     size="lg"
@@ -148,7 +186,7 @@ export default function VoicePlaygroundPage() {
                     color={statusColor(status)}
                     data-testid="voice-status"
                 >
-                    {status}
+                    {t(`voicePlayground.status.${status}`, { defaultValue: status })}
                 </Badge>
             </Group>
 
@@ -163,15 +201,13 @@ export default function VoicePlaygroundPage() {
                     <Stack align="center" gap="md">
                         <MicButton status={status} onStart={handleStart} onStop={handleStop} />
                         <Text size="xs" c="dimmed" ta="center" maw={220}>
-                            Audio is streamed as PCM16 24kHz frames over a WebSocket scoped
-                            to your tenant. Nothing is recorded server-side beyond the
-                            transcript.
+                            {t('voicePlayground.micHint')}
                         </Text>
                     </Stack>
                 </Paper>
                 <Stack style={{ flex: 1, minWidth: 320 }} gap="xs">
                     <Text size="xs" tt="uppercase" c="dimmed" style={{ letterSpacing: 0.5 }}>
-                        Transcript
+                        {t('voicePlayground.transcript')}
                     </Text>
                     <Transcript turns={turns} />
                 </Stack>
