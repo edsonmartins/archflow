@@ -60,3 +60,12 @@ archflow:
     jwt:
       secret: ${ARCHFLOW_JWT_SECRET}
       expiration: 3600
+    # Production MUST reject unauthenticated requests on protected paths.
+    auth:
+      enabled: true
+  admin:
+    # Production must NOT seed demo data or accept impersonation headers.
+    seedDemoData: false
+    tenantFallback: ""
+    impersonation:
+      enabled: false

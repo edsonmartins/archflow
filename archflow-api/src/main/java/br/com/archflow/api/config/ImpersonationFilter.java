@@ -9,9 +9,12 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
+import java.util.List;
 
 /**
  * Recognises the frontend's {@code X-Impersonate-Tenant} header and
@@ -35,6 +38,7 @@ import java.io.IOException;
  * Spring-Security role check (only superadmin may impersonate).
  */
 @Component
+@Order(Ordered.HIGHEST_PRECEDENCE + 20)
 public class ImpersonationFilter implements Filter {
 
     private static final Logger log = LoggerFactory.getLogger(ImpersonationFilter.class);
@@ -57,18 +61,15 @@ public class ImpersonationFilter implements Filter {
             throws IOException, ServletException {
         if (request instanceof HttpServletRequest http) {
             String tenant = null;
-            if (impersonationEnabled) {
-                String impersonated = http.getHeader(HEADER_IMPERSONATE);
-                if (impersonated != null && !impersonated.isBlank()) {
+            String impersonated = http.getHeader(HEADER_IMPERSONATE);
+            if (impersonated != null && !impersonated.isBlank()) {
+                if (impersonationEnabled && callerCanImpersonate(http)) {
                     tenant = impersonated.trim();
                     log.info("Tenant impersonation: tenantId={} path={} method={}",
                             tenant, http.getRequestURI(), http.getMethod());
-                }
-            } else {
-                String impersonated = http.getHeader(HEADER_IMPERSONATE);
-                if (impersonated != null && !impersonated.isBlank()) {
-                    log.warn("Rejected X-Impersonate-Tenant header (impersonation disabled): path={}",
-                            http.getRequestURI());
+                } else {
+                    log.warn("Rejected X-Impersonate-Tenant header (enabled={}, role check passed={}): path={}",
+                            impersonationEnabled, callerCanImpersonate(http), http.getRequestURI());
                 }
             }
             if (tenant == null) {
@@ -88,5 +89,20 @@ public class ImpersonationFilter implements Filter {
         } finally {
             org.slf4j.MDC.remove("tenantId");
         }
+    }
+
+    /**
+     * When the JWT auth filter has run and populated the request with a
+     * roles attribute, only callers carrying the {@code superadmin} role
+     * may impersonate. When the JWT filter is disabled (auth.enabled=false),
+     * the property gate alone applies — typical for dev / E2E.
+     */
+    private boolean callerCanImpersonate(HttpServletRequest http) {
+        Object rolesAttr = http.getAttribute(JwtAuthenticationFilter.ATTR_ROLES);
+        if (rolesAttr instanceof List<?> roles) {
+            return roles.contains("superadmin") || roles.contains("ROLE_SUPERADMIN");
+        }
+        // No JWT roles — fall back to the property gate (dev mode).
+        return true;
     }
 }

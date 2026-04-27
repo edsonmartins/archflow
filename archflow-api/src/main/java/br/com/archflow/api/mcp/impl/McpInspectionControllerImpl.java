@@ -8,6 +8,9 @@ import br.com.archflow.api.mcp.dto.McpInspectionDtos.McpServerIntrospectionDto;
 import br.com.archflow.api.mcp.dto.McpInspectionDtos.McpToolDto;
 import br.com.archflow.langchain4j.mcp.McpClient;
 import br.com.archflow.langchain4j.mcp.McpModel;
+import jakarta.annotation.PreDestroy;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -27,6 +30,8 @@ import java.util.function.Supplier;
  * of running them.
  */
 public class McpInspectionControllerImpl implements McpInspectionController {
+
+    private static final Logger log = LoggerFactory.getLogger(McpInspectionControllerImpl.class);
 
     private final Map<String, Supplier<McpClient>> suppliers;
     private final Map<String, McpClient> cache = new ConcurrentHashMap<>();
@@ -101,5 +106,23 @@ public class McpInspectionControllerImpl implements McpInspectionController {
                 r.name(),
                 r.description(),
                 r.mimeType());
+    }
+
+    /**
+     * Closes every cached MCP client on shutdown. Without this, stdio-based
+     * servers leak child processes / file descriptors on every redeploy.
+     * Spring invokes this via {@code @PreDestroy}; standalone callers may
+     * invoke it directly.
+     */
+    @PreDestroy
+    public void shutdown() {
+        cache.forEach((name, client) -> {
+            try {
+                client.close();
+            } catch (Exception e) {
+                log.warn("Failed to close MCP client {}: {}", name, e.getMessage());
+            }
+        });
+        cache.clear();
     }
 }

@@ -14,6 +14,16 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicReference;
 
+/**
+ * Platform-wide configuration: LLM model catalog, plan defaults, feature
+ * toggles, cross-tenant usage reports. Intentionally NOT tenant-scoped —
+ * these are deployment-level settings managed by superadmins.
+ *
+ * <p>The HTTP exposure of this controller MUST be gated by a superadmin
+ * role check (see the JWT auth filter / {@code @RequiresPermission}).
+ * Without that, any authenticated caller can mutate models/toggles for
+ * the whole deployment.
+ */
 public class GlobalConfigControllerImpl implements GlobalConfigController {
     private static final Logger log = LoggerFactory.getLogger(GlobalConfigControllerImpl.class);
 
