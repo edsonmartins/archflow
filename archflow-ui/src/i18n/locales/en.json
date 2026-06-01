@@ -86,6 +86,11 @@
             "empty": "Select a node to edit its properties.",
             "emptyHint": "Click a node on the canvas to view its properties",
             "noNodeSelected": "No node selected",
+            "flowDefaults": {
+                "title": "Flow defaults",
+                "hint": "Model defaults inherited by every step. Select a node to override them.",
+                "inheritHint": "Leave a field at its default to inherit from the platform."
+            },
             "tabs": {
                 "properties": "Properties",
                 "logs": "Logs",

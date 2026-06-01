@@ -9,6 +9,7 @@ import type { FlowNodeData } from './FlowCanvas/types'
 import { NODE_CATEGORIES }  from './FlowCanvas/constants'
 import { FIELD_STYLES, MONO_INPUT } from './PropertyPanel/fieldStyles'
 import { useWorkflowConfig } from './PropertyPanel/useWorkflowConfig'
+import { FlowDefaultsPanel } from './PropertyPanel/FlowDefaultsPanel'
 import { useCatalog } from './PropertyPanel/useCatalog'
 import type { ProviderInfo } from '../services/workflow-config-api'
 import { mcpApi }      from '../services/mcp-api'
@@ -98,7 +99,7 @@ export function PropertyPanel({ nodeId, nodeData }: PropertyPanelProps) {
           </Tabs>
         </>
       ) : (
-        <EmptyPanel />
+        <FlowDefaultsPanel />
       )}
     </div>
   )
@@ -1544,13 +1545,3 @@ function OutputPreview({ execState }: { execState: any }) {
 }
 
 // ── Empty Panel ─────────────────────────────────────────────────
-function EmptyPanel() {
-  const { t } = useTranslation()
-  return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, color: 'var(--color-text-tertiary)', padding: 24, textAlign: 'center' }}>
-      <div style={{ fontSize: 20 }}>{'\u25CE'}</div>
-      <div style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>{t('editor.properties.noNodeSelected')}</div>
-      <div style={{ fontSize: 12 }}>{t('editor.properties.emptyHint')}</div>
-    </div>
-  )
-}

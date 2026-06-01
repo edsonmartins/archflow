@@ -86,6 +86,11 @@
             "empty": "Selecione um nó para editar as propriedades.",
             "emptyHint": "Clique em um nó no canvas para ver suas propriedades",
             "noNodeSelected": "Nenhum nó selecionado",
+            "flowDefaults": {
+                "title": "Padrões do fluxo",
+                "hint": "Padrões de modelo herdados por todos os passos. Selecione um nó para sobrescrever.",
+                "inheritHint": "Deixe um campo no valor padrão para herdar da plataforma."
+            },
             "tabs": {
                 "properties": "Propriedades",
                 "logs": "Logs",
