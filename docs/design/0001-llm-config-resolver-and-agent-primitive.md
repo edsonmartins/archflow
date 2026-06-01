@@ -211,11 +211,25 @@ O override de LLM por agente vem da config declarada do componente
   o `agentPatch` de `agent.getMetadata().properties()`. Precedência efetiva agora
   completa: **step {@literal >} agent {@literal >} flow {@literal >} tenant {@literal >} platform**.
 
-### 3.5 Formato conversacional (tool-calling) — follow-up
+### 3.5 Formato conversacional (tool-calling) — IMPLEMENTADO
 
-O loop `context → guardrail-in → LLM → tools → follow-up → guardrail-out` do
-`LLMAgentOrchestratorImpl` (integrall) e um `ToolRegistry` continuam como fase
-seguinte; o `GuardrailChain` já existe no archflow para a parte de guardrails.
+Molde do `LLMAgentOrchestratorImpl` (integrall), em `archflow-conversation`
+(`.../conversation/agent/`), sem acoplar a langchain4j (o módulo só depende de
+`archflow-model`):
+
+- **`ConversationalAgent`** — loop `guardrail-in → LLM → [tool → LLM]* →
+  guardrail-out`, bounded por `maxIterations`. Roda contra a abstração
+  `ChatFunction` (um produto liga um `ChatModel` real) e reusa o `GuardrailChain`
+  já existente para in/out.
+- **`ToolRegistry`/`DefaultToolRegistry`** + **`ConversationTool`** (interface
+  funcional leve, distinta do `model.ai.Tool` de catálogo).
+- **`ToolCallParser`** — protocolo de marcadores `[TOOL: nome]` + `[PARAMS: k=v]`
+  (mesmo padrão do `WhatsAppAgentService` do gestor-rq), dependency-free.
+
+Determinístico e testável com `ChatFunction` scriptada (tool-call → follow-up,
+bloqueio de entrada, redação de saída, limite de iterações). **Follow-up**:
+parser de params em JSON e binding a tool-calling nativo do langchain4j (opcional,
+fora do módulo conversation).
 
 ## 4. Ordem de implementação
 
