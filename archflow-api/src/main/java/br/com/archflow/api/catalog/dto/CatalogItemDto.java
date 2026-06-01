@@ -31,7 +31,21 @@ public record CatalogItemDto(
         List<String> capabilities,
         List<OperationDto> operations,
         List<ConfigKeyDto> configSchema,
-        List<String> tags) {
+        List<String> tags,
+        List<String> keywords) {
+
+    /** Construtor de compatibilidade (sem keywords) — itens de adapter. */
+    public CatalogItemDto(
+            String id,
+            String displayName,
+            String description,
+            String kind,
+            List<String> capabilities,
+            List<OperationDto> operations,
+            List<ConfigKeyDto> configSchema,
+            List<String> tags) {
+        this(id, displayName, description, kind, capabilities, operations, configSchema, tags, List.of());
+    }
 
     public record OperationDto(
             String id,

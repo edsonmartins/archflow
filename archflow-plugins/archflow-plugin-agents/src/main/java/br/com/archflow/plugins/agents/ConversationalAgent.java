@@ -133,7 +133,9 @@ public class ConversationalAgent implements AIAgent, ComponentPlugin {
                         "escalationThreshold", String.valueOf(DEFAULT_ESCALATION_THRESHOLD),
                         "maxContextMessages", String.valueOf(DEFAULT_MAX_CONTEXT_MESSAGES)
                 ),
-                Set.of("agent", "conversational", "customer-service")
+                Set.of("agent", "conversational", "customer-service"),
+                // keywords — para roteamento por query em linguagem natural
+                Set.of("chat", "conversation", "support", "help", "talk", "customer", "sales", "question")
         );
     }
 

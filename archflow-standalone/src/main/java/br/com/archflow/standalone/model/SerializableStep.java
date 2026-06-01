@@ -1,5 +1,6 @@
 package br.com.archflow.standalone.model;
 
+import br.com.archflow.model.config.LLMConfigPatch;
 import br.com.archflow.model.engine.ExecutionContext;
 import br.com.archflow.model.flow.FlowStep;
 import br.com.archflow.model.flow.StepConnection;
@@ -51,6 +52,17 @@ public class SerializableStep implements FlowStep {
         // Resolved at runtime by StandaloneRunner via componentId + operation
         return CompletableFuture.failedFuture(
                 new UnsupportedOperationException("Use StandaloneRunner to execute steps"));
+    }
+
+    /**
+     * Deriva o override de LLM deste passo a partir do {@code config} salvo pela
+     * UI (chaves: provider, model, temperature, maxTokens, timeout,
+     * additionalConfig). Campos ausentes ficam vazios e são herdados na cadeia
+     * de resolução.
+     */
+    @Override
+    public LLMConfigPatch getLLMPatch() {
+        return LLMConfigPatch.fromMap(config);
     }
 
     public String getComponentId() { return componentId; }

@@ -75,6 +75,7 @@ public class CatalogControllerImpl implements CatalogController {
         List<String> capabilities = m.capabilities() == null
                 ? List.of() : new ArrayList<>(m.capabilities());
         List<String> tags = m.tags() == null ? List.of() : new ArrayList<>(m.tags());
+        List<String> keywords = m.keywords() == null ? List.of() : new ArrayList<>(m.keywords());
         return new CatalogItemDto(
                 m.id(),
                 m.name() != null ? m.name() : m.id(),
@@ -83,7 +84,8 @@ public class CatalogControllerImpl implements CatalogController {
                 capabilities,
                 ops,
                 List.of(),
-                tags);
+                tags,
+                keywords);
     }
 
     private List<ParameterDto> mapParams(List<ComponentMetadata.ParameterMetadata> params) {

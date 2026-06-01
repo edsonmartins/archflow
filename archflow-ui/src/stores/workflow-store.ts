@@ -16,6 +16,12 @@ interface WorkflowState {
     deleteWorkflow: (id: string) => Promise<void>;
     executeWorkflow: (id: string, input?: Record<string, unknown>) => Promise<string>;
     fetchExecutions: (workflowId?: string) => Promise<void>;
+    /**
+     * Patches the flow-level LLM defaults on the in-memory currentWorkflow.
+     * Does NOT hit the backend — the editor's Save persists currentWorkflow.
+     * These defaults are the "flow" tier of the model inheritance chain.
+     */
+    patchFlowLlmConfig: (patch: Record<string, unknown>) => void;
     clearCurrent: () => void;
     clearError: () => void;
 }
@@ -120,6 +126,20 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
         } catch (e) {
             set({ loading: false, error: e instanceof Error ? e.message : 'Failed to load executions' });
         }
+    },
+
+    patchFlowLlmConfig: (patch) => {
+        set((state) => {
+            if (!state.currentWorkflow) return {};
+            const cfg = (state.currentWorkflow.configuration ?? {}) as Record<string, unknown>;
+            const llmConfig = { ...(cfg.llmConfig as Record<string, unknown> ?? {}), ...patch };
+            return {
+                currentWorkflow: {
+                    ...state.currentWorkflow,
+                    configuration: { ...cfg, llmConfig },
+                },
+            };
+        });
     },
 
     clearCurrent: () => set({ currentWorkflow: null }),

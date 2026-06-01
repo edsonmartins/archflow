@@ -71,8 +71,8 @@ test.describe('Workflow editor — PropertyPanel', () => {
     await expect(node).toBeVisible();
     await expect(page.getByText('Support Agent').first()).toBeVisible();
 
-    // Empty panel is shown until a node is selected
-    await expect(page.getByText('No node selected')).toBeVisible();
+    // With no node selected the panel shows the flow-level model defaults
+    await expect(page.getByText('Flow defaults')).toBeVisible();
 
     // Click the node to select it
     await node.click({ force: true });
@@ -121,6 +121,32 @@ test.describe('Workflow editor — PropertyPanel', () => {
     expect(step.configuration.agentPattern).toBe('rewoo');
     expect(step.configuration.model).toBe('claude-opus-4-6');
     expect(step.configuration.temperature).toBe(0.3);
+  });
+
+  test('flow defaults panel persists flow-level LLM config on save', async ({ page }) => {
+    const state = await mockApi(page);
+    await authenticate(page);
+    await page.goto('/editor/wf-prop');
+
+    // No node selected → flow defaults panel (the "flow" tier of the
+    // model inheritance chain).
+    await expect(page.locator('.react-flow__node').first()).toBeVisible();
+    await expect(page.getByText('Flow defaults')).toBeVisible();
+
+    // Pick a default model for the whole flow.
+    await page.getByRole('textbox', { name: 'Model' }).click();
+    await page.getByRole('option', { name: /Claude Opus/i }).click();
+
+    // Set default max tokens.
+    await page.getByLabel('Max tokens').fill('2048');
+
+    // Save and verify the PUT carried the flow-level llmConfig.
+    await page.getByTestId('editor-save').click();
+    await expect.poll(() => state.getLastPut() !== null, { timeout: 3000 }).toBeTruthy();
+
+    const llmConfig = (state.getLastPut()!.configuration as { llmConfig?: Record<string, unknown> }).llmConfig ?? {};
+    expect(llmConfig.model).toBe('claude-opus-4-6');
+    expect(llmConfig.maxTokens).toBe(2048);
   });
 
   test('persona selector populates the system prompt', async ({ page }) => {

@@ -1,6 +1,7 @@
 package br.com.archflow.model.flow;
 
 
+import br.com.archflow.model.config.LLMConfigPatch;
 import br.com.archflow.model.engine.ExecutionContext;
 
 import java.util.List;
@@ -43,4 +44,15 @@ public interface FlowStep {
      * @return future com o resultado da execução
      */
     CompletableFuture<StepResult> execute(ExecutionContext context);
+
+    /**
+     * Retorna o override de configuração de LLM específico deste passo.
+     * Vazio por padrão — o passo herda a config do agente/fluxo/tenant.
+     * O nível mais específico (step) vence na cadeia de resolução.
+     *
+     * @return patch de LLM do passo (vazio = sem override)
+     */
+    default LLMConfigPatch getLLMPatch() {
+        return LLMConfigPatch.empty();
+    }
 }

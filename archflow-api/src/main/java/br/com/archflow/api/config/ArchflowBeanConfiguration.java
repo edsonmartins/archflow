@@ -425,6 +425,17 @@ public class ArchflowBeanConfiguration {
         return new CatalogControllerImpl(componentCatalog);
     }
 
+    /**
+     * Roteador descriptor-driven que escolhe o melhor agente/componente para uma
+     * query (keywords {@literal >} capabilities {@literal >} tags {@literal >} texto).
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public br.com.archflow.plugin.api.catalog.ComponentQueryRouter componentQueryRouter(
+            br.com.archflow.plugin.api.catalog.ComponentCatalog componentCatalog) {
+        return new br.com.archflow.plugin.api.catalog.DefaultComponentQueryRouter(componentCatalog);
+    }
+
     // =========================================================================
     // Skills (read + activate/deactivate adapter)
     // =========================================================================
@@ -562,5 +573,53 @@ public class ArchflowBeanConfiguration {
                         enabled, baseUrl, apiKey, tenantId,
                         budget, deep, timeoutSeconds);
         return new br.com.archflow.api.brainsentry.impl.BrainSentryConfigControllerImpl(initial);
+    }
+
+    // =========================================================================
+    // LLM config resolution (per-step/agent/flow/tenant model overrides)
+    // =========================================================================
+
+    /**
+     * Resolução de chave por tenant. NOOP por padrão (sem chaves por tenant);
+     * produtos sobrepõem este bean para resolver chaves do seu storage.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public br.com.archflow.langchain4j.provider.TenantKeyResolver tenantKeyResolver() {
+        return br.com.archflow.langchain4j.provider.TenantKeyResolver.NOOP;
+    }
+
+    /**
+     * Default de LLM da plataforma — o tier mais baixo da cadeia de herança.
+     * Configurável via {@code archflow.llm.*}.
+     */
+    @Bean
+    @ConditionalOnMissingBean(name = "platformDefaultLLMConfig")
+    public br.com.archflow.model.config.ResolvedLLMConfig platformDefaultLLMConfig(
+            @Value("${archflow.llm.provider:openai}") String provider,
+            @Value("${archflow.llm.model:gpt-4o-mini}") String model,
+            @Value("${archflow.llm.temperature:0.2}") double temperature,
+            @Value("${archflow.llm.max-tokens:1024}") int maxTokens,
+            @Value("${archflow.llm.timeout-ms:30000}") long timeoutMs) {
+        return br.com.archflow.model.config.ResolvedLLMConfig.builder()
+                .provider(provider)
+                .model(model)
+                .temperature(temperature)
+                .maxTokens(maxTokens)
+                .timeout(timeoutMs)
+                .build();
+    }
+
+    /**
+     * Resolver de config de LLM com herança step {@literal >} agent {@literal >}
+     * flow {@literal >} tenant {@literal >} platform e chave por tenant.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public br.com.archflow.langchain4j.provider.LLMConfigResolver llmConfigResolver(
+            br.com.archflow.langchain4j.provider.TenantKeyResolver tenantKeyResolver) {
+        return new br.com.archflow.langchain4j.provider.DefaultLLMConfigResolver(
+                br.com.archflow.langchain4j.provider.LLMProviderHub.getInstance(),
+                tenantKeyResolver);
     }
 }
