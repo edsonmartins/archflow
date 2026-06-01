@@ -29,6 +29,17 @@ public interface FlowConfiguration {
     LLMConfig getLLMConfig();
 
     /**
+     * Retorna o patch de LLM no nível do fluxo para a cadeia de resolução.
+     * Por padrão deriva de {@link #getLLMConfig()} (ou vazio se ausente).
+     *
+     * @return patch de LLM do fluxo
+     */
+    default LLMConfigPatch getLLMPatch() {
+        LLMConfig cfg = getLLMConfig();
+        return cfg != null ? cfg.toPatch() : LLMConfigPatch.empty();
+    }
+
+    /**
      * Retorna configurações de monitoramento.
      *
      * @return configurações de monitoramento
