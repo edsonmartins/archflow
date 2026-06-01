@@ -1,5 +1,6 @@
 package br.com.archflow.standalone.model;
 
+import br.com.archflow.model.config.LLMConfigPatch;
 import br.com.archflow.model.engine.ExecutionContext;
 import br.com.archflow.model.flow.FlowStep;
 import br.com.archflow.model.flow.StepConnection;
@@ -51,6 +52,40 @@ public class SerializableStep implements FlowStep {
         // Resolved at runtime by StandaloneRunner via componentId + operation
         return CompletableFuture.failedFuture(
                 new UnsupportedOperationException("Use StandaloneRunner to execute steps"));
+    }
+
+    /**
+     * Deriva o override de LLM deste passo a partir do {@code config} salvo pela
+     * UI (chaves: provider, model, temperature, maxTokens, timeout,
+     * additionalConfig). Campos ausentes ficam vazios e são herdados na cadeia
+     * de resolução.
+     */
+    @Override
+    @SuppressWarnings("unchecked")
+    public LLMConfigPatch getLLMPatch() {
+        if (config == null || config.isEmpty()) {
+            return LLMConfigPatch.empty();
+        }
+        LLMConfigPatch.Builder b = LLMConfigPatch.builder();
+        if (config.get("provider") instanceof String s && !s.isBlank()) {
+            b.provider(s);
+        }
+        if (config.get("model") instanceof String s && !s.isBlank()) {
+            b.model(s);
+        }
+        if (config.get("temperature") instanceof Number n) {
+            b.temperature(n.doubleValue());
+        }
+        if (config.get("maxTokens") instanceof Number n) {
+            b.maxTokens(n.intValue());
+        }
+        if (config.get("timeout") instanceof Number n) {
+            b.timeout(n.longValue());
+        }
+        if (config.get("additionalConfig") instanceof Map<?, ?> m) {
+            b.additionalConfig((Map<String, Object>) m);
+        }
+        return b.build();
     }
 
     public String getComponentId() { return componentId; }

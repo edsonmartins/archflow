@@ -2,6 +2,8 @@ package br.com.archflow.langchain4j.provider;
 
 import br.com.archflow.model.config.LLMConfigPatch;
 import br.com.archflow.model.config.ResolvedLLMConfig;
+import br.com.archflow.model.flow.Flow;
+import br.com.archflow.model.flow.FlowStep;
 
 /**
  * Requisição de resolução de configuração de LLM. Carrega o default da plataforma
@@ -38,6 +40,35 @@ public record LLMResolutionRequest(
 
     public static Builder builder(ResolvedLLMConfig platformDefault) {
         return new Builder(platformDefault);
+    }
+
+    /**
+     * Monta a requisição para um passo de um fluxo, preenchendo os tiers
+     * {@code flow} (de {@link Flow#getConfiguration()}) e {@code step}
+     * (de {@link FlowStep#getLLMPatch()}). O tier {@code agent} fica vazio
+     * (ainda não há abstração de agente — D1).
+     *
+     * @param platformDefault default da plataforma (obrigatório)
+     * @param tenantId        tenant atual
+     * @param tenantDefault   patch da governança do tenant (pode ser {@code null})
+     * @param flow            fluxo em execução (pode ser {@code null})
+     * @param step            passo atual (pode ser {@code null})
+     */
+    public static LLMResolutionRequest forStep(ResolvedLLMConfig platformDefault,
+                                               String tenantId,
+                                               LLMConfigPatch tenantDefault,
+                                               Flow flow,
+                                               FlowStep step) {
+        LLMConfigPatch flowPatch = (flow != null && flow.getConfiguration() != null)
+                ? flow.getConfiguration().getLLMPatch()
+                : LLMConfigPatch.empty();
+        LLMConfigPatch stepPatch = step != null ? step.getLLMPatch() : LLMConfigPatch.empty();
+        return builder(platformDefault)
+                .tenantId(tenantId)
+                .tenantDefault(tenantDefault)
+                .flowPatch(flowPatch)
+                .stepPatch(stepPatch)
+                .build();
     }
 
     public static class Builder {
