@@ -42,7 +42,7 @@ class OpenRouterEffectiveModelTest {
     @DisplayName("ResolvedLLMConfig in context wins, honoring model/temperature/maxTokens")
     void resolvedConfigWins() {
         ExecutionContext c = ctx();
-        c.withVariable(ExecutionKeys.LLM_RESOLVED_CONFIG, ResolvedLLMConfig.builder()
+        c.set(ExecutionKeys.LLM_RESOLVED_CONFIG, ResolvedLLMConfig.builder()
                 .provider("openrouter")
                 .model("anthropic/claude-3.5-sonnet")
                 .temperature(0.2)
@@ -63,7 +63,7 @@ class OpenRouterEffectiveModelTest {
     @DisplayName("apiKey/baseUrl from additionalConfig override the static config")
     void apiKeyFromAdditionalConfig() {
         ExecutionContext c = ctx();
-        c.withVariable(ExecutionKeys.LLM_RESOLVED_CONFIG, ResolvedLLMConfig.builder()
+        c.set(ExecutionKeys.LLM_RESOLVED_CONFIG, ResolvedLLMConfig.builder()
                 .provider("openrouter")
                 .model("openai/gpt-4o")
                 .additionalConfig(Map.of("apiKey", "tenant-key", "baseUrl", "https://proxy/v1"))
@@ -79,7 +79,7 @@ class OpenRouterEffectiveModelTest {
     @DisplayName("legacy llm.model string override still works (no maxTokens)")
     void legacyModelOverride() {
         ExecutionContext c = ctx();
-        c.withVariable(ExecutionKeys.LLM_MODEL, "meta-llama/llama-3.1-70b");
+        c.set(ExecutionKeys.LLM_MODEL, "meta-llama/llama-3.1-70b");
 
         var eff = adapter.effectiveModel(c);
 
@@ -93,8 +93,8 @@ class OpenRouterEffectiveModelTest {
     @DisplayName("resolved config takes precedence over legacy llm.model")
     void resolvedBeatsLegacy() {
         ExecutionContext c = ctx();
-        c.withVariable(ExecutionKeys.LLM_MODEL, "legacy-model");
-        c.withVariable(ExecutionKeys.LLM_RESOLVED_CONFIG, ResolvedLLMConfig.builder()
+        c.set(ExecutionKeys.LLM_MODEL, "legacy-model");
+        c.set(ExecutionKeys.LLM_RESOLVED_CONFIG, ResolvedLLMConfig.builder()
                 .provider("openrouter").model("resolved-model").build());
 
         assertThat(adapter.effectiveModel(c).modelName()).isEqualTo("resolved-model");
