@@ -15,7 +15,7 @@ import java.util.Map;
  * @param model            identificador do modelo
  * @param temperature      temperatura de geração
  * @param maxTokens        máximo de tokens na resposta
- * @param timeout          timeout em milissegundos
+ * @param timeout          timeout da chamada LLM, em segundos
  * @param additionalConfig parâmetros extras (ex.: {@code baseUrl}); imutável
  * @since 1.0.0
  */

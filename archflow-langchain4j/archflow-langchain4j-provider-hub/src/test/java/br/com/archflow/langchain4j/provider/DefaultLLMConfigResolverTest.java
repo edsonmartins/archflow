@@ -9,6 +9,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
+import java.time.Duration;
 import java.util.Map;
 import java.util.Optional;
 
@@ -146,6 +147,17 @@ class DefaultLLMConfigResolverTest {
             assertThat(cfg.getBaseUrl()).isEqualTo("https://x/v1");
             assertThat(cfg.getExtraParams()).containsEntry("organization", "acme");
             assertThat(cfg.getExtraParams()).doesNotContainKeys("apiKey", "baseUrl");
+        }
+
+        @Test
+        @DisplayName("timeout é tratado como segundos (Duration.ofSeconds)")
+        void timeoutInSeconds() {
+            ResolvedLLMConfig resolved = ResolvedLLMConfig.builder()
+                    .provider("openai").model("gpt-4o").timeout(45).build();
+
+            LLMProviderConfig cfg = resolver.toProviderConfig(resolved, "k");
+
+            assertThat(cfg.getTimeout()).isEqualTo(Duration.ofSeconds(45));
         }
 
         @Test

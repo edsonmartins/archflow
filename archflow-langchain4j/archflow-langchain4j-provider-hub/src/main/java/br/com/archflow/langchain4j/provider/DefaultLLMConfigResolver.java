@@ -100,7 +100,8 @@ public class DefaultLLMConfigResolver implements LLMConfigResolver {
             builder.maxTokens(resolved.maxTokens());
         }
         if (resolved.timeout() > 0) {
-            builder.timeout(Duration.ofMillis(resolved.timeout()));
+            // timeout efetivo é em SEGUNDos (convenção do UI/gestor/integrall).
+            builder.timeout(Duration.ofSeconds(resolved.timeout()));
         }
         Object baseUrl = resolved.additionalConfig().get("baseUrl");
         if (baseUrl != null) {
