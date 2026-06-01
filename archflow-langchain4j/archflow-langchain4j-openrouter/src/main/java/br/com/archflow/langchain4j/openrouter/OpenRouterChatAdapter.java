@@ -1,7 +1,9 @@
 package br.com.archflow.langchain4j.openrouter;
 
 import br.com.archflow.langchain4j.core.spi.LangChainAdapter;
+import br.com.archflow.model.config.ResolvedLLMConfig;
 import br.com.archflow.model.engine.ExecutionContext;
+import br.com.archflow.model.engine.ExecutionKeys;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.response.ChatResponse;
@@ -123,26 +125,63 @@ public class OpenRouterChatAdapter implements LangChainAdapter {
     }
 
     /**
-     * Resolve o modelo a usar com base nas variáveis do contexto.
-     * Se {@code llm.model} estiver presente em variables, cria um modelo
-     * ad-hoc com esse modelName. Senão, usa o modelo default configurado.
+     * Resolve o modelo a usar com base no contexto. Prioridade:
+     * <ol>
+     *   <li>{@link ExecutionKeys#LLM_RESOLVED_CONFIG} — config resolvida pela
+     *       cadeia de herança (model/temperature/maxTokens/apiKey/baseUrl);</li>
+     *   <li>{@link ExecutionKeys#LLM_MODEL} — override legado só do nome;</li>
+     *   <li>modelo default configurado.</li>
+     * </ol>
      */
     private ChatModel resolveModel(ExecutionContext context) {
-        if (context == null) return model;
-        var modelOverride = context.get("llm.model");
-        if (modelOverride.isPresent() && modelOverride.get() instanceof String modelName) {
+        EffectiveModel eff = effectiveModel(context);
+        if (eff == null) {
+            return model;
+        }
+        OpenAiChatModel.OpenAiChatModelBuilder b = OpenAiChatModel.builder()
+                .apiKey(eff.apiKey())
+                .baseUrl(eff.baseUrl())
+                .modelName(eff.modelName())
+                .temperature(eff.temperature());
+        if (eff.maxTokens() != null) {
+            b.maxTokens(eff.maxTokens());
+        }
+        return b.build();
+    }
+
+    /**
+     * Decisão pura (sem construir modelo) de qual config efetiva usar.
+     * {@code null} ⇒ usar o modelo default. Visível ao pacote para testes.
+     */
+    EffectiveModel effectiveModel(ExecutionContext context) {
+        if (context == null) {
+            return null;
+        }
+        Object resolved = context.get(ExecutionKeys.LLM_RESOLVED_CONFIG).orElse(null);
+        if (resolved instanceof ResolvedLLMConfig r && r.model() != null && !r.model().isBlank()) {
+            String apiKey = strOr(r.additionalConfig().get("apiKey"), (String) config.get("api.key"));
+            String baseUrl = strOr(r.additionalConfig().get("baseUrl"),
+                    (String) config.getOrDefault("base.url", DEFAULT_BASE_URL));
+            Integer maxTokens = r.maxTokens() > 0 ? r.maxTokens() : null;
+            return new EffectiveModel(r.model(), r.temperature(), maxTokens, apiKey, baseUrl);
+        }
+        Object override = context.get(ExecutionKeys.LLM_MODEL).orElse(null);
+        if (override instanceof String modelName && !modelName.isBlank()) {
             String apiKey = (String) config.get("api.key");
             String baseUrl = (String) config.getOrDefault("base.url", DEFAULT_BASE_URL);
-            Double temperature = ((Number) config.getOrDefault("temperature", 0.7)).doubleValue();
-            return OpenAiChatModel.builder()
-                    .apiKey(apiKey)
-                    .baseUrl(baseUrl)
-                    .modelName(modelName)
-                    .temperature(temperature)
-                    .build();
+            double temperature = ((Number) config.getOrDefault("temperature", 0.7)).doubleValue();
+            return new EffectiveModel(modelName, temperature, null, apiKey, baseUrl);
         }
-        return model;
+        return null;
     }
+
+    private static String strOr(Object value, String fallback) {
+        return (value instanceof String s && !s.isBlank()) ? s : fallback;
+    }
+
+    /** Parâmetros efetivos do modelo (resultado da resolução de contexto). */
+    record EffectiveModel(String modelName, double temperature, Integer maxTokens,
+                          String apiKey, String baseUrl) {}
 
     private Object executeWithModel(ChatModel chatModel, String operation, Object input,
                                      ExecutionContext context) throws Exception {

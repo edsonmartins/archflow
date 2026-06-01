@@ -134,6 +134,24 @@ a chave em claro.
 | `archflow-langchain4j-provider-hub/.../TenantKeyResolver.java` | **novo** (SPI) |
 | `archflow-langchain4j-provider-hub/.../LLMProviderHub.java` | expor entrada que aceite `ResolvedLLMConfig`+chave já resolvida |
 
+### 2.6 Consumo em runtime (adapter) — IMPLEMENTADO (parcial)
+
+O engine permanece **provider-agnostic**: ele não resolve modelo, só transporta o
+resultado. Contrato via `ExecutionContext`:
+
+- **`ExecutionKeys.LLM_RESOLVED_CONFIG`** (`archflow-model`) — chave que carrega o
+  `ResolvedLLMConfig` do passo atual; `LLM_MODEL` mantém o override legado só do nome.
+- **`OpenRouterChatAdapter`** passou a **consumir** essa config (model + temperature +
+  **maxTokens** + apiKey/baseUrl de `additionalConfig`), com fallback para o override
+  legado e depois para o default estático. A decisão foi extraída em
+  `effectiveModel(context)` (testável).
+
+**Quem popula a chave** (resolver → `context`) é responsabilidade do runner/produto
+que tem o passo + o `LLMConfigResolver` (o engine não depende do provider-hub por
+design). Os demais adapters de chat seguem o mesmo contrato quando adotarem o consumo
+— este foi feito em um adapter como prova. **Follow-up**: popular a chave no
+`StandaloneRunner`/produto e replicar o consumo nos outros adapters.
+
 ## 3. D1 — agente como primitivo (REVISADO: estender, não duplicar)
 
 > **Correção de premissa.** O rascunho original propunha um `Agent`/`AgentDescriptor`/
