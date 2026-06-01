@@ -425,6 +425,17 @@ public class ArchflowBeanConfiguration {
         return new CatalogControllerImpl(componentCatalog);
     }
 
+    /**
+     * Roteador descriptor-driven que escolhe o melhor agente/componente para uma
+     * query (keywords {@literal >} capabilities {@literal >} tags {@literal >} texto).
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public br.com.archflow.plugin.api.catalog.ComponentQueryRouter componentQueryRouter(
+            br.com.archflow.plugin.api.catalog.ComponentCatalog componentCatalog) {
+        return new br.com.archflow.plugin.api.catalog.DefaultComponentQueryRouter(componentCatalog);
+    }
+
     // =========================================================================
     // Skills (read + activate/deactivate adapter)
     // =========================================================================

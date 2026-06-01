@@ -134,87 +134,65 @@ a chave em claro.
 | `archflow-langchain4j-provider-hub/.../TenantKeyResolver.java` | **novo** (SPI) |
 | `archflow-langchain4j-provider-hub/.../LLMProviderHub.java` | expor entrada que aceite `ResolvedLLMConfig`+chave já resolvida |
 
-## 3. D1 — primitivo de Agente
+## 3. D1 — agente como primitivo (REVISADO: estender, não duplicar)
 
-### 3.1 Contrato
+> **Correção de premissa.** O rascunho original propunha um `Agent`/`AgentDescriptor`/
+> `AgentRegistry` novos. A exploração do código mostrou que **o primitivo de agente
+> já existe** no archflow — criar um paralelo seria a duplicação que este trabalho
+> existe para eliminar. D1 passou a ser: **estender o que existe + preencher a única
+> lacuna real (roteamento por query)**.
 
-Extrai o denominador comum de `AbstractGestorRqAgent` (descriptor + execução com
-métricas + `canHandle`) e do orquestrador tool-calling do integrall.
+### 3.1 O que já existe (não recriar)
 
-```java
-// archflow-agent/.../agent/Agent.java  (NOVO)
-public interface Agent {
-    AgentDescriptor descriptor();
-    AgentResult execute(AgentRequest request);   // invocação DIRETA, sem Flow
-}
+| Conceito do gestor (`AbstractGestorRqAgent`) | Equivalente no archflow | Onde |
+|---|---|---|
+| primitivo invocável direto | `AIComponent.execute(operation, input, context)` | `archflow-model/.../ai/AIComponent.java` |
+| agente / assistant / tool | `AIAgent`, `AIAssistant`, `Tool` (extends `AIComponent`) | `archflow-model/.../ai/*` |
+| `getCapabilities()` | `ComponentMetadata.capabilities()` | `.../ai/metadata/ComponentMetadata.java` |
+| `getRequired/OptionalParameters()` | `OperationMetadata.ParameterMetadata` (por operação) | idem |
+| `getDescription()` / `getAgentType()` | `ComponentMetadata.description()` / `.type()` | idem |
+| registry / descoberta | `ComponentCatalog` (register/get/search) | `archflow-plugin-api/.../catalog/` |
+| `getKeywords()` | **faltava** | — |
+| `canHandle(query)` / router | **faltava** | — |
 
-// archflow-agent/.../agent/AgentDescriptor.java  (NOVO)
-public record AgentDescriptor(
-        String agentType,                 // ex.: "ticket_classification"
-        String description,
-        List<String> capabilities,
-        List<String> keywords,
-        List<String> requiredParameters,
-        List<String> optionalParameters,
-        LLMConfigPatch llmPatch           // override de modelo POR AGENTE (D2)
-) {
-    /** Score 0..1 de aderência a uma query (keyword match — do gestor). */
-    public double canHandle(String query) { ... }
-}
+### 3.2 O que foi adicionado (a lacuna real) — IMPLEMENTADO
 
-// archflow-agent/.../agent/AgentRequest.java / AgentResult.java  (NOVO)
-//   AgentRequest: tenantId, sessionId, input Map, GovernanceSnapshot
-//   AgentResult : success, output, error, executionTimeMs, agentType, sessionId
-```
+1. **`ComponentMetadata.keywords`** (`Set<String>`) — campo novo com **construtor de
+   compatibilidade** (aridade antiga) e normalização de nulo → vazio, para não
+   quebrar os 6 componentes existentes.
+2. **`ComponentQueryRouter`** + **`DefaultComponentQueryRouter`**
+   (`archflow-plugin-api/.../catalog/`) — roteamento descriptor-driven: pontua os
+   componentes do `ComponentCatalog` por keywords {@literal >} capabilities
+   {@literal >} tags {@literal >} texto e devolve `route(query)` / `rank(query)`
+   (com filtro opcional por `ComponentType`). É o `canHandle`/router do gestor,
+   **centralizado** sobre o catálogo.
+3. **Bean** `componentQueryRouter` em `ArchflowBeanConfiguration` (injetável nos
+   produtos e na UI).
+4. **Exemplo real**: `ConversationalAgent` ganhou `keywords` no metadata.
 
-### 3.2 Dois formatos sobre o mesmo contrato
+### 3.3 Pontos de mudança (D1) — efetivos
 
-- `AbstractTaskAgent` (single-shot, saída estruturada/JSON) — molde de
-  `AbstractGestorRqAgent`: `executeWithMetrics`, `validateInput`,
-  `buildSystemPrompt`, parse tolerante de JSON.
-- `AbstractConversationalAgent` (loop tool-calling) — molde de
-  `LLMAgentOrchestratorImpl`: `context → guardrail-in → LLM → tools → follow-up →
-  guardrail-out`, com `ToolRegistry`.
+| Arquivo | Mudança | Status |
+|---|---|---|
+| `archflow-model/.../ai/metadata/ComponentMetadata.java` | + campo `keywords` + ctor compat | ✅ |
+| `archflow-plugin-api/.../catalog/ComponentQueryRouter.java` | **novo** (interface + `ScoredComponent`) | ✅ |
+| `archflow-plugin-api/.../catalog/DefaultComponentQueryRouter.java` | **novo** (scoring determinístico) | ✅ |
+| `archflow-api/.../config/ArchflowBeanConfiguration.java` | bean `componentQueryRouter` | ✅ |
+| `archflow-plugins/.../agents/ConversationalAgent.java` | keywords de exemplo | ✅ |
 
-Ambos obtêm o `ChatModel` via `LLMConfigResolver.resolveModel(...)` montando o
-`LLMResolutionRequest` com `descriptor().llmPatch()` como `agentPatch`. **É aqui
-que a dor central morre:** o agente de extração de preço declara seu
-`maxTokens`/`model` no próprio descriptor, sem afetar os demais.
+### 3.4 Tier `agent` da cadeia de herança (D2) — follow-up
 
-### 3.3 Registry e invocação direta
+O override de LLM por agente (tier `agent` da cadeia do §2.2) deve vir da config do
+componente (ex.: `ComponentMetadata.properties` ou o `config` do `initialize`).
+Um helper `LLMConfigPatch` a partir desses metadados, e o uso de
+`LLMResolutionRequest` com esse `agentPatch`, fecham a integração — pequeno
+follow-up sobre o que já existe.
 
-```java
-// archflow-agent/.../agent/AgentRegistry.java  (NOVO)
-public interface AgentRegistry {
-    void register(Agent agent);
-    Optional<Agent> byType(String agentType);
-    /** Roteamento por keyword/capability (canHandle), opcional. */
-    Optional<Agent> route(String query);
-    List<AgentDescriptor> list();
-}
-```
+### 3.5 Formato conversacional (tool-calling) — follow-up
 
-`ArchFlowAgent` (o executor de flows atual) **não muda de papel**; ganha apenas a
-capacidade de, num `FlowStep` do tipo `agent`, resolver o `Agent` pelo
-`AgentRegistry` e invocá-lo — fazendo do flow **um consumidor** do primitivo, como
-decidido em D1. A invocação direta (sem flow) é o caminho que `gestor-rq`/
-`integrall` usariam.
-
-### 3.4 Pontos de mudança (D1)
-
-| Arquivo | Mudança |
-|---|---|
-| `archflow-agent/.../agent/Agent.java` | **novo** (contrato) |
-| `archflow-agent/.../agent/AgentDescriptor.java` | **novo** |
-| `archflow-agent/.../agent/AgentRequest.java`, `AgentResult.java` | **novo** |
-| `archflow-agent/.../agent/AbstractTaskAgent.java` | **novo** (molde gestor) |
-| `archflow-agent/.../agent/AbstractConversationalAgent.java` | **novo** (molde integrall) |
-| `archflow-agent/.../agent/AgentRegistry.java` + `DefaultAgentRegistry.java` | **novo** |
-| `archflow-agent/.../ArchFlowAgent.java` | ponto de integração flow→agent (consumir registry no step `agent`) |
-
-> Nota: `AgentConfig` (`.../config/AgentConfig.java`) permanece como config de
-> runtime do executor. **Não** confundir com `AgentDescriptor` (metadados de um
-> agente individual). Nomes distintos de propósito.
+O loop `context → guardrail-in → LLM → tools → follow-up → guardrail-out` do
+`LLMAgentOrchestratorImpl` (integrall) e um `ToolRegistry` continuam como fase
+seguinte; o `GuardrailChain` já existe no archflow para a parte de guardrails.
 
 ## 4. Ordem de implementação
 

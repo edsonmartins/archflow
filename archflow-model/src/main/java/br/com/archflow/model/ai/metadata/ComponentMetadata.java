@@ -17,8 +17,38 @@ public record ComponentMetadata(
     Set<String> capabilities,
     List<OperationMetadata> operations,
     Map<String, Object> properties,
-    Set<String> tags
+    Set<String> tags,
+    /** Palavras-chave para roteamento por query em linguagem natural. */
+    Set<String> keywords
 ) {
+    /**
+     * Construtor canônico — normaliza {@code keywords} nulo para vazio.
+     */
+    public ComponentMetadata {
+        if (keywords == null) {
+            keywords = Set.of();
+        }
+    }
+
+    /**
+     * Construtor de compatibilidade (sem {@code keywords}). Mantém os componentes
+     * existentes compilando; keywords ficam vazias (roteamento cai em
+     * capabilities/tags/texto).
+     */
+    public ComponentMetadata(
+        String id,
+        String name,
+        String description,
+        ComponentType type,
+        String version,
+        Set<String> capabilities,
+        List<OperationMetadata> operations,
+        Map<String, Object> properties,
+        Set<String> tags
+    ) {
+        this(id, name, description, type, version, capabilities, operations, properties, tags, Set.of());
+    }
+
     /**
      * Metadados de uma operação do componente
      */
