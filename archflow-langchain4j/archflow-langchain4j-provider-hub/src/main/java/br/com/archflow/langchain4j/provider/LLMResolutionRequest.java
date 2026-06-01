@@ -1,5 +1,6 @@
 package br.com.archflow.langchain4j.provider;
 
+import br.com.archflow.model.ai.AIComponent;
 import br.com.archflow.model.config.LLMConfigPatch;
 import br.com.archflow.model.config.ResolvedLLMConfig;
 import br.com.archflow.model.flow.Flow;
@@ -59,14 +60,36 @@ public record LLMResolutionRequest(
                                                LLMConfigPatch tenantDefault,
                                                Flow flow,
                                                FlowStep step) {
+        return forStep(platformDefault, tenantId, tenantDefault, flow, step, null);
+    }
+
+    /**
+     * Como {@link #forStep(ResolvedLLMConfig, String, LLMConfigPatch, Flow, FlowStep)},
+     * mas também preenche o tier {@code agent} a partir da config declarada do
+     * componente ({@code AIComponent.getMetadata().properties()}). Precedência
+     * efetiva: step {@literal >} agent {@literal >} flow {@literal >} tenant
+     * {@literal >} platform.
+     *
+     * @param agent componente do passo (pode ser {@code null} → tier agent vazio)
+     */
+    public static LLMResolutionRequest forStep(ResolvedLLMConfig platformDefault,
+                                               String tenantId,
+                                               LLMConfigPatch tenantDefault,
+                                               Flow flow,
+                                               FlowStep step,
+                                               AIComponent agent) {
         LLMConfigPatch flowPatch = (flow != null && flow.getConfiguration() != null)
                 ? flow.getConfiguration().getLLMPatch()
                 : LLMConfigPatch.empty();
         LLMConfigPatch stepPatch = step != null ? step.getLLMPatch() : LLMConfigPatch.empty();
+        LLMConfigPatch agentPatch = (agent != null && agent.getMetadata() != null)
+                ? LLMConfigPatch.fromMap(agent.getMetadata().properties())
+                : LLMConfigPatch.empty();
         return builder(platformDefault)
                 .tenantId(tenantId)
                 .tenantDefault(tenantDefault)
                 .flowPatch(flowPatch)
+                .agentPatch(agentPatch)
                 .stepPatch(stepPatch)
                 .build();
     }

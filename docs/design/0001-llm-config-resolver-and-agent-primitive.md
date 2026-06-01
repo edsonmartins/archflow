@@ -180,13 +180,18 @@ a chave em claro.
 | `archflow-api/.../config/ArchflowBeanConfiguration.java` | bean `componentQueryRouter` | ✅ |
 | `archflow-plugins/.../agents/ConversationalAgent.java` | keywords de exemplo | ✅ |
 
-### 3.4 Tier `agent` da cadeia de herança (D2) — follow-up
+### 3.4 Tier `agent` da cadeia de herança (D2) — IMPLEMENTADO
 
-O override de LLM por agente (tier `agent` da cadeia do §2.2) deve vir da config do
-componente (ex.: `ComponentMetadata.properties` ou o `config` do `initialize`).
-Um helper `LLMConfigPatch` a partir desses metadados, e o uso de
-`LLMResolutionRequest` com esse `agentPatch`, fecham a integração — pequeno
-follow-up sobre o que já existe.
+O override de LLM por agente vem da config declarada do componente
+(`ComponentMetadata.properties()`). Implementado:
+
+- **`LLMConfigPatch.fromMap(Map)`** (archflow-model) — coerção canônica Map→patch
+  (provider/model/temperature/maxTokens/timeout/additionalConfig), lenient (aceita
+  `Number` ou String numérica), ignora chaves não-LLM. `SerializableStep.getLLMPatch()`
+  passou a **reusá-la** (dedup do tier `step`).
+- **`LLMResolutionRequest.forStep(..., AIComponent agent)`** — overload que preenche
+  o `agentPatch` de `agent.getMetadata().properties()`. Precedência efetiva agora
+  completa: **step {@literal >} agent {@literal >} flow {@literal >} tenant {@literal >} platform**.
 
 ### 3.5 Formato conversacional (tool-calling) — follow-up
 

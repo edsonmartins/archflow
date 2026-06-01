@@ -61,31 +61,8 @@ public class SerializableStep implements FlowStep {
      * de resolução.
      */
     @Override
-    @SuppressWarnings("unchecked")
     public LLMConfigPatch getLLMPatch() {
-        if (config == null || config.isEmpty()) {
-            return LLMConfigPatch.empty();
-        }
-        LLMConfigPatch.Builder b = LLMConfigPatch.builder();
-        if (config.get("provider") instanceof String s && !s.isBlank()) {
-            b.provider(s);
-        }
-        if (config.get("model") instanceof String s && !s.isBlank()) {
-            b.model(s);
-        }
-        if (config.get("temperature") instanceof Number n) {
-            b.temperature(n.doubleValue());
-        }
-        if (config.get("maxTokens") instanceof Number n) {
-            b.maxTokens(n.intValue());
-        }
-        if (config.get("timeout") instanceof Number n) {
-            b.timeout(n.longValue());
-        }
-        if (config.get("additionalConfig") instanceof Map<?, ?> m) {
-            b.additionalConfig((Map<String, Object>) m);
-        }
-        return b.build();
+        return LLMConfigPatch.fromMap(config);
     }
 
     public String getComponentId() { return componentId; }

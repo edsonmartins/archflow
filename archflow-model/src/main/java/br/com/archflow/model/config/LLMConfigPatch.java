@@ -45,6 +45,67 @@ public record LLMConfigPatch(
         return EMPTY;
     }
 
+    /**
+     * Constrói um patch a partir de um mapa de configuração (config de step salva
+     * pela UI, {@code ComponentMetadata.properties}, etc.). Lê as chaves
+     * {@code provider, model, temperature, maxTokens, timeout, additionalConfig};
+     * ignora as demais. Numéricos aceitam {@link Number} ou String parseável.
+     */
+    public static LLMConfigPatch fromMap(Map<String, Object> config) {
+        if (config == null || config.isEmpty()) {
+            return empty();
+        }
+        Builder b = builder();
+        if (config.get("provider") instanceof String s && !s.isBlank()) {
+            b.provider(s);
+        }
+        if (config.get("model") instanceof String s && !s.isBlank()) {
+            b.model(s);
+        }
+        Double temperature = asDouble(config.get("temperature"));
+        if (temperature != null) {
+            b.temperature(temperature);
+        }
+        Integer maxTokens = asInt(config.get("maxTokens"));
+        if (maxTokens != null) {
+            b.maxTokens(maxTokens);
+        }
+        Long timeout = asLong(config.get("timeout"));
+        if (timeout != null) {
+            b.timeout(timeout);
+        }
+        if (config.get("additionalConfig") instanceof Map<?, ?> m) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> am = (Map<String, Object>) m;
+            b.additionalConfig(am);
+        }
+        return b.build();
+    }
+
+    private static Double asDouble(Object v) {
+        if (v instanceof Number n) return n.doubleValue();
+        if (v instanceof String s && !s.isBlank()) {
+            try { return Double.parseDouble(s.trim()); } catch (NumberFormatException ignored) { /* skip */ }
+        }
+        return null;
+    }
+
+    private static Integer asInt(Object v) {
+        if (v instanceof Number n) return n.intValue();
+        if (v instanceof String s && !s.isBlank()) {
+            try { return Integer.parseInt(s.trim()); } catch (NumberFormatException ignored) { /* skip */ }
+        }
+        return null;
+    }
+
+    private static Long asLong(Object v) {
+        if (v instanceof Number n) return n.longValue();
+        if (v instanceof String s && !s.isBlank()) {
+            try { return Long.parseLong(s.trim()); } catch (NumberFormatException ignored) { /* skip */ }
+        }
+        return null;
+    }
+
     public boolean isEmpty() {
         return provider.isEmpty() && model.isEmpty() && temperature.isEmpty()
                 && maxTokens.isEmpty() && timeout.isEmpty() && additionalConfig.isEmpty();

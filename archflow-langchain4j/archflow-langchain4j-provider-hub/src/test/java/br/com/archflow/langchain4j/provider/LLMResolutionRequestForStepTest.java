@@ -1,5 +1,8 @@
 package br.com.archflow.langchain4j.provider;
 
+import br.com.archflow.model.ai.AIComponent;
+import br.com.archflow.model.ai.metadata.ComponentMetadata;
+import br.com.archflow.model.ai.type.ComponentType;
 import br.com.archflow.model.config.FlowConfiguration;
 import br.com.archflow.model.config.LLMConfig;
 import br.com.archflow.model.config.LLMConfigPatch;
@@ -14,9 +17,12 @@ import br.com.archflow.model.flow.StepConnection;
 import br.com.archflow.model.flow.StepResult;
 import br.com.archflow.model.flow.StepType;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -88,5 +94,50 @@ class LLMResolutionRequestForStepTest {
         assertThat(out.maxTokens()).isEqualTo(512);
         assertThat(req.flowPatch().isEmpty()).isTrue();
         assertThat(req.stepPatch().isEmpty()).isTrue();
+    }
+
+    private static AIComponent agentWithProperties(Map<String, Object> properties) {
+        return new AIComponent() {
+            @Override public void initialize(Map<String, Object> config) { }
+            @Override public ComponentMetadata getMetadata() {
+                return new ComponentMetadata("a", "Agent", "desc", ComponentType.AGENT, "1.0.0",
+                        Set.of(), List.of(), properties, Set.of());
+            }
+            @Override public Object execute(String op, Object in, ExecutionContext c) { return null; }
+            @Override public void shutdown() { }
+        };
+    }
+
+    @Nested
+    @DisplayName("tier agent (AIComponent.metadata.properties)")
+    class WithAgent {
+
+        @Test
+        @DisplayName("agent vence flow; step vence agent")
+        void agentTierPrecedence() {
+            Flow flow = flowWithPatch(LLMConfigPatch.builder().model("flow-model").maxTokens(2048).build());
+            AIComponent agent = agentWithProperties(Map.of("model", "agent-model"));
+
+            // sem step → agent vence flow
+            ResolvedLLMConfig a = resolver.resolve(
+                    LLMResolutionRequest.forStep(platform(), "t1", null, flow, null, agent));
+            assertThat(a.model()).isEqualTo("agent-model");
+            assertThat(a.maxTokens()).isEqualTo(2048);   // herdado do flow
+
+            // com step definindo model → step vence agent
+            FlowStep step = stepWithPatch(LLMConfigPatch.builder().model("step-model").build());
+            ResolvedLLMConfig b = resolver.resolve(
+                    LLMResolutionRequest.forStep(platform(), "t1", null, flow, step, agent));
+            assertThat(b.model()).isEqualTo("step-model");
+        }
+
+        @Test
+        @DisplayName("lê maxTokens de properties como string numérica")
+        void coercesPropertiesString() {
+            AIComponent agent = agentWithProperties(Map.of("maxTokens", "8192"));
+            ResolvedLLMConfig out = resolver.resolve(
+                    LLMResolutionRequest.forStep(platform(), "t1", null, null, null, agent));
+            assertThat(out.maxTokens()).isEqualTo(8192);
+        }
     }
 }
