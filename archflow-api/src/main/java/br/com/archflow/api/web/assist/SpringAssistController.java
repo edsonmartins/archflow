@@ -5,6 +5,10 @@ import br.com.archflow.api.assist.AssistUnavailableException;
 import br.com.archflow.api.assist.dto.AssistErrorResponse;
 import br.com.archflow.api.assist.dto.ExplainErrorRequest;
 import br.com.archflow.api.assist.dto.ExplainErrorResponse;
+import br.com.archflow.api.assist.dto.NlToFlowRequest;
+import br.com.archflow.api.assist.dto.NlToFlowResponse;
+import br.com.archflow.api.assist.dto.SuggestMappingRequest;
+import br.com.archflow.api.assist.dto.SuggestMappingResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -53,6 +57,38 @@ public class SpringAssistController {
         }
 
         ExplainErrorResponse response = assistService.explainError(request);
+        return ResponseEntity.ok(response);
+    }
+
+    /** #23 — sugestão preditiva de mapeamento de campos (origem→destino). */
+    @PostMapping("/suggest-mapping")
+    public ResponseEntity<?> suggestMapping(
+            @RequestHeader(value = "X-ArchFlow-Key", required = false) String providedKey,
+            @RequestBody SuggestMappingRequest request) {
+
+        if (!keyOk(providedKey)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(new AssistErrorResponse("NAO_AUTORIZADO",
+                            "Header X-ArchFlow-Key ausente ou inválido"));
+        }
+
+        SuggestMappingResponse response = assistService.suggestMapping(request);
+        return ResponseEntity.ok(response);
+    }
+
+    /** #22 — geração de rascunho de workflow a partir de linguagem natural (restrito ao catálogo). */
+    @PostMapping("/nl-to-flow")
+    public ResponseEntity<?> nlToFlow(
+            @RequestHeader(value = "X-ArchFlow-Key", required = false) String providedKey,
+            @RequestBody NlToFlowRequest request) {
+
+        if (!keyOk(providedKey)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(new AssistErrorResponse("NAO_AUTORIZADO",
+                            "Header X-ArchFlow-Key ausente ou inválido"));
+        }
+
+        NlToFlowResponse response = assistService.nlToFlow(request);
         return ResponseEntity.ok(response);
     }
 

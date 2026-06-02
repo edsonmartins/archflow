@@ -2,6 +2,10 @@ package br.com.archflow.api.assist;
 
 import br.com.archflow.api.assist.dto.ExplainErrorRequest;
 import br.com.archflow.api.assist.dto.ExplainErrorResponse;
+import br.com.archflow.api.assist.dto.NlToFlowRequest;
+import br.com.archflow.api.assist.dto.NlToFlowResponse;
+import br.com.archflow.api.assist.dto.SuggestMappingRequest;
+import br.com.archflow.api.assist.dto.SuggestMappingResponse;
 
 /**
  * Serviço de assistência por IA (família {@code /archflow/assist/*}).
@@ -24,4 +28,25 @@ public interface AssistService {
      * @throws AssistUnavailableException se o modelo falhar ou der timeout
      */
     ExplainErrorResponse explainError(ExplainErrorRequest request);
+
+    /**
+     * Sugere mapeamento campo-a-campo entre dois schemas (origem→destino) de
+     * forma síncrona, casando por similaridade semântica e de tipo (change #23).
+     *
+     * @param request schemas de origem/destino + idioma
+     * @return sugestões de mapeamento (vazio se a resposta não for parseável)
+     * @throws AssistUnavailableException se o modelo falhar ou der timeout
+     */
+    SuggestMappingResponse suggestMapping(SuggestMappingRequest request);
+
+    /**
+     * Gera um rascunho de workflow a partir de uma descrição em linguagem
+     * natural, usando EXCLUSIVAMENTE o catálogo de plugins fornecido
+     * (ADR-0001, change #22).
+     *
+     * @param request descrição + catálogo (manifest) + idioma
+     * @return rascunho do workflow + lacunas + observações
+     * @throws AssistUnavailableException se o modelo falhar ou der timeout
+     */
+    NlToFlowResponse nlToFlow(NlToFlowRequest request);
 }
