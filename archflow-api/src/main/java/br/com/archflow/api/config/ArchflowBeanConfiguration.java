@@ -622,4 +622,22 @@ public class ArchflowBeanConfiguration {
                 br.com.archflow.langchain4j.provider.LLMProviderHub.getInstance(),
                 tenantKeyResolver);
     }
+
+    // =========================================================================
+    // Assist (IA síncrona — família /archflow/assist/*, ADR-0004)
+    // =========================================================================
+
+    /**
+     * Serviço de assistência por IA. Usa o {@code LLMConfigResolver} e o
+     * default da plataforma para resolver o modelo padrão e diagnosticar erros.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public br.com.archflow.api.assist.AssistService assistService(
+            br.com.archflow.langchain4j.provider.LLMConfigResolver llmConfigResolver,
+            br.com.archflow.model.config.ResolvedLLMConfig platformDefaultLLMConfig,
+            com.fasterxml.jackson.databind.ObjectMapper objectMapper) {
+        return new br.com.archflow.api.assist.impl.AssistServiceImpl(
+                llmConfigResolver, platformDefaultLLMConfig, objectMapper);
+    }
 }

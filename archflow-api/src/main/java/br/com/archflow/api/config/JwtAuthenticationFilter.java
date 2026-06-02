@@ -58,7 +58,10 @@ public class JwtAuthenticationFilter implements Filter {
             "/api/health",
             "/actuator/",
             "/realtime/",
-            "/ws/"
+            "/ws/",
+            // Assist (IA síncrona, ADR-0004): protegido por chave estática
+            // opcional (X-ArchFlow-Key) no próprio controller, não por JWT.
+            "/archflow/assist/"
     );
 
     private final JwtService jwtService;

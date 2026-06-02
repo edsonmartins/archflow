@@ -25,6 +25,10 @@ archflow:
       access-token-expiration-seconds: ${ARCHFLOW_JWT_TTL:900}
   cors:
     allowed-origins: ${ARCHFLOW_CORS_ORIGINS:http://localhost:5173,http://localhost:5174}
+  # Família de endpoints síncronos de assistência por IA (/archflow/assist/*, ADR-0004).
+  # Se api-key estiver definida, o controller exige o header X-ArchFlow-Key; vazio = libera (dev).
+  assist:
+    api-key: ${ARCHFLOW_ASSIST_API_KEY:}
 
 logging:
   level:
