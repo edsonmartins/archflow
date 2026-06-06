@@ -1,5 +1,11 @@
 package br.com.archflow.api.web.workflow;
 
+import br.com.archflow.api.flow.WorkflowDeserializer;
+import br.com.archflow.api.flow.WorkflowRunner;
+import br.com.archflow.model.engine.DefaultExecutionContext;
+import br.com.archflow.model.engine.ExecutionContext;
+import br.com.archflow.model.flow.Flow;
+import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -19,9 +25,15 @@ import java.util.*;
 public class SpringWorkflowCrudController {
 
     private final InMemoryWorkflowRuntimeStore store;
+    private final WorkflowDeserializer deserializer;
+    private final WorkflowRunner runner;
 
-    public SpringWorkflowCrudController(InMemoryWorkflowRuntimeStore store) {
+    public SpringWorkflowCrudController(InMemoryWorkflowRuntimeStore store,
+                                        WorkflowDeserializer deserializer,
+                                        WorkflowRunner runner) {
         this.store = store;
+        this.deserializer = deserializer;
+        this.runner = runner;
     }
 
     @GetMapping
@@ -77,13 +89,29 @@ public class SpringWorkflowCrudController {
                                                         @RequestBody(required = false) Map<String, Object> input) {
         var workflow = store.getWorkflow(id);
         if (workflow == null) return ResponseEntity.notFound().build();
+
         var execution = store.createExecution(id, workflowName(workflow));
-        return ResponseEntity.ok(Map.of(
-                "executionId", execution.get("id"),
-                "status", execution.get("status"),
-                "workflowId", id,
-                "startedAt", execution.get("startedAt")
-        ));
+        String executionId = String.valueOf(execution.get("id"));
+
+        // Deserialize the stored JSON into an executable Flow and run it
+        // (linear, synchronous — design-0004 step 1). Inputs seed context vars.
+        ExecutionContext ctx = new DefaultExecutionContext(
+                null, "runner", executionId,
+                MessageWindowChatMemory.builder().maxMessages(20).build());
+        if (input != null) {
+            input.forEach(ctx::set);
+        }
+
+        Flow flow = deserializer.toFlow(workflow);
+        WorkflowRunner.RunResult result = runner.run(flow, ctx);
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("executionId", executionId);
+        body.put("status", result.success() ? "completed" : "failed");
+        body.put("workflowId", id);
+        body.put("startedAt", execution.get("startedAt"));
+        body.put("steps", result.steps());
+        return ResponseEntity.ok(body);
     }
 
     // ── helpers ──────────────────────────────────────────────────
