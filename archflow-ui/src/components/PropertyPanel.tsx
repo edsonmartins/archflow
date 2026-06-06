@@ -170,6 +170,7 @@ function NodeFields({ nodeId, nodeData }: { nodeId: string; nodeData: FlowNodeDa
   const isPromptChunk     = nodeData.nodeType === 'prompt-chunk'
   const isInput           = nodeData.nodeType === 'input'
   const isOutput          = nodeData.nodeType === 'output'
+  const isOrchestrate     = nodeData.nodeType === 'orchestrate'
 
   const update = (key: string, value: unknown) => updateNodeConfig(nodeId, key, value)
   // Shortcut for field translations; keeps JSX free of the long prefix.
@@ -911,6 +912,74 @@ function NodeFields({ nodeId, nodeData }: { nodeId: string; nodeData: FlowNodeDa
       {/* ════════════════════════════════════════════════════════ */}
       {/*  HUMAN APPROVAL                                       */}
       {/* ════════════════════════════════════════════════════════ */}
+      {/* ════════════════════════════════════════════════════════ */}
+      {/*  ORCHESTRATE (dynamic multi-agent workflow)             */}
+      {/* ════════════════════════════════════════════════════════ */}
+      {isOrchestrate && (
+        <>
+          <Textarea
+            label={t('dynamicWorkflow.goal')}
+            placeholder={t('dynamicWorkflow.goalPlaceholder')}
+            value={getConfig(nodeData, 'goal', '')}
+            onChange={e => update('goal', e.currentTarget.value)}
+            autosize minRows={2}
+            size="xs"
+            styles={FIELD_STYLES}
+          />
+          <Textarea
+            label={t('dynamicWorkflow.decomposePrompt')}
+            placeholder={t('dynamicWorkflow.decomposePromptPlaceholder')}
+            value={getConfig(nodeData, 'decomposePrompt', '')}
+            onChange={e => update('decomposePrompt', e.currentTarget.value)}
+            autosize minRows={1}
+            size="xs"
+            styles={FIELD_STYLES}
+          />
+          <NumberInput
+            label={t('dynamicWorkflow.maxSubtasks')}
+            value={getConfig(nodeData, 'maxSubtasks', 8)}
+            onChange={v => update('maxSubtasks', v)}
+            min={1}
+            size="xs"
+            styles={FIELD_STYLES}
+          />
+          <NumberInput
+            label={t('dynamicWorkflow.voters')}
+            value={getConfig(nodeData, 'voters', 1)}
+            onChange={v => update('voters', v)}
+            min={1}
+            size="xs"
+            styles={FIELD_STYLES}
+          />
+          <NumberInput
+            label={t('dynamicWorkflow.maxRounds')}
+            value={getConfig(nodeData, 'maxRounds', 5)}
+            onChange={v => update('maxRounds', v)}
+            min={1}
+            size="xs"
+            styles={FIELD_STYLES}
+          />
+          <NumberInput
+            label={t('dynamicWorkflow.concurrency')}
+            value={getConfig(nodeData, 'concurrency', 4)}
+            onChange={v => update('concurrency', v)}
+            min={1}
+            size="xs"
+            styles={FIELD_STYLES}
+          />
+          <NumberInput
+            label={t('dynamicWorkflow.budgetTokens')}
+            value={getConfig(nodeData, 'budgetTokens', '')}
+            onChange={v => update('budgetTokens', v)}
+            min={0}
+            step={1000}
+            placeholder="∞"
+            size="xs"
+            styles={FIELD_STYLES}
+          />
+        </>
+      )}
+
       {isApproval && (
         <>
           <TextInput

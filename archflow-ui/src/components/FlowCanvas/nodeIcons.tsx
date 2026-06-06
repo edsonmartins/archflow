@@ -12,6 +12,7 @@ import {
     IconFilter, IconFunctionFilled,
     IconArrowsMaximize,
     IconArrowMerge,
+    IconSitemap,
 } from '@tabler/icons-react'
 
 /**
@@ -28,6 +29,7 @@ const ICON_MAP: Record<string, ComponentType<{ size?: number; stroke?: number }>
     'assistant':        IconBrain,
     'llm-chat':         IconMessageCircle,
     'llm-streaming':    IconBolt,
+    'orchestrate':      IconSitemap,
 
     // Control flow
     'condition':        IconGitBranch,
