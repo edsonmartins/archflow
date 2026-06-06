@@ -628,6 +628,22 @@ public class ArchflowBeanConfiguration {
     // =========================================================================
 
     /**
+     * Jackson 2 {@link com.fasterxml.jackson.databind.ObjectMapper} bean.
+     *
+     * <p>Spring Boot 4 auto-configures only a Jackson 3 ({@code tools.jackson})
+     * mapper, so the classic {@code com.fasterxml.jackson.databind.ObjectMapper}
+     * is no longer available for injection. The codebase still serializes via
+     * Jackson 2 in several places, so expose a single shared bean here instead of
+     * each consumer building its own — that fixes the missing-bean error once and
+     * gives every consumer one consistent configuration to evolve.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public com.fasterxml.jackson.databind.ObjectMapper jackson2ObjectMapper() {
+        return new com.fasterxml.jackson.databind.ObjectMapper();
+    }
+
+    /**
      * Serviço de assistência por IA. Usa o {@code LLMConfigResolver} e o
      * default da plataforma para resolver o modelo padrão e diagnosticar erros.
      */

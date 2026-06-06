@@ -7,7 +7,7 @@ services:
   app:
     build: .
     ports:
-      - "8080:8080"
+      - "16080:16080"
     environment:
       - SPRING_PROFILES_ACTIVE=dev
       - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/archflow
