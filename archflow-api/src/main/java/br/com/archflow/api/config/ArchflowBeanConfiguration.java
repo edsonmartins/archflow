@@ -336,6 +336,19 @@ public class ArchflowBeanConfiguration {
         return new br.com.archflow.agent.persistence.InMemoryFlowRepository();
     }
 
+    /**
+     * The real, async {@link br.com.archflow.engine.api.FlowEngine} (design-0005
+     * step 1): virtual-thread execution with backpressure and pause/resume/cancel,
+     * wired from its collaborators (in-memory state for dev). Turns the previously
+     * dormant engine into a usable async executor for every workflow.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public br.com.archflow.engine.api.FlowEngine flowEngine(
+            br.com.archflow.engine.persistence.FlowRepository flowRepository) {
+        return br.com.archflow.api.flow.FlowEngineFactory.create(flowRepository);
+    }
+
     @Bean
     @ConditionalOnMissingBean
     public WorkflowYamlBridge workflowYamlBridge() {
