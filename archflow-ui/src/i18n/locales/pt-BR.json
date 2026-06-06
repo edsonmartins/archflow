@@ -80,6 +80,7 @@
         "rounds": "Rounds: {{count}}",
         "confirmedCount": "Confirmados: {{count}}",
         "results": "Resultados confirmados",
+        "trace": "Trace da execução",
         "empty": "Configure e execute um workflow dinâmico para ver os resultados."
     },
     "header": {

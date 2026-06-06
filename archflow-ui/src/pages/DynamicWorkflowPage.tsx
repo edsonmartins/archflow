@@ -124,6 +124,27 @@ export default function DynamicWorkflowPage() {
                             </Code>
                         ))}
                     </Stack>
+
+                    {result.trace && result.trace.length > 0 && (
+                        <>
+                            <Text fw={600} size="sm" mt="md" mb="xs">{t('dynamicWorkflow.trace')}</Text>
+                            <Stack gap={4}>
+                                {result.trace.map((e, i) => (
+                                    <Group key={i} gap="xs" wrap="nowrap">
+                                        <Badge size="xs" variant="light" color="gray" w={70} style={{ flexShrink: 0 }}>
+                                            r{e.round} · {e.type}
+                                        </Badge>
+                                        {e.confirmed != null && (
+                                            <Badge size="xs" variant="light" color={e.confirmed ? 'teal' : 'red'}>
+                                                {e.confirmed ? '✓' : '✗'}
+                                            </Badge>
+                                        )}
+                                        <Text size="xs" c="dimmed" lineClamp={1}>{e.detail}</Text>
+                                    </Group>
+                                ))}
+                            </Stack>
+                        </>
+                    )}
                 </Paper>
             ) : (
                 !error && (

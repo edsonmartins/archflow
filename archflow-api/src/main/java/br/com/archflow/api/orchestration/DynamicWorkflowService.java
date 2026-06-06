@@ -5,6 +5,8 @@ import br.com.archflow.agent.orchestration.CatalogAgentWorker;
 import br.com.archflow.agent.orchestration.ConfidenceVoter;
 import br.com.archflow.agent.orchestration.DynamicSupervisor;
 import br.com.archflow.agent.orchestration.LlmPlanner;
+import br.com.archflow.agent.orchestration.OrchestrationListener;
+import br.com.archflow.agent.orchestration.OrchestrationTrace;
 import br.com.archflow.agent.orchestration.SupervisorConfig;
 import br.com.archflow.agent.orchestration.SupervisorResult;
 import br.com.archflow.conversation.agent.ConversationalAgent.ChatFunction;
@@ -62,22 +64,30 @@ public class DynamicWorkflowService {
         this.scorer = scorer;
     }
 
-    /** Entry point that creates its own ExecutionContext (REST path). */
+    /** Entry point that creates its own ExecutionContext (REST path), with a trace. */
     public DynamicWorkflowResponse run(DynamicWorkflowRequest req) {
         ExecutionContext ctx = new DefaultExecutionContext(
                 req.tenantId(), "orchestrator", UUID.randomUUID().toString(),
                 MessageWindowChatMemory.builder().maxMessages(20).build());
-        SupervisorResult result = runOn(req, ctx);
-        return new DynamicWorkflowResponse(result.confirmed(), result.confirmedCount(), result.rounds());
+        OrchestrationTrace trace = new OrchestrationTrace();
+        SupervisorResult result = runOn(req, ctx, trace);
+        return new DynamicWorkflowResponse(
+                result.confirmed(), result.confirmedCount(), result.rounds(), trace.entries());
+    }
+
+    /** As {@link #runOn(DynamicWorkflowRequest, ExecutionContext, OrchestrationListener)} with no listener. */
+    public SupervisorResult runOn(DynamicWorkflowRequest req, ExecutionContext ctx) {
+        return runOn(req, ctx, OrchestrationListener.NOOP);
     }
 
     /**
      * Runs a dynamic workflow on a caller-provided {@link ExecutionContext}, so an
      * embedding flow step ({@code OrchestrateStep}) shares the flow's context with
      * the worker agents. Wires LlmPlanner + CatalogAgentWorker + ConfidenceVoter
-     * into a DynamicSupervisor under an optional token budget.
+     * into a DynamicSupervisor under an optional token budget, reporting progress
+     * to {@code listener}.
      */
-    public SupervisorResult runOn(DynamicWorkflowRequest req, ExecutionContext ctx) {
+    public SupervisorResult runOn(DynamicWorkflowRequest req, ExecutionContext ctx, OrchestrationListener listener) {
         if (req.goal() == null || req.goal().isBlank()) {
             throw new IllegalArgumentException("goal is required");
         }
@@ -107,7 +117,7 @@ public class DynamicWorkflowService {
                 : BudgetLedger.unlimited();
 
         DynamicSupervisor supervisor = new DynamicSupervisor(new DefaultOrchestrator(orDefault(req.concurrency(), 4)));
-        return supervisor.run(Goal.of(req.goal()), config, planner, worker, voter, budget);
+        return supervisor.run(Goal.of(req.goal()), config, planner, worker, voter, budget, listener);
     }
 
     private static int orDefault(Integer value, int fallback) {

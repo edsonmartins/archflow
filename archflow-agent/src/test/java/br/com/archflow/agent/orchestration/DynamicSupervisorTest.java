@@ -51,6 +51,21 @@ class DynamicSupervisorTest {
     }
 
     @Test
+    void reportsProgressToListener() {
+        Planner<String> planner = (goal, spec) -> List.of("a", "b");
+        var supervisor = new DynamicSupervisor(new DefaultOrchestrator(4));
+        var config = new SupervisorConfig("decompose", 10, new VerifyPolicy(1, 1, List.of()), ConvergePolicy.untilDry(5));
+        var trace = new OrchestrationTrace();
+
+        supervisor.run(Goal.of("audit"), config, planner, echoWorker, refuteB, BudgetLedger.unlimited(), trace);
+
+        assertThat(trace.entries()).anyMatch(e -> e.type().equals("planned") && e.round() == 1);
+        assertThat(trace.entries()).anyMatch(e -> e.type().equals("verified") && e.detail().equals("a") && Boolean.TRUE.equals(e.confirmed()));
+        assertThat(trace.entries()).anyMatch(e -> e.type().equals("verified") && e.detail().equals("b") && Boolean.FALSE.equals(e.confirmed()));
+        assertThat(trace.entries()).anyMatch(e -> e.type().equals("converged"));
+    }
+
+    @Test
     void stopsWhenBudgetExhausted() {
         // Static planner returns 4 subtasks; each worker call costs 100 tokens;
         // budget 150 with serial fan-out => only 2 run, then the loop's budget

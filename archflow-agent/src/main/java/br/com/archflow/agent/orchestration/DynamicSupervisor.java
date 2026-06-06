@@ -47,7 +47,19 @@ public final class DynamicSupervisor {
                                 Worker<String, Object> worker,
                                 Voter<String> voter,
                                 BudgetLedger budget) {
+        return run(goal, config, planner, worker, voter, budget, OrchestrationListener.NOOP);
+    }
 
+    /** As {@link #run}, reporting progress to {@code listener} (design-0004 step 3). */
+    public SupervisorResult run(Goal goal,
+                                SupervisorConfig config,
+                                Planner<String> planner,
+                                Worker<String, Object> worker,
+                                Voter<String> voter,
+                                BudgetLedger budget,
+                                OrchestrationListener listener) {
+
+        OrchestrationListener obs = listener == null ? OrchestrationListener.NOOP : listener;
         Set<String> seen = ConcurrentHashMap.newKeySet();
         AtomicInteger roundsRun = new AtomicInteger();
         PlanSpec spec = new PlanSpec(config.decomposePrompt(), config.maxSubtasks());
@@ -63,8 +75,10 @@ public final class DynamicSupervisor {
                 }
             }
             if (fresh.isEmpty()) {
+                obs.onRoundCompleted(r, false, confirmed.size());
                 return new RoundOutcome<>(confirmed, false, 0.0, Usage.ZERO);
             }
+            obs.onPlanned(r, fresh);
 
             List<Result<Object>> results = orchestrator.fanOut(fresh, worker, budget);
             int before = confirmed.size();
@@ -73,15 +87,19 @@ public final class DynamicSupervisor {
                     continue;
                 }
                 Verdict verdict = orchestrator.verify(String.valueOf(res.value()), voter, config.verifyPolicy());
+                obs.onVerified(r, res.value(), verdict.confirmed());
                 if (verdict.confirmed()) {
                     confirmed.add(res.value());
                 }
             }
-            return new RoundOutcome<>(confirmed, confirmed.size() > before, 0.0, Usage.ZERO);
+            boolean producedNew = confirmed.size() > before;
+            obs.onRoundCompleted(r, producedNew, confirmed.size());
+            return new RoundOutcome<>(confirmed, producedNew, 0.0, Usage.ZERO);
         };
 
         List<Object> confirmed = orchestrator.loopUntil(
                 new ArrayList<>(), round, config.convergePolicy(), budget);
+        obs.onConverged(roundsRun.get(), confirmed.size());
         return new SupervisorResult(confirmed, roundsRun.get());
     }
 }

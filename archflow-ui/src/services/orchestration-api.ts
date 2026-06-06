@@ -13,10 +13,18 @@ export interface DynamicWorkflowRequest {
     tenantId?: string
 }
 
+export interface TraceEntry {
+    type: string
+    round: number
+    detail: string
+    confirmed: boolean | null
+}
+
 export interface DynamicWorkflowResponse {
     confirmed: unknown[]
     confirmedCount: number
     rounds: number
+    trace: TraceEntry[]
 }
 
 /**
