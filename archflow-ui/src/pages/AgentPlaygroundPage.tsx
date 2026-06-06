@@ -129,7 +129,7 @@ export default function AgentPlaygroundPage() {
             </Tabs>
 
             {response != null && (
-                <Card withBorder>
+                <Card withBorder role="status" aria-live="polite">
                     <Text size="sm" c="dimmed" mb={4}>{t('agentPlayground.response')}</Text>
                     <Code block>{JSON.stringify(response, null, 2)}</Code>
                 </Card>

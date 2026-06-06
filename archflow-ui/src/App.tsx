@@ -1,8 +1,10 @@
 import './App.css';
 import '@mantine/core/styles.css';
+import '@mantine/charts/styles.css';
 import '@mantine/notifications/styles.css';
 import '@xyflow/react/dist/style.css';
 import { MantineProvider } from '@mantine/core';
+import { ModalsProvider } from '@mantine/modals';
 import { useLocalStorage } from '@mantine/hooks';
 import { Notifications } from '@mantine/notifications';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
@@ -68,6 +70,7 @@ function App() {
 
     return (
         <MantineProvider theme={theme} forceColorScheme={colorScheme}>
+            <ModalsProvider>
             <Notifications position="top-right" />
             <BrowserRouter>
                 <Suspense fallback={<div style={{ padding: 40, textAlign: 'center' }}>Loading...</div>}>
@@ -132,6 +135,7 @@ function App() {
                     </Routes>
                 </Suspense>
             </BrowserRouter>
+            </ModalsProvider>
         </MantineProvider>
     );
 }

@@ -104,11 +104,11 @@ export default function RunningFlowsPage() {
             <Group justify="space-between">
                 <Text fw={600} size="lg">{t('admin.observability.running.title')}</Text>
                 <Group gap="xs">
-                    <Badge variant="light" color={flows.length > 0 ? 'green' : 'gray'}>
+                    <Badge variant="light" color={flows.length > 0 ? 'green' : 'gray'} role="status" aria-live="polite">
                         {t('admin.observability.running.activeCount', { count: flows.length })}
                     </Badge>
                     <Tooltip label={t('admin.observability.running.refreshNow')}>
-                        <ActionIcon variant="subtle" onClick={fetchFlows}>
+                        <ActionIcon variant="subtle" onClick={fetchFlows} aria-label={t('admin.observability.running.refreshNow')}>
                             <IconRefresh size={16} />
                         </ActionIcon>
                     </Tooltip>
@@ -200,6 +200,7 @@ export default function RunningFlowsPage() {
                                                     color="red"
                                                     variant="subtle"
                                                     onClick={() => setConfirmCancel(flow.flowId)}
+                                                    aria-label={t('admin.observability.running.cancelTooltip')}
                                                 >
                                                     <IconPlayerStop size={16} />
                                                 </ActionIcon>

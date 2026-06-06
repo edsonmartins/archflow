@@ -42,7 +42,7 @@ export default function Transcript({ turns, placeholder }: TranscriptProps) {
 
     return (
         <Paper withBorder radius="md" h={320} style={{ overflow: 'hidden' }}>
-            <ScrollArea h="100%" viewportRef={scrollRef}>
+            <ScrollArea h="100%" viewportRef={scrollRef} role="log" aria-live="polite" aria-relevant="additions" aria-label="Transcript">
                 <Stack p="sm" gap="xs">
                     {turns.map((t) => (
                         <Group

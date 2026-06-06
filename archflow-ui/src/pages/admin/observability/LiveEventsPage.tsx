@@ -158,7 +158,7 @@ export default function LiveEventsPage() {
                         ))}
                     </Group>
                 </Group>
-                <ScrollArea h={420}>
+                <ScrollArea h={420} role="log" aria-live="polite" aria-relevant="additions" aria-label={t('admin.observability.live.eventFeed')}>
                     <Table striped highlightOnHover>
                         <Table.Thead>
                             <Table.Tr>

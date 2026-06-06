@@ -4,18 +4,8 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { workspaceApi, type WorkspaceSummary } from '../../../services/admin-api'
 import { UsageBar } from '../../../components/admin/UsageBar'
-
-function StatCard({ label, value, color }: { label: string; value: string | number; color?: string }) {
-  return (
-    <div style={{
-      padding: '18px 20px', borderRadius: 10,
-      border: '1px solid var(--border)', background: 'var(--bg2)',
-    }}>
-      <div style={{ fontSize: 11, fontWeight: 500, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</div>
-      <div style={{ fontSize: 28, fontWeight: 600, marginTop: 4, letterSpacing: '-0.5px', color: color ?? 'var(--text)' }}>{value}</div>
-    </div>
-  )
-}
+import { PageHeader } from '../../../components/PageHeader'
+import { StatCard } from '../../../components/admin/StatCard'
 
 export default function WorkspaceOverview() {
   const { t } = useTranslation()
@@ -54,7 +44,7 @@ export default function WorkspaceOverview() {
         </Alert>
       )}
 
-      <span style={{ fontSize: 22, fontWeight: 600, letterSpacing: '-0.3px', color: 'var(--text)' }}>{t('admin.tenant.workspace.title')}</span>
+      <PageHeader title={t('admin.tenant.workspace.title')} />
 
       <SimpleGrid cols={{ base: 2, lg: 4 }} spacing="md">
         <StatCard label={t('admin.tenant.workspace.stats.workflows')} value={summary?.workflowCount ?? '—'} />

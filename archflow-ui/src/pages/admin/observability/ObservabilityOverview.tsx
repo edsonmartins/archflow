@@ -149,11 +149,11 @@ function StatCard({
                     </Text>
                     {icon}
                 </Group>
-                <Text fz={26} fw={600}>
+                <Text fz={26} fw={600} style={{ fontVariantNumeric: 'tabular-nums' }}>
                     {value}
                 </Text>
                 {sparkline && sparkline.length > 0 && (
-                    <Sparkline values={sparkline} width={180} height={28} />
+                    <Sparkline values={sparkline} width={180} height={28} label={label} />
                 )}
                 {hint && (
                     <Text size="xs" c="dimmed">

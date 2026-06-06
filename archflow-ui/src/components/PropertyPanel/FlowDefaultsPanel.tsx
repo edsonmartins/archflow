@@ -38,11 +38,21 @@ export function FlowDefaultsPanel() {
 
   const modelGroups = (() => {
     const groups = new Map<string, { value: string; label: string }[]>()
+    // The backend catalog can expose the same model id under more than one
+    // provider/group (e.g. gpt-4o via OpenAI and OpenRouter). Mantine 9 throws
+    // on duplicate option values, so keep only the first occurrence of each id.
+    const seen = new Set<string>()
     providers.forEach(p => {
       if (!groups.has(p.group)) groups.set(p.group, [])
-      p.models.forEach(m => groups.get(p.group)!.push({ value: m.id, label: m.name }))
+      p.models.forEach(m => {
+        if (seen.has(m.id)) return
+        seen.add(m.id)
+        groups.get(p.group)!.push({ value: m.id, label: m.name })
+      })
     })
-    return Array.from(groups.entries()).map(([group, items]) => ({ group, items }))
+    return Array.from(groups.entries())
+      .map(([group, items]) => ({ group, items }))
+      .filter(g => g.items.length > 0)
   })()
 
   return (

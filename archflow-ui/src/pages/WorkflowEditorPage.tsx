@@ -2,9 +2,11 @@ import { useEffect, useCallback, useMemo, useState } from 'react'
 import { useParams }         from 'react-router-dom'
 import { useTranslation }    from 'react-i18next'
 import { notifications }     from '@mantine/notifications'
+import { Button }            from '@mantine/core'
 import {
     IconChevronLeft,
     IconChevronRight,
+    IconPlayerPlay,
 } from '@tabler/icons-react'
 import { FlowCanvas }        from '../components/FlowCanvas/FlowCanvas'
 import { NodePalette }       from '../components/NodePalette'
@@ -103,7 +105,7 @@ type EditorView = 'canvas' | 'yaml'
 
 export function WorkflowEditor() {
   const { id } = useParams<{ id: string }>()
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
 
   const { currentWorkflow: current, fetchWorkflow: loadWorkflow, updateWorkflow, loading: isSaving } = useWorkflowStore()
   const { getCanvasSnapshot } = useFlowStore()
@@ -214,19 +216,19 @@ export function WorkflowEditor() {
       // Reload the JSON-backed canvas so the next Canvas view picks up the edits
       await loadWorkflow(id)
       notifications.show({
-        title: 'YAML saved',
-        message: 'Workflow updated from YAML',
+        title: t('editor.notif.yamlSaved'),
+        message: t('editor.notif.yamlSavedMsg'),
         color: 'teal',
       })
     } catch (e) {
-      setYamlError(e instanceof Error ? e.message : 'Failed to save YAML')
+      setYamlError(e instanceof Error ? e.message : t('editor.notif.yamlErrorMsg'))
       notifications.show({
-        title: 'YAML error',
-        message: 'Failed to save YAML',
+        title: t('editor.notif.yamlError'),
+        message: t('editor.notif.yamlErrorMsg'),
         color: 'red',
       })
     }
-  }, [id, yamlText, loadWorkflow])
+  }, [id, yamlText, loadWorkflow, t])
 
   // ── Handlers ──────────────────────────────────────────────────
   const handleNodeSelect = useCallback(
@@ -241,29 +243,29 @@ export function WorkflowEditor() {
     try {
       await saveWorkflow()
       notifications.show({
-        title:   'Saved',
-        message: 'Workflow saved successfully',
+        title:   t('editor.notif.saved'),
+        message: t('editor.notif.savedMsg'),
         color:   'teal',
       })
     } catch {
       notifications.show({
-        title:   'Error',
-        message: 'Failed to save workflow',
+        title:   t('editor.notif.saveError'),
+        message: t('editor.notif.saveErrorMsg'),
         color:   'red',
       })
     }
-  }, [current, saveWorkflow])
+  }, [current, saveWorkflow, t])
 
   const handleExecute = useCallback(() => {
     // Em produção: chamar API, receber executionId, ouvir SSE
     const execId = `exec-${Date.now()}`
     startExecution(execId)
     notifications.show({
-      title:   'Execution started',
-      message: `Execution ID: ${execId}`,
+      title:   t('editor.notif.execStarted'),
+      message: t('editor.notif.execStartedMsg', { id: execId }),
       color:   'blue',
     })
-  }, [startExecution])
+  }, [startExecution, t])
 
   // ── Auto-save (debounced 3s) ───────────────────────────────────
   // useEffect(() => {
@@ -272,7 +274,7 @@ export function WorkflowEditor() {
   // }, [nodes, edges])   ← ativar quando quiser auto-save
 
   const formattedSavedAt = lastSavedAt
-    ? new Intl.RelativeTimeFormat('en', { numeric: 'auto' }).format(
+    ? new Intl.RelativeTimeFormat(i18n.resolvedLanguage ?? i18n.language, { numeric: 'auto' }).format(
         Math.round((lastSavedAt - Date.now()) / 1000),
         'second'
       )
@@ -294,7 +296,7 @@ export function WorkflowEditor() {
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1 }}>
           <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--color-text-primary)' }}>
-            {current?.metadata?.name ?? 'Untitled workflow'}
+            {current?.metadata?.name ?? t('editor.untitled')}
           </span>
           <span
             style={{
@@ -314,13 +316,19 @@ export function WorkflowEditor() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           {formattedSavedAt && (
             <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginRight: 8 }}>
-              Saved {formattedSavedAt}
+              {t('editor.savedRelative', { time: formattedSavedAt })}
             </span>
           )}
 
           {/* Canvas / Code toggle */}
           <div
             role="tablist"
+            onKeyDown={(e) => {
+              if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+                e.preventDefault()
+                setView(view === 'canvas' ? 'yaml' : 'canvas')
+              }
+            }}
             style={{
               display: 'inline-flex',
               border: '0.5px solid var(--color-border-tertiary)',
@@ -332,6 +340,7 @@ export function WorkflowEditor() {
             <button
               role="tab"
               aria-selected={view === 'canvas'}
+              tabIndex={view === 'canvas' ? 0 : -1}
               data-testid="editor-tab-canvas"
               onClick={() => setView('canvas')}
               style={{
@@ -346,6 +355,7 @@ export function WorkflowEditor() {
             <button
               role="tab"
               aria-selected={view === 'yaml'}
+              tabIndex={view === 'yaml' ? 0 : -1}
               data-testid="editor-tab-code"
               onClick={() => setView('yaml')}
               style={{
@@ -359,9 +369,6 @@ export function WorkflowEditor() {
             </button>
           </div>
 
-          <button aria-label="Undo" style={iconBtnStyle} title="Undo (⌘Z)">↩</button>
-          <button aria-label="Redo" style={iconBtnStyle} title="Redo (⌘⇧Z)">↪</button>
-
           <button
             onClick={view === 'yaml' ? handleSaveYaml : handleSave}
             disabled={isSaving || (view === 'yaml' && !yamlDirty)}
@@ -371,18 +378,15 @@ export function WorkflowEditor() {
             {isSaving ? t('common.saving') : view === 'yaml' ? t('editor.saveYaml') : t('editor.save')}
           </button>
 
-          <button
+          <Button
             onClick={handleExecute}
-            disabled={isExecuting}
-            style={{
-              ...btnStyle,
-              background: isExecuting ? '#85B7EB' : '#378ADD',
-              border: '0.5px solid #185FA5',
-              color: '#fff',
-            }}
+            loading={isExecuting}
+            leftSection={<IconPlayerPlay size={14} />}
+            size="xs"
+            data-testid="editor-run"
           >
-            {isExecuting ? `◌ ${t('common.loading')}` : `▶ ${t('editor.run')}`}
-          </button>
+            {t('editor.run')}
+          </Button>
         </div>
       </div>
 
@@ -451,7 +455,7 @@ export function WorkflowEditor() {
         <div style={{ flex: 1, overflow: 'hidden', padding: 12 }}>
           {yamlLoading ? (
             <div style={{ padding: 40, textAlign: 'center', color: 'var(--color-text-tertiary)' }}>
-              Loading YAML…
+              {t('editor.loadingYaml')}
             </div>
           ) : (
             <YamlEditor
@@ -471,6 +475,7 @@ export function WorkflowEditor() {
 
 // ── Empty state do canvas ────────────────────────────────────────
 function EmptyCanvas() {
+  const { t } = useTranslation()
   return (
     <div
       style={{
@@ -492,10 +497,10 @@ function EmptyCanvas() {
         <line x1="17" y1="25.5" x2="31" y2="32.5" stroke="currentColor" strokeWidth="1.5" strokeDasharray="3 2"/>
       </svg>
       <div style={{ fontSize: 16, fontWeight: 500, color: 'var(--color-text-secondary)' }}>
-        No workflow loaded
+        {t('editor.emptyTitle')}
       </div>
       <div style={{ fontSize: 13, color: 'var(--color-text-tertiary)', maxWidth: 260, textAlign: 'center' }}>
-        Create a new workflow or load an existing one to get started
+        {t('editor.emptyHint')}
       </div>
     </div>
   )
@@ -511,21 +516,6 @@ const btnStyle: React.CSSProperties = {
   border:       '0.5px solid var(--color-border-secondary)',
   background:   'var(--color-background-primary)',
   color:        'var(--color-text-primary)',
-  fontFamily:   'var(--font-sans)',
-}
-
-const iconBtnStyle: React.CSSProperties = {
-  width:        30,
-  height:       30,
-  borderRadius: 7,
-  border:       '0.5px solid var(--color-border-tertiary)',
-  background:   'var(--color-background-primary)',
-  display:      'flex',
-  alignItems:   'center',
-  justifyContent: 'center',
-  cursor:       'pointer',
-  color:        'var(--color-text-secondary)',
-  fontSize:     14,
   fontFamily:   'var(--font-sans)',
 }
 

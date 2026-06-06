@@ -17,18 +17,27 @@ import {
     Title,
 } from '@mantine/core';
 import { IconAlertCircle, IconChartLine } from '@tabler/icons-react';
-import Sparkline from '../../../components/charts/Sparkline';
+import { LineChart } from '@mantine/charts';
 import {
     observabilityApi,
     type MetricSeriesDto,
     type MetricsSnapshotDto,
 } from '../../../services/observability-api';
 
+/** Format a bucket timestamp to a short HH:mm label; fall back to raw. */
+function formatBucket(bucket: string, locale: string): string {
+    const d = new Date(bucket);
+    return Number.isNaN(d.getTime())
+        ? bucket
+        : d.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' });
+}
+
 const METRIC_VALUES = ['latency_ms', 'throughput', 'error_rate'] as const;
 const BUCKET_VALUES = ['60', '300', '900'] as const;
 
 export default function MetricsPage() {
-    const { t } = useTranslation();
+    const { t, i18n } = useTranslation();
+    const locale = i18n.resolvedLanguage ?? i18n.language;
     const [snapshot, setSnapshot] = useState<MetricsSnapshotDto | null>(null);
     const [series, setSeries] = useState<MetricSeriesDto | null>(null);
     const [metric, setMetric] = useState('latency_ms');
@@ -111,8 +120,26 @@ export default function MetricsPage() {
                         </Badge>
                     )}
                 </Group>
-                {series && series.values.length > 0 ? (
-                    <Sparkline values={series.values} width={720} height={120} color="#0D9488" strokeWidth={2} />
+                {series && series.buckets.length > 0 ? (
+                    <LineChart
+                        h={240}
+                        data={series.buckets.map((b, i) => ({
+                            bucket: formatBucket(b, locale),
+                            value: series.values[i] ?? 0,
+                        }))}
+                        dataKey="bucket"
+                        series={[{
+                            name: 'value',
+                            label: t(`admin.observability.metrics.metricValues.${metric}`, { defaultValue: metric }),
+                            color: 'teal.6',
+                        }]}
+                        curveType="monotone"
+                        withDots={series.values.length <= 24}
+                        withLegend
+                        tickLine="xy"
+                        gridAxis="xy"
+                        valueFormatter={(v) => v.toLocaleString(locale)}
+                    />
                 ) : (
                     <Text size="sm" c="dimmed">
                         {t('admin.observability.metrics.noSamples')}

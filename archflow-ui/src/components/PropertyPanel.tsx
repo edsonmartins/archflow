@@ -30,6 +30,17 @@ const EMBEDDING_MODELS = [
 
 // ── Helpers ──────────────────────────────────────────────────────
 
+/**
+ * Drops options with a repeated `value`, keeping the first. Mantine 9 throws
+ * "Duplicate options are not supported" when a Select receives two options with
+ * the same value — which the backend catalog can produce (e.g. the same model
+ * id offered by more than one provider).
+ */
+function dedupeByValue<T extends { value: string }>(options: T[]): T[] {
+  const seen = new Set<string>()
+  return options.filter(o => (seen.has(o.value) ? false : (seen.add(o.value), true)))
+}
+
 function getConfig<T>(data: FlowNodeData, key: string, fallback: T): T {
   return (data.config?.[key] as T) ?? fallback
 }
@@ -251,7 +262,12 @@ function NodeFields({ nodeId, nodeData }: { nodeId: string; nodeData: FlowNodeDa
             size="xs"
             data={(() => {
               const groups = new Map<string, { value: string; label: string }[]>()
+              // Mantine 9 rejects duplicate option values — guard against a
+              // catalog that lists the same provider id more than once.
+              const seen = new Set<string>()
               providers.forEach(p => {
+                if (seen.has(p.id)) return
+                seen.add(p.id)
                 if (!groups.has(p.group)) groups.set(p.group, [])
                 groups.get(p.group)!.push({ value: p.id, label: p.displayName })
               })
@@ -267,10 +283,10 @@ function NodeFields({ nodeId, nodeData }: { nodeId: string; nodeData: FlowNodeDa
               value={modelId}
               onChange={v => update('model', v)}
               size="xs"
-              data={(provider?.models ?? []).map(m => ({
+              data={dedupeByValue((provider?.models ?? []).map(m => ({
                 value: m.id,
                 label: `${m.name}`,
-              }))}
+              })))}
               styles={FIELD_STYLES}
             />
             {model && (
