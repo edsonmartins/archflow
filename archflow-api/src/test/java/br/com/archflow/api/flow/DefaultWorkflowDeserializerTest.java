@@ -1,5 +1,6 @@
 package br.com.archflow.api.flow;
 
+import br.com.archflow.api.orchestration.DynamicWorkflowService;
 import br.com.archflow.model.flow.Flow;
 import br.com.archflow.plugin.api.catalog.ComponentCatalog;
 import org.junit.jupiter.api.Test;
@@ -12,8 +13,8 @@ import static org.mockito.Mockito.mock;
 
 class DefaultWorkflowDeserializerTest {
 
-    private final WorkflowDeserializer deserializer =
-            new DefaultWorkflowDeserializer(new DefaultFlowStepFactory(mock(ComponentCatalog.class)));
+    private final WorkflowDeserializer deserializer = new DefaultWorkflowDeserializer(
+            new DefaultFlowStepFactory(mock(ComponentCatalog.class), mock(DynamicWorkflowService.class)));
 
     @Test
     void buildsAnExecutableFlowFromWorkflowJson() {

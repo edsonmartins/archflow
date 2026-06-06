@@ -62,7 +62,22 @@ public class DynamicWorkflowService {
         this.scorer = scorer;
     }
 
+    /** Entry point that creates its own ExecutionContext (REST path). */
     public DynamicWorkflowResponse run(DynamicWorkflowRequest req) {
+        ExecutionContext ctx = new DefaultExecutionContext(
+                req.tenantId(), "orchestrator", UUID.randomUUID().toString(),
+                MessageWindowChatMemory.builder().maxMessages(20).build());
+        SupervisorResult result = runOn(req, ctx);
+        return new DynamicWorkflowResponse(result.confirmed(), result.confirmedCount(), result.rounds());
+    }
+
+    /**
+     * Runs a dynamic workflow on a caller-provided {@link ExecutionContext}, so an
+     * embedding flow step ({@code OrchestrateStep}) shares the flow's context with
+     * the worker agents. Wires LlmPlanner + CatalogAgentWorker + ConfidenceVoter
+     * into a DynamicSupervisor under an optional token budget.
+     */
+    public SupervisorResult runOn(DynamicWorkflowRequest req, ExecutionContext ctx) {
         if (req.goal() == null || req.goal().isBlank()) {
             throw new IllegalArgumentException("goal is required");
         }
@@ -83,10 +98,6 @@ public class DynamicWorkflowService {
                 LLMResolutionRequest.builder(platformDefault).build());
         ChatFunction chat = model::chat;
 
-        ExecutionContext ctx = new DefaultExecutionContext(
-                req.tenantId(), "orchestrator", UUID.randomUUID().toString(),
-                MessageWindowChatMemory.builder().maxMessages(20).build());
-
         Planner<String> planner = new LlmPlanner(chat);
         Worker<String, Object> worker = new CatalogAgentWorker(router, catalog, ctx);
         Voter<String> voter = new ConfidenceVoter(scorer, req.goal());
@@ -96,9 +107,7 @@ public class DynamicWorkflowService {
                 : BudgetLedger.unlimited();
 
         DynamicSupervisor supervisor = new DynamicSupervisor(new DefaultOrchestrator(orDefault(req.concurrency(), 4)));
-        SupervisorResult result = supervisor.run(Goal.of(req.goal()), config, planner, worker, voter, budget);
-
-        return new DynamicWorkflowResponse(result.confirmed(), result.confirmedCount(), result.rounds());
+        return supervisor.run(Goal.of(req.goal()), config, planner, worker, voter, budget);
     }
 
     private static int orDefault(Integer value, int fallback) {
