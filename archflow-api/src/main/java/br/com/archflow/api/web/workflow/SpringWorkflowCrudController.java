@@ -1,10 +1,11 @@
 package br.com.archflow.api.web.workflow;
 
 import br.com.archflow.api.flow.WorkflowDeserializer;
-import br.com.archflow.api.flow.WorkflowRunner;
+import br.com.archflow.engine.api.FlowEngine;
 import br.com.archflow.model.engine.DefaultExecutionContext;
 import br.com.archflow.model.engine.ExecutionContext;
 import br.com.archflow.model.flow.Flow;
+import br.com.archflow.model.flow.FlowResult;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -26,14 +27,14 @@ public class SpringWorkflowCrudController {
 
     private final InMemoryWorkflowRuntimeStore store;
     private final WorkflowDeserializer deserializer;
-    private final WorkflowRunner runner;
+    private final FlowEngine flowEngine;
 
     public SpringWorkflowCrudController(InMemoryWorkflowRuntimeStore store,
                                         WorkflowDeserializer deserializer,
-                                        WorkflowRunner runner) {
+                                        FlowEngine flowEngine) {
         this.store = store;
         this.deserializer = deserializer;
-        this.runner = runner;
+        this.flowEngine = flowEngine;
     }
 
     @GetMapping
@@ -93,8 +94,13 @@ public class SpringWorkflowCrudController {
         var execution = store.createExecution(id, workflowName(workflow));
         String executionId = String.valueOf(execution.get("id"));
 
-        // Deserialize the stored JSON into an executable Flow and run it
-        // (linear, synchronous — design-0004 step 1). Inputs seed context vars.
+        // Deserialize the stored JSON into an executable Flow and submit it to the
+        // async engine (design-0005 step 2). The flow id is the executionId so
+        // concurrent runs of the same workflow don't collide in the engine.
+        Map<String, Object> flowJson = new HashMap<>(workflow);
+        flowJson.put("id", executionId);
+        Flow flow = deserializer.toFlow(flowJson);
+
         ExecutionContext ctx = new DefaultExecutionContext(
                 null, "runner", executionId,
                 MessageWindowChatMemory.builder().maxMessages(20).build());
@@ -102,16 +108,31 @@ public class SpringWorkflowCrudController {
             input.forEach(ctx::set);
         }
 
-        Flow flow = deserializer.toFlow(workflow);
-        WorkflowRunner.RunResult result = runner.run(flow, ctx);
+        // Fire-and-track: return immediately, update status when the run finishes.
+        flowEngine.execute(flow, ctx).whenComplete((result, err) ->
+                store.completeExecution(executionId, statusOf(result, err), errorOf(err)));
 
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("executionId", executionId);
-        body.put("status", result.success() ? "completed" : "failed");
+        body.put("status", "RUNNING");
         body.put("workflowId", id);
         body.put("startedAt", execution.get("startedAt"));
-        body.put("steps", result.steps());
         return ResponseEntity.ok(body);
+    }
+
+    private static String statusOf(FlowResult result, Throwable err) {
+        if (err != null || result == null) {
+            return "FAILED";
+        }
+        return result.getStatus() != null ? result.getStatus().name() : "COMPLETED";
+    }
+
+    private static String errorOf(Throwable err) {
+        if (err == null) {
+            return null;
+        }
+        Throwable cause = err.getCause() != null ? err.getCause() : err;
+        return cause.getMessage() != null ? cause.getMessage() : cause.toString();
     }
 
     // ── helpers ──────────────────────────────────────────────────
