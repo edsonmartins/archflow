@@ -644,6 +644,16 @@ public class ArchflowBeanConfiguration {
     }
 
     /**
+     * Confidence scorer used by the dynamic-orchestration verification path
+     * (ConfidenceVoter) and available to the agent layer for escalation.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public br.com.archflow.agent.confidence.ConfidenceScorer confidenceScorer() {
+        return new br.com.archflow.agent.confidence.DefaultConfidenceScorer();
+    }
+
+    /**
      * Serviço de assistência por IA. Usa o {@code LLMConfigResolver} e o
      * default da plataforma para resolver o modelo padrão e diagnosticar erros.
      */
