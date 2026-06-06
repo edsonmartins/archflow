@@ -190,6 +190,7 @@ runs longos sem polling.
 - [ADR-0001 — Agent Runtime Substrate](0001-agent-runtime-substrate.md)
 - [Design 0003 — Dynamic Orchestration (implementação)](../design/0003-dynamic-orchestration.md)
 - [Design 0004 — Workflow execution wiring + orchestration nodes (D6)](../design/0004-workflow-execution-and-orchestration-nodes.md)
+- [Design 0005 — Async flow execution (engine wiring, live streaming, resume)](../design/0005-async-flow-execution.md)
 - Claude Code — *Introducing dynamic workflows*:
   https://claude.com/blog/introducing-dynamic-workflows-in-claude-code
 - Código-base atual: `DefaultFlowEngine`, `StateManager`, `FlowState`,
