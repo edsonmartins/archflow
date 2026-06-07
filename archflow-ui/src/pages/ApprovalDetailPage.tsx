@@ -27,6 +27,7 @@ import {
 } from '@tabler/icons-react';
 import { approvalApi, type ApprovalResponse } from '../services/approval-api';
 import { useTenantStore } from '../stores/useTenantStore';
+import { confirmAction } from '../lib/confirm';
 
 export default function ApprovalDetailPage() {
     const { id } = useParams<{ id: string }>();
@@ -101,6 +102,18 @@ export default function ApprovalDetailPage() {
         } finally {
             setSubmitting(false);
         }
+    };
+
+    // Approve/reject submit an irreversible workflow decision, so confirm first.
+    const confirmDecide = (decision: 'APPROVED' | 'REJECTED' | 'EDITED') => {
+        const isReject = decision === 'REJECTED';
+        confirmAction({
+            title: t(isReject ? 'confirmations.rejectApprovalTitle' : 'confirmations.approveApprovalTitle'),
+            message: t(isReject ? 'confirmations.rejectApprovalMessage' : 'confirmations.approveApprovalMessage'),
+            confirmLabel: t(isReject ? 'confirmations.reject' : 'confirmations.approve'),
+            danger: isReject,
+            onConfirm: () => decide(decision),
+        });
     };
 
     if (loading) {
@@ -210,8 +223,9 @@ export default function ApprovalDetailPage() {
                     <Button
                         leftSection={<IconCheck size={14} />}
                         color="teal"
+                        loading={submitting}
                         disabled={submitting}
-                        onClick={() => decide(editMode ? 'EDITED' : 'APPROVED')}
+                        onClick={() => confirmDecide(editMode ? 'EDITED' : 'APPROVED')}
                         data-testid="approval-approve"
                     >
                         {editMode ? t('approvals.detail.saveAndApprove') : t('approvals.detail.approve')}
@@ -220,8 +234,9 @@ export default function ApprovalDetailPage() {
                         leftSection={<IconX size={14} />}
                         color="red"
                         variant="light"
+                        loading={submitting}
                         disabled={submitting}
-                        onClick={() => decide('REJECTED')}
+                        onClick={() => confirmDecide('REJECTED')}
                         data-testid="approval-reject"
                     >
                         {t('approvals.detail.reject')}

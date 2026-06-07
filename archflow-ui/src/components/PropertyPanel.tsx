@@ -30,6 +30,17 @@ const EMBEDDING_MODELS = [
 
 // ── Helpers ──────────────────────────────────────────────────────
 
+/**
+ * Drops options with a repeated `value`, keeping the first. Mantine 9 throws
+ * "Duplicate options are not supported" when a Select receives two options with
+ * the same value — which the backend catalog can produce (e.g. the same model
+ * id offered by more than one provider).
+ */
+function dedupeByValue<T extends { value: string }>(options: T[]): T[] {
+  const seen = new Set<string>()
+  return options.filter(o => (seen.has(o.value) ? false : (seen.add(o.value), true)))
+}
+
 function getConfig<T>(data: FlowNodeData, key: string, fallback: T): T {
   return (data.config?.[key] as T) ?? fallback
 }
@@ -159,6 +170,7 @@ function NodeFields({ nodeId, nodeData }: { nodeId: string; nodeData: FlowNodeDa
   const isPromptChunk     = nodeData.nodeType === 'prompt-chunk'
   const isInput           = nodeData.nodeType === 'input'
   const isOutput          = nodeData.nodeType === 'output'
+  const isOrchestrate     = nodeData.nodeType === 'orchestrate'
 
   const update = (key: string, value: unknown) => updateNodeConfig(nodeId, key, value)
   // Shortcut for field translations; keeps JSX free of the long prefix.
@@ -251,7 +263,12 @@ function NodeFields({ nodeId, nodeData }: { nodeId: string; nodeData: FlowNodeDa
             size="xs"
             data={(() => {
               const groups = new Map<string, { value: string; label: string }[]>()
+              // Mantine 9 rejects duplicate option values — guard against a
+              // catalog that lists the same provider id more than once.
+              const seen = new Set<string>()
               providers.forEach(p => {
+                if (seen.has(p.id)) return
+                seen.add(p.id)
                 if (!groups.has(p.group)) groups.set(p.group, [])
                 groups.get(p.group)!.push({ value: p.id, label: p.displayName })
               })
@@ -267,10 +284,10 @@ function NodeFields({ nodeId, nodeData }: { nodeId: string; nodeData: FlowNodeDa
               value={modelId}
               onChange={v => update('model', v)}
               size="xs"
-              data={(provider?.models ?? []).map(m => ({
+              data={dedupeByValue((provider?.models ?? []).map(m => ({
                 value: m.id,
                 label: `${m.name}`,
-              }))}
+              })))}
               styles={FIELD_STYLES}
             />
             {model && (
@@ -895,6 +912,74 @@ function NodeFields({ nodeId, nodeData }: { nodeId: string; nodeData: FlowNodeDa
       {/* ════════════════════════════════════════════════════════ */}
       {/*  HUMAN APPROVAL                                       */}
       {/* ════════════════════════════════════════════════════════ */}
+      {/* ════════════════════════════════════════════════════════ */}
+      {/*  ORCHESTRATE (dynamic multi-agent workflow)             */}
+      {/* ════════════════════════════════════════════════════════ */}
+      {isOrchestrate && (
+        <>
+          <Textarea
+            label={t('dynamicWorkflow.goal')}
+            placeholder={t('dynamicWorkflow.goalPlaceholder')}
+            value={getConfig(nodeData, 'goal', '')}
+            onChange={e => update('goal', e.currentTarget.value)}
+            autosize minRows={2}
+            size="xs"
+            styles={FIELD_STYLES}
+          />
+          <Textarea
+            label={t('dynamicWorkflow.decomposePrompt')}
+            placeholder={t('dynamicWorkflow.decomposePromptPlaceholder')}
+            value={getConfig(nodeData, 'decomposePrompt', '')}
+            onChange={e => update('decomposePrompt', e.currentTarget.value)}
+            autosize minRows={1}
+            size="xs"
+            styles={FIELD_STYLES}
+          />
+          <NumberInput
+            label={t('dynamicWorkflow.maxSubtasks')}
+            value={getConfig(nodeData, 'maxSubtasks', 8)}
+            onChange={v => update('maxSubtasks', v)}
+            min={1}
+            size="xs"
+            styles={FIELD_STYLES}
+          />
+          <NumberInput
+            label={t('dynamicWorkflow.voters')}
+            value={getConfig(nodeData, 'voters', 1)}
+            onChange={v => update('voters', v)}
+            min={1}
+            size="xs"
+            styles={FIELD_STYLES}
+          />
+          <NumberInput
+            label={t('dynamicWorkflow.maxRounds')}
+            value={getConfig(nodeData, 'maxRounds', 5)}
+            onChange={v => update('maxRounds', v)}
+            min={1}
+            size="xs"
+            styles={FIELD_STYLES}
+          />
+          <NumberInput
+            label={t('dynamicWorkflow.concurrency')}
+            value={getConfig(nodeData, 'concurrency', 4)}
+            onChange={v => update('concurrency', v)}
+            min={1}
+            size="xs"
+            styles={FIELD_STYLES}
+          />
+          <NumberInput
+            label={t('dynamicWorkflow.budgetTokens')}
+            value={getConfig(nodeData, 'budgetTokens', '')}
+            onChange={v => update('budgetTokens', v)}
+            min={0}
+            step={1000}
+            placeholder="∞"
+            size="xs"
+            styles={FIELD_STYLES}
+          />
+        </>
+      )}
+
       {isApproval && (
         <>
           <TextInput

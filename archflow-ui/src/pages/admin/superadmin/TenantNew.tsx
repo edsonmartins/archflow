@@ -1,5 +1,5 @@
 import {
-  Title, TextInput, Select, NumberInput, Button, Paper, Stack, Group, Divider, Text, Alert,
+  TextInput, Select, NumberInput, Button, Paper, Stack, Group, Divider, Text, Alert,
 } from '@mantine/core'
 import { IconAlertCircle } from '@tabler/icons-react'
 import { notifications } from '@mantine/notifications'
@@ -7,6 +7,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { tenantApi } from '../../../services/admin-api'
+import { PageHeader } from '../../../components/PageHeader'
 
 export default function TenantNew() {
   const navigate = useNavigate()
@@ -53,10 +54,15 @@ export default function TenantNew() {
 
   return (
     <Stack gap="md">
-      <Group justify="space-between">
-        <Title order={3}>{t('admin.superadmin.tenantNew.title')}</Title>
-        <Button variant="subtle" onClick={() => navigate('/admin/tenants')}>{t('admin.superadmin.tenantNew.back')}</Button>
-      </Group>
+      <PageHeader
+        title={t('admin.superadmin.tenantNew.title')}
+        backTo="/admin/tenants"
+        backLabel={t('admin.superadmin.tenantNew.back')}
+        breadcrumbs={[
+          { label: t('admin.layout.tenants'), to: '/admin/tenants' },
+          { label: t('admin.superadmin.tenantNew.title') },
+        ]}
+      />
 
       {error && (
         <Alert color="red" icon={<IconAlertCircle size={16} />}>

@@ -409,7 +409,7 @@ export default function ChatPanel({ conversationId, workflowId, tenantId }: Chat
             </Group>
 
             {/* Messages area */}
-            <ScrollArea style={{ flex: 1 }} px="sm" py="xs" viewportRef={scrollRef}>
+            <ScrollArea style={{ flex: 1 }} px="sm" py="xs" viewportRef={scrollRef} role="log" aria-live="polite" aria-relevant="additions" aria-label={t('chat.messagesRegion')}>
                 {messages.length === 0 && !pending && !suspendedForm && (
                     <Center h={200}>
                         <Text size="sm" c="dimmed">

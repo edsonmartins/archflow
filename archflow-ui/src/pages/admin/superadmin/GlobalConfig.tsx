@@ -1,9 +1,10 @@
-import { Title, Table, Badge, Text, Paper, Stack, Switch, Group, Divider, LoadingOverlay, Alert } from '@mantine/core'
+import { Table, Badge, Text, Paper, Stack, Switch, LoadingOverlay, Alert } from '@mantine/core'
 import { IconAlertCircle } from '@tabler/icons-react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { notifications } from '@mantine/notifications'
 import { globalConfigApi, type GlobalFeatureToggles, type LLMModel, type PlanDefaults } from '../../../services/admin-api'
+import { PageHeader } from '../../../components/PageHeader'
 
 const STATUS_COLORS: Record<string, string> = { active: 'green', beta: 'orange', deprecated: 'gray' }
 
@@ -72,7 +73,7 @@ export default function GlobalConfig() {
   return (
     <Stack gap="md" pos="relative">
       <LoadingOverlay visible={loading} />
-      <Title order={3}>{t('admin.superadmin.globalConfig.title')}</Title>
+      <PageHeader title={t('admin.superadmin.globalConfig.title')} />
 
       {error && (
         <Alert color="red" icon={<IconAlertCircle size={16} />}>

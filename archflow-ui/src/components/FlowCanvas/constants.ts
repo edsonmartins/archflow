@@ -73,6 +73,7 @@ export const NODE_TYPE_TO_CATEGORY: Record<string, keyof typeof NODE_CATEGORIES>
   'assistant':        'agent',
   'llm-chat':         'agent',
   'llm-streaming':    'agent',
+  'orchestrate':      'agent',
   'condition':        'control',
   'parallel':         'control',
   'loop':             'control',
@@ -115,6 +116,7 @@ export const PALETTE_NODES = [
   { componentId: 'assistant',     label: 'Assistant',      description: 'Interactive assistant',    category: 'agent'   as const, icon: '🧠' },
   { componentId: 'llm-chat',      label: 'LLM Chat',       description: 'Language model call',      category: 'agent'   as const, icon: '💬' },
   { componentId: 'llm-streaming', label: 'LLM Streaming',  description: 'Streaming LLM response',  category: 'agent'   as const, icon: '⚡' },
+  { componentId: 'orchestrate',   label: 'Orchestrate',    description: 'Dynamic multi-agent workflow', category: 'agent' as const, icon: '🕸' },
   // Control flow
   { componentId: 'condition',     label: 'Condition',      description: 'Branch on condition',      category: 'control' as const, icon: '⑂' },
   { componentId: 'parallel',      label: 'Parallel',       description: 'Run branches in parallel', category: 'control' as const, icon: '⫶' },

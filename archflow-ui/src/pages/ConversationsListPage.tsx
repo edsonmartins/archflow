@@ -2,12 +2,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
-    Alert,
     Badge,
     Button,
     Group,
-    LoadingOverlay,
-    Paper,
     Select,
     Stack,
     Table,
@@ -15,13 +12,15 @@ import {
     TextInput,
     Title,
 } from '@mantine/core';
-import { IconAlertCircle, IconRefresh, IconSearch } from '@tabler/icons-react';
+import { IconRefresh, IconSearch } from '@tabler/icons-react';
 import {
     conversationApi,
     type Conversation,
     type ConversationListParams,
     type ConversationStatus,
 } from '../services/conversation-api';
+import { DataTable, clickableRow, tabularNums } from '../components/DataTable';
+import { StatusBadge } from '../components/StatusBadge';
 
 const STATUS_VALUES: ConversationListParams['status'][] =
     ['ALL', 'ACTIVE', 'AWAITING_HUMAN', 'SUSPENDED', 'ESCALATED', 'CLOSED', 'COMPLETED', 'CANCELLED'];
@@ -104,71 +103,59 @@ export default function ConversationsListPage() {
                 />
             </Group>
 
-            {error && (
-                <Alert icon={<IconAlertCircle size={16} />} color="red" variant="light">
-                    {error}
-                </Alert>
-            )}
-
-            <Paper withBorder pos="relative" radius="md">
-                <LoadingOverlay visible={loading} zIndex={10} />
-                {conversations.length === 0 && !loading ? (
-                    <Text size="sm" c="dimmed" ta="center" p="md">
-                        {t('conversations.empty')}
-                    </Text>
-                ) : (
-                    <Table highlightOnHover striped>
-                        <Table.Thead>
-                            <Table.Tr>
-                                <Table.Th>{t('conversations.table.id')}</Table.Th>
-                                <Table.Th>{t('conversations.table.user')}</Table.Th>
-                                <Table.Th>{t('conversations.table.channel')}</Table.Th>
-                                <Table.Th>{t('conversations.table.persona')}</Table.Th>
-                                <Table.Th>{t('conversations.table.status')}</Table.Th>
-                                <Table.Th>{t('conversations.table.updated')}</Table.Th>
-                                <Table.Th>{t('conversations.table.messages')}</Table.Th>
-                            </Table.Tr>
-                        </Table.Thead>
-                        <Table.Tbody>
-                            {conversations.map((c) => (
-                                <Table.Tr
-                                    key={c.id}
-                                    style={{ cursor: 'pointer' }}
-                                    onClick={() => navigate(`/conversations/${c.id}`)}
-                                >
-                                    <Table.Td>
-                                        <Text size="xs" ff="DM Mono, monospace">
-                                            {c.id.slice(0, 8)}
-                                        </Text>
-                                    </Table.Td>
-                                    <Table.Td>{c.userId ?? '—'}</Table.Td>
-                                    <Table.Td>{c.channel ?? '—'}</Table.Td>
-                                    <Table.Td>
-                                        {c.persona ? (
-                                            <Badge size="xs" variant="outline" color="grape">
-                                                {c.persona}
-                                            </Badge>
-                                        ) : (
-                                            '—'
-                                        )}
-                                    </Table.Td>
-                                    <Table.Td>
-                                        <Badge
-                                            size="xs"
-                                            variant="light"
-                                            color={STATUS_COLOR[c.status] ?? 'gray'}
-                                        >
-                                            {t(`conversations.statuses.${c.status}`, { defaultValue: c.status })}
-                                        </Badge>
-                                    </Table.Td>
-                                    <Table.Td>{formatRelative(c.updatedAt, t, i18n.resolvedLanguage ?? i18n.language)}</Table.Td>
-                                    <Table.Td>{c.messageCount ?? '—'}</Table.Td>
-                                </Table.Tr>
-                            ))}
-                        </Table.Tbody>
-                    </Table>
-                )}
-            </Paper>
+            <DataTable
+                columns={7}
+                minWidth={760}
+                striped
+                highlightOnHover
+                loading={loading}
+                error={error}
+                onRetry={() => load()}
+                isEmpty={conversations.length === 0}
+                emptyMessage={t('conversations.empty')}
+                head={
+                    <Table.Tr>
+                        <Table.Th>{t('conversations.table.id')}</Table.Th>
+                        <Table.Th>{t('conversations.table.user')}</Table.Th>
+                        <Table.Th>{t('conversations.table.channel')}</Table.Th>
+                        <Table.Th>{t('conversations.table.persona')}</Table.Th>
+                        <Table.Th>{t('conversations.table.status')}</Table.Th>
+                        <Table.Th>{t('conversations.table.updated')}</Table.Th>
+                        <Table.Th>{t('conversations.table.messages')}</Table.Th>
+                    </Table.Tr>
+                }
+            >
+                {conversations.map((c) => (
+                    <Table.Tr key={c.id} {...clickableRow(() => navigate(`/conversations/${c.id}`))}>
+                        <Table.Td>
+                            <Text size="xs" ff="DM Mono, monospace">
+                                {c.id.slice(0, 8)}
+                            </Text>
+                        </Table.Td>
+                        <Table.Td>{c.userId ?? '—'}</Table.Td>
+                        <Table.Td>{c.channel ?? '—'}</Table.Td>
+                        <Table.Td>
+                            {c.persona ? (
+                                <Badge size="xs" variant="outline" color="grape">
+                                    {c.persona}
+                                </Badge>
+                            ) : (
+                                '—'
+                            )}
+                        </Table.Td>
+                        <Table.Td>
+                            <StatusBadge
+                                size="xs"
+                                status={c.status}
+                                color={STATUS_COLOR[c.status] ?? 'gray'}
+                                label={t(`conversations.statuses.${c.status}`, { defaultValue: c.status })}
+                            />
+                        </Table.Td>
+                        <Table.Td>{formatRelative(c.updatedAt, t, i18n.resolvedLanguage ?? i18n.language)}</Table.Td>
+                        <Table.Td style={tabularNums}>{c.messageCount ?? '—'}</Table.Td>
+                    </Table.Tr>
+                ))}
+            </DataTable>
         </Stack>
     );
 }

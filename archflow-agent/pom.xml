@@ -110,7 +110,6 @@
             <groupId>br.com.archflow</groupId>
             <artifactId>archflow-conversation</artifactId>
             <version>${project.version}</version>
-            <scope>test</scope>
         </dependency>
     </dependencies>
 

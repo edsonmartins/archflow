@@ -336,6 +336,34 @@ public class ArchflowBeanConfiguration {
         return new br.com.archflow.agent.persistence.InMemoryFlowRepository();
     }
 
+    /**
+     * Shared flow state store (design-0005 step 4): one {@link br.com.archflow.engine.core.StateManager}
+     * used by the engine, the OrchestrateStep (to materialize the dynamic tree)
+     * and the execution controller (to read it back). In-memory for dev.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public br.com.archflow.engine.core.StateManager stateManager() {
+        return new br.com.archflow.api.flow.InMemoryStateManager();
+    }
+
+    /**
+     * The real, async {@link br.com.archflow.engine.api.FlowEngine} (design-0005
+     * step 1): virtual-thread execution with backpressure and pause/resume/cancel,
+     * wired from its collaborators (in-memory state for dev). Turns the previously
+     * dormant engine into a usable async executor for every workflow.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public br.com.archflow.engine.api.FlowEngine flowEngine(
+            br.com.archflow.engine.persistence.FlowRepository flowRepository,
+            EventStreamRegistry eventStreamRegistry,
+            RunningFlowsRegistry runningFlowsRegistry,
+            br.com.archflow.engine.core.StateManager stateManager) {
+        return br.com.archflow.api.flow.FlowEngineFactory.create(
+                flowRepository, eventStreamRegistry, runningFlowsRegistry, stateManager);
+    }
+
     @Bean
     @ConditionalOnMissingBean
     public WorkflowYamlBridge workflowYamlBridge() {
@@ -621,5 +649,49 @@ public class ArchflowBeanConfiguration {
         return new br.com.archflow.langchain4j.provider.DefaultLLMConfigResolver(
                 br.com.archflow.langchain4j.provider.LLMProviderHub.getInstance(),
                 tenantKeyResolver);
+    }
+
+    // =========================================================================
+    // Assist (IA síncrona — família /archflow/assist/*, ADR-0004)
+    // =========================================================================
+
+    /**
+     * Jackson 2 {@link com.fasterxml.jackson.databind.ObjectMapper} bean.
+     *
+     * <p>Spring Boot 4 auto-configures only a Jackson 3 ({@code tools.jackson})
+     * mapper, so the classic {@code com.fasterxml.jackson.databind.ObjectMapper}
+     * is no longer available for injection. The codebase still serializes via
+     * Jackson 2 in several places, so expose a single shared bean here instead of
+     * each consumer building its own — that fixes the missing-bean error once and
+     * gives every consumer one consistent configuration to evolve.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public com.fasterxml.jackson.databind.ObjectMapper jackson2ObjectMapper() {
+        return new com.fasterxml.jackson.databind.ObjectMapper();
+    }
+
+    /**
+     * Confidence scorer used by the dynamic-orchestration verification path
+     * (ConfidenceVoter) and available to the agent layer for escalation.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public br.com.archflow.agent.confidence.ConfidenceScorer confidenceScorer() {
+        return new br.com.archflow.agent.confidence.DefaultConfidenceScorer();
+    }
+
+    /**
+     * Serviço de assistência por IA. Usa o {@code LLMConfigResolver} e o
+     * default da plataforma para resolver o modelo padrão e diagnosticar erros.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public br.com.archflow.api.assist.AssistService assistService(
+            br.com.archflow.langchain4j.provider.LLMConfigResolver llmConfigResolver,
+            br.com.archflow.model.config.ResolvedLLMConfig platformDefaultLLMConfig,
+            com.fasterxml.jackson.databind.ObjectMapper objectMapper) {
+        return new br.com.archflow.api.assist.impl.AssistServiceImpl(
+                llmConfigResolver, platformDefaultLLMConfig, objectMapper);
     }
 }

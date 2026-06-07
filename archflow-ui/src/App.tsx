@@ -1,8 +1,10 @@
 import './App.css';
 import '@mantine/core/styles.css';
+import '@mantine/charts/styles.css';
 import '@mantine/notifications/styles.css';
 import '@xyflow/react/dist/style.css';
 import { MantineProvider } from '@mantine/core';
+import { ModalsProvider } from '@mantine/modals';
 import { useLocalStorage } from '@mantine/hooks';
 import { Notifications } from '@mantine/notifications';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
@@ -33,6 +35,7 @@ import LinktorConversationPage from './pages/LinktorConversationPage';
 import ScheduledTriggersPage from './pages/ScheduledTriggersPage';
 import ExecutionDetailPage from './pages/ExecutionDetailPage';
 import AgentPlaygroundPage from './pages/AgentPlaygroundPage';
+import DynamicWorkflowPage from './pages/DynamicWorkflowPage';
 import ScopedApiKeysPage from './pages/admin/tenant/ScopedApiKeysPage';
 
 // Admin pages — lazy loaded
@@ -68,6 +71,7 @@ function App() {
 
     return (
         <MantineProvider theme={theme} forceColorScheme={colorScheme}>
+            <ModalsProvider>
             <Notifications position="top-right" />
             <BrowserRouter>
                 <Suspense fallback={<div style={{ padding: 40, textAlign: 'center' }}>Loading...</div>}>
@@ -91,6 +95,7 @@ function App() {
                             <Route path="/marketplace/:id" element={<MarketplaceDetailPage />} />
                             <Route path="/executions/:id" element={<ExecutionDetailPage />} />
                             <Route path="/playground/agent" element={<AgentPlaygroundPage />} />
+                            <Route path="/playground/orchestration" element={<DynamicWorkflowPage />} />
                         </Route>
 
                         {/* Admin routes */}
@@ -132,6 +137,7 @@ function App() {
                     </Routes>
                 </Suspense>
             </BrowserRouter>
+            </ModalsProvider>
         </MantineProvider>
     );
 }

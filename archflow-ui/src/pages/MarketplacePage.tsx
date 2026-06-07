@@ -8,6 +8,7 @@ import {
 import { notifications } from '@mantine/notifications'
 import { marketplaceApi, type Extension } from '../services/marketplace-api'
 import { ApiError } from '../services/api'
+import { confirmAction } from '../lib/confirm'
 
 /**
  * Lists, searches and installs/uninstalls marketplace extensions.
@@ -68,19 +69,26 @@ export default function MarketplacePage() {
         }
     }
 
-    const handleUninstall = async (ext: Extension) => {
-        setInst(ext.id)
-        try {
-            await marketplaceApi.uninstall(ext.id)
-            notifications.show({ color: 'green', title: t('marketplace.uninstallOk'),
-                message: t('marketplace.uninstallOkMsg', { name: ext.displayName }) })
-            await reload()
-        } catch (err) {
-            notifications.show({ color: 'red', title: t('marketplace.uninstallFailed'),
-                message: err instanceof ApiError ? err.message : String(err) })
-        } finally {
-            setInst(null)
-        }
+    const handleUninstall = (ext: Extension) => {
+        confirmAction({
+            title: t('confirmations.uninstallTitle'),
+            message: t('confirmations.uninstallMessage', { name: ext.displayName }),
+            confirmLabel: t('confirmations.uninstall'),
+            onConfirm: async () => {
+                setInst(ext.id)
+                try {
+                    await marketplaceApi.uninstall(ext.id)
+                    notifications.show({ color: 'green', title: t('marketplace.uninstallOk'),
+                        message: t('marketplace.uninstallOkMsg', { name: ext.displayName }) })
+                    await reload()
+                } catch (err) {
+                    notifications.show({ color: 'red', title: t('marketplace.uninstallFailed'),
+                        message: err instanceof ApiError ? err.message : String(err) })
+                } finally {
+                    setInst(null)
+                }
+            },
+        })
     }
 
     return (

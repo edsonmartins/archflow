@@ -66,8 +66,8 @@
   "homepage": "https://github.com/archflow/archflow#readme",
   "devDependencies": {
     "@eslint/js": "^9.19.0",
-    "@mantine/core": "^7.17.0",
-    "@mantine/hooks": "^7.17.0",
+    "@mantine/core": "^9.3.0",
+    "@mantine/hooks": "^9.3.0",
     "@playwright/test": "^1.59.1",
     "@tabler/icons-react": "^3.30.0",
     "@testing-library/dom": "^10.4.0",
@@ -95,7 +95,9 @@
     "access": "public"
   },
   "dependencies": {
-    "@mantine/notifications": "^9.0.1",
+    "@mantine/charts": "^9.3.0",
+    "@mantine/modals": "^9.3.0",
+    "@mantine/notifications": "^9.3.0",
     "@xyflow/react": "^12.10.2",
     "i18next": "^26.0.7",
     "i18next-browser-languagedetector": "^8.2.1",

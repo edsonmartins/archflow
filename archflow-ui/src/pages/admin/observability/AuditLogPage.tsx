@@ -1,23 +1,22 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useDebouncedValue } from '@mantine/hooks';
 import { useTranslation } from 'react-i18next';
 import {
-    Alert,
     Badge,
     Button,
     Group,
-    LoadingOverlay,
-    Paper,
     Stack,
     Table,
     Text,
     TextInput,
 } from '@mantine/core';
-import { IconAlertCircle, IconDownload, IconSearch } from '@tabler/icons-react';
+import { IconDownload, IconSearch } from '@tabler/icons-react';
 import {
     observabilityApi,
     type AuditEntryDto,
     type ObservabilityFilter,
 } from '../../../services/observability-api';
+import { DataTable } from '../../../components/DataTable';
 
 const PAGE_SIZE = 50;
 
@@ -32,17 +31,22 @@ export default function AuditLogPage() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
+    // Debounce the typed filters so each keystroke doesn't fire a paginated
+    // audit query (and race slower earlier responses); inputs stay responsive.
+    const [debActor] = useDebouncedValue(actor, 350);
+    const [debAction] = useDebouncedValue(action, 350);
+
     const filter = useMemo<ObservabilityFilter>(
         () => ({
             page,
             pageSize: PAGE_SIZE,
-            actor: actor || undefined,
-            action: action || undefined,
+            actor: debActor || undefined,
+            action: debAction || undefined,
         }),
-        [page, actor, action],
+        [page, debActor, debAction],
     );
 
-    useEffect(() => {
+    const load = () => {
         setLoading(true);
         setError(null);
         observabilityApi
@@ -53,6 +57,10 @@ export default function AuditLogPage() {
             })
             .catch((e) => setError(e instanceof Error ? e.message : t('admin.observability.audit.loadFailed')))
             .finally(() => setLoading(false));
+    };
+
+    useEffect(() => {
+        load();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [filter]);
 
@@ -92,75 +100,68 @@ export default function AuditLogPage() {
                 </Button>
             </Group>
 
-            {error && (
-                <Alert color="red" icon={<IconAlertCircle size={16} />}>
-                    {error}
-                </Alert>
-            )}
-
-            <Paper withBorder pos="relative" radius="md">
-                <LoadingOverlay visible={loading} zIndex={5} />
-                {entries.length === 0 && !loading ? (
-                    <Text size="sm" c="dimmed" ta="center" p="md">
-                        {t('admin.observability.audit.empty')}
-                    </Text>
-                ) : (
-                    <Table striped highlightOnHover>
-                        <Table.Thead>
-                            <Table.Tr>
-                                <Table.Th>{t('admin.observability.audit.cols.when')}</Table.Th>
-                                <Table.Th>{t('admin.observability.audit.cols.actor')}</Table.Th>
-                                <Table.Th>{t('admin.observability.audit.cols.action')}</Table.Th>
-                                <Table.Th>{t('admin.observability.audit.cols.resource')}</Table.Th>
-                                <Table.Th>{t('admin.observability.audit.cols.result')}</Table.Th>
-                                <Table.Th>{t('admin.observability.audit.cols.trace')}</Table.Th>
-                            </Table.Tr>
-                        </Table.Thead>
-                        <Table.Tbody>
-                            {entries.map((e) => (
-                                <Table.Tr key={e.id}>
-                                    <Table.Td>
-                                        <Text size="xs" c="dimmed">
-                                            {formatTime(e.timestamp, locale)}
-                                        </Text>
-                                    </Table.Td>
-                                    <Table.Td>
-                                        <Text size="sm">{e.username ?? e.userId ?? '—'}</Text>
-                                    </Table.Td>
-                                    <Table.Td>
-                                        <Badge size="xs" variant="light" color="blue">
-                                            {e.action}
-                                        </Badge>
-                                    </Table.Td>
-                                    <Table.Td>
-                                        {e.resourceId ? (
-                                            <Text size="xs" ff="DM Mono, monospace">
-                                                {e.resourceType}:{e.resourceId}
-                                            </Text>
-                                        ) : (
-                                            '—'
-                                        )}
-                                    </Table.Td>
-                                    <Table.Td>
-                                        <Badge size="xs" variant="light" color={e.success ? 'teal' : 'red'}>
-                                            {e.success ? t('admin.observability.audit.resultSuccess') : t('admin.observability.audit.resultFailed')}
-                                        </Badge>
-                                    </Table.Td>
-                                    <Table.Td>
-                                        {e.traceId ? (
-                                            <Text size="xs" ff="DM Mono, monospace">
-                                                {e.traceId.slice(0, 12)}
-                                            </Text>
-                                        ) : (
-                                            '—'
-                                        )}
-                                    </Table.Td>
-                                </Table.Tr>
-                            ))}
-                        </Table.Tbody>
-                    </Table>
-                )}
-            </Paper>
+            <DataTable
+                columns={6}
+                minWidth={820}
+                striped
+                highlightOnHover
+                loading={loading}
+                error={error}
+                onRetry={load}
+                isEmpty={entries.length === 0}
+                emptyMessage={t('admin.observability.audit.empty')}
+                head={
+                    <Table.Tr>
+                        <Table.Th>{t('admin.observability.audit.cols.when')}</Table.Th>
+                        <Table.Th>{t('admin.observability.audit.cols.actor')}</Table.Th>
+                        <Table.Th>{t('admin.observability.audit.cols.action')}</Table.Th>
+                        <Table.Th>{t('admin.observability.audit.cols.resource')}</Table.Th>
+                        <Table.Th>{t('admin.observability.audit.cols.result')}</Table.Th>
+                        <Table.Th>{t('admin.observability.audit.cols.trace')}</Table.Th>
+                    </Table.Tr>
+                }
+            >
+                {entries.map((e) => (
+                    <Table.Tr key={e.id}>
+                        <Table.Td>
+                            <Text size="xs" c="dimmed">
+                                {formatTime(e.timestamp, locale)}
+                            </Text>
+                        </Table.Td>
+                        <Table.Td>
+                            <Text size="sm">{e.username ?? e.userId ?? '—'}</Text>
+                        </Table.Td>
+                        <Table.Td>
+                            <Badge size="xs" variant="light" color="blue">
+                                {e.action}
+                            </Badge>
+                        </Table.Td>
+                        <Table.Td>
+                            {e.resourceId ? (
+                                <Text size="xs" ff="DM Mono, monospace">
+                                    {e.resourceType}:{e.resourceId}
+                                </Text>
+                            ) : (
+                                '—'
+                            )}
+                        </Table.Td>
+                        <Table.Td>
+                            <Badge size="xs" variant="light" color={e.success ? 'teal' : 'red'}>
+                                {e.success ? t('admin.observability.audit.resultSuccess') : t('admin.observability.audit.resultFailed')}
+                            </Badge>
+                        </Table.Td>
+                        <Table.Td>
+                            {e.traceId ? (
+                                <Text size="xs" ff="DM Mono, monospace">
+                                    {e.traceId.slice(0, 12)}
+                                </Text>
+                            ) : (
+                                '—'
+                            )}
+                        </Table.Td>
+                    </Table.Tr>
+                ))}
+            </DataTable>
 
             <Group justify="space-between">
                 <Text size="xs" c="dimmed">

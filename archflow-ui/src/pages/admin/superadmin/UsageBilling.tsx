@@ -1,20 +1,10 @@
-import { Title, Table, Text, Paper, Stack, Group, Select, Button, SimpleGrid, LoadingOverlay, Alert } from '@mantine/core'
+import { Table, Text, Paper, Stack, Select, Button, SimpleGrid, LoadingOverlay, Alert } from '@mantine/core'
 import { IconDownload, IconAlertCircle } from '@tabler/icons-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { usageApi, type TenantUsageRow } from '../../../services/admin-api'
-
-function StatCard({ label, value }: { label: string; value: string }) {
-  return (
-    <div style={{
-      padding: '18px 20px', borderRadius: 10,
-      border: '1px solid var(--border)', background: 'var(--bg2)',
-    }}>
-      <div style={{ fontSize: 11, fontWeight: 500, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</div>
-      <div style={{ fontSize: 28, fontWeight: 600, marginTop: 4, letterSpacing: '-0.5px', color: 'var(--text)' }}>{value}</div>
-    </div>
-  )
-}
+import { StatCard } from '../../../components/admin/StatCard'
+import { PageHeader } from '../../../components/PageHeader'
 
 export default function UsageBilling() {
   const { t, i18n } = useTranslation()
@@ -58,20 +48,22 @@ export default function UsageBilling() {
     <Stack gap="md" pos="relative">
       <LoadingOverlay visible={loading} />
 
-      <Group justify="space-between">
-        <Title order={3}>{t('admin.superadmin.usage.title')}</Title>
-        <Group gap="sm">
-          <Select size="sm" w={140} data={['2026-04', '2026-03', '2026-02', '2026-01']}
-            value={month} onChange={setMonth} />
-          <Button
-            component="a"
-            href={usageApi.exportCsv(month ?? '')}
-            variant="light"
-            leftSection={<IconDownload size={14} />}
-            size="sm"
-          >{t('admin.superadmin.usage.exportCsv')}</Button>
-        </Group>
-      </Group>
+      <PageHeader
+        title={t('admin.superadmin.usage.title')}
+        actions={
+          <>
+            <Select size="sm" w={140} data={['2026-04', '2026-03', '2026-02', '2026-01']}
+              value={month} onChange={setMonth} />
+            <Button
+              component="a"
+              href={usageApi.exportCsv(month ?? '')}
+              variant="light"
+              leftSection={<IconDownload size={14} />}
+              size="sm"
+            >{t('admin.superadmin.usage.exportCsv')}</Button>
+          </>
+        }
+      />
 
       {error && (
         <Alert color="red" icon={<IconAlertCircle size={16} />}>

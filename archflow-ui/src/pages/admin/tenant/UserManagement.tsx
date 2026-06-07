@@ -1,5 +1,5 @@
 import {
-  Title, Table, Badge, Text, Paper, Stack, Group, Button, ActionIcon,
+  Table, Badge, Text, Paper, Stack, Group, Button, ActionIcon,
   Tooltip, Modal, TextInput, Select, LoadingOverlay, Alert,
 } from '@mantine/core'
 import { IconPlus, IconPencil, IconTrash, IconAlertCircle } from '@tabler/icons-react'
@@ -7,6 +7,8 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { notifications } from '@mantine/notifications'
 import { userApi, type TenantUser } from '../../../services/admin-api'
+import { confirmAction } from '../../../lib/confirm'
+import { PageHeader } from '../../../components/PageHeader'
 
 const ROLE_COLORS: Record<string, string> = { admin: 'blue', editor: 'teal', viewer: 'gray' }
 
@@ -61,29 +63,40 @@ export default function UserManagement() {
     }
   }
 
-  const handleRemove = async (user: TenantUser) => {
-    try {
-      if (user.status === 'invited') {
-        await userApi.revoke(user.id)
-      } else {
-        await userApi.remove(user.id)
-      }
-      setUsers((prev) => prev.filter((entry) => entry.id !== user.id))
-    } catch (e) {
-      setError(e instanceof Error ? e.message : t('admin.tenant.users.removeFailed'))
-    }
+  const handleRemove = (user: TenantUser) => {
+    const invited = user.status === 'invited'
+    const name = user.name || user.email
+    confirmAction({
+      title: t(invited ? 'confirmations.revokeInviteTitle' : 'confirmations.removeUserTitle'),
+      message: t(invited ? 'confirmations.revokeInviteMessage' : 'confirmations.removeUserMessage', { name }),
+      confirmLabel: t(invited ? 'confirmations.revoke' : 'confirmations.remove'),
+      onConfirm: async () => {
+        try {
+          if (invited) {
+            await userApi.revoke(user.id)
+          } else {
+            await userApi.remove(user.id)
+          }
+          setUsers((prev) => prev.filter((entry) => entry.id !== user.id))
+        } catch (e) {
+          setError(e instanceof Error ? e.message : t('admin.tenant.users.removeFailed'))
+        }
+      },
+    })
   }
 
   return (
     <Stack gap="md" pos="relative">
       <LoadingOverlay visible={loading} />
 
-      <Group justify="space-between">
-        <Title order={3}>{t('admin.tenant.users.title')}</Title>
-        <Button leftSection={<IconPlus size={16} />} onClick={() => setInviteOpen(true)}>
-          {t('admin.tenant.users.invite')}
-        </Button>
-      </Group>
+      <PageHeader
+        title={t('admin.tenant.users.title')}
+        actions={
+          <Button leftSection={<IconPlus size={16} />} onClick={() => setInviteOpen(true)}>
+            {t('admin.tenant.users.invite')}
+          </Button>
+        }
+      />
 
       {error && (
         <Alert color="red" icon={<IconAlertCircle size={16} />}>

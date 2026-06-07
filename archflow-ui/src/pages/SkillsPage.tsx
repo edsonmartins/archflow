@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Badge, Button, Card, Group, Stack, Switch, Text, Title } from '@mantine/core'
+import { Alert, Badge, Button, Card, Group, Stack, Switch, Text } from '@mantine/core'
+import { IconAlertCircle } from '@tabler/icons-react'
 import { notifications } from '@mantine/notifications'
 import { skillsApi, type Skill } from '../services/skills-api'
 import { ApiError } from '../services/api'
+import { PageHeader } from '../components/PageHeader'
 
 /**
  * Admin surface for the skills adapter. Lists every skill that was
@@ -19,14 +21,15 @@ export default function SkillsPage() {
     const [skills, setSkills]   = useState<Skill[]>([])
     const [busy, setBusy]       = useState<string | null>(null)
     const [loading, setLoading] = useState(true)
+    const [error, setError]     = useState<string | null>(null)
 
     const reload = async () => {
         setLoading(true)
+        setError(null)
         try {
             setSkills(await skillsApi.list())
         } catch (e) {
-            notifications.show({ color: 'red', title: 'Skills',
-                message: e instanceof ApiError ? e.message : String(e) })
+            setError(e instanceof ApiError ? e.message : String(e))
         } finally {
             setLoading(false)
         }
@@ -39,6 +42,9 @@ export default function SkillsPage() {
         try {
             if (active) await skillsApi.activate(s.name)
             else        await skillsApi.deactivate(s.name)
+            notifications.show({ color: 'green',
+                title: active ? t('skills.badgeActive') : t('skills.inactive'),
+                message: s.name })
             await reload()
         } catch (e) {
             notifications.show({ color: 'red',
@@ -50,14 +56,18 @@ export default function SkillsPage() {
     }
 
     return (
-        <Stack gap="md" style={{ padding: 24 }} data-testid="skills-page">
-            <Group justify="space-between">
-                <Title order={2}>{t('skills.title')}</Title>
-                <Button variant="default" onClick={reload}>{t('common.refresh')}</Button>
-            </Group>
+        <Stack gap="md" data-testid="skills-page">
+            <PageHeader
+                title={t('skills.title')}
+                actions={<Button variant="default" onClick={reload}>{t('common.refresh')}</Button>}
+            />
 
-            {loading && <Text c="dimmed">{t('triggers.loading')}</Text>}
-            {!loading && skills.length === 0 && (
+            {error && (
+                <Alert color="red" variant="light" icon={<IconAlertCircle size={16} />}>{error}</Alert>
+            )}
+
+            {loading && <Text c="dimmed">{t('common.loading')}</Text>}
+            {!loading && !error && skills.length === 0 && (
                 <Card withBorder><Stack>
                     <Text c="dimmed">{t('skills.emptyTitle')}</Text>
                     <Text size="sm" c="dimmed">

@@ -11,6 +11,7 @@ import {
     type LinktorMessage,
 } from '../services/linktor-inbox-api'
 import { ApiError } from '../services/api'
+import { confirmAction } from '../lib/confirm'
 
 /**
  * Detail view of a single Linktor conversation.
@@ -76,17 +77,25 @@ export default function LinktorConversationPage() {
         } finally { setBusy(false) }
     }
 
-    const resolve = async () => {
-        setBusy(true)
-        try {
-            await linktorInboxApi.resolve(id)
-            notifications.show({ color: 'green', title: t('linktor.conversation.resolved'),
-                message: t('linktor.conversation.resolvedMsg') })
-            await load()
-        } catch (e) {
-            notifications.show({ color: 'red', title: t('linktor.conversation.resolveFailed'),
-                message: e instanceof ApiError ? e.message : String(e) })
-        } finally { setBusy(false) }
+    const resolve = () => {
+        confirmAction({
+            title: t('confirmations.resolveConversationTitle'),
+            message: t('confirmations.resolveConversationMessage'),
+            confirmLabel: t('confirmations.resolve'),
+            danger: false,
+            onConfirm: async () => {
+                setBusy(true)
+                try {
+                    await linktorInboxApi.resolve(id)
+                    notifications.show({ color: 'green', title: t('linktor.conversation.resolved'),
+                        message: t('linktor.conversation.resolvedMsg') })
+                    await load()
+                } catch (e) {
+                    notifications.show({ color: 'red', title: t('linktor.conversation.resolveFailed'),
+                        message: e instanceof ApiError ? e.message : String(e) })
+                } finally { setBusy(false) }
+            },
+        })
     }
 
     return (

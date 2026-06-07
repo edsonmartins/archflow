@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
     Alert, Badge, Button, Card, Code, Group, Modal, MultiSelect, Stack, Table,
-    Text, TextInput, Title,
+    Text, TextInput,
 } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import {
@@ -10,6 +10,8 @@ import {
     type CreateScopedApiKeyResponse,
     type ScopedApiKey,
 } from '../../../services/scoped-apikey-api'
+import { confirmAction } from '../../../lib/confirm'
+import { PageHeader } from '../../../components/PageHeader'
 
 const DEFAULT_SCOPES = ['workflow.read', 'workflow.execute', 'event.ingest', 'observability.read']
 
@@ -55,24 +57,33 @@ export default function ScopedApiKeysPage() {
         }
     }
 
-    const remove = async (id: string) => {
-        try {
-            await scopedApiKeyApi.remove(id)
-            notifications.show({ color: 'green', title: t('admin.tenant.scopedKeys.revoked'),
-                message: t('admin.tenant.scopedKeys.revokedMsg', { id }) })
-            await reload()
-        } catch (e) {
-            notifications.show({ color: 'red', title: t('admin.tenant.scopedKeys.revokeFailed'),
-                message: e instanceof Error ? e.message : String(e) })
-        }
+    const remove = (id: string, name: string) => {
+        confirmAction({
+            title: t('confirmations.revokeKeyTitle'),
+            message: t('confirmations.revokeKeyMessage', { name }),
+            confirmLabel: t('confirmations.revoke'),
+            onConfirm: async () => {
+                try {
+                    await scopedApiKeyApi.remove(id)
+                    notifications.show({ color: 'green', title: t('admin.tenant.scopedKeys.revoked'),
+                        message: t('admin.tenant.scopedKeys.revokedMsg', { id }) })
+                    await reload()
+                } catch (e) {
+                    notifications.show({ color: 'red', title: t('admin.tenant.scopedKeys.revokeFailed'),
+                        message: e instanceof Error ? e.message : String(e) })
+                }
+            },
+        })
     }
 
     return (
-        <Stack gap="md" style={{ padding: 24 }} data-testid="scoped-apikeys-page">
-            <Group justify="space-between">
-                <Title order={2}>{t('admin.tenant.scopedKeys.title')}</Title>
-                <Button onClick={() => setOpen(true)} data-testid="scoped-key-new">{t('admin.tenant.scopedKeys.new')}</Button>
-            </Group>
+        <Stack gap="md" data-testid="scoped-apikeys-page">
+            <PageHeader
+                title={t('admin.tenant.scopedKeys.title')}
+                actions={
+                    <Button onClick={() => setOpen(true)} data-testid="scoped-key-new">{t('admin.tenant.scopedKeys.new')}</Button>
+                }
+            />
             <Alert color="blue" variant="light">
                 {t('admin.tenant.scopedKeys.info')}
             </Alert>
@@ -127,7 +138,7 @@ export default function ScopedApiKeysPage() {
                                     </Table.Td>
                                     <Table.Td>
                                         <Button size="xs" variant="outline" color="red"
-                                                onClick={() => remove(k.id)}>
+                                                onClick={() => remove(k.id, k.name)}>
                                             {t('admin.tenant.scopedKeys.revoke')}
                                         </Button>
                                     </Table.Td>

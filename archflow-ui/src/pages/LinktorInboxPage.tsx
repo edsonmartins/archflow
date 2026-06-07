@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import {
-    Alert, Badge, Button, Card, Group, Stack, Table, Tabs, Text, Title,
+    Alert, Badge, Button, Card, Code, Group, Stack, Table, Tabs, Text, Title,
 } from '@mantine/core'
 import {
     linktorInboxApi,
@@ -11,6 +11,8 @@ import {
     type LinktorConversation,
 } from '../services/linktor-inbox-api'
 import { ApiError } from '../services/api'
+import { DataTable, clickableRow } from '../components/DataTable'
+import { StatusBadge } from '../components/StatusBadge'
 
 /**
  * Admin inbox proxying Linktor conversations / contacts / channels.
@@ -24,6 +26,7 @@ import { ApiError } from '../services/api'
  */
 export default function LinktorInboxPage() {
     const { t } = useTranslation()
+    const navigate = useNavigate()
     const [tab, setTab]               = useState<'conversations' | 'contacts' | 'channels'>('conversations')
     const [conversations, setC]       = useState<LinktorConversation[]>([])
     const [contacts, setContacts]     = useState<LinktorContact[]>([])
@@ -67,104 +70,94 @@ export default function LinktorInboxPage() {
                 </Tabs.List>
             </Tabs>
 
-            {loading && <Text c="dimmed">{t('triggers.loading')}</Text>}
-
-            {!loading && tab === 'conversations' && (
-                <Card withBorder p={0}>
-                    <Table>
-                        <Table.Thead>
-                            <Table.Tr>
-                                <Table.Th>{t('linktor.inbox.columns.id')}</Table.Th>
-                                <Table.Th>{t('linktor.inbox.columns.status')}</Table.Th>
-                                <Table.Th>{t('linktor.inbox.columns.channel')}</Table.Th>
-                                <Table.Th>{t('linktor.inbox.columns.lastMessage')}</Table.Th>
-                                <Table.Th>{t('linktor.inbox.columns.updated')}</Table.Th>
-                                <Table.Th />
+            {tab === 'conversations' && (
+                <DataTable
+                    columns={5}
+                    minWidth={760}
+                    loading={loading}
+                    isEmpty={!error && conversations.length === 0}
+                    emptyMessage={t('linktor.inbox.emptyConversations')}
+                    head={
+                        <Table.Tr>
+                            <Table.Th>{t('linktor.inbox.columns.id')}</Table.Th>
+                            <Table.Th>{t('linktor.inbox.columns.status')}</Table.Th>
+                            <Table.Th>{t('linktor.inbox.columns.channel')}</Table.Th>
+                            <Table.Th>{t('linktor.inbox.columns.lastMessage')}</Table.Th>
+                            <Table.Th>{t('linktor.inbox.columns.updated')}</Table.Th>
+                        </Table.Tr>
+                    }
+                >
+                    {conversations.map(c => {
+                        const id     = String(c.id ?? '')
+                        const status = String(c.status ?? '')
+                        const lastAt = String(c.updatedAt ?? c.createdAt ?? '')
+                        const channel = String(c.channelType ?? c.channelId ?? '')
+                        const preview = typeof c.lastMessagePreview === 'string' ? c.lastMessagePreview : ''
+                        return (
+                            <Table.Tr
+                                key={id}
+                                data-testid={`lk-conv-${id}`}
+                                {...clickableRow(() => navigate(`/admin/linktor/inbox/${encodeURIComponent(id)}`))}
+                            >
+                                <Table.Td><Code>{id.slice(0, 10)}</Code></Table.Td>
+                                <Table.Td>
+                                    <StatusBadge
+                                        status={status === 'resolved' ? 'closed' : status === 'assigned' ? 'active' : 'pending'}
+                                        color={status === 'resolved' ? 'green' : status === 'assigned' ? 'blue' : 'yellow'}
+                                        label={t(`linktor.status.${status || 'open'}`, { defaultValue: status || 'open' })}
+                                    />
+                                </Table.Td>
+                                <Table.Td><Text size="sm">{channel}</Text></Table.Td>
+                                <Table.Td>
+                                    <Text size="sm" lineClamp={1}>{preview}</Text>
+                                </Table.Td>
+                                <Table.Td><Text size="sm">{lastAt}</Text></Table.Td>
                             </Table.Tr>
-                        </Table.Thead>
-                        <Table.Tbody>
-                            {conversations.length === 0 && (
-                                <Table.Tr><Table.Td colSpan={6}>
-                                    <Text c="dimmed" ta="center" py="md">
-                                        {t('linktor.inbox.emptyConversations')}
-                                    </Text>
-                                </Table.Td></Table.Tr>
-                            )}
-                            {conversations.map(c => {
-                                const id     = String(c.id ?? '')
-                                const status = String(c.status ?? '')
-                                const lastAt = String(c.updatedAt ?? c.createdAt ?? '')
-                                const channel = String(c.channelType ?? c.channelId ?? '')
-                                const preview = typeof c.lastMessagePreview === 'string' ? c.lastMessagePreview : ''
-                                return (
-                                    <Table.Tr key={id} data-testid={`lk-conv-${id}`}>
-                                        <Table.Td><code>{id.slice(0, 10)}</code></Table.Td>
-                                        <Table.Td>
-                                            <Badge color={status === 'resolved' ? 'green' :
-                                                        status === 'assigned' ? 'blue' : 'yellow'}>
-                                                {t(`linktor.status.${status || 'open'}`, { defaultValue: status || 'open' })}
-                                            </Badge>
-                                        </Table.Td>
-                                        <Table.Td><Text size="sm">{channel}</Text></Table.Td>
-                                        <Table.Td>
-                                            <Text size="sm" lineClamp={1}>{preview}</Text>
-                                        </Table.Td>
-                                        <Table.Td><Text size="sm">{lastAt}</Text></Table.Td>
-                                        <Table.Td>
-                                            <Link to={`/admin/linktor/inbox/${encodeURIComponent(id)}`}>
-                                                <Button size="xs" variant="light">{t('linktor.inbox.open')}</Button>
-                                            </Link>
-                                        </Table.Td>
-                                    </Table.Tr>
-                                )
-                            })}
-                        </Table.Tbody>
-                    </Table>
-                </Card>
+                        )
+                    })}
+                </DataTable>
             )}
 
-            {!loading && tab === 'contacts' && (
-                <Card withBorder p={0}>
-                    <Table>
-                        <Table.Thead>
-                            <Table.Tr>
-                                <Table.Th>{t('linktor.inbox.columns.name')}</Table.Th>
-                                <Table.Th>{t('linktor.inbox.columns.email')}</Table.Th>
-                                <Table.Th>{t('linktor.inbox.columns.phone')}</Table.Th>
-                                <Table.Th>{t('linktor.inbox.columns.tags')}</Table.Th>
+            {tab === 'contacts' && (
+                <DataTable
+                    columns={4}
+                    minWidth={620}
+                    loading={loading}
+                    isEmpty={!error && contacts.length === 0}
+                    emptyMessage={t('linktor.inbox.emptyContacts')}
+                    head={
+                        <Table.Tr>
+                            <Table.Th>{t('linktor.inbox.columns.name')}</Table.Th>
+                            <Table.Th>{t('linktor.inbox.columns.email')}</Table.Th>
+                            <Table.Th>{t('linktor.inbox.columns.phone')}</Table.Th>
+                            <Table.Th>{t('linktor.inbox.columns.tags')}</Table.Th>
+                        </Table.Tr>
+                    }
+                >
+                    {contacts.map(ct => {
+                        const id = String(ct.id ?? '')
+                        const tags = Array.isArray(ct.tags) ? (ct.tags as unknown[]).map(String) : []
+                        return (
+                            <Table.Tr key={id}>
+                                <Table.Td>{String(ct.name ?? '')}</Table.Td>
+                                <Table.Td>{String(ct.email ?? '')}</Table.Td>
+                                <Table.Td>{String(ct.phone ?? '')}</Table.Td>
+                                <Table.Td>
+                                    {tags.map(tag => (
+                                        <Badge key={tag} size="sm" variant="outline" mr={4}>{tag}</Badge>
+                                    ))}
+                                </Table.Td>
                             </Table.Tr>
-                        </Table.Thead>
-                        <Table.Tbody>
-                            {contacts.length === 0 && (
-                                <Table.Tr><Table.Td colSpan={4}>
-                                    <Text c="dimmed" ta="center" py="md">{t('linktor.inbox.emptyContacts')}</Text>
-                                </Table.Td></Table.Tr>
-                            )}
-                            {contacts.map(ct => {
-                                const id = String(ct.id ?? '')
-                                const tags = Array.isArray(ct.tags) ? (ct.tags as unknown[]).map(String) : []
-                                return (
-                                    <Table.Tr key={id}>
-                                        <Table.Td>{String(ct.name ?? '')}</Table.Td>
-                                        <Table.Td>{String(ct.email ?? '')}</Table.Td>
-                                        <Table.Td>{String(ct.phone ?? '')}</Table.Td>
-                                        <Table.Td>
-                                            {tags.map(t => (
-                                                <Badge key={t} size="sm" variant="outline" mr={4}>{t}</Badge>
-                                            ))}
-                                        </Table.Td>
-                                    </Table.Tr>
-                                )
-                            })}
-                        </Table.Tbody>
-                    </Table>
-                </Card>
+                        )
+                    })}
+                </DataTable>
             )}
 
-            {!loading && tab === 'channels' && (
+            {tab === 'channels' && (
                 <Stack gap="sm">
-                    {channels.length === 0 && <Text c="dimmed">{t('linktor.inbox.emptyChannels')}</Text>}
-                    {channels.map(ch => {
+                    {loading && <Text c="dimmed">{t('common.loading')}</Text>}
+                    {!loading && channels.length === 0 && <Text c="dimmed">{t('linktor.inbox.emptyChannels')}</Text>}
+                    {!loading && channels.map(ch => {
                         const id = String(ch.id ?? '')
                         return (
                             <Card key={id} withBorder>

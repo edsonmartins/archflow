@@ -54,6 +54,17 @@ public class InMemoryWorkflowRuntimeStore {
         return execution;
     }
 
+    /** Marks a running execution terminal (status + completedAt + optional error). */
+    public void completeExecution(String id, String status, String error) {
+        var execution = executions.get(id);
+        if (execution == null) {
+            return;
+        }
+        execution.put("status", status);
+        execution.put("completedAt", Instant.now().toString());
+        execution.put("error", error);
+    }
+
     public Map<String, Object> createExecution(String workflowId, String workflowName) {
         var executionId = "exec-" + UUID.randomUUID().toString().substring(0, 8);
         var startedAt = Instant.now().toString();

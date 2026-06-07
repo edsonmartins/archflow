@@ -1,11 +1,14 @@
-import { Title, Text, Paper, Stack, Group, Button, Badge, LoadingOverlay, Alert } from '@mantine/core'
+import { Text, Paper, Stack, Group, Button, Badge, LoadingOverlay, Alert } from '@mantine/core'
 import { IconAlertCircle } from '@tabler/icons-react'
+import { PageHeader } from '../../../components/PageHeader'
+import { StatusBadge } from '../../../components/StatusBadge'
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { notifications } from '@mantine/notifications'
 import { tenantApi, type TenantDetail as TenantDetailDto } from '../../../services/admin-api'
 import { UsageBar } from '../../../components/admin/UsageBar'
+import { confirmAction, confirmWithText } from '../../../lib/confirm'
 
 export default function TenantDetail() {
   const { id } = useParams<{ id: string }>()
@@ -45,7 +48,7 @@ export default function TenantDetail() {
     setTenant(dto)
   }
 
-  const handleStatusAction = async () => {
+  const doStatusAction = async () => {
     if (!id || !tenant) return
     setSubmitting(true)
     try {
@@ -64,7 +67,23 @@ export default function TenantDetail() {
     }
   }
 
-  const handleDelete = async () => {
+  const handleStatusAction = () => {
+    if (!id || !tenant) return
+    // Activating a suspended tenant is benign — only the disruptive
+    // suspend action needs confirmation.
+    if (tenant.status === 'suspended') {
+      void doStatusAction()
+      return
+    }
+    confirmAction({
+      title: t('confirmations.suspendTenantTitle'),
+      message: t('confirmations.suspendTenantMessage', { name: tenant.name }),
+      confirmLabel: t('confirmations.suspend'),
+      onConfirm: doStatusAction,
+    })
+  }
+
+  const doDelete = async () => {
     if (!id || !tenant) return
     setSubmitting(true)
     try {
@@ -78,17 +97,33 @@ export default function TenantDetail() {
     }
   }
 
+  const handleDelete = () => {
+    if (!id || !tenant) return
+    // Highest-impact action in the app: require typing the tenant name.
+    confirmWithText({
+      title: t('confirmations.deleteTenantTitle'),
+      message: t('confirmations.deleteTenantMessage', { name: tenant.name }),
+      prompt: t('confirmations.deleteTenantPrompt'),
+      expected: tenant.name,
+      confirmLabel: t('confirmations.delete'),
+      onConfirm: doDelete,
+    })
+  }
+
   return (
     <Stack gap="md" pos="relative">
       <LoadingOverlay visible={loading || submitting} />
 
-      <Group justify="space-between">
-        <Group gap="xs">
-          <Title order={3}>{t('admin.superadmin.tenantDetail.title')}</Title>
-          {tenant && <Badge variant="light">{tenant.id}</Badge>}
-        </Group>
-        <Button variant="subtle" onClick={() => navigate('/admin/tenants')}>{t('admin.superadmin.tenantDetail.back')}</Button>
-      </Group>
+      <PageHeader
+        title={tenant?.name ?? t('admin.superadmin.tenantDetail.title')}
+        subtitle={tenant?.id}
+        backTo="/admin/tenants"
+        backLabel={t('admin.superadmin.tenantDetail.back')}
+        breadcrumbs={[
+          { label: t('admin.layout.tenants'), to: '/admin/tenants' },
+          { label: tenant?.name ?? t('admin.superadmin.tenantDetail.title') },
+        ]}
+      />
 
       {error && (
         <Alert color="red" icon={<IconAlertCircle size={16} />}>
@@ -114,11 +149,15 @@ export default function TenantDetail() {
             <Stack gap="xs">
               <Group justify="space-between">
                 <Text size="xs" c="dimmed">{t('admin.superadmin.tenantDetail.plan')}</Text>
-                <Badge color="blue" size="sm">{tenant.plan}</Badge>
+                <Badge variant="light" color="blue" size="sm">{t(`admin.superadmin.tenants.plans.${tenant.plan}`, { defaultValue: tenant.plan })}</Badge>
               </Group>
               <Group justify="space-between">
                 <Text size="xs" c="dimmed">{t('admin.superadmin.tenantDetail.status')}</Text>
-                <Badge color={tenant.status === 'suspended' ? 'red' : tenant.status === 'trial' ? 'orange' : 'green'} size="sm">{tenant.status}</Badge>
+                <StatusBadge
+                  status={tenant.status}
+                  color={tenant.status === 'suspended' ? 'red' : tenant.status === 'trial' ? 'orange' : 'green'}
+                  label={t(`admin.superadmin.tenants.statuses.${tenant.status}`, { defaultValue: tenant.status })}
+                />
               </Group>
               <Group justify="space-between">
                 <Text size="xs" c="dimmed">{t('admin.superadmin.tenantDetail.allowedModels')}</Text>

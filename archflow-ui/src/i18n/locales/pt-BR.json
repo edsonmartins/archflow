@@ -1,5 +1,39 @@
 {
+    "confirmations": {
+        "delete": "Excluir",
+        "remove": "Remover",
+        "revoke": "Revogar",
+        "suspend": "Suspender",
+        "reject": "Rejeitar",
+        "approve": "Aprovar",
+        "uninstall": "Desinstalar",
+        "resolve": "Resolver",
+        "cannotBeUndone": "Esta ação não pode ser desfeita.",
+        "deleteTriggerTitle": "Excluir trigger",
+        "deleteTriggerMessage": "Tem certeza que deseja excluir o trigger \"{{name}}\"? Esta ação não pode ser desfeita.",
+        "deleteTenantTitle": "Excluir tenant",
+        "deleteTenantMessage": "Isto remove permanentemente o tenant \"{{name}}\" e todos os seus dados. Esta ação não pode ser desfeita.",
+        "deleteTenantPrompt": "Digite o nome do tenant para confirmar:",
+        "suspendTenantTitle": "Suspender tenant",
+        "suspendTenantMessage": "O tenant \"{{name}}\" perderá o acesso até ser reativado. Deseja continuar?",
+        "removeUserTitle": "Remover usuário",
+        "removeUserMessage": "Remover {{name}} deste workspace? O acesso será revogado imediatamente.",
+        "revokeInviteTitle": "Revogar convite",
+        "revokeInviteMessage": "Revogar o convite de {{name}}?",
+        "revokeKeyTitle": "Revogar chave de API",
+        "revokeKeyMessage": "A chave \"{{name}}\" deixará de funcionar imediatamente. Esta ação não pode ser desfeita.",
+        "rejectApprovalTitle": "Rejeitar solicitação",
+        "rejectApprovalMessage": "Rejeitar esta solicitação? O fluxo será encerrado e esta decisão não pode ser desfeita.",
+        "approveApprovalTitle": "Aprovar solicitação",
+        "approveApprovalMessage": "Aprovar esta solicitação e retomar o fluxo? Esta decisão não pode ser desfeita.",
+        "uninstallTitle": "Desinstalar extensão",
+        "uninstallMessage": "Desinstalar \"{{name}}\"?",
+        "resolveConversationTitle": "Resolver conversa",
+        "resolveConversationMessage": "Marcar esta conversa como resolvida? Ela será encerrada."
+    },
     "common": {
+        "confirm": "Confirmar",
+        "noData": "Nenhum dado",
         "create": "Criar",
         "custom": "Personalizado",
         "customFreeText": "Personalizado (texto livre)",
@@ -24,10 +58,30 @@
         "templates": "Modelos",
         "marketplace": "Marketplace",
         "agentLab": "Agent lab",
+        "dynamicFlow": "Workflow Dinâmico",
         "voice": "Voz",
         "toggleSidebar": "Alternar menu lateral",
         "expandSidebar": "Expandir menu lateral",
         "collapseSidebar": "Recolher menu lateral"
+    },
+    "dynamicWorkflow": {
+        "title": "Workflow Dinâmico",
+        "subtitle": "Decompõe um objetivo, distribui em agentes do catálogo, verifica adversarialmente e itera até convergir — limitado por orçamento.",
+        "goal": "Objetivo",
+        "goalPlaceholder": "Ex.: auditar o serviço de pagamentos em busca de segredos vazados",
+        "decomposePrompt": "Prompt de decomposição (opcional)",
+        "decomposePromptPlaceholder": "Como quebrar o objetivo em subtarefas",
+        "maxSubtasks": "Máx. subtarefas",
+        "voters": "Verificadores",
+        "maxRounds": "Máx. rounds",
+        "concurrency": "Concorrência",
+        "budgetTokens": "Orçamento (tokens)",
+        "run": "Executar",
+        "rounds": "Rounds: {{count}}",
+        "confirmedCount": "Confirmados: {{count}}",
+        "results": "Resultados confirmados",
+        "trace": "Trace da execução",
+        "empty": "Configure e execute um workflow dinâmico para ver os resultados."
     },
     "header": {
         "lightMode": "Modo claro",
@@ -75,6 +129,23 @@
         "back": "Voltar à lista",
         "saved": "Salvo",
         "savedAt": "Salvo às {{time}}",
+        "savedRelative": "Salvo {{time}}",
+        "untitled": "Fluxo sem título",
+        "loadingYaml": "Carregando YAML…",
+        "emptyTitle": "Nenhum fluxo carregado",
+        "emptyHint": "Crie um novo fluxo ou carregue um existente para começar",
+        "notif": {
+            "yamlSaved": "YAML salvo",
+            "yamlSavedMsg": "Fluxo atualizado a partir do YAML",
+            "yamlError": "Erro no YAML",
+            "yamlErrorMsg": "Falha ao salvar o YAML",
+            "saved": "Salvo",
+            "savedMsg": "Fluxo salvo com sucesso",
+            "saveError": "Erro",
+            "saveErrorMsg": "Falha ao salvar o fluxo",
+            "execStarted": "Execução iniciada",
+            "execStartedMsg": "ID da execução: {{id}}"
+        },
         "unsavedChanges": "Alterações não salvas",
         "palette": {
             "title": "Componentes",
@@ -557,7 +628,18 @@
                     "tokenUsage": "Uso de tokens",
                     "actions": "Ações"
                 },
-                "enter": "Entrar"
+                "enter": "Entrar",
+                "statuses": {
+                    "active": "Ativo",
+                    "trial": "Trial",
+                    "suspended": "Suspenso"
+                },
+                "plans": {
+                    "enterprise": "Enterprise",
+                    "professional": "Profissional",
+                    "trial": "Trial",
+                    "internal": "Interno"
+                }
             },
             "tenantDetail": {
                 "title": "Detalhe do tenant",
@@ -928,7 +1010,8 @@
     "executionDetail": {
         "title": "Execução {{id}}",
         "viewTrace": "Ver trace",
-        "back": "Voltar"
+        "back": "Voltar",
+        "dynamicTree": "Árvore dinâmica"
     },
     "marketplace": {
         "title": "Marketplace",
@@ -1114,6 +1197,7 @@
             "required": "{{label}} é obrigatório"
         },
         "send": "Enviar",
+        "messagesRegion": "Mensagens da conversa",
         "placeholder": "Digite uma mensagem...",
         "startWithWorkflow": "Inicie uma conversa com este fluxo.",
         "noMessages": "Nenhuma mensagem ainda.",

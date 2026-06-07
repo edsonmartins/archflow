@@ -1,5 +1,39 @@
 {
+    "confirmations": {
+        "delete": "Delete",
+        "remove": "Remove",
+        "revoke": "Revoke",
+        "suspend": "Suspend",
+        "reject": "Reject",
+        "approve": "Approve",
+        "uninstall": "Uninstall",
+        "resolve": "Resolve",
+        "cannotBeUndone": "This action cannot be undone.",
+        "deleteTriggerTitle": "Delete trigger",
+        "deleteTriggerMessage": "Are you sure you want to delete the trigger \"{{name}}\"? This action cannot be undone.",
+        "deleteTenantTitle": "Delete tenant",
+        "deleteTenantMessage": "This permanently removes the tenant \"{{name}}\" and all of its data. This action cannot be undone.",
+        "deleteTenantPrompt": "Type the tenant name to confirm:",
+        "suspendTenantTitle": "Suspend tenant",
+        "suspendTenantMessage": "The tenant \"{{name}}\" will lose access until reactivated. Continue?",
+        "removeUserTitle": "Remove user",
+        "removeUserMessage": "Remove {{name}} from this workspace? Access will be revoked immediately.",
+        "revokeInviteTitle": "Revoke invite",
+        "revokeInviteMessage": "Revoke the invite for {{name}}?",
+        "revokeKeyTitle": "Revoke API key",
+        "revokeKeyMessage": "The key \"{{name}}\" will stop working immediately. This action cannot be undone.",
+        "rejectApprovalTitle": "Reject request",
+        "rejectApprovalMessage": "Reject this request? The flow will be terminated and this decision cannot be undone.",
+        "approveApprovalTitle": "Approve request",
+        "approveApprovalMessage": "Approve this request and resume the flow? This decision cannot be undone.",
+        "uninstallTitle": "Uninstall extension",
+        "uninstallMessage": "Uninstall \"{{name}}\"?",
+        "resolveConversationTitle": "Resolve conversation",
+        "resolveConversationMessage": "Mark this conversation as resolved? It will be closed."
+    },
     "common": {
+        "confirm": "Confirm",
+        "noData": "No data",
         "create": "Create",
         "custom": "Custom",
         "customFreeText": "Custom (free text)",
@@ -24,10 +58,30 @@
         "templates": "Templates",
         "marketplace": "Marketplace",
         "agentLab": "Agent lab",
+        "dynamicFlow": "Dynamic Workflow",
         "voice": "Voice",
         "toggleSidebar": "Toggle sidebar",
         "expandSidebar": "Expand sidebar",
         "collapseSidebar": "Collapse sidebar"
+    },
+    "dynamicWorkflow": {
+        "title": "Dynamic Workflow",
+        "subtitle": "Decompose a goal, fan out to catalog agents, adversarially verify and loop until convergence — bounded by a budget.",
+        "goal": "Goal",
+        "goalPlaceholder": "e.g. audit the payments service for leaked secrets",
+        "decomposePrompt": "Decomposition prompt (optional)",
+        "decomposePromptPlaceholder": "How to break the goal into subtasks",
+        "maxSubtasks": "Max subtasks",
+        "voters": "Verifiers",
+        "maxRounds": "Max rounds",
+        "concurrency": "Concurrency",
+        "budgetTokens": "Budget (tokens)",
+        "run": "Run",
+        "rounds": "Rounds: {{count}}",
+        "confirmedCount": "Confirmed: {{count}}",
+        "results": "Confirmed results",
+        "trace": "Execution trace",
+        "empty": "Configure and run a dynamic workflow to see results."
     },
     "header": {
         "lightMode": "Light mode",
@@ -75,6 +129,23 @@
         "back": "Back to list",
         "saved": "Saved",
         "savedAt": "Saved at {{time}}",
+        "savedRelative": "Saved {{time}}",
+        "untitled": "Untitled workflow",
+        "loadingYaml": "Loading YAML…",
+        "emptyTitle": "No workflow loaded",
+        "emptyHint": "Create a new workflow or load an existing one to get started",
+        "notif": {
+            "yamlSaved": "YAML saved",
+            "yamlSavedMsg": "Workflow updated from YAML",
+            "yamlError": "YAML error",
+            "yamlErrorMsg": "Failed to save YAML",
+            "saved": "Saved",
+            "savedMsg": "Workflow saved successfully",
+            "saveError": "Error",
+            "saveErrorMsg": "Failed to save workflow",
+            "execStarted": "Execution started",
+            "execStartedMsg": "Execution ID: {{id}}"
+        },
         "unsavedChanges": "Unsaved changes",
         "palette": {
             "title": "Components",
@@ -557,7 +628,18 @@
                     "tokenUsage": "Token usage",
                     "actions": "Actions"
                 },
-                "enter": "Enter"
+                "enter": "Enter",
+                "statuses": {
+                    "active": "Active",
+                    "trial": "Trial",
+                    "suspended": "Suspended"
+                },
+                "plans": {
+                    "enterprise": "Enterprise",
+                    "professional": "Professional",
+                    "trial": "Trial",
+                    "internal": "Internal"
+                }
             },
             "tenantDetail": {
                 "title": "Tenant Detail",
@@ -928,7 +1010,8 @@
     "executionDetail": {
         "title": "Execution {{id}}",
         "viewTrace": "View trace",
-        "back": "Back"
+        "back": "Back",
+        "dynamicTree": "Dynamic tree"
     },
     "marketplace": {
         "title": "Marketplace",
@@ -1114,6 +1197,7 @@
             "required": "{{label}} is required"
         },
         "send": "Send",
+        "messagesRegion": "Conversation messages",
         "placeholder": "Type a message...",
         "startWithWorkflow": "Start a conversation with this workflow.",
         "noMessages": "No messages yet.",

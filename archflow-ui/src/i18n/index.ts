@@ -12,6 +12,20 @@ export const SUPPORTED_LANGUAGES = [
 
 export type SupportedLanguage = (typeof SUPPORTED_LANGUAGES)[number]['code']
 
+// Expand each supported code to also include its base language, e.g.
+// 'pt-BR' → ['pt-BR', 'pt']. Required because with nonExplicitSupportedLngs
+// i18next v26 reduces a code to its base for the supported-check
+// (isSupportedCode('pt-BR') tests 'pt'); if the base isn't listed the resolve
+// hierarchy is empty and every key renders raw. Deriving it here means adding
+// a locale to SUPPORTED_LANGUAGES is a one-line change with no hidden coupling.
+const SUPPORTED_LNGS = Array.from(
+    new Set(
+        SUPPORTED_LANGUAGES.flatMap(({ code }) =>
+            code.includes('-') ? [code, code.split('-')[0]] : [code],
+        ),
+    ),
+)
+
 void i18n
     .use(LanguageDetector)
     .use(initReactI18next)
@@ -21,7 +35,7 @@ void i18n
             'pt-BR': { translation: ptBR },
         },
         fallbackLng: 'pt-BR',
-        supportedLngs: ['pt-BR', 'en'],
+        supportedLngs: SUPPORTED_LNGS,
         nonExplicitSupportedLngs: true,
         interpolation: { escapeValue: false },
         detection: {
