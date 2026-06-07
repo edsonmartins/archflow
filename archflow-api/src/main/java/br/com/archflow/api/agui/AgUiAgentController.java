@@ -4,6 +4,10 @@ import br.com.archflow.langchain4j.provider.LLMConfigResolver;
 import br.com.archflow.langchain4j.provider.LLMResolutionRequest;
 import br.com.archflow.model.config.ResolvedLLMConfig;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.langchain4j.data.message.AiMessage;
+import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.SystemMessage;
+import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
@@ -14,6 +18,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -62,7 +68,6 @@ public class AgUiAgentController {
         String runId = input != null && input.runId() != null ? input.runId()
                 : "run-" + UUID.randomUUID().toString().substring(0, 8);
         String threadId = input != null && input.threadId() != null ? input.threadId() : runId;
-        String userMessage = lastUserMessage(input);
         String messageId = "msg-" + UUID.randomUUID().toString().substring(0, 8);
 
         emit(sse, lock, AgUiEvent.of("RUN_STARTED", fields("threadId", threadId, "runId", runId)));
@@ -73,8 +78,7 @@ public class AgUiAgentController {
 
             emit(sse, lock, AgUiEvent.of("TEXT_MESSAGE_START", fields("messageId", messageId, "role", "assistant")));
 
-            String prompt = DEFAULT_SYSTEM_PROMPT + "\n\nUser: " + (userMessage == null ? "" : userMessage);
-            model.chat(prompt, new StreamingChatResponseHandler() {
+            model.chat(buildMessages(input), new StreamingChatResponseHandler() {
                 @Override
                 public void onPartialResponse(String token) {
                     emit(sse, lock, AgUiEvent.of("TEXT_MESSAGE_CONTENT",
@@ -108,17 +112,44 @@ public class AgUiAgentController {
         return sse;
     }
 
-    private String lastUserMessage(RunAgentInput input) {
-        if (input == null || input.messages() == null || input.messages().isEmpty()) {
-            return null;
-        }
-        for (int i = input.messages().size() - 1; i >= 0; i--) {
-            Object content = input.messages().get(i).get("content");
-            if (content != null) {
-                return content.toString();
+    /** Full conversation: a system message (prompt + useAgentContext) then the history. */
+    private List<ChatMessage> buildMessages(RunAgentInput input) {
+        List<ChatMessage> messages = new ArrayList<>();
+        messages.add(SystemMessage.from(DEFAULT_SYSTEM_PROMPT + contextBlock(input)));
+
+        if (input != null && input.messages() != null) {
+            for (Map<String, Object> m : input.messages()) {
+                String role = String.valueOf(m.get("role"));
+                Object content = m.get("content");
+                String text = content == null ? "" : content.toString();
+                if (text.isBlank()) {
+                    continue;
+                }
+                if ("assistant".equals(role)) {
+                    messages.add(AiMessage.from(text));
+                } else if (!"system".equals(role)) {
+                    messages.add(UserMessage.from(text)); // user / tool / other → user turn
+                }
             }
         }
-        return null;
+        if (messages.size() == 1) {
+            messages.add(UserMessage.from("Hello"));
+        }
+        return messages;
+    }
+
+    /** Renders useAgentContext entries ({description, value}) into the system prompt. */
+    private String contextBlock(RunAgentInput input) {
+        if (input == null || input.context() == null || input.context().isEmpty()) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder("\n\nContext about the app and the user's screen:");
+        for (Map<String, Object> entry : input.context()) {
+            Object desc = entry.get("description");
+            Object value = entry.get("value");
+            sb.append("\n- ").append(desc).append(": ").append(value);
+        }
+        return sb.toString();
     }
 
     private void emit(SseEmitter sse, Object lock, AgUiEvent event) {

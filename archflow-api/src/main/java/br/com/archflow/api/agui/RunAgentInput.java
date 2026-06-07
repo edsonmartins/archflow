@@ -13,6 +13,7 @@ public record RunAgentInput(
         List<Map<String, Object>> messages,
         Map<String, Object> state,
         List<Map<String, Object>> tools,
+        List<Map<String, Object>> context,
         String threadId,
         String runId) {
 }
