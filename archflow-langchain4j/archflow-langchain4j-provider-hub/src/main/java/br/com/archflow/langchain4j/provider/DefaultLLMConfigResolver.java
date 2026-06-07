@@ -2,6 +2,7 @@ package br.com.archflow.langchain4j.provider;
 
 import br.com.archflow.model.config.ResolvedLLMConfig;
 import dev.langchain4j.model.chat.ChatModel;
+import dev.langchain4j.model.chat.StreamingChatModel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -47,6 +48,16 @@ public class DefaultLLMConfigResolver implements LLMConfigResolver {
 
     @Override
     public ChatModel resolveModel(LLMResolutionRequest request) {
+        return hub.getModel(registerConfigFor(request));
+    }
+
+    @Override
+    public StreamingChatModel resolveStreamingModel(LLMResolutionRequest request) {
+        return hub.getStreamingModel(registerConfigFor(request));
+    }
+
+    /** Resolves config + key, registers it with the hub, and returns the cache id. */
+    private String registerConfigFor(LLMResolutionRequest request) {
         ResolvedLLMConfig resolved = resolve(request);
         String provider = resolved.provider();
         if (provider == null || provider.isBlank()) {
@@ -62,7 +73,7 @@ public class DefaultLLMConfigResolver implements LLMConfigResolver {
                 request.tenantId(), provider, resolved.model(), resolved.maxTokens());
 
         hub.registerConfig(configId, providerConfig);
-        return hub.getModel(configId);
+        return configId;
     }
 
     /** Chave por tenant {@literal >} chave inline em {@code additionalConfig.apiKey} {@literal >} nenhuma. */

@@ -1,12 +1,12 @@
 package br.com.archflow.api.agui;
 
-import br.com.archflow.conversation.agent.ConversationalAgent;
-import br.com.archflow.conversation.agent.DefaultToolRegistry;
 import br.com.archflow.langchain4j.provider.LLMConfigResolver;
 import br.com.archflow.langchain4j.provider.LLMResolutionRequest;
 import br.com.archflow.model.config.ResolvedLLMConfig;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import dev.langchain4j.model.chat.ChatModel;
+import dev.langchain4j.model.chat.StreamingChatModel;
+import dev.langchain4j.model.chat.response.ChatResponse;
+import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -14,24 +14,26 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 import static br.com.archflow.api.agui.AgUiEvent.fields;
 
 /**
- * AG-UI agent endpoint backed by the {@link ConversationalAgent} (ADR-0003 /
- * design-0006): a real chat-with-tools assistant exposed over AG-UI, so a
- * CopilotKit sidebar becomes an actual copilot (not just a workflow trigger).
+ * AG-UI agent endpoint with token-level streaming (ADR-0003 / design-0006): a
+ * chat assistant exposed over AG-UI so a CopilotKit sidebar renders tokens as
+ * they are generated.
  *
- * <p>The ConversationalAgent is synchronous (guardrail-in → LLM ↔ tool loop →
- * guardrail-out → final Result), so we run it off the request thread and emit
- * the AG-UI sequence: RUN_STARTED → TEXT_MESSAGE_* (the reply) → CUSTOM
- * (tools used) → RUN_FINISHED. Token-level streaming is a follow-up (the
- * ChatFunction returns a full reply).
+ * <p>Uses a {@link StreamingChatModel} (resolved tenant-aware via the
+ * {@link LLMConfigResolver}) whose handler is async, so we kick off the stream
+ * and return the {@link SseEmitter} immediately; tokens flow as
+ * {@code TEXT_MESSAGE_CONTENT}. Sequence: RUN_STARTED → TEXT_MESSAGE_START →
+ * TEXT_MESSAGE_CONTENT* → TEXT_MESSAGE_END → RUN_FINISHED (or RUN_ERROR).
+ *
+ * <p>This streaming path is single-turn chat. The buffered ConversationalAgent
+ * (text-based tool loop + guardrails) can't stream user-facing tokens while still
+ * parsing tool calls from the same text; native tool-calling + streaming is the
+ * follow-up.
  */
 @RestController
 @RequestMapping("/ag-ui")
@@ -43,7 +45,6 @@ public class AgUiAgentController {
     private final LLMConfigResolver llmConfigResolver;
     private final ResolvedLLMConfig platformDefault;
     private final ObjectMapper json;
-    private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
 
     public AgUiAgentController(LLMConfigResolver llmConfigResolver,
                               ResolvedLLMConfig platformDefaultLLMConfig,
@@ -62,43 +63,47 @@ public class AgUiAgentController {
                 : "run-" + UUID.randomUUID().toString().substring(0, 8);
         String threadId = input != null && input.threadId() != null ? input.threadId() : runId;
         String userMessage = lastUserMessage(input);
+        String messageId = "msg-" + UUID.randomUUID().toString().substring(0, 8);
 
-        executor.submit(() -> {
-            emit(sse, lock, AgUiEvent.of("RUN_STARTED", fields("threadId", threadId, "runId", runId)));
-            try {
-                ChatModel model = llmConfigResolver.resolveModel(
-                        LLMResolutionRequest.builder(platformDefault).build());
-                ConversationalAgent agent = ConversationalAgent.builder()
-                        .systemPrompt(DEFAULT_SYSTEM_PROMPT)
-                        .maxIterations(6)
-                        .tools(new DefaultToolRegistry())
-                        .chat(model::chat)
-                        .build();
+        emit(sse, lock, AgUiEvent.of("RUN_STARTED", fields("threadId", threadId, "runId", runId)));
 
-                ConversationalAgent.Result result = agent.chat(userMessage == null ? "" : userMessage);
+        try {
+            StreamingChatModel model = llmConfigResolver.resolveStreamingModel(
+                    LLMResolutionRequest.builder(platformDefault).build());
 
-                String messageId = "msg-" + UUID.randomUUID().toString().substring(0, 8);
-                synchronized (lock) {
-                    writeQuietly(sse, AgUiEvent.of("TEXT_MESSAGE_START", fields("messageId", messageId, "role", "assistant")));
-                    writeQuietly(sse, AgUiEvent.of("TEXT_MESSAGE_CONTENT", fields("messageId", messageId, "delta", result.reply())));
-                    writeQuietly(sse, AgUiEvent.of("TEXT_MESSAGE_END", fields("messageId", messageId)));
-                    if (result.toolsUsed() != null && !result.toolsUsed().isEmpty()) {
-                        writeQuietly(sse, AgUiEvent.of("CUSTOM", fields("name", "tools_used", "value", result.toolsUsed())));
-                    }
-                    writeQuietly(sse, AgUiEvent.of("RUN_FINISHED", fields("threadId", threadId, "runId", runId,
-                            "result", Map.of(
-                                    "status", result.blocked() ? "BLOCKED" : "COMPLETED",
-                                    "iterations", result.iterations(),
-                                    "toolsUsed", result.toolsUsed() == null ? List.of() : result.toolsUsed()))));
+            emit(sse, lock, AgUiEvent.of("TEXT_MESSAGE_START", fields("messageId", messageId, "role", "assistant")));
+
+            String prompt = DEFAULT_SYSTEM_PROMPT + "\n\nUser: " + (userMessage == null ? "" : userMessage);
+            model.chat(prompt, new StreamingChatResponseHandler() {
+                @Override
+                public void onPartialResponse(String token) {
+                    emit(sse, lock, AgUiEvent.of("TEXT_MESSAGE_CONTENT",
+                            fields("messageId", messageId, "delta", token)));
                 }
-            } catch (Exception e) {
-                Throwable cause = e.getCause() != null ? e.getCause() : e;
-                String message = cause.getMessage() != null ? cause.getMessage() : cause.toString();
-                emit(sse, lock, AgUiEvent.of("RUN_ERROR", fields("runId", runId, "message", message)));
-            } finally {
-                sse.complete();
-            }
-        });
+
+                @Override
+                public void onCompleteResponse(ChatResponse response) {
+                    synchronized (lock) {
+                        writeQuietly(sse, AgUiEvent.of("TEXT_MESSAGE_END", fields("messageId", messageId)));
+                        writeQuietly(sse, AgUiEvent.of("RUN_FINISHED", fields("threadId", threadId, "runId", runId,
+                                "result", Map.of("status", "COMPLETED"))));
+                    }
+                    sse.complete();
+                }
+
+                @Override
+                public void onError(Throwable error) {
+                    String message = error.getMessage() != null ? error.getMessage() : error.toString();
+                    emit(sse, lock, AgUiEvent.of("RUN_ERROR", fields("runId", runId, "message", message)));
+                    sse.complete();
+                }
+            });
+        } catch (Exception e) {
+            Throwable cause = e.getCause() != null ? e.getCause() : e;
+            String message = cause.getMessage() != null ? cause.getMessage() : cause.toString();
+            emit(sse, lock, AgUiEvent.of("RUN_ERROR", fields("runId", runId, "message", message)));
+            sse.complete();
+        }
 
         return sse;
     }
