@@ -43,6 +43,10 @@ export default defineConfig({
         target: 'http://localhost:16080',
         changeOrigin: true,
         ws: true
+      },
+      '/ag-ui': {
+        target: 'http://localhost:16080',
+        changeOrigin: true
       }
     }
   }

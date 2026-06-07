@@ -36,6 +36,7 @@ import ScheduledTriggersPage from './pages/ScheduledTriggersPage';
 import ExecutionDetailPage from './pages/ExecutionDetailPage';
 import AgentPlaygroundPage from './pages/AgentPlaygroundPage';
 import DynamicWorkflowPage from './pages/DynamicWorkflowPage';
+import AgUiRunnerPage from './pages/AgUiRunnerPage';
 import ScopedApiKeysPage from './pages/admin/tenant/ScopedApiKeysPage';
 
 // Admin pages — lazy loaded
@@ -96,6 +97,7 @@ function App() {
                             <Route path="/executions/:id" element={<ExecutionDetailPage />} />
                             <Route path="/playground/agent" element={<AgentPlaygroundPage />} />
                             <Route path="/playground/orchestration" element={<DynamicWorkflowPage />} />
+                            <Route path="/playground/ag-ui" element={<AgUiRunnerPage />} />
                         </Route>
 
                         {/* Admin routes */}

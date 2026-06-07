@@ -16,6 +16,7 @@ import {
     IconBox,
     IconPlayerPlayFilled,
     IconSitemap,
+    IconPlugConnected,
 } from '@tabler/icons-react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -38,6 +39,7 @@ const NAV_ITEMS = [
     { key: 'nav.marketplace',   icon: IconBox,              path: '/marketplace' },
     { key: 'nav.agentLab',      icon: IconPlayerPlayFilled, path: '/playground/agent' },
     { key: 'nav.dynamicFlow',   icon: IconSitemap,          path: '/playground/orchestration' },
+    { key: 'nav.aguiRunner',    icon: IconPlugConnected,    path: '/playground/ag-ui' },
     { key: 'nav.voice',         icon: IconMicrophone,       path: '/playground/voice' },
 ];
 
