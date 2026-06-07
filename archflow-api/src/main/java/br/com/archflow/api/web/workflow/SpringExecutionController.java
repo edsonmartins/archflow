@@ -2,7 +2,11 @@ package br.com.archflow.api.web.workflow;
 
 import br.com.archflow.engine.api.FlowEngine;
 import br.com.archflow.engine.core.StateManager;
+import br.com.archflow.model.engine.DefaultExecutionContext;
+import br.com.archflow.model.engine.ExecutionContext;
+import br.com.archflow.model.flow.FlowResult;
 import br.com.archflow.model.flow.FlowState;
+import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -75,5 +79,51 @@ public class SpringExecutionController {
         }
         store.completeExecution(id, "CANCELLED", null);
         return ResponseEntity.ok(store.getExecution(id));
+    }
+
+    /**
+     * Resumes a paused/awaiting execution (design-0005 step 5). Pre-checks the
+     * saved state so obviously non-resumable runs get a fast 409; the engine
+     * additionally requires the flow to be registered (done at execute time).
+     */
+    @PostMapping("/{id}/resume")
+    public ResponseEntity<Map<String, Object>> resume(@PathVariable String id) {
+        var execution = store.getExecution(id);
+        if (execution == null) {
+            return ResponseEntity.notFound().build();
+        }
+        FlowState state = stateManager.loadState(id);
+        if (state == null) {
+            return ResponseEntity.status(409).body(Map.<String, Object>of("error", "no saved state to resume"));
+        }
+        if (state.getStatus() == null || state.getStatus().isFinal()) {
+            return ResponseEntity.status(409).body(
+                    Map.<String, Object>of("error", "execution is in a final state and cannot be resumed"));
+        }
+
+        ExecutionContext ctx = new DefaultExecutionContext(
+                state.getTenantId(), "runner", id,
+                MessageWindowChatMemory.builder().maxMessages(20).build());
+        flowEngine.resumeFlow(id, ctx).whenComplete((result, err) ->
+                store.completeExecution(id, statusOf(result, err), errorOf(err)));
+
+        execution.put("status", "RUNNING");
+        execution.put("completedAt", null);
+        return ResponseEntity.ok(execution);
+    }
+
+    private static String statusOf(FlowResult result, Throwable err) {
+        if (err != null || result == null) {
+            return "FAILED";
+        }
+        return result.getStatus() != null ? result.getStatus().name() : "COMPLETED";
+    }
+
+    private static String errorOf(Throwable err) {
+        if (err == null) {
+            return null;
+        }
+        Throwable cause = err.getCause() != null ? err.getCause() : err;
+        return cause.getMessage() != null ? cause.getMessage() : cause.toString();
     }
 }

@@ -2,6 +2,7 @@ package br.com.archflow.api.web.workflow;
 
 import br.com.archflow.api.flow.WorkflowDeserializer;
 import br.com.archflow.engine.api.FlowEngine;
+import br.com.archflow.engine.persistence.FlowRepository;
 import br.com.archflow.model.engine.DefaultExecutionContext;
 import br.com.archflow.model.engine.ExecutionContext;
 import br.com.archflow.model.flow.Flow;
@@ -28,13 +29,16 @@ public class SpringWorkflowCrudController {
     private final InMemoryWorkflowRuntimeStore store;
     private final WorkflowDeserializer deserializer;
     private final FlowEngine flowEngine;
+    private final FlowRepository flowRepository;
 
     public SpringWorkflowCrudController(InMemoryWorkflowRuntimeStore store,
                                         WorkflowDeserializer deserializer,
-                                        FlowEngine flowEngine) {
+                                        FlowEngine flowEngine,
+                                        FlowRepository flowRepository) {
         this.store = store;
         this.deserializer = deserializer;
         this.flowEngine = flowEngine;
+        this.flowRepository = flowRepository;
     }
 
     @GetMapping
@@ -100,6 +104,8 @@ public class SpringWorkflowCrudController {
         Map<String, Object> flowJson = new HashMap<>(workflow);
         flowJson.put("id", executionId);
         Flow flow = deserializer.toFlow(flowJson);
+        // Register the flow so a paused run can be resumed later (design-0005 step 5).
+        flowRepository.save(flow);
 
         ExecutionContext ctx = new DefaultExecutionContext(
                 null, "runner", executionId,
