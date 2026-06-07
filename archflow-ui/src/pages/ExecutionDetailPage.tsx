@@ -2,8 +2,44 @@ import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { Badge, Button, Card, Code, Group, Stack, Text, Title } from '@mantine/core'
+import { IconSitemap } from '@tabler/icons-react'
 import { executionApi } from '../services/api'
 import { ApiError } from '../services/api'
+
+/** A materialized ExecutionPath node (design-0005 step 4). */
+interface PathNode {
+    pathId: string
+    status: string
+    parallelBranches?: PathNode[] | null
+}
+
+function pathColor(status: string): string {
+    switch (status) {
+        case 'COMPLETED': return 'teal'
+        case 'FAILED':    return 'red'
+        case 'RUNNING':
+        case 'STARTED':   return 'blue'
+        default:          return 'gray'
+    }
+}
+
+function PathTree({ nodes, depth = 0 }: { nodes: PathNode[]; depth?: number }) {
+    return (
+        <Stack gap={4}>
+            {nodes.map((n, i) => (
+                <div key={`${n.pathId}-${i}`}>
+                    <Group gap="xs" wrap="nowrap" style={{ paddingLeft: depth * 16 }}>
+                        <Badge size="xs" variant="light" color={pathColor(n.status)}>{n.status}</Badge>
+                        <Text size="sm">{n.pathId}</Text>
+                    </Group>
+                    {n.parallelBranches && n.parallelBranches.length > 0 && (
+                        <PathTree nodes={n.parallelBranches} depth={depth + 1} />
+                    )}
+                </div>
+            ))}
+        </Stack>
+    )
+}
 
 /**
  * Details a single execution. Fetches {@code /api/executions/{id}} for
@@ -37,6 +73,7 @@ export default function ExecutionDetailPage() {
 
     const status = String(data.status ?? '')
     const traceId = data.traceId as string | undefined
+    const paths = (data.executionPaths as PathNode[] | undefined) ?? []
 
     return (
         <Stack gap="md" style={{ padding: 24 }} data-testid="execution-detail">
@@ -54,6 +91,15 @@ export default function ExecutionDetailPage() {
                     <Link to="/executions"><Button variant="default">{t('executionDetail.back')}</Button></Link>
                 </Group>
             </Group>
+            {paths.length > 0 && (
+                <Card withBorder data-testid="execution-paths">
+                    <Group gap="xs" mb="sm">
+                        <IconSitemap size={18} />
+                        <Text fw={600}>{t('executionDetail.dynamicTree', { defaultValue: 'Dynamic tree' })}</Text>
+                    </Group>
+                    <PathTree nodes={paths} />
+                </Card>
+            )}
             <Card withBorder>
                 <Code block>{JSON.stringify(data, null, 2)}</Code>
             </Card>

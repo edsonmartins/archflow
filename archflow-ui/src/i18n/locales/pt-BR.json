@@ -1010,7 +1010,8 @@
     "executionDetail": {
         "title": "Execução {{id}}",
         "viewTrace": "Ver trace",
-        "back": "Voltar"
+        "back": "Voltar",
+        "dynamicTree": "Árvore dinâmica"
     },
     "marketplace": {
         "title": "Marketplace",

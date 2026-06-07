@@ -1010,7 +1010,8 @@
     "executionDetail": {
         "title": "Execution {{id}}",
         "viewTrace": "View trace",
-        "back": "Back"
+        "back": "Back",
+        "dynamicTree": "Dynamic tree"
     },
     "marketplace": {
         "title": "Marketplace",
