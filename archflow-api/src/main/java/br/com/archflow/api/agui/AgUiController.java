@@ -193,7 +193,10 @@ public class AgUiController {
         if (err == null) {
             return null;
         }
-        Throwable cause = err.getCause() != null ? err.getCause() : err;
+        Throwable cause = err;
+        while (cause.getCause() != null && cause.getCause() != cause) {
+            cause = cause.getCause();
+        }
         return cause.getMessage() != null ? cause.getMessage() : cause.toString();
     }
 }

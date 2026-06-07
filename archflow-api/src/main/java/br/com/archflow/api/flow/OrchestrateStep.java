@@ -93,8 +93,13 @@ public final class OrchestrateStep implements FlowStep {
                 stateManager.saveState(context.getSessionId(), state);
             }
             return CompletableFuture.completedFuture(SimpleStepResult.ok(id, confirmed, elapsedMs(start)));
-        } catch (RuntimeException e) {
-            String msg = e.getMessage() == null ? e.toString() : e.getMessage();
+        } catch (Exception e) {
+            // Fail the step gracefully (not crash the flow) on any orchestration error.
+            Throwable cause = e;
+            while (cause.getCause() != null && cause.getCause() != cause) {
+                cause = cause.getCause();
+            }
+            String msg = cause.getMessage() == null ? cause.toString() : cause.getMessage();
             return CompletableFuture.completedFuture(SimpleStepResult.failed(id, msg, elapsedMs(start)));
         }
     }
