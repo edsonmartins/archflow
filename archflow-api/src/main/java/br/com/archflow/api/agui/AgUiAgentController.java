@@ -4,11 +4,16 @@ import br.com.archflow.langchain4j.provider.LLMConfigResolver;
 import br.com.archflow.langchain4j.provider.LLMResolutionRequest;
 import br.com.archflow.model.config.ResolvedLLMConfig;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.langchain4j.agent.tool.ToolExecutionRequest;
+import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
+import dev.langchain4j.model.chat.request.ChatRequest;
+import dev.langchain4j.model.chat.request.json.JsonObjectSchema;
+import dev.langchain4j.model.chat.request.json.JsonStringSchema;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import org.springframework.http.MediaType;
@@ -78,7 +83,12 @@ public class AgUiAgentController {
 
             emit(sse, lock, AgUiEvent.of("TEXT_MESSAGE_START", fields("messageId", messageId, "role", "assistant")));
 
-            model.chat(buildMessages(input), new StreamingChatResponseHandler() {
+            ChatRequest request = ChatRequest.builder()
+                    .messages(buildMessages(input))
+                    .toolSpecifications(toolSpecs(input))
+                    .build();
+
+            model.chat(request, new StreamingChatResponseHandler() {
                 @Override
                 public void onPartialResponse(String token) {
                     emit(sse, lock, AgUiEvent.of("TEXT_MESSAGE_CONTENT",
@@ -89,6 +99,20 @@ public class AgUiAgentController {
                 public void onCompleteResponse(ChatResponse response) {
                     synchronized (lock) {
                         writeQuietly(sse, AgUiEvent.of("TEXT_MESSAGE_END", fields("messageId", messageId)));
+                        // Frontend tool calls (useFrontendTool): emit AG-UI TOOL_CALL_*
+                        // so CopilotKit executes the tool in the browser.
+                        List<ToolExecutionRequest> calls = response.aiMessage() != null
+                                ? response.aiMessage().toolExecutionRequests() : List.of();
+                        if (calls != null) {
+                            for (ToolExecutionRequest call : calls) {
+                                writeQuietly(sse, AgUiEvent.of("TOOL_CALL_START",
+                                        fields("toolCallId", call.id(), "toolCallName", call.name(),
+                                                "parentMessageId", messageId)));
+                                writeQuietly(sse, AgUiEvent.of("TOOL_CALL_ARGS",
+                                        fields("toolCallId", call.id(), "delta", call.arguments())));
+                                writeQuietly(sse, AgUiEvent.of("TOOL_CALL_END", fields("toolCallId", call.id())));
+                            }
+                        }
                         writeQuietly(sse, AgUiEvent.of("RUN_FINISHED", fields("threadId", threadId, "runId", runId,
                                 "result", Map.of("status", "COMPLETED"))));
                     }
@@ -150,6 +174,62 @@ public class AgUiAgentController {
             sb.append("\n- ").append(desc).append(": ").append(value);
         }
         return sb.toString();
+    }
+
+    /** Converts AG-UI frontend tools (useFrontendTool) to langchain4j ToolSpecifications. */
+    private List<ToolSpecification> toolSpecs(RunAgentInput input) {
+        List<ToolSpecification> specs = new ArrayList<>();
+        if (input == null || input.tools() == null) {
+            return specs;
+        }
+        for (Map<String, Object> tool : input.tools()) {
+            Object name = tool.get("name");
+            if (name == null) {
+                continue;
+            }
+            ToolSpecification.Builder builder = ToolSpecification.builder().name(name.toString());
+            Object desc = tool.get("description");
+            if (desc != null) {
+                builder.description(desc.toString());
+            }
+            JsonObjectSchema schema = toSchema(asMap(tool.get("parameters")));
+            if (schema != null) {
+                builder.parameters(schema);
+            }
+            specs.add(builder.build());
+        }
+        return specs;
+    }
+
+    /** JSON-schema object -> langchain4j JsonObjectSchema. Properties are treated as strings (covers the common case). */
+    private JsonObjectSchema toSchema(Map<String, Object> params) {
+        Map<String, Object> properties = asMap(params.get("properties"));
+        if (properties.isEmpty()) {
+            return null;
+        }
+        JsonObjectSchema.Builder builder = JsonObjectSchema.builder();
+        for (Map.Entry<String, Object> entry : properties.entrySet()) {
+            Object pdesc = asMap(entry.getValue()).get("description");
+            builder.addProperty(entry.getKey(), JsonStringSchema.builder()
+                    .description(pdesc != null ? pdesc.toString() : null).build());
+        }
+        if (params.get("required") instanceof List<?> reqList) {
+            List<String> required = new ArrayList<>();
+            for (Object o : reqList) {
+                if (o != null) {
+                    required.add(o.toString());
+                }
+            }
+            if (!required.isEmpty()) {
+                builder.required(required);
+            }
+        }
+        return builder.build();
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> asMap(Object v) {
+        return v instanceof Map<?, ?> m ? (Map<String, Object>) m : Map.of();
     }
 
     private void emit(SseEmitter sse, Object lock, AgUiEvent event) {
