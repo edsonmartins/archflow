@@ -165,7 +165,14 @@ export function FlowCanvas({
       })),
     }
     setCanvasApi(api)
-    return () => setCanvasApi(null)
+    // Apply edits queued before this canvas existed (copilot: create flow -> add nodes).
+    const drain = setTimeout(() => {
+      for (const op of useFlowStore.getState().takePendingCanvasOps()) {
+        if (op.kind === 'add') api.addNode(op)
+        else api.connectNodes(op.sourceId, op.targetId)
+      }
+    }, 0)
+    return () => { clearTimeout(drain); setCanvasApi(null) }
   }, [readonly, setCanvasApi, setNodes, setEdges])
 
   // ── Conexão entre nós ──────────────────────────────────────────

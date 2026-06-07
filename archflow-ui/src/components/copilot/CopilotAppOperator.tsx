@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { notifications } from '@mantine/notifications'
 import { z } from 'zod'
 import { useAgentContext, useFrontendTool } from '@copilotkit/react-core/v2'
-import { api } from '../../services/api'
+import { api, workflowApi } from '../../services/api'
 import { useFlowStore } from '../FlowCanvas/store/useFlowStore'
 import { PALETTE_NODES } from '../FlowCanvas/constants'
 
@@ -106,11 +106,33 @@ export default function CopilotAppOperator() {
         },
     })
 
-    // ── Canvas editing (only works while the editor is open) ──
+    // ── Canvas editing ──
+    useFrontendTool({
+        name: 'createFlow',
+        description: 'Create a new, empty workflow and open it in the editor (mounts the canvas). '
+            + 'Call this before addNode when no flow is open.',
+        parameters: z.object({ name: z.string().optional().describe('optional name for the flow') }),
+        followUp: false,
+        handler: async ({ name }) => {
+            try {
+                const wf = await workflowApi.create({
+                    metadata: { name: name || 'New flow', description: '', version: '1.0.0', category: '', tags: [] },
+                    steps: [],
+                    configuration: {},
+                })
+                notifications.show({ color: 'teal', message: `Created flow "${wf.metadata?.name ?? wf.id}"` })
+                navigate(`/editor/${wf.id}`)
+            } catch (e) {
+                notifications.show({ color: 'red', message: `Create failed: ${String(e)}` })
+            }
+        },
+    })
+
     useFrontendTool({
         name: 'addNode',
-        description: 'Add a node to the workflow editor canvas. Requires the editor to be open '
-            + '(call navigateTo "editor" first if needed). nodeType is one of the available node types.',
+        description: 'Add a node to the workflow editor canvas. nodeType is one of the available node types. '
+            + 'If no flow is open the node is queued and applied as soon as a flow is opened/created '
+            + '(so you can call createFlow then addNode).',
         parameters: z.object({
             nodeType: z.string().describe('the node type to add, e.g. agent, llm-chat, tool, condition'),
             label: z.string().optional().describe('optional label for the node'),
@@ -118,13 +140,16 @@ export default function CopilotAppOperator() {
         followUp: false,
         handler: async ({ nodeType, label }) => {
             const canvas = useFlowStore.getState().canvasApi
-            if (!canvas) {
-                notifications.show({ color: 'yellow', message: 'Open the editor first, then ask again.' })
-                navigate('/editor')
+            if (canvas) {
+                const id = canvas.addNode({ nodeType, label })
+                notifications.show({ color: 'teal', message: `Added "${nodeType}" node (${id})` })
                 return
             }
-            const id = canvas.addNode({ nodeType, label })
-            notifications.show({ color: 'teal', message: `Added "${nodeType}" node (${id})` })
+            useFlowStore.getState().enqueueCanvasOp({ kind: 'add', nodeType, label })
+            notifications.show({
+                color: 'blue',
+                message: `Queued "${nodeType}" — create or open a flow in the editor to apply it.`,
+            })
         },
     })
 
@@ -140,8 +165,8 @@ export default function CopilotAppOperator() {
         handler: async ({ sourceId, targetId }) => {
             const canvas = useFlowStore.getState().canvasApi
             if (!canvas) {
-                notifications.show({ color: 'yellow', message: 'Open the editor first.' })
-                navigate('/editor')
+                useFlowStore.getState().enqueueCanvasOp({ kind: 'connect', sourceId, targetId })
+                notifications.show({ color: 'blue', message: 'Queued connection — open a flow to apply it.' })
                 return
             }
             const ok = canvas.connectNodes(sourceId, targetId)

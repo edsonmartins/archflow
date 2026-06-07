@@ -14,6 +14,11 @@ export interface CanvasApi {
   listNodes: () => { id: string; label: string; nodeType: string }[]
 }
 
+/** Canvas edit deferred until an editable canvas mounts (copilot creates a flow, then adds). */
+export type CanvasOp =
+  | { kind: 'add'; nodeType: string; label?: string }
+  | { kind: 'connect'; sourceId: string; targetId: string }
+
 interface FlowStore {
   // ── Estado de execução ─────────────────────────────────────────
   isExecuting:    boolean
@@ -45,6 +50,11 @@ interface FlowStore {
   // ── API imperativa do canvas (registrada pelo FlowCanvas editável) ──
   canvasApi:    CanvasApi | null
   setCanvasApi: (api: CanvasApi | null) => void
+
+  // ── Fila de edições aplicada quando um canvas editável monta ──
+  pendingCanvasOps:    CanvasOp[]
+  enqueueCanvasOp:     (op: CanvasOp) => void
+  takePendingCanvasOps: () => CanvasOp[]
 }
 
 export const useFlowStore = create<FlowStore>((set, get) => ({
@@ -62,6 +72,14 @@ export const useFlowStore = create<FlowStore>((set, get) => ({
 
   canvasApi:    null,
   setCanvasApi: (api) => set({ canvasApi: api }),
+
+  pendingCanvasOps: [],
+  enqueueCanvasOp: (op) => set((s) => ({ pendingCanvasOps: [...s.pendingCanvasOps, op] })),
+  takePendingCanvasOps: () => {
+    const ops = get().pendingCanvasOps
+    if (ops.length) set({ pendingCanvasOps: [] })
+    return ops
+  },
 
   // ── Execução ───────────────────────────────────────────────────
   startExecution: (executionId) =>
