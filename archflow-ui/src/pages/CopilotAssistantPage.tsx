@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Stack, Text } from '@mantine/core'
 import { HttpAgent } from '@ag-ui/client'
-import { CopilotKit, CopilotSidebar } from '@copilotkit/react-core/v2'
+import { CopilotKitProvider, CopilotSidebar } from '@copilotkit/react-core/v2'
 import '@copilotkit/react-core/v2/styles.css'
 import { PageHeader } from '../components/PageHeader'
 
@@ -15,10 +15,12 @@ import { PageHeader } from '../components/PageHeader'
  */
 export default function CopilotAssistantPage() {
     const { t } = useTranslation()
-    const agent = useMemo(() => new HttpAgent({ url: '/ag-ui/agent' }), [])
+    // fetch must be bound to window — @ag-ui/client calls it unbound otherwise
+    // ("Illegal invocation").
+    const agent = useMemo(() => new HttpAgent({ url: '/ag-ui/agent', fetch: window.fetch.bind(window) }), [])
 
     return (
-        <CopilotKit agents__unsafe_dev_only={{ archflow: agent }}>
+        <CopilotKitProvider agents__unsafe_dev_only={{ archflow: agent }}>
             <Stack p="md" gap="md" maw={820}>
                 <PageHeader
                     title={t('copilot.title', { defaultValue: 'Copilot (AG-UI)' })}
@@ -33,6 +35,6 @@ export default function CopilotAssistantPage() {
                 </Text>
             </Stack>
             <CopilotSidebar agentId="archflow" />
-        </CopilotKit>
+        </CopilotKitProvider>
     )
 }
