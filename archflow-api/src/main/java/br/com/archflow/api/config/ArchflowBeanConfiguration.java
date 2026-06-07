@@ -628,13 +628,26 @@ public class ArchflowBeanConfiguration {
             @Value("${archflow.llm.model:gpt-4o-mini}") String model,
             @Value("${archflow.llm.temperature:0.2}") double temperature,
             @Value("${archflow.llm.max-tokens:1024}") int maxTokens,
-            @Value("${archflow.llm.timeout-ms:30000}") long timeoutMs) {
+            @Value("${archflow.llm.timeout-ms:30000}") long timeoutMs,
+            @Value("${archflow.llm.api-key:}") String apiKey,
+            @Value("${archflow.llm.base-url:}") String baseUrl) {
+        // Inline key/baseUrl go into additionalConfig — the resolver reads the key
+        // from additionalConfig.apiKey (tenant key takes precedence). Keep secrets
+        // out of source: set via ARCHFLOW_LLM_API_KEY / ARCHFLOW_LLM_BASE_URL.
+        java.util.Map<String, Object> additional = new java.util.HashMap<>();
+        if (apiKey != null && !apiKey.isBlank()) {
+            additional.put("apiKey", apiKey);
+        }
+        if (baseUrl != null && !baseUrl.isBlank()) {
+            additional.put("baseUrl", baseUrl);
+        }
         return br.com.archflow.model.config.ResolvedLLMConfig.builder()
                 .provider(provider)
                 .model(model)
                 .temperature(temperature)
                 .maxTokens(maxTokens)
                 .timeout(timeoutMs)
+                .additionalConfig(additional)
                 .build();
     }
 

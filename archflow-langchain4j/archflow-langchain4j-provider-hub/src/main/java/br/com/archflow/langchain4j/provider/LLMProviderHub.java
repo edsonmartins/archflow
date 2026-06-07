@@ -3,7 +3,9 @@ package br.com.archflow.langchain4j.provider;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.openai.OpenAiChatModel;
+import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
 import dev.langchain4j.model.anthropic.AnthropicChatModel;
+import dev.langchain4j.model.anthropic.AnthropicStreamingChatModel;
 import dev.langchain4j.model.azure.AzureOpenAiChatModel;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import org.slf4j.Logger;
@@ -264,25 +266,52 @@ public class LLMProviderHub {
     /**
      * Creates a new StreamingChatModel from the given configuration.
      */
-    @SuppressWarnings("unchecked")
     private StreamingChatModel createStreamingModel(LLMProviderConfig config) {
+        // Build real streaming models (the previous code cast the blocking models,
+        // which throws ClassCastException). OpenAI-compatible providers reuse the
+        // OpenAI streaming model with a baseUrl override.
         return switch (config.getProvider()) {
-            case OPENAI -> (StreamingChatModel) createOpenAiModel(config);
-            case ANTHROPIC -> (StreamingChatModel) createAnthropicModel(config);
-            case AZURE_OPENAI -> (StreamingChatModel) createAzureOpenAiModel(config);
-            case GEMINI -> (StreamingChatModel) createGeminiModel(config);
-            case OLLAMA -> (StreamingChatModel) createOllamaModel(config);
-            case MISTRAL -> (StreamingChatModel) createMistralModel(config);
-            case DEEPSEEK -> (StreamingChatModel) createDeepSeekModel(config);
-            case TONGYI -> (StreamingChatModel) createTongyiModel(config);
-            case COHERE -> (StreamingChatModel) createCohereModel(config);
-            case HUGGINGFACE -> (StreamingChatModel) createHuggingFaceModel(config);
-            case QIANFAN -> (StreamingChatModel) createQianfanModel(config);
-            case HUNYUAN -> (StreamingChatModel) createHunyuanModel(config);
-            case OPENROUTER -> (StreamingChatModel) createOpenRouterModel(config);
+            case OPENAI -> openAiStreaming(config, config.getBaseUrl());
+            case OPENROUTER -> openAiStreaming(config, config.getBaseUrl() != null
+                    ? config.getBaseUrl() : LLMProvider.OPENROUTER.getBaseUrl());
+            case DEEPSEEK, MISTRAL -> openAiStreaming(config, config.getBaseUrl());
+            case ANTHROPIC -> anthropicStreaming(config);
             default -> throw new IllegalArgumentException(
                     "Streaming not yet supported for " + config.getProvider().getDisplayName());
         };
+    }
+
+    private StreamingChatModel openAiStreaming(LLMProviderConfig config, String baseUrl) {
+        var builder = OpenAiStreamingChatModel.builder()
+                .apiKey(config.getApiKey())
+                .modelName(config.getModelId())
+                .temperature(config.getTemperature())
+                .timeout(config.getTimeout());
+        if (baseUrl != null) {
+            builder.baseUrl(baseUrl);
+        }
+        if (config.getTopP() != null) {
+            builder.topP(config.getTopP());
+        }
+        if (config.getMaxTokens() != null) {
+            builder.maxTokens(config.getMaxTokens());
+        }
+        return builder.build();
+    }
+
+    private StreamingChatModel anthropicStreaming(LLMProviderConfig config) {
+        var builder = AnthropicStreamingChatModel.builder()
+                .apiKey(config.getApiKey())
+                .modelName(config.getModelId())
+                .temperature(config.getTemperature())
+                .timeout(config.getTimeout());
+        if (config.getTopP() != null) {
+            builder.topP(config.getTopP());
+        }
+        if (config.getMaxTokens() != null) {
+            builder.maxTokens(config.getMaxTokens());
+        }
+        return builder.build();
     }
 
     // ========== Provider-Specific Model Creation ==========
