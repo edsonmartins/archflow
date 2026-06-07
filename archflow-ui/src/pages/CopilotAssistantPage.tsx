@@ -15,7 +15,7 @@ import { PageHeader } from '../components/PageHeader'
  */
 export default function CopilotAssistantPage() {
     const { t } = useTranslation()
-    const agent = useMemo(() => new HttpAgent({ url: '/ag-ui/workflows/wf-demo-001' }), [])
+    const agent = useMemo(() => new HttpAgent({ url: '/ag-ui/agent' }), [])
 
     return (
         <CopilotKit agents__unsafe_dev_only={{ archflow: agent }}>
@@ -23,7 +23,7 @@ export default function CopilotAssistantPage() {
                 <PageHeader
                     title={t('copilot.title', { defaultValue: 'Copilot (AG-UI)' })}
                     subtitle={t('copilot.subtitle', {
-                        defaultValue: 'CopilotKit connected directly to the archflow AG-UI endpoint. Open the sidebar to chat — the agent runs a workflow and streams AG-UI events back.',
+                        defaultValue: 'CopilotKit connected directly to the archflow ConversationalAgent over AG-UI. Open the sidebar and chat — replies and tool use stream back as AG-UI events.',
                     })}
                 />
                 <Text size="sm" c="dimmed">
