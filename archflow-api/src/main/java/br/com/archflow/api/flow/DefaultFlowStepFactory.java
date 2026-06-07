@@ -1,5 +1,6 @@
 package br.com.archflow.api.flow;
 
+import br.com.archflow.agent.streaming.EventStreamRegistry;
 import br.com.archflow.api.orchestration.DynamicWorkflowService;
 import br.com.archflow.model.flow.FlowStep;
 import br.com.archflow.model.flow.StepType;
@@ -20,10 +21,13 @@ public class DefaultFlowStepFactory implements FlowStepFactory {
 
     private final ComponentCatalog catalog;
     private final DynamicWorkflowService dynamicWorkflowService;
+    private final EventStreamRegistry streamRegistry;
 
-    public DefaultFlowStepFactory(ComponentCatalog catalog, DynamicWorkflowService dynamicWorkflowService) {
+    public DefaultFlowStepFactory(ComponentCatalog catalog, DynamicWorkflowService dynamicWorkflowService,
+                                  EventStreamRegistry streamRegistry) {
         this.catalog = catalog;
         this.dynamicWorkflowService = dynamicWorkflowService;
+        this.streamRegistry = streamRegistry;
     }
 
     @Override
@@ -33,7 +37,7 @@ public class DefaultFlowStepFactory implements FlowStepFactory {
         Map<String, Object> config = asMap(node.get("config"));
 
         if (StepType.ORCHESTRATE.name().equalsIgnoreCase(type)) {
-            return new OrchestrateStep(id, List.of(), config, dynamicWorkflowService);
+            return new OrchestrateStep(id, List.of(), config, dynamicWorkflowService, streamRegistry);
         }
 
         // componentId, falling back to the node "type" (the designer often uses

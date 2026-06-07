@@ -37,9 +37,9 @@ class OrchestrateStepTest {
 
     @Test
     void runsDynamicWorkflowFromConfigAndOutputsConfirmedFindings() {
-        when(service.runOn(any(), eq(ctx))).thenReturn(new SupervisorResult(List.<Object>of("a", "b"), 2));
+        when(service.runOn(any(), eq(ctx), any())).thenReturn(new SupervisorResult(List.<Object>of("a", "b"), 2));
 
-        var step = new OrchestrateStep("o1", List.of(), Map.of("goal", "audit", "voters", 3), service);
+        var step = new OrchestrateStep("o1", List.of(), Map.of("goal", "audit", "voters", 3), service, null);
         StepResult result = step.execute(ctx).join();
 
         assertThat(result.getStatus()).isEqualTo(StepStatus.COMPLETED);
@@ -48,7 +48,7 @@ class OrchestrateStepTest {
         verify(ctx).set("input", List.of("a", "b"));
 
         ArgumentCaptor<DynamicWorkflowRequest> req = ArgumentCaptor.forClass(DynamicWorkflowRequest.class);
-        verify(service).runOn(req.capture(), eq(ctx));
+        verify(service).runOn(req.capture(), eq(ctx), any());
         assertThat(req.getValue().goal()).isEqualTo("audit");
         assertThat(req.getValue().voters()).isEqualTo(3);
     }
@@ -56,19 +56,19 @@ class OrchestrateStepTest {
     @Test
     void fallsBackToInputAsGoal() {
         when(ctx.get("input")).thenReturn(Optional.of("audit from input"));
-        when(service.runOn(any(), any())).thenReturn(new SupervisorResult(List.of(), 1));
+        when(service.runOn(any(), any(), any())).thenReturn(new SupervisorResult(List.of(), 1));
 
-        var step = new OrchestrateStep("o1", List.of(), Map.of(), service);
+        var step = new OrchestrateStep("o1", List.of(), Map.of(), service, null);
         step.execute(ctx).join();
 
         ArgumentCaptor<DynamicWorkflowRequest> req = ArgumentCaptor.forClass(DynamicWorkflowRequest.class);
-        verify(service).runOn(req.capture(), any());
+        verify(service).runOn(req.capture(), any(), any());
         assertThat(req.getValue().goal()).isEqualTo("audit from input");
     }
 
     @Test
     void failsWhenNoGoalOrInput() {
-        var step = new OrchestrateStep("o1", List.of(), Map.of(), service);
+        var step = new OrchestrateStep("o1", List.of(), Map.of(), service, null);
         StepResult result = step.execute(ctx).join();
 
         assertThat(result.getStatus()).isEqualTo(StepStatus.FAILED);

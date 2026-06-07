@@ -14,7 +14,8 @@ import static org.mockito.Mockito.mock;
 class DefaultWorkflowDeserializerTest {
 
     private final WorkflowDeserializer deserializer = new DefaultWorkflowDeserializer(
-            new DefaultFlowStepFactory(mock(ComponentCatalog.class), mock(DynamicWorkflowService.class)));
+            new DefaultFlowStepFactory(mock(ComponentCatalog.class), mock(DynamicWorkflowService.class),
+                    mock(br.com.archflow.agent.streaming.EventStreamRegistry.class)));
 
     @Test
     void buildsAnExecutableFlowFromWorkflowJson() {

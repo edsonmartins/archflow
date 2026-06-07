@@ -345,8 +345,11 @@ public class ArchflowBeanConfiguration {
     @Bean
     @ConditionalOnMissingBean
     public br.com.archflow.engine.api.FlowEngine flowEngine(
-            br.com.archflow.engine.persistence.FlowRepository flowRepository) {
-        return br.com.archflow.api.flow.FlowEngineFactory.create(flowRepository);
+            br.com.archflow.engine.persistence.FlowRepository flowRepository,
+            EventStreamRegistry eventStreamRegistry,
+            RunningFlowsRegistry runningFlowsRegistry) {
+        return br.com.archflow.api.flow.FlowEngineFactory.create(
+                flowRepository, eventStreamRegistry, runningFlowsRegistry);
     }
 
     @Bean

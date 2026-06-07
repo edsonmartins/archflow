@@ -5,6 +5,9 @@ import br.com.archflow.agent.execution.DefaultExecutionManager;
 import br.com.archflow.agent.execution.DefaultFlowExecutor;
 import br.com.archflow.agent.execution.DefaultParallelExecutor;
 import br.com.archflow.agent.metrics.MetricsCollector;
+import br.com.archflow.agent.streaming.EventStreamRegistry;
+import br.com.archflow.agent.streaming.RegistryFlowLifecycleListener;
+import br.com.archflow.agent.streaming.RunningFlowsRegistry;
 import br.com.archflow.engine.api.FlowEngine;
 import br.com.archflow.engine.core.DefaultFlowEngine;
 import br.com.archflow.engine.core.StateManager;
@@ -31,16 +34,29 @@ public final class FlowEngineFactory {
     private FlowEngineFactory() {}
 
     public static FlowEngine create(FlowRepository flowRepository) {
-        return create(flowRepository, 16, 3_600_000L, 8);
+        return create(flowRepository, null, null, 16, 3_600_000L, 8);
+    }
+
+    /** As {@link #create(FlowRepository)} but streaming flow/step lifecycle to the SSE feed. */
+    public static FlowEngine create(FlowRepository flowRepository,
+                                    EventStreamRegistry streamRegistry,
+                                    RunningFlowsRegistry runningFlows) {
+        return create(flowRepository, streamRegistry, runningFlows, 16, 3_600_000L, 8);
     }
 
     public static FlowEngine create(FlowRepository flowRepository,
+                                    EventStreamRegistry streamRegistry,
+                                    RunningFlowsRegistry runningFlows,
                                     int maxConcurrentFlows, long flowTimeoutMs, int maxParallelSteps) {
         ExecutorService executorService = Executors.newVirtualThreadPerTaskExecutor();
         MetricsCollector metrics = new MetricsCollector(AgentConfig.builder().build());
 
-        // Pick up any process-wide registered listeners (e.g. LinktorFlowPublisher).
         CompositeFlowLifecycleListener lifecycle = new CompositeFlowLifecycleListener();
+        // Stream flow/step lifecycle to the per-tenant SSE feed (design-0005 step 3).
+        if (streamRegistry != null && runningFlows != null) {
+            lifecycle.add(new RegistryFlowLifecycleListener(streamRegistry, runningFlows));
+        }
+        // Pick up any process-wide registered listeners (e.g. LinktorFlowPublisher).
         for (FlowLifecycleListener extra : FlowLifecycleListeners.snapshot()) {
             lifecycle.add(extra);
         }

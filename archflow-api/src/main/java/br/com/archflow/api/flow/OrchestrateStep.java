@@ -1,6 +1,8 @@
 package br.com.archflow.api.flow;
 
+import br.com.archflow.agent.orchestration.OrchestrationListener;
 import br.com.archflow.agent.orchestration.SupervisorResult;
+import br.com.archflow.agent.streaming.EventStreamRegistry;
 import br.com.archflow.api.orchestration.DynamicWorkflowRequest;
 import br.com.archflow.api.orchestration.DynamicWorkflowService;
 import br.com.archflow.model.engine.ExecutionContext;
@@ -27,13 +29,16 @@ public final class OrchestrateStep implements FlowStep {
     private final List<StepConnection> connections;
     private final Map<String, Object> config;
     private final DynamicWorkflowService service;
+    private final EventStreamRegistry streamRegistry;
 
     public OrchestrateStep(String id, List<StepConnection> connections,
-                           Map<String, Object> config, DynamicWorkflowService service) {
+                           Map<String, Object> config, DynamicWorkflowService service,
+                           EventStreamRegistry streamRegistry) {
         this.id = id;
         this.connections = connections == null ? List.of() : List.copyOf(connections);
         this.config = config == null ? Map.of() : config;
         this.service = service;
+        this.streamRegistry = streamRegistry;
     }
 
     @Override public String getId() { return id; }
@@ -65,7 +70,11 @@ public final class OrchestrateStep implements FlowStep {
                 context.getTenantId());
 
         try {
-            SupervisorResult result = service.runOn(req, context);
+            // Stream the dynamic subtask tree live to the run's SSE channel.
+            OrchestrationListener listener = streamRegistry != null
+                    ? new StreamingOrchestrationListener(streamRegistry, context.getSessionId())
+                    : OrchestrationListener.NOOP;
+            SupervisorResult result = service.runOn(req, context, listener);
             List<Object> confirmed = result.confirmed();
             context.set(id, confirmed);
             context.set(ComponentStep.INPUT_KEY, confirmed);
