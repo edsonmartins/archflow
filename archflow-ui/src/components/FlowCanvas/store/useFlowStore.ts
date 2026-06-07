@@ -3,6 +3,17 @@ import type { FlowNodeData, NodeExecutionState, WorkflowData } from '../types'
 import type { Node, Edge } from '@xyflow/react'
 import { NODE_CATEGORIES } from '../constants'
 
+/**
+ * Imperative canvas API registered by the editor's FlowCanvas while mounted, so
+ * an out-of-tree caller (the global copilot) can create/connect nodes without
+ * owning React Flow's local state. Null when no editable canvas is mounted.
+ */
+export interface CanvasApi {
+  addNode: (spec: { nodeType: string; label?: string }) => string
+  connectNodes: (sourceId: string, targetId: string) => boolean
+  listNodes: () => { id: string; label: string; nodeType: string }[]
+}
+
 interface FlowStore {
   // ── Estado de execução ─────────────────────────────────────────
   isExecuting:    boolean
@@ -30,6 +41,10 @@ interface FlowStore {
   updateNodeConfig: (nodeId: string, key: string, value: unknown) => void
   updateNodeLabel:  (nodeId: string, label: string) => void
   getCanvasSnapshot: () => WorkflowData
+
+  // ── API imperativa do canvas (registrada pelo FlowCanvas editável) ──
+  canvasApi:    CanvasApi | null
+  setCanvasApi: (api: CanvasApi | null) => void
 }
 
 export const useFlowStore = create<FlowStore>((set, get) => ({
@@ -44,6 +59,9 @@ export const useFlowStore = create<FlowStore>((set, get) => ({
   // ── Nós e arestas ──────────────────────────────────────────────
   setNodes: (nodes) => set({ nodes }),
   setEdges: (edges) => set({ edges }),
+
+  canvasApi:    null,
+  setCanvasApi: (api) => set({ canvasApi: api }),
 
   // ── Execução ───────────────────────────────────────────────────
   startExecution: (executionId) =>

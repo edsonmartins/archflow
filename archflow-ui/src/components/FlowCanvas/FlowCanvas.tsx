@@ -24,8 +24,8 @@ import {
   StickyNoteNode, GroupFrameNode, SectionDividerNode,
 } from './nodes/index'
 import { FlowEdge }      from './edges/FlowEdge'
-import { useFlowStore }  from './store/useFlowStore'
-import { NODE_CATEGORIES } from './constants'
+import { useFlowStore, type CanvasApi }  from './store/useFlowStore'
+import { NODE_CATEGORIES, NODE_TYPE_TO_CATEGORY } from './constants'
 import type { FlowNodeData, WorkflowData } from './types'
 
 // ── Registro de tipos ────────────────────────────────────────────
@@ -83,7 +83,7 @@ export function FlowCanvas({
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges)
 
-  const { executionState, setNodes: syncNodes, setEdges: syncEdges, nodes: storeNodes } = useFlowStore()
+  const { executionState, setNodes: syncNodes, setEdges: syncEdges, nodes: storeNodes, setCanvasApi } = useFlowStore()
 
   // Track whether an update came from the store (PropertyPanel edit)
   // or from React Flow (drag/drop, connect, delete). Prevents ping-pong
@@ -132,6 +132,41 @@ export function FlowCanvas({
       setNodes(next)
     }
   }, [storeNodes, setNodes])
+
+  // ── API imperativa p/ o copilot global (só o canvas editável) ──
+  useEffect(() => {
+    if (readonly) return
+    const api: CanvasApi = {
+      addNode: ({ nodeType, label }) => {
+        const id = `node-${Date.now()}`
+        const category = NODE_TYPE_TO_CATEGORY[nodeType] ?? 'tool'
+        const count = localNodesRef.current.length
+        const node: Node<FlowNodeData> = {
+          id,
+          type: category,
+          position: { x: 120 + (count % 5) * 220, y: 120 + Math.floor(count / 5) * 130 },
+          data: { label: label ?? nodeType, componentId: nodeType, nodeType, status: 'idle', config: {} },
+        }
+        setNodes(nds => [...nds, node])
+        return id
+      },
+      connectNodes: (sourceId, targetId) => {
+        const ids = new Set(localNodesRef.current.map(n => n.id))
+        if (!ids.has(sourceId) || !ids.has(targetId)) return false
+        setEdges(eds => addEdge(
+          { id: `e-${sourceId}-${targetId}-${Date.now()}`, source: sourceId, target: targetId, type: 'flow', animated: false, data: { isErrorPath: false } },
+          eds))
+        return true
+      },
+      listNodes: () => localNodesRef.current.map(n => ({
+        id: n.id,
+        label: String(n.data?.label ?? n.id),
+        nodeType: String(n.data?.nodeType ?? ''),
+      })),
+    }
+    setCanvasApi(api)
+    return () => setCanvasApi(null)
+  }, [readonly, setCanvasApi, setNodes, setEdges])
 
   // ── Conexão entre nós ──────────────────────────────────────────
   const onConnect: OnConnect = useCallback(
