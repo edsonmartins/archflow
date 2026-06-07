@@ -34,19 +34,28 @@ public final class FlowEngineFactory {
     private FlowEngineFactory() {}
 
     public static FlowEngine create(FlowRepository flowRepository) {
-        return create(flowRepository, null, null, 16, 3_600_000L, 8);
+        return create(flowRepository, null, null, new InMemoryStateManager(), 16, 3_600_000L, 8);
     }
 
     /** As {@link #create(FlowRepository)} but streaming flow/step lifecycle to the SSE feed. */
     public static FlowEngine create(FlowRepository flowRepository,
                                     EventStreamRegistry streamRegistry,
                                     RunningFlowsRegistry runningFlows) {
-        return create(flowRepository, streamRegistry, runningFlows, 16, 3_600_000L, 8);
+        return create(flowRepository, streamRegistry, runningFlows, new InMemoryStateManager(), 16, 3_600_000L, 8);
+    }
+
+    /** As above but with a shared {@link StateManager} (design-0005 step 4). */
+    public static FlowEngine create(FlowRepository flowRepository,
+                                    EventStreamRegistry streamRegistry,
+                                    RunningFlowsRegistry runningFlows,
+                                    StateManager stateManager) {
+        return create(flowRepository, streamRegistry, runningFlows, stateManager, 16, 3_600_000L, 8);
     }
 
     public static FlowEngine create(FlowRepository flowRepository,
                                     EventStreamRegistry streamRegistry,
                                     RunningFlowsRegistry runningFlows,
+                                    StateManager stateManager,
                                     int maxConcurrentFlows, long flowTimeoutMs, int maxParallelSteps) {
         ExecutorService executorService = Executors.newVirtualThreadPerTaskExecutor();
         MetricsCollector metrics = new MetricsCollector(AgentConfig.builder().build());
@@ -68,12 +77,10 @@ public final class FlowEngineFactory {
         DefaultExecutionManager executionManager =
                 new DefaultExecutionManager(flowExecutor, parallelExecutor, executorService);
 
-        StateManager stateManager = new InMemoryStateManager();
-
         return new DefaultFlowEngine(
                 executionManager,
                 flowRepository,
-                stateManager,
+                stateManager != null ? stateManager : new InMemoryStateManager(),
                 new DefaultFlowValidator(),
                 null,   // memoryRestorer — tolerated null
                 null,   // traceRecorder — tolerated null

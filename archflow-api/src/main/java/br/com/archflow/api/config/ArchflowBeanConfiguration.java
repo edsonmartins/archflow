@@ -337,6 +337,17 @@ public class ArchflowBeanConfiguration {
     }
 
     /**
+     * Shared flow state store (design-0005 step 4): one {@link br.com.archflow.engine.core.StateManager}
+     * used by the engine, the OrchestrateStep (to materialize the dynamic tree)
+     * and the execution controller (to read it back). In-memory for dev.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public br.com.archflow.engine.core.StateManager stateManager() {
+        return new br.com.archflow.api.flow.InMemoryStateManager();
+    }
+
+    /**
      * The real, async {@link br.com.archflow.engine.api.FlowEngine} (design-0005
      * step 1): virtual-thread execution with backpressure and pause/resume/cancel,
      * wired from its collaborators (in-memory state for dev). Turns the previously
@@ -347,9 +358,10 @@ public class ArchflowBeanConfiguration {
     public br.com.archflow.engine.api.FlowEngine flowEngine(
             br.com.archflow.engine.persistence.FlowRepository flowRepository,
             EventStreamRegistry eventStreamRegistry,
-            RunningFlowsRegistry runningFlowsRegistry) {
+            RunningFlowsRegistry runningFlowsRegistry,
+            br.com.archflow.engine.core.StateManager stateManager) {
         return br.com.archflow.api.flow.FlowEngineFactory.create(
-                flowRepository, eventStreamRegistry, runningFlowsRegistry);
+                flowRepository, eventStreamRegistry, runningFlowsRegistry, stateManager);
     }
 
     @Bean

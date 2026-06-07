@@ -2,6 +2,7 @@ package br.com.archflow.api.flow;
 
 import br.com.archflow.agent.streaming.EventStreamRegistry;
 import br.com.archflow.api.orchestration.DynamicWorkflowService;
+import br.com.archflow.engine.core.StateManager;
 import br.com.archflow.model.flow.FlowStep;
 import br.com.archflow.model.flow.StepType;
 import br.com.archflow.plugin.api.catalog.ComponentCatalog;
@@ -15,7 +16,8 @@ import static org.mockito.Mockito.mock;
 class DefaultFlowStepFactoryTest {
 
     private final DefaultFlowStepFactory factory = new DefaultFlowStepFactory(
-            mock(ComponentCatalog.class), mock(DynamicWorkflowService.class), mock(EventStreamRegistry.class));
+            mock(ComponentCatalog.class), mock(DynamicWorkflowService.class),
+            mock(EventStreamRegistry.class), mock(StateManager.class));
 
     @Test
     void buildsOrchestrateStepForOrchestrateType() {

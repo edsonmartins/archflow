@@ -20,7 +20,7 @@ class SpringExecutionControllerTest {
         var engine = mock(FlowEngine.class);
         when(store.getExecution("e1")).thenReturn(new LinkedHashMap<>(Map.of("id", "e1", "status", "RUNNING")));
 
-        var controller = new SpringExecutionController(store, engine);
+        var controller = new SpringExecutionController(store, engine, mock(br.com.archflow.engine.core.StateManager.class));
         var response = controller.cancel("e1");
 
         assertThat(response.getStatusCode().value()).isEqualTo(200);
@@ -34,7 +34,7 @@ class SpringExecutionControllerTest {
         var engine = mock(FlowEngine.class);
         when(store.getExecution("nope")).thenReturn(null);
 
-        var controller = new SpringExecutionController(store, engine);
+        var controller = new SpringExecutionController(store, engine, mock(br.com.archflow.engine.core.StateManager.class));
 
         assertThat(controller.cancel("nope").getStatusCode().value()).isEqualTo(404);
         verifyNoInteractions(engine);

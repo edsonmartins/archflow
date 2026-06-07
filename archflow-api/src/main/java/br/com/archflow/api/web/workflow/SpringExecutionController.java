@@ -1,9 +1,12 @@
 package br.com.archflow.api.web.workflow;
 
 import br.com.archflow.engine.api.FlowEngine;
+import br.com.archflow.engine.core.StateManager;
+import br.com.archflow.model.flow.FlowState;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -16,10 +19,13 @@ public class SpringExecutionController {
 
     private final InMemoryWorkflowRuntimeStore store;
     private final FlowEngine flowEngine;
+    private final StateManager stateManager;
 
-    public SpringExecutionController(InMemoryWorkflowRuntimeStore store, FlowEngine flowEngine) {
+    public SpringExecutionController(InMemoryWorkflowRuntimeStore store, FlowEngine flowEngine,
+                                     StateManager stateManager) {
         this.store = store;
         this.flowEngine = flowEngine;
+        this.stateManager = stateManager;
     }
 
     @GetMapping
@@ -32,7 +38,17 @@ public class SpringExecutionController {
     @GetMapping("/{id}")
     public ResponseEntity<Map<String, Object>> get(@PathVariable String id) {
         var execution = store.getExecution(id);
-        return execution != null ? ResponseEntity.ok(execution) : ResponseEntity.notFound().build();
+        if (execution == null) {
+            return ResponseEntity.notFound().build();
+        }
+        // Enrich with the materialized dynamic tree, if any (design-0005 step 4).
+        FlowState state = stateManager.loadState(id);
+        if (state != null && state.getExecutionPaths() != null && !state.getExecutionPaths().isEmpty()) {
+            Map<String, Object> enriched = new LinkedHashMap<>(execution);
+            enriched.put("executionPaths", state.getExecutionPaths());
+            return ResponseEntity.ok(enriched);
+        }
+        return ResponseEntity.ok(execution);
     }
 
     /**

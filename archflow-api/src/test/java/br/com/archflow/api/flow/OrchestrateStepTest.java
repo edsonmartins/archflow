@@ -39,7 +39,7 @@ class OrchestrateStepTest {
     void runsDynamicWorkflowFromConfigAndOutputsConfirmedFindings() {
         when(service.runOn(any(), eq(ctx), any())).thenReturn(new SupervisorResult(List.<Object>of("a", "b"), 2));
 
-        var step = new OrchestrateStep("o1", List.of(), Map.of("goal", "audit", "voters", 3), service, null);
+        var step = new OrchestrateStep("o1", List.of(), Map.of("goal", "audit", "voters", 3), service, null, null);
         StepResult result = step.execute(ctx).join();
 
         assertThat(result.getStatus()).isEqualTo(StepStatus.COMPLETED);
@@ -58,7 +58,7 @@ class OrchestrateStepTest {
         when(ctx.get("input")).thenReturn(Optional.of("audit from input"));
         when(service.runOn(any(), any(), any())).thenReturn(new SupervisorResult(List.of(), 1));
 
-        var step = new OrchestrateStep("o1", List.of(), Map.of(), service, null);
+        var step = new OrchestrateStep("o1", List.of(), Map.of(), service, null, null);
         step.execute(ctx).join();
 
         ArgumentCaptor<DynamicWorkflowRequest> req = ArgumentCaptor.forClass(DynamicWorkflowRequest.class);
@@ -68,7 +68,7 @@ class OrchestrateStepTest {
 
     @Test
     void failsWhenNoGoalOrInput() {
-        var step = new OrchestrateStep("o1", List.of(), Map.of(), service, null);
+        var step = new OrchestrateStep("o1", List.of(), Map.of(), service, null, null);
         StepResult result = step.execute(ctx).join();
 
         assertThat(result.getStatus()).isEqualTo(StepStatus.FAILED);

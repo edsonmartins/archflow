@@ -5,7 +5,9 @@ import br.com.archflow.agent.orchestration.SupervisorResult;
 import br.com.archflow.agent.streaming.EventStreamRegistry;
 import br.com.archflow.api.orchestration.DynamicWorkflowRequest;
 import br.com.archflow.api.orchestration.DynamicWorkflowService;
+import br.com.archflow.engine.core.StateManager;
 import br.com.archflow.model.engine.ExecutionContext;
+import br.com.archflow.model.flow.FlowState;
 import br.com.archflow.model.flow.FlowStep;
 import br.com.archflow.model.flow.StepConnection;
 import br.com.archflow.model.flow.StepResult;
@@ -30,15 +32,17 @@ public final class OrchestrateStep implements FlowStep {
     private final Map<String, Object> config;
     private final DynamicWorkflowService service;
     private final EventStreamRegistry streamRegistry;
+    private final StateManager stateManager;
 
     public OrchestrateStep(String id, List<StepConnection> connections,
                            Map<String, Object> config, DynamicWorkflowService service,
-                           EventStreamRegistry streamRegistry) {
+                           EventStreamRegistry streamRegistry, StateManager stateManager) {
         this.id = id;
         this.connections = connections == null ? List.of() : List.copyOf(connections);
         this.config = config == null ? Map.of() : config;
         this.service = service;
         this.streamRegistry = streamRegistry;
+        this.stateManager = stateManager;
     }
 
     @Override public String getId() { return id; }
@@ -70,14 +74,24 @@ public final class OrchestrateStep implements FlowStep {
                 context.getTenantId());
 
         try {
-            // Stream the dynamic subtask tree live to the run's SSE channel.
-            OrchestrationListener listener = streamRegistry != null
+            // Stream the dynamic subtask tree live (SSE) and materialize it as
+            // ExecutionPaths on the FlowState so it's persisted/inspectable.
+            OrchestrationListener streaming = streamRegistry != null
                     ? new StreamingOrchestrationListener(streamRegistry, context.getSessionId())
                     : OrchestrationListener.NOOP;
+            FlowState state = context.getState();
+            OrchestrationListener listener = state != null
+                    ? new MaterializingOrchestrationListener(state, streaming)
+                    : streaming;
+
             SupervisorResult result = service.runOn(req, context, listener);
             List<Object> confirmed = result.confirmed();
             context.set(id, confirmed);
             context.set(ComponentStep.INPUT_KEY, confirmed);
+
+            if (state != null && stateManager != null) {
+                stateManager.saveState(context.getSessionId(), state);
+            }
             return CompletableFuture.completedFuture(SimpleStepResult.ok(id, confirmed, elapsedMs(start)));
         } catch (RuntimeException e) {
             String msg = e.getMessage() == null ? e.toString() : e.getMessage();
