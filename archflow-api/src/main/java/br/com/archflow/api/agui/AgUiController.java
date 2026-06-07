@@ -5,7 +5,9 @@ import br.com.archflow.agent.streaming.EventStreamRegistry;
 import br.com.archflow.api.flow.WorkflowDeserializer;
 import br.com.archflow.api.web.workflow.InMemoryWorkflowRuntimeStore;
 import br.com.archflow.engine.api.FlowEngine;
+import br.com.archflow.engine.core.StateManager;
 import br.com.archflow.model.engine.DefaultExecutionContext;
+import br.com.archflow.model.flow.FlowState;
 import br.com.archflow.model.engine.ExecutionContext;
 import br.com.archflow.model.flow.Flow;
 import br.com.archflow.model.flow.FlowResult;
@@ -43,6 +45,7 @@ public class AgUiController {
     private final FlowEngine flowEngine;
     private final EventStreamRegistry streamRegistry;
     private final AgUiEventMapper mapper;
+    private final StateManager stateManager;
     private final ObjectMapper json;
 
     public AgUiController(InMemoryWorkflowRuntimeStore store,
@@ -50,12 +53,14 @@ public class AgUiController {
                           FlowEngine flowEngine,
                           EventStreamRegistry streamRegistry,
                           AgUiEventMapper mapper,
+                          StateManager stateManager,
                           ObjectMapper jackson2ObjectMapper) {
         this.store = store;
         this.deserializer = deserializer;
         this.flowEngine = flowEngine;
         this.streamRegistry = streamRegistry;
         this.mapper = mapper;
+        this.stateManager = stateManager;
         this.json = jackson2ObjectMapper;
     }
 
@@ -105,6 +110,15 @@ public class AgUiController {
 
         flowEngine.execute(flow, ctx).whenComplete((result, err) -> {
             synchronized (sendLock) {
+                // Final shared-state snapshot: the materialized dynamic tree (D9).
+                if (err == null) {
+                    FlowState state = stateManager.loadState(runId);
+                    if (state != null && state.getExecutionPaths() != null) {
+                        writeQuietly(sse, AgUiEvent.of("STATE_SNAPSHOT", fields("snapshot",
+                                Map.of("status", statusOf(result, null),
+                                        "executionPaths", state.getExecutionPaths()))));
+                    }
+                }
                 AgUiEvent terminal = err != null
                         ? AgUiEvent.of("RUN_ERROR", fields("runId", runId, "message", errorOf(err)))
                         : AgUiEvent.of("RUN_FINISHED", fields("threadId", threadId, "runId", runId,
