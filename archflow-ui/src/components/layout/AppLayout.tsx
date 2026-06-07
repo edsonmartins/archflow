@@ -1,5 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { AppShell, NavLink, Group, Text, Badge, ActionIcon, Tooltip } from '@mantine/core';
+import { HttpAgent } from '@ag-ui/client';
+import { CopilotKitProvider, CopilotSidebar } from '@copilotkit/react-core/v2';
+import '@copilotkit/react-core/v2/styles.css';
+import CopilotAppOperator from '../copilot/CopilotAppOperator';
 import {
     IconLayoutDashboard,
     IconTopologyRing,
@@ -47,6 +51,9 @@ const NAV_ITEMS = [
 
 export default function AppLayout() {
     const navigate = useNavigate();
+    // App-wide copilot agent (AG-UI). fetch must be bound to window.
+    const copilotAgent = useMemo(
+        () => new HttpAgent({ url: '/ag-ui/agent', fetch: window.fetch.bind(window) }), []);
     const location = useLocation();
     const { t } = useTranslation();
     const { user, logout } = useAuthStore();
@@ -226,7 +233,11 @@ export default function AppLayout() {
             </AppShell.Navbar>
 
             <AppShell.Main>
-                <Outlet />
+                <CopilotKitProvider agents__unsafe_dev_only={{ archflow: copilotAgent }}>
+                    <CopilotAppOperator />
+                    <Outlet />
+                    <CopilotSidebar agentId="archflow" />
+                </CopilotKitProvider>
             </AppShell.Main>
         </AppShell>
     );
