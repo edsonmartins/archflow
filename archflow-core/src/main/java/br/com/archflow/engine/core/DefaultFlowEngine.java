@@ -198,7 +198,20 @@ public class DefaultFlowEngine implements FlowEngine {
                     memoryRestorer.restore(context);
                     logger.info("Memory restored for flow: " + flowId);
                 } catch (Exception e) {
-                    logger.warning("Failed to restore memory for flow " + flowId + ": " + e.getMessage());
+                    // Retomar sem o contexto de memória produz respostas
+                    // erradas em silêncio — por padrão a falha interrompe o
+                    // resume. -Darchflow.memory.restore.fail-fast=false volta
+                    // ao comportamento antigo (prosseguir com WARN).
+                    if (Boolean.parseBoolean(System.getProperty(
+                            "archflow.memory.restore.fail-fast", "true"))) {
+                        throw new IllegalStateException(
+                                "Failed to restore memory for flow " + flowId
+                                + " — aborting resume (set archflow.memory.restore.fail-fast=false"
+                                + " to continue without restored memory)", e);
+                    }
+                    logger.warning("Failed to restore memory for flow " + flowId
+                            + " — continuing WITHOUT restored memory"
+                            + " (archflow.memory.restore.fail-fast=false): " + e.getMessage());
                 }
             }
 

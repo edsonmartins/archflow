@@ -68,6 +68,7 @@ class WorkflowToolTest {
         WorkflowTool tool = WorkflowTool.builder()
                 .id("test-tool")
                 .workflow(testWorkflow)
+                .executor(input -> Map.of("echo", input))
                 .build();
 
         WorkflowToolResult result = tool.execute(Map.of("input", "value"));
@@ -77,10 +78,27 @@ class WorkflowToolTest {
     }
 
     @Test
+    void testExecuteWithoutExecutorFails() {
+        // Sem executor não há execução real: o resultado deve ser falha
+        // explícita, nunca um placeholder de metadados mascarando o problema.
+        WorkflowTool tool = WorkflowTool.builder()
+                .id("test-tool")
+                .workflow(testWorkflow)
+                .build();
+
+        WorkflowToolResult result = tool.execute(Map.of("input", "value"));
+
+        assertThat(result.success()).isFalse();
+        assertThat(result.getError()).hasValueSatisfying(
+                error -> assertThat(error).contains("no executor configured"));
+    }
+
+    @Test
     void testExecuteWorkflowToolAsync() {
         WorkflowTool tool = WorkflowTool.builder()
                 .id("test-tool")
                 .workflow(testWorkflow)
+                .executor(input -> Map.of("echo", input))
                 .async(true)
                 .build();
 
@@ -220,7 +238,12 @@ class WorkflowToolTest {
 
     @Test
     void testRegistryExecute() {
-        WorkflowTool tool = WorkflowTool.from(testWorkflow);
+        WorkflowTool tool = WorkflowTool.builder()
+                .id(testWorkflow.getId())
+                .name(testWorkflow.getName())
+                .workflow(testWorkflow)
+                .executor(input -> Map.of("echo", input))
+                .build();
         registry.register(tool);
 
         WorkflowToolResult result = registry.execute("test-workflow", Map.of("input", "value"));
@@ -230,7 +253,12 @@ class WorkflowToolTest {
 
     @Test
     void testRegistryExecuteByName() {
-        WorkflowTool tool = WorkflowTool.from(testWorkflow);
+        WorkflowTool tool = WorkflowTool.builder()
+                .id(testWorkflow.getId())
+                .name(testWorkflow.getName())
+                .workflow(testWorkflow)
+                .executor(input -> Map.of("echo", input))
+                .build();
         registry.register(tool);
 
         WorkflowToolResult result = registry.executeByName("Test Workflow", Map.of("input", "value"));
