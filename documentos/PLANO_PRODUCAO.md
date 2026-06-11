@@ -20,6 +20,7 @@ Nota da execução: o JdbcStateRepository existente usa SQL específico de Postg
 ## Follow-up pós-PR (executado 11/06/2026)
 
 - ✅ **Auto-config de persistência JDBC** — `JdbcPersistenceConfiguration` liga StateManager durável (via `RepositoryStateManager`/`JdbcStateRepository`) e `AuditRepository` quando `archflow.persistence.jdbc.enabled=true` + DataSource; default em memória desligado pela mesma flag (toggle determinístico). FlowRepository continua manual (codec específico do deployment) com o guard guiando. Testado com `ApplicationContextRunner`. Doc atualizada em `docs/development/production-persistence.md`.
+- ✅ **ObservabilityService consome AuditRepository** — o bean passou a injetar o `AuditRepository` opcional (via `ObjectProvider`); com JDBC ligado, as consultas de auditoria da tela de observabilidade leem do banco em vez de ficarem vazias (antes o construtor recebia `null` fixo).
 - ✅ **Memória episódica** — sem trabalho de código: a memória episódica de produção é o **BrainSentry** (externo, já integrado com circuit breaker). A `InMemoryEpisodicMemory` é impl de referência/teste, não instanciada no runtime — não é risco de perda de dados nem entra no guard. Documentado em `docs/architecture/internal-modules.md`.
 
 ## Decisões assumidas (ajustar se discordar)

@@ -168,8 +168,13 @@ public class ArchflowBeanConfiguration {
     public ObservabilityService observabilityService(
             InMemoryTraceStore traceStore,
             EventStreamRegistry eventStreamRegistry,
-            RunningFlowsRegistry runningFlowsRegistry) {
-        return new ObservabilityService(null, traceStore, null, eventStreamRegistry, runningFlowsRegistry);
+            RunningFlowsRegistry runningFlowsRegistry,
+            org.springframework.beans.factory.ObjectProvider<AuditRepository> auditRepository) {
+        // AuditRepository é opcional: presente quando archflow.persistence.jdbc.enabled=true
+        // (JdbcAuditRepository) — aí as consultas de auditoria da observabilidade passam a
+        // ler do banco em vez de ficarem vazias. ObjectProvider evita exigir o bean.
+        return new ObservabilityService(null, traceStore, auditRepository.getIfAvailable(),
+                eventStreamRegistry, runningFlowsRegistry);
     }
 
     // =========================================================================
