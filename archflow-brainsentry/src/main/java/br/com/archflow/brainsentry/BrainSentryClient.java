@@ -42,9 +42,15 @@ public class BrainSentryClient {
     private final BrainSentryConfig config;
     private final HttpClient httpClient;
     private final ObjectMapper mapper;
+    private final CircuitBreaker circuitBreaker;
 
     public BrainSentryClient(BrainSentryConfig config) {
+        this(config, new CircuitBreaker("brain-sentry", 5, java.time.Duration.ofSeconds(30)));
+    }
+
+    public BrainSentryClient(BrainSentryConfig config, CircuitBreaker circuitBreaker) {
         this.config = Objects.requireNonNull(config);
+        this.circuitBreaker = Objects.requireNonNull(circuitBreaker);
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(config.timeout())
                 .build();
@@ -54,10 +60,25 @@ public class BrainSentryClient {
                 .configure(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS, false);
     }
 
+    /** Estado e contadores do circuit breaker, para monitoramento/health. */
+    public CircuitBreaker getCircuitBreaker() {
+        return circuitBreaker;
+    }
+
     /**
      * Intercepts a prompt, enriching it with relevant memories.
+     *
+     * <p>Enriquecimento é opcional por design: em falha do Brain Sentry (ou
+     * circuito aberto) o prompt original segue adiante — mas a falha é
+     * registrada no circuit breaker e logada, nunca mascarada em silêncio.
      */
     public EnrichedPrompt intercept(String prompt, int maxTokens) throws IOException, InterruptedException {
+        if (!circuitBreaker.allowRequest()) {
+            log.warn("Brain Sentry circuit OPEN — skipping prompt enrichment (rejected locally: {})",
+                    circuitBreaker.getRejectedCount());
+            return new EnrichedPrompt(false, prompt, null, List.of(), 0);
+        }
+
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("prompt", prompt);
         body.put("maxTokens", maxTokens > 0 ? maxTokens : config.maxTokenBudget());
@@ -66,11 +87,19 @@ public class BrainSentryClient {
             body.put("context", Map.of("tenantId", config.tenantId()));
         }
 
-        HttpResponse<String> response = post("/v1/intercept", body);
+        HttpResponse<String> response;
+        try {
+            response = post("/v1/intercept", body);
+        } catch (IOException | InterruptedException e) {
+            circuitBreaker.recordFailure();
+            throw e;
+        }
         if (response.statusCode() != 200) {
+            circuitBreaker.recordFailure();
             log.warn("Intercept failed ({}): {}", response.statusCode(), response.body());
             return new EnrichedPrompt(false, prompt, null, List.of(), 0);
         }
+        circuitBreaker.recordSuccess();
 
         Map<String, Object> json = mapper.readValue(response.body(), new TypeReference<>() {});
         boolean enhanced = Boolean.TRUE.equals(json.get("enhanced"));
@@ -106,15 +135,34 @@ public class BrainSentryClient {
 
     /**
      * Searches memories using hybrid search (vector + keyword + graph).
+     *
+     * <p>Erro de API lança {@link IOException} — lista vazia significa
+     * exclusivamente "nenhum resultado". A versão anterior devolvia lista
+     * vazia para ambos os casos, impedindo o caller de fazer retry ou
+     * escalar a falha.
+     *
+     * @throws IOException quando o Brain Sentry responde erro ou o circuito está aberto
      */
     public List<Memory> searchMemories(String query, int limit) throws IOException, InterruptedException {
+        if (!circuitBreaker.allowRequest()) {
+            throw new IOException("Brain Sentry circuit breaker is OPEN — search rejected locally");
+        }
+
         Map<String, Object> body = Map.of("query", query, "limit", limit);
 
-        HttpResponse<String> response = post("/v1/memories/search", body);
-        if (response.statusCode() != 200) {
-            log.warn("Search failed ({}): {}", response.statusCode(), response.body());
-            return List.of();
+        HttpResponse<String> response;
+        try {
+            response = post("/v1/memories/search", body);
+        } catch (IOException | InterruptedException e) {
+            circuitBreaker.recordFailure();
+            throw e;
         }
+        if (response.statusCode() != 200) {
+            circuitBreaker.recordFailure();
+            throw new IOException("Brain Sentry search failed: HTTP " + response.statusCode()
+                    + " " + response.body());
+        }
+        circuitBreaker.recordSuccess();
 
         List<Map<String, Object>> results = mapper.readValue(response.body(), new TypeReference<>() {});
         return results.stream().map(this::parseMemory).toList();
@@ -142,6 +190,7 @@ public class BrainSentryClient {
             HttpResponse<String> response = get("/health");
             return response.statusCode() == 200;
         } catch (Exception e) {
+            log.debug("Brain Sentry health check failed: {}", e.getMessage());
             return false;
         }
     }

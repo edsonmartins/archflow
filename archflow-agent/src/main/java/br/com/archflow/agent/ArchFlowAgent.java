@@ -50,13 +50,33 @@ public class ArchFlowAgent implements AutoCloseable {
     private final EventStreamRegistry eventStreamRegistry;
     private final RunningFlowsRegistry runningFlowsRegistry;
 
+    /**
+     * Cria o agente com persistência em memória — adequado para execuções
+     * one-shot (standalone) e desenvolvimento. Para produção como serviço,
+     * use {@link #ArchFlowAgent(AgentConfig, StateRepository, FlowRepository)}
+     * com implementações duráveis: todo estado deste construtor é perdido
+     * ao reiniciar o processo.
+     */
     public ArchFlowAgent(AgentConfig config) {
+        this(config, new InMemoryStateRepository(), new InMemoryFlowRepository());
+        logger.warning("ArchFlowAgent usando persistência em memória — fluxos e estado "
+                + "serão perdidos no restart. Injete StateRepository/FlowRepository "
+                + "duráveis para uso em produção.");
+    }
+
+    /**
+     * Cria o agente com repositórios de estado e de fluxos fornecidos pelo
+     * caller, permitindo persistência durável (ex.: JDBC/PostgreSQL).
+     */
+    public ArchFlowAgent(AgentConfig config,
+                         StateRepository stateRepository,
+                         FlowRepository flowRepository) {
         this.config = config;
 
         // Inicializa componentes principais
         this.executorService = createExecutorService();
-        this.stateRepository = new InMemoryStateRepository();
-        this.flowRepository = new InMemoryFlowRepository();
+        this.stateRepository = stateRepository;
+        this.flowRepository = flowRepository;
         this.metricsCollector = new MetricsCollector(config);
         this.pluginManager = new FlowPluginManager(config.pluginsPath());
         this.stateManager = createStateManager();

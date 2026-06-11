@@ -5,6 +5,7 @@ import br.com.archflow.api.linktor.LinktorConfigController;
 import br.com.archflow.api.linktor.dto.LinktorConfigDto;
 import br.com.archflow.langchain4j.mcp.McpClient;
 import br.com.archflow.langchain4j.mcp.client.StdioMcpClient;
+import br.com.archflow.langchain4j.mcp.transport.McpCommandPolicy;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -49,6 +50,14 @@ public class LinktorConfigControllerImpl implements LinktorConfigController {
 
     @Override
     public LinktorConfigDto update(LinktorConfigDto incoming) {
+        // Falha no momento do save (não na execução do fluxo): se o comando
+        // MCP cair fora da allow-list, o StdioClientTransport rejeitaria mais
+        // tarde com SecurityException e o fluxo morreria em runtime sem o
+        // operador saber por quê.
+        if (incoming.enabled() && incoming.mcpCommand() != null && !incoming.mcpCommand().isBlank()) {
+            String[] argv = incoming.mcpCommand().trim().split("\\s+");
+            McpCommandPolicy.validateCommand(argv);
+        }
         String tenantId = TenantContext.currentTenantId();
         LinktorConfigDto next = byTenant.compute(tenantId, (k, prev) -> {
             LinktorConfigDto previous = prev != null ? prev : initial;

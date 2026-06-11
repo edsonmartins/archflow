@@ -123,6 +123,18 @@
         }
     },
     "editor": {
+        "outline": {
+            "title": "Workflow outline",
+            "toggle": "Toggle accessible outline",
+            "empty": "No nodes yet. Add a node from the palette.",
+            "connectsTo": "connects to {{targets}}",
+            "status": {
+                "idle": "idle",
+                "running": "running",
+                "success": "completed",
+                "error": "failed"
+            }
+        },
         "save": "Save",
         "saveYaml": "Save YAML",
         "canvas": "Canvas",
@@ -173,6 +185,7 @@
             "toggleProperties": "Toggle properties panel",
             "fields": {
                 "nodeName": "Node name",
+                "catalogOffline": "Offline catalog — showing built-in components only",
                 "assistantType": "Assistant type",
                 "agentType": "Agent type",
                 "executionStrategy": "Execution strategy",
@@ -1006,8 +1019,7 @@
         "password": "Password",
         "passwordPlaceholder": "your-password",
         "signIn": "Sign in",
-        "devCredentials": "Dev credentials",
-        "credsTpl": "Username: admin · Password: admin123"
+        "devCredentials": "Dev credentials"
     },
     "executionDetail": {
         "title": "Execution {{id}}",

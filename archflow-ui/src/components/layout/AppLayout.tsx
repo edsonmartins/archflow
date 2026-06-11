@@ -52,8 +52,13 @@ const NAV_ITEMS = [
 export default function AppLayout() {
     const navigate = useNavigate();
     // App-wide copilot agent (AG-UI). fetch must be bound to window.
+    // O @copilotkit (pré-release) embute sua própria declaração de
+    // AbstractAgent, nominalmente incompatível com a de @ag-ui/client —
+    // em runtime é o mesmo protocolo AG-UI, então o cast é seguro.
     const copilotAgent = useMemo(
-        () => new HttpAgent({ url: '/ag-ui/agent', fetch: window.fetch.bind(window) }), []);
+        () => new HttpAgent({ url: '/ag-ui/agent', fetch: window.fetch.bind(window) }) as unknown as
+            NonNullable<Parameters<typeof CopilotKitProvider>[0]['agents__unsafe_dev_only']>[string],
+        []);
     const location = useLocation();
     const { t } = useTranslation();
     const { user, logout } = useAuthStore();
@@ -66,7 +71,8 @@ export default function AppLayout() {
     // needing a dedicated SSE subscription. Errors are swallowed on purpose
     // — the badge is opportunistic, not load-bearing.
     useEffect(() => {
-        const tenantId = impersonating ?? (currentRole === 'superadmin' ? 'all' : 'default');
+        // impersonating é um TenantInfo — a API espera o ID (passar o objeto virava "[object Object]")
+        const tenantId = impersonating?.id ?? (currentRole === 'superadmin' ? 'all' : 'default');
         let cancelled = false;
         const refresh = () => {
             approvalApi

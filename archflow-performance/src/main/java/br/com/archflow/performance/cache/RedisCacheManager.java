@@ -260,27 +260,49 @@ public class RedisCacheManager {
     }
 
     /**
-     * Serializes an object to a byte array using Java serialization.
+     * JSON com type-ids embutidos no lugar de serialização Java nativa: um
+     * Redis comprometido deixaria de ser um vetor de execução de código via
+     * gadget chains de ObjectInputStream. O {@code PolymorphicTypeValidator}
+     * restringe a desserialização a tipos do archflow e do JDK.
+     */
+    private static final com.fasterxml.jackson.databind.ObjectMapper MAPPER = createMapper();
+
+    private static com.fasterxml.jackson.databind.ObjectMapper createMapper() {
+        com.fasterxml.jackson.databind.jsontype.PolymorphicTypeValidator typeValidator =
+                com.fasterxml.jackson.databind.jsontype.BasicPolymorphicTypeValidator.builder()
+                        .allowIfSubType("br.com.archflow.")
+                        .allowIfSubType("java.util.")
+                        .allowIfSubType("java.lang.")
+                        .allowIfSubType("java.time.")
+                        .build();
+        com.fasterxml.jackson.databind.ObjectMapper mapper =
+                new com.fasterxml.jackson.databind.ObjectMapper();
+        mapper.findAndRegisterModules();
+        mapper.activateDefaultTyping(typeValidator,
+                com.fasterxml.jackson.databind.ObjectMapper.DefaultTyping.NON_FINAL,
+                com.fasterxml.jackson.annotation.JsonTypeInfo.As.PROPERTY);
+        return mapper;
+    }
+
+    /**
+     * Serializes an object to JSON bytes (with embedded type information).
      */
     static byte[] serialize(Object value) {
-        try (ByteArrayOutputStream bos = new ByteArrayOutputStream();
-             ObjectOutputStream oos = new ObjectOutputStream(bos)) {
-            oos.writeObject(value);
-            oos.flush();
-            return bos.toByteArray();
+        try {
+            return MAPPER.writeValueAsBytes(value);
         } catch (IOException e) {
             throw new IllegalArgumentException("Failed to serialize value: " + value.getClass().getName(), e);
         }
     }
 
     /**
-     * Deserializes a byte array back to an object.
+     * Deserializes JSON bytes back to an object. Types outside the allow-list
+     * (archflow + JDK) are rejected by the type validator.
      */
     static Object deserialize(byte[] data) {
-        try (ByteArrayInputStream bis = new ByteArrayInputStream(data);
-             ObjectInputStream ois = new ObjectInputStream(bis)) {
-            return ois.readObject();
-        } catch (IOException | ClassNotFoundException e) {
+        try {
+            return MAPPER.readValue(data, Object.class);
+        } catch (IOException e) {
             throw new IllegalArgumentException("Failed to deserialize value", e);
         }
     }

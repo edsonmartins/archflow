@@ -98,16 +98,28 @@ public class PermissionValidator {
 
     /**
      * Checks if a specific permission is allowed, considering wildcard patterns.
+     *
+     * <p>A wildcard is only honored when the <em>allowed</em> set contains a
+     * pattern whose final segment is {@code *} (e.g. {@code network:https:*}),
+     * and it matches strictly by segment prefix: {@code network:*} allows
+     * {@code network:https://api.example.com} but never {@code networkX:...}
+     * nor permissions from another category. Patterns are taken from the
+     * configured allow-list — never derived from the requested permission.
      */
     private boolean isPermissionAllowed(String permission) {
         if (allowedPermissions.contains(permission)) {
             return true;
         }
 
-        // Check wildcard patterns (e.g., "network:https:*" allows "network:https://api.example.com")
-        String prefix = permission.contains(":") ? permission.substring(0, permission.indexOf(':')) : permission;
-        String wildcardPattern = prefix + ":*";
-        return allowedPermissions.contains(wildcardPattern);
+        for (String allowed : allowedPermissions) {
+            if (allowed.endsWith(":*")) {
+                String prefix = allowed.substring(0, allowed.length() - 1); // keeps trailing ':'
+                if (permission.startsWith(prefix) && permission.length() > prefix.length()) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /**

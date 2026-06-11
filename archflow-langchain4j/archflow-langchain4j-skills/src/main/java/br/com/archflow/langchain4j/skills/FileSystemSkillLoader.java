@@ -53,7 +53,9 @@ public class FileSystemSkillLoader implements SkillLoader {
 
         List<Skill> skills = new ArrayList<>();
         try (Stream<Path> dirs = Files.list(skillsDirectory)) {
-            dirs.filter(Files::isDirectory).forEach(dir -> {
+            dirs.filter(Files::isDirectory)
+                    .filter(this::isWithinSkillsDirectory)
+                    .forEach(dir -> {
                 Path skillFile = dir.resolve(SKILL_FILE);
                 if (Files.exists(skillFile)) {
                     try {
@@ -67,6 +69,27 @@ public class FileSystemSkillLoader implements SkillLoader {
             });
         }
         return skills;
+    }
+
+    /**
+     * Rejeita entradas que escapam do diretório de skills via symlink —
+     * um link para fora (ex.: /etc) faria o loader ler arquivos arbitrários
+     * do host como conteúdo de skill.
+     */
+    private boolean isWithinSkillsDirectory(Path dir) {
+        try {
+            Path baseReal = skillsDirectory.toRealPath();
+            Path dirReal = dir.toRealPath();
+            if (!dirReal.startsWith(baseReal)) {
+                log.warn("Skipping skill entry outside the skills directory (symlink?): {} -> {}",
+                        dir, dirReal);
+                return false;
+            }
+            return true;
+        } catch (IOException e) {
+            log.warn("Skipping unreadable skill entry {}: {}", dir, e.getMessage());
+            return false;
+        }
     }
 
     /**

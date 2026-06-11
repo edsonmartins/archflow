@@ -123,6 +123,18 @@
         }
     },
     "editor": {
+        "outline": {
+            "title": "Estrutura do fluxo",
+            "toggle": "Alternar estrutura acessível",
+            "empty": "Nenhum nó ainda. Adicione um nó pela paleta.",
+            "connectsTo": "conecta a {{targets}}",
+            "status": {
+                "idle": "ocioso",
+                "running": "executando",
+                "success": "concluído",
+                "error": "falhou"
+            }
+        },
         "save": "Salvar",
         "saveYaml": "Salvar YAML",
         "canvas": "Canvas",
@@ -173,6 +185,7 @@
             "toggleProperties": "Alternar painel de propriedades",
             "fields": {
                 "nodeName": "Nome do nó",
+                "catalogOffline": "Catálogo offline — exibindo apenas componentes embutidos",
                 "assistantType": "Tipo de assistente",
                 "agentType": "Tipo de agente",
                 "executionStrategy": "Estratégia de execução",
@@ -1006,8 +1019,7 @@
         "password": "Senha",
         "passwordPlaceholder": "sua-senha",
         "signIn": "Entrar",
-        "devCredentials": "Credenciais de dev",
-        "credsTpl": "Usuário: admin · Senha: admin123"
+        "devCredentials": "Credenciais de dev"
     },
     "executionDetail": {
         "title": "Execução {{id}}",

@@ -15,11 +15,19 @@ import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
+import java.net.URL;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.ServiceLoader;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 public class ArchflowPluginManager implements AutoCloseable {
     private static final Logger log = LoggerFactory.getLogger(ArchflowPluginManager.class);
@@ -30,6 +38,100 @@ public class ArchflowPluginManager implements AutoCloseable {
      *  application classpath have no entry here. */
     private final Map<String, ArchflowPluginClassLoader> classLoaders = new ConcurrentHashMap<>();
     private final ComponentCatalog catalog = new DefaultComponentCatalog();
+
+    /**
+     * Discovers and installs every {@link ComponentPlugin} registered (via
+     * {@code META-INF/services}) and visible to the given classloader.
+     *
+     * @return metadata ids of the plugins installed by this call
+     * @throws PluginLoadException if any discovered plugin fails to install —
+     *         loading is all-or-nothing per call so a broken plugin never
+     *         disappears silently
+     */
+    public List<String> loadFromClassLoader(ClassLoader classLoader) {
+        List<String> installed = new ArrayList<>();
+        try {
+            for (ComponentPlugin plugin : ServiceLoader.load(ComponentPlugin.class, classLoader)) {
+                installPlugin(plugin,
+                        classLoader instanceof ArchflowPluginClassLoader acl ? acl : null);
+                installed.add(((AIComponent) plugin).getMetadata().id());
+            }
+        } catch (PluginLoadException e) {
+            throw e;
+        } catch (Throwable e) {
+            // ServiceConfigurationError etc. — a broken registration must fail loudly
+            throw new PluginLoadException("Plugin discovery failed: " + e.getMessage(), e);
+        }
+        if (!installed.isEmpty()) {
+            log.info("Loaded {} plugin(s): {}", installed.size(), installed);
+        }
+        return installed;
+    }
+
+    /**
+     * Loads every plugin found in the {@code *.jar} files of a directory.
+     * All jars share one isolated {@link ArchflowPluginClassLoader} (parent
+     * delegation only for shared API packages).
+     *
+     * <p>A missing or empty directory is not an error — it simply loads
+     * nothing (and logs at INFO). A jar that fails to load IS an error.
+     *
+     * @return metadata ids of the plugins installed by this call
+     */
+    public List<String> loadFromDirectory(Path pluginsDir) {
+        if (pluginsDir == null || !Files.isDirectory(pluginsDir)) {
+            log.info("Plugins directory {} does not exist — no external plugins loaded", pluginsDir);
+            return List.of();
+        }
+
+        List<URL> jarUrls = new ArrayList<>();
+        try (Stream<Path> entries = Files.list(pluginsDir)) {
+            entries.filter(p -> p.getFileName().toString().endsWith(".jar"))
+                    .sorted()
+                    .forEach(p -> {
+                        try {
+                            jarUrls.add(p.toUri().toURL());
+                        } catch (IOException e) {
+                            throw new PluginLoadException("Invalid plugin jar path: " + p, e);
+                        }
+                    });
+        } catch (IOException e) {
+            throw new PluginLoadException("Cannot list plugins directory: " + pluginsDir, e);
+        }
+
+        if (jarUrls.isEmpty()) {
+            log.info("No plugin jars found in {}", pluginsDir);
+            return List.of();
+        }
+
+        ArchflowPluginClassLoader loader = new ArchflowPluginClassLoader(
+                jarUrls.toArray(new URL[0]), getClass().getClassLoader());
+        try {
+            return loadFromClassLoader(loader);
+        } catch (RuntimeException e) {
+            try {
+                loader.close();
+            } catch (IOException closeError) {
+                log.warn("Failed to close plugin classloader after load error", closeError);
+            }
+            throw e;
+        }
+    }
+
+    /** Returns the plugin instance registered under the given metadata id. */
+    public Optional<ComponentPlugin> getPlugin(String pluginId) {
+        return Optional.ofNullable(loadedPlugins.get(pluginId));
+    }
+
+    /** Metadata ids of every plugin currently loaded. */
+    public Set<String> getLoadedPluginIds() {
+        return Set.copyOf(loadedPlugins.keySet());
+    }
+
+    /** The catalog all loaded plugins are registered in. */
+    public ComponentCatalog getCatalog() {
+        return catalog;
+    }
 
     private void installPlugin(ComponentPlugin plugin) {
         installPlugin(plugin, null);
@@ -84,7 +186,9 @@ public class ArchflowPluginManager implements AutoCloseable {
             catalog.unregister(pluginId);
         }
         ArchflowPluginClassLoader cl = classLoaders.remove(pluginId);
-        if (cl != null) {
+        // Vários plugins de um mesmo diretório compartilham um classloader —
+        // só fecha quando este era o último plugin que o referenciava.
+        if (cl != null && !classLoaders.containsValue(cl)) {
             try {
                 cl.close();
             } catch (IOException e) {

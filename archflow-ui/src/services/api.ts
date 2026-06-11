@@ -7,7 +7,61 @@ class ApiError extends Error {
     }
 }
 
+// ── Refresh automático de token ─────────────────────────────────────
+// Renova o access token antes de expirar (margem de 60s). Single-flight:
+// requests concorrentes aguardam o mesmo refresh em vez de disparar vários.
+const REFRESH_MARGIN_MS = 60_000;
+let refreshInFlight: Promise<void> | null = null;
+
+/** Lê o `exp` do payload do JWT sem validar assinatura (só para agendar o refresh). */
+export function tokenExpiresAt(token: string): number | null {
+    try {
+        const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+        return typeof payload.exp === 'number' ? payload.exp * 1000 : null;
+    } catch {
+        return null;
+    }
+}
+
+async function ensureFreshToken(): Promise<void> {
+    const token = localStorage.getItem('archflow_token');
+    const refreshToken = localStorage.getItem('archflow_refresh_token');
+    if (!token || !refreshToken) return;
+
+    const expiresAt = tokenExpiresAt(token);
+    if (expiresAt === null || expiresAt - Date.now() > REFRESH_MARGIN_MS) return;
+
+    if (!refreshInFlight) {
+        refreshInFlight = (async () => {
+            try {
+                const response = await fetch(`${API_BASE}/auth/refresh`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ refreshToken }),
+                });
+                if (!response.ok) return; // o request original recebe 401 e redireciona
+                const res = await response.json();
+                if (res.accessToken) localStorage.setItem('archflow_token', res.accessToken);
+                if (res.refreshToken) localStorage.setItem('archflow_refresh_token', res.refreshToken);
+            } catch {
+                // rede indisponível: deixa o request original decidir (401 → login)
+            } finally {
+                refreshInFlight = null;
+            }
+        })();
+    }
+    await refreshInFlight;
+}
+
+/** Endpoints de auth não devem disparar refresh (evita recursão/loop). */
+function skipsRefresh(path: string): boolean {
+    return path.startsWith('/auth/login') || path.startsWith('/auth/refresh');
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+    if (!skipsRefresh(path)) {
+        await ensureFreshToken();
+    }
     const token = localStorage.getItem('archflow_token');
     const headers: Record<string, string> = {
         'Content-Type': 'application/json',

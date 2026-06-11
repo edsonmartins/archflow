@@ -171,8 +171,17 @@ export const ShapedNode = memo(function ShapedNode({
     : exec === 'running' ? '#D97706'
     : palette.idleBorder
 
+  // Classes de motion por estado de execução (keyframes em App.css):
+  // running pulsa, success dá um pop curto, error treme uma vez.
+  const execMotionClass =
+    exec === 'running' ? 'af-node-running'
+    : exec === 'success' ? 'af-node-completed'
+    : exec === 'error' ? 'af-node-failed'
+    : ''
+
   return (
     <div
+      className={`af-node-card ${execMotionClass}`}
       style={{
         position:     'relative',
         width:        WIDTH,

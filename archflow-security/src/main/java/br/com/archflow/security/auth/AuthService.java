@@ -29,18 +29,29 @@ public class AuthService {
     private final JwtService jwtService;
     private final PasswordService passwordService;
     private final UserRepository userRepository;
+    private final TokenBlacklist tokenBlacklist;
 
     /**
-     * Creates an AuthService.
+     * Creates an AuthService with an in-memory token blacklist (suitable for
+     * single-instance deployments; clusters should inject a shared one).
      *
      * @param jwtService The JWT service for token operations
      * @param passwordService The password service for hashing/verification
      * @param userRepository The user repository for user lookups
      */
     public AuthService(JwtService jwtService, PasswordService passwordService, UserRepository userRepository) {
+        this(jwtService, passwordService, userRepository, new InMemoryTokenBlacklist());
+    }
+
+    /**
+     * Creates an AuthService with an explicit token blacklist implementation.
+     */
+    public AuthService(JwtService jwtService, PasswordService passwordService,
+                       UserRepository userRepository, TokenBlacklist tokenBlacklist) {
         this.jwtService = jwtService;
         this.passwordService = passwordService;
         this.userRepository = userRepository;
+        this.tokenBlacklist = tokenBlacklist;
     }
 
     /**
@@ -179,6 +190,10 @@ public class AuthService {
                 throw new AuthenticationException("Token expired");
             }
 
+            if (tokenBlacklist.isRevoked(accessToken)) {
+                throw new AuthenticationException("Token has been revoked");
+            }
+
             return jwtService.extractUserId(accessToken);
 
         } catch (JwtService.JwtException e) {
@@ -214,11 +229,9 @@ public class AuthService {
     }
 
     /**
-     * Logs out a user by invalidating their access token.
-     *
-     * <p>Note: For JWT-based stateless authentication, tokens cannot be directly invalidated.
-     * This method is a placeholder for future token blacklist functionality.
-     * Clients should discard their tokens on logout.</p>
+     * Logs out a user, revoking the access token until its natural expiration.
+     * Subsequent {@link #validateAccessToken} calls with the same token fail
+     * with "Token has been revoked".
      *
      * @param accessToken The access token to invalidate
      */
@@ -227,11 +240,12 @@ public class AuthService {
         String userId = validateAccessToken(accessToken);
         String username = jwtService.extractUsername(accessToken);
 
-        log.info("User {} logged out (user ID: {})", username, userId);
+        java.time.Instant expiresAt = jwtService.validateToken(accessToken)
+                .getExpiration().toInstant();
+        tokenBlacklist.revoke(accessToken, expiresAt);
 
-        // In a full implementation, this would add the token to a blacklist
-        // For now, tokens remain valid until they expire (stateless JWT)
-        // Token blacklist can be implemented using Redis or similar
+        log.info("User {} logged out — token revoked until {} (user ID: {})",
+                username, expiresAt, userId);
     }
 
     /**

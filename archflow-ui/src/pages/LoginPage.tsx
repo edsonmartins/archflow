@@ -89,18 +89,20 @@ export default function LoginPage() {
                     </form>
                 </Paper>
 
-                <Alert
-                    icon={<IconInfoCircle size={16} />}
-                    color="blue"
-                    variant="light"
-                    mt="md"
-                    radius="lg"
-                    title={t('login.devCredentials')}
-                >
-                    <Text size="sm">
-                        {t('login.username')}: <Code>admin</Code> &nbsp; {t('login.password')}: <Code>admin123</Code>
-                    </Text>
-                </Alert>
+                {import.meta.env.DEV && (
+                    <Alert
+                        icon={<IconInfoCircle size={16} />}
+                        color="blue"
+                        variant="light"
+                        mt="md"
+                        radius="lg"
+                        title={t('login.devCredentials')}
+                    >
+                        <Text size="sm">
+                            {t('login.username')}: <Code>admin</Code> &nbsp; {t('login.password')}: <Code>admin123</Code>
+                        </Text>
+                    </Alert>
+                )}
             </Box>
         </Center>
     );

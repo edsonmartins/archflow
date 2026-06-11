@@ -18,27 +18,30 @@ import { WorkflowEditor as WorkflowEditorPage } from './pages/WorkflowEditorPage
 import ExecutionHistoryPage from './pages/ExecutionHistoryPage';
 import ConversationsListPage from './pages/ConversationsListPage';
 import ConversationPage from './pages/ConversationPage';
-import TemplatesPage from './pages/TemplatesPage';
-import TemplateDetailPage from './pages/TemplateDetailPage';
-import VoicePlaygroundPage from './pages/VoicePlaygroundPage';
 import ApprovalQueuePage from './pages/ApprovalQueuePage';
 import ApprovalDetailPage from './pages/ApprovalDetailPage';
-import MarketplacePage from './pages/MarketplacePage';
-import MarketplaceDetailPage from './pages/MarketplaceDetailPage';
-import SkillsPage from './pages/SkillsPage';
-import McpServersPage from './pages/McpServersPage';
-import McpServerDetailPage from './pages/McpServerDetailPage';
-import BrainSentryConfigPage from './pages/BrainSentryConfigPage';
-import LinktorConfigPage from './pages/LinktorConfigPage';
-import LinktorInboxPage from './pages/LinktorInboxPage';
-import LinktorConversationPage from './pages/LinktorConversationPage';
-import ScheduledTriggersPage from './pages/ScheduledTriggersPage';
 import ExecutionDetailPage from './pages/ExecutionDetailPage';
-import AgentPlaygroundPage from './pages/AgentPlaygroundPage';
-import DynamicWorkflowPage from './pages/DynamicWorkflowPage';
-import AgUiRunnerPage from './pages/AgUiRunnerPage';
-import CopilotAssistantPage from './pages/CopilotAssistantPage';
 import ScopedApiKeysPage from './pages/admin/tenant/ScopedApiKeysPage';
+
+// Telas secundárias — lazy loaded (templates, marketplace, playgrounds e
+// configurações não precisam entrar no bundle inicial do app)
+const TemplatesPage           = lazy(() => import('./pages/TemplatesPage'));
+const TemplateDetailPage      = lazy(() => import('./pages/TemplateDetailPage'));
+const VoicePlaygroundPage     = lazy(() => import('./pages/VoicePlaygroundPage'));
+const MarketplacePage         = lazy(() => import('./pages/MarketplacePage'));
+const MarketplaceDetailPage   = lazy(() => import('./pages/MarketplaceDetailPage'));
+const SkillsPage              = lazy(() => import('./pages/SkillsPage'));
+const McpServersPage          = lazy(() => import('./pages/McpServersPage'));
+const McpServerDetailPage     = lazy(() => import('./pages/McpServerDetailPage'));
+const BrainSentryConfigPage   = lazy(() => import('./pages/BrainSentryConfigPage'));
+const LinktorConfigPage       = lazy(() => import('./pages/LinktorConfigPage'));
+const LinktorInboxPage        = lazy(() => import('./pages/LinktorInboxPage'));
+const LinktorConversationPage = lazy(() => import('./pages/LinktorConversationPage'));
+const ScheduledTriggersPage   = lazy(() => import('./pages/ScheduledTriggersPage'));
+const AgentPlaygroundPage     = lazy(() => import('./pages/AgentPlaygroundPage'));
+const DynamicWorkflowPage     = lazy(() => import('./pages/DynamicWorkflowPage'));
+const AgUiRunnerPage          = lazy(() => import('./pages/AgUiRunnerPage'));
+const CopilotAssistantPage    = lazy(() => import('./pages/CopilotAssistantPage'));
 
 // Admin pages — lazy loaded
 const AdminLayout       = lazy(() => import('./components/admin/AdminLayout'));

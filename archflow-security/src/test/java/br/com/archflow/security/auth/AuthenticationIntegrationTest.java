@@ -168,16 +168,31 @@ class AuthenticationIntegrationTest {
     }
 
     @Test
-    void testLogout() {
+    void testLogoutRevokesToken() {
         AuthService.AuthenticationResult result = authService.authenticate("admin", "admin123");
 
-        // Logout should not throw exception
+        // Token is valid before logout
+        assertEquals("user-admin-001", authService.validateAccessToken(result.accessToken()));
+
         assertDoesNotThrow(() -> authService.logout(result.accessToken()));
 
-        // Token should still be valid after logout (stateless JWT)
-        // In production, you'd implement a token blacklist
-        String userId = authService.validateAccessToken(result.accessToken());
-        assertEquals("user-admin-001", userId);
+        // Revoked token must be rejected until its natural expiration
+        AuthService.AuthenticationException ex = assertThrows(
+                AuthService.AuthenticationException.class,
+                () -> authService.validateAccessToken(result.accessToken()));
+        assertTrue(ex.getMessage().contains("revoked"));
+    }
+
+    @Test
+    void testLogoutDoesNotAffectOtherSessions() {
+        AuthService.AuthenticationResult first = authService.authenticate("admin", "admin123");
+        // JWT embute timestamp em segundos; garante token distinto na 2ª sessão
+        AuthService.AuthenticationResult second = authService.authenticate("user1", "user123");
+
+        authService.logout(first.accessToken());
+
+        // A outra sessão continua válida
+        assertDoesNotThrow(() -> authService.validateAccessToken(second.accessToken()));
     }
 
     @Test

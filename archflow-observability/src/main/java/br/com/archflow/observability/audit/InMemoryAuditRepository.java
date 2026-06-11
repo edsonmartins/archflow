@@ -28,6 +28,8 @@ public class InMemoryAuditRepository implements AuditRepository {
     private final Map<String, AuditEvent> eventsById = new ConcurrentHashMap<>();
     private final List<AuditEvent> events = new CopyOnWriteArrayList<>();
     private final int maxEvents;
+    private final java.util.concurrent.atomic.AtomicLong evictedCount =
+            new java.util.concurrent.atomic.AtomicLong();
 
     /**
      * Creates a new in-memory repository with unlimited capacity.
@@ -58,9 +60,21 @@ public class InMemoryAuditRepository implements AuditRepository {
         while (events.size() > maxEvents) {
             AuditEvent removed = events.remove(0);
             eventsById.remove(removed.getId());
+            // Perda de trilha de auditoria precisa ser visível: alerta na
+            // primeira eviction e a cada 1000 — não a cada evento (ruído).
+            long total = evictedCount.incrementAndGet();
+            if (total == 1 || total % 1000 == 0) {
+                log.warn("Audit trail truncated: {} event(s) evicted from in-memory store "
+                        + "(capacity {}). Use JdbcAuditRepository in production.", total, maxEvents);
+            }
         }
 
         log.debug("Saved audit event: {}", event.getId());
+    }
+
+    /** Total de eventos de auditoria descartados por capacidade. */
+    public long getEvictedCount() {
+        return evictedCount.get();
     }
 
     @Override

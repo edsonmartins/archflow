@@ -2,6 +2,7 @@ package br.com.archflow.marketplace.installer;
 
 import br.com.archflow.marketplace.manifest.ExtensionManifest;
 import br.com.archflow.marketplace.registry.ExtensionRegistry;
+import br.com.archflow.marketplace.security.ExtensionSignatureValidator;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import org.slf4j.Logger;
@@ -28,11 +29,14 @@ import java.util.*;
 public class ExtensionInstaller {
 
     private static final Logger log = LoggerFactory.getLogger(ExtensionInstaller.class);
+    private static final Logger auditLog = LoggerFactory.getLogger("archflow.audit.marketplace");
     private static final ObjectMapper objectMapper = createObjectMapper();
+    private static final String FALLBACK_VERSION = "1.0.0";
 
     private final ExtensionRegistry registry;
     private final Path extensionsDir;
     private final boolean verifySignatures;
+    private final ExtensionSignatureValidator signatureValidator;
 
     private static ObjectMapper createObjectMapper() {
         ObjectMapper mapper = new ObjectMapper();
@@ -45,9 +49,19 @@ public class ExtensionInstaller {
     }
 
     public ExtensionInstaller(Path extensionsDir, boolean verifySignatures) {
+        this(extensionsDir, verifySignatures, new ExtensionSignatureValidator());
+    }
+
+    public ExtensionInstaller(Path extensionsDir, boolean verifySignatures,
+                              ExtensionSignatureValidator signatureValidator) {
         this.registry = ExtensionRegistry.getInstance();
         this.extensionsDir = extensionsDir;
         this.verifySignatures = verifySignatures;
+        this.signatureValidator = signatureValidator;
+        if (!verifySignatures) {
+            log.warn("Extension signature verification is DISABLED — this is only acceptable "
+                    + "in development or testing environments");
+        }
     }
 
     /**
@@ -80,11 +94,12 @@ public class ExtensionInstaller {
             return new InstallationResult(false, "Extension " + manifest.getId() + " is already installed", null);
         }
 
-        // Verify signature if enabled
-        if (verifySignatures && manifest.getSignature() != null) {
-            if (!verifySignature(manifest, extensionDir)) {
-                return new InstallationResult(false, "Signature verification failed", null);
-            }
+        // Verify signature if enabled. An absent signature is a verification
+        // failure — otherwise stripping the signature would bypass the check.
+        if (verifySignatures && !verifySignature(manifest, extensionDir)) {
+            auditLog.warn("Extension install REJECTED (signature): id={} author={}",
+                    manifest.getId(), manifest.getAuthor());
+            return new InstallationResult(false, "Signature verification failed", null);
         }
 
         // Check compatibility
@@ -106,6 +121,8 @@ public class ExtensionInstaller {
         if (registered) {
             log.info("Installed extension {} ({} by {})",
                     manifest.getId(), manifest.getDisplayName(), manifest.getAuthor());
+            auditLog.info("Extension INSTALLED: id={} author={} signatureVerified={} permissions={}",
+                    manifest.getId(), manifest.getAuthor(), verifySignatures, manifest.getPermissions());
             return new InstallationResult(true, "Extension installed successfully", manifest);
         } else {
             return new InstallationResult(false, "Failed to register extension", null);
@@ -136,6 +153,7 @@ public class ExtensionInstaller {
 
         registry.unregister(extensionId);
         log.info("Uninstalled extension {}", extensionId);
+        auditLog.info("Extension UNINSTALLED: id={}", extensionId);
         return true;
     }
 
@@ -174,7 +192,9 @@ public class ExtensionInstaller {
     }
 
     /**
-     * Verifies the signature of an extension.
+     * Verifies the signature of an extension by delegating to the configured
+     * {@link ExtensionSignatureValidator} (cryptographic verification — not a
+     * format check).
      */
     public boolean verifySignature(ExtensionManifest manifest, Path extensionDir) {
         String signature = manifest.getSignature();
@@ -183,15 +203,12 @@ public class ExtensionInstaller {
             return false;
         }
 
-        // In a real implementation, this would verify against a known key
-        // For now, accept any signature that starts with expected format
-        if (signature.startsWith("SHA256:") || signature.startsWith("RSA:")) {
-            log.debug("Signature format verified for {}", manifest.getId());
-            return true;
+        ExtensionSignatureValidator.ValidationResult result =
+                signatureValidator.validate(manifest, extensionDir);
+        if (!result.valid()) {
+            log.warn("Signature verification failed for {}: {}", manifest.getId(), result.message());
         }
-
-        log.warn("Invalid signature format for {}", manifest.getId());
-        return false;
+        return result.valid();
     }
 
     /**
@@ -242,11 +259,41 @@ public class ExtensionInstaller {
     }
 
     /**
-     * Gets the current archflow version.
+     * Gets the current archflow version, resolved (in order) from the
+     * {@code archflow.version} system property, the jar manifest's
+     * {@code Implementation-Version}, or the Maven {@code pom.properties}
+     * packaged with this module. Falls back to {@value #FALLBACK_VERSION}
+     * with a warning when none is available (e.g. running from an IDE
+     * against unpacked classes).
      */
     public String getCurrentArchflowVersion() {
-        // In a real implementation, this would read from a version file or package
-        return "1.0.0";
+        String fromProperty = System.getProperty("archflow.version");
+        if (fromProperty != null && !fromProperty.isBlank()) {
+            return fromProperty;
+        }
+
+        String fromManifest = ExtensionInstaller.class.getPackage().getImplementationVersion();
+        if (fromManifest != null && !fromManifest.isBlank()) {
+            return fromManifest;
+        }
+
+        try (var stream = ExtensionInstaller.class.getResourceAsStream(
+                "/META-INF/maven/br.com.archflow/archflow-marketplace/pom.properties")) {
+            if (stream != null) {
+                Properties props = new Properties();
+                props.load(stream);
+                String version = props.getProperty("version");
+                if (version != null && !version.isBlank()) {
+                    return version;
+                }
+            }
+        } catch (IOException e) {
+            log.debug("Could not read pom.properties for version resolution", e);
+        }
+
+        log.warn("Could not resolve archflow version; falling back to {} — "
+                + "extension compatibility checks may be inaccurate", FALLBACK_VERSION);
+        return FALLBACK_VERSION;
     }
 
     /**

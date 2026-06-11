@@ -20,7 +20,8 @@ export default function ApprovalQueuePage() {
     const navigate = useNavigate();
     const { t } = useTranslation();
     const { impersonating, currentRole } = useTenantStore();
-    const tenantId = impersonating ?? (currentRole === 'superadmin' ? 'all' : 'default');
+    // impersonating é um TenantInfo — a API espera o ID (passar o objeto virava "[object Object]")
+    const tenantId = impersonating?.id ?? (currentRole === 'superadmin' ? 'all' : 'default');
 
     const [items, setItems] = useState<ApprovalResponse[]>([]);
     const [loading, setLoading] = useState(false);
