@@ -158,7 +158,12 @@ public class ExtensionSignatureValidator {
             byte[] hashBytes = digest.digest(canonicalManifestBytes(extensionDir));
 
             String actualHash = toHex(hashBytes);
-            if (MessageDigest.isEqual(actualHash.getBytes(), expectedHash.getBytes())) {
+            // Hex é case-insensitive; normaliza antes de comparar para não
+            // rejeitar um hash correto emitido em maiúsculas (ex.: certutil).
+            String normalizedExpected = expectedHash.toLowerCase(java.util.Locale.ROOT);
+            if (MessageDigest.isEqual(
+                    actualHash.getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                    normalizedExpected.getBytes(java.nio.charset.StandardCharsets.UTF_8))) {
                 return ValidationResult.success("Checksum verified (" + algorithm + ")");
             } else {
                 return ValidationResult.failure(

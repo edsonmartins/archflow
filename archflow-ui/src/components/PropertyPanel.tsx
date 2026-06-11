@@ -1,8 +1,7 @@
-import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
-  Select, TextInput, Textarea, NumberInput, Divider, ScrollArea, Tabs,
-  Accordion, Switch, TagsInput, Badge, Text,
+  Select, TextInput, Textarea, NumberInput, ScrollArea, Tabs,
+  Switch, TagsInput, Badge, Text,
 } from '@mantine/core'
 import { useFlowStore }     from './FlowCanvas/store/useFlowStore'
 import type { FlowNodeData } from './FlowCanvas/types'
@@ -12,15 +11,11 @@ import { useWorkflowConfig } from './PropertyPanel/useWorkflowConfig'
 import { FlowDefaultsPanel } from './PropertyPanel/FlowDefaultsPanel'
 import { useCatalog } from './PropertyPanel/useCatalog'
 import { AgentFields } from './PropertyPanel/fields/AgentFields'
-import { getConfig, dedupeByValue, ctxLabel } from './PropertyPanel/fields/helpers'
+import { getConfig } from './PropertyPanel/fields/helpers'
 import { McpToolFields } from './PropertyPanel/fields/McpToolFields'
 import { SubflowFields } from './PropertyPanel/fields/SubflowFields'
 import { SkillsFields } from './PropertyPanel/fields/SkillsFields'
 import { ExecutionLogs, OutputPreview } from './PropertyPanel/fields/ExecutionPanels'
-import type { ProviderInfo } from '../services/workflow-config-api'
-import { mcpApi }      from '../services/mcp-api'
-import { skillsApi }   from '../services/skills-api'
-import { workflowApi } from '../services/api'
 
 // ── Embedding model catalog (tiny, kept local) ──────────────────
 const EMBEDDING_MODELS = [
@@ -132,7 +127,7 @@ function NodeHeader({ nodeData }: { nodeData: FlowNodeData }) {
 function NodeFields({ nodeId, nodeData }: { nodeId: string; nodeData: FlowNodeData }) {
   const { t } = useTranslation()
   const { updateNodeConfig, updateNodeLabel } = useFlowStore()
-  const { providers, patterns, personas, governance } = useWorkflowConfig()
+  const { providers } = useWorkflowConfig()
   const catalog = useCatalog()
 
   const isAgent     = ['agent', 'assistant', 'llm-chat', 'llm-streaming'].includes(nodeData.nodeType)

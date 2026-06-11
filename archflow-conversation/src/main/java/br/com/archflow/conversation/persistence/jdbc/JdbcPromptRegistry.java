@@ -194,12 +194,7 @@ public class JdbcPromptRegistry implements PromptRegistry {
 
     // ── helpers ─────────────────────────────────────────────────────
 
-    @FunctionalInterface
-    private interface ParameterBinder {
-        void bind(PreparedStatement ps) throws SQLException;
-    }
-
-    private Optional<PromptVersion> querySingle(String sql, ParameterBinder binder) {
+    private Optional<PromptVersion> querySingle(String sql, JdbcSupport.ParameterBinder binder) {
         try (Connection conn = dataSource.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
 

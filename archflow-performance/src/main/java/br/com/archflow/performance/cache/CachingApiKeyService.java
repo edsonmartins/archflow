@@ -4,10 +4,8 @@ import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.util.Base64;
+import br.com.archflow.model.util.Hashing;
+
 import java.util.List;
 
 /**
@@ -80,19 +78,10 @@ public class CachingApiKeyService {
     }
 
     /**
-     * SHA-256 (Base64, truncado) do secret para compor a chave de cache sem
-     * armazenar o secret em claro no Redis/Caffeine.
+     * SHA-256 (Base64 URL-safe, truncado) do secret para compor a chave de
+     * cache sem armazenar o secret em claro no Redis/Caffeine.
      */
     public static String secretHash(String secret) {
-        if (secret == null) {
-            return "null";
-        }
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hash = digest.digest(secret.getBytes(StandardCharsets.UTF_8));
-            return Base64.getUrlEncoder().withoutPadding().encodeToString(hash).substring(0, 16);
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("SHA-256 not available", e);
-        }
+        return secret == null ? "null" : Hashing.sha256Base64Url(secret, 16);
     }
 }

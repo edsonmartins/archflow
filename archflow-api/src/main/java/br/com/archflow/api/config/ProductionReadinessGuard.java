@@ -7,7 +7,6 @@ import org.springframework.beans.factory.SmartInitializingSingleton;
 import org.springframework.core.env.Environment;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -46,9 +45,7 @@ public class ProductionReadinessGuard implements SmartInitializingSingleton {
 
     @Override
     public void afterSingletonsInstantiated() {
-        boolean devLike = Arrays.stream(environment.getActiveProfiles())
-                .anyMatch(p -> p.equals("dev") || p.equals("test"));
-        if (devLike) {
+        if (Profiles.isDevLike(environment)) {
             log.debug("Production readiness guard skipped (dev/test profile active)");
             return;
         }
@@ -78,22 +75,22 @@ public class ProductionReadinessGuard implements SmartInitializingSingleton {
         List<String> violations = new ArrayList<>();
 
         checkBean(br.com.archflow.engine.persistence.FlowRepository.class,
-                "br.com.archflow.agent.persistence.InMemoryFlowRepository",
+                br.com.archflow.agent.persistence.InMemoryFlowRepository.class,
                 "FlowRepository — definições de fluxo", violations);
         checkBean(br.com.archflow.engine.core.StateManager.class,
-                "br.com.archflow.api.flow.InMemoryStateManager",
+                br.com.archflow.api.flow.InMemoryStateManager.class,
                 "StateManager — estado de execução dos fluxos", violations);
         checkBean(br.com.archflow.security.auth.UserRepository.class,
-                "br.com.archflow.security.auth.InMemoryUserRepository",
+                br.com.archflow.security.auth.InMemoryUserRepository.class,
                 "UserRepository — usuários e credenciais", violations);
         checkBean(br.com.archflow.agent.queue.AgentInvocationQueue.class,
-                "br.com.archflow.agent.queue.InMemoryAgentInvocationQueue",
+                br.com.archflow.agent.queue.InMemoryAgentInvocationQueue.class,
                 "AgentInvocationQueue — invocações assíncronas de agentes", violations);
         checkBean(br.com.archflow.observability.audit.AuditRepository.class,
-                "br.com.archflow.observability.audit.InMemoryAuditRepository",
+                br.com.archflow.observability.audit.InMemoryAuditRepository.class,
                 "AuditRepository — trilha de auditoria", violations);
         checkBean(br.com.archflow.security.apikey.ApiKeyService.ApiKeyRepository.class,
-                "br.com.archflow.api.config.InMemoryApiKeyRepository",
+                br.com.archflow.api.config.InMemoryApiKeyRepository.class,
                 "ApiKeyRepository — chaves de API", violations);
         checkQuartz(violations);
 
@@ -114,11 +111,16 @@ public class ProductionReadinessGuard implements SmartInitializingSingleton {
         }
     }
 
-    private void checkBean(Class<?> beanType, String inMemoryClassName, String description,
+    /**
+     * Marca violação quando o bean ativo é (ou estende) a implementação em
+     * memória. Usa referência {@code Class} — um rename/move da classe vira
+     * erro de compilação aqui, não uma falha silenciosa do guard.
+     */
+    private void checkBean(Class<?> beanType, Class<?> inMemoryClass, String description,
                            List<String> violations) {
         Object bean = beanFactory.getBeanProvider(beanType).getIfAvailable();
-        if (bean != null && bean.getClass().getName().equals(inMemoryClassName)) {
-            violations.add(description + " (" + inMemoryClassName + ")");
+        if (bean != null && inMemoryClass.isInstance(bean)) {
+            violations.add(description + " (" + inMemoryClass.getSimpleName() + ")");
         }
     }
 

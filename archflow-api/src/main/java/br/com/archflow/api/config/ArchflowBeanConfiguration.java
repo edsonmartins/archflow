@@ -102,28 +102,18 @@ public class ArchflowBeanConfiguration {
             @Value("${archflow.security.admin-password:${ARCHFLOW_ADMIN_PASSWORD:}}") String adminPassword) {
         String resolved = adminPassword;
         if (resolved == null || resolved.isBlank()) {
-            boolean devLike = java.util.Arrays.stream(environment.getActiveProfiles())
-                    .anyMatch(p -> p.equals("dev") || p.equals("test"));
-            if (devLike) {
+            if (Profiles.isDevLike(environment)) {
                 resolved = "admin123";
                 log.warn("Using fixed development admin password (dev/test profile). "
                         + "Set archflow.security.admin-password for real deployments.");
             } else {
-                resolved = generateRandomAdminPassword();
+                resolved = PasswordService.generateRandomPassword(24);
                 log.warn("No admin password configured — generated a random one for user 'admin': {} "
                         + "(set archflow.security.admin-password or ARCHFLOW_ADMIN_PASSWORD to control it)",
                         resolved);
             }
         }
         return new InMemoryUserRepository(passwordService.hash(resolved));
-    }
-
-    private static String generateRandomAdminPassword() {
-        var random = new java.security.SecureRandom();
-        // URL-safe Base64 of 18 random bytes → 24 chars, no padding noise
-        byte[] bytes = new byte[18];
-        random.nextBytes(bytes);
-        return java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
     }
 
     @Bean

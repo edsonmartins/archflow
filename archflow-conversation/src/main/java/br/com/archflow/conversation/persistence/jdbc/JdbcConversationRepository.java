@@ -3,7 +3,6 @@ package br.com.archflow.conversation.persistence.jdbc;
 import br.com.archflow.conversation.domain.Conversation;
 import br.com.archflow.conversation.domain.ConversationRepository;
 import br.com.archflow.conversation.domain.Message;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -33,15 +32,12 @@ public class JdbcConversationRepository implements ConversationRepository {
     private static final Logger log = LoggerFactory.getLogger(JdbcConversationRepository.class);
 
     private final DataSource dataSource;
-    private final ObjectMapper objectMapper;
 
     public JdbcConversationRepository(DataSource dataSource) {
         if (dataSource == null) {
             throw new IllegalArgumentException("dataSource cannot be null");
         }
         this.dataSource = dataSource;
-        this.objectMapper = new ObjectMapper();
-        this.objectMapper.findAndRegisterModules();
     }
 
     // ── Conversation ────────────────────────────────────────────────
@@ -66,7 +62,7 @@ public class JdbcConversationRepository implements ConversationRepository {
                 ps.setString(2, conversation.channel());
                 ps.setString(3, conversation.status().name());
                 ps.setString(4, conversation.persona());
-                ps.setString(5, toJson(conversation.metadata()));
+                ps.setString(5, JdbcSupport.toJson(conversation.metadata()));
                 ps.setTimestamp(6, Timestamp.from(conversation.updatedAt()));
                 ps.setString(7, conversation.id());
                 ps.setString(8, conversation.tenantId());
@@ -80,7 +76,7 @@ public class JdbcConversationRepository implements ConversationRepository {
                     ps.setString(4, conversation.channel());
                     ps.setString(5, conversation.status().name());
                     ps.setString(6, conversation.persona());
-                    ps.setString(7, toJson(conversation.metadata()));
+                    ps.setString(7, JdbcSupport.toJson(conversation.metadata()));
                     ps.setTimestamp(8, Timestamp.from(conversation.createdAt()));
                     ps.setTimestamp(9, Timestamp.from(conversation.updatedAt()));
                     ps.executeUpdate();
@@ -185,7 +181,7 @@ public class JdbcConversationRepository implements ConversationRepository {
             ps.setString(5, message.messageType().name());
             ps.setString(6, message.content());
             ps.setString(7, message.mediaUrl());
-            ps.setString(8, toJson(message.metadata()));
+            ps.setString(8, JdbcSupport.toJson(message.metadata()));
             ps.setTimestamp(9, Timestamp.from(message.timestamp()));
             ps.executeUpdate();
             return message;
@@ -250,12 +246,7 @@ public class JdbcConversationRepository implements ConversationRepository {
 
     // ── helpers ─────────────────────────────────────────────────────
 
-    @FunctionalInterface
-    private interface ParameterBinder {
-        void bind(PreparedStatement ps) throws SQLException;
-    }
-
-    private List<Conversation> queryConversations(String sql, ParameterBinder binder) {
+    private List<Conversation> queryConversations(String sql, JdbcSupport.ParameterBinder binder) {
         List<Conversation> results = new ArrayList<>();
         try (Connection conn = dataSource.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -274,7 +265,7 @@ public class JdbcConversationRepository implements ConversationRepository {
         }
     }
 
-    private List<Message> queryMessages(String sql, ParameterBinder binder) {
+    private List<Message> queryMessages(String sql, JdbcSupport.ParameterBinder binder) {
         List<Message> results = new ArrayList<>();
         try (Connection conn = dataSource.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -301,7 +292,7 @@ public class JdbcConversationRepository implements ConversationRepository {
                 rs.getString("channel"),
                 Conversation.ConversationStatus.valueOf(rs.getString("status")),
                 rs.getString("persona"),
-                fromJson(rs.getString("metadata")),
+                JdbcSupport.fromJson(rs.getString("metadata")),
                 rs.getTimestamp("created_at").toInstant(),
                 rs.getTimestamp("updated_at").toInstant());
     }
@@ -315,29 +306,9 @@ public class JdbcConversationRepository implements ConversationRepository {
                 Message.MessageType.valueOf(rs.getString("message_type")),
                 rs.getString("content"),
                 rs.getString("media_url"),
-                fromJson(rs.getString("metadata")),
+                JdbcSupport.fromJson(rs.getString("metadata")),
                 rs.getTimestamp("created_at").toInstant());
     }
 
-    private String toJson(Map<String, Object> map) {
-        try {
-            return objectMapper.writeValueAsString(map == null ? Map.of() : map);
-        } catch (Exception e) {
-            log.warn("Failed to serialize metadata; storing empty object", e);
-            return "{}";
-        }
-    }
 
-    @SuppressWarnings("unchecked")
-    private Map<String, Object> fromJson(String json) {
-        if (json == null || json.isBlank()) {
-            return Map.of();
-        }
-        try {
-            return objectMapper.readValue(json, Map.class);
-        } catch (Exception e) {
-            log.warn("Failed to deserialize metadata; returning empty object", e);
-            return Map.of();
-        }
-    }
 }
