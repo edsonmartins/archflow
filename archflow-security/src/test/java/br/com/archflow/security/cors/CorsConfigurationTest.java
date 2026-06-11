@@ -74,9 +74,10 @@ class CorsConfigurationTest {
     }
 
     @Test
-    void testUnknownEnvironmentDefaultsToDevelopment() {
+    void testUnknownEnvironmentFailsSafeToProduction() {
+        // A typo in the environment name must never open CORS to every origin
         CorsConfiguration config = CorsConfiguration.forEnvironment("unknown");
-        assertEquals("development", config.getEnvironment());
+        assertEquals("production", config.getEnvironment());
     }
 
     @Test
