@@ -211,18 +211,15 @@ class DefaultFlowValidatorTest {
         }
 
         @Test
-        @DisplayName("should reject step with CUSTOM type as unsupported")
-        void shouldRejectCustomType() {
-            var step = createStep("step-1", StepType.CUSTOM, List.of());
+        @DisplayName("should accept CUSTOM and ORCHESTRATE types (validated at runtime, ADR-0002)")
+        void shouldAcceptRuntimeValidatedTypes() {
             var flow = createValidFlow();
             var context = new ValidationContext(flow);
 
-            assertThatThrownBy(() -> validator.validateStep(step, context))
-                    .isInstanceOf(FlowValidationException.class)
-                    .satisfies(ex -> {
-                        var errors = ((FlowValidationException) ex).getErrors();
-                        assertThat(errors).anyMatch(e -> e.code().equals("UNSUPPORTED_STEP_TYPE"));
-                    });
+            assertThatNoException().isThrownBy(() ->
+                    validator.validateStep(createStep("step-1", StepType.CUSTOM, List.of()), context));
+            assertThatNoException().isThrownBy(() ->
+                    validator.validateStep(createStep("step-2", StepType.ORCHESTRATE, List.of()), context));
         }
     }
 }
