@@ -476,16 +476,29 @@ public class ArchflowBeanConfiguration {
                 "br.com.archflow.plugins.assistants.TechSupportAssistant",
                 "br.com.archflow.plugins.tools.TextTransformTool"
         };
+        java.util.List<String> registered = new java.util.ArrayList<>();
+        java.util.List<String> failed = new java.util.ArrayList<>();
         for (String className : builtIns) {
             try {
                 Class<?> cls = Class.forName(className);
                 Object instance = cls.getDeclaredConstructor().newInstance();
                 if (instance instanceof br.com.archflow.model.ai.AIComponent aic) {
                     catalog.register(aic);
+                    registered.add(className);
                 }
-            } catch (Throwable ignored) {
-                // Plugin jar not on classpath or construction failed — fine.
+            } catch (ClassNotFoundException e) {
+                // Jar do plugin fora do classpath é uma configuração válida,
+                // mas precisa ficar visível — workflows que dependem dele
+                // falhariam de forma misteriosa.
+                failed.add(className + " (not on classpath)");
+            } catch (Throwable e) {
+                failed.add(className + " (failed to construct: " + e.getMessage() + ")");
             }
+        }
+        log.info("Component catalog: {} built-in plugin(s) registered", registered.size());
+        if (!failed.isEmpty()) {
+            log.warn("Component catalog: {} built-in plugin(s) NOT available: {}",
+                    failed.size(), failed);
         }
         return catalog;
     }
