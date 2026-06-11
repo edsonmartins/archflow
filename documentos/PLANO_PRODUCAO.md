@@ -3,6 +3,20 @@
 > Origem: auditoria completa de 11/06/2026 (backend, serviços, plugins/LangChain4j, frontend, docs).
 > Objetivo: eliminar TODOS os gaps levantados e fechar com re-auditoria. Estimativa total: ~8–9 semanas (1 dev) ou ~5–6 semanas com paralelização (backend + frontend em paralelo).
 
+## Status (atualizado 11/06/2026)
+
+- ✅ **Fase 0** — baseline verde; JAR standalone medido: 19 MB
+- ✅ **Fase 1** — RSA real no marketplace; credenciais default eliminadas; allow-list MCP; SecureRandom/CORS/resume tokens
+- ✅ **Fase 2** — DI no ArchFlowAgent; JdbcFlowRepository/JdbcConversationRepository/JdbcPromptRegistry + migrations; ProductionReadinessGuard; cache Redis JSON + chaves tenant-aware
+- ✅ **Fase 3** — FlowPluginManager reescrito sobre o plugin-loader (API pública de carga criada); falhas de plugin explícitas
+- ✅ **Fase 4** — circuit breaker BrainSentry; retry no ProtobufEventPublisher; blacklist JWT no logout; fail-fast na restauração de memória; varredura de exceções engolidas (auditoria, WorkflowTool, skills, agente conversacional)
+- 🔶 **Fase 5** — feito: refresh automático de token + validação de expiração; motion no canvas; display font (Bricolage Grotesque); EmptyState; limpeza index.css. Pendente: strict mode gradual, split do PropertyPanel, lazy-load extra, badges de fallback, outline a11y do canvas, Playwright admin
+- 🔶 **Fase 6** — feito: readme corrigido (Spring Boot, 19 MB; CoT-SC verificado como IMPLEMENTADO — ChainOfThoughtStrategy). Pendente: docs dos módulos não documentados, consolidação de fonte única, decisão RFC-005 ExecutionContext
+- ⬜ **Fase 7** — Testcontainers, cobertura de adapters, Playwright, CI gates
+- ⬜ **Fase 8** — re-auditoria final + security review
+
+Nota da execução: o JdbcStateRepository existente usa SQL específico de PostgreSQL (ON CONFLICT/::json) não exercitável no H2 — cobertura de escrita ficará nos Testcontainers da Fase 7. O wrapper Secret para API keys dos adapters foi adiado para a Fase 7 (custo/benefício baixo: nenhum site de log imprime configs hoje).
+
 ## Decisões assumidas (ajustar se discordar)
 
 | # | Decisão | Recomendação assumida |
