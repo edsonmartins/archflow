@@ -102,7 +102,7 @@ export default function ToolCallBlock({ call, defaultOpen = false }: ToolCallBlo
                 </Text>
             )}
 
-            <Collapse in={open}>
+            <Collapse expanded={open}>
                 <Stack gap={6} mt="xs">
                     {call.input && Object.keys(call.input).length > 0 && (
                         <Section label={t('chat.toolCall.input')}>

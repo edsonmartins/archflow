@@ -71,7 +71,7 @@ export function FlowCanvas({
   onWorkflowChange,
   onExecutionRequest,
 }: FlowCanvasProps) {
-  const rfInstanceRef = useRef<ReactFlowInstance | null>(null)
+  const rfInstanceRef = useRef<ReactFlowInstance<Node<FlowNodeData>, Edge> | null>(null)
 
   const initialNodes = initialWorkflow
     ? workflowToNodes(initialWorkflow)
@@ -301,7 +301,11 @@ export function FlowCanvas({
         onConnect={readonly ? undefined : onConnect}
         onNodeClick={onNodeClick}
         onPaneClick={onPaneClick}
-        onInit={instance => { rfInstanceRef.current = instance }}
+        onInit={instance => {
+          // xyflow infla o generic do node no site JSX (props opcionais viram
+          // requeridas na inferência); estruturalmente é o mesmo Node<FlowNodeData>.
+          rfInstanceRef.current = instance as unknown as ReactFlowInstance<Node<FlowNodeData>, Edge>
+        }}
         connectionLineType={ConnectionLineType.SmoothStep}
         defaultEdgeOptions={{
           type: 'flow',

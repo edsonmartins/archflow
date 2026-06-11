@@ -16,7 +16,7 @@
     "jsx": "react-jsx",
 
     /* Linting */
-    "strict": false,
+    "strict": true,
     "noUnusedLocals": false,
     "noUnusedParameters": false,
     "noFallthroughCasesInSwitch": true,
@@ -26,12 +26,6 @@
   "exclude": [
     "src/**/*.test.ts",
     "src/**/*.test.tsx",
-    "src/**/__tests__/**",
-    "src/components/**",
-    "src/pages/**",
-    "src/stores/**",
-    "src/services/**",
-    "src/App.tsx",
-    "src/main.tsx"
+    "src/**/__tests__/**"
   ]
 }

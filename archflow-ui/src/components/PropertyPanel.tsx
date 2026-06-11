@@ -41,8 +41,8 @@ function dedupeByValue<T extends { value: string }>(options: T[]): T[] {
   return options.filter(o => (seen.has(o.value) ? false : (seen.add(o.value), true)))
 }
 
-function getConfig<T>(data: FlowNodeData, key: string, fallback: T): T {
-  return (data.config?.[key] as T) ?? fallback
+function getConfig<T>(data: FlowNodeData, key: string, fallback: T): T extends string ? string : T {
+  return ((data.config?.[key] as T) ?? fallback) as T extends string ? string : T
 }
 
 function findProvider(providers: ProviderInfo[], providerId: string) {
