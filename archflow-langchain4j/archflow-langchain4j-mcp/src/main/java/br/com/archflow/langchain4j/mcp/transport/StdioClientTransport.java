@@ -99,6 +99,11 @@ public class StdioClientTransport implements McpTransport {
             return;
         }
 
+        // Commands and environment may come from tenant-supplied configuration —
+        // enforce the executable allow-list and env-var block-list before spawning.
+        McpCommandPolicy.validateCommand(command);
+        McpCommandPolicy.validateEnvironment(extraEnvironment);
+
         log.debug("Starting MCP server process: {}", String.join(" ", command));
 
         try {

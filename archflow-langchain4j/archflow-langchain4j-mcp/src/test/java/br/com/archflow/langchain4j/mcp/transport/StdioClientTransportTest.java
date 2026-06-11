@@ -1,6 +1,8 @@
 package br.com.archflow.langchain4j.mcp.transport;
 
 import br.com.archflow.langchain4j.mcp.JsonRpc;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -26,6 +28,18 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @DisplayName("StdioClientTransport")
 @DisabledOnOs(OS.WINDOWS)
 class StdioClientTransportTest {
+
+    // These tests spawn ad-hoc executables (cat, temp scripts), so the
+    // command allow-list is explicitly opened for the whole class.
+    @BeforeAll
+    static void openCommandPolicy() {
+        System.setProperty(McpCommandPolicy.ALLOWED_COMMANDS_PROPERTY, "*");
+    }
+
+    @AfterAll
+    static void restoreCommandPolicy() {
+        System.clearProperty(McpCommandPolicy.ALLOWED_COMMANDS_PROPERTY);
+    }
 
     @TempDir
     Path tempDir;
