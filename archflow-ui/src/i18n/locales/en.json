@@ -1006,8 +1006,7 @@
         "password": "Password",
         "passwordPlaceholder": "your-password",
         "signIn": "Sign in",
-        "devCredentials": "Dev credentials",
-        "credsTpl": "Username: admin · Password: admin123"
+        "devCredentials": "Dev credentials"
     },
     "executionDetail": {
         "title": "Execution {{id}}",

@@ -24,22 +24,31 @@ public class InMemoryUserRepository implements UserRepository {
     private final Map<String, User> usersByUsername = new HashMap<>();
     private final Map<String, User> usersByEmail = new HashMap<>();
 
+    /**
+     * Creates an empty repository — no default users. Callers that need a
+     * bootstrap admin must seed it explicitly with a password hash they
+     * control (see {@link #InMemoryUserRepository(String)}); the repository
+     * never embeds credentials of its own.
+     */
     public InMemoryUserRepository() {
-        // Create default admin user
-        createDefaultAdminUser();
     }
 
     /**
-     * Creates a default admin user.
-     * Username: admin
-     * Password: admin123 (CHANGE THIS IN PRODUCTION!)
+     * Creates a repository seeded with a default {@code admin} user whose
+     * password hash is supplied by the caller.
+     *
+     * @param adminPasswordHash BCrypt hash for the admin user's password
      */
-    private void createDefaultAdminUser() {
+    public InMemoryUserRepository(String adminPasswordHash) {
+        createDefaultAdminUser(adminPasswordHash);
+    }
+
+    private void createDefaultAdminUser(String passwordHash) {
         User admin = new User();
         admin.setId("user-admin-" + UUID.randomUUID());
         admin.setUsername("admin");
         admin.setEmail("admin@archflow.local");
-        admin.setPasswordHash("$2a$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5GyYzW5qG.lXa"); // "admin123" hashed
+        admin.setPasswordHash(passwordHash);
         admin.setFirstName("System");
         admin.setLastName("Administrator");
         admin.setEnabled(true);
@@ -49,7 +58,7 @@ public class InMemoryUserRepository implements UserRepository {
         admin.addRole(adminRole);
 
         save(admin);
-        log.info("Default admin user created: admin / admin123");
+        log.info("Default admin user created (username: admin)");
     }
 
     @Override

@@ -12,10 +12,13 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Unit tests for InMemoryUserRepository.
  *
- * <p>Covers CRUD operations, existence checks, and the default admin user that
- * is created by the no-arg constructor.</p>
+ * <p>Covers CRUD operations, existence checks, and the explicitly seeded
+ * default admin user (the no-arg constructor creates an empty repository
+ * and never embeds credentials).</p>
  */
 class InMemoryUserRepositoryTest {
+
+    private static final String ADMIN_HASH = "$2a$04$abcdefghijklmnopqrstuv";
 
     private InMemoryUserRepository repository;
 
@@ -27,23 +30,32 @@ class InMemoryUserRepositoryTest {
     // ========== Constructor / default admin ==========
 
     @Test
-    void noArgConstructor_createsDefaultAdminUser() {
-        Optional<User> admin = repository.findByUsername("admin");
-
-        assertTrue(admin.isPresent());
-        assertEquals("admin", admin.get().getUsername());
+    void noArgConstructor_createsEmptyRepository() {
+        assertEquals(0, repository.count());
+        assertFalse(repository.findByUsername("admin").isPresent());
     }
 
     @Test
-    void noArgConstructor_defaultAdminHasAdminRole() {
-        User admin = repository.findByUsername("admin").orElseThrow();
+    void seededConstructor_createsDefaultAdminUser() {
+        InMemoryUserRepository seeded = new InMemoryUserRepository(ADMIN_HASH);
+        Optional<User> admin = seeded.findByUsername("admin");
+
+        assertTrue(admin.isPresent());
+        assertEquals("admin", admin.get().getUsername());
+        assertEquals(ADMIN_HASH, admin.get().getPasswordHash());
+    }
+
+    @Test
+    void seededConstructor_defaultAdminHasAdminRole() {
+        InMemoryUserRepository seeded = new InMemoryUserRepository(ADMIN_HASH);
+        User admin = seeded.findByUsername("admin").orElseThrow();
 
         assertTrue(admin.hasRole("ADMIN"));
     }
 
     @Test
-    void noArgConstructor_repositoryCountIsOne() {
-        assertEquals(1, repository.count());
+    void seededConstructor_repositoryCountIsOne() {
+        assertEquals(1, new InMemoryUserRepository(ADMIN_HASH).count());
     }
 
     // ========== findByUsername ==========
