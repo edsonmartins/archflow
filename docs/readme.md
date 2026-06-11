@@ -15,6 +15,8 @@ Framework open source para automação de agentes de IA em Java
 ### Arquitetura
 - [Arquitetura Geral](architecture/architecture.md) - Design e estrutura do sistema
 - [Componentes de IA](architecture/ai-components.md) - Detalhes dos componentes de IA
+- [Módulos Internos](architecture/internal-modules.md) - Provider Hub, Handoff, Invocation Queue, Governance, Summarization, Query Router, Realtime — e o status de cada fonte de documentação
+- [ADRs](adr/) - Decisões arquiteturais (0001 runtime substrate, 0002 orquestração dinâmica, 0003 AG-UI, 0004 mutabilidade do ExecutionContext)
 
 ### Diagramas
 
