@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import {
   ReactFlow,
   Background,
@@ -27,6 +28,7 @@ import { FlowEdge }      from './edges/FlowEdge'
 import { useFlowStore, type CanvasApi }  from './store/useFlowStore'
 import { NODE_CATEGORIES, NODE_TYPE_TO_CATEGORY } from './constants'
 import type { FlowNodeData, WorkflowData } from './types'
+import { CanvasOutline } from './CanvasOutline'
 
 // ── Registro de tipos ────────────────────────────────────────────
 const nodeTypes: NodeTypes = {
@@ -80,6 +82,8 @@ export function FlowCanvas({
     ? workflowToEdges(initialWorkflow)
     : []
 
+  const { t } = useTranslation()
+  const [outlineOpen, setOutlineOpen] = useState(false)
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges)
 
@@ -284,6 +288,27 @@ export function FlowCanvas({
       onDragOver={onDragOver}
       onDrop={onDrop}
     >
+      {/* Alternativa acessível ao canvas: lista textual navegável por teclado.
+          O botão fica acima de tudo; a região em si é sr-only quando fechada. */}
+      <button
+        type="button"
+        className="af-canvas-outline-toggle"
+        aria-expanded={outlineOpen}
+        aria-controls="af-canvas-outline"
+        onClick={() => setOutlineOpen((v) => !v)}
+        style={{
+          position: 'absolute', top: 12, right: 12, zIndex: 7,
+          fontSize: 12, padding: '6px 10px', borderRadius: 8,
+          border: '1px solid var(--border2)', background: 'var(--bg2)',
+          color: 'var(--text2)', cursor: 'pointer',
+        }}
+      >
+        {t('editor.outline.toggle')}
+      </button>
+      <div id="af-canvas-outline">
+        <CanvasOutline open={outlineOpen} />
+      </div>
+
       <ReactFlow
         nodes={nodes.map(n => ({
           ...n,

@@ -123,6 +123,18 @@
         }
     },
     "editor": {
+        "outline": {
+            "title": "Workflow outline",
+            "toggle": "Toggle accessible outline",
+            "empty": "No nodes yet. Add a node from the palette.",
+            "connectsTo": "connects to {{targets}}",
+            "status": {
+                "idle": "idle",
+                "running": "running",
+                "success": "completed",
+                "error": "failed"
+            }
+        },
         "save": "Save",
         "saveYaml": "Save YAML",
         "canvas": "Canvas",
