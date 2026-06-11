@@ -57,6 +57,17 @@ public class ArchflowBeanConfiguration {
     private static final org.slf4j.Logger log =
             org.slf4j.LoggerFactory.getLogger(ArchflowBeanConfiguration.class);
 
+    /**
+     * Falha o startup fora de dev/test quando stores em memória estão ativos
+     * (perda de dados no restart). Escape hatch: archflow.allow-in-memory=true.
+     */
+    @Bean
+    public ProductionReadinessGuard productionReadinessGuard(
+            org.springframework.core.env.Environment environment,
+            org.springframework.beans.factory.ListableBeanFactory beanFactory) {
+        return new ProductionReadinessGuard(environment, beanFactory);
+    }
+
     // =========================================================================
     // Security / Auth
     // =========================================================================

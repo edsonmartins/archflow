@@ -1,0 +1,123 @@
+package br.com.archflow.api.config;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ListableBeanFactory;
+import org.springframework.beans.factory.SmartInitializingSingleton;
+import org.springframework.core.env.Environment;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+
+/**
+ * Fails fast quando um deployment que NÃO está em profile dev/test sobe com
+ * stores em memória — o modo de falha silencioso mais perigoso do archflow:
+ * tudo funciona até o primeiro restart, quando fluxos, usuários, jobs
+ * agendados e trilha de auditoria desaparecem.
+ *
+ * <p>Comportamento:
+ * <ul>
+ *   <li>profiles {@code dev}/{@code test} ativos → verificação ignorada;</li>
+ *   <li>{@code archflow.allow-in-memory=true} → violações apenas logadas
+ *       (escape hatch consciente para POCs single-instance);</li>
+ *   <li>caso contrário → o startup falha com a lista de beans violando e o
+ *       que configurar em cada um.</li>
+ * </ul>
+ *
+ * <p>Roda via {@link SmartInitializingSingleton}, depois que todos os
+ * singletons foram instanciados — inclusive beans condicionais que possam
+ * ter substituído os defaults em memória.
+ */
+public class ProductionReadinessGuard implements SmartInitializingSingleton {
+
+    private static final Logger log = LoggerFactory.getLogger(ProductionReadinessGuard.class);
+
+    /** Property que rebaixa violações de erro fatal para warning. */
+    public static final String ALLOW_IN_MEMORY_PROPERTY = "archflow.allow-in-memory";
+
+    private final Environment environment;
+    private final ListableBeanFactory beanFactory;
+
+    public ProductionReadinessGuard(Environment environment, ListableBeanFactory beanFactory) {
+        this.environment = environment;
+        this.beanFactory = beanFactory;
+    }
+
+    @Override
+    public void afterSingletonsInstantiated() {
+        boolean devLike = Arrays.stream(environment.getActiveProfiles())
+                .anyMatch(p -> p.equals("dev") || p.equals("test"));
+        if (devLike) {
+            log.debug("Production readiness guard skipped (dev/test profile active)");
+            return;
+        }
+
+        List<String> violations = collectViolations();
+        if (violations.isEmpty()) {
+            log.info("Production readiness guard: no in-memory stores detected");
+            return;
+        }
+
+        String report = String.join("\n  - ", violations);
+        if (environment.getProperty(ALLOW_IN_MEMORY_PROPERTY, Boolean.class, false)) {
+            log.warn("In-memory stores active in a non-dev profile ({}=true):\n  - {}",
+                    ALLOW_IN_MEMORY_PROPERTY, report);
+            return;
+        }
+
+        throw new IllegalStateException(
+                "Refusing to start: in-memory stores are active outside the dev/test profiles. "
+                + "All data they hold is lost on restart.\n  - " + report
+                + "\nFix: provide durable beans (e.g. JdbcStateRepository/JdbcFlowRepository with a "
+                + "PostgreSQL DataSource, JDBC-backed Quartz), activate the dev profile, or set "
+                + ALLOW_IN_MEMORY_PROPERTY + "=true to accept the data loss explicitly.");
+    }
+
+    private List<String> collectViolations() {
+        List<String> violations = new ArrayList<>();
+
+        checkBean(br.com.archflow.engine.persistence.FlowRepository.class,
+                "br.com.archflow.agent.persistence.InMemoryFlowRepository",
+                "FlowRepository — definições de fluxo", violations);
+        checkBean(br.com.archflow.engine.core.StateManager.class,
+                "br.com.archflow.api.flow.InMemoryStateManager",
+                "StateManager — estado de execução dos fluxos", violations);
+        checkBean(br.com.archflow.security.auth.UserRepository.class,
+                "br.com.archflow.security.auth.InMemoryUserRepository",
+                "UserRepository — usuários e credenciais", violations);
+        checkBean(br.com.archflow.agent.queue.AgentInvocationQueue.class,
+                "br.com.archflow.agent.queue.InMemoryAgentInvocationQueue",
+                "AgentInvocationQueue — invocações assíncronas de agentes", violations);
+        checkBean(br.com.archflow.observability.audit.AuditRepository.class,
+                "br.com.archflow.observability.audit.InMemoryAuditRepository",
+                "AuditRepository — trilha de auditoria", violations);
+        checkQuartz(violations);
+
+        return violations;
+    }
+
+    private void checkBean(Class<?> beanType, String inMemoryClassName, String description,
+                           List<String> violations) {
+        Object bean = beanFactory.getBeanProvider(beanType).getIfAvailable();
+        if (bean != null && bean.getClass().getName().equals(inMemoryClassName)) {
+            violations.add(description + " (" + inMemoryClassName + ")");
+        }
+    }
+
+    private void checkQuartz(List<String> violations) {
+        org.quartz.Scheduler scheduler =
+                beanFactory.getBeanProvider(org.quartz.Scheduler.class).getIfAvailable();
+        if (scheduler == null) {
+            return;
+        }
+        try {
+            Class<?> jobStore = scheduler.getMetaData().getJobStoreClass();
+            if (jobStore != null && jobStore.getName().contains("RAMJobStore")) {
+                violations.add("Quartz Scheduler — jobs agendados (RAMJobStore; use JDBCJobStore)");
+            }
+        } catch (org.quartz.SchedulerException e) {
+            log.warn("Could not inspect Quartz job store for the readiness guard", e);
+        }
+    }
+}
