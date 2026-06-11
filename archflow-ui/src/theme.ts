@@ -11,6 +11,12 @@ export const theme = createTheme({
   colors:        { archBlue },
   fontFamily:    "'DM Sans', system-ui, sans-serif",
   fontFamilyMonospace: "'DM Mono', 'Fira Code', monospace",
+  // Display font própria para títulos: dá identidade tipográfica ao produto
+  // (DM Sans continua no corpo; DM Mono no conteúdo técnico).
+  headings: {
+    fontFamily: "'Bricolage Grotesque', 'DM Sans', system-ui, sans-serif",
+    fontWeight: '600',
+  },
   defaultRadius: 'md',
   components: {
     Button: { defaultProps: { radius: 'md' } },
