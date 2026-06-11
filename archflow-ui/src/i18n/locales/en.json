@@ -173,6 +173,7 @@
             "toggleProperties": "Toggle properties panel",
             "fields": {
                 "nodeName": "Node name",
+                "catalogOffline": "Offline catalog — showing built-in components only",
                 "assistantType": "Assistant type",
                 "agentType": "Agent type",
                 "executionStrategy": "Execution strategy",

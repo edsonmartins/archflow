@@ -173,6 +173,7 @@
             "toggleProperties": "Alternar painel de propriedades",
             "fields": {
                 "nodeName": "Nome do nó",
+                "catalogOffline": "Catálogo offline — exibindo apenas componentes embutidos",
                 "assistantType": "Tipo de assistente",
                 "agentType": "Tipo de agente",
                 "executionStrategy": "Estratégia de execução",

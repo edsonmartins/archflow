@@ -199,6 +199,14 @@ function NodeFields({ nodeId, nodeData }: { nodeId: string; nodeData: FlowNodeDa
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {/* Catálogo em modo fallback: o usuário precisa saber que as opções
+          exibidas são a lista estática local, não o catálogo do servidor */}
+      {catalog.usingFallback && (
+        <Badge color="yellow" variant="light" size="sm" fullWidth radius="sm">
+          {f('catalogOffline')}
+        </Badge>
+      )}
+
       {/* ── Common: Node name ─────────────────────────────────── */}
       <TextInput
         label={f('nodeName')}
