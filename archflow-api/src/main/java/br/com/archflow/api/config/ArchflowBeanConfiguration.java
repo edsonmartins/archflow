@@ -132,23 +132,21 @@ public class ArchflowBeanConfiguration {
         return new AuthService(jwtService, passwordService, userRepository);
     }
 
+    /**
+     * Default in-memory API key repository — bean próprio (não mais embutido
+     * no apiKeyService) para que deployments possam sobrescrevê-lo com uma
+     * implementação durável e o ProductionReadinessGuard consiga detectá-lo.
+     */
     @Bean
     @ConditionalOnMissingBean
-    public ApiKeyService apiKeyService() {
-        // In-memory API key repository for dev; override for production
-        ApiKeyService.ApiKeyRepository repo = new InMemoryApiKeyRepository();
-        return new ApiKeyService(repo);
+    public ApiKeyService.ApiKeyRepository apiKeyRepository() {
+        return new InMemoryApiKeyRepository();
     }
 
-    /** Simple in-memory implementation of ApiKeyRepository for dev/testing. */
-    private static class InMemoryApiKeyRepository implements ApiKeyService.ApiKeyRepository {
-        private final java.util.concurrent.ConcurrentHashMap<String, br.com.archflow.model.security.ApiKey> store = new java.util.concurrent.ConcurrentHashMap<>();
-
-        @Override public br.com.archflow.model.security.ApiKey save(br.com.archflow.model.security.ApiKey key) { store.put(key.getId(), key); return key; }
-        @Override public java.util.Optional<br.com.archflow.model.security.ApiKey> findById(String id) { return java.util.Optional.ofNullable(store.get(id)); }
-        @Override public java.util.Optional<br.com.archflow.model.security.ApiKey> findByKeyId(String keyId) { return store.values().stream().filter(k -> keyId.equals(k.getKeyId())).findFirst(); }
-        @Override public java.util.List<br.com.archflow.model.security.ApiKey> findByOwnerId(String ownerId) { return store.values().stream().filter(k -> ownerId.equals(k.getOwnerId())).toList(); }
-        @Override public void delete(br.com.archflow.model.security.ApiKey key) { store.remove(key.getId()); }
+    @Bean
+    @ConditionalOnMissingBean
+    public ApiKeyService apiKeyService(ApiKeyService.ApiKeyRepository apiKeyRepository) {
+        return new ApiKeyService(apiKeyRepository);
     }
 
     // =========================================================================
@@ -493,6 +491,7 @@ public class ArchflowBeanConfiguration {
                 failed.add(className + " (not on classpath)");
             } catch (Throwable e) {
                 failed.add(className + " (failed to construct: " + e.getMessage() + ")");
+                log.warn("Built-in plugin {} failed to construct", className, e);
             }
         }
         log.info("Component catalog: {} built-in plugin(s) registered", registered.size());

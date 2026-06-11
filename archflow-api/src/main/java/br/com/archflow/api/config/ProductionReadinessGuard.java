@@ -92,9 +92,26 @@ public class ProductionReadinessGuard implements SmartInitializingSingleton {
         checkBean(br.com.archflow.observability.audit.AuditRepository.class,
                 "br.com.archflow.observability.audit.InMemoryAuditRepository",
                 "AuditRepository — trilha de auditoria", violations);
+        checkBean(br.com.archflow.security.apikey.ApiKeyService.ApiKeyRepository.class,
+                "br.com.archflow.api.config.InMemoryApiKeyRepository",
+                "ApiKeyRepository — chaves de API", violations);
         checkQuartz(violations);
 
+        // Stores de observabilidade/rascunho: a perda degrada visibilidade,
+        // não corretude — WARN em vez de falhar o boot (não têm alternativa
+        // durável embutida hoje).
+        warnIfPresent(br.com.archflow.api.admin.observability.impl.InMemoryTraceStore.class,
+                "InMemoryTraceStore — traces de execução serão perdidos no restart");
+        warnIfPresent(br.com.archflow.api.web.workflow.InMemoryWorkflowRuntimeStore.class,
+                "InMemoryWorkflowRuntimeStore — runtime de workflows do designer será perdido no restart");
+
         return violations;
+    }
+
+    private void warnIfPresent(Class<?> beanType, String message) {
+        if (beanFactory.getBeanProvider(beanType).getIfAvailable() != null) {
+            log.warn("Production readiness: {}", message);
+        }
     }
 
     private void checkBean(Class<?> beanType, String inMemoryClassName, String description,
