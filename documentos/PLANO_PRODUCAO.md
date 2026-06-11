@@ -15,7 +15,12 @@
 - ✅ **Fase 7** — Testcontainers com PostgreSQL 16 real (caminho de escrita do JdbcStateRepository — ON CONFLICT/::json — agora coberto; migration de conversação validada; sobrevivência a restart testada). Constatado que CI já tinha gates (JaCoCo 60/80, lint, unit, Playwright com 26 specs incluindo admin — o achado da auditoria estava desatualizado). Nice-to-have remanescente: ampliar cobertura unitária dos adapters vectorstore/memory
 - ✅ **Fase 8** — re-auditoria concluída (11/06/2026): **25/25 achados originais verificados como CORRIGIDOS** por 3 agentes independentes (segurança backend 15/15, persistência/resiliência, frontend 10/10); zero novos críticos. Gaps menores apontados e fechados na sequência: ApiKeyRepository agora é bean detectável e o guard FALHA com ele em memória; TraceStore/WorkflowRuntimeStore com WARN; guia docs/development/production-persistence.md criado. `any` no frontend: 15 → 6 (todos justificados). Nice-to-haves registrados: cobertura unitária dos adapters vectorstore/memory, outline a11y do canvas.
 
-Nota da execução: o JdbcStateRepository existente usa SQL específico de PostgreSQL (ON CONFLICT/::json) não exercitável no H2 — cobertura de escrita ficará nos Testcontainers da Fase 7. O wrapper Secret para API keys dos adapters foi adiado para a Fase 7 (custo/benefício baixo: nenhum site de log imprime configs hoje).
+Nota da execução: o JdbcStateRepository existente usa SQL específico de PostgreSQL (ON CONFLICT/::json) não exercitável no H2 — cobertura de escrita ficou nos Testcontainers da Fase 7. O wrapper Secret para API keys dos adapters foi adiado (custo/benefício baixo: nenhum site de log imprime configs hoje).
+
+## Follow-up pós-PR (executado 11/06/2026)
+
+- ✅ **Auto-config de persistência JDBC** — `JdbcPersistenceConfiguration` liga StateManager durável (via `RepositoryStateManager`/`JdbcStateRepository`) e `AuditRepository` quando `archflow.persistence.jdbc.enabled=true` + DataSource; default em memória desligado pela mesma flag (toggle determinístico). FlowRepository continua manual (codec específico do deployment) com o guard guiando. Testado com `ApplicationContextRunner`. Doc atualizada em `docs/development/production-persistence.md`.
+- ✅ **Memória episódica** — sem trabalho de código: a memória episódica de produção é o **BrainSentry** (externo, já integrado com circuit breaker). A `InMemoryEpisodicMemory` é impl de referência/teste, não instanciada no runtime — não é risco de perda de dados nem entra no guard. Documentado em `docs/architecture/internal-modules.md`.
 
 ## Decisões assumidas (ajustar se discordar)
 

@@ -35,6 +35,18 @@ Invocação assíncrona agente-a-agente sem bloqueio do chamador.
 Regras de governança aplicadas ao loop conversacional (limites, políticas por
 tenant). Configuração é documento JSON versionado — ver ADR-0001 (D3).
 
+## Memória episódica
+
+A memória episódica **de produção é o BrainSentry** (serviço externo,
+brainsentry.io), integrado via `archflow-brainsentry` (`BrainSentryClient`,
+`BrainSentryMemoryAdapter`, com circuit breaker e enriquecimento de prompt).
+
+A `InMemoryEpisodicMemory` em `archflow-conversation/memory/` é uma
+implementação de **referência/teste** do contrato `EpisodicMemory` — nada a
+instancia no caminho de runtime (só testes). Por isso **não é** um risco de
+perda de dados em produção e **não** entra no `ProductionReadinessGuard`;
+também não há `JdbcEpisodicMemory`, pois o BrainSentry já é o backend durável.
+
 ## Conversation Summarization (`archflow-conversation` → `summary/`)
 
 Compressão de conversas longas para caber na janela de contexto.

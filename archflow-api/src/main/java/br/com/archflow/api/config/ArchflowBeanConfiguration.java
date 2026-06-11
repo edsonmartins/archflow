@@ -42,6 +42,7 @@ import br.com.archflow.langchain4j.realtime.spi.RealtimeAdapter;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -52,6 +53,7 @@ import org.springframework.context.annotation.Configuration;
  * override any service (e.g., replace InMemoryUserRepository with JDBC).
  */
 @Configuration
+@org.springframework.context.annotation.Import(JdbcPersistenceConfiguration.class)
 public class ArchflowBeanConfiguration {
 
     private static final org.slf4j.Logger log =
@@ -372,9 +374,14 @@ public class ArchflowBeanConfiguration {
      * Shared flow state store (design-0005 step 4): one {@link br.com.archflow.engine.core.StateManager}
      * used by the engine, the OrchestrateStep (to materialize the dynamic tree)
      * and the execution controller (to read it back). In-memory for dev.
+     *
+     * <p>Desligado quando {@code archflow.persistence.jdbc.enabled=true} — aí o
+     * {@link JdbcPersistenceConfiguration} fornece o StateManager durável
+     * (mutuamente exclusivo pela mesma propriedade, sem corrida de ordenação).
      */
     @Bean
     @ConditionalOnMissingBean
+    @ConditionalOnProperty(name = "archflow.persistence.jdbc.enabled", havingValue = "false", matchIfMissing = true)
     public br.com.archflow.engine.core.StateManager stateManager() {
         return new br.com.archflow.api.flow.InMemoryStateManager();
     }

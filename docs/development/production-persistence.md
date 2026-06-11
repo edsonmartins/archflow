@@ -35,25 +35,50 @@ Com Flyway no classpath (`org.flywaydb:flyway-core` +
 `flyway-database-postgresql`), o Spring Boot aplica tudo automaticamente.
 Sem Flyway, aplique os arquivos manualmente na ordem.
 
-## 3. Beans duráveis
+## 3. Liga automática (StateManager + AuditRepository)
 
-Defina os beans no seu app (eles vencem os defaults `@ConditionalOnMissingBean`):
+A forma mais simples: ligue a flag e forneça um `DataSource`.
+
+```yaml
+archflow:
+  persistence:
+    jdbc:
+      enabled: true
+```
+
+Com `archflow.persistence.jdbc.enabled=true` + um `DataSource` no contexto
+(via `spring-boot-starter-jdbc` + `spring.datasource.*`), o
+`JdbcPersistenceConfiguration` liga automaticamente:
+
+- **StateManager** durável (estado de execução — resume sobrevive a restart),
+  via `RepositoryStateManager` sobre `JdbcStateRepository`;
+- **AuditRepository** durável, via `JdbcAuditRepository`.
+
+O default em memória do `StateManager` é desligado pela mesma flag (mutuamente
+exclusivo, sem corrida de ordenação).
+
+O **FlowRepository** não é ligado automaticamente: serializar um `Flow` depende
+da implementação concreta do seu deployment (não há codec universal seguro), e
+o caminho do designer usa um formato de nó específico. Forneça o bean — uma
+linha — com o seu `FlowJsonCodec`. Se esquecer, o `ProductionReadinessGuard`
+**falha o boot** em produção pedindo o bean durável (a rede de segurança
+guia você):
+
+```java
+@Bean
+public FlowRepository flowRepository(DataSource ds, FlowJsonCodec codec) {
+    return new JdbcFlowRepository(ds, codec);
+}
+```
+
+## 4. Beans duráveis adicionais (manual)
+
+Os demais stores ainda exigem wiring explícito (vencem os defaults
+`@ConditionalOnMissingBean`):
 
 ```java
 @Configuration
 public class ProductionPersistenceConfig {
-
-    /** Estado de execução dos fluxos (multi-tenant). */
-    @Bean
-    public StateRepository stateRepository(DataSource ds) {
-        return new JdbcStateRepository(ds);
-    }
-
-    /** Definições de fluxo. O codec converte a SUA implementação de Flow. */
-    @Bean
-    public FlowRepository flowRepository(DataSource ds, FlowJsonCodec codec) {
-        return new JdbcFlowRepository(ds, codec);
-    }
 
     /** Conversas + mensagens (isolamento por tenant em toda query). */
     @Bean
@@ -66,14 +91,14 @@ public class ProductionPersistenceConfig {
     public PromptRegistry promptRegistry(DataSource ds) {
         return new JdbcPromptRegistry(ds);
     }
-
-    /** Trilha de auditoria. */
-    @Bean
-    public AuditRepository auditRepository(DataSource ds) {
-        return new JdbcAuditRepository(ds);
-    }
 }
 ```
+
+> Nota: `ConversationRepository`/`PromptRegistry` têm implementações JDBC
+> prontas, mas o caminho de runtime (`ConversationManager` singleton) ainda
+> não as consome — ligá-las hoje cobre consumidores diretos (ex.:
+> `ConversationOrchestrator`), não o suspend/resume do singleton. Integrá-las
+> ao `ConversationManager` é trabalho à parte.
 
 Para o **Quartz** (triggers agendados), sobrescreva o bean `Scheduler` com
 `JDBCJobStore` (tabelas `QRTZ_*` do distribution do Quartz).
@@ -82,7 +107,7 @@ Para **ApiKeyRepository** e **UserRepository**, implemente as interfaces de
 `archflow-security` sobre o seu banco — os defaults em memória servem apenas
 para dev.
 
-## 4. ArchFlowAgent embarcado
+## 5. ArchFlowAgent embarcado
 
 Quem usa o agente como biblioteca injeta os repositórios no construtor:
 
@@ -95,7 +120,7 @@ var agent = new ArchFlowAgent(config,
 O construtor de um argumento continua existindo (in-memory, com WARNING) —
 correto para o runner standalone one-shot.
 
-## 5. Conferência
+## 6. Conferência
 
 Suba com o profile de produção: se algo em memória sobrou, o boot falha com
 a lista exata dos beans e o que configurar. Os testes de integração
