@@ -11,9 +11,9 @@
 - ✅ **Fase 3** — FlowPluginManager reescrito sobre o plugin-loader (API pública de carga criada); falhas de plugin explícitas
 - ✅ **Fase 4** — circuit breaker BrainSentry; retry no ProtobufEventPublisher; blacklist JWT no logout; fail-fast na restauração de memória; varredura de exceções engolidas (auditoria, WorkflowTool, skills, agente conversacional)
 - ✅ **Fase 5** — refresh automático de token + validação de expiração; motion no canvas; display font (Bricolage Grotesque); EmptyState; limpeza index.css; **strict mode ligado com o app INTEIRO no type-check** (tsconfig excluía components/pages/stores/services — 2 bugs reais de produção encontrados: TenantInfo passado como objeto à API na impersonação, prop `in` do Collapse ignorado no Mantine 9); split do PropertyPanel (1640→1018 linhas, AgentFields + 4 field components extraídos); lazy-load de 17 telas secundárias; badge de catálogo offline. Restante (outline a11y do canvas, Playwright admin) movido para a Fase 7
-- 🔶 **Fase 6** — feito: readme corrigido (Spring Boot, 19 MB; CoT-SC verificado como IMPLEMENTADO — ChainOfThoughtStrategy). Pendente: docs dos módulos não documentados, consolidação de fonte única, decisão RFC-005 ExecutionContext
-- ⬜ **Fase 7** — Testcontainers, cobertura de adapters, Playwright, CI gates
-- ⬜ **Fase 8** — re-auditoria final + security review
+- ✅ **Fase 6** — readme corrigido (Spring Boot, 19 MB; CoT-SC verificado como IMPLEMENTADO — ChainOfThoughtStrategy); docs/architecture/internal-modules.md cobre os 7 módulos órfãos; ADR-0004 registra a decisão sobre ExecutionContext; índice de fontes de verdade em docs/readme.md
+- ✅ **Fase 7** — Testcontainers com PostgreSQL 16 real (caminho de escrita do JdbcStateRepository — ON CONFLICT/::json — agora coberto; migration de conversação validada; sobrevivência a restart testada). Constatado que CI já tinha gates (JaCoCo 60/80, lint, unit, Playwright com 26 specs incluindo admin — o achado da auditoria estava desatualizado). Nice-to-have remanescente: ampliar cobertura unitária dos adapters vectorstore/memory
+- 🔶 **Fase 8** — re-auditoria em andamento
 
 Nota da execução: o JdbcStateRepository existente usa SQL específico de PostgreSQL (ON CONFLICT/::json) não exercitável no H2 — cobertura de escrita ficará nos Testcontainers da Fase 7. O wrapper Secret para API keys dos adapters foi adiado para a Fase 7 (custo/benefício baixo: nenhum site de log imprime configs hoje).
 
