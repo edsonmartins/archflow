@@ -28,7 +28,7 @@ const EXTENSIONS = [
 
 async function mockApi(page: Page) {
     await installApiRouter(page, [
-        ...authHandlers(adminUser, { loginShape: 'token' }),
+        ...authHandlers(adminUser, { loginShape: 'token', workflows: [] }),
         async ({ path, method, route }) => {
             if (path !== '/extensions' || method !== 'GET') return false;
             await fulfillJson(route, EXTENSIONS);
@@ -57,8 +57,8 @@ test.describe('Marketplace page', () => {
         await installSession(page);
         await mockApi(page);
 
-        await page.goto('/marketplace');
-        await expect(page.getByTestId('marketplace-page')).toBeVisible();
+        await page.goto('/marketplace', { waitUntil: 'commit' });
+        await expect(page.getByRole('heading', { name: 'Marketplace' })).toBeVisible({ timeout: 30_000 });
         await expect(page.getByText('Weather Tool')).toBeVisible();
         await expect(page.getByText('Slack Notifier')).toBeVisible();
     });
@@ -67,7 +67,7 @@ test.describe('Marketplace page', () => {
         await installSession(page);
         await mockApi(page);
 
-        await page.goto('/marketplace');
+        await page.goto('/marketplace', { waitUntil: 'commit' });
         await page.getByTestId('marketplace-install-btn').click();
         await page.getByTestId('manifest-path').fill('/opt/archflow/extensions/slack/manifest.json');
         // Mantine v7's Modal positions interior content with a CSS
@@ -82,8 +82,9 @@ test.describe('Marketplace page', () => {
         await installSession(page);
         await mockApi(page);
 
-        await page.goto('/marketplace');
+        await page.goto('/marketplace', { waitUntil: 'commit' });
         await page.getByTestId('uninstall-ext-weather:1.0.0').click();
+        await page.getByRole('dialog', { name: 'Uninstall extension' }).getByRole('button', { name: 'Uninstall' }).click();
         await expect(page.getByText(/removed/)).toBeVisible();
     });
 });

@@ -23,7 +23,7 @@ describe('workflow-config-api (feeds useWorkflowConfig)', () => {
   })
 
   it('getProviders calls /api/workflow/providers with auth headers', async () => {
-    localStorage.setItem('archflow_token', 'test-token')
+    sessionStorage.setItem('archflow_token', 'test-token')
     const fetchMock = vi.fn(async () => ({
       ok: true,
       status: 200,
@@ -47,7 +47,7 @@ describe('workflow-config-api (feeds useWorkflowConfig)', () => {
     ]
     expect(url).toContain('/workflow/providers')
     expect((init.headers as Record<string, string>).Authorization).toBe('Bearer test-token')
-    localStorage.removeItem('archflow_token')
+    sessionStorage.removeItem('archflow_token')
   })
 
   it('getAgentPatterns hits the agent-patterns endpoint', async () => {

@@ -24,8 +24,8 @@ export function tokenExpiresAt(token: string): number | null {
 }
 
 async function ensureFreshToken(): Promise<void> {
-    const token = localStorage.getItem('archflow_token');
-    const refreshToken = localStorage.getItem('archflow_refresh_token');
+    const token = sessionStorage.getItem('archflow_token');
+    const refreshToken = sessionStorage.getItem('archflow_refresh_token');
     if (!token || !refreshToken) return;
 
     const expiresAt = tokenExpiresAt(token);
@@ -41,8 +41,8 @@ async function ensureFreshToken(): Promise<void> {
                 });
                 if (!response.ok) return; // o request original recebe 401 e redireciona
                 const res = await response.json();
-                if (res.accessToken) localStorage.setItem('archflow_token', res.accessToken);
-                if (res.refreshToken) localStorage.setItem('archflow_refresh_token', res.refreshToken);
+                if (res.accessToken) sessionStorage.setItem('archflow_token', res.accessToken);
+                if (res.refreshToken) sessionStorage.setItem('archflow_refresh_token', res.refreshToken);
             } catch {
                 // rede indisponível: deixa o request original decidir (401 → login)
             } finally {
@@ -62,7 +62,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     if (!skipsRefresh(path)) {
         await ensureFreshToken();
     }
-    const token = localStorage.getItem('archflow_token');
+    const token = sessionStorage.getItem('archflow_token');
     const headers: Record<string, string> = {
         'Content-Type': 'application/json',
         ...((options.headers as Record<string, string>) || {}),
@@ -78,7 +78,8 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     const response = await fetch(`${API_BASE}${path}`, { ...options, headers });
 
     if (response.status === 401) {
-        localStorage.removeItem('archflow_token');
+        sessionStorage.removeItem('archflow_token');
+        sessionStorage.removeItem('archflow_refresh_token');
         window.location.href = '/login';
         throw new ApiError(401, 'Unauthorized');
     }

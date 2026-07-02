@@ -1,5 +1,6 @@
 package br.com.archflow.api.config;
 
+import br.com.archflow.security.auth.AuthService;
 import br.com.archflow.security.jwt.JwtService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.jsonwebtoken.Claims;
@@ -12,6 +13,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
@@ -65,15 +67,19 @@ public class JwtAuthenticationFilter implements Filter {
     );
 
     private final JwtService jwtService;
+    private final AuthService authService;
     private final boolean enabled;
     private final Set<String> publicPaths;
     private final ObjectMapper jsonWriter = new ObjectMapper();
 
+    @Autowired
     public JwtAuthenticationFilter(
             JwtService jwtService,
+            AuthService authService,
             @Value("${archflow.security.auth.enabled:false}") boolean enabled,
             @Value("${archflow.security.auth.publicPaths:}") String additionalPublicPaths) {
         this.jwtService = jwtService;
+        this.authService = authService;
         this.enabled = enabled;
         Set<String> paths = new HashSet<>(DEFAULT_PUBLIC_PATHS);
         if (additionalPublicPaths != null && !additionalPublicPaths.isBlank()) {
@@ -85,6 +91,10 @@ public class JwtAuthenticationFilter implements Filter {
         } else {
             log.warn("JWT authentication filter is DISABLED — set archflow.security.auth.enabled=true in production");
         }
+    }
+
+    JwtAuthenticationFilter(JwtService jwtService, boolean enabled, String additionalPublicPaths) {
+        this(jwtService, null, enabled, additionalPublicPaths);
     }
 
     @Override
@@ -112,6 +122,9 @@ public class JwtAuthenticationFilter implements Filter {
                         return;
                     }
                 } else {
+                    if (enabled && authService != null) {
+                        authService.validateAccessToken(token);
+                    }
                     populateAttributes(http, claims);
                 }
             } catch (RuntimeException e) {

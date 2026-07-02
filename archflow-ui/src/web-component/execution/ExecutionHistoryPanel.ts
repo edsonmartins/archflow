@@ -20,6 +20,13 @@ import { ExecutionState as ES, formatDuration, formatTimestamp } from './executi
 const t = (key: string, fallback?: string): string =>
   i18next.t(`webComponent.history.${key}`, { defaultValue: fallback ?? key });
 
+const escapeHtml = (value: unknown): string => String(value ?? '')
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+  .replace(/'/g, '&#39;');
+
 // ==========================================================================
 // History Panel Configuration
 // ==========================================================================
@@ -182,12 +189,12 @@ export class ExecutionHistoryPanel {
 
     return `
       <div class="archflow-history-entry ${isSelected ? 'archflow-history-entry--selected' : ''}"
-           data-entry-id="${entry.executionId}">
+           data-entry-id="${escapeHtml(entry.executionId)}">
         <div class="archflow-history-entry__status ${statusClass}">
           ${statusIcon}
         </div>
         <div class="archflow-history-entry__content">
-          <div class="archflow-history-entry__name">${entry.workflowName}</div>
+          <div class="archflow-history-entry__name">${escapeHtml(entry.workflowName)}</div>
           <div class="archflow-history-entry__meta">
             <span class="archflow-history-entry__time">${formatTimestamp(entry.startTime)}</span>
             <span class="archflow-history-entry__separator">•</span>
@@ -195,7 +202,7 @@ export class ExecutionHistoryPanel {
           </div>
         </div>
         ${this.options.enableRerun && entry.state === ES.COMPLETED ? `
-          <button class="archflow-history-entry__rerun" data-action="rerun" data-entry-id="${entry.executionId}" title="${t('rerun')}">
+          <button class="archflow-history-entry__rerun" data-action="rerun" data-entry-id="${escapeHtml(entry.executionId)}" title="${t('rerun')}">
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
               <path d="M7 3V5M7 9V11M3 7H5M9 7H11M4.22 4.22L5.64 5.64M8.36 8.36L9.78 9.78M4.22 9.78L5.64 8.36M8.36 5.64L9.78 4.22"
                     stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
@@ -237,7 +244,7 @@ export class ExecutionHistoryPanel {
             <div class="archflow-history-details__info">
               <div class="archflow-history-details__info-row">
                 <span class="archflow-history-details__label">${t('id')}</span>
-                <span class="archflow-history-details__value">${entry.executionId}</span>
+                <span class="archflow-history-details__value">${escapeHtml(entry.executionId)}</span>
               </div>
               <div class="archflow-history-details__info-row">
                 <span class="archflow-history-details__label">${t('state')}</span>
@@ -285,7 +292,7 @@ export class ExecutionHistoryPanel {
           ${Object.keys(result.output || {}).length > 0 ? `
             <div class="archflow-history-details__section">
               <h4 class="archflow-history-details__section-title">${t('output')}</h4>
-              <pre class="archflow-history-details__output">${JSON.stringify(result.output, null, 2)}</pre>
+              <pre class="archflow-history-details__output">${escapeHtml(JSON.stringify(result.output, null, 2))}</pre>
             </div>
           ` : ''}
 
@@ -296,10 +303,10 @@ export class ExecutionHistoryPanel {
                 ${result.errors.map(err => `
                   <div class="archflow-history-details__error">
                     <div class="archflow-history-details__error-header">
-                      <span class="archflow-history-details__error-node">${err.nodeId}</span>
-                      <span class="archflow-history-details__error-type">${err.type}</span>
+                      <span class="archflow-history-details__error-node">${escapeHtml(err.nodeId)}</span>
+                      <span class="archflow-history-details__error-type">${escapeHtml(err.type)}</span>
                     </div>
-                    <div class="archflow-history-details__error-message">${err.message}</div>
+                    <div class="archflow-history-details__error-message">${escapeHtml(err.message)}</div>
                   </div>
                 `).join('')}
               </div>
@@ -343,7 +350,7 @@ export class ExecutionHistoryPanel {
 
     // Entry selection
     this.container.querySelectorAll('[data-entry-id]').forEach(el => {
-      el.addEventListener('click', (e) => {
+      el.addEventListener('click', () => {
         const entryId = el.getAttribute('data-entry-id');
         if (entryId) {
           this.selectedEntryId = entryId;

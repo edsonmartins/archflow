@@ -30,8 +30,8 @@ export const agentPlaygroundApi = {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                ...(localStorage.getItem('archflow_token') ? {
-                    Authorization: `Bearer ${localStorage.getItem('archflow_token')}`,
+                ...(sessionStorage.getItem('archflow_token') ? {
+                    Authorization: `Bearer ${sessionStorage.getItem('archflow_token')}`,
                 } : {}),
             },
             body: JSON.stringify({ tenantId, sessionId, payload }),

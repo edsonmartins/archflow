@@ -76,7 +76,7 @@ test.describe('Archflow frontend smoke', () => {
 
     await page.goto('/login');
     await page.getByLabel('Username').fill('admin');
-    await page.getByLabel('Password').fill('correct-password');
+    await page.getByRole('textbox', { name: 'Password' }).fill('correct-password');
     await page.getByRole('button', { name: /sign in/i }).click();
 
     await expect(page).toHaveURL(/\/$/);

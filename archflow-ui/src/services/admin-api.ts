@@ -3,7 +3,7 @@ import type { TenantInfo, TenantLimits, TenantUsage, PlanType } from '../stores/
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 
 function getHeaders(): Record<string, string> {
-  const token = localStorage.getItem('archflow_token')
+  const token = sessionStorage.getItem('archflow_token')
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   }

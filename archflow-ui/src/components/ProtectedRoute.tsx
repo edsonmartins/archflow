@@ -14,11 +14,11 @@ interface Props {
  * sessões mortas navegarem até o primeiro 401.
  */
 function hasValidToken(): boolean {
-    const token = localStorage.getItem('archflow_token');
+    const token = sessionStorage.getItem('archflow_token');
     if (!token) return false;
     const expiresAt = tokenExpiresAt(token);
     if (expiresAt === null || expiresAt > Date.now()) return true;
-    return !!localStorage.getItem('archflow_refresh_token');
+    return !!sessionStorage.getItem('archflow_refresh_token');
 }
 
 export default function ProtectedRoute({ children, requiredRole }: Props) {

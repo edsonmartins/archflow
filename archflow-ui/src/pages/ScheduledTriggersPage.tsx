@@ -119,7 +119,7 @@ export default function ScheduledTriggersPage() {
     }
 
     return (
-        <Stack gap="md" style={{ padding: 24 }} data-testid="triggers-page">
+        <Stack gap="md" p="md" data-testid="triggers-page">
             <Group justify="space-between">
                 <Title order={2}>{t('triggers.title')}</Title>
                 <Group>

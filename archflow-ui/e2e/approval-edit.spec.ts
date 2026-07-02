@@ -34,11 +34,12 @@ test.describe('Approval edit mode', () => {
         ]);
 
         await authenticate(page);
-        await page.goto('/approvals/req-edit-1');
+        await page.goto('/approvals/req-edit-1', { waitUntil: 'commit' });
 
         await page.getByTestId('approval-edit-toggle').click();
         await page.getByTestId('approval-edit-payload').fill('{ invalid json ');
         await page.getByTestId('approval-approve').click();
+        await page.getByRole('dialog', { name: 'Approve request' }).getByRole('button', { name: 'Approve' }).click();
 
         await expect(page.getByText('Edited payload is not valid JSON')).toBeVisible();
         await expect(page).toHaveURL(/\/approvals\/req-edit-1$/);
@@ -74,11 +75,12 @@ test.describe('Approval edit mode', () => {
         ]);
 
         await authenticate(page);
-        await page.goto('/approvals/req-edit-1');
+        await page.goto('/approvals/req-edit-1', { waitUntil: 'commit' });
 
         await page.getByTestId('approval-edit-toggle').click();
         await page.getByTestId('approval-edit-payload').fill(JSON.stringify({ amount: 130, currency: 'BRL', approved: true }, null, 2));
         await page.getByTestId('approval-approve').click();
+        await page.getByRole('dialog', { name: 'Approve request' }).getByRole('button', { name: 'Approve' }).click();
 
         await expect.poll(() => submitted).toEqual({
             tenantId: 'default',

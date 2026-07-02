@@ -29,7 +29,7 @@ export function runAgUiWorkflow(
     const controller = new AbortController()
 
     void (async () => {
-        const token = localStorage.getItem('archflow_token')
+        const token = sessionStorage.getItem('archflow_token')
         const response = await fetch(`/ag-ui/workflows/${encodeURIComponent(workflowId)}`, {
             method: 'POST',
             headers: {

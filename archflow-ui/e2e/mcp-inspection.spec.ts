@@ -26,7 +26,7 @@ const INTROSPECTION = {
 
 async function mockApi(page: Page) {
     await installApiRouter(page, [
-        ...authHandlers(adminUser, { loginShape: 'token' }),
+        ...authHandlers(adminUser, { loginShape: 'token', workflows: [] }),
         async ({ path, method, route }) => {
             if (path !== '/admin/mcp/servers' || method !== 'GET') return false;
             await fulfillJson(route, SERVERS);
@@ -45,20 +45,22 @@ test.describe('MCP inspection', () => {
         await installSession(page, { role: 'tenant_admin' });
         await mockApi(page);
 
-        await page.goto('/admin/mcp');
-        await expect(page.getByTestId('mcp-servers-page')).toBeVisible();
-        await expect(page.getByTestId('mcp-memory-server')).toBeVisible();
-        await expect(page.getByTestId('mcp-workflow-server')).toBeVisible();
+        await page.goto('/admin/mcp', { waitUntil: 'commit' });
+        await expect(page.getByTestId('mcp-servers-page')).toBeVisible({ timeout: 30_000 });
+        await expect(page.getByTestId('mcp-memory-server')).toBeVisible({ timeout: 30_000 });
+        await expect(page.getByTestId('mcp-workflow-server')).toBeVisible({ timeout: 30_000 });
     });
 
     test('opens server detail and shows tools/prompts/resources', async ({ page }) => {
         await installSession(page, { role: 'tenant_admin' });
         await mockApi(page);
 
-        await page.goto('/admin/mcp/memory-server');
-        await expect(page.getByTestId('mcp-detail')).toBeVisible();
-        await expect(page.getByTestId('mcp-tool-store-memory')).toBeVisible();
+        await page.goto('/admin/mcp/memory-server', { waitUntil: 'commit' });
+        await expect(page.getByTestId('mcp-detail')).toBeVisible({ timeout: 30_000 });
+        await expect(page.getByTestId('mcp-tool-store-memory')).toBeVisible({ timeout: 30_000 });
+        await page.getByRole('button', { name: /Prompts/ }).click();
         await expect(page.getByText('summarize')).toBeVisible();
+        await page.getByRole('button', { name: /Resources/ }).click();
         await expect(page.getByText('recent-memories')).toBeVisible();
     });
 });

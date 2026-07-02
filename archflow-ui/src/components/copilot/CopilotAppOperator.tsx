@@ -23,6 +23,13 @@ const ROUTES: Record<string, string> = {
 
 interface WorkflowSummary { id: string; name?: string }
 
+type NavigateToParams = { page: string }
+type RunWorkflowParams = { workflowId: string }
+type ShowStatusParams = { message: string }
+type CreateFlowParams = { name?: string }
+type AddNodeParams = { nodeType: string; label?: string }
+type ConnectNodesParams = { sourceId: string; targetId: string }
+
 /**
  * Makes the global copilot OPERATE the app (ADR-0003): exposes the current route
  * and the user's workflows (useAgentContext) and registers app-wide actions
@@ -63,7 +70,7 @@ export default function CopilotAppOperator() {
         description: 'Open a page in the app. The `page` must be one of: ' + Object.keys(ROUTES).join(', ') + '.',
         parameters: z.object({ page: z.string().describe('the page key to open') }),
         followUp: false,
-        handler: async ({ page }) => {
+        handler: async ({ page }: NavigateToParams) => {
             const path = ROUTES[page] ?? (page.startsWith('/') ? page : undefined)
             if (!path) {
                 notifications.show({ color: 'red', message: `Unknown page: ${page}` })
@@ -80,7 +87,7 @@ export default function CopilotAppOperator() {
             + 'Use the workflow ids from the context.',
         parameters: z.object({ workflowId: z.string().describe('the id of the workflow to run') }),
         followUp: false,
-        handler: async ({ workflowId }) => {
+        handler: async ({ workflowId }: RunWorkflowParams) => {
             try {
                 const res = await api.post<{ executionId: string; status: string }>(
                     `/workflows/${workflowId}/execute`, {})
@@ -101,7 +108,7 @@ export default function CopilotAppOperator() {
         description: 'Show a short status/notification message to the user.',
         parameters: z.object({ message: z.string().describe('the message to show') }),
         followUp: false,
-        handler: async ({ message }) => {
+        handler: async ({ message }: ShowStatusParams) => {
             notifications.show({ message: String(message) })
         },
     })
@@ -113,7 +120,7 @@ export default function CopilotAppOperator() {
             + 'Call this before addNode when no flow is open.',
         parameters: z.object({ name: z.string().optional().describe('optional name for the flow') }),
         followUp: false,
-        handler: async ({ name }) => {
+        handler: async ({ name }: CreateFlowParams) => {
             try {
                 const wf = await workflowApi.create({
                     metadata: { name: name || 'New flow', description: '', version: '1.0.0', category: '', tags: [] },
@@ -138,7 +145,7 @@ export default function CopilotAppOperator() {
             label: z.string().optional().describe('optional label for the node'),
         }),
         followUp: false,
-        handler: async ({ nodeType, label }) => {
+        handler: async ({ nodeType, label }: AddNodeParams) => {
             const canvas = useFlowStore.getState().canvasApi
             if (canvas) {
                 const id = canvas.addNode({ nodeType, label })
@@ -162,7 +169,7 @@ export default function CopilotAppOperator() {
             targetId: z.string().describe('id of the target node'),
         }),
         followUp: false,
-        handler: async ({ sourceId, targetId }) => {
+        handler: async ({ sourceId, targetId }: ConnectNodesParams) => {
             const canvas = useFlowStore.getState().canvasApi
             if (!canvas) {
                 useFlowStore.getState().enqueueCanvasOp({ kind: 'connect', sourceId, targetId })
