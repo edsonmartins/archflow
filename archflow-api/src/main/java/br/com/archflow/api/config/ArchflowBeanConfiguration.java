@@ -403,7 +403,12 @@ public class ArchflowBeanConfiguration {
             br.com.archflow.engine.persistence.FlowRepository flowRepository,
             EventStreamRegistry eventStreamRegistry,
             RunningFlowsRegistry runningFlowsRegistry,
-            br.com.archflow.engine.core.StateManager stateManager) {
+            br.com.archflow.engine.core.StateManager stateManager,
+            br.com.archflow.api.web.workflow.InMemoryWorkflowRuntimeStore runtimeStore) {
+        // Registered before create(): the factory snapshots process-wide
+        // listeners into the engine's composite lifecycle listener.
+        br.com.archflow.engine.lifecycle.FlowLifecycleListeners.register(
+                new br.com.archflow.api.flow.StepRecordingListener(runtimeStore));
         return br.com.archflow.api.flow.FlowEngineFactory.create(
                 flowRepository, eventStreamRegistry, runningFlowsRegistry, stateManager);
     }
@@ -412,6 +417,23 @@ public class ArchflowBeanConfiguration {
     @ConditionalOnMissingBean
     public WorkflowYamlBridge workflowYamlBridge() {
         return new WorkflowYamlBridge();
+    }
+
+    /**
+     * MCP server exposing the stored workflows as tools (Onda E): the
+     * counterpart of the platform's MCP-client support, served by
+     * {@code SpringMcpServerController} at {@code POST /mcp}.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public br.com.archflow.api.mcp.server.WorkflowMcpServer workflowMcpServer(
+            br.com.archflow.api.web.workflow.InMemoryWorkflowRuntimeStore runtimeStore,
+            br.com.archflow.api.flow.WorkflowDeserializer workflowDeserializer,
+            br.com.archflow.engine.api.FlowEngine flowEngine,
+            br.com.archflow.engine.persistence.FlowRepository flowRepository,
+            com.fasterxml.jackson.databind.ObjectMapper jackson2ObjectMapper) {
+        return new br.com.archflow.api.mcp.server.WorkflowMcpServer(
+                runtimeStore, workflowDeserializer, flowEngine, flowRepository, jackson2ObjectMapper);
     }
 
     // =========================================================================
