@@ -16,6 +16,7 @@ import java.util.Objects;
  * @param editedPayload Payload editado (preenchido quando decision=EDITED)
  * @param responderId   ID do usuário que tomou a decisão (opcional)
  * @param respondedAt   Timestamp da decisão
+ * @param comment       Justificativa do decisor (opcional)
  */
 public record HumanDecisionEvent(
         String requestId,
@@ -23,13 +24,19 @@ public record HumanDecisionEvent(
         Decision decision,
         Object editedPayload,
         String responderId,
-        Instant respondedAt
+        Instant respondedAt,
+        String comment
 ) {
     public HumanDecisionEvent {
         Objects.requireNonNull(requestId, "requestId is required");
         Objects.requireNonNull(tenantId, "tenantId is required");
         Objects.requireNonNull(decision, "decision is required");
         if (respondedAt == null) respondedAt = Instant.now();
+    }
+
+    public HumanDecisionEvent(String requestId, String tenantId, Decision decision,
+                              Object editedPayload, String responderId, Instant respondedAt) {
+        this(requestId, tenantId, decision, editedPayload, responderId, respondedAt, null);
     }
 
     public static HumanDecisionEvent approved(String requestId, String tenantId) {

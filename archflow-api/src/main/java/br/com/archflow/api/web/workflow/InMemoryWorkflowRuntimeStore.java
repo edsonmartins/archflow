@@ -60,9 +60,49 @@ public class InMemoryWorkflowRuntimeStore {
         if (execution == null) {
             return;
         }
-        execution.put("status", status);
-        execution.put("completedAt", Instant.now().toString());
-        execution.put("error", error);
+        synchronized (execution) {
+            execution.put("status", status);
+            execution.put("completedAt", Instant.now().toString());
+            execution.put("error", error);
+        }
+    }
+
+    /** Records the wall-clock duration of an execution (set by the lifecycle listener). */
+    public void recordDuration(String id, long durationMs) {
+        var execution = executions.get(id);
+        if (execution == null) {
+            return;
+        }
+        synchronized (execution) {
+            execution.put("duration", durationMs);
+        }
+    }
+
+    /**
+     * Appends/updates a per-step record inside the execution's {@code steps} list,
+     * keyed by stepId. Called from engine lifecycle callbacks (virtual threads),
+     * hence the per-execution synchronization.
+     */
+    @SuppressWarnings("unchecked")
+    public void recordStep(String executionId, String stepId, Map<String, Object> patch) {
+        var execution = executions.get(executionId);
+        if (execution == null || stepId == null) {
+            return;
+        }
+        synchronized (execution) {
+            var steps = (List<Map<String, Object>>) execution.computeIfAbsent(
+                    "steps", k -> new ArrayList<Map<String, Object>>());
+            var step = steps.stream()
+                    .filter(s -> stepId.equals(s.get("stepId")))
+                    .findFirst()
+                    .orElseGet(() -> {
+                        var created = new LinkedHashMap<String, Object>();
+                        created.put("stepId", stepId);
+                        steps.add(created);
+                        return created;
+                    });
+            step.putAll(patch);
+        }
     }
 
     public Map<String, Object> createExecution(String workflowId, String workflowName) {

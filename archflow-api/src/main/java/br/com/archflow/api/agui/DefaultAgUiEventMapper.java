@@ -28,9 +28,16 @@ public class DefaultAgUiEventMapper implements AgUiEventMapper {
             case FLOW_STARTED, FLOW_COMPLETED, FLOW_FAILED -> List.of();
 
             case STEP_STARTED -> List.of(AgUiEvent.of("STEP_STARTED",
-                    fields("stepName", str(data, "stepId", "step"))));
+                    fields("stepName", str(data, "stepId", "step"),
+                            "stepId", data.get("stepId"),
+                            "stepIndex", data.get("stepIndex"),
+                            "stepCount", data.get("stepCount"))));
             case STEP_COMPLETED, STEP_FAILED, STEP_SKIPPED -> List.of(AgUiEvent.of("STEP_FINISHED",
-                    fields("stepName", str(data, "stepId", "step"), "status", event.getType().name())));
+                    fields("stepName", str(data, "stepId", "step"), "status", event.getType().name(),
+                            "stepId", data.get("stepId"),
+                            "stepIndex", data.get("stepIndex"),
+                            "durationMs", data.get("durationMs"),
+                            "error", data.get("error"))));
 
             case MESSAGE -> {
                 String content = str(data, "content", str(data, "message", str(data, "text", "")));
