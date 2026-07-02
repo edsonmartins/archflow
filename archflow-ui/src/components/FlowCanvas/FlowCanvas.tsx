@@ -34,10 +34,10 @@ import {
 } from './nodes/index'
 import { FlowEdge }      from './edges/FlowEdge'
 import { useFlowStore, type CanvasApi }  from './store/useFlowStore'
-import { NODE_CATEGORIES, NODE_TYPE_TO_CATEGORY, PALETTE_NODES } from './constants'
-import { NodeIcon } from './nodeIcons'
+import { NODE_CATEGORIES, NODE_TYPE_TO_CATEGORY } from './constants'
 import type { FlowNodeData, WorkflowData } from './types'
 import { CanvasOutline } from './CanvasOutline'
+import { AddNodeMenu } from './AddNodeMenu'
 
 // ── Registro de tipos ────────────────────────────────────────────
 const nodeTypes: NodeTypes = {
@@ -164,7 +164,12 @@ export function FlowCanvas({
   // can hold references without deep-cloning.
   const historyRef = useRef<{ past: CanvasSnapshot[]; future: CanvasSnapshot[] }>({ past: [], future: [] })
   const lastPushRef = useRef<{ reason: string; at: number }>({ reason: '', at: 0 })
-  const [histVersion, setHistVersion] = useState(0)
+  const [historyState, setHistoryState] = useState({ canUndo: false, canRedo: false })
+
+  const syncHistoryState = useCallback(() => {
+    const h = historyRef.current
+    setHistoryState({ canUndo: h.past.length > 0, canRedo: h.future.length > 0 })
+  }, [])
 
   const pushHistory = useCallback((reason: string, coalesce = false) => {
     const now = Date.now()
@@ -179,8 +184,8 @@ export function FlowCanvas({
     h.past.push({ nodes: localNodesRef.current, edges: localEdgesRef.current })
     if (h.past.length > 100) h.past.shift()
     h.future = []
-    setHistVersion(v => v + 1)
-  }, [])
+    syncHistoryState()
+  }, [syncHistoryState])
 
   const applySnapshot = useCallback((s: CanvasSnapshot) => {
     setNodes(s.nodes)
@@ -198,8 +203,8 @@ export function FlowCanvas({
     h.future.push({ nodes: localNodesRef.current, edges: localEdgesRef.current })
     applySnapshot(prev)
     lastPushRef.current = { reason: '', at: 0 }
-    setHistVersion(v => v + 1)
-  }, [applySnapshot])
+    syncHistoryState()
+  }, [applySnapshot, syncHistoryState])
 
   const redo = useCallback(() => {
     const h = historyRef.current
@@ -208,12 +213,8 @@ export function FlowCanvas({
     h.past.push({ nodes: localNodesRef.current, edges: localEdgesRef.current })
     applySnapshot(next)
     lastPushRef.current = { reason: '', at: 0 }
-    setHistVersion(v => v + 1)
-  }, [applySnapshot])
-
-  const canUndo = historyRef.current.past.length > 0
-  const canRedo = historyRef.current.future.length > 0
-  void histVersion // re-render trigger for canUndo/canRedo
+    syncHistoryState()
+  }, [applySnapshot, syncHistoryState])
 
   useEffect(() => {
     setNodes(initialNodes)
@@ -222,8 +223,8 @@ export function FlowCanvas({
     // A (re)loaded workflow starts a fresh history timeline.
     historyRef.current = { past: [], future: [] }
     lastPushRef.current = { reason: '', at: 0 }
-    setHistVersion(v => v + 1)
-  }, [initialEdges, initialNodes, replaceCanvas, setEdges, setNodes])
+    syncHistoryState()
+  }, [initialEdges, initialNodes, replaceCanvas, setEdges, setNodes, syncHistoryState])
 
   // React Flow → Zustand: publish local node/edge changes so PropertyPanel
   // can read the latest config via `selectedNodeData`, and so
@@ -624,7 +625,7 @@ export function FlowCanvas({
                 <ActionIcon
                   variant="subtle"
                   size="md"
-                  disabled={!canUndo}
+                  disabled={!historyState.canUndo}
                   onClick={undo}
                   aria-label={t('editor.canvasActions.undo')}
                   data-testid="canvas-undo"
@@ -636,7 +637,7 @@ export function FlowCanvas({
                 <ActionIcon
                   variant="subtle"
                   size="md"
-                  disabled={!canRedo}
+                  disabled={!historyState.canRedo}
                   onClick={redo}
                   aria-label={t('editor.canvasActions.redo')}
                   data-testid="canvas-redo"
@@ -690,131 +691,6 @@ export function FlowCanvas({
           onClose={() => setConnectMenu(null)}
         />
       )}
-    </div>
-  )
-}
-
-// ── Menu pesquisável exibido ao soltar uma conexão no vazio ───────
-function AddNodeMenu({
-  left, top, onPick, onClose,
-}: {
-  left: number
-  top: number
-  onPick: (info: { componentId: string; label: string }) => void
-  onClose: () => void
-}) {
-  const { t } = useTranslation()
-  const [query, setQuery] = useState('')
-
-  const entries = useMemo(() => {
-    const q = query.toLowerCase().trim()
-    return PALETTE_NODES
-      .filter(n => n.category !== 'annotation')
-      .map(n => ({
-        componentId: n.componentId,
-        label: t(`nodes.${n.componentId}.label`, { defaultValue: n.label }),
-        description: t(`nodes.${n.componentId}.description`, { defaultValue: n.description }),
-        category: n.category,
-      }))
-      .filter(n => !q
-        || n.label.toLowerCase().includes(q)
-        || n.description.toLowerCase().includes(q)
-        || n.componentId.includes(q))
-  }, [query, t])
-
-  return (
-    <div
-      role="dialog"
-      aria-label={t('editor.canvasActions.addNode')}
-      style={{
-        position: 'absolute',
-        left: Math.max(8, left),
-        top: Math.max(8, top),
-        zIndex: 20,
-        width: 252,
-        background: 'var(--color-background-primary)',
-        border: '1px solid var(--color-border-secondary)',
-        borderRadius: 10,
-        boxShadow: '0 8px 24px rgba(15,23,42,0.18)',
-        overflow: 'hidden',
-      }}
-      onKeyDown={(e) => {
-        if (e.key === 'Escape') onClose()
-        if (e.key === 'Enter' && entries.length > 0) onPick(entries[0])
-      }}
-    >
-      <div style={{ padding: 8, borderBottom: '1px solid var(--color-border-tertiary)' }}>
-        <input
-          autoFocus
-          value={query}
-          onChange={(e) => setQuery(e.currentTarget.value)}
-          placeholder={t('editor.palette.search')}
-          aria-label={t('editor.palette.search')}
-          style={{
-            width: '100%',
-            fontSize: 12,
-            padding: '6px 8px',
-            borderRadius: 7,
-            border: '1px solid var(--color-border-tertiary)',
-            background: 'var(--color-background-secondary)',
-            color: 'var(--color-text-primary)',
-            outline: 'none',
-          }}
-        />
-      </div>
-      <div style={{ maxHeight: 240, overflowY: 'auto', padding: 4 }}>
-        {entries.length === 0 && (
-          <div style={{ padding: 12, fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-            {t('editor.palette.empty')}
-          </div>
-        )}
-        {entries.map(n => {
-          const cat = NODE_CATEGORIES[n.category as keyof typeof NODE_CATEGORIES]
-          return (
-            <button
-              key={n.componentId}
-              type="button"
-              onClick={() => onPick(n)}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                width: '100%',
-                textAlign: 'left',
-                padding: '6px 8px',
-                borderRadius: 7,
-                border: 'none',
-                background: 'transparent',
-                cursor: 'pointer',
-                color: 'var(--color-text-primary)',
-              }}
-              onMouseEnter={e => { e.currentTarget.style.background = 'var(--color-background-secondary)' }}
-              onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
-            >
-              <span
-                style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  width: 24, height: 24, borderRadius: 6, flexShrink: 0,
-                  background: cat.colorLight, color: cat.colorDark,
-                }}
-              >
-                <NodeIcon componentId={n.componentId} size={14} />
-              </span>
-              <span style={{ minWidth: 0 }}>
-                <span style={{ display: 'block', fontSize: 12, fontWeight: 500 }}>{n.label}</span>
-                <span
-                  style={{
-                    display: 'block', fontSize: 11, color: 'var(--color-text-tertiary)',
-                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                  }}
-                >
-                  {n.description}
-                </span>
-              </span>
-            </button>
-          )
-        })}
-      </div>
     </div>
   )
 }

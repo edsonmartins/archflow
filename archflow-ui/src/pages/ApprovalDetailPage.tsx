@@ -7,7 +7,6 @@ import {
     Badge,
     Button,
     Center,
-    Code,
     Group,
     Loader,
     Paper,
@@ -27,6 +26,8 @@ import {
 } from '@tabler/icons-react';
 import { approvalApi, type ApprovalResponse } from '../services/approval-api';
 import { JsonViewer } from '../components/JsonViewer';
+import { Meta } from '../components/Meta';
+import { formatInstant } from '../lib/format';
 import { useTenantStore } from '../stores/useTenantStore';
 import { confirmAction } from '../lib/confirm';
 
@@ -165,8 +166,8 @@ export default function ApprovalDetailPage() {
                     <Meta label={t('approvals.detail.tenant')} value={approval.tenantId ?? '—'} />
                     <Meta label={t('approvals.detail.flow')} value={approval.flowId ?? '—'} />
                     <Meta label={t('approvals.detail.step')} value={approval.stepId ?? '—'} />
-                    <Meta label={t('approvals.detail.created')} value={formatDate(approval.createdAt, i18n.resolvedLanguage ?? i18n.language)} />
-                    <Meta label={t('approvals.detail.expires')} value={formatDate(approval.expiresAt, i18n.resolvedLanguage ?? i18n.language)} />
+                    <Meta label={t('approvals.detail.created')} value={formatInstant(approval.createdAt, i18n.resolvedLanguage ?? i18n.language)} />
+                    <Meta label={t('approvals.detail.expires')} value={formatInstant(approval.expiresAt, i18n.resolvedLanguage ?? i18n.language)} />
                 </Group>
                 {approval.description && (
                     <Paper mt="sm" p="sm" radius="sm" bg="var(--mantine-color-gray-0)">
@@ -249,24 +250,3 @@ export default function ApprovalDetailPage() {
     );
 }
 
-function Meta({ label, value }: { label: string; value: string }) {
-    return (
-        <Stack gap={2}>
-            <Text size="xs" c="dimmed" tt="uppercase" style={{ letterSpacing: 0.5 }}>
-                {label}
-            </Text>
-            <Text size="sm" ff="DM Mono, monospace">
-                {value}
-            </Text>
-        </Stack>
-    );
-}
-
-function formatDate(iso: string | null, locale: string): string {
-    if (!iso) return '—';
-    try {
-        return new Date(iso).toLocaleString(locale);
-    } catch {
-        return iso;
-    }
-}

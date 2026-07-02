@@ -1,9 +1,10 @@
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import {
-    ActionIcon, Anchor, Code, CopyButton, Group, Modal, Stack, Tabs, Text, Tooltip,
+    Anchor, Code, Group, Modal, Stack, Tabs, Text,
 } from '@mantine/core'
-import { IconCheck, IconCopy, IconApi, IconBolt, IconCode, IconPlug } from '@tabler/icons-react'
+import { IconApi, IconBolt, IconCode, IconPlug } from '@tabler/icons-react'
+import { CopyIconButton } from './CopyIconButton'
 
 /**
  * "Publish" surface for a workflow: how to call it from outside the app.
@@ -144,30 +145,13 @@ execution_id = res.json()['executionId']`,
 }
 
 function Snippet({ label, code }: { label: string; code: string }) {
-    const { t } = useTranslation()
     return (
         <div style={{ position: 'relative' }}>
             <Group justify="space-between" mb={4}>
                 <Text size="xs" fw={600} c="dimmed" tt="uppercase" style={{ letterSpacing: 0.5 }}>
                     {label}
                 </Text>
-                <CopyButton value={code}>
-                    {({ copied, copy }) => (
-                        <Tooltip label={copied
-                            ? t('common.copied', { defaultValue: 'Copied' })
-                            : t('common.copy', { defaultValue: 'Copy' })}>
-                            <ActionIcon
-                                variant="subtle"
-                                size="sm"
-                                color={copied ? 'teal' : 'gray'}
-                                onClick={copy}
-                                aria-label={t('common.copy', { defaultValue: 'Copy' })}
-                            >
-                                {copied ? <IconCheck size={14} /> : <IconCopy size={14} />}
-                            </ActionIcon>
-                        </Tooltip>
-                    )}
-                </CopyButton>
+                <CopyIconButton value={code} />
             </Group>
             <Code block style={{ fontSize: 11.5, whiteSpace: 'pre' }}>{code}</Code>
         </div>

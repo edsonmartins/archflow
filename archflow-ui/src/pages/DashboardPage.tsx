@@ -13,14 +13,12 @@ import { approvalApi } from '../services/approval-api';
 import { StatCard } from '../components/admin/StatCard';
 import { StatusBadge } from '../components/StatusBadge';
 import { DataTable, clickableRow, tabularNums } from '../components/DataTable';
+import { OptionCard } from '../components/OptionCard';
+import { EXECUTION_STATUS_COLOR } from '../lib/executionStatus';
+import { formatDuration, formatInstant } from '../lib/format';
 
-const STATUS_COLOR: Record<string, string> = {
-    RUNNING:   'blue',
-    COMPLETED: 'teal',
-    FAILED:    'red',
-    PAUSED:    'yellow',
-    CANCELLED: 'gray',
-};
+/** Recent-activity window: enough for the table and a meaningful failure count. */
+const RECENT_EXECUTIONS_LIMIT = 25;
 
 /**
  * Post-login home: at-a-glance health (workflows, recent runs, pending
@@ -38,7 +36,9 @@ export default function DashboardPage() {
 
     useEffect(() => {
         fetchWorkflows();
-        fetchExecutions();
+        // Bounded fetch: the dashboard needs 5 rows and a recent-failure
+        // count, not the tenant's entire execution history.
+        fetchExecutions(undefined, RECENT_EXECUTIONS_LIMIT);
     }, [fetchWorkflows, fetchExecutions]);
 
     useEffect(() => {
@@ -131,18 +131,18 @@ export default function DashboardPage() {
                             <Table.Td>
                                 <StatusBadge
                                     status={exec.status}
-                                    color={STATUS_COLOR[exec.status] ?? 'gray'}
+                                    color={EXECUTION_STATUS_COLOR[exec.status] ?? 'gray'}
                                     label={t(`executions.statuses.${exec.status}`, { defaultValue: exec.status })}
                                 />
                             </Table.Td>
                             <Table.Td>
                                 <Text size="xs" c="dimmed">
-                                    {new Date(exec.startedAt).toLocaleString(locale)}
+                                    {formatInstant(exec.startedAt, locale)}
                                 </Text>
                             </Table.Td>
                             <Table.Td>
                                 <Text size="xs" ff="DM Mono, monospace" style={tabularNums}>
-                                    {exec.duration != null ? `${(exec.duration / 1000).toFixed(1)}s` : '…'}
+                                    {exec.status === 'RUNNING' ? '…' : formatDuration(exec.duration)}
                                 </Text>
                             </Table.Td>
                         </Table.Tr>
@@ -151,14 +151,14 @@ export default function DashboardPage() {
             </Card>
 
             <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
-                <ShortcutCard
+                <OptionCard
                     icon={<IconTopologyRing size={20} />}
                     title={t('dashboard.shortcuts.workflows')}
                     description={t('dashboard.shortcuts.workflowsHint', { count: workflows.length })}
                     onClick={() => navigate('/workflows')}
                     testId="dashboard-workflows"
                 />
-                <ShortcutCard
+                <OptionCard
                     icon={<IconShieldCheck size={20} />}
                     title={t('dashboard.shortcuts.approvals')}
                     description={t('dashboard.shortcuts.approvalsHint', { count: pendingApprovals ?? 0 })}
@@ -167,36 +167,5 @@ export default function DashboardPage() {
                 />
             </SimpleGrid>
         </Stack>
-    );
-}
-
-function ShortcutCard({
-    icon, title, description, onClick, testId,
-}: {
-    icon: React.ReactNode;
-    title: string;
-    description: string;
-    onClick: () => void;
-    testId: string;
-}) {
-    return (
-        <Card
-            withBorder
-            radius="md"
-            padding="md"
-            component="button"
-            type="button"
-            onClick={onClick}
-            data-testid={testId}
-            style={{ cursor: 'pointer', textAlign: 'left' }}
-        >
-            <Group gap="sm" wrap="nowrap">
-                {icon}
-                <Stack gap={0}>
-                    <Text fw={600} size="sm">{title}</Text>
-                    <Text size="xs" c="dimmed">{description}</Text>
-                </Stack>
-            </Group>
-        </Card>
     );
 }

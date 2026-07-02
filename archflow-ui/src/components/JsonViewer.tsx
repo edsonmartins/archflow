@@ -1,7 +1,6 @@
 import { useState, type ReactNode } from 'react'
-import { ActionIcon, CopyButton, Tooltip } from '@mantine/core'
-import { IconCheck, IconChevronDown, IconChevronRight, IconCopy } from '@tabler/icons-react'
-import { useTranslation } from 'react-i18next'
+import { IconChevronDown, IconChevronRight } from '@tabler/icons-react'
+import { CopyIconButton } from './CopyIconButton'
 
 /**
  * Collapsible JSON tree with a copy button — the shared replacement for
@@ -19,7 +18,6 @@ export function JsonViewer({
     autoExpandDepth?: number
     testId?: string
 }) {
-    const { t } = useTranslation()
     return (
         <div
             data-testid={testId}
@@ -35,22 +33,10 @@ export function JsonViewer({
                 overflowX: 'auto',
             }}
         >
-            <CopyButton value={safeStringify(value)}>
-                {({ copied, copy }) => (
-                    <Tooltip label={copied ? t('common.copied', { defaultValue: 'Copied' }) : t('common.copy', { defaultValue: 'Copy' })}>
-                        <ActionIcon
-                            variant="subtle"
-                            size="sm"
-                            color={copied ? 'teal' : 'gray'}
-                            onClick={copy}
-                            aria-label={t('common.copy', { defaultValue: 'Copy' })}
-                            style={{ position: 'absolute', top: 6, right: 6 }}
-                        >
-                            {copied ? <IconCheck size={14} /> : <IconCopy size={14} />}
-                        </ActionIcon>
-                    </Tooltip>
-                )}
-            </CopyButton>
+            <CopyIconButton
+                value={safeStringify(value)}
+                style={{ position: 'absolute', top: 6, right: 6 }}
+            />
             <JsonNode value={value} depth={0} autoExpandDepth={autoExpandDepth} />
         </div>
     )

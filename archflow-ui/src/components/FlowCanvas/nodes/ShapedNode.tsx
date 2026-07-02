@@ -1,10 +1,9 @@
 import { memo, useMemo } from 'react'
 import { Handle, Position } from '@xyflow/react'
 import { useMantineColorScheme } from '@mantine/core'
-import { IconLoader2, IconCheck, IconX } from '@tabler/icons-react'
+import { IconLoader2, IconCheck, IconX, IconMinus } from '@tabler/icons-react'
 import { NODE_CATEGORIES, EXECUTION_STATUS_COLORS } from '../constants'
 import { NodeIcon } from '../nodeIcons'
-import { useFlowStore } from '../store/useFlowStore'
 import type { FlowNodeData } from '../types'
 
 /**
@@ -140,9 +139,8 @@ function accentPattern(category: CategoryKey): string | null {
 }
 
 export const ShapedNode = memo(function ShapedNode({
-  id, data, selected, category,
+  data, selected, category,
 }: ShapedNodeProps) {
-  const selectNode = useFlowStore((state) => state.selectNode)
   const cat = NODE_CATEGORIES[category]
   const exec = data.executionStatus ?? 'idle'
   const execColors = EXECUTION_STATUS_COLORS[exec]
@@ -182,25 +180,14 @@ export const ShapedNode = memo(function ShapedNode({
     : exec === 'error' ? 'af-node-failed'
     : ''
 
+  // Selection is handled by React Flow's node wrapper → FlowCanvas.onNodeClick
+  // (which updates the store AND notifies onNodeSelect consumers like the
+  // <archflow-designer> web component). Capture-phase stopPropagation here
+  // used to short-circuit that pipeline: RF never marked the node `selected`,
+  // dragging (d3-drag) broke, and readonly canvases still mutated the store.
   return (
     <div
       className={`af-node-card ${execMotionClass}`}
-      onPointerDownCapture={(event) => {
-        event.stopPropagation()
-        selectNode(id, data)
-      }}
-      onClickCapture={(event) => {
-        event.stopPropagation()
-        selectNode(id, data)
-      }}
-      onPointerDown={(event) => {
-        event.stopPropagation()
-        selectNode(id, data)
-      }}
-      onClick={(event) => {
-        event.stopPropagation()
-        selectNode(id, data)
-      }}
       style={{
         position:     'relative',
         width:        WIDTH,
@@ -376,7 +363,9 @@ export const ShapedNode = memo(function ShapedNode({
             ? <IconLoader2 size={11} stroke={2.5} style={{ animation: 'spin 1s linear infinite' }} aria-hidden />
             : exec === 'success'
               ? <IconCheck size={11} stroke={2.5} aria-hidden />
-              : <IconX size={11} stroke={2.5} aria-hidden />}
+              : exec === 'skipped'
+                ? <IconMinus size={11} stroke={2.5} aria-hidden />
+                : <IconX size={11} stroke={2.5} aria-hidden />}
           {data.executionMs != null && exec === 'success' ? `${Math.round(data.executionMs)}ms` : ''}
         </div>
       )}

@@ -2,10 +2,12 @@ import { useState, useMemo }  from 'react'
 import { ScrollArea, TextInput, Accordion } from '@mantine/core'
 import { IconSearch }          from '@tabler/icons-react'
 import { useTranslation }      from 'react-i18next'
-import { PALETTE_NODES, NODE_CATEGORIES } from './FlowCanvas/constants'
+import { NODE_CATEGORIES }     from './FlowCanvas/constants'
 import { NodeIcon }            from './FlowCanvas/nodeIcons'
 import { useFlowStore }        from './FlowCanvas/store/useFlowStore'
-import type { PaletteNode }    from './FlowCanvas/types'
+import {
+  paletteCategoryLabel, searchPaletteEntries, type PaletteEntry,
+} from './FlowCanvas/paletteSearch'
 
 type CategoryKey = keyof typeof NODE_CATEGORIES
 
@@ -59,35 +61,17 @@ export function NodePalette() {
   const [search, setSearch] = useState('')
   const { t } = useTranslation()
 
-  // Lookup a localized label/description for a palette node, falling
-  // back to the English string baked into constants.ts when a
-  // translation is missing (e.g. for user-added custom node types that
-  // weren't declared in the locale file).
-  const nodeLabel = (n: PaletteNode) => t(`nodes.${n.componentId}.label`, { defaultValue: n.label })
-  const nodeDesc  = (n: PaletteNode) => t(`nodes.${n.componentId}.description`, { defaultValue: n.description })
-  const catLabel  = (c: CategoryKey) => t(`categories.${c}`, { defaultValue: NODE_CATEGORIES[c].label })
+  const catLabel = (c: CategoryKey) => paletteCategoryLabel(t, c)
 
-  const filtered = useMemo(() => {
-    const q = search.toLowerCase().trim()
-    if (!q) return PALETTE_NODES
-    return PALETTE_NODES.filter(n => {
-      const node = n as unknown as PaletteNode
-      return (
-        nodeLabel(node).toLowerCase().includes(q) ||
-        nodeDesc(node).toLowerCase().includes(q) ||
-        catLabel(node.category).toLowerCase().includes(q) ||
-        node.category.toLowerCase().includes(q)
-      )
-    })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, t])
+  // Shared search semantics with the drop-connection AddNodeMenu.
+  const filtered = useMemo(() => searchPaletteEntries(t, search), [search, t])
 
   // Agrupar por categoria
   const byCategory = useMemo(() => {
-    const map = new Map<string, PaletteNode[]>()
+    const map = new Map<string, PaletteEntry[]>()
     for (const node of filtered) {
       const list = map.get(node.category) ?? []
-      list.push(node as unknown as PaletteNode)
+      list.push(node)
       map.set(node.category, list)
     }
     return map
@@ -130,11 +114,7 @@ export function NodePalette() {
       <ScrollArea style={{ flex: 1 }} p="xs">
         {search
           ? /* Resultados planos */
-            filtered.map(node => (
-              <DraggableNode key={node.componentId} node={node as unknown as PaletteNode}
-                             label={nodeLabel(node as unknown as PaletteNode)}
-                             description={nodeDesc(node as unknown as PaletteNode)} />
-            ))
+            filtered.map(node => <DraggableNode key={node.componentId} node={node} />)
           : /* Agrupado por categoria */
             categoryOrder.map(cat => {
               const nodes = byCategory.get(cat)
@@ -153,10 +133,7 @@ export function NodePalette() {
                   >
                     {catLabel(cat)}
                   </div>
-                  {nodes.map(n => (
-                    <DraggableNode key={n.componentId} node={n}
-                                   label={nodeLabel(n)} description={nodeDesc(n)} />
-                  ))}
+                  {nodes.map(n => <DraggableNode key={n.componentId} node={n} />)}
                 </div>
               )
             })}
@@ -166,16 +143,14 @@ export function NodePalette() {
 }
 
 // ── Item arrastável (e clicável) da palette ──────────────────────
-function DraggableNode({ node, label, description }: {
-  node: PaletteNode; label: string; description: string
-}) {
+function DraggableNode({ node }: { node: PaletteEntry }) {
   const cat = NODE_CATEGORIES[node.category]
+  const { label, description } = node
 
   const onDragStart = (event: React.DragEvent) => {
     event.dataTransfer.setData(
       'application/archflow-node',
       JSON.stringify({
-        type:        node.type,
         componentId: node.componentId,
         label,
         category:    node.category,

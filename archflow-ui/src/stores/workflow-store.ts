@@ -15,7 +15,7 @@ interface WorkflowState {
     updateWorkflow: (id: string, workflow: Partial<WorkflowDetail>) => Promise<void>;
     deleteWorkflow: (id: string) => Promise<void>;
     executeWorkflow: (id: string, input?: Record<string, unknown>) => Promise<string>;
-    fetchExecutions: (workflowId?: string) => Promise<void>;
+    fetchExecutions: (workflowId?: string, limit?: number) => Promise<void>;
     /**
      * Patches the flow-level LLM defaults on the in-memory currentWorkflow.
      * Does NOT hit the backend — the editor's Save persists currentWorkflow.
@@ -26,6 +26,11 @@ interface WorkflowState {
     clearError: () => void;
 }
 
+// Several always-mounted consumers (layout search, dashboard, copilot
+// context) ask for the workflow list on mount — collapse concurrent
+// requests into a single GET instead of firing one per consumer.
+let workflowsFetchInFlight: Promise<void> | null = null;
+
 export const useWorkflowStore = create<WorkflowState>((set) => ({
     workflows: [],
     currentWorkflow: null,
@@ -34,13 +39,19 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
     error: null,
 
     fetchWorkflows: async () => {
+        if (workflowsFetchInFlight) return workflowsFetchInFlight;
         set({ loading: true, error: null });
-        try {
-            const workflows = await workflowApi.list();
-            set({ workflows, loading: false });
-        } catch (e) {
-            set({ loading: false, error: e instanceof Error ? e.message : 'Failed to load workflows' });
-        }
+        workflowsFetchInFlight = (async () => {
+            try {
+                const workflows = await workflowApi.list();
+                set({ workflows, loading: false });
+            } catch (e) {
+                set({ loading: false, error: e instanceof Error ? e.message : 'Failed to load workflows' });
+            } finally {
+                workflowsFetchInFlight = null;
+            }
+        })();
+        return workflowsFetchInFlight;
     },
 
     fetchWorkflow: async (id) => {
@@ -89,6 +100,10 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
             }));
         } catch (e) {
             set({ loading: false, error: e instanceof Error ? e.message : 'Failed to update workflow' });
+            // Rethrow (like createWorkflow) so callers can block dependent
+            // actions — the editor must not report "saved" or run a stale
+            // version when the PUT failed.
+            throw e;
         }
     },
 
@@ -118,10 +133,10 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
         }
     },
 
-    fetchExecutions: async (workflowId) => {
+    fetchExecutions: async (workflowId, limit) => {
         set({ loading: true, error: null });
         try {
-            const executions = await executionApi.list(workflowId);
+            const executions = await executionApi.list({ workflowId, limit });
             set({ executions, loading: false });
         } catch (e) {
             set({ loading: false, error: e instanceof Error ? e.message : 'Failed to load executions' });

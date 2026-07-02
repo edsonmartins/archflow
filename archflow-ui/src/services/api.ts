@@ -157,8 +157,13 @@ export interface ExecutionSummary {
 }
 
 export const executionApi = {
-    list: (workflowId?: string) =>
-        api.get<ExecutionSummary[]>(workflowId ? `/executions?workflowId=${workflowId}` : '/executions'),
+    list: (options?: { workflowId?: string; limit?: number }) => {
+        const params = new URLSearchParams();
+        if (options?.workflowId) params.set('workflowId', options.workflowId);
+        if (options?.limit) params.set('limit', String(options.limit));
+        const query = params.toString();
+        return api.get<ExecutionSummary[]>(query ? `/executions?${query}` : '/executions');
+    },
     get: (id: string) => api.get<ExecutionSummary>(`/executions/${id}`),
 };
 

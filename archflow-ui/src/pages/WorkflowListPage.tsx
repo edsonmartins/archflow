@@ -12,6 +12,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useWorkflowStore } from '../stores/workflow-store';
 import { clickableRow } from '../components/DataTable';
+import { OptionCard } from '../components/OptionCard';
 
 const STATUS_COLOR: Record<string, string> = {
     active: 'teal',
@@ -220,7 +221,7 @@ export default function WorkflowListPage() {
                 centered
             >
                 <Stack gap="sm">
-                    <CreateOption
+                    <OptionCard
                         icon={<IconPlus size={20} />}
                         color="blue"
                         title={t('workflows.createModal.blank')}
@@ -228,7 +229,7 @@ export default function WorkflowListPage() {
                         onClick={() => createBlank(false)}
                         testId="create-blank"
                     />
-                    <CreateOption
+                    <OptionCard
                         icon={<IconSparkles size={20} />}
                         color="grape"
                         title={t('workflows.createModal.ai')}
@@ -236,7 +237,7 @@ export default function WorkflowListPage() {
                         onClick={() => createBlank(true)}
                         testId="create-ai"
                     />
-                    <CreateOption
+                    <OptionCard
                         icon={<IconTemplate size={20} />}
                         color="teal"
                         title={t('workflows.createModal.template')}
@@ -247,39 +248,5 @@ export default function WorkflowListPage() {
                 </Stack>
             </Modal>
         </Stack>
-    );
-}
-
-function CreateOption({
-    icon, color, title, description, onClick, testId,
-}: {
-    icon: React.ReactNode;
-    color: string;
-    title: string;
-    description: string;
-    onClick: () => void;
-    testId: string;
-}) {
-    return (
-        <Card
-            withBorder
-            radius="md"
-            padding="sm"
-            component="button"
-            type="button"
-            onClick={onClick}
-            data-testid={testId}
-            style={{ cursor: 'pointer', textAlign: 'left', width: '100%' }}
-        >
-            <Group gap="sm" wrap="nowrap">
-                <ThemeIcon size={40} radius="md" variant="light" color={color}>
-                    {icon}
-                </ThemeIcon>
-                <Stack gap={0}>
-                    <Text fw={600} size="sm">{title}</Text>
-                    <Text size="xs" c="dimmed">{description}</Text>
-                </Stack>
-            </Group>
-        </Card>
     );
 }

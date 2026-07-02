@@ -153,7 +153,8 @@
                 "idle": "idle",
                 "running": "running",
                 "success": "completed",
-                "error": "failed"
+                "error": "failed",
+                "skipped": "skipped"
             }
         },
         "save": "Save",

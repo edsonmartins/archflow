@@ -39,7 +39,16 @@ export function runAgUiWorkflow(
             body: JSON.stringify(input),
             signal: controller.signal,
         })
-        if (!response.body) return
+        // HTTP-level failures (401/500/...) never produce SSE frames — emit a
+        // synthetic RUN_ERROR so callers can leave their "executing" state.
+        if (!response.ok) {
+            onEvent({ type: 'RUN_ERROR', message: `HTTP ${response.status} ${response.statusText}`.trim() })
+            return
+        }
+        if (!response.body) {
+            onEvent({ type: 'RUN_ERROR', message: 'Empty response stream' })
+            return
+        }
 
         const reader = response.body.getReader()
         const decoder = new TextDecoder()
@@ -65,8 +74,14 @@ export function runAgUiWorkflow(
                 }
             }
         }
-    })().catch(() => {
-        // network/abort errors surface via the stream ending; callers see no more events
+    })().catch((err: unknown) => {
+        // A user-initiated abort is not an error; anything else must reach the
+        // caller as RUN_ERROR or the UI stays stuck in its executing state.
+        if (controller.signal.aborted) return
+        onEvent({
+            type: 'RUN_ERROR',
+            message: err instanceof Error ? err.message : String(err),
+        })
     })
 
     return () => controller.abort()

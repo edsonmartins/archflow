@@ -5,24 +5,8 @@ import { useTranslation } from 'react-i18next';
 import { useWorkflowStore } from '../stores/workflow-store';
 import { DataTable, clickableRow, tabularNums } from '../components/DataTable';
 import { StatusBadge } from '../components/StatusBadge';
-
-const STATUS_COLOR: Record<string, string> = {
-    RUNNING:   'blue',
-    COMPLETED: 'teal',
-    FAILED:    'red',
-    PAUSED:    'yellow',
-    CANCELLED: 'gray',
-};
-
-function formatDuration(ms: number | null): string {
-    if (ms == null) return '—';
-    if (ms < 1000) return `${ms}ms`;
-    const sec = ms / 1000;
-    if (sec < 60) return `${sec.toFixed(1)}s`;
-    const min = Math.floor(sec / 60);
-    const remSec = Math.round(sec % 60);
-    return `${min}m ${remSec}s`;
-}
+import { EXECUTION_STATUS_COLOR } from '../lib/executionStatus';
+import { formatDuration } from '../lib/format';
 
 export default function ExecutionHistoryPage() {
     const { t, i18n } = useTranslation();
@@ -92,7 +76,7 @@ export default function ExecutionHistoryPage() {
                             <Table.Td>
                                 <StatusBadge
                                     status={exec.status}
-                                    color={STATUS_COLOR[exec.status] ?? 'gray'}
+                                    color={EXECUTION_STATUS_COLOR[exec.status] ?? 'gray'}
                                     label={t(`executions.statuses.${exec.status}`, { defaultValue: exec.status })}
                                 />
                             </Table.Td>

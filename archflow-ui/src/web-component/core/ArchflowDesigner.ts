@@ -245,6 +245,27 @@ class ArchflowDesignerElement extends HTMLElement {
         width: ${this.getAttribute('width') ?? '100%'};
         height: ${this.getAttribute('height') ?? '600px'};
         font-family: var(--font-sans, system-ui, sans-serif);
+
+        /* Design tokens the canvas components rely on (App.css defines
+           these inside the app; an embedding page has neither, so the
+           light-theme values are baked in here as :host defaults —
+           without them the status pills and edges render unstyled). */
+        --blue:  #2563EB; --blue-l:  #EFF6FF;
+        --green: #059669; --green-l: #ECFDF5; --green-text: #065F46;
+        --amber: #D97706; --amber-l: #FFFBEB; --amber-text: #92400E;
+        --red:   #DC2626; --red-l:   #FEF2F2; --red-text:   #991B1B;
+        --gray:  #6B7280; --gray-l:  #F9FAFB;
+        --border2: rgba(15, 23, 42, 0.12);
+        --text3: #64748B;
+        --text4: #94A3B8;
+        --color-background-primary:   #FFFFFF;
+        --color-background-secondary: #F8FAFC;
+        --color-background-tertiary:  #F1F5F9;
+        --color-border-secondary:     rgba(15, 23, 42, 0.12);
+        --color-border-tertiary:      rgba(15, 23, 42, 0.08);
+        --color-text-primary:         #0F172A;
+        --color-text-secondary:       #334155;
+        --color-text-tertiary:        #64748B;
       }
       .canvas-root {
         width: 100%;

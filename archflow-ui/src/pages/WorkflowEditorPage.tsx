@@ -89,7 +89,9 @@ function toWorkflowData(detail: any): WorkflowData {
     id:          step.id ?? `step-${i}`,
     type:        step.type?.toLowerCase() ?? 'custom',
     componentId: step.componentId ?? step.type?.toLowerCase() ?? 'custom',
-    label:       step.operation ?? step.componentId ?? step.type ?? 'Node',
+    // `label` is the designer's display-name field; older saves stored it in
+    // `operation`, which the backend now treats as the execution operation.
+    label:       step.label ?? step.operation ?? step.componentId ?? step.type ?? 'Node',
     category:    NODE_TYPE_TO_CATEGORY[step.type?.toLowerCase()] ?? 'tool' as const,
     position:    step.position ?? { x: 200 + i * 250, y: 150 },
     config:      step.configuration ?? {},
@@ -144,7 +146,7 @@ export function WorkflowEditor() {
     })
   }
 
-  const saveWorkflow = async () => {
+  const saveWorkflow = useCallback(async () => {
     if (!current) return
     const snapshot = useFlowStore.getState().getCanvasSnapshot()
     const merged = {
@@ -153,7 +155,10 @@ export function WorkflowEditor() {
         id:            s.id,
         type:          s.type?.toUpperCase(),
         componentId:   s.componentId,
-        operation:     s.label,
+        // Display name goes into `label`; `operation` is reserved for the
+        // execution operation (backend: DefaultFlowStepFactory) and comes
+        // from the node config when the user sets one.
+        label:         s.label,
         position:      s.position,
         configuration: s.config ?? {},
         connections:   snapshot.connections
@@ -167,11 +172,18 @@ export function WorkflowEditor() {
     }
     await updateWorkflow(current.id, merged)
     setLastSavedAt(Date.now())
-  }
-  const workflowData = useMemo(() => current ? toWorkflowData(current) : null, [current])
+  }, [current, updateWorkflow])
+  // The canvas must only be rebuilt on a genuine (re)load — keying this memo
+  // on the workflow OBJECT identity made every save reset the canvas (and
+  // wipe undo history + selection), because updateWorkflow replaces
+  // `currentWorkflow` with the server response. Key on the id plus an
+  // explicit revision that the YAML-save path bumps after reloading.
+  const [canvasRevision, setCanvasRevision] = useState(0)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const workflowData = useMemo(() => current ? toWorkflowData(current) : null, [current?.id, canvasRevision])
   const {
     selectedNodeId, selectedNodeData, selectNode,
-    startExecution, updateNodeStatus, finishExecution, abortExecution, isExecuting,
+    startExecution, adoptExecutionId, updateNodeStatus, finishExecution, abortExecution, isExecuting,
   } = useFlowStore()
 
   // ── YAML view state ───────────────────────────────────────────
@@ -223,6 +235,7 @@ export function WorkflowEditor() {
       setLastSavedAt(Date.now())
       // Reload the JSON-backed canvas so the next Canvas view picks up the edits
       await loadWorkflow(id)
+      setCanvasRevision(v => v + 1)
       notifications.show({
         title: t('editor.notif.yamlSaved'),
         message: t('editor.notif.yamlSavedMsg'),
@@ -276,9 +289,10 @@ export function WorkflowEditor() {
       : typeof ev.stepName === 'string' ? ev.stepName : null
     switch (ev.type) {
       case 'RUN_STARTED':
-        // Adopt the real execution id minted by the backend (exec-…),
-        // replacing the provisional workflow id set on click.
-        if (typeof ev.runId === 'string') startExecution(ev.runId)
+        // Adopt the real execution id minted by the backend (exec-…) without
+        // resetting executionState — a STEP_STARTED that raced ahead of
+        // RUN_STARTED must not be wiped.
+        if (typeof ev.runId === 'string') adoptExecutionId(ev.runId)
         break
       case 'STEP_STARTED':
         if (stepId) updateNodeStatus(stepId, { status: 'running', startedAt: Date.now() })
@@ -286,7 +300,7 @@ export function WorkflowEditor() {
       case 'STEP_FINISHED': {
         if (!stepId) break
         const status = ev.status === 'STEP_FAILED' ? 'error'
-          : ev.status === 'STEP_SKIPPED' ? 'idle'
+          : ev.status === 'STEP_SKIPPED' ? 'skipped'
           : 'success'
         updateNodeStatus(stepId, {
           status,
@@ -318,7 +332,7 @@ export function WorkflowEditor() {
       default:
         break
     }
-  }, [startExecution, updateNodeStatus, finishExecution, abortExecution, t])
+  }, [adoptExecutionId, updateNodeStatus, finishExecution, abortExecution, t])
 
   const handleExecute = useCallback(async () => {
     if (!current) return

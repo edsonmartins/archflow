@@ -18,6 +18,7 @@ import {
     Tooltip,
 } from '@mantine/core';
 import { IconAlertCircle, IconArrowLeft } from '@tabler/icons-react';
+import { Meta } from '../../../components/Meta';
 import { observabilityApi, type TraceDetailDto } from '../../../services/observability-api';
 
 export default function TraceDetailPage() {
@@ -216,15 +217,3 @@ export default function TraceDetailPage() {
     );
 }
 
-function Meta({ label, value }: { label: string; value: string }) {
-    return (
-        <Stack gap={2}>
-            <Text size="xs" c="dimmed" tt="uppercase" style={{ letterSpacing: 0.5 }}>
-                {label}
-            </Text>
-            <Text size="sm" ff="DM Mono, monospace">
-                {value}
-            </Text>
-        </Stack>
-    );
-}

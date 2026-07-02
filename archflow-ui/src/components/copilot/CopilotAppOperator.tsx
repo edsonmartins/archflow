@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { notifications } from '@mantine/notifications'
 import { z } from 'zod'
 import { useAgentContext, useFrontendTool } from '@copilotkit/react-core/v2'
 import { api, workflowApi } from '../../services/api'
 import { useFlowStore } from '../FlowCanvas/store/useFlowStore'
+import { useWorkflowStore } from '../../stores/workflow-store'
 import { PALETTE_NODES } from '../FlowCanvas/constants'
 
 /** page key -> route. Exposed to the agent so it can navigate by name. */
@@ -21,8 +22,6 @@ const ROUTES: Record<string, string> = {
     'ag-ui': '/playground/ag-ui',
     copilot: '/playground/copilot',
 }
-
-interface WorkflowSummary { id: string; name?: string }
 
 type NavigateToParams = { page: string }
 type RunWorkflowParams = { workflowId: string }
@@ -41,15 +40,19 @@ type ConnectNodesParams = { sourceId: string; targetId: string }
 export default function CopilotAppOperator() {
     const navigate = useNavigate()
     const location = useLocation()
-    const [workflows, setWorkflows] = useState<{ id: string; name: string }[]>([])
+    // Shared workflow list (deduped fetch in the store) instead of a private
+    // GET /workflows on every route change.
+    const storeWorkflows = useWorkflowStore((s) => s.workflows)
+    const fetchWorkflows = useWorkflowStore((s) => s.fetchWorkflows)
+    const workflows = useMemo(
+        () => storeWorkflows.map((w) => ({ id: w.id, name: w.name ?? w.id })),
+        [storeWorkflows])
     // Live mirror of the editor canvas (store is kept in sync from React Flow).
     const canvasNodes = useFlowStore((s) => s.nodes)
 
     useEffect(() => {
-        api.get<WorkflowSummary[]>('/workflows')
-            .then((list) => setWorkflows(list.map((w) => ({ id: w.id, name: w.name ?? w.id }))))
-            .catch(() => { /* unauthenticated / empty */ })
-    }, [location.pathname])
+        fetchWorkflows().catch(() => { /* unauthenticated / empty */ })
+    }, [fetchWorkflows])
 
     useAgentContext({ description: 'Current route (where the user is)', value: location.pathname })
     useAgentContext({

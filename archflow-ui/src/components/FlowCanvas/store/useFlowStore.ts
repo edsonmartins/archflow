@@ -38,6 +38,8 @@ interface FlowStore {
 
   // ── Ações ──────────────────────────────────────────────────────
   startExecution:   (executionId: string) => void
+  /** Swaps the provisional execution id for the backend one WITHOUT resetting per-node state. */
+  adoptExecutionId: (executionId: string) => void
   updateNodeStatus: (nodeId: string, status: NodeExecutionState) => void
   finishExecution:  () => void
   abortExecution:   () => void
@@ -69,8 +71,11 @@ export const useFlowStore = create<FlowStore>((set, get) => ({
 
   // ── Nós e arestas ──────────────────────────────────────────────
   setNodes: (nodes) => set((state) => {
+    // Index once — this sync runs on every React Flow change (each drag
+    // frame), so the merge must stay O(N).
+    const existingById = new Map(state.nodes.map((node) => [node.id, node]))
     const merged = nodes.map((node) => {
-      const existing = state.nodes.find((current) => current.id === node.id)
+      const existing = existingById.get(node.id)
       return existing ? { ...node, data: existing.data } : node
     })
     const selected = state.selectedNodeId
@@ -108,6 +113,9 @@ export const useFlowStore = create<FlowStore>((set, get) => ({
       executionId,
       executionState: {},
     }),
+
+  adoptExecutionId: (executionId) =>
+    set({ isExecuting: true, executionId }),
 
   updateNodeStatus: (nodeId, status) =>
     set(state => ({

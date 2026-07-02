@@ -8,9 +8,9 @@ export interface FlowNodeData {
   label:           string
   componentId:     string
   nodeType:        string
-  status:          'idle' | 'running' | 'success' | 'error'
+  status:          'idle' | 'running' | 'success' | 'error' | 'skipped'
   config:          Record<string, unknown>
-  executionStatus?: 'idle' | 'running' | 'success' | 'error'
+  executionStatus?: 'idle' | 'running' | 'success' | 'error' | 'skipped'
   executionMs?:     number
   [key: string]:    unknown
 }
@@ -40,18 +40,10 @@ export interface WorkflowData {
 
 // ── Estado de execução por nó ────────────────────────────────────
 export interface NodeExecutionState {
-  status:     'idle' | 'running' | 'success' | 'error'
+  status:     'idle' | 'running' | 'success' | 'error' | 'skipped'
   startedAt?: number
   durationMs?: number
   output?:    unknown
   error?:     string
 }
 
-// ── Definição de nó na palette ───────────────────────────────────
-export interface PaletteNode {
-  componentId: string
-  label:       string
-  description: string
-  category:    keyof typeof NODE_CATEGORIES
-  type:        string
-}

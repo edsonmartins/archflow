@@ -13,6 +13,8 @@ import {
 import { executionApi, workflowApi, ApiError } from '../services/api'
 import { tabularNums } from '../components/DataTable'
 import { JsonViewer } from '../components/JsonViewer'
+import { Meta } from '../components/Meta'
+import { formatDuration, formatInstant } from '../lib/format'
 
 /** A materialized ExecutionPath node (design-0005 step 4). */
 interface PathNode {
@@ -60,24 +62,6 @@ function PathTree({ nodes, depth = 0 }: { nodes: PathNode[]; depth?: number }) {
             ))}
         </Stack>
     )
-}
-
-function formatDuration(ms: number): string {
-    if (ms < 1000) return `${Math.round(ms)}ms`
-    const seconds = ms / 1000
-    if (seconds < 60) return `${seconds.toFixed(seconds >= 10 ? 0 : 1)}s`
-    const min = Math.floor(seconds / 60)
-    const rem = Math.round(seconds % 60)
-    return `${min}m ${rem}s`
-}
-
-function formatInstant(iso: string | undefined, locale: string): string {
-    if (!iso) return '—'
-    try {
-        return new Date(iso).toLocaleString(locale)
-    } catch {
-        return iso
-    }
 }
 
 /**
@@ -160,17 +144,6 @@ function StepBlock({ step, locale }: { step: StepRecord; locale: string }) {
                 </Stack>
             </Collapse>
         </Paper>
-    )
-}
-
-function Meta({ label, value }: { label: string; value: string }) {
-    return (
-        <Stack gap={2}>
-            <Text size="xs" c="dimmed" tt="uppercase" style={{ letterSpacing: 0.5 }}>
-                {label}
-            </Text>
-            <Text size="sm" ff="DM Mono, monospace">{value}</Text>
-        </Stack>
     )
 }
 

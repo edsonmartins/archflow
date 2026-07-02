@@ -28,11 +28,15 @@ export default function MarketplacePage() {
     const [installOpen, setOpen]  = useState(false)
     const [manifestUrl, setUrl]   = useState('')
 
-    const reload = async () => {
+    // Parameters default to current state; state setters are async, so
+    // callers that change query/type in the same tick MUST pass the new
+    // values explicitly (the old setTimeout(reload, 0) pattern re-queried
+    // with stale closures).
+    const reload = async (q = query, ty = typeFilter) => {
         setLoading(true)
         try {
-            const hits = query || typeFilter
-                ? await marketplaceApi.search(query, typeFilter)
+            const hits = q || ty
+                ? await marketplaceApi.search(q, ty)
                 : await marketplaceApi.list()
             setItems(hits)
         } catch (err) {
@@ -109,11 +113,15 @@ export default function MarketplacePage() {
                     style={{ flex: 1 }}
                     data-testid="marketplace-search"
                 />
-                <Button variant="default" onClick={reload}>{t('marketplace.searchBtn')}</Button>
+                <Button variant="default" onClick={() => reload()}>{t('marketplace.searchBtn')}</Button>
             </Group>
 
             <Tabs value={typeFilter ?? 'all'}
-                  onChange={v => { setType(v === 'all' ? undefined : (v ?? undefined)); setTimeout(reload, 0) }}>
+                  onChange={v => {
+                      const next = v === 'all' ? undefined : (v ?? undefined)
+                      setType(next)
+                      reload(query, next)
+                  }}>
                 <Tabs.List>
                     <Tabs.Tab value="all">{t('marketplace.allTab', { count: items.length })}</Tabs.Tab>
                     {types.map(ty => (
@@ -134,7 +142,7 @@ export default function MarketplacePage() {
                         <Button
                             variant="light"
                             size="xs"
-                            onClick={() => { setQuery(''); setType(undefined); setTimeout(reload, 0) }}
+                            onClick={() => { setQuery(''); setType(undefined); reload('', undefined) }}
                         >
                             {t('marketplace.clearSearch')}
                         </Button>
@@ -172,13 +180,10 @@ export default function MarketplacePage() {
                                     <Tooltip label={t('marketplace.installHint')}>
                                         <Button
                                             variant="light"
-                                            onClick={() => {
-                                                // Catalog items don't carry a manifest URL yet, so
-                                                // pre-fill the conventional path and let the admin
-                                                // confirm/adjust in the install modal.
-                                                setUrl(`/opt/archflow/extensions/${ext.id}/manifest.json`)
-                                                setOpen(true)
-                                            }}
+                                            // The catalog doesn't expose the manifest location yet
+                                            // (backend follow-up), so the dialog opens empty — the
+                                            // server's filesystem layout is not the UI's to guess.
+                                            onClick={() => setOpen(true)}
                                             data-testid={`install-${ext.id}`}
                                         >
                                             {t('marketplace.install')}

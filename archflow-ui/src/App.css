@@ -97,6 +97,11 @@
   --red-text:   #FCA5A5;
 }
 
+/* Hover state for the drop-connection node menu (AddNodeMenu). */
+.af-add-node-option:hover {
+  background: var(--color-background-secondary);
+}
+
 body {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
