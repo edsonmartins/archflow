@@ -2,6 +2,7 @@ import './App.css';
 import '@mantine/core/styles.css';
 import '@mantine/charts/styles.css';
 import '@mantine/notifications/styles.css';
+import '@mantine/spotlight/styles.css';
 import '@xyflow/react/dist/style.css';
 import { MantineProvider } from '@mantine/core';
 import { ModalsProvider } from '@mantine/modals';
@@ -22,21 +23,29 @@ import ApprovalQueuePage from './pages/ApprovalQueuePage';
 import ApprovalDetailPage from './pages/ApprovalDetailPage';
 import ExecutionDetailPage from './pages/ExecutionDetailPage';
 import ScopedApiKeysPage from './pages/admin/tenant/ScopedApiKeysPage';
+import MarketplacePage from './pages/MarketplacePage';
+import MarketplaceDetailPage from './pages/MarketplaceDetailPage';
+import McpServersPage from './pages/McpServersPage';
+import McpServerDetailPage from './pages/McpServerDetailPage';
+import LinktorConfigPage from './pages/LinktorConfigPage';
+import LinktorInboxPage from './pages/LinktorInboxPage';
+import LinktorConversationPage from './pages/LinktorConversationPage';
+import ObservabilityLayout from './pages/admin/observability/ObservabilityLayout';
+import ObservabilityOverview from './pages/admin/observability/ObservabilityOverview';
+import RunningFlowsPage from './pages/admin/observability/RunningFlowsPage';
+import TracesPage from './pages/admin/observability/TracesPage';
+import TraceDetailPage from './pages/admin/observability/TraceDetailPage';
+import MetricsPage from './pages/admin/observability/MetricsPage';
+import AuditLogPage from './pages/admin/observability/AuditLogPage';
+import LiveEventsPage from './pages/admin/observability/LiveEventsPage';
 
 // Telas secundárias — lazy loaded (templates, marketplace, playgrounds e
 // configurações não precisam entrar no bundle inicial do app)
 const TemplatesPage           = lazy(() => import('./pages/TemplatesPage'));
 const TemplateDetailPage      = lazy(() => import('./pages/TemplateDetailPage'));
 const VoicePlaygroundPage     = lazy(() => import('./pages/VoicePlaygroundPage'));
-const MarketplacePage         = lazy(() => import('./pages/MarketplacePage'));
-const MarketplaceDetailPage   = lazy(() => import('./pages/MarketplaceDetailPage'));
 const SkillsPage              = lazy(() => import('./pages/SkillsPage'));
-const McpServersPage          = lazy(() => import('./pages/McpServersPage'));
-const McpServerDetailPage     = lazy(() => import('./pages/McpServerDetailPage'));
 const BrainSentryConfigPage   = lazy(() => import('./pages/BrainSentryConfigPage'));
-const LinktorConfigPage       = lazy(() => import('./pages/LinktorConfigPage'));
-const LinktorInboxPage        = lazy(() => import('./pages/LinktorInboxPage'));
-const LinktorConversationPage = lazy(() => import('./pages/LinktorConversationPage'));
 const ScheduledTriggersPage   = lazy(() => import('./pages/ScheduledTriggersPage'));
 const AgentPlaygroundPage     = lazy(() => import('./pages/AgentPlaygroundPage'));
 const DynamicWorkflowPage     = lazy(() => import('./pages/DynamicWorkflowPage'));
@@ -55,15 +64,6 @@ const UserManagement    = lazy(() => import('./pages/admin/tenant/UserManagement
 const ApiKeys           = lazy(() => import('./pages/admin/tenant/ApiKeys'));
 
 // Observability pages — lazy loaded
-const ObservabilityLayout  = lazy(() => import('./pages/admin/observability/ObservabilityLayout'));
-const ObservabilityOverview = lazy(() => import('./pages/admin/observability/ObservabilityOverview'));
-const RunningFlowsPage     = lazy(() => import('./pages/admin/observability/RunningFlowsPage'));
-const TracesPage           = lazy(() => import('./pages/admin/observability/TracesPage'));
-const TraceDetailPage      = lazy(() => import('./pages/admin/observability/TraceDetailPage'));
-const MetricsPage          = lazy(() => import('./pages/admin/observability/MetricsPage'));
-const AuditLogPage         = lazy(() => import('./pages/admin/observability/AuditLogPage'));
-const LiveEventsPage       = lazy(() => import('./pages/admin/observability/LiveEventsPage'));
-
 export function useColorScheme() {
     return useLocalStorage<'light' | 'dark'>({
         key: 'archflow-color-scheme',

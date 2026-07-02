@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
     Badge,
+    Button,
     Card,
     Center,
     Chip,
@@ -124,9 +125,18 @@ export default function TemplatesPage() {
                     <Loader size="sm" />
                 </Center>
             ) : filtered.length === 0 ? (
-                <Text size="sm" c="dimmed" ta="center" py="lg">
-                    {t('templates.noMatches')}
-                </Text>
+                <Stack align="center" gap="xs" py="lg">
+                    <Text size="sm" c="dimmed" ta="center">
+                        {t('templates.noMatches')}
+                    </Text>
+                    <Button
+                        variant="light"
+                        size="xs"
+                        onClick={() => { setSearch(''); setCategory('all'); setComplexity('all'); }}
+                    >
+                        {t('templates.clearFilters')}
+                    </Button>
+                </Stack>
             ) : (
                 <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="md">
                     {filtered.map((t) => (
@@ -149,6 +159,7 @@ function TemplateCard({
     template: WorkflowTemplate;
     onClick: () => void;
 }) {
+    const { t } = useTranslation();
     const cat = TEMPLATE_CATEGORIES[template.category];
     return (
         <UnstyledButton
@@ -185,7 +196,7 @@ function TemplateCard({
                                     {template.name}
                                 </Text>
                                 <Text size="xs" c="dimmed">
-                                    {template.steps.length} steps
+                                    {t('templates.stepsShort', { count: template.steps.length })}
                                 </Text>
                             </Stack>
                         </Group>

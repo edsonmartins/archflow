@@ -3,6 +3,8 @@ import {
   IconBuilding, IconUsers, IconKey, IconSettings, IconChartBar,
   IconTopologyRing, IconPlayerPlay,
   IconActivity,
+  IconBook2, IconPlug, IconClockPlay, IconInbox, IconMessageCog,
+  IconShieldLock, IconLockAccess,
 } from '@tabler/icons-react'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
@@ -17,9 +19,21 @@ const SUPERADMIN_NAV = [
 ]
 
 const TENANT_NAV = [
-  { key: 'overview', icon: IconChartBar, path: '/admin/workspace' },
-  { key: 'users',    icon: IconUsers,    path: '/admin/workspace/users' },
-  { key: 'apiKeys',  icon: IconKey,      path: '/admin/workspace/keys' },
+  { key: 'overview',   icon: IconChartBar,  path: '/admin/workspace', exact: true },
+  { key: 'users',      icon: IconUsers,     path: '/admin/workspace/users' },
+  { key: 'apiKeys',    icon: IconKey,       path: '/admin/workspace/keys' },
+  { key: 'scopedKeys', icon: IconLockAccess, path: '/admin/workspace/api-keys' },
+]
+
+// Tenant-level integration tools. These routes existed but had no nav
+// entry anywhere, making the features undiscoverable without a deep link.
+const TENANT_TOOLS_NAV = [
+  { key: 'skills',        icon: IconBook2,      path: '/admin/skills' },
+  { key: 'mcp',           icon: IconPlug,       path: '/admin/mcp' },
+  { key: 'triggers',      icon: IconClockPlay,  path: '/admin/triggers' },
+  { key: 'linktorInbox',  icon: IconInbox,      path: '/admin/linktor/inbox' },
+  { key: 'linktorConfig', icon: IconMessageCog, path: '/admin/linktor', exact: true },
+  { key: 'brainsentry',   icon: IconShieldLock, path: '/admin/brainsentry' },
 ]
 
 export default function AdminLayout() {
@@ -65,11 +79,35 @@ export default function AdminLayout() {
             key={item.path}
             label={t(`admin.layout.${item.key}`)}
             leftSection={<item.icon size={18} />}
-            active={location.pathname === item.path || location.pathname.startsWith(item.path + '/')}
+            active={location.pathname === item.path
+              || (!('exact' in item && item.exact) && location.pathname.startsWith(item.path + '/'))}
             onClick={() => navigate(item.path)}
             variant="light"
           />
         ))}
+
+        {!isSuperadminView && (
+          <>
+            <div style={{ borderTop: '1px solid var(--color-border-tertiary)', margin: '8px 0' }} />
+            <span style={{
+              fontSize: 10, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase',
+              color: 'var(--color-text-tertiary)', padding: '0 10px 4px',
+            }}>
+              {t('admin.layout.integrations')}
+            </span>
+            {TENANT_TOOLS_NAV.map(item => (
+              <NavLink
+                key={item.path}
+                label={t(`admin.layout.${item.key}`)}
+                leftSection={<item.icon size={18} />}
+                active={location.pathname === item.path
+                  || (!('exact' in item && item.exact) && location.pathname.startsWith(item.path + '/'))}
+                onClick={() => navigate(item.path)}
+                variant="light"
+              />
+            ))}
+          </>
+        )}
 
         {isSuperadminView && (
           <>

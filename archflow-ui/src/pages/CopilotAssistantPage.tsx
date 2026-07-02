@@ -15,24 +15,20 @@ export default function CopilotAssistantPage() {
     return (
         <Stack p="md" gap="md" maw={820}>
             <PageHeader
-                title={t('copilot.title', { defaultValue: 'Copilot (AG-UI)' })}
-                subtitle={t('copilot.subtitle', {
-                    defaultValue: 'The copilot is the sidebar available on every page (bottom-right). It is connected to the archflow agent over AG-UI, is screen-aware, and can operate the app.',
-                })}
+                title={t('copilot.title')}
+                subtitle={t('copilot.subtitle')}
             />
             <Card withBorder radius="lg" p="lg">
-                <Text fw={600} size="sm" mb="xs">{t('copilot.tryTitle', { defaultValue: 'Try asking the copilot:' })}</Text>
+                <Text fw={600} size="sm" mb="xs">{t('copilot.tryTitle')}</Text>
                 <List size="sm" spacing="xs">
-                    <List.Item>"Quais workflows eu tenho?" — it reads the screen (useAgentContext).</List.Item>
-                    <List.Item>"Abra as execuções" / "Vá para o marketplace" — it navigates (navigateTo).</List.Item>
-                    <List.Item>"Rode o workflow wf-demo-001" — it executes it and opens Executions (runWorkflow).</List.Item>
-                    <List.Item>"Mostre um status dizendo: tudo certo" — it shows a notification (showStatus).</List.Item>
+                    <List.Item>{t('copilot.examples.context')}</List.Item>
+                    <List.Item>{t('copilot.examples.navigate')}</List.Item>
+                    <List.Item>{t('copilot.examples.run')}</List.Item>
+                    <List.Item>{t('copilot.examples.status')}</List.Item>
                 </List>
             </Card>
             <Text size="sm" c="dimmed">
-                {t('copilot.hint', {
-                    defaultValue: 'Direct AG-UI connection (no Node runtime): the Java backend is the security boundary.',
-                })}
+                {t('copilot.hint')}
             </Text>
         </Stack>
     )

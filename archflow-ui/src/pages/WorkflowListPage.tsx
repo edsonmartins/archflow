@@ -5,7 +5,7 @@ import {
 import {
     IconPlus, IconSearch, IconPlayerPlay, IconPencil, IconTrash,
     IconAlertCircle, IconRobot, IconFileText, IconPlayerPause,
-    IconAlertTriangle, IconTopologyRing,
+    IconAlertTriangle, IconTopologyRing, IconTemplate, IconSparkles,
 } from '@tabler/icons-react';
 import { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -44,16 +44,22 @@ export default function WorkflowListPage() {
 
     const handleDelete = async () => { if (deleteId) { await deleteWorkflow(deleteId); setDeleteId(null); } };
     const handleExecute = async (id: string) => { try { const eid = await executeWorkflow(id); navigate(`/executions?id=${eid}`); } catch { /* surfaced via store error state */ } };
-    const handleNew = async () => {
+
+    // Creation offers three paths (modal): blank canvas, template gallery,
+    // or AI generation (blank workflow + the editor's AI prompt pre-opened).
+    const [createOpen, setCreateOpen] = useState(false);
+    const createBlank = async (withAi: boolean) => {
+        setCreateOpen(false);
         try {
             const created = await createWorkflow({
                 metadata: { name: t('workflows.untitledName'), description: '', version: '1.0.0', category: '', tags: [] },
                 steps: [],
                 configuration: {},
             });
-            navigate(`/editor/${created.id}`);
+            navigate(withAi ? `/editor/${created.id}?ai=1` : `/editor/${created.id}`);
         } catch { /* surfaced via store error state */ }
     };
+    const handleNew = () => setCreateOpen(true);
 
     return (
         <Stack gap="md" p="md" pos="relative">
@@ -89,9 +95,18 @@ export default function WorkflowListPage() {
                             {workflows.length === 0 ? t('workflows.emptyHint') : t('workflows.noMatchesHint')}
                         </Text>
                         {workflows.length === 0 && (
-                            <Button mt="xs" leftSection={<IconPlus size={16} />} onClick={() => navigate('/editor')}>
-                                {t('workflows.createWorkflow')}
-                            </Button>
+                            <Group mt="xs" gap="sm">
+                                <Button leftSection={<IconPlus size={16} />} onClick={handleNew}>
+                                    {t('workflows.createWorkflow')}
+                                </Button>
+                                <Button
+                                    variant="light"
+                                    leftSection={<IconTemplate size={16} />}
+                                    onClick={() => navigate('/templates')}
+                                >
+                                    {t('workflows.browseTemplates')}
+                                </Button>
+                            </Group>
                         )}
                     </Stack>
                 </Center>
@@ -182,6 +197,74 @@ export default function WorkflowListPage() {
                     <Button color="red" onClick={handleDelete}>{t('common.delete')}</Button>
                 </Group>
             </Modal>
+
+            <Modal
+                opened={createOpen}
+                onClose={() => setCreateOpen(false)}
+                title={t('workflows.createModal.title')}
+                centered
+            >
+                <Stack gap="sm">
+                    <CreateOption
+                        icon={<IconPlus size={20} />}
+                        color="blue"
+                        title={t('workflows.createModal.blank')}
+                        description={t('workflows.createModal.blankHint')}
+                        onClick={() => createBlank(false)}
+                        testId="create-blank"
+                    />
+                    <CreateOption
+                        icon={<IconSparkles size={20} />}
+                        color="grape"
+                        title={t('workflows.createModal.ai')}
+                        description={t('workflows.createModal.aiHint')}
+                        onClick={() => createBlank(true)}
+                        testId="create-ai"
+                    />
+                    <CreateOption
+                        icon={<IconTemplate size={20} />}
+                        color="teal"
+                        title={t('workflows.createModal.template')}
+                        description={t('workflows.createModal.templateHint')}
+                        onClick={() => { setCreateOpen(false); navigate('/templates'); }}
+                        testId="create-template"
+                    />
+                </Stack>
+            </Modal>
         </Stack>
+    );
+}
+
+function CreateOption({
+    icon, color, title, description, onClick, testId,
+}: {
+    icon: React.ReactNode;
+    color: string;
+    title: string;
+    description: string;
+    onClick: () => void;
+    testId: string;
+}) {
+    return (
+        <Card
+            withBorder
+            radius="md"
+            padding="sm"
+            component="button"
+            type="button"
+            onClick={onClick}
+            data-testid={testId}
+            style={{ cursor: 'pointer', textAlign: 'left', width: '100%' }}
+        >
+            <Group gap="sm" wrap="nowrap">
+                <ThemeIcon size={40} radius="md" variant="light" color={color}>
+                    {icon}
+                </ThemeIcon>
+                <Stack gap={0}>
+                    <Text fw={600} size="sm">{title}</Text>
+                    <Text size="xs" c="dimmed">{description}</Text>
+                </Stack>
+            </Group>
+        </Card>
     );
 }
