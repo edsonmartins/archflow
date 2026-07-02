@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import {
-    Badge, Button, Card, Group, Modal, Stack, Text, TextInput, Title,
+    Badge, Button, Card, Group, Modal, Skeleton, Stack, Text, TextInput, Title,
     Tabs, Tooltip,
 } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
@@ -92,7 +92,7 @@ export default function MarketplacePage() {
     }
 
     return (
-        <Stack gap="md" style={{ padding: 24 }} data-testid="marketplace-page">
+        <Stack gap="md" p="md" data-testid="marketplace-page">
             <Group justify="space-between">
                 <Title order={2}>{t('marketplace.title')}</Title>
                 <Button onClick={() => setOpen(true)} data-testid="marketplace-install-btn">
@@ -122,9 +122,24 @@ export default function MarketplacePage() {
                 </Tabs.List>
             </Tabs>
 
-            {loading && <Text c="dimmed">{t('triggers.loading')}</Text>}
+            {loading && (
+                <Stack gap="sm" aria-hidden>
+                    {[0, 1, 2].map(i => <Skeleton key={i} height={104} radius="md" />)}
+                </Stack>
+            )}
             {!loading && items.length === 0 && (
-                <Text c="dimmed" ta="center" py={40}>{t('marketplace.empty')}</Text>
+                <Stack align="center" gap="xs" py={40}>
+                    <Text c="dimmed" ta="center">{t('marketplace.empty')}</Text>
+                    {(query || typeFilter) && (
+                        <Button
+                            variant="light"
+                            size="xs"
+                            onClick={() => { setQuery(''); setType(undefined); setTimeout(reload, 0) }}
+                        >
+                            {t('marketplace.clearSearch')}
+                        </Button>
+                    )}
+                </Stack>
             )}
 
             <Stack gap="sm">
@@ -154,8 +169,20 @@ export default function MarketplacePage() {
                                         </Button>
                                     </Tooltip>
                                 ) : (
-                                    <Tooltip label={t('marketplace.notInstalledHint')}>
-                                        <Button variant="light" disabled>{t('marketplace.notInstalled')}</Button>
+                                    <Tooltip label={t('marketplace.installHint')}>
+                                        <Button
+                                            variant="light"
+                                            onClick={() => {
+                                                // Catalog items don't carry a manifest URL yet, so
+                                                // pre-fill the conventional path and let the admin
+                                                // confirm/adjust in the install modal.
+                                                setUrl(`/opt/archflow/extensions/${ext.id}/manifest.json`)
+                                                setOpen(true)
+                                            }}
+                                            data-testid={`install-${ext.id}`}
+                                        >
+                                            {t('marketplace.install')}
+                                        </Button>
                                     </Tooltip>
                                 )}
                             </Group>

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Alert, Badge, Button, Card, Group, Stack, Switch, Text } from '@mantine/core'
+import { Alert, Badge, Button, Card, Group, Skeleton, Stack, Switch, Text } from '@mantine/core'
 import { IconAlertCircle } from '@tabler/icons-react'
 import { notifications } from '@mantine/notifications'
 import { skillsApi, type Skill } from '../services/skills-api'
@@ -66,7 +66,11 @@ export default function SkillsPage() {
                 <Alert color="red" variant="light" icon={<IconAlertCircle size={16} />}>{error}</Alert>
             )}
 
-            {loading && <Text c="dimmed">{t('common.loading')}</Text>}
+            {loading && (
+                <Stack gap="sm" aria-hidden>
+                    {[0, 1, 2].map(i => <Skeleton key={i} height={88} radius="md" />)}
+                </Stack>
+            )}
             {!loading && !error && skills.length === 0 && (
                 <Card withBorder><Stack>
                     <Text c="dimmed">{t('skills.emptyTitle')}</Text>

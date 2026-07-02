@@ -35,6 +35,11 @@
   --green:   #059669; --green-l: #ECFDF5;
   --red:     #DC2626; --red-l:   #FEF2F2;
 
+  /* AA-contrast text on the -l tinted backgrounds (dark variants below). */
+  --amber-text: #92400E;
+  --green-text: #065F46;
+  --red-text:   #991B1B;
+
   /* Node category colors */
   --cat-agent:   #2563EB; --cat-agent-l:   #DBEAFE;
   --cat-control: #7C3AED; --cat-control-l: #EDE9FE;
@@ -77,6 +82,19 @@
   --color-text-primary:         var(--text);
   --color-text-secondary:       var(--text2);
   --color-text-tertiary:        var(--text3);
+
+  /* Semantic tints: translucent in dark so they sit on any surface. */
+  --blue-l:   rgba(59, 130, 246, 0.15);
+  --purple-l: rgba(139, 92, 246, 0.15);
+  --teal-l:   rgba(13, 148, 136, 0.18);
+  --coral-l:  rgba(220, 78, 38, 0.16);
+  --amber-l:  rgba(217, 119, 6, 0.16);
+  --gray-l:   rgba(107, 114, 128, 0.16);
+  --green-l:  rgba(5, 150, 105, 0.16);
+  --red-l:    rgba(220, 38, 38, 0.16);
+  --amber-text: #FCD34D;
+  --green-text: #6EE7B7;
+  --red-text:   #FCA5A5;
 }
 
 body {

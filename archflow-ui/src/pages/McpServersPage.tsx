@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { Alert, Button, Card, Group, Stack, Text } from '@mantine/core'
+import { Alert, Button, Card, Group, Skeleton, Stack, Text } from '@mantine/core'
 import { IconAlertCircle } from '@tabler/icons-react'
 import { mcpApi } from '../services/mcp-api'
 import { ApiError } from '../services/api'
@@ -44,7 +44,11 @@ export default function McpServersPage() {
                 <Alert color="red" variant="light" icon={<IconAlertCircle size={16} />}>{error}</Alert>
             )}
 
-            {loading && <Text c="dimmed">{t('common.loading')}</Text>}
+            {loading && (
+                <Stack gap="sm" aria-hidden>
+                    {[0, 1, 2].map(i => <Skeleton key={i} height={72} radius="md" />)}
+                </Stack>
+            )}
 
             {!loading && !error && names.length === 0 && (
                 <Card withBorder><Stack>

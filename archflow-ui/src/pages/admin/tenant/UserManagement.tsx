@@ -153,7 +153,7 @@ export default function UserManagement() {
                   <Group gap="sm" wrap="nowrap">
                     <div style={{
                       width: 32, height: 32, borderRadius: '50%',
-                      background: '#378ADD15', color: '#378ADD',
+                      background: 'var(--blue-l)', color: 'var(--blue)',
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
                       fontWeight: 700, fontSize: 11,
                     }}>

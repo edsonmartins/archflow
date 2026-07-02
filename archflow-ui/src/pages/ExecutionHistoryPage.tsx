@@ -1,4 +1,4 @@
-import { Stack, Group, Title, Select, Text, Table } from '@mantine/core';
+import { Stack, Group, Title, Select, Text, Table, Button } from '@mantine/core';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -63,6 +63,11 @@ export default function ExecutionHistoryPage() {
                 onRetry={() => fetchExecutions(filterWorkflow || undefined)}
                 isEmpty={executions.length === 0}
                 emptyMessage={t('executions.empty')}
+                emptyAction={
+                    <Button variant="light" size="xs" onClick={() => navigate('/')}>
+                        {t('executions.emptyCta')}
+                    </Button>
+                }
                 head={
                     <Table.Tr>
                         <Table.Th>{t('executions.cols.id')}</Table.Th>

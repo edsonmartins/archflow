@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { Badge, Button, Card, Group, Stack, Text, Title } from '@mantine/core'
+import { Badge, Button, Card, Group, Skeleton, Stack, Text, Title } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import { marketplaceApi, type Extension } from '../services/marketplace-api'
 import { ApiError } from '../services/api'
@@ -40,15 +40,20 @@ export default function MarketplaceDetailPage() {
     }
 
     if (err) return (
-        <Stack gap="md" style={{ padding: 24 }}>
+        <Stack gap="md" p="md">
             <Text c="red">{err}</Text>
             <Link to="/marketplace"><Button variant="default">{t('marketplace.back')}</Button></Link>
         </Stack>
     )
-    if (!ext) return <Text style={{ padding: 24 }}>{t('triggers.loading')}</Text>
+    if (!ext) return (
+        <Stack gap="sm" p="md" aria-hidden>
+            <Skeleton height={36} width={320} radius="md" />
+            <Skeleton height={140} radius="md" />
+        </Stack>
+    )
 
     return (
-        <Stack gap="md" style={{ padding: 24 }} data-testid="marketplace-detail">
+        <Stack gap="md" p="md" data-testid="marketplace-detail">
             <Group justify="space-between">
                 <Group align="baseline">
                     <Title order={2}>{ext.displayName}</Title>

@@ -99,7 +99,7 @@ export default function LinktorConversationPage() {
     }
 
     return (
-        <Stack gap="md" style={{ padding: 24, maxWidth: 900 }} data-testid="linktor-conversation">
+        <Stack gap="md" p="md" maw={900} data-testid="linktor-conversation">
             <Group justify="space-between">
                 <Group align="baseline">
                     <Title order={2}>{t('linktor.conversation.title')}</Title>

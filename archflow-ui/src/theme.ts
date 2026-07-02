@@ -1,13 +1,16 @@
 import { createTheme, MantineColorsTuple } from '@mantine/core'
 
+// Single brand blue: shade 6 (#2563EB) matches the CSS token `--blue`
+// (App.css), the admin logo and the `agent` node-category color, so the
+// Mantine primary and the editor palette read as one identity.
 const archBlue: MantineColorsTuple = [
-  '#E6F1FB', '#B5D4F4', '#85B7EB', '#55A0E2', '#378ADD',
-  '#185FA5', '#0C447C', '#042C53', '#021D38', '#010F1D',
+  '#EFF6FF', '#DBEAFE', '#BFDBFE', '#93C5FD', '#60A5FA',
+  '#3B82F6', '#2563EB', '#1D4ED8', '#1E40AF', '#1E3A8A',
 ]
 
 export const theme = createTheme({
   primaryColor:  'archBlue',
-  primaryShade:  5,
+  primaryShade:  6,
   colors:        { archBlue },
   fontFamily:    "'DM Sans', system-ui, sans-serif",
   fontFamilyMonospace: "'DM Mono', 'Fira Code', monospace",

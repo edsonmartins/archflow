@@ -1,11 +1,12 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
-    Alert, Button, Card, Code, Group, Select, Stack, Tabs, Text, Textarea, TextInput, Title,
+    Alert, Button, Card, Group, Select, Stack, Tabs, Text, Textarea, TextInput, Title,
 } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import { useCatalog } from '../components/PropertyPanel/useCatalog'
 import { agentPlaygroundApi } from '../services/agent-playground-api'
+import { JsonViewer } from '../components/JsonViewer'
 
 /**
  * Playground for the two external-trigger endpoints that previously
@@ -64,7 +65,7 @@ export default function AgentPlaygroundPage() {
     }
 
     return (
-        <Stack gap="md" style={{ padding: 24, maxWidth: 900 }} data-testid="agent-playground">
+        <Stack gap="md" p="md" maw={900} data-testid="agent-playground">
             <Title order={2}>{t('agentPlayground.title')}</Title>
             <Alert color="blue" variant="light">
                 {t('agentPlayground.info').split(/<code>|<\/code>/).map((seg, i) =>
@@ -131,7 +132,7 @@ export default function AgentPlaygroundPage() {
             {response != null && (
                 <Card withBorder role="status" aria-live="polite">
                     <Text size="sm" c="dimmed" mb={4}>{t('agentPlayground.response')}</Text>
-                    <Code block>{JSON.stringify(response, null, 2)}</Code>
+                    <JsonViewer value={response} autoExpandDepth={2} testId="pg-response" />
                 </Card>
             )}
         </Stack>

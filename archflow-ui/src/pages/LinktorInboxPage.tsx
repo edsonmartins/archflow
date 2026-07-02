@@ -50,7 +50,7 @@ export default function LinktorInboxPage() {
     useEffect(() => { reload(tab) }, [tab]) // eslint-disable-line react-hooks/exhaustive-deps
 
     return (
-        <Stack gap="md" style={{ padding: 24 }} data-testid="linktor-inbox">
+        <Stack gap="md" p="md" data-testid="linktor-inbox">
             <Group justify="space-between">
                 <Title order={2}>{t('linktor.inbox.title')}</Title>
                 <Button variant="default" onClick={() => reload(tab)}>{t('common.refresh')}</Button>

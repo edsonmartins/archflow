@@ -26,6 +26,7 @@ import {
     IconX,
 } from '@tabler/icons-react';
 import { approvalApi, type ApprovalResponse } from '../services/approval-api';
+import { JsonViewer } from '../components/JsonViewer';
 import { useTenantStore } from '../stores/useTenantStore';
 import { confirmAction } from '../lib/confirm';
 
@@ -85,6 +86,7 @@ export default function ApprovalDetailPage() {
                 decision,
                 editedPayload: parsedPayload,
                 responderId: 'me',
+                comment: comment.trim() || undefined,
             });
             notifications.show({
                 title: t('approvals.detail.decisionSubmitted'),
@@ -198,12 +200,7 @@ export default function ApprovalDetailPage() {
                         data-testid="approval-edit-payload"
                     />
                 ) : (
-                    <Code
-                        block
-                        style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}
-                    >
-                        {JSON.stringify(approval.proposal, null, 2)}
-                    </Code>
+                    <JsonViewer value={approval.proposal} autoExpandDepth={2} testId="approval-proposal" />
                 )}
             </Paper>
 

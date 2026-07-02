@@ -24,6 +24,7 @@ export interface ApprovalSubmitRequest {
     decision: 'APPROVED' | 'REJECTED' | 'EDITED';
     editedPayload?: unknown;
     responderId?: string;
+    comment?: string;
 }
 
 /**

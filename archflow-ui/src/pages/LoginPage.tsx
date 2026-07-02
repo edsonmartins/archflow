@@ -10,7 +10,7 @@ import { useAuthStore } from '../stores/auth-store';
 function ArchflowLogo() {
     return (
         <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
-            <rect width="48" height="48" rx="12" fill="#185FA5"/>
+            <rect width="48" height="48" rx="12" fill="#2563EB"/>
             <circle cx="14" cy="24" r="5" stroke="white" strokeWidth="2"/>
             <circle cx="34" cy="14" r="4" stroke="white" strokeWidth="2"/>
             <circle cx="34" cy="34" r="4" stroke="white" strokeWidth="2"/>

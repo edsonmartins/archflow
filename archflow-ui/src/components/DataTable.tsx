@@ -29,6 +29,8 @@ interface DataTableProps extends Omit<TableProps, 'children'> {
     onRetry?: () => void
     isEmpty?: boolean
     emptyMessage?: ReactNode
+    /** Optional call-to-action rendered under the empty message (e.g. a "create" button). */
+    emptyAction?: ReactNode
     /** Skeleton row count while loading. Default 5. */
     skeletonRows?: number
 }
@@ -43,6 +45,7 @@ export function DataTable({
     onRetry,
     isEmpty = false,
     emptyMessage,
+    emptyAction,
     skeletonRows = 5,
     ...tableProps
 }: DataTableProps) {
@@ -80,9 +83,14 @@ export function DataTable({
         body = (
             <Table.Tr>
                 <Table.Td colSpan={columns}>
-                    <Text c="dimmed" ta="center" py="lg" size="sm">
+                    <Text c="dimmed" ta="center" pt="lg" pb={emptyAction ? 4 : 'lg'} size="sm">
                         {emptyMessage ?? t('common.noData')}
                     </Text>
+                    {emptyAction && (
+                        <Group justify="center" pb="lg">
+                            {emptyAction}
+                        </Group>
+                    )}
                 </Table.Td>
             </Table.Tr>
         )

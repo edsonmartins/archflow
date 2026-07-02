@@ -200,7 +200,11 @@ export default function TraceDetailPage() {
                                         <Table.Td>
                                             <Code>{key}</Code>
                                         </Table.Td>
-                                        <Table.Td>{value}</Table.Td>
+                                        <Table.Td>
+                                            <Text size="xs" ff="DM Mono, monospace" style={{ wordBreak: 'break-word' }}>
+                                                {String(value)}
+                                            </Text>
+                                        </Table.Td>
                                     </Table.Tr>
                                 )),
                             )}
