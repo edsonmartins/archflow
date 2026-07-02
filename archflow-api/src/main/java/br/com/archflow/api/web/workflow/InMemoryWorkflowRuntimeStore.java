@@ -11,6 +11,9 @@ public class InMemoryWorkflowRuntimeStore {
 
     private final Map<String, Map<String, Object>> workflows = new ConcurrentHashMap<>();
     private final Map<String, Map<String, Object>> executions = new ConcurrentHashMap<>();
+    // Per-execution stepId → step-record index so lifecycle events patch in
+    // O(1) instead of rescanning the growing steps list on every event.
+    private final Map<String, Map<String, Map<String, Object>>> stepIndexes = new ConcurrentHashMap<>();
 
     public InMemoryWorkflowRuntimeStore() {
         seedDemoWorkflow();
@@ -35,18 +38,59 @@ public class InMemoryWorkflowRuntimeStore {
 
     public void deleteWorkflow(String id) {
         workflows.remove(id);
-        executions.entrySet().removeIf(entry -> id.equals(entry.getValue().get("workflowId")));
+        executions.entrySet().removeIf(entry -> {
+            if (id.equals(entry.getValue().get("workflowId"))) {
+                stepIndexes.remove(entry.getKey());
+                return true;
+            }
+            return false;
+        });
     }
 
     public List<Map<String, Object>> executions() {
         return executions.values().stream()
+                .map(InMemoryWorkflowRuntimeStore::snapshot)
                 .sorted(Comparator.comparing((Map<String, Object> exec) ->
                         exec.getOrDefault("startedAt", "").toString()).reversed())
                 .toList();
     }
 
     public Map<String, Object> getExecution(String id) {
-        return executions.get(id);
+        var execution = executions.get(id);
+        return execution == null ? null : snapshot(execution);
+    }
+
+    /**
+     * Copies an execution record under its monitor so readers (Jackson
+     * serialization in the controllers) never iterate a map/steps list
+     * that an engine lifecycle callback is mutating concurrently.
+     */
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> snapshot(Map<String, Object> execution) {
+        synchronized (execution) {
+            var copy = new LinkedHashMap<>(execution);
+            if (copy.get("steps") instanceof List<?> steps) {
+                var stepsCopy = new ArrayList<Map<String, Object>>(steps.size());
+                for (Object step : steps) {
+                    stepsCopy.add(new LinkedHashMap<>((Map<String, Object>) step));
+                }
+                copy.put("steps", stepsCopy);
+            }
+            return copy;
+        }
+    }
+
+    /** Marks a resumed execution RUNNING again (locked counterpart of completeExecution). */
+    public void markResumed(String id) {
+        var execution = executions.get(id);
+        if (execution == null) {
+            return;
+        }
+        synchronized (execution) {
+            execution.put("status", "RUNNING");
+            execution.put("completedAt", null);
+            execution.put("error", null);
+        }
     }
 
     public Map<String, Object> putExecution(String id, Map<String, Object> execution) {
@@ -92,15 +136,13 @@ public class InMemoryWorkflowRuntimeStore {
         synchronized (execution) {
             var steps = (List<Map<String, Object>>) execution.computeIfAbsent(
                     "steps", k -> new ArrayList<Map<String, Object>>());
-            var step = steps.stream()
-                    .filter(s -> stepId.equals(s.get("stepId")))
-                    .findFirst()
-                    .orElseGet(() -> {
-                        var created = new LinkedHashMap<String, Object>();
-                        created.put("stepId", stepId);
-                        steps.add(created);
-                        return created;
-                    });
+            var index = stepIndexes.computeIfAbsent(executionId, k -> new LinkedHashMap<>());
+            var step = index.computeIfAbsent(stepId, k -> {
+                var created = new LinkedHashMap<String, Object>();
+                created.put("stepId", stepId);
+                steps.add(created);
+                return created;
+            });
             step.putAll(patch);
         }
     }

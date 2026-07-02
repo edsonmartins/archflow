@@ -74,7 +74,11 @@ class SpringExecutionControllerTest {
 
     @Test
     void resumeSubmitsWhenPaused() {
-        when(store.getExecution("e1")).thenReturn(new LinkedHashMap<>(Map.of("id", "e1", "status", "PAUSED")));
+        // The controller re-reads the record after store.markResumed flips it
+        // to RUNNING, so the mocked store answers PAUSED first, RUNNING after.
+        when(store.getExecution("e1"))
+                .thenReturn(new LinkedHashMap<>(Map.of("id", "e1", "status", "PAUSED")))
+                .thenReturn(new LinkedHashMap<>(Map.of("id", "e1", "status", "RUNNING")));
         when(stateManager.loadState("e1")).thenReturn(FlowState.builder().status(FlowStatus.PAUSED).build());
         // Never-completing future so whenComplete doesn't overwrite the RUNNING marker.
         when(engine.resumeFlow(eq("e1"), any())).thenReturn(new CompletableFuture<FlowResult>());
@@ -83,6 +87,7 @@ class SpringExecutionControllerTest {
 
         assertThat(response.getStatusCode().value()).isEqualTo(200);
         assertThat(response.getBody().get("status")).isEqualTo("RUNNING");
+        verify(store).markResumed("e1");
         verify(engine).resumeFlow(eq("e1"), any());
     }
 }

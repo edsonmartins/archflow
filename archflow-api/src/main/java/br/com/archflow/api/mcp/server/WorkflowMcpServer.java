@@ -5,10 +5,11 @@ import br.com.archflow.api.web.workflow.InMemoryWorkflowRuntimeStore;
 import br.com.archflow.engine.api.FlowEngine;
 import br.com.archflow.engine.persistence.FlowRepository;
 import br.com.archflow.langchain4j.mcp.McpModel;
-import br.com.archflow.langchain4j.mcp.McpServer;
+import br.com.archflow.langchain4j.mcp.server.AbstractMcpServer;
 import br.com.archflow.model.engine.DefaultExecutionContext;
 import br.com.archflow.model.engine.ExecutionContext;
 import br.com.archflow.model.flow.Flow;
+import br.com.archflow.model.flow.FlowResult;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 
@@ -31,7 +32,7 @@ import java.util.concurrent.CompletableFuture;
  * created and completed, so runs triggered over MCP show up in the
  * executions history like any other run.
  */
-public class WorkflowMcpServer implements McpServer {
+public class WorkflowMcpServer extends AbstractMcpServer {
 
     static final String TOOL_PREFIX = "workflow_";
 
@@ -46,37 +47,12 @@ public class WorkflowMcpServer implements McpServer {
                              FlowEngine flowEngine,
                              FlowRepository flowRepository,
                              ObjectMapper json) {
+        super("archflow", "1.0.0", McpModel.ServerCapabilities.toolsOnly());
         this.store = Objects.requireNonNull(store, "store");
         this.deserializer = Objects.requireNonNull(deserializer, "deserializer");
         this.flowEngine = Objects.requireNonNull(flowEngine, "flowEngine");
         this.flowRepository = Objects.requireNonNull(flowRepository, "flowRepository");
         this.json = Objects.requireNonNull(json, "json");
-    }
-
-    @Override
-    public McpModel.ServerMetadata getServerInfo() {
-        return new McpModel.ServerMetadata("archflow", "1.0.0");
-    }
-
-    @Override
-    public McpModel.ServerCapabilities getCapabilities() {
-        return McpModel.ServerCapabilities.toolsOnly();
-    }
-
-    @Override
-    public CompletableFuture<McpModel.InitializeResult> initialize(McpModel.ClientInfo clientInfo) {
-        return CompletableFuture.completedFuture(
-                new McpModel.InitializeResult(getCapabilities(), getServerInfo()));
-    }
-
-    @Override
-    public void initialized() {
-        // stateless — nothing to do
-    }
-
-    @Override
-    public void shutdown() {
-        // stateless — nothing to do
     }
 
     @Override
@@ -115,20 +91,30 @@ public class WorkflowMcpServer implements McpServer {
         var execution = store.createExecution(workflowId, workflowName(workflow));
         String executionId = String.valueOf(execution.get("id"));
 
-        Map<String, Object> flowJson = new HashMap<>(workflow);
-        flowJson.put("id", executionId);
-        Flow flow = deserializer.toFlow(flowJson);
-        flowRepository.save(flow);
+        // Any failure before the engine takes over must still complete the
+        // execution record, or every failed call leaves a ghost RUNNING row.
+        CompletableFuture<FlowResult> run;
+        try {
+            Map<String, Object> flowJson = new HashMap<>(workflow);
+            flowJson.put("id", executionId);
+            Flow flow = deserializer.toFlow(flowJson);
+            flowRepository.save(flow);
 
-        ExecutionContext ctx = new DefaultExecutionContext(
-                null, "mcp", executionId,
-                MessageWindowChatMemory.builder().maxMessages(20).build());
-        arguments.arguments().forEach(ctx::set);
+            ExecutionContext ctx = new DefaultExecutionContext(
+                    null, "mcp", executionId,
+                    MessageWindowChatMemory.builder().maxMessages(20).build());
+            arguments.arguments().forEach(ctx::set);
+            run = flowEngine.execute(flow, ctx);
+        } catch (RuntimeException e) {
+            store.completeExecution(executionId, "FAILED", rootMessage(e));
+            return CompletableFuture.completedFuture(McpModel.ToolResult.error(
+                    "Workflow failed to start (" + executionId + "): " + rootMessage(e)));
+        }
 
         // MCP tool calls are request/response: wait for the run to finish and
         // return its output. The execution record is completed either way so
         // the run appears in the executions history.
-        return flowEngine.execute(flow, ctx).handle((result, err) -> {
+        return run.handle((result, err) -> {
             if (err != null) {
                 store.completeExecution(executionId, "FAILED", rootMessage(err));
                 return McpModel.ToolResult.error(

@@ -55,7 +55,10 @@ public class DefaultFlowStepFactory implements FlowStepFactory {
         if (componentId == null) {
             componentId = node.get("type");
         }
-        String operation = str(node.get("operation"), str(config.get("operation"), "execute"));
+        // Explicit config wins; the node-level field is a fallback for
+        // YAML/API-authored flows. Designer saves keep the display name in
+        // `label`, so it never reaches the execution operation.
+        String operation = str(config.get("operation"), str(node.get("operation"), "execute"));
         return new ComponentStep(
                 id, StepType.TOOL,
                 componentId == null ? "" : componentId.toString(),
@@ -92,7 +95,8 @@ public class DefaultFlowStepFactory implements FlowStepFactory {
                 continue;
             }
             String condition = str(map.get("condition"), null);
-            boolean errorPath = bool(map.get("isErrorPath"), bool(map.get("errorPath"), "error".equals(map.get("type"))));
+            boolean errorPath = bool(map.get("isErrorPath"),
+                    bool(map.get("errorPath"), "error".equals(map.get("type"))));
             connections.add(new PersistedStepConnection(sourceId, targetId, condition, errorPath));
         }
         return List.copyOf(connections);
