@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next'
 import { Select, NumberInput, Text, Divider, ScrollArea } from '@mantine/core'
+import { IconClick } from '@tabler/icons-react'
 import { useWorkflowStore } from '../../stores/workflow-store'
 import { useWorkflowConfig } from './useWorkflowConfig'
 import { FIELD_STYLES } from './fieldStyles'
@@ -26,7 +27,8 @@ export function FlowDefaultsPanel() {
   if (!currentWorkflow) {
     return (
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, color: 'var(--color-text-tertiary)', padding: 24, textAlign: 'center' }}>
-        <div style={{ fontSize: 20 }}>{'◎'}</div>
+        <IconClick size={22} stroke={1.5} aria-hidden />
+
         <div style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>{t('editor.properties.noNodeSelected')}</div>
         <div style={{ fontSize: 12 }}>{t('editor.properties.emptyHint')}</div>
       </div>

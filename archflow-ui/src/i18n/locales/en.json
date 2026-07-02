@@ -64,7 +64,17 @@
         "voice": "Voice",
         "toggleSidebar": "Toggle sidebar",
         "expandSidebar": "Expand sidebar",
-        "collapseSidebar": "Collapse sidebar"
+        "collapseSidebar": "Collapse sidebar",
+        "admin": "Admin",
+        "searchTooltip": "Search everywhere",
+        "searchPlaceholder": "Search pages and workflows...",
+        "searchNothing": "Nothing found",
+        "groups": {
+            "build": "Build",
+            "run": "Run",
+            "extend": "Extend",
+            "labs": "Labs"
+        }
     },
     "dynamicWorkflow": {
         "title": "Dynamic Workflow",
@@ -96,6 +106,16 @@
         "subtitle": "Design and manage your AI workflows",
         "newWorkflow": "New Workflow",
         "createWorkflow": "Create Workflow",
+        "browseTemplates": "Browse templates",
+        "createModal": {
+            "title": "Create workflow",
+            "blank": "Start from scratch",
+            "blankHint": "Open a blank canvas and build node by node",
+            "ai": "Generate with AI",
+            "aiHint": "Describe the goal and the copilot assembles a draft flow",
+            "template": "Use a template",
+            "templateHint": "Start from a pre-built workflow and adapt it"
+        },
         "untitledName": "Untitled Workflow",
         "search": "Search workflows…",
         "empty": "No workflows yet",
@@ -140,6 +160,7 @@
         "canvas": "Canvas",
         "code": "Code",
         "run": "Run",
+        "stop": "Stop",
         "back": "Back to list",
         "saved": "Saved",
         "savedAt": "Saved at {{time}}",
@@ -158,13 +179,53 @@
             "saveError": "Error",
             "saveErrorMsg": "Failed to save workflow",
             "execStarted": "Execution started",
-            "execStartedMsg": "Execution ID: {{id}}"
+            "execStartedMsg": "Execution ID: {{id}}",
+            "execFinished": "Execution finished",
+            "execFinishedMsg": "The workflow completed successfully",
+            "execFailed": "Execution failed",
+            "execFailedMsg": "The workflow ended with an error",
+            "execStopped": "Execution stopped",
+            "execStoppedMsg": "The run was cancelled",
+            "execStartError": "Could not start execution"
         },
         "unsavedChanges": "Unsaved changes",
         "palette": {
             "title": "Components",
             "search": "Search components...",
             "empty": "No components match your search."
+        },
+        "canvasActions": {
+            "undo": "Undo (⌘Z)",
+            "redo": "Redo (⇧⌘Z)",
+            "tidy": "Tidy up layout",
+            "addNode": "Add node"
+        },
+        "publish": {
+            "button": "Publish",
+            "title": "Publish this workflow",
+            "subtitle": "Call this workflow from your product: fire-and-track REST, live streaming over AG-UI, or embed the canvas.",
+            "tabs": {
+                "rest": "REST API",
+                "stream": "Streaming",
+                "embed": "Embed",
+                "mcp": "MCP"
+            },
+            "restHint": "Starts an execution and returns its executionId. Poll GET /api/executions/{id} for status and per-step results.",
+            "streamHint": "Runs the workflow and streams AG-UI events (RUN_STARTED, STEP_STARTED/FINISHED, messages) over SSE in a single request.",
+            "embedHint": "Embeds the workflow canvas in any page via the <archflow-designer> web component (served from this app's build).",
+            "mcpHint": "Connect any MCP client (Claude, IDEs, agents) to this server — the workflow shows up as the tool \"{{tool}}\".",
+            "apiKeyHint": "Authenticate with a scoped API key —",
+            "apiKeyLink": "manage API keys"
+        },
+        "ai": {
+            "button": "Generate with AI",
+            "title": "Generate workflow with AI",
+            "goalLabel": "What should this workflow do?",
+            "goalPlaceholder": "e.g. answer support tickets: classify the intent, search the knowledge base and draft a reply — escalate to a human when unsure",
+            "generate": "Generate",
+            "started": "Copilot is building your flow",
+            "startedMsg": "Nodes will appear on the canvas as the copilot works. Open the copilot sidebar to follow along.",
+            "promptTemplate": "Build a workflow on the editor canvas for the following goal. Use the addNode and connectNodes tools with the available node types, connect the nodes in a logical order, and give each node a short descriptive label. Goal: {{goal}}"
         },
         "properties": {
             "title": "Properties",
@@ -385,6 +446,7 @@
         "allWorkflows": "All workflows",
         "empty": "No executions yet",
         "emptyHint": "Execute a workflow to see results here",
+        "emptyCta": "Go to workflows",
         "cols": {
             "id": "Execution ID",
             "workflow": "Workflow",
@@ -454,7 +516,15 @@
             "usageBilling": "Usage & Billing",
             "overview": "Overview",
             "users": "Users",
-            "apiKeys": "API Keys"
+            "apiKeys": "API Keys",
+            "scopedKeys": "Scoped API keys",
+            "integrations": "Integrations",
+            "skills": "Skills",
+            "mcp": "MCP servers",
+            "triggers": "Scheduled triggers",
+            "linktorInbox": "Linktor inbox",
+            "linktorConfig": "Linktor settings",
+            "brainsentry": "BrainSentry"
         },
         "impersonation": {
             "viewingAs": "Viewing as admin of <b>{{name}}</b>. All actions are recorded in the audit log.",
@@ -1025,7 +1095,31 @@
         "title": "Execution {{id}}",
         "viewTrace": "View trace",
         "back": "Back",
-        "dynamicTree": "Dynamic tree"
+        "dynamicTree": "Dynamic tree",
+        "steps": "Steps",
+        "noSteps": "No step data recorded for this execution.",
+        "summary": {
+            "workflow": "Workflow",
+            "started": "Started",
+            "completed": "Finished",
+            "duration": "Duration"
+        },
+        "step": {
+            "running": "Running",
+            "completed": "Completed",
+            "failed": "Failed",
+            "skipped": "Skipped",
+            "errorLabel": "Error",
+            "startedAt": "Started at",
+            "finishedAt": "Finished at",
+            "toggle": "Toggle step details"
+        },
+        "rerun": "Run again",
+        "rerunStarted": "New execution started",
+        "rerunFailed": "Could not start a new execution",
+        "rawJson": "Raw JSON",
+        "showRaw": "Show raw JSON",
+        "hideRaw": "Hide raw JSON"
     },
     "marketplace": {
         "title": "Marketplace",
@@ -1034,12 +1128,15 @@
         "searchBtn": "Search",
         "allTab": "All ({{count}})",
         "empty": "No extensions match the current filter.",
+        "clearSearch": "Clear search",
         "loadFailed": "Failed to load extensions",
         "installed": "installed",
         "uninstall": "Uninstall",
         "uninstallHint": "Remove this extension from the registry",
         "notInstalled": "Not installed",
         "notInstalledHint": "Extension has already been fetched; install via modal",
+        "install": "Install",
+        "installHint": "Opens the install dialog with this extension's manifest path pre-filled",
         "installTitle": "Install extension",
         "manifestPath": "Manifest path",
         "manifestHint": "Path to manifest.json inside the configured extensions directory",
@@ -1057,6 +1154,18 @@
         "uninstallFailed": "Uninstall failed",
         "back": "Back"
     },
+    "copilot": {
+        "title": "Copilot (AG-UI)",
+        "subtitle": "The copilot is the sidebar available on every page (bottom-right). It is connected to the archflow agent over AG-UI, is screen-aware, and can operate the app.",
+        "tryTitle": "Try asking the copilot:",
+        "examples": {
+            "context": "\"Which workflows do I have?\" — it reads the screen (useAgentContext).",
+            "navigate": "\"Open executions\" / \"Go to the marketplace\" — it navigates (navigateTo).",
+            "run": "\"Run the workflow wf-demo-001\" — it executes it and opens Executions (runWorkflow).",
+            "status": "\"Show a status saying: all good\" — it shows a notification (showStatus)."
+        },
+        "hint": "Direct AG-UI connection (no Node runtime): the Java backend is the security boundary."
+    },
     "templates": {
         "title": "Templates",
         "subtitle": "Start from a pre-built workflow and adapt it to your needs. Click any card to see the canvas preview, then clone it into your workspace.",
@@ -1068,6 +1177,7 @@
         "complexityAdvanced": "Advanced",
         "all": "All",
         "noMatches": "No templates match your search.",
+        "clearFilters": "Clear filters",
         "stepsShort": "{{count}} steps",
         "detail": {
             "back": "Back to templates",

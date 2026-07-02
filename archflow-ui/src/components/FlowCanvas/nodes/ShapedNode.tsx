@@ -1,8 +1,10 @@
 import { memo, useMemo } from 'react'
 import { Handle, Position } from '@xyflow/react'
 import { useMantineColorScheme } from '@mantine/core'
+import { IconLoader2, IconCheck, IconX } from '@tabler/icons-react'
 import { NODE_CATEGORIES, EXECUTION_STATUS_COLORS } from '../constants'
 import { NodeIcon } from '../nodeIcons'
+import { useFlowStore } from '../store/useFlowStore'
 import type { FlowNodeData } from '../types'
 
 /**
@@ -138,8 +140,9 @@ function accentPattern(category: CategoryKey): string | null {
 }
 
 export const ShapedNode = memo(function ShapedNode({
-  data, selected, category,
+  id, data, selected, category,
 }: ShapedNodeProps) {
+  const selectNode = useFlowStore((state) => state.selectNode)
   const cat = NODE_CATEGORIES[category]
   const exec = data.executionStatus ?? 'idle'
   const execColors = EXECUTION_STATUS_COLORS[exec]
@@ -182,6 +185,22 @@ export const ShapedNode = memo(function ShapedNode({
   return (
     <div
       className={`af-node-card ${execMotionClass}`}
+      onPointerDownCapture={(event) => {
+        event.stopPropagation()
+        selectNode(id, data)
+      }}
+      onClickCapture={(event) => {
+        event.stopPropagation()
+        selectNode(id, data)
+      }}
+      onPointerDown={(event) => {
+        event.stopPropagation()
+        selectNode(id, data)
+      }}
+      onClick={(event) => {
+        event.stopPropagation()
+        selectNode(id, data)
+      }}
       style={{
         position:     'relative',
         width:        WIDTH,
@@ -348,10 +367,17 @@ export const ShapedNode = memo(function ShapedNode({
             color:      execColors.text,
             animation:  exec === 'running' ? 'pulse 1.5s ease-in-out infinite' : 'none',
             pointerEvents: 'none',
+            display:    'inline-flex',
+            alignItems: 'center',
+            gap:        3,
           }}
         >
-          {exec === 'running' ? '◌' : exec === 'success' ? '✓' : '✕'}
-          {data.executionMs != null && exec === 'success' ? ` ${Math.round(data.executionMs)}ms` : ''}
+          {exec === 'running'
+            ? <IconLoader2 size={11} stroke={2.5} style={{ animation: 'spin 1s linear infinite' }} aria-hidden />
+            : exec === 'success'
+              ? <IconCheck size={11} stroke={2.5} aria-hidden />
+              : <IconX size={11} stroke={2.5} aria-hidden />}
+          {data.executionMs != null && exec === 'success' ? `${Math.round(data.executionMs)}ms` : ''}
         </div>
       )}
 

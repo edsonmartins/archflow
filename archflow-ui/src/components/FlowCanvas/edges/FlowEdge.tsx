@@ -32,11 +32,11 @@ export const FlowEdge = memo(function FlowEdge({
   })
 
   const strokeColor = selected
-    ? '#378ADD'
+    ? 'var(--blue)'
     : isError
-    ? '#D85A30'
+    ? 'var(--red)'
     : animated
-    ? '#378ADD'
+    ? 'var(--blue)'
     : 'var(--color-border-secondary)'
 
   const strokeWidth = selected ? 2 : 1.5
@@ -64,9 +64,9 @@ export const FlowEdge = memo(function FlowEdge({
               transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
               fontSize:  10,
               fontFamily: 'var(--font-sans)',
-              color:     '#993C1D',
-              background: '#FAECE7',
-              border:    '0.5px solid #D85A30',
+              color:     'var(--red)',
+              background: 'var(--red-l)',
+              border:    '1px solid var(--red)',
               padding:   '1px 6px',
               borderRadius: 6,
               pointerEvents: 'none',

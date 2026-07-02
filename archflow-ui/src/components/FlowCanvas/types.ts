@@ -54,5 +54,4 @@ export interface PaletteNode {
   description: string
   category:    keyof typeof NODE_CATEGORIES
   type:        string
-  icon:        string
 }

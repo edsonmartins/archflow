@@ -9,7 +9,7 @@ import { NODE_CATEGORIES } from '../constants'
  * owning React Flow's local state. Null when no editable canvas is mounted.
  */
 export interface CanvasApi {
-  addNode: (spec: { nodeType: string; label?: string }) => string
+  addNode: (spec: { nodeType: string; label?: string; position?: { x: number; y: number } }) => string
   connectNodes: (sourceId: string, targetId: string) => boolean
   listNodes: () => { id: string; label: string; nodeType: string }[]
 }
@@ -30,6 +30,7 @@ interface FlowStore {
   edges: Edge[]
   setNodes: (nodes: Node<FlowNodeData>[]) => void
   setEdges: (edges: Edge[]) => void
+  replaceCanvas: (nodes: Node<FlowNodeData>[], edges: Edge[]) => void
 
   // ── Nó selecionado ─────────────────────────────────────────────
   selectedNodeId:   string | null
@@ -67,8 +68,27 @@ export const useFlowStore = create<FlowStore>((set, get) => ({
   selectedNodeData: null,
 
   // ── Nós e arestas ──────────────────────────────────────────────
-  setNodes: (nodes) => set({ nodes }),
+  setNodes: (nodes) => set((state) => {
+    const merged = nodes.map((node) => {
+      const existing = state.nodes.find((current) => current.id === node.id)
+      return existing ? { ...node, data: existing.data } : node
+    })
+    const selected = state.selectedNodeId
+      ? merged.find((node) => node.id === state.selectedNodeId)
+      : null
+    return {
+      nodes: merged,
+      selectedNodeData: selected ? selected.data : state.selectedNodeData,
+    }
+  }),
   setEdges: (edges) => set({ edges }),
+  replaceCanvas: (nodes, edges) =>
+    set({
+      nodes,
+      edges,
+      selectedNodeId: null,
+      selectedNodeData: null,
+    }),
 
   canvasApi:    null,
   setCanvasApi: (api) => set({ canvasApi: api }),
@@ -177,36 +197,3 @@ export const useFlowStore = create<FlowStore>((set, get) => ({
   },
 }))
 
-// ── Hook para simular execução (dev/demo) ────────────────────────
-// Em produção: chamar startExecution(), ouvir SSE do backend,
-// chamar updateNodeStatus() por evento, chamar finishExecution() no fim.
-export function simulateExecution(
-  nodeIds: string[],
-  store: FlowStore
-) {
-  const execId = `exec-${Date.now()}`
-  store.startExecution(execId)
-
-  nodeIds.forEach((id, i) => {
-    const delay = i * 1200
-
-    setTimeout(() => {
-      store.updateNodeStatus(id, {
-        status:    'running',
-        startedAt: Date.now(),
-      })
-    }, delay)
-
-    setTimeout(() => {
-      store.updateNodeStatus(id, {
-        status:     'success',
-        startedAt:  Date.now() - 1000,
-        durationMs: 800 + Math.random() * 400,
-      })
-    }, delay + 1000)
-  })
-
-  setTimeout(() => {
-    store.finishExecution()
-  }, nodeIds.length * 1200 + 500)
-}

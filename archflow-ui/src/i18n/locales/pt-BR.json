@@ -64,7 +64,17 @@
         "voice": "Voz",
         "toggleSidebar": "Alternar menu lateral",
         "expandSidebar": "Expandir menu lateral",
-        "collapseSidebar": "Recolher menu lateral"
+        "collapseSidebar": "Recolher menu lateral",
+        "admin": "Administração",
+        "searchTooltip": "Buscar em tudo",
+        "searchPlaceholder": "Buscar páginas e workflows...",
+        "searchNothing": "Nada encontrado",
+        "groups": {
+            "build": "Construir",
+            "run": "Executar",
+            "extend": "Estender",
+            "labs": "Laboratório"
+        }
     },
     "dynamicWorkflow": {
         "title": "Workflow Dinâmico",
@@ -96,6 +106,16 @@
         "subtitle": "Projete e gerencie seus fluxos de IA",
         "newWorkflow": "Novo Fluxo",
         "createWorkflow": "Criar Fluxo",
+        "browseTemplates": "Ver templates",
+        "createModal": {
+            "title": "Criar workflow",
+            "blank": "Começar do zero",
+            "blankHint": "Abra um canvas em branco e monte nó a nó",
+            "ai": "Gerar com IA",
+            "aiHint": "Descreva o objetivo e o copilot monta um rascunho do fluxo",
+            "template": "Usar um template",
+            "templateHint": "Comece de um fluxo pronto e adapte"
+        },
         "untitledName": "Fluxo sem título",
         "search": "Buscar fluxos…",
         "empty": "Nenhum fluxo ainda",
@@ -140,6 +160,7 @@
         "canvas": "Canvas",
         "code": "Código",
         "run": "Executar",
+        "stop": "Parar",
         "back": "Voltar à lista",
         "saved": "Salvo",
         "savedAt": "Salvo às {{time}}",
@@ -158,13 +179,53 @@
             "saveError": "Erro",
             "saveErrorMsg": "Falha ao salvar o fluxo",
             "execStarted": "Execução iniciada",
-            "execStartedMsg": "ID da execução: {{id}}"
+            "execStartedMsg": "ID da execução: {{id}}",
+            "execFinished": "Execução concluída",
+            "execFinishedMsg": "O workflow terminou com sucesso",
+            "execFailed": "Execução falhou",
+            "execFailedMsg": "O workflow terminou com erro",
+            "execStopped": "Execução interrompida",
+            "execStoppedMsg": "A execução foi cancelada",
+            "execStartError": "Não foi possível iniciar a execução"
         },
         "unsavedChanges": "Alterações não salvas",
         "palette": {
             "title": "Componentes",
             "search": "Buscar componentes...",
             "empty": "Nenhum componente encontrado."
+        },
+        "canvasActions": {
+            "undo": "Desfazer (⌘Z)",
+            "redo": "Refazer (⇧⌘Z)",
+            "tidy": "Organizar layout",
+            "addNode": "Adicionar nó"
+        },
+        "publish": {
+            "button": "Publicar",
+            "title": "Publicar este workflow",
+            "subtitle": "Chame este workflow do seu produto: REST fire-and-track, streaming ao vivo via AG-UI, ou incorpore o canvas.",
+            "tabs": {
+                "rest": "API REST",
+                "stream": "Streaming",
+                "embed": "Incorporar",
+                "mcp": "MCP"
+            },
+            "restHint": "Inicia uma execução e retorna o executionId. Consulte GET /api/executions/{id} para status e resultados por passo.",
+            "streamHint": "Executa o workflow e transmite eventos AG-UI (RUN_STARTED, STEP_STARTED/FINISHED, mensagens) via SSE em uma única requisição.",
+            "embedHint": "Incorpora o canvas do workflow em qualquer página via o web component <archflow-designer> (servido pelo build deste app).",
+            "mcpHint": "Conecte qualquer cliente MCP (Claude, IDEs, agentes) a este servidor — o workflow aparece como a tool \"{{tool}}\".",
+            "apiKeyHint": "Autentique com uma API key com escopo —",
+            "apiKeyLink": "gerenciar API keys"
+        },
+        "ai": {
+            "button": "Gerar com IA",
+            "title": "Gerar workflow com IA",
+            "goalLabel": "O que este workflow deve fazer?",
+            "goalPlaceholder": "ex.: responder tickets de suporte: classificar a intenção, buscar na base de conhecimento e redigir a resposta — escalar para humano em caso de dúvida",
+            "generate": "Gerar",
+            "started": "O copilot está montando seu fluxo",
+            "startedMsg": "Os nós vão aparecendo no canvas conforme o copilot trabalha. Abra a barra do copilot para acompanhar.",
+            "promptTemplate": "Monte um workflow no canvas do editor para o objetivo a seguir. Use as ferramentas addNode e connectNodes com os tipos de nó disponíveis, conecte os nós em ordem lógica e dê a cada nó um rótulo curto e descritivo. Objetivo: {{goal}}"
         },
         "properties": {
             "title": "Propriedades",
@@ -385,6 +446,7 @@
         "allWorkflows": "Todos os fluxos",
         "empty": "Nenhuma execução ainda",
         "emptyHint": "Execute um fluxo para ver resultados aqui",
+        "emptyCta": "Ir para os workflows",
         "cols": {
             "id": "ID da execução",
             "workflow": "Fluxo",
@@ -454,7 +516,15 @@
             "usageBilling": "Uso e cobrança",
             "overview": "Visão geral",
             "users": "Usuários",
-            "apiKeys": "Chaves de API"
+            "apiKeys": "Chaves de API",
+            "scopedKeys": "Chaves de API com escopo",
+            "integrations": "Integrações",
+            "skills": "Skills",
+            "mcp": "Servidores MCP",
+            "triggers": "Agendamentos",
+            "linktorInbox": "Inbox Linktor",
+            "linktorConfig": "Configuração Linktor",
+            "brainsentry": "BrainSentry"
         },
         "impersonation": {
             "viewingAs": "Vendo como admin de <b>{{name}}</b>. Todas as ações são registradas no log de auditoria.",
@@ -1025,7 +1095,31 @@
         "title": "Execução {{id}}",
         "viewTrace": "Ver trace",
         "back": "Voltar",
-        "dynamicTree": "Árvore dinâmica"
+        "dynamicTree": "Árvore dinâmica",
+        "steps": "Passos",
+        "noSteps": "Nenhum dado de passo registrado para esta execução.",
+        "summary": {
+            "workflow": "Workflow",
+            "started": "Início",
+            "completed": "Término",
+            "duration": "Duração"
+        },
+        "step": {
+            "running": "Executando",
+            "completed": "Concluído",
+            "failed": "Falhou",
+            "skipped": "Pulado",
+            "errorLabel": "Erro",
+            "startedAt": "Iniciado em",
+            "finishedAt": "Terminado em",
+            "toggle": "Alternar detalhes do passo"
+        },
+        "rerun": "Executar novamente",
+        "rerunStarted": "Nova execução iniciada",
+        "rerunFailed": "Não foi possível iniciar uma nova execução",
+        "rawJson": "JSON bruto",
+        "showRaw": "Mostrar JSON bruto",
+        "hideRaw": "Ocultar JSON bruto"
     },
     "marketplace": {
         "title": "Marketplace",
@@ -1034,12 +1128,15 @@
         "searchBtn": "Buscar",
         "allTab": "Todas ({{count}})",
         "empty": "Nenhuma extensão corresponde ao filtro atual.",
+        "clearSearch": "Limpar busca",
         "loadFailed": "Falha ao carregar extensões",
         "installed": "instalada",
         "uninstall": "Desinstalar",
         "uninstallHint": "Remover esta extensão do registro",
         "notInstalled": "Não instalada",
         "notInstalledHint": "Extensão já foi obtida; instale pelo modal",
+        "install": "Instalar",
+        "installHint": "Abre o diálogo de instalação com o caminho do manifest desta extensão preenchido",
         "installTitle": "Instalar extensão",
         "manifestPath": "Caminho do manifest",
         "manifestHint": "Caminho para manifest.json dentro do diretório de extensões configurado",
@@ -1057,6 +1154,18 @@
         "uninstallFailed": "Falha ao desinstalar",
         "back": "Voltar"
     },
+    "copilot": {
+        "title": "Copilot (AG-UI)",
+        "subtitle": "O copilot é a barra lateral disponível em todas as páginas (canto inferior direito). Ele é conectado ao agente archflow via AG-UI, conhece a tela atual e consegue operar o app.",
+        "tryTitle": "Experimente pedir ao copilot:",
+        "examples": {
+            "context": "\"Quais workflows eu tenho?\" — ele lê a tela (useAgentContext).",
+            "navigate": "\"Abra as execuções\" / \"Vá para o marketplace\" — ele navega (navigateTo).",
+            "run": "\"Rode o workflow wf-demo-001\" — ele executa e abre Execuções (runWorkflow).",
+            "status": "\"Mostre um status dizendo: tudo certo\" — ele exibe uma notificação (showStatus)."
+        },
+        "hint": "Conexão AG-UI direta (sem runtime Node): o backend Java é a fronteira de segurança."
+    },
     "templates": {
         "title": "Modelos",
         "subtitle": "Comece com um fluxo pronto e adapte ao seu caso. Clique em um card para visualizar o canvas e depois clone para seu workspace.",
@@ -1068,6 +1177,7 @@
         "complexityAdvanced": "Avançado",
         "all": "Todos",
         "noMatches": "Nenhum modelo corresponde à busca.",
+        "clearFilters": "Limpar filtros",
         "stepsShort": "{{count}} passos",
         "detail": {
             "back": "Voltar aos modelos",

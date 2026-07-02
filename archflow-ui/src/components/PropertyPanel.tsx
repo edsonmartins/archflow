@@ -5,7 +5,8 @@ import {
 } from '@mantine/core'
 import { useFlowStore }     from './FlowCanvas/store/useFlowStore'
 import type { FlowNodeData } from './FlowCanvas/types'
-import { NODE_CATEGORIES }  from './FlowCanvas/constants'
+import { NODE_CATEGORIES, NODE_TYPE_TO_CATEGORY } from './FlowCanvas/constants'
+import { NodeIcon } from './FlowCanvas/nodeIcons'
 import { FIELD_STYLES, MONO_INPUT } from './PropertyPanel/fieldStyles'
 import { useWorkflowConfig } from './PropertyPanel/useWorkflowConfig'
 import { FlowDefaultsPanel } from './PropertyPanel/FlowDefaultsPanel'
@@ -104,17 +105,17 @@ export function PropertyPanel({ nodeId, nodeData }: PropertyPanelProps) {
 // ── Node Header ─────────────────────────────────────────────────
 function NodeHeader({ nodeData }: { nodeData: FlowNodeData }) {
   const { t } = useTranslation()
-  const catKey = nodeData.nodeType as keyof typeof NODE_CATEGORIES
-  const cat = NODE_CATEGORIES[catKey] ?? NODE_CATEGORIES.io
+  const catKey = NODE_TYPE_TO_CATEGORY[nodeData.nodeType] ?? 'io'
+  const cat = NODE_CATEGORIES[catKey]
   const catLabel = t(`categories.${catKey}`, { defaultValue: cat.label })
 
   return (
     <div style={{ padding: '12px 16px', borderBottom: '0.5px solid var(--color-border-tertiary)', display: 'flex', alignItems: 'center', gap: 10 }}>
-      <div style={{ width: 32, height: 32, borderRadius: 8, background: cat.colorLight, border: `1px solid ${cat.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, flexShrink: 0 }}>
-        {(nodeData.config?.icon as string) ?? '●'}
+      <div style={{ width: 32, height: 32, borderRadius: 8, background: cat.colorLight, border: `1px solid ${cat.border}`, color: cat.colorDark, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+        <NodeIcon componentId={nodeData.nodeType} size={16} />
       </div>
       <div>
-        <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--color-text-primary)' }}>{nodeData.label}</div>
+        <div data-testid="property-panel-node-title" style={{ fontSize: 13, fontWeight: 500, color: 'var(--color-text-primary)' }}>{nodeData.label}</div>
         <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-mono)' }}>
           {nodeData.nodeType} · {catLabel}
         </div>

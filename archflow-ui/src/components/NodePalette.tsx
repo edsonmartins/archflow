@@ -4,6 +4,7 @@ import { IconSearch }          from '@tabler/icons-react'
 import { useTranslation }      from 'react-i18next'
 import { PALETTE_NODES, NODE_CATEGORIES } from './FlowCanvas/constants'
 import { NodeIcon }            from './FlowCanvas/nodeIcons'
+import { useFlowStore }        from './FlowCanvas/store/useFlowStore'
 import type { PaletteNode }    from './FlowCanvas/types'
 
 type CategoryKey = keyof typeof NODE_CATEGORIES
@@ -164,7 +165,7 @@ export function NodePalette() {
   )
 }
 
-// ── Item arrastável da palette ───────────────────────────────────
+// ── Item arrastável (e clicável) da palette ──────────────────────
 function DraggableNode({ node, label, description }: {
   node: PaletteNode; label: string; description: string
 }) {
@@ -183,10 +184,27 @@ function DraggableNode({ node, label, description }: {
     event.dataTransfer.effectAllowed = 'move'
   }
 
+  // Click-to-add: drops the node at the current viewport centre via
+  // the canvas' imperative API — the keyboard/trackpad complement to
+  // drag-and-drop (Enter/Space work too).
+  const addToCanvas = () => {
+    useFlowStore.getState().canvasApi?.addNode({ nodeType: node.componentId, label })
+  }
+
   return (
     <div
       draggable
+      role="button"
+      tabIndex={0}
+      aria-label={label}
       onDragStart={onDragStart}
+      onClick={addToCanvas}
+      onKeyDown={e => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          addToCanvas()
+        }
+      }}
       style={{
         display:     'flex',
         alignItems:  'center',

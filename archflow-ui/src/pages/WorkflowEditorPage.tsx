@@ -1,13 +1,19 @@
-import { useEffect, useCallback, useMemo, useState } from 'react'
-import { useParams }         from 'react-router-dom'
+import { useEffect, useCallback, useMemo, useRef, useState } from 'react'
+import { useParams, useSearchParams } from 'react-router-dom'
 import { useTranslation }    from 'react-i18next'
 import { notifications }     from '@mantine/notifications'
-import { Button }            from '@mantine/core'
+import { Button, Modal, Stack, Textarea } from '@mantine/core'
 import {
     IconChevronLeft,
     IconChevronRight,
     IconPlayerPlay,
+    IconPlayerStop,
+    IconSparkles,
+    IconWorldUpload,
 } from '@tabler/icons-react'
+import { runAgUiWorkflow, type AgUiEvent } from '../services/agui-client'
+import { requestCopilotGeneration } from '../components/copilot/CopilotGenerateBridge'
+import { PublishModal } from '../components/PublishModal'
 import { FlowCanvas }        from '../components/FlowCanvas/FlowCanvas'
 import { NodePalette }       from '../components/NodePalette'
 import { PropertyPanel }     from '../components/PropertyPanel'
@@ -108,7 +114,6 @@ export function WorkflowEditor() {
   const { t, i18n } = useTranslation()
 
   const { currentWorkflow: current, fetchWorkflow: loadWorkflow, updateWorkflow, loading: isSaving } = useWorkflowStore()
-  const { getCanvasSnapshot } = useFlowStore()
   // Timestamp (epoch millis) of the most recent successful save. Used
   // by the "saved N seconds ago" indicator in the toolbar.
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(null)
@@ -141,7 +146,7 @@ export function WorkflowEditor() {
 
   const saveWorkflow = async () => {
     if (!current) return
-    const snapshot = getCanvasSnapshot()
+    const snapshot = useFlowStore.getState().getCanvasSnapshot()
     const merged = {
       ...current,
       steps: snapshot.steps.map(s => ({
@@ -164,7 +169,10 @@ export function WorkflowEditor() {
     setLastSavedAt(Date.now())
   }
   const workflowData = useMemo(() => current ? toWorkflowData(current) : null, [current])
-  const { selectedNodeId, selectedNodeData, selectNode, startExecution, isExecuting } = useFlowStore()
+  const {
+    selectedNodeId, selectedNodeData, selectNode,
+    startExecution, updateNodeStatus, finishExecution, abortExecution, isExecuting,
+  } = useFlowStore()
 
   // ── YAML view state ───────────────────────────────────────────
   const [view, setView] = useState<EditorView>('canvas')
@@ -256,16 +264,128 @@ export function WorkflowEditor() {
     }
   }, [current, saveWorkflow, t])
 
-  const handleExecute = useCallback(() => {
-    // Em produção: chamar API, receber executionId, ouvir SSE
-    const execId = `exec-${Date.now()}`
-    startExecution(execId)
+  // Live run over AG-UI SSE: STEP_* events drive the per-node status
+  // pills / animated edges via useFlowStore.executionState (keyed by
+  // step id, which equals the canvas node id — getCanvasSnapshot
+  // persists steps with the node's id).
+  const abortRunRef = useRef<(() => void) | null>(null)
+  useEffect(() => () => { abortRunRef.current?.() }, [])
+
+  const handleRunEvent = useCallback((ev: AgUiEvent) => {
+    const stepId = typeof ev.stepId === 'string' ? ev.stepId
+      : typeof ev.stepName === 'string' ? ev.stepName : null
+    switch (ev.type) {
+      case 'RUN_STARTED':
+        // Adopt the real execution id minted by the backend (exec-…),
+        // replacing the provisional workflow id set on click.
+        if (typeof ev.runId === 'string') startExecution(ev.runId)
+        break
+      case 'STEP_STARTED':
+        if (stepId) updateNodeStatus(stepId, { status: 'running', startedAt: Date.now() })
+        break
+      case 'STEP_FINISHED': {
+        if (!stepId) break
+        const status = ev.status === 'STEP_FAILED' ? 'error'
+          : ev.status === 'STEP_SKIPPED' ? 'idle'
+          : 'success'
+        updateNodeStatus(stepId, {
+          status,
+          durationMs: typeof ev.durationMs === 'number' ? ev.durationMs : undefined,
+          error: typeof ev.error === 'string' ? ev.error : undefined,
+        })
+        break
+      }
+      case 'RUN_FINISHED':
+        finishExecution()
+        abortRunRef.current = null
+        notifications.show({
+          title:   t('editor.notif.execFinished'),
+          message: t('editor.notif.execFinishedMsg'),
+          color:   'teal',
+        })
+        break
+      case 'RUN_ERROR':
+        abortExecution()
+        abortRunRef.current = null
+        notifications.show({
+          title:   t('editor.notif.execFailed'),
+          message: typeof ev.message === 'string' && ev.message
+            ? ev.message
+            : t('editor.notif.execFailedMsg'),
+          color:   'red',
+        })
+        break
+      default:
+        break
+    }
+  }, [startExecution, updateNodeStatus, finishExecution, abortExecution, t])
+
+  const handleExecute = useCallback(async () => {
+    if (!current) return
+    if (isExecuting) {
+      // Second click while running = stop: abort the SSE stream (the
+      // backend cancels the run on disconnect) and mark running nodes.
+      abortRunRef.current?.()
+      abortRunRef.current = null
+      abortExecution()
+      notifications.show({
+        title:   t('editor.notif.execStopped'),
+        message: t('editor.notif.execStoppedMsg'),
+        color:   'yellow',
+      })
+      return
+    }
+    try {
+      // The backend executes the persisted workflow, so unsaved canvas
+      // edits must land first.
+      await saveWorkflow()
+    } catch {
+      notifications.show({
+        title:   t('editor.notif.execStartError'),
+        message: t('editor.notif.saveErrorMsg'),
+        color:   'red',
+      })
+      return
+    }
+    startExecution(current.id)
+    abortRunRef.current = runAgUiWorkflow(current.id, {}, handleRunEvent)
     notifications.show({
       title:   t('editor.notif.execStarted'),
-      message: t('editor.notif.execStartedMsg', { id: execId }),
+      message: t('editor.notif.execStartedMsg', { id: current.id }),
       color:   'blue',
     })
-  }, [startExecution, t])
+  }, [current, isExecuting, startExecution, abortExecution, handleRunEvent, saveWorkflow, t])
+
+  // ── "Gerar com IA" — hands the goal to the app-wide copilot, whose
+  // frontend tools (addNode/connectNodes) assemble the flow on this canvas.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [aiOpen, setAiOpen] = useState(false)
+  const [aiGoal, setAiGoal] = useState('')
+  const [publishOpen, setPublishOpen] = useState(false)
+
+  useEffect(() => {
+    // /editor/:id?ai=1 (from the create-workflow modal) opens the AI
+    // prompt straight away; strip the flag so refreshes don't re-open it.
+    if (searchParams.get('ai') === '1') {
+      setAiOpen(true)
+      const next = new URLSearchParams(searchParams)
+      next.delete('ai')
+      setSearchParams(next, { replace: true })
+    }
+  }, [searchParams, setSearchParams])
+
+  const handleGenerate = useCallback(() => {
+    const goal = aiGoal.trim()
+    if (!goal) return
+    requestCopilotGeneration(t('editor.ai.promptTemplate', { goal }))
+    setAiOpen(false)
+    setAiGoal('')
+    notifications.show({
+      title:   t('editor.ai.started'),
+      message: t('editor.ai.startedMsg'),
+      color:   'grape',
+    })
+  }, [aiGoal, t])
 
   // ── Auto-save (debounced 3s) ───────────────────────────────────
   // useEffect(() => {
@@ -379,16 +499,81 @@ export function WorkflowEditor() {
           </button>
 
           <Button
-            onClick={handleExecute}
-            loading={isExecuting}
-            leftSection={<IconPlayerPlay size={14} />}
+            onClick={() => setPublishOpen(true)}
+            variant="default"
+            leftSection={<IconWorldUpload size={14} />}
             size="xs"
+            disabled={!current}
+            data-testid="editor-publish"
+          >
+            {t('editor.publish.button')}
+          </Button>
+
+          <Button
+            onClick={() => setAiOpen(true)}
+            variant="light"
+            color="grape"
+            leftSection={<IconSparkles size={14} />}
+            size="xs"
+            disabled={!current}
+            data-testid="editor-ai"
+          >
+            {t('editor.ai.button')}
+          </Button>
+
+          <Button
+            onClick={handleExecute}
+            color={isExecuting ? 'red' : undefined}
+            variant={isExecuting ? 'light' : 'filled'}
+            leftSection={isExecuting ? <IconPlayerStop size={14} /> : <IconPlayerPlay size={14} />}
+            size="xs"
+            disabled={!current}
             data-testid="editor-run"
           >
-            {t('editor.run')}
+            {isExecuting ? t('editor.stop') : t('editor.run')}
           </Button>
         </div>
       </div>
+
+      <Modal
+        opened={aiOpen}
+        onClose={() => setAiOpen(false)}
+        title={t('editor.ai.title')}
+        centered
+      >
+        <Stack gap="sm">
+          <Textarea
+            label={t('editor.ai.goalLabel')}
+            placeholder={t('editor.ai.goalPlaceholder')}
+            minRows={3}
+            autosize
+            autoFocus
+            value={aiGoal}
+            onChange={(e) => setAiGoal(e.currentTarget.value)}
+            data-testid="editor-ai-goal"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleGenerate()
+            }}
+          />
+          <Button
+            leftSection={<IconSparkles size={14} />}
+            color="grape"
+            disabled={!aiGoal.trim()}
+            onClick={handleGenerate}
+            data-testid="editor-ai-generate"
+          >
+            {t('editor.ai.generate')}
+          </Button>
+        </Stack>
+      </Modal>
+
+      {current && (
+        <PublishModal
+          workflowId={current.id}
+          opened={publishOpen}
+          onClose={() => setPublishOpen(false)}
+        />
+      )}
 
       {/* ── Editor body ──────────────────────────────────────── */}
       {view === 'canvas' ? (
