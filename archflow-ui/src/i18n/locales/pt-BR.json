@@ -66,6 +66,7 @@
         "expandSidebar": "Expandir menu lateral",
         "collapseSidebar": "Recolher menu lateral",
         "admin": "Administração",
+        "dashboard": "Início",
         "searchTooltip": "Buscar em tudo",
         "searchPlaceholder": "Buscar páginas e workflows...",
         "searchNothing": "Nada encontrado",
@@ -1153,6 +1154,23 @@
         "installFailed": "Falha ao instalar",
         "uninstallFailed": "Falha ao desinstalar",
         "back": "Voltar"
+    },
+    "dashboard": {
+        "title": "Início",
+        "recentExecutions": "Execuções recentes",
+        "seeAll": "Ver todas",
+        "stats": {
+            "workflows": "Workflows",
+            "active": "Ativos",
+            "failedRuns": "Execuções com falha",
+            "pendingApprovals": "Aprovações pendentes"
+        },
+        "shortcuts": {
+            "workflows": "Gerenciar workflows",
+            "workflowsHint": "{{count}} workflows no seu workspace",
+            "approvals": "Fila de aprovações",
+            "approvalsHint": "{{count}} solicitações aguardando decisão"
+        }
     },
     "copilot": {
         "title": "Copilot (AG-UI)",

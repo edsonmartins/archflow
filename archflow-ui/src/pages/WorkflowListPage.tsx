@@ -8,7 +8,7 @@ import {
     IconAlertTriangle, IconTopologyRing, IconTemplate, IconSparkles,
 } from '@tabler/icons-react';
 import { useEffect, useState, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useWorkflowStore } from '../stores/workflow-store';
 import { clickableRow } from '../components/DataTable';
@@ -60,6 +60,21 @@ export default function WorkflowListPage() {
         } catch { /* surfaced via store error state */ }
     };
     const handleNew = () => setCreateOpen(true);
+
+    // /workflows?new=1 opens the create modal; ?new=ai goes straight to the
+    // AI path (both used by the dashboard's quick actions). Strip the param
+    // so refresh/back don't re-trigger.
+    const [searchParams, setSearchParams] = useSearchParams();
+    useEffect(() => {
+        const mode = searchParams.get('new');
+        if (!mode) return;
+        const next = new URLSearchParams(searchParams);
+        next.delete('new');
+        setSearchParams(next, { replace: true });
+        if (mode === 'ai') createBlank(true);
+        else setCreateOpen(true);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [searchParams]);
 
     return (
         <Stack gap="md" p="md" pos="relative">

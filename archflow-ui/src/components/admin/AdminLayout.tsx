@@ -115,7 +115,7 @@ export default function AdminLayout() {
             <NavLink
               label={t('admin.layout.workflows')}
               leftSection={<IconTopologyRing size={18} />}
-              onClick={() => navigate('/')}
+              onClick={() => navigate('/workflows')}
               variant="subtle"
               c="dimmed"
             />

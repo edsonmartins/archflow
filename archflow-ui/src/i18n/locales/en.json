@@ -66,6 +66,7 @@
         "expandSidebar": "Expand sidebar",
         "collapseSidebar": "Collapse sidebar",
         "admin": "Admin",
+        "dashboard": "Home",
         "searchTooltip": "Search everywhere",
         "searchPlaceholder": "Search pages and workflows...",
         "searchNothing": "Nothing found",
@@ -1153,6 +1154,23 @@
         "installFailed": "Install failed",
         "uninstallFailed": "Uninstall failed",
         "back": "Back"
+    },
+    "dashboard": {
+        "title": "Home",
+        "recentExecutions": "Recent executions",
+        "seeAll": "See all",
+        "stats": {
+            "workflows": "Workflows",
+            "active": "Active",
+            "failedRuns": "Failed runs",
+            "pendingApprovals": "Pending approvals"
+        },
+        "shortcuts": {
+            "workflows": "Manage workflows",
+            "workflowsHint": "{{count}} workflows in your workspace",
+            "approvals": "Approval queue",
+            "approvalsHint": "{{count}} requests waiting for a decision"
+        }
     },
     "copilot": {
         "title": "Copilot (AG-UI)",

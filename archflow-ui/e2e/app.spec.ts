@@ -81,10 +81,13 @@ test.describe('Archflow frontend smoke', () => {
 
     await expect(page).toHaveURL(/\/$/);
     await page.getByRole('button', { name: 'Toggle theme' }).click();
-    await page.getByText('Editor').click();
+    // Scope to the sidebar so the dashboard's own texts ("Recent
+    // executions" etc.) don't collide with the nav labels.
+    const sidebar = page.getByRole('navigation');
+    await sidebar.getByText('Editor', { exact: true }).click();
     await expect(page).toHaveURL(/\/editor$/);
 
-    await page.getByText('Executions').click();
+    await sidebar.getByText('Executions', { exact: true }).click();
     await expect(page).toHaveURL(/\/executions$/);
 
     await page.getByRole('button', { name: 'Logout' }).click();

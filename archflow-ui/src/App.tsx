@@ -14,6 +14,7 @@ import { theme } from './theme';
 import AppLayout from './components/layout/AppLayout';
 import ProtectedRoute from './components/ProtectedRoute';
 import LoginPage from './pages/LoginPage';
+import DashboardPage from './pages/DashboardPage';
 import WorkflowListPage from './pages/WorkflowListPage';
 import { WorkflowEditor as WorkflowEditorPage } from './pages/WorkflowEditorPage';
 import ExecutionHistoryPage from './pages/ExecutionHistoryPage';
@@ -85,7 +86,8 @@ function App() {
 
                         {/* Main app routes */}
                         <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
-                            <Route path="/" element={<WorkflowListPage />} />
+                            <Route path="/" element={<DashboardPage />} />
+                            <Route path="/workflows" element={<WorkflowListPage />} />
                             <Route path="/editor" element={<WorkflowEditorPage />} />
                             <Route path="/editor/:id" element={<WorkflowEditorPage />} />
                             <Route path="/executions" element={<ExecutionHistoryPage />} />

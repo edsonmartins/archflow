@@ -9,7 +9,8 @@ import { PALETTE_NODES } from '../FlowCanvas/constants'
 
 /** page key -> route. Exposed to the agent so it can navigate by name. */
 const ROUTES: Record<string, string> = {
-    workflows: '/',
+    dashboard: '/',
+    workflows: '/workflows',
     editor: '/editor',
     executions: '/executions',
     conversations: '/conversations',

@@ -255,7 +255,7 @@ test.describe('Workflow editor — full user journey', () => {
     // ════════════════════════════════════════════════════════════════
     //  STEP 6 — Navigate away and come back: fields must persist
     // ════════════════════════════════════════════════════════════════
-    await page.goto('/');
+    await page.goto('/workflows');
     await expect(page.getByText('Support Triage').first()).toBeVisible();
 
     await page.goto('/editor/wf-journey');

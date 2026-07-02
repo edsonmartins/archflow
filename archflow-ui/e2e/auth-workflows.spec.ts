@@ -238,7 +238,7 @@ test.describe('Auth and workflows', () => {
         await mockApi(page);
         await authenticate(page);
 
-        await page.goto('/');
+        await page.goto('/workflows');
 
         await expect(page.getByText('Customer Support Flow')).toBeVisible();
         await expect(page.getByText('Invoice Approval')).toBeVisible();
@@ -252,14 +252,14 @@ test.describe('Auth and workflows', () => {
         await page.getByRole('button', { name: 'Execute' }).first().click();
         await expect(page).toHaveURL(/\/executions\?id=exec-wf-customer$/);
 
-        await page.goto('/');
+        await page.goto('/workflows');
         await page.getByRole('button', { name: 'New Workflow' }).click();
         // The create modal offers scratch / AI / template — take scratch.
         await page.getByTestId('create-blank').click();
         await expect(page).toHaveURL(/\/editor\/wf-created$/);
         await expect(page.getByText('Untitled Workflow')).toBeVisible();
 
-        await page.goto('/');
+        await page.goto('/workflows');
         await page.getByRole('button', { name: 'Delete' }).nth(1).click();
         await page.getByRole('dialog', { name: 'Delete Workflow' }).getByRole('button', { name: 'Delete' }).dispatchEvent('click');
         await expect(page.getByText('Invoice Approval')).toBeHidden();

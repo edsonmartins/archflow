@@ -26,6 +26,7 @@ import {
     IconSchema,
     IconSettings,
     IconSearch,
+    IconLayoutDashboard,
 } from '@tabler/icons-react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -45,7 +46,8 @@ const NAV_GROUPS = [
     {
         key: 'nav.groups.build',
         items: [
-            { key: 'nav.workflows',     icon: IconTopologyRing,     path: '/' },
+            { key: 'nav.dashboard',     icon: IconLayoutDashboard,  path: '/' },
+            { key: 'nav.workflows',     icon: IconTopologyRing,     path: '/workflows' },
             { key: 'nav.editor',        icon: IconSchema,           path: '/editor' },
             { key: 'nav.templates',     icon: IconTemplate,         path: '/templates' },
         ],

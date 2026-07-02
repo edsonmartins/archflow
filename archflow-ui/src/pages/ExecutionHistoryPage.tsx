@@ -64,7 +64,7 @@ export default function ExecutionHistoryPage() {
                 isEmpty={executions.length === 0}
                 emptyMessage={t('executions.empty')}
                 emptyAction={
-                    <Button variant="light" size="xs" onClick={() => navigate('/')}>
+                    <Button variant="light" size="xs" onClick={() => navigate('/workflows')}>
                         {t('executions.emptyCta')}
                     </Button>
                 }
