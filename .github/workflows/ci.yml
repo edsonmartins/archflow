@@ -70,27 +70,32 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
       - name: Set up Node.js 18
         uses: actions/setup-node@v4
         with:
           node-version: '18'
-          cache: 'npm'
-          cache-dependency-path: archflow-ui/package-lock.json
+          cache: 'pnpm'
+          cache-dependency-path: archflow-ui/pnpm-lock.yaml
 
       - name: Install dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Lint
-        run: npm run lint
+        run: pnpm run lint
 
       - name: Test
-        run: npm run test:run
+        run: pnpm run test:run
 
       - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium
+        run: pnpm exec playwright install --with-deps chromium
 
       - name: E2E
-        run: npm run test:e2e
+        run: pnpm run test:e2e
 
       - name: Build
-        run: npm run build
+        run: pnpm run build
