@@ -3,13 +3,22 @@ package br.com.archflow.api.config;
 import br.com.archflow.engine.core.StateManager;
 import br.com.archflow.engine.persistence.RepositoryStateManager;
 import br.com.archflow.engine.persistence.jdbc.JdbcStateRepository;
+import br.com.archflow.model.security.Role;
+import br.com.archflow.model.security.User;
 import br.com.archflow.observability.audit.AuditRepository;
 import br.com.archflow.observability.audit.JdbcAuditRepository;
+import br.com.archflow.security.apikey.ApiKeyService;
+import br.com.archflow.security.apikey.JdbcApiKeyRepository;
+import br.com.archflow.security.auth.JdbcUserRepository;
+import br.com.archflow.security.auth.UserRepository;
+import br.com.archflow.security.password.PasswordService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.env.Environment;
 
 import javax.sql.DataSource;
 
@@ -55,5 +64,68 @@ public class JdbcPersistenceConfiguration {
     public AuditRepository auditRepository(DataSource dataSource) {
         log.info("JDBC persistence ativo: AuditRepository durável (JdbcAuditRepository)");
         return new JdbcAuditRepository(dataSource);
+    }
+
+    @Bean
+    public UserRepository userRepository(DataSource dataSource) {
+        log.info("JDBC persistence ativo: UserRepository durável (JdbcUserRepository)");
+        return new JdbcUserRepository(dataSource);
+    }
+
+    @Bean
+    public ApiKeyService.ApiKeyRepository apiKeyRepository(DataSource dataSource) {
+        log.info("JDBC persistence ativo: ApiKeyRepository durável (JdbcApiKeyRepository)");
+        return new JdbcApiKeyRepository(dataSource);
+    }
+
+    /**
+     * Semeia o admin de bootstrap depois que o contexto sobe — como
+     * {@link org.springframework.boot.ApplicationRunner}, roda após eventuais
+     * migrations (Flyway) e o schema já existir, ao contrário de fazer I/O
+     * dentro do método de bean.
+     */
+    @Bean
+    public org.springframework.boot.ApplicationRunner adminUserSeeder(
+            UserRepository userRepository,
+            PasswordService passwordService,
+            Environment environment,
+            @Value("${archflow.security.admin-password:${ARCHFLOW_ADMIN_PASSWORD:}}") String adminPassword) {
+        return args -> seedAdminIfAbsent(userRepository, passwordService, environment, adminPassword);
+    }
+
+    /**
+     * Semeia o usuário administrador de bootstrap de forma idempotente — só cria
+     * quando ausente, para não sobrescrever uma senha já rotacionada em restarts.
+     * A resolução da senha replica {@code ArchflowBeanConfiguration.userRepository}:
+     * fixa em dev/test; aleatória (logada uma vez) caso contrário.
+     */
+    private void seedAdminIfAbsent(UserRepository repository, PasswordService passwordService,
+            Environment environment, String adminPassword) {
+        if (repository.findByUsername("admin").isPresent()) {
+            return;
+        }
+        String resolved = adminPassword;
+        if (resolved == null || resolved.isBlank()) {
+            if (Profiles.isDevLike(environment)) {
+                resolved = "admin123";
+                log.warn("Using fixed development admin password (dev/test profile). "
+                        + "Set archflow.security.admin-password for real deployments.");
+            } else {
+                resolved = PasswordService.generateRandomPassword(24);
+                log.warn("No admin password configured — generated a random one for user 'admin': {} "
+                        + "(set archflow.security.admin-password or ARCHFLOW_ADMIN_PASSWORD to control it)",
+                        resolved);
+            }
+        }
+        User admin = new User();
+        admin.setUsername("admin");
+        admin.setEmail("admin@archflow.local");
+        admin.setPasswordHash(passwordService.hash(resolved));
+        admin.setFirstName("System");
+        admin.setLastName("Administrator");
+        admin.setEnabled(true);
+        admin.addRole(Role.createAdminRole());
+        repository.save(admin);
+        log.info("Default admin user created in durable store (username: admin)");
     }
 }
