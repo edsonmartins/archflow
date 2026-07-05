@@ -6,9 +6,9 @@ import br.com.archflow.model.flow.FlowStep;
 import br.com.archflow.model.flow.StepConnection;
 import br.com.archflow.model.flow.StepResult;
 import br.com.archflow.model.flow.StepType;
+import com.fasterxml.jackson.annotation.JsonAlias;
 import com.fasterxml.jackson.annotation.JsonInclude;
 
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -20,10 +20,11 @@ import java.util.concurrent.CompletableFuture;
  * {@code WorkflowYamlBridge}), so it must carry every field the visual
  * designer persists — otherwise editing a flow through the Code/YAML tab
  * silently strips them. The designer's schema is
- * {@code id/type/componentId/label/operation/position/configuration/connections};
- * {@code config} is kept as a legacy alias consumed by the standalone runner.
- * Null fields are omitted so designer-authored flows don't accumulate
- * {@code operation: null} noise in the YAML.</p>
+ * {@code id/type/componentId/label/operation/position/configuration/connections}.
+ * Legacy/standalone flows used the {@code config} key; {@link JsonAlias}
+ * normalizes it onto the single {@code configuration} field so there are never
+ * two config maps that can disagree. Null fields are omitted so
+ * designer-authored flows don't accumulate {@code operation: null} noise.</p>
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class SerializableStep implements FlowStep {
@@ -36,8 +37,8 @@ public class SerializableStep implements FlowStep {
     private String operation;
     /** Canvas coordinates ({x,y}); preserved so a YAML round-trip keeps the layout. */
     private Map<String, Object> position;
-    private Map<String, Object> config;
-    /** Designer node configuration (the UI writes {@code configuration}, not {@code config}). */
+    /** Node configuration. Accepts the legacy {@code config} key on input. */
+    @JsonAlias("config")
     private Map<String, Object> configuration;
     private List<SerializableConnection> connections;
 
@@ -49,7 +50,7 @@ public class SerializableStep implements FlowStep {
         this.type = type;
         this.componentId = componentId;
         this.operation = operation;
-        this.config = config != null ? Map.copyOf(config) : Map.of();
+        this.configuration = config != null ? Map.copyOf(config) : Map.of();
         this.connections = connections != null ? List.copyOf(connections) : List.of();
     }
 
@@ -80,34 +81,13 @@ public class SerializableStep implements FlowStep {
      */
     @Override
     public LLMConfigPatch getLLMPatch() {
-        // The designer stores node config under `configuration`; standalone/legacy
-        // flows use `config`. Genuinely MERGE the two (configuration overlaid on
-        // config) so designer edits win but override keys that only exist in the
-        // legacy `config` map are not dropped.
-        return LLMConfigPatch.fromMap(effectiveConfig());
-    }
-
-    /** config with configuration overlaid on top; never null. */
-    private Map<String, Object> effectiveConfig() {
-        if (config == null && configuration == null) {
-            return Map.of();
-        }
-        if (configuration == null) {
-            return config;
-        }
-        if (config == null) {
-            return configuration;
-        }
-        var merged = new LinkedHashMap<String, Object>(config);
-        merged.putAll(configuration);
-        return merged;
+        return LLMConfigPatch.fromMap(configuration != null ? configuration : Map.of());
     }
 
     public String getComponentId() { return componentId; }
     public String getLabel() { return label; }
     public String getOperation() { return operation; }
     public Map<String, Object> getPosition() { return position; }
-    public Map<String, Object> getConfig() { return config; }
     public Map<String, Object> getConfiguration() { return configuration; }
 
     public void setId(String id) { this.id = id; }
@@ -116,7 +96,6 @@ public class SerializableStep implements FlowStep {
     public void setLabel(String label) { this.label = label; }
     public void setOperation(String operation) { this.operation = operation; }
     public void setPosition(Map<String, Object> position) { this.position = position; }
-    public void setConfig(Map<String, Object> config) { this.config = config; }
     public void setConfiguration(Map<String, Object> configuration) { this.configuration = configuration; }
     public void setConnections(List<SerializableConnection> connections) { this.connections = connections; }
 }

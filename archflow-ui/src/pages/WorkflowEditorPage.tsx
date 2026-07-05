@@ -89,9 +89,11 @@ function toWorkflowData(detail: any): WorkflowData {
     // A YAML/API-authored execution operation lives at the node level; fold it
     // into `config.operation` so a plain canvas save round-trips it instead of
     // dropping it (the backend's DefaultFlowStepFactory reads config.operation
-    // first). `label` is the designer's display-name field, kept separate.
+    // first). Only do this when a distinct `label` is present: pre-schema saves
+    // stored the DISPLAY NAME in `operation`, so folding a label-less step's
+    // `operation` would make the factory run a bogus operation.
     const config = { ...(step.configuration ?? {}) }
-    if (step.operation && config.operation == null) config.operation = step.operation
+    if (step.operation && step.label && config.operation == null) config.operation = step.operation
     return {
       id:          step.id ?? `step-${i}`,
       type:        step.type?.toLowerCase() ?? 'custom',

@@ -84,7 +84,7 @@ class FlowSerializerTest {
         var step = (SerializableStep) flow.getSteps().get(0);
         assertThat(step.getComponentId()).isEqualTo("research-agent");
         assertThat(step.getOperation()).isEqualTo("execute");
-        assertThat(step.getConfig()).containsEntry("maxRetries", 3);
+        assertThat(step.getConfiguration()).containsEntry("maxRetries", 3);
     }
 
     @Test @DisplayName("should export and import from file")

@@ -13,7 +13,7 @@ class SerializableStepLLMPatchTest {
 
     private static SerializableStep stepWithConfig(Map<String, Object> config) {
         SerializableStep step = new SerializableStep();
-        step.setConfig(config);
+        step.setConfiguration(config);
         return step;
     }
 
@@ -67,19 +67,17 @@ class SerializableStepLLMPatchTest {
     }
 
     @Test
-    @DisplayName("configuration (designer) sobrepõe config sem descartar chaves só de config")
-    void mergesConfigAndConfiguration() {
-        SerializableStep step = new SerializableStep();
-        // Legacy config carries the LLM override; the designer save adds a
-        // `configuration` block that overrides only the model. The merge must keep
-        // the temperature from `config` and take the model from `configuration`.
-        step.setConfig(Map.of("model", "gpt-4", "temperature", 0.2));
-        step.setConfiguration(Map.of("model", "gpt-4o-mini"));
+    @DisplayName("o campo único configuration aceita a chave legada 'config' via @JsonAlias")
+    void configAliasDeserializesIntoConfiguration() throws Exception {
+        // A legacy document uses `config`; the single `configuration` field must
+        // absorb it so there are never two divergent config maps.
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        SerializableStep step = mapper.readValue(
+                "{\"id\":\"s1\",\"config\":{\"model\":\"gpt-4\",\"temperature\":0.2}}",
+                SerializableStep.class);
 
-        LLMConfigPatch patch = step.getLLMPatch();
-
-        assertThat(patch.model()).contains("gpt-4o-mini");
-        assertThat(patch.temperature().getAsDouble()).isEqualTo(0.2);
+        assertThat(step.getConfiguration()).containsEntry("model", "gpt-4");
+        assertThat(step.getLLMPatch().temperature().getAsDouble()).isEqualTo(0.2);
     }
 
     @Test
