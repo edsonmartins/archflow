@@ -48,11 +48,26 @@ public class InMemoryWorkflowRuntimeStore {
     }
 
     public List<Map<String, Object>> executions() {
-        return executions.values().stream()
-                .map(InMemoryWorkflowRuntimeStore::snapshot)
+        return executions(null, null);
+    }
+
+    /**
+     * Returns execution records (most-recent first), optionally filtered by
+     * {@code workflowId} and capped at {@code limit}. Filtering and limiting
+     * happen on the raw records; only the survivors are deep-copied via
+     * {@link #snapshot}, so a bounded poll never copies the whole history.
+     * {@code startedAt} is set once at creation and never mutated, so reading
+     * it here without the per-record lock is safe.
+     */
+    public List<Map<String, Object>> executions(String workflowId, Integer limit) {
+        var stream = executions.values().stream()
+                .filter(exec -> workflowId == null || workflowId.equals(exec.get("workflowId")))
                 .sorted(Comparator.comparing((Map<String, Object> exec) ->
-                        exec.getOrDefault("startedAt", "").toString()).reversed())
-                .toList();
+                        exec.getOrDefault("startedAt", "").toString()).reversed());
+        if (limit != null && limit > 0) {
+            stream = stream.limit(limit);
+        }
+        return stream.map(InMemoryWorkflowRuntimeStore::snapshot).toList();
     }
 
     public Map<String, Object> getExecution(String id) {
@@ -109,7 +124,19 @@ public class InMemoryWorkflowRuntimeStore {
             execution.put("completedAt", Instant.now().toString());
             execution.put("error", error);
         }
+        // The per-step index only accelerates lifecycle patches WHILE a run
+        // streams; a terminally-finished run receives no more recordStep calls,
+        // so drop it to bound memory (the steps themselves stay on the record).
+        // A PAUSED/AWAITING run may still be resumed and record more steps, so
+        // only evict on a genuinely terminal status — evicting early would make
+        // a post-resume recordStep re-create duplicate step entries.
+        if (TERMINAL_STATUSES.contains(status)) {
+            stepIndexes.remove(id);
+        }
     }
+
+    private static final Set<String> TERMINAL_STATUSES =
+            Set.of("COMPLETED", "FAILED", "STOPPED", "CANCELLED");
 
     /** Records the wall-clock duration of an execution (set by the lifecycle listener). */
     public void recordDuration(String id, long durationMs) {

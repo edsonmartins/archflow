@@ -55,6 +55,11 @@ export default function MarketplacePage() {
         return Array.from(s)
     }, [items])
 
+    // Always clear the manifest field when the dialog closes — otherwise a
+    // cancelled/failed install leaves a stale path that the next Install click
+    // (a different extension) would show and could reflexively re-submit.
+    const closeInstall = () => { setOpen(false); setUrl('') }
+
     const handleInstall = async () => {
         if (!manifestUrl.trim()) {
             notifications.show({ color: 'yellow', title: t('marketplace.installTitle'),
@@ -196,7 +201,7 @@ export default function MarketplacePage() {
                 ))}
             </Stack>
 
-            <Modal opened={installOpen} onClose={() => setOpen(false)} title={t('marketplace.installTitle')}
+            <Modal opened={installOpen} onClose={closeInstall} title={t('marketplace.installTitle')}
                    centered data-testid="install-modal">
                 <Stack>
                     <TextInput
@@ -208,7 +213,7 @@ export default function MarketplacePage() {
                         data-testid="manifest-path"
                     />
                     <Group justify="flex-end">
-                        <Button variant="default" onClick={() => setOpen(false)}>{t('common.cancel')}</Button>
+                        <Button variant="default" onClick={closeInstall}>{t('common.cancel')}</Button>
                         <Button onClick={handleInstall} data-testid="install-submit">{t('marketplace.submitInstall')}</Button>
                     </Group>
                 </Stack>

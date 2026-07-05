@@ -3,6 +3,7 @@ package br.com.archflow.api.web.workflow;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -38,5 +39,38 @@ class InMemoryWorkflowRuntimeStoreTest {
         assertThat(store.getWorkflow("wf-demo-001")).isNull();
         assertThat(store.getExecution(execution.get("id").toString())).isNull();
         assertThat(store.executions()).noneMatch(item -> "wf-demo-001".equals(item.get("workflowId")));
+    }
+
+    @Test
+    @DisplayName("markResumed flips a terminal record back to RUNNING and clears error/completedAt")
+    void markResumedResetsToRunning() {
+        var store = new InMemoryWorkflowRuntimeStore();
+        String id = store.createExecution("wf-r", "R").get("id").toString();
+        store.completeExecution(id, "FAILED", "boom");
+        assertThat(store.getExecution(id).get("status")).isEqualTo("FAILED");
+
+        store.markResumed(id);
+
+        var resumed = store.getExecution(id);
+        assertThat(resumed.get("status")).isEqualTo("RUNNING");
+        assertThat(resumed.get("error")).isNull();
+        assertThat(resumed.get("completedAt")).isNull();
+    }
+
+    @Test
+    @DisplayName("recordStep after a non-terminal PAUSED keeps the step index (updates in place)")
+    void recordStepAfterPauseUpdatesInPlace() {
+        var store = new InMemoryWorkflowRuntimeStore();
+        String id = store.createExecution("wf-p", "P").get("id").toString();
+        store.recordStep(id, "step-1", Map.of("status", "RUNNING"));
+        // PAUSED is not terminal: the index must survive so a resumed run patches
+        // the same step record instead of appending a duplicate.
+        store.completeExecution(id, "PAUSED", null);
+        store.recordStep(id, "step-1", Map.of("status", "COMPLETED"));
+
+        @SuppressWarnings("unchecked")
+        var steps = (List<Map<String, Object>>) store.getExecution(id).get("steps");
+        assertThat(steps).hasSize(1);
+        assertThat(steps.get(0)).containsEntry("status", "COMPLETED");
     }
 }

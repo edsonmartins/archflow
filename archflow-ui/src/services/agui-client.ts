@@ -57,6 +57,9 @@ export function runAgUiWorkflow(
         for (;;) {
             const { done, value } = await reader.read()
             if (done) break
+            // A Stop click aborts mid-read; don't dispatch buffered frames (e.g. a
+            // late RUN_STARTED) afterwards, or the UI flips back to "executing".
+            if (controller.signal.aborted) break
             buffer += decoder.decode(value, { stream: true })
 
             // SSE frames are separated by a blank line.

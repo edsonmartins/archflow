@@ -1163,7 +1163,7 @@
         "stats": {
             "workflows": "Workflows",
             "active": "Active",
-            "failedRuns": "Failed runs",
+            "failedRuns": "Recent failures",
             "pendingApprovals": "Pending approvals"
         },
         "shortcuts": {

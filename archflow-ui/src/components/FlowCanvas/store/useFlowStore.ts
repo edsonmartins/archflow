@@ -114,8 +114,10 @@ export const useFlowStore = create<FlowStore>((set, get) => ({
       executionState: {},
     }),
 
+  // Only adopt the backend id while a run is still active. A RUN_STARTED that
+  // arrives after the user hit Stop must not resurrect the "executing" state.
   adoptExecutionId: (executionId) =>
-    set({ isExecuting: true, executionId }),
+    set((state) => (state.isExecuting ? { executionId } : {})),
 
   updateNodeStatus: (nodeId, status) =>
     set(state => ({

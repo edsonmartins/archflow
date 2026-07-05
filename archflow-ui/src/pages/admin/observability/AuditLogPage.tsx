@@ -17,6 +17,7 @@ import {
     type ObservabilityFilter,
 } from '../../../services/observability-api';
 import { DataTable } from '../../../components/DataTable';
+import { formatInstant } from '../../../lib/format';
 
 const PAGE_SIZE = 50;
 
@@ -125,7 +126,7 @@ export default function AuditLogPage() {
                     <Table.Tr key={e.id}>
                         <Table.Td>
                             <Text size="xs" c="dimmed">
-                                {formatTime(e.timestamp, locale)}
+                                {formatInstant(e.timestamp, locale)}
                             </Text>
                         </Table.Td>
                         <Table.Td>
@@ -194,10 +195,3 @@ export default function AuditLogPage() {
     );
 }
 
-function formatTime(iso: string, locale: string): string {
-    try {
-        return new Date(iso).toLocaleString(locale);
-    } catch {
-        return iso;
-    }
-}

@@ -13,6 +13,7 @@ import {
 import { ApiError } from '../services/api'
 import { DataTable, clickableRow } from '../components/DataTable'
 import { StatusBadge } from '../components/StatusBadge'
+import { formatInstant } from '../lib/format'
 
 /**
  * Admin inbox proxying Linktor conversations / contacts / channels.
@@ -25,7 +26,8 @@ import { StatusBadge } from '../components/StatusBadge'
  * page.</p>
  */
 export default function LinktorInboxPage() {
-    const { t } = useTranslation()
+    const { t, i18n } = useTranslation()
+    const locale = i18n.resolvedLanguage ?? i18n.language
     const navigate = useNavigate()
     const [tab, setTab]               = useState<'conversations' | 'contacts' | 'channels'>('conversations')
     const [conversations, setC]       = useState<LinktorConversation[]>([])
@@ -111,7 +113,7 @@ export default function LinktorInboxPage() {
                                 <Table.Td>
                                     <Text size="sm" lineClamp={1}>{preview}</Text>
                                 </Table.Td>
-                                <Table.Td><Text size="sm">{lastAt}</Text></Table.Td>
+                                <Table.Td><Text size="sm">{formatInstant(lastAt, locale)}</Text></Table.Td>
                             </Table.Tr>
                         )
                     })}

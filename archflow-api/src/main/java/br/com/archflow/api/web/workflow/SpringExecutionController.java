@@ -35,12 +35,9 @@ public class SpringExecutionController {
     @GetMapping
     public List<Map<String, Object>> list(@RequestParam(required = false) String workflowId,
                                           @RequestParam(required = false) Integer limit) {
-        var stream = store.executions().stream()
-                .filter(execution -> workflowId == null || workflowId.equals(execution.get("workflowId")));
-        if (limit != null && limit > 0) {
-            stream = stream.limit(limit);
-        }
-        return stream.toList();
+        // Filtering + limiting happen inside the store on the raw records, so a
+        // bounded poll only deep-copies the survivors, not the whole history.
+        return store.executions(workflowId, limit);
     }
 
     @GetMapping("/{id}")
@@ -108,10 +105,14 @@ public class SpringExecutionController {
         ExecutionContext ctx = new DefaultExecutionContext(
                 state.getTenantId(), "runner", id,
                 MessageWindowChatMemory.builder().maxMessages(20).build());
+        // Mark RUNNING BEFORE wiring the completion callback. resumeFlow runs on a
+        // virtual thread, so a fast-failing resume could complete the record
+        // terminally first; if markResumed then ran, it would overwrite the status
+        // back to RUNNING and erase the error, leaving the run stuck forever.
+        store.markResumed(id);
         flowEngine.resumeFlow(id, ctx).whenComplete((result, err) ->
                 store.completeExecution(id, statusOf(result, err), errorOf(err)));
 
-        store.markResumed(id);
         return ResponseEntity.ok(store.getExecution(id));
     }
 

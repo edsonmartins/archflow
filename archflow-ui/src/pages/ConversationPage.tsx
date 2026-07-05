@@ -17,6 +17,7 @@ import {
 import { IconAlertCircle, IconArrowLeft, IconRefresh } from '@tabler/icons-react';
 import ChatPanel from '../components/chat/ChatPanel';
 import { conversationApi, type Conversation } from '../services/conversation-api';
+import { formatInstant } from '../lib/format';
 
 /**
  * Conversation detail page with split layout.
@@ -148,12 +149,12 @@ export default function ConversationPage() {
                                 </Section>
                                 <Section label={t('conversationDetail.section.created')}>
                                     <Text size="xs" c="dimmed">
-                                        {formatDate(conversation.createdAt, locale)}
+                                        {formatInstant(conversation.createdAt, locale)}
                                     </Text>
                                 </Section>
                                 <Section label={t('conversationDetail.section.updated')}>
                                     <Text size="xs" c="dimmed">
-                                        {formatDate(conversation.updatedAt, locale)}
+                                        {formatInstant(conversation.updatedAt, locale)}
                                     </Text>
                                 </Section>
                                 {conversation.workflowId && (
@@ -201,12 +202,4 @@ function Section({ label, children }: { label: string; children: React.ReactNode
             {children}
         </Stack>
     );
-}
-
-function formatDate(iso: string, locale: string): string {
-    try {
-        return new Date(iso).toLocaleString(locale);
-    } catch {
-        return iso;
-    }
 }

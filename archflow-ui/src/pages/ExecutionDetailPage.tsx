@@ -15,6 +15,7 @@ import { tabularNums } from '../components/DataTable'
 import { JsonViewer } from '../components/JsonViewer'
 import { Meta } from '../components/Meta'
 import { formatDuration, formatInstant } from '../lib/format'
+import { EXECUTION_STATUS_COLOR } from '../lib/executionStatus'
 
 /** A materialized ExecutionPath node (design-0005 step 4). */
 interface PathNode {
@@ -36,14 +37,9 @@ interface StepRecord {
     error?: string
 }
 
+// Reuse the shared status→color map; 'STARTED' is a path-node-only alias of RUNNING.
 function pathColor(status: string): string {
-    switch (status) {
-        case 'COMPLETED': return 'teal'
-        case 'FAILED':    return 'red'
-        case 'RUNNING':
-        case 'STARTED':   return 'blue'
-        default:          return 'gray'
-    }
+    return EXECUTION_STATUS_COLOR[status] ?? (status === 'STARTED' ? 'blue' : 'gray')
 }
 
 function PathTree({ nodes, depth = 0 }: { nodes: PathNode[]; depth?: number }) {
@@ -73,11 +69,7 @@ function StepBlock({ step, locale }: { step: StepRecord; locale: string }) {
     const { t } = useTranslation()
     const [open, setOpen] = useState(step.status === 'FAILED')
 
-    const statusColor =
-        step.status === 'RUNNING' ? 'blue'
-        : step.status === 'COMPLETED' ? 'teal'
-        : step.status === 'FAILED' ? 'red'
-        : 'gray'
+    const statusColor = EXECUTION_STATUS_COLOR[step.status] ?? 'gray'
     const statusLabel =
         step.status === 'RUNNING' ? t('executionDetail.step.running')
         : step.status === 'COMPLETED' ? t('executionDetail.step.completed')

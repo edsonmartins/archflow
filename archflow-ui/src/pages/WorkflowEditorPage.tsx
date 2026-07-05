@@ -85,17 +85,23 @@ function PanelToggle({
 }
 
 function toWorkflowData(detail: any): WorkflowData {
-  const steps = (detail.steps ?? []).map((step: any, i: number) => ({
-    id:          step.id ?? `step-${i}`,
-    type:        step.type?.toLowerCase() ?? 'custom',
-    componentId: step.componentId ?? step.type?.toLowerCase() ?? 'custom',
-    // `label` is the designer's display-name field; older saves stored it in
-    // `operation`, which the backend now treats as the execution operation.
-    label:       step.label ?? step.operation ?? step.componentId ?? step.type ?? 'Node',
-    category:    NODE_TYPE_TO_CATEGORY[step.type?.toLowerCase()] ?? 'tool' as const,
-    position:    step.position ?? { x: 200 + i * 250, y: 150 },
-    config:      step.configuration ?? {},
-  }))
+  const steps = (detail.steps ?? []).map((step: any, i: number) => {
+    // A YAML/API-authored execution operation lives at the node level; fold it
+    // into `config.operation` so a plain canvas save round-trips it instead of
+    // dropping it (the backend's DefaultFlowStepFactory reads config.operation
+    // first). `label` is the designer's display-name field, kept separate.
+    const config = { ...(step.configuration ?? {}) }
+    if (step.operation && config.operation == null) config.operation = step.operation
+    return {
+      id:          step.id ?? `step-${i}`,
+      type:        step.type?.toLowerCase() ?? 'custom',
+      componentId: step.componentId ?? step.type?.toLowerCase() ?? 'custom',
+      label:       step.label ?? step.operation ?? step.componentId ?? step.type ?? 'Node',
+      category:    NODE_TYPE_TO_CATEGORY[step.type?.toLowerCase()] ?? 'tool' as const,
+      position:    step.position ?? { x: 200 + i * 250, y: 150 },
+      config,
+    }
+  })
 
   const connections = (detail.steps ?? []).flatMap((step: any) =>
     (step.connections ?? []).map((conn: any, j: number) => ({
@@ -193,10 +199,22 @@ export function WorkflowEditor() {
   const [yamlError, setYamlError] = useState<string | null>(null)
   const [yamlDirty, setYamlDirty] = useState(false)
 
-  // Carregar workflow ao montar
+  // Carregar workflow ao montar. When we're replacing an ALREADY-loaded copy of
+  // the same id (the store persists currentWorkflow across unmount), bump the
+  // canvas revision once the fetch resolves so the memo rebuilds with the fresh
+  // server copy — otherwise reopening a workflow that changed server-side keeps
+  // the stale copy and a Save would overwrite the newer version. A first load or
+  // an id change already rebuilds via the memo's id key, so we must NOT bump
+  // there: it would double-mount the canvas and reset the undo history.
   useEffect(() => {
-    if (id) loadWorkflow(id)
-  }, [id])
+    if (!id) return
+    let cancelled = false
+    const hadSameId = useWorkflowStore.getState().currentWorkflow?.id === id
+    loadWorkflow(id).then(() => {
+      if (!cancelled && hadSameId) setCanvasRevision(v => v + 1)
+    })
+    return () => { cancelled = true }
+  }, [id, loadWorkflow])
 
   // Carrega o YAML do backend quando o usuário abre a aba Code
   useEffect(() => {
@@ -611,6 +629,13 @@ export function WorkflowEditor() {
           <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
             {workflowData ? (
               <FlowCanvas
+                // Remount on a genuine (re)load so React Flow re-runs its mount
+                // fit-view + node measurement — mutating an already-mounted
+                // instance via props leaves freshly-rebuilt nodes stuck at
+                // visibility:hidden and off-viewport. The key changes only on
+                // id change or an explicit reload (canvasRevision), never on a
+                // plain save, so editing state is preserved.
+                key={`${current?.id ?? 'none'}:${canvasRevision}`}
                 initialWorkflow={workflowData}
                 onNodeSelect={handleNodeSelect}
                 onExecutionRequest={handleExecute}

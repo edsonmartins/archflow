@@ -6,6 +6,7 @@ import br.com.archflow.model.flow.FlowStep;
 import br.com.archflow.model.flow.StepConnection;
 import br.com.archflow.model.flow.StepResult;
 import br.com.archflow.model.flow.StepType;
+import com.fasterxml.jackson.annotation.JsonInclude;
 
 import java.util.List;
 import java.util.Map;
@@ -13,14 +14,30 @@ import java.util.concurrent.CompletableFuture;
 
 /**
  * Serializable implementation of FlowStep.
+ *
+ * <p>This DTO is the shared JSON↔YAML round-trip model (see
+ * {@code WorkflowYamlBridge}), so it must carry every field the visual
+ * designer persists — otherwise editing a flow through the Code/YAML tab
+ * silently strips them. The designer's schema is
+ * {@code id/type/componentId/label/operation/position/configuration/connections};
+ * {@code config} is kept as a legacy alias consumed by the standalone runner.
+ * Null fields are omitted so designer-authored flows don't accumulate
+ * {@code operation: null} noise in the YAML.</p>
  */
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public class SerializableStep implements FlowStep {
 
     private String id;
     private StepType type;
     private String componentId;
+    /** Display name shown on the canvas node (designer field). */
+    private String label;
     private String operation;
+    /** Canvas coordinates ({x,y}); preserved so a YAML round-trip keeps the layout. */
+    private Map<String, Object> position;
     private Map<String, Object> config;
+    /** Designer node configuration (the UI writes {@code configuration}, not {@code config}). */
+    private Map<String, Object> configuration;
     private List<SerializableConnection> connections;
 
     public SerializableStep() {} // Jackson
@@ -62,17 +79,26 @@ public class SerializableStep implements FlowStep {
      */
     @Override
     public LLMConfigPatch getLLMPatch() {
-        return LLMConfigPatch.fromMap(config);
+        // The designer stores node config under `configuration`; standalone/legacy
+        // flows use `config`. Merge so either shape resolves the LLM override.
+        Map<String, Object> effective = configuration != null ? configuration : config;
+        return LLMConfigPatch.fromMap(effective);
     }
 
     public String getComponentId() { return componentId; }
+    public String getLabel() { return label; }
     public String getOperation() { return operation; }
+    public Map<String, Object> getPosition() { return position; }
     public Map<String, Object> getConfig() { return config; }
+    public Map<String, Object> getConfiguration() { return configuration; }
 
     public void setId(String id) { this.id = id; }
     public void setType(StepType type) { this.type = type; }
     public void setComponentId(String componentId) { this.componentId = componentId; }
+    public void setLabel(String label) { this.label = label; }
     public void setOperation(String operation) { this.operation = operation; }
+    public void setPosition(Map<String, Object> position) { this.position = position; }
     public void setConfig(Map<String, Object> config) { this.config = config; }
+    public void setConfiguration(Map<String, Object> configuration) { this.configuration = configuration; }
     public void setConnections(List<SerializableConnection> connections) { this.connections = connections; }
 }
