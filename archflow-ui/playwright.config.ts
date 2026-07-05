@@ -23,7 +23,11 @@ export default defineConfig({
     video: process.env.PW_VIDEO ? 'on' : 'off',
   },
   webServer: {
-    command: 'pnpm run dev -- --host 127.0.0.1 --port 4173',
+    // `npm run dev` (not pnpm): Playwright spawns this in a subshell where pnpm
+    // isn't reliably on PATH in CI, which silently failed to start the server
+    // and tripped the webServer startup timeout. npm is always available and
+    // runs vite from the pnpm-installed node_modules/.bin all the same.
+    command: 'npm run dev -- --host 127.0.0.1 --port 4173',
     url: 'http://127.0.0.1:4173',
     reuseExistingServer: !process.env.CI,
   },
