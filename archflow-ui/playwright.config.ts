@@ -10,6 +10,10 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 1 : undefined,
+  // The heaviest journeys (editor-journey, auth-workflows) drive ~30 UI steps
+  // over a React Flow + Mantine canvas; the default 30s test timeout is marginal
+  // on a slow/contended CI runner (trace-on-retry adds more), so give headroom.
+  timeout: process.env.CI ? 60_000 : 30_000,
   reporter: process.env.CI ? [['html'], ['github']] : [['list']],
   use: {
     baseURL: 'http://127.0.0.1:4173',
@@ -19,7 +23,7 @@ export default defineConfig({
     video: process.env.PW_VIDEO ? 'on' : 'off',
   },
   webServer: {
-    command: 'npm run dev -- --host 127.0.0.1 --port 4173',
+    command: 'pnpm run dev -- --host 127.0.0.1 --port 4173',
     url: 'http://127.0.0.1:4173',
     reuseExistingServer: !process.env.CI,
   },
