@@ -53,21 +53,25 @@ public class InMemoryWorkflowRuntimeStore {
 
     /**
      * Returns execution records (most-recent first), optionally filtered by
-     * {@code workflowId} and capped at {@code limit}. Filtering and limiting
-     * happen on the raw records; only the survivors are deep-copied via
-     * {@link #snapshot}, so a bounded poll never copies the whole history.
-     * {@code startedAt} is set once at creation and never mutated, so reading
-     * it here without the per-record lock is safe.
+     * {@code workflowId} and capped at {@code limit}.
+     *
+     * <p>Each record is deep-copied via {@link #snapshot} <em>under its monitor
+     * first</em>, then filtered/sorted/limited on the immutable copies. Reading
+     * the raw {@link LinkedHashMap}s directly here would race
+     * {@code recordStep}, which structurally adds the {@code "steps"} key while
+     * holding the per-record lock — an unsynchronized {@code get} against that
+     * put can throw or misread.</p>
      */
     public List<Map<String, Object>> executions(String workflowId, Integer limit) {
         var stream = executions.values().stream()
+                .map(InMemoryWorkflowRuntimeStore::snapshot)
                 .filter(exec -> workflowId == null || workflowId.equals(exec.get("workflowId")))
                 .sorted(Comparator.comparing((Map<String, Object> exec) ->
                         exec.getOrDefault("startedAt", "").toString()).reversed());
         if (limit != null && limit > 0) {
             stream = stream.limit(limit);
         }
-        return stream.map(InMemoryWorkflowRuntimeStore::snapshot).toList();
+        return stream.toList();
     }
 
     public Map<String, Object> getExecution(String id) {
@@ -163,7 +167,20 @@ public class InMemoryWorkflowRuntimeStore {
         synchronized (execution) {
             var steps = (List<Map<String, Object>>) execution.computeIfAbsent(
                     "steps", k -> new ArrayList<Map<String, Object>>());
-            var index = stepIndexes.computeIfAbsent(executionId, k -> new LinkedHashMap<>());
+            // Rebuild the index from the steps already on the record when it's
+            // absent (first event, or after a terminal eviction / resume). This
+            // keeps a late or post-resume patch updating the existing step in
+            // place instead of appending a duplicate row.
+            var index = stepIndexes.computeIfAbsent(executionId, k -> {
+                var rebuilt = new LinkedHashMap<String, Map<String, Object>>();
+                for (Map<String, Object> existing : steps) {
+                    Object sid = existing.get("stepId");
+                    if (sid != null) {
+                        rebuilt.put(sid.toString(), existing);
+                    }
+                }
+                return rebuilt;
+            });
             var step = index.computeIfAbsent(stepId, k -> {
                 var created = new LinkedHashMap<String, Object>();
                 created.put("stepId", stepId);

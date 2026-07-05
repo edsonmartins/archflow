@@ -90,4 +90,24 @@ class SpringExecutionControllerTest {
         verify(store).markResumed("e1");
         verify(engine).resumeFlow(eq("e1"), any());
     }
+
+    @Test
+    void resumeKeepsTerminalResultWhenResumeFailsSynchronously() {
+        // Guards the markResumed-BEFORE-whenComplete ordering. A real store plus a
+        // synchronously-completed failure makes whenComplete run inline: with the
+        // correct order the record ends FAILED; if markResumed were wired AFTER the
+        // callback it would clobber the failure back to RUNNING (the stuck-run bug).
+        var realStore = new InMemoryWorkflowRuntimeStore();
+        var realController = new SpringExecutionController(realStore, engine, stateManager);
+        String id = realStore.createExecution("wf", "W").get("id").toString();
+        realStore.completeExecution(id, "PAUSED", null); // non-terminal, resumable
+        when(stateManager.loadState(id)).thenReturn(FlowState.builder().status(FlowStatus.PAUSED).build());
+        when(engine.resumeFlow(eq(id), any()))
+                .thenReturn(CompletableFuture.failedFuture(new IllegalStateException("boom")));
+
+        realController.resume(id);
+
+        assertThat(realStore.getExecution(id).get("status")).isEqualTo("FAILED");
+        assertThat(realStore.getExecution(id).get("error")).isEqualTo("boom");
+    }
 }

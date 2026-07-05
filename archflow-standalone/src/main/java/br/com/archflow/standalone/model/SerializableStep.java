@@ -8,6 +8,7 @@ import br.com.archflow.model.flow.StepResult;
 import br.com.archflow.model.flow.StepType;
 import com.fasterxml.jackson.annotation.JsonInclude;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -80,9 +81,26 @@ public class SerializableStep implements FlowStep {
     @Override
     public LLMConfigPatch getLLMPatch() {
         // The designer stores node config under `configuration`; standalone/legacy
-        // flows use `config`. Merge so either shape resolves the LLM override.
-        Map<String, Object> effective = configuration != null ? configuration : config;
-        return LLMConfigPatch.fromMap(effective);
+        // flows use `config`. Genuinely MERGE the two (configuration overlaid on
+        // config) so designer edits win but override keys that only exist in the
+        // legacy `config` map are not dropped.
+        return LLMConfigPatch.fromMap(effectiveConfig());
+    }
+
+    /** config with configuration overlaid on top; never null. */
+    private Map<String, Object> effectiveConfig() {
+        if (config == null && configuration == null) {
+            return Map.of();
+        }
+        if (configuration == null) {
+            return config;
+        }
+        if (config == null) {
+            return configuration;
+        }
+        var merged = new LinkedHashMap<String, Object>(config);
+        merged.putAll(configuration);
+        return merged;
     }
 
     public String getComponentId() { return componentId; }

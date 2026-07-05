@@ -67,6 +67,22 @@ class SerializableStepLLMPatchTest {
     }
 
     @Test
+    @DisplayName("configuration (designer) sobrepõe config sem descartar chaves só de config")
+    void mergesConfigAndConfiguration() {
+        SerializableStep step = new SerializableStep();
+        // Legacy config carries the LLM override; the designer save adds a
+        // `configuration` block that overrides only the model. The merge must keep
+        // the temperature from `config` and take the model from `configuration`.
+        step.setConfig(Map.of("model", "gpt-4", "temperature", 0.2));
+        step.setConfiguration(Map.of("model", "gpt-4o-mini"));
+
+        LLMConfigPatch patch = step.getLLMPatch();
+
+        assertThat(patch.model()).contains("gpt-4o-mini");
+        assertThat(patch.temperature().getAsDouble()).isEqualTo(0.2);
+    }
+
+    @Test
     @DisplayName("propaga additionalConfig")
     void additionalConfig() {
         LLMConfigPatch patch = stepWithConfig(Map.of(
