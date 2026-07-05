@@ -2,26 +2,26 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
-    Alert,
     Badge,
     Button,
     Group,
-    Paper,
     Stack,
     Table,
     Text,
     TextInput,
     Title,
 } from '@mantine/core';
-import { IconAlertCircle, IconRefresh, IconSearch } from '@tabler/icons-react';
+import { IconAlertTriangle, IconRefresh, IconSearch } from '@tabler/icons-react';
 import { approvalApi, type ApprovalResponse } from '../services/approval-api';
 import { useTenantStore } from '../stores/useTenantStore';
+import { DataTable, clickableRow } from '../components/DataTable';
 
 export default function ApprovalQueuePage() {
     const navigate = useNavigate();
     const { t } = useTranslation();
     const { impersonating, currentRole } = useTenantStore();
-    const tenantId = impersonating ?? (currentRole === 'superadmin' ? 'all' : 'default');
+    // impersonating é um TenantInfo — a API espera o ID (passar o objeto virava "[object Object]")
+    const tenantId = impersonating?.id ?? (currentRole === 'superadmin' ? 'all' : 'default');
 
     const [items, setItems] = useState<ApprovalResponse[]>([]);
     const [loading, setLoading] = useState(false);
@@ -89,70 +89,65 @@ export default function ApprovalQueuePage() {
                 </Badge>
             </Group>
 
-            {error && (
-                <Alert color="red" icon={<IconAlertCircle size={16} />}>
-                    {error}
-                </Alert>
-            )}
-
-            <Paper withBorder radius="md">
-                {filtered.length === 0 && !loading ? (
-                    <Text size="sm" c="dimmed" ta="center" p="md">
-                        {t('approvals.empty')}
-                    </Text>
-                ) : (
-                    <Table striped highlightOnHover>
-                        <Table.Thead>
-                            <Table.Tr>
-                                <Table.Th>{t('approvals.table.request')}</Table.Th>
-                                <Table.Th>{t('approvals.table.flow')}</Table.Th>
-                                <Table.Th>{t('approvals.table.step')}</Table.Th>
-                                <Table.Th>{t('approvals.table.description')}</Table.Th>
-                                <Table.Th>{t('approvals.table.waiting')}</Table.Th>
-                                <Table.Th>{t('approvals.table.expires')}</Table.Th>
-                            </Table.Tr>
-                        </Table.Thead>
-                        <Table.Tbody>
-                            {filtered.map((row) => (
-                                <Table.Tr
-                                    key={row.requestId}
-                                    style={{ cursor: 'pointer' }}
-                                    onClick={() => navigate(`/approvals/${row.requestId}`)}
-                                >
-                                    <Table.Td>
-                                        <Text size="xs" ff="DM Mono, monospace">
-                                            {row.requestId.slice(0, 12)}
-                                        </Text>
-                                    </Table.Td>
-                                    <Table.Td>{row.flowId}</Table.Td>
-                                    <Table.Td>
-                                        {row.stepId ? (
-                                            <Text size="xs" ff="DM Mono, monospace">
-                                                {row.stepId}
-                                            </Text>
-                                        ) : (
-                                            '—'
-                                        )}
-                                    </Table.Td>
-                                    <Table.Td>
-                                        <Text size="sm">{row.description ?? '—'}</Text>
-                                    </Table.Td>
-                                    <Table.Td>{formatWait(row.createdAt, t)}</Table.Td>
-                                    <Table.Td>
-                                        {row.expiresAt ? (
-                                            <Text size="xs" c={isUrgent(row.expiresAt) ? 'red' : 'dimmed'}>
-                                                {formatRelative(row.expiresAt, t)}
-                                            </Text>
-                                        ) : (
-                                            '—'
-                                        )}
-                                    </Table.Td>
-                                </Table.Tr>
-                            ))}
-                        </Table.Tbody>
-                    </Table>
-                )}
-            </Paper>
+            <DataTable
+                columns={6}
+                minWidth={780}
+                striped
+                highlightOnHover
+                loading={loading}
+                error={error}
+                onRetry={load}
+                isEmpty={filtered.length === 0}
+                emptyMessage={t('approvals.empty')}
+                head={
+                    <Table.Tr>
+                        <Table.Th>{t('approvals.table.request')}</Table.Th>
+                        <Table.Th>{t('approvals.table.flow')}</Table.Th>
+                        <Table.Th>{t('approvals.table.step')}</Table.Th>
+                        <Table.Th>{t('approvals.table.description')}</Table.Th>
+                        <Table.Th>{t('approvals.table.waiting')}</Table.Th>
+                        <Table.Th>{t('approvals.table.expires')}</Table.Th>
+                    </Table.Tr>
+                }
+            >
+                {filtered.map((row) => (
+                    <Table.Tr key={row.requestId} {...clickableRow(() => navigate(`/approvals/${row.requestId}`))}>
+                        <Table.Td>
+                            <Text size="xs" ff="DM Mono, monospace">
+                                {row.requestId.slice(0, 12)}
+                            </Text>
+                        </Table.Td>
+                        <Table.Td>{row.flowId}</Table.Td>
+                        <Table.Td>
+                            {row.stepId ? (
+                                <Text size="xs" ff="DM Mono, monospace">
+                                    {row.stepId}
+                                </Text>
+                            ) : (
+                                '—'
+                            )}
+                        </Table.Td>
+                        <Table.Td>
+                            <Text size="sm">{row.description ?? '—'}</Text>
+                        </Table.Td>
+                        <Table.Td>{formatWait(row.createdAt, t)}</Table.Td>
+                        <Table.Td>
+                            {row.expiresAt ? (
+                                <Group gap={4} wrap="nowrap">
+                                    {isUrgent(row.expiresAt) && (
+                                        <IconAlertTriangle size={14} color="var(--mantine-color-red-6)" />
+                                    )}
+                                    <Text size="xs" c={isUrgent(row.expiresAt) ? 'red' : 'dimmed'}>
+                                        {formatRelative(row.expiresAt, t)}
+                                    </Text>
+                                </Group>
+                            ) : (
+                                '—'
+                            )}
+                        </Table.Td>
+                    </Table.Tr>
+                ))}
+            </DataTable>
         </Stack>
     );
 }

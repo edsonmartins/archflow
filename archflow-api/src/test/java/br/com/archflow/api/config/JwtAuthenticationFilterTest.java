@@ -1,5 +1,6 @@
 package br.com.archflow.api.config;
 
+import br.com.archflow.security.auth.AuthService;
 import br.com.archflow.security.jwt.JwtService;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.http.HttpServletRequest;
@@ -144,6 +145,30 @@ class JwtAuthenticationFilterTest {
 
         verify(resp).setStatus(HttpServletResponse.SC_UNAUTHORIZED);
         verify(chain, never()).doFilter(any(), any());
+    }
+
+    @Test
+    @DisplayName("rejects revoked access tokens on protected paths")
+    void rejectsRevokedAccessToken() throws Exception {
+        String token = jwtService.generateAccessToken("user-1", "alice", "tenant_admin");
+        AuthService authService = mock(AuthService.class);
+        when(authService.validateAccessToken(token))
+                .thenThrow(new AuthService.AuthenticationException("Token has been revoked"));
+
+        JwtAuthenticationFilter filter = new JwtAuthenticationFilter(jwtService, authService, true, "");
+        HttpServletRequest req = mock(HttpServletRequest.class);
+        HttpServletResponse resp = mock(HttpServletResponse.class);
+        FilterChain chain = mock(FilterChain.class);
+        StringWriter body = new StringWriter();
+        when(req.getRequestURI()).thenReturn("/api/admin/workspace");
+        when(req.getHeader("Authorization")).thenReturn("Bearer " + token);
+        when(resp.getWriter()).thenReturn(new PrintWriter(body));
+
+        filter.doFilter(req, resp, chain);
+
+        verify(resp).setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+        verify(chain, never()).doFilter(any(), any());
+        assertThat(body.toString()).contains("INVALID_TOKEN");
     }
 
     @Test

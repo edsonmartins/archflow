@@ -1,6 +1,7 @@
 import { memo, useMemo } from 'react'
 import { Handle, Position } from '@xyflow/react'
 import { useMantineColorScheme } from '@mantine/core'
+import { IconLoader2, IconCheck, IconX, IconMinus } from '@tabler/icons-react'
 import { NODE_CATEGORIES, EXECUTION_STATUS_COLORS } from '../constants'
 import { NodeIcon } from '../nodeIcons'
 import type { FlowNodeData } from '../types'
@@ -171,8 +172,22 @@ export const ShapedNode = memo(function ShapedNode({
     : exec === 'running' ? '#D97706'
     : palette.idleBorder
 
+  // Classes de motion por estado de execução (keyframes em App.css):
+  // running pulsa, success dá um pop curto, error treme uma vez.
+  const execMotionClass =
+    exec === 'running' ? 'af-node-running'
+    : exec === 'success' ? 'af-node-completed'
+    : exec === 'error' ? 'af-node-failed'
+    : ''
+
+  // Selection is handled by React Flow's node wrapper → FlowCanvas.onNodeClick
+  // (which updates the store AND notifies onNodeSelect consumers like the
+  // <archflow-designer> web component). Capture-phase stopPropagation here
+  // used to short-circuit that pipeline: RF never marked the node `selected`,
+  // dragging (d3-drag) broke, and readonly canvases still mutated the store.
   return (
     <div
+      className={`af-node-card ${execMotionClass}`}
       style={{
         position:     'relative',
         width:        WIDTH,
@@ -339,10 +354,19 @@ export const ShapedNode = memo(function ShapedNode({
             color:      execColors.text,
             animation:  exec === 'running' ? 'pulse 1.5s ease-in-out infinite' : 'none',
             pointerEvents: 'none',
+            display:    'inline-flex',
+            alignItems: 'center',
+            gap:        3,
           }}
         >
-          {exec === 'running' ? '◌' : exec === 'success' ? '✓' : '✕'}
-          {data.executionMs != null && exec === 'success' ? ` ${Math.round(data.executionMs)}ms` : ''}
+          {exec === 'running'
+            ? <IconLoader2 size={11} stroke={2.5} style={{ animation: 'spin 1s linear infinite' }} aria-hidden />
+            : exec === 'success'
+              ? <IconCheck size={11} stroke={2.5} aria-hidden />
+              : exec === 'skipped'
+                ? <IconMinus size={11} stroke={2.5} aria-hidden />
+                : <IconX size={11} stroke={2.5} aria-hidden />}
+          {data.executionMs != null && exec === 'success' ? `${Math.round(data.executionMs)}ms` : ''}
         </div>
       )}
 

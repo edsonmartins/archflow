@@ -55,7 +55,7 @@ export default function BrainSentryConfigPage() {
     }
 
     return (
-        <Stack gap="md" style={{ padding: 24, maxWidth: 720 }} data-testid="brainsentry-config">
+        <Stack gap="md" p="md" maw={720} data-testid="brainsentry-config">
             <Title order={2}>{t('brainSentry.title')}</Title>
             <Alert color="blue" variant="light">
                 {t('brainSentry.info').split(/<code>|<\/code>/).map((seg, i) =>

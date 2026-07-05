@@ -1,5 +1,13 @@
 package br.com.archflow.api.web.workflow;
 
+import br.com.archflow.api.flow.WorkflowDeserializer;
+import br.com.archflow.engine.api.FlowEngine;
+import br.com.archflow.engine.persistence.FlowRepository;
+import br.com.archflow.model.engine.DefaultExecutionContext;
+import br.com.archflow.model.engine.ExecutionContext;
+import br.com.archflow.model.flow.Flow;
+import br.com.archflow.model.flow.FlowResult;
+import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -19,9 +27,18 @@ import java.util.*;
 public class SpringWorkflowCrudController {
 
     private final InMemoryWorkflowRuntimeStore store;
+    private final WorkflowDeserializer deserializer;
+    private final FlowEngine flowEngine;
+    private final FlowRepository flowRepository;
 
-    public SpringWorkflowCrudController(InMemoryWorkflowRuntimeStore store) {
+    public SpringWorkflowCrudController(InMemoryWorkflowRuntimeStore store,
+                                        WorkflowDeserializer deserializer,
+                                        FlowEngine flowEngine,
+                                        FlowRepository flowRepository) {
         this.store = store;
+        this.deserializer = deserializer;
+        this.flowEngine = flowEngine;
+        this.flowRepository = flowRepository;
     }
 
     @GetMapping
@@ -77,13 +94,51 @@ public class SpringWorkflowCrudController {
                                                         @RequestBody(required = false) Map<String, Object> input) {
         var workflow = store.getWorkflow(id);
         if (workflow == null) return ResponseEntity.notFound().build();
+
         var execution = store.createExecution(id, workflowName(workflow));
-        return ResponseEntity.ok(Map.of(
-                "executionId", execution.get("id"),
-                "status", execution.get("status"),
-                "workflowId", id,
-                "startedAt", execution.get("startedAt")
-        ));
+        String executionId = String.valueOf(execution.get("id"));
+
+        // Deserialize the stored JSON into an executable Flow and submit it to the
+        // async engine (design-0005 step 2). The flow id is the executionId so
+        // concurrent runs of the same workflow don't collide in the engine.
+        Map<String, Object> flowJson = new HashMap<>(workflow);
+        flowJson.put("id", executionId);
+        Flow flow = deserializer.toFlow(flowJson);
+        // Register the flow so a paused run can be resumed later (design-0005 step 5).
+        flowRepository.save(flow);
+
+        ExecutionContext ctx = new DefaultExecutionContext(
+                null, "runner", executionId,
+                MessageWindowChatMemory.builder().maxMessages(20).build());
+        if (input != null) {
+            input.forEach(ctx::set);
+        }
+
+        // Fire-and-track: return immediately, update status when the run finishes.
+        flowEngine.execute(flow, ctx).whenComplete((result, err) ->
+                store.completeExecution(executionId, statusOf(result, err), errorOf(err)));
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("executionId", executionId);
+        body.put("status", "RUNNING");
+        body.put("workflowId", id);
+        body.put("startedAt", execution.get("startedAt"));
+        return ResponseEntity.ok(body);
+    }
+
+    private static String statusOf(FlowResult result, Throwable err) {
+        if (err != null || result == null) {
+            return "FAILED";
+        }
+        return result.getStatus() != null ? result.getStatus().name() : "COMPLETED";
+    }
+
+    private static String errorOf(Throwable err) {
+        if (err == null) {
+            return null;
+        }
+        Throwable cause = err.getCause() != null ? err.getCause() : err;
+        return cause.getMessage() != null ? cause.getMessage() : cause.toString();
     }
 
     // ── helpers ──────────────────────────────────────────────────

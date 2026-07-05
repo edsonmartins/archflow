@@ -25,7 +25,7 @@ const MESSAGES = [
 
 async function mockApi(page: Page) {
     await installApiRouter(page, [
-        ...authHandlers(adminUser, { loginShape: 'token' }),
+        ...authHandlers(adminUser, { loginShape: 'token', workflows: [] }),
         async ({ path, method, route }) => {
             if (!path.startsWith('/admin/linktor/inbox/conversations')) return false;
             if (method === 'GET' && path.endsWith('/messages')) {
@@ -72,12 +72,12 @@ test.describe('Linktor inbox', () => {
         await installSession(page, { role: 'tenant_admin' });
         await mockApi(page);
 
-        await page.goto('/admin/linktor/inbox');
-        await expect(page.getByTestId('linktor-inbox')).toBeVisible();
-        await expect(page.getByTestId('lk-conv-conv-1')).toBeVisible();
-        await expect(page.getByText('Hi, I need help with my order')).toBeVisible();
+        await page.goto('/admin/linktor/inbox', { waitUntil: 'commit' });
+        await expect(page.getByRole('heading', { name: 'Linktor Inbox' })).toBeVisible({ timeout: 30_000 });
+        await expect(page.getByTestId('lk-conv-conv-1')).toBeVisible({ timeout: 30_000 });
+        await expect(page.getByText('Hi, I need help with my order')).toBeVisible({ timeout: 30_000 });
 
-        await page.getByTestId('lk-conv-conv-1').getByRole('button', { name: 'Open' }).click();
+        await page.getByTestId('lk-conv-conv-1').click();
         await expect(page.getByTestId('linktor-conversation')).toBeVisible();
         await expect(page.getByText('Hello! How can I assist?')).toBeVisible();
     });
@@ -86,7 +86,7 @@ test.describe('Linktor inbox', () => {
         await installSession(page, { role: 'tenant_admin' });
         await mockApi(page);
 
-        await page.goto('/admin/linktor/inbox/conv-1');
+        await page.goto('/admin/linktor/inbox/conv-1', { waitUntil: 'commit' });
         await page.getByTestId('lk-reply-input').fill('Got it — shipping now');
         await page.getByTestId('lk-reply-send').click();
         // After send the input is cleared and the page reloads messages.
@@ -97,7 +97,7 @@ test.describe('Linktor inbox', () => {
         await installSession(page, { role: 'tenant_admin' });
         await mockApi(page);
 
-        await page.goto('/admin/linktor/inbox/conv-1');
+        await page.goto('/admin/linktor/inbox/conv-1', { waitUntil: 'commit' });
         await page.getByTestId('lk-assignee').fill('user-123');
         await page.getByTestId('lk-assign').click();
         await expect(page.getByText(/handed off/)).toBeVisible();

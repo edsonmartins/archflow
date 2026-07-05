@@ -57,6 +57,7 @@ public class DefaultFlowEngine implements FlowEngine {
      * {@link TimeoutException}.
      */
     private final long flowTimeoutMs;
+    private final boolean memoryRestoreFailFast;
 
     /** Gauge: number of flows currently executing. */
     private final AtomicInteger activeFlowCount = new AtomicInteger(0);
@@ -138,6 +139,11 @@ public class DefaultFlowEngine implements FlowEngine {
         this.activeExecutions = new ConcurrentHashMap<>();
         this.flowSemaphore = new Semaphore(maxConcurrentFlows > 0 ? maxConcurrentFlows : DEFAULT_MAX_CONCURRENT_FLOWS);
         this.flowTimeoutMs = flowTimeoutMs > 0 ? flowTimeoutMs : DEFAULT_FLOW_TIMEOUT_MS;
+        // Lido uma vez na construção (não a cada resume): falha na restauração
+        // de memória aborta o resume por padrão — retomar sem contexto produz
+        // respostas erradas em silêncio.
+        this.memoryRestoreFailFast = Boolean.parseBoolean(
+                System.getProperty("archflow.memory.restore.fail-fast", "true"));
     }
 
     // ── Flow lifecycle ──────────────────────────────────────────────
@@ -198,7 +204,17 @@ public class DefaultFlowEngine implements FlowEngine {
                     memoryRestorer.restore(context);
                     logger.info("Memory restored for flow: " + flowId);
                 } catch (Exception e) {
-                    logger.warning("Failed to restore memory for flow " + flowId + ": " + e.getMessage());
+                    // Resolvido na construção. fail-fast=false (default true)
+                    // volta ao comportamento antigo (prosseguir com WARN).
+                    if (memoryRestoreFailFast) {
+                        throw new IllegalStateException(
+                                "Failed to restore memory for flow " + flowId
+                                + " — aborting resume (set archflow.memory.restore.fail-fast=false"
+                                + " to continue without restored memory)", e);
+                    }
+                    logger.warning("Failed to restore memory for flow " + flowId
+                            + " — continuing WITHOUT restored memory"
+                            + " (archflow.memory.restore.fail-fast=false): " + e.getMessage());
                 }
             }
 

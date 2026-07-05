@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
     Alert,
@@ -16,6 +16,7 @@ import {
 } from '@mantine/core';
 import { IconAlertCircle, IconPlayerPause, IconPlayerPlay, IconTrash } from '@tabler/icons-react';
 import { ArchflowEventStream, type ArchflowEvent, type StreamStatus } from '../../../services/event-stream';
+import { JsonViewer } from '../../../components/JsonViewer';
 
 /**
  * Live SSE event viewer for debugging. Reuses {@link ArchflowEventStream}
@@ -28,6 +29,7 @@ export default function LiveEventsPage() {
     const [tenantId, setTenantId] = useState('');
     const [sessionId, setSessionId] = useState('');
     const [paused, setPaused] = useState(false);
+    const [expandedId, setExpandedId] = useState<string | null>(null);
     const [status, setStatus] = useState<StreamStatus>('idle');
     const [events, setEvents] = useState<ArchflowEvent[]>([]);
     const [error, setError] = useState<string | null>(null);
@@ -158,7 +160,7 @@ export default function LiveEventsPage() {
                         ))}
                     </Group>
                 </Group>
-                <ScrollArea h={420}>
+                <ScrollArea h={420} role="log" aria-live="polite" aria-relevant="additions" aria-label={t('admin.observability.live.eventFeed')}>
                     <Table striped highlightOnHover>
                         <Table.Thead>
                             <Table.Tr>
@@ -170,35 +172,48 @@ export default function LiveEventsPage() {
                         </Table.Thead>
                         <Table.Tbody>
                             {events.map((e) => (
-                                <Table.Tr key={e.envelope.id}>
-                                    <Table.Td>
-                                        <Text size="xs" c="dimmed">
-                                            {formatTime(e.envelope.timestamp, locale)}
-                                        </Text>
-                                    </Table.Td>
-                                    <Table.Td>
-                                        <Badge size="xs" variant="outline">
-                                            {e.envelope.domain}
-                                        </Badge>
-                                    </Table.Td>
-                                    <Table.Td>
-                                        <Code style={{ fontSize: 11 }}>{e.envelope.type}</Code>
-                                    </Table.Td>
-                                    <Table.Td>
-                                        <Text
-                                            size="xs"
-                                            ff="DM Mono, monospace"
-                                            style={{
-                                                maxWidth: 440,
-                                                overflow: 'hidden',
-                                                textOverflow: 'ellipsis',
-                                                whiteSpace: 'nowrap',
-                                            }}
-                                        >
-                                            {JSON.stringify(e.data)}
-                                        </Text>
-                                    </Table.Td>
-                                </Table.Tr>
+                                <Fragment key={e.envelope.id}>
+                                    <Table.Tr
+                                        onClick={() => setExpandedId((cur) => (cur === e.envelope.id ? null : e.envelope.id))}
+                                        style={{ cursor: 'pointer' }}
+                                        aria-expanded={expandedId === e.envelope.id}
+                                    >
+                                        <Table.Td>
+                                            <Text size="xs" c="dimmed">
+                                                {formatTime(e.envelope.timestamp, locale)}
+                                            </Text>
+                                        </Table.Td>
+                                        <Table.Td>
+                                            <Badge size="xs" variant="outline">
+                                                {e.envelope.domain}
+                                            </Badge>
+                                        </Table.Td>
+                                        <Table.Td>
+                                            <Code style={{ fontSize: 11 }}>{e.envelope.type}</Code>
+                                        </Table.Td>
+                                        <Table.Td>
+                                            <Text
+                                                size="xs"
+                                                ff="DM Mono, monospace"
+                                                style={{
+                                                    maxWidth: 440,
+                                                    overflow: 'hidden',
+                                                    textOverflow: 'ellipsis',
+                                                    whiteSpace: 'nowrap',
+                                                }}
+                                            >
+                                                {JSON.stringify(e.data)}
+                                            </Text>
+                                        </Table.Td>
+                                    </Table.Tr>
+                                    {expandedId === e.envelope.id && (
+                                        <Table.Tr>
+                                            <Table.Td colSpan={4}>
+                                                <JsonViewer value={e.data} autoExpandDepth={2} />
+                                            </Table.Td>
+                                        </Table.Tr>
+                                    )}
+                                </Fragment>
                             ))}
                             {events.length === 0 && (
                                 <Table.Tr>

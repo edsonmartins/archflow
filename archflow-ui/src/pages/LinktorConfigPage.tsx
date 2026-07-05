@@ -57,7 +57,7 @@ export default function LinktorConfigPage() {
     }
 
     return (
-        <Stack gap="md" style={{ padding: 24, maxWidth: 760 }} data-testid="linktor-config">
+        <Stack gap="md" p="md" maw={760} data-testid="linktor-config">
             <Title order={2}>{t('linktor.config.title')}</Title>
             <Alert color="blue" variant="light">
                 {t('linktor.config.info')}

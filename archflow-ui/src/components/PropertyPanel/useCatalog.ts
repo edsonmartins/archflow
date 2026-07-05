@@ -37,6 +37,10 @@ let memoriesCache:    Promise<CatalogItem[]> | null = null
 let vectorstoreCache: Promise<CatalogItem[]> | null = null
 let chainsCache:      Promise<CatalogItem[]> | null = null
 
+// true quando QUALQUER categoria caiu no fallback estático (backend fora do
+// ar) — exposto via useCatalog().usingFallback para a UI sinalizar modo offline.
+let usedFallback = false
+
 function fetchOnce<T>(
         cacheGetter: () => Promise<T[]> | null,
         cacheSetter: (p: Promise<T[]>) => void,
@@ -45,7 +49,10 @@ function fetchOnce<T>(
 ): Promise<T[]> {
     const existing = cacheGetter()
     if (existing) return existing
-    const promise = fetcher().catch(() => fallback)
+    const promise = fetcher().catch(() => {
+        usedFallback = true
+        return fallback
+    })
     cacheSetter(promise)
     return promise
 }
@@ -88,6 +95,7 @@ function fetchChains() {
 
 /** Resets the module cache. Useful for tests and dev hot-reload. */
 export function resetCatalogCache() {
+    usedFallback = false
     agentsCache = null
     assistantsCache = null
     toolsCache = null
@@ -106,6 +114,8 @@ export interface CatalogData {
     vectorstores: CatalogItem[]
     chains:       CatalogItem[]
     loading:      boolean
+    /** true quando os dados exibidos vêm do fallback estático (backend indisponível) */
+    usingFallback: boolean
 }
 
 /**
@@ -122,6 +132,7 @@ export function useCatalog(): CatalogData {
     const [vectorstores, setVectorStores] = useState<CatalogItem[]>([])
     const [chains,       setChains]       = useState<CatalogItem[]>([])
     const [loading,      setLoading]      = useState(true)
+    const [usingFallback, setUsingFallback] = useState(false)
 
     useEffect(() => {
         let cancelled = false
@@ -143,10 +154,11 @@ export function useCatalog(): CatalogData {
             setMemories(m)
             setVectorStores(v)
             setChains(c)
+            setUsingFallback(usedFallback)
             setLoading(false)
         })
         return () => { cancelled = true }
     }, [])
 
-    return { agents, assistants, tools, embeddings, memories, vectorstores, chains, loading }
+    return { agents, assistants, tools, embeddings, memories, vectorstores, chains, loading, usingFallback }
 }

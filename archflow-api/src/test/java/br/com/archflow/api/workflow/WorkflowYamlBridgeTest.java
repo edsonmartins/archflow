@@ -101,6 +101,42 @@ class WorkflowYamlBridgeTest {
     }
 
     @Test
+    @DisplayName("round-trip preserves the designer fields (label, operation, position, configuration)")
+    void preservesDesignerFields() throws Exception {
+        // The visual designer persists label/operation/position/configuration.
+        // A YAML round-trip must keep them, or opening the Code tab and saving
+        // would silently reset node names, drop the execution operation, and
+        // pile every node at the default position.
+        String json = """
+                {
+                  "id": "wf-1",
+                  "steps": [
+                    {
+                      "id": "s1",
+                      "type": "TOOL",
+                      "componentId": "summarizer",
+                      "label": "Summarize Ticket",
+                      "operation": "summarize",
+                      "position": { "x": 120, "y": 80 },
+                      "configuration": { "temperature": 0.2 },
+                      "connections": []
+                    }
+                  ]
+                }
+                """;
+
+        String yaml = bridge.jsonToYaml(json);
+        assertThat(yaml).contains("Summarize Ticket").contains("summarize").contains("configuration");
+
+        SerializableFlow restored = new FlowSerializer().deserialize(bridge.yamlToJson(yaml));
+        var step = (SerializableStep) restored.getSteps().get(0);
+        assertThat(step.getLabel()).isEqualTo("Summarize Ticket");
+        assertThat(step.getOperation()).isEqualTo("summarize");
+        assertThat(step.getConfiguration()).containsEntry("temperature", 0.2);
+        assertThat(step.getPosition()).containsKeys("x", "y");
+    }
+
+    @Test
     @DisplayName("yamlToJson produces a parseable JSON")
     void yamlToJson() throws Exception {
         SerializableFlow flow = sample();

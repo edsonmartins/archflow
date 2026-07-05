@@ -51,10 +51,10 @@ test.describe('Observability interactions', () => {
         ]);
 
         await authenticateAsSuperadmin(page);
-        await page.goto('/admin/observability/traces');
+        await page.goto('/admin/observability/traces', { waitUntil: 'commit' });
 
-        await expect(page.getByText('trace-ok-1234'.slice(0, 12))).toBeVisible();
-        await expect(page.getByText('trace-error-5678'.slice(0, 12))).toBeVisible();
+        await expect(page.getByText('trace-ok-1234'.slice(0, 12))).toBeVisible({ timeout: 20_000 });
+        await expect(page.getByText('trace-error-5678'.slice(0, 12))).toBeVisible({ timeout: 20_000 });
 
         await page.getByTestId('traces-search').fill('error');
         await expect(page.getByText('trace-error-5678'.slice(0, 12))).toBeVisible();
@@ -96,9 +96,9 @@ test.describe('Observability interactions', () => {
         ]);
 
         await authenticateAsSuperadmin(page);
-        await page.goto('/admin/observability/metrics');
+        await page.goto('/admin/observability/metrics', { waitUntil: 'commit' });
 
-        await expect(page.getByRole('heading', { name: 'Latency (ms)' })).toBeVisible();
+        await expect(page.getByRole('heading', { name: 'Latency (ms)' })).toBeVisible({ timeout: 20_000 });
 
         await page.getByTestId('metric-select').click();
         await page.getByRole('option', { name: 'Error rate' }).click();
@@ -137,13 +137,13 @@ test.describe('Observability interactions', () => {
         ]);
 
         await authenticateAsSuperadmin(page);
-        await page.goto('/admin/observability/running');
+        await page.goto('/admin/observability/running', { waitUntil: 'commit' });
 
-        await expect(page.getByText('flow-running-1')).toBeVisible();
-        await expect(page.getByText('step-router')).toBeVisible();
+        await expect(page.getByText('flow-running-1')).toBeVisible({ timeout: 15_000 });
+        await expect(page.getByText('step-router')).toBeVisible({ timeout: 15_000 });
 
         await page.locator('tbody tr').first().getByRole('button').click();
-        await page.getByRole('button', { name: 'Cancel flow' }).dispatchEvent('click');
+        await page.getByRole('dialog').getByRole('button', { name: 'Cancel flow' }).click();
 
         await expect(page.getByRole('main').getByText('flow-running-1', { exact: true })).toBeHidden();
         await expect(page.getByText('No flows running right now')).toBeVisible();

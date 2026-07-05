@@ -87,7 +87,8 @@ public class ApprovalQueueService {
                 decision,
                 request.editedPayload(),
                 request.responderId(),
-                null);
+                null,
+                request.comment());
 
         Optional<ApprovalRequest> result;
         try {

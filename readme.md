@@ -46,7 +46,7 @@ Build, visualize, and orchestrate AI agent workflows with a drag-and-drop design
 - **MCP Protocol**: Model Context Protocol for standardized tool integration, with cleanup hooks for stdio servers
 - **Agent Skills**: Load, activate, and manage behavioral instruction bundles ([agentskills.io](https://agentskills.io) spec) — now per-tenant scoped
 - **Brain Sentry**: Long-term agent memory with automatic context injection, hybrid search, and PII protection — per-tenant credentials
-- **Spring Boot 4.0.0**: Native integration with the Spring ecosystem
+- **Spring Boot 4.0.0**: REST API and auto-configuration layer (the agent core itself is framework-agnostic, built on pure Java + LangChain4j)
 - **Suspend/Resume**: Conversational workflows with dynamic forms and human-in-the-loop
 
 ### Agent Patterns
@@ -89,7 +89,7 @@ archflow implements the industry-standard agent patterns validated by Anthropic,
 Design workflows visually, then export them as **self-contained JARs** that run anywhere — no server, no database, no cloud required.
 
 ```
-Design (browser) → Export (JSON) → Package (JAR ~15 MB) → Deploy (any machine with Java 25)
+Design (browser) → Export (JSON) → Package (JAR ~19 MB) → Deploy (any machine with Java 25)
 ```
 
 ```bash
@@ -99,7 +99,7 @@ java -jar my-workflow.jar customer-support.json --input "Track order #123"
 ```
 
 - **Zero infrastructure**: No Spring Boot, no PostgreSQL, no Redis
-- **~15 MB JAR**: Includes flow engine, agent patterns, and LangChain4j runtime
+- **~19 MB JAR**: Includes flow engine, agent patterns, and LangChain4j runtime
 - **CLI interface**: `--input`, `--var key=value`, `--timeout`, `--threads`, `--plugins`
 - **Environment config**: `ARCHFLOW_API_KEY`, `ARCHFLOW_MODEL`, `ARCHFLOW_PROVIDER`
 

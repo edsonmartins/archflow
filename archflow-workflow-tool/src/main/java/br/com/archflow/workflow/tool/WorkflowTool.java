@@ -147,17 +147,12 @@ public class WorkflowTool {
             return executor.apply(input);
         }
 
-        // Fallback: return the workflow metadata as a placeholder
-        // Users should configure an executor for actual workflow execution
-        log.warn("No executor configured for workflow tool {}, returning metadata placeholder. " +
-                 "Configure an executor using .executor() in the builder.", id);
-        return Map.of(
-                "workflowId", workflow.getId(),
-                "workflowName", workflow.getName(),
-                "input", input,
-                "metadata", workflow.getMetadata(),
-                "_note", "This is a placeholder. Configure a WorkflowExecutor for actual execution."
-        );
+        // Sem executor não há execução real — devolver metadados como
+        // placeholder mascarava a má configuração e o caller (inclusive um
+        // LLM) consumia o "resultado" como se o workflow tivesse rodado.
+        throw new IllegalStateException(
+                "Workflow tool '" + id + "' has no executor configured — it cannot execute. "
+                + "Configure one with .executor() in the builder.");
     }
 
     public String getId() {

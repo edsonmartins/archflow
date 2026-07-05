@@ -350,9 +350,9 @@ test.describe('Admin roles and integrated pages', () => {
 
         await page.getByLabel('Tenant name').fill('ACME Health');
         await page.getByLabel('Admin email').fill('admin@acme.health');
-        await page.getByRole('textbox', { name: 'Sector' }).click();
+        await page.getByRole('combobox', { name: 'Sector' }).click();
         await page.getByRole('option', { name: 'Healthcare' }).click();
-        await page.getByRole('textbox', { name: 'Plan' }).click();
+        await page.getByRole('combobox', { name: 'Plan' }).click();
         await page.getByRole('option', { name: 'Enterprise' }).click();
 
         await page.getByRole('button', { name: 'Create tenant' }).click();
@@ -369,7 +369,7 @@ test.describe('Admin roles and integrated pages', () => {
         await page.getByRole('button', { name: 'Invite User' }).click();
         const inviteDialog = page.getByRole('dialog', { name: 'Invite User' });
         await inviteDialog.getByLabel('Email').fill('new.user@acme.com');
-        await inviteDialog.getByRole('textbox', { name: 'Role' }).dispatchEvent('click');
+        await inviteDialog.getByRole('combobox', { name: 'Role' }).click();
         await page.getByRole('option', { name: 'Viewer' }).click();
         await inviteDialog.getByRole('button', { name: 'Send Invite' }).dispatchEvent('click');
         await expect(page.getByRole('main').getByText('new.user@acme.com', { exact: true })).toBeVisible();
@@ -384,7 +384,7 @@ test.describe('Admin roles and integrated pages', () => {
         await page.getByRole('button', { name: 'Create Key' }).click();
         const dialog = page.getByRole('dialog', { name: 'Create API Key' });
         await dialog.getByLabel('Key name').fill('Portal Widget');
-        await dialog.getByRole('textbox', { name: 'Type' }).dispatchEvent('click');
+        await dialog.getByRole('combobox', { name: 'Type' }).click();
         await page.getByRole('option', { name: 'Web Component' }).click();
         await dialog.getByRole('button', { name: 'Create' }).dispatchEvent('click');
 
@@ -399,7 +399,7 @@ test.describe('Admin roles and integrated pages', () => {
 
         const debugToggle = page.getByLabel('Debug mode — full trace per node');
         await expect(debugToggle).not.toBeChecked();
-        await page.getByText('Debug mode — full trace per node').click();
+        await debugToggle.click();
         await expect(debugToggle).toBeChecked();
         await expect(page.getByText('GPT-4o')).toBeVisible();
         await expect(page.getByText('enterprise')).toBeVisible();

@@ -23,6 +23,9 @@ import java.util.Map;
  */
 public class ConversationalAgent {
 
+    private static final org.slf4j.Logger log =
+            org.slf4j.LoggerFactory.getLogger(ConversationalAgent.class);
+
     /** Abstração mínima do LLM: dado o transcript atual, devolve o texto do assistente. */
     @FunctionalInterface
     public interface ChatFunction {
@@ -118,6 +121,9 @@ public class ConversationalAgent {
         try {
             return tool.get().execute(tc.params());
         } catch (Exception e) {
+            // O texto "ERROR:" volta ao loop do LLM (que pode reagir), mas a
+            // exceção precisa ficar no log do servidor com stack trace.
+            log.error("Tool '{}' failed during conversational loop", tc.tool(), e);
             return "ERROR: " + e.getMessage();
         }
     }

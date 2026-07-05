@@ -129,6 +129,23 @@ class ApprovalQueueServiceTest {
     }
 
     @Test
+    @DisplayName("submitDecision propagates the reviewer comment into the decision event")
+    void submitWithComment() {
+        ApprovalRegistry spyRegistry = org.mockito.Mockito.spy(registry);
+        ApprovalQueueService spiedService = new ApprovalQueueService(spyRegistry);
+        spyRegistry.register(sample("req-1", "acme", "flow-a", "step-1"));
+
+        spiedService.submitDecision("req-1",
+                new ApprovalSubmitRequest("acme", "REJECTED", null, "bob", "tone is too aggressive"));
+
+        var captor = org.mockito.ArgumentCaptor.forClass(
+                br.com.archflow.conversation.approval.HumanDecisionEvent.class);
+        org.mockito.Mockito.verify(spyRegistry).submitDecision(captor.capture());
+        assertThat(captor.getValue().comment()).isEqualTo("tone is too aggressive");
+        assertThat(captor.getValue().responderId()).isEqualTo("bob");
+    }
+
+    @Test
     @DisplayName("submitDecision rejects unknown decision values")
     void submitUnknownDecision() {
         registry.register(sample("req-1", "acme", "flow-a", "step-1"));

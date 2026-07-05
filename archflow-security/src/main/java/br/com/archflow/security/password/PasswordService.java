@@ -118,11 +118,11 @@ public class PasswordService {
         String special = "!@#$%^&*()-_=+<>?";
 
         String all = upper + lower + digits + special;
+        java.security.SecureRandom random = new java.security.SecureRandom();
         StringBuilder password = new StringBuilder();
 
         for (int i = 0; i < length; i++) {
-            int index = (int) (Math.random() * all.length());
-            password.append(all.charAt(index));
+            password.append(all.charAt(random.nextInt(all.length())));
         }
 
         return password.toString();

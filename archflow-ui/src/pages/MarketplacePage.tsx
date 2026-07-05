@@ -2,12 +2,13 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import {
-    Badge, Button, Card, Group, Modal, Stack, Text, TextInput, Title,
+    Badge, Button, Card, Group, Modal, Skeleton, Stack, Text, TextInput, Title,
     Tabs, Tooltip,
 } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import { marketplaceApi, type Extension } from '../services/marketplace-api'
 import { ApiError } from '../services/api'
+import { confirmAction } from '../lib/confirm'
 
 /**
  * Lists, searches and installs/uninstalls marketplace extensions.
@@ -27,11 +28,15 @@ export default function MarketplacePage() {
     const [installOpen, setOpen]  = useState(false)
     const [manifestUrl, setUrl]   = useState('')
 
-    const reload = async () => {
+    // Parameters default to current state; state setters are async, so
+    // callers that change query/type in the same tick MUST pass the new
+    // values explicitly (the old setTimeout(reload, 0) pattern re-queried
+    // with stale closures).
+    const reload = async (q = query, ty = typeFilter) => {
         setLoading(true)
         try {
-            const hits = query || typeFilter
-                ? await marketplaceApi.search(query, typeFilter)
+            const hits = q || ty
+                ? await marketplaceApi.search(q, ty)
                 : await marketplaceApi.list()
             setItems(hits)
         } catch (err) {
@@ -49,6 +54,11 @@ export default function MarketplacePage() {
         items.forEach(i => { if (i.type) s.add(i.type) })
         return Array.from(s)
     }, [items])
+
+    // Always clear the manifest field when the dialog closes — otherwise a
+    // cancelled/failed install leaves a stale path that the next Install click
+    // (a different extension) would show and could reflexively re-submit.
+    const closeInstall = () => { setOpen(false); setUrl('') }
 
     const handleInstall = async () => {
         if (!manifestUrl.trim()) {
@@ -68,23 +78,30 @@ export default function MarketplacePage() {
         }
     }
 
-    const handleUninstall = async (ext: Extension) => {
-        setInst(ext.id)
-        try {
-            await marketplaceApi.uninstall(ext.id)
-            notifications.show({ color: 'green', title: t('marketplace.uninstallOk'),
-                message: t('marketplace.uninstallOkMsg', { name: ext.displayName }) })
-            await reload()
-        } catch (err) {
-            notifications.show({ color: 'red', title: t('marketplace.uninstallFailed'),
-                message: err instanceof ApiError ? err.message : String(err) })
-        } finally {
-            setInst(null)
-        }
+    const handleUninstall = (ext: Extension) => {
+        confirmAction({
+            title: t('confirmations.uninstallTitle'),
+            message: t('confirmations.uninstallMessage', { name: ext.displayName }),
+            confirmLabel: t('confirmations.uninstall'),
+            onConfirm: async () => {
+                setInst(ext.id)
+                try {
+                    await marketplaceApi.uninstall(ext.id)
+                    notifications.show({ color: 'green', title: t('marketplace.uninstallOk'),
+                        message: t('marketplace.uninstallOkMsg', { name: ext.displayName }) })
+                    await reload()
+                } catch (err) {
+                    notifications.show({ color: 'red', title: t('marketplace.uninstallFailed'),
+                        message: err instanceof ApiError ? err.message : String(err) })
+                } finally {
+                    setInst(null)
+                }
+            },
+        })
     }
 
     return (
-        <Stack gap="md" style={{ padding: 24 }} data-testid="marketplace-page">
+        <Stack gap="md" p="md" data-testid="marketplace-page">
             <Group justify="space-between">
                 <Title order={2}>{t('marketplace.title')}</Title>
                 <Button onClick={() => setOpen(true)} data-testid="marketplace-install-btn">
@@ -101,11 +118,15 @@ export default function MarketplacePage() {
                     style={{ flex: 1 }}
                     data-testid="marketplace-search"
                 />
-                <Button variant="default" onClick={reload}>{t('marketplace.searchBtn')}</Button>
+                <Button variant="default" onClick={() => reload()}>{t('marketplace.searchBtn')}</Button>
             </Group>
 
             <Tabs value={typeFilter ?? 'all'}
-                  onChange={v => { setType(v === 'all' ? undefined : (v ?? undefined)); setTimeout(reload, 0) }}>
+                  onChange={v => {
+                      const next = v === 'all' ? undefined : (v ?? undefined)
+                      setType(next)
+                      reload(query, next)
+                  }}>
                 <Tabs.List>
                     <Tabs.Tab value="all">{t('marketplace.allTab', { count: items.length })}</Tabs.Tab>
                     {types.map(ty => (
@@ -114,9 +135,24 @@ export default function MarketplacePage() {
                 </Tabs.List>
             </Tabs>
 
-            {loading && <Text c="dimmed">{t('triggers.loading')}</Text>}
+            {loading && (
+                <Stack gap="sm" aria-hidden>
+                    {[0, 1, 2].map(i => <Skeleton key={i} height={104} radius="md" />)}
+                </Stack>
+            )}
             {!loading && items.length === 0 && (
-                <Text c="dimmed" ta="center" py={40}>{t('marketplace.empty')}</Text>
+                <Stack align="center" gap="xs" py={40}>
+                    <Text c="dimmed" ta="center">{t('marketplace.empty')}</Text>
+                    {(query || typeFilter) && (
+                        <Button
+                            variant="light"
+                            size="xs"
+                            onClick={() => { setQuery(''); setType(undefined); reload('', undefined) }}
+                        >
+                            {t('marketplace.clearSearch')}
+                        </Button>
+                    )}
+                </Stack>
             )}
 
             <Stack gap="sm">
@@ -146,8 +182,17 @@ export default function MarketplacePage() {
                                         </Button>
                                     </Tooltip>
                                 ) : (
-                                    <Tooltip label={t('marketplace.notInstalledHint')}>
-                                        <Button variant="light" disabled>{t('marketplace.notInstalled')}</Button>
+                                    <Tooltip label={t('marketplace.installHint')}>
+                                        <Button
+                                            variant="light"
+                                            // The catalog doesn't expose the manifest location yet
+                                            // (backend follow-up), so the dialog opens empty — the
+                                            // server's filesystem layout is not the UI's to guess.
+                                            onClick={() => setOpen(true)}
+                                            data-testid={`install-${ext.id}`}
+                                        >
+                                            {t('marketplace.install')}
+                                        </Button>
                                     </Tooltip>
                                 )}
                             </Group>
@@ -156,7 +201,7 @@ export default function MarketplacePage() {
                 ))}
             </Stack>
 
-            <Modal opened={installOpen} onClose={() => setOpen(false)} title={t('marketplace.installTitle')}
+            <Modal opened={installOpen} onClose={closeInstall} title={t('marketplace.installTitle')}
                    centered data-testid="install-modal">
                 <Stack>
                     <TextInput
@@ -168,7 +213,7 @@ export default function MarketplacePage() {
                         data-testid="manifest-path"
                     />
                     <Group justify="flex-end">
-                        <Button variant="default" onClick={() => setOpen(false)}>{t('common.cancel')}</Button>
+                        <Button variant="default" onClick={closeInstall}>{t('common.cancel')}</Button>
                         <Button onClick={handleInstall} data-testid="install-submit">{t('marketplace.submitInstall')}</Button>
                     </Group>
                 </Stack>

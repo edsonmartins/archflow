@@ -56,10 +56,13 @@ test.describe('Conversation actions', () => {
         await authenticate(page);
         await installSilentEventSource(page);
 
-        await page.goto('/conversations/conv-actions-1');
+        await page.goto('/conversations/conv-actions-1', { waitUntil: 'commit' });
 
-        await page.getByPlaceholder('Type a message...').fill('preciso do status do pedido');
-        await page.getByRole('button', { name: 'Send' }).click();
+        const main = page.getByRole('main');
+        const messageInput = main.locator('input[placeholder="Type a message..."]');
+        await expect(messageInput).toBeVisible({ timeout: 20_000 });
+        await messageInput.fill('preciso do status do pedido');
+        await messageInput.press('Enter');
 
         await expect(page.getByText('preciso do status do pedido')).toBeVisible();
         await expect.poll(() => sentContent).toBe('preciso do status do pedido');
@@ -129,11 +132,13 @@ test.describe('Conversation actions', () => {
         await authenticate(page);
         await installSilentEventSource(page);
 
-        await page.goto('/conversations/conv-actions-1');
+        await page.goto('/conversations/conv-actions-1', { waitUntil: 'commit' });
 
-        await expect(page.getByRole('main').getByText('Customer confirmation', { exact: true })).toBeVisible();
-        await page.getByLabel('Order').fill('12345');
-        await page.getByLabel('Accept terms').check();
+        const main = page.getByRole('main');
+        await expect(page.getByRole('log', { name: 'Conversation messages' })).toBeVisible({ timeout: 20_000 });
+        await expect(main.getByText('Customer confirmation', { exact: true })).toBeVisible({ timeout: 20_000 });
+        await main.getByLabel('Order').fill('12345');
+        await main.getByLabel('Accept terms').check();
         await page.getByRole('button', { name: 'Send confirmation' }).click();
 
         await expect.poll(() => resumePayload).toEqual({ order: '12345', accept: true });
@@ -182,7 +187,7 @@ test.describe('Conversation actions', () => {
         await authenticate(page);
         await installSilentEventSource(page);
 
-        await page.goto('/conversations/conv-actions-1');
+        await page.goto('/conversations/conv-actions-1', { waitUntil: 'commit' });
 
         await page.getByRole('button', { name: 'Cancel' }).click();
 

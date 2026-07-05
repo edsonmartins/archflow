@@ -35,6 +35,11 @@
   --green:   #059669; --green-l: #ECFDF5;
   --red:     #DC2626; --red-l:   #FEF2F2;
 
+  /* AA-contrast text on the -l tinted backgrounds (dark variants below). */
+  --amber-text: #92400E;
+  --green-text: #065F46;
+  --red-text:   #991B1B;
+
   /* Node category colors */
   --cat-agent:   #2563EB; --cat-agent-l:   #DBEAFE;
   --cat-control: #7C3AED; --cat-control-l: #EDE9FE;
@@ -77,6 +82,24 @@
   --color-text-primary:         var(--text);
   --color-text-secondary:       var(--text2);
   --color-text-tertiary:        var(--text3);
+
+  /* Semantic tints: translucent in dark so they sit on any surface. */
+  --blue-l:   rgba(59, 130, 246, 0.15);
+  --purple-l: rgba(139, 92, 246, 0.15);
+  --teal-l:   rgba(13, 148, 136, 0.18);
+  --coral-l:  rgba(220, 78, 38, 0.16);
+  --amber-l:  rgba(217, 119, 6, 0.16);
+  --gray-l:   rgba(107, 114, 128, 0.16);
+  --green-l:  rgba(5, 150, 105, 0.16);
+  --red-l:    rgba(220, 38, 38, 0.16);
+  --amber-text: #FCD34D;
+  --green-text: #6EE7B7;
+  --red-text:   #FCA5A5;
+}
+
+/* Hover state for the drop-connection node menu (AddNodeMenu). */
+.af-add-node-option:hover {
+  background: var(--color-background-secondary);
 }
 
 body {
@@ -94,6 +117,57 @@ body {
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50%       { opacity: 0.6; }
+}
+
+/* ── Canvas motion (nós e edges do editor) ───────────────────── */
+
+/* Entrada: nós surgem com um lift sutil ao serem adicionados */
+@keyframes af-node-enter {
+  from { opacity: 0; transform: translateY(6px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+.react-flow__node {
+  animation: af-node-enter 0.22s ease-out;
+}
+
+/* Executando: anel de pulso na cor de execução */
+@keyframes af-running-glow {
+  0%   { box-shadow: 0 0 0 0 rgba(217, 119, 6, 0.45); }
+  70%  { box-shadow: 0 0 0 8px rgba(217, 119, 6, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(217, 119, 6, 0); }
+}
+.af-node-running {
+  animation: af-running-glow 1.4s ease-out infinite;
+}
+
+/* Concluído: pop curto de confirmação */
+@keyframes af-completed-pop {
+  0%   { transform: scale(1); }
+  40%  { transform: scale(1.03); }
+  100% { transform: scale(1); }
+}
+.af-node-completed {
+  animation: af-completed-pop 0.35s ease-out;
+}
+
+/* Falha: shake único, sem loop (erro não deve "gritar" para sempre) */
+@keyframes af-failed-shake {
+  0%, 100% { transform: translateX(0); }
+  25%      { transform: translateX(-3px); }
+  75%      { transform: translateX(3px); }
+}
+.af-node-failed {
+  animation: af-failed-shake 0.32s ease-in-out;
+}
+
+/* Acessibilidade: respeita prefers-reduced-motion */
+@media (prefers-reduced-motion: reduce) {
+  .react-flow__node,
+  .af-node-running,
+  .af-node-completed,
+  .af-node-failed {
+    animation: none;
+  }
 }
 
 /* ── Badge system (from HTML reference) ──────────────────────── */
@@ -158,4 +232,74 @@ body {
 
 .font-mono {
   font-family: var(--font-mono);
+}
+
+/* ── Canvas outline (alternativa acessível ao React Flow) ────── */
+
+/* Recolhida: fora de tela, mas acessível a leitores de tela e foco. */
+.af-canvas-outline {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Aberta (ou ao receber foco interno): painel visível no canto. */
+.af-canvas-outline--open,
+.af-canvas-outline:focus-within {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 6;
+  width: 320px;
+  max-height: 70%;
+  overflow-y: auto;
+  padding: 12px 14px;
+  margin: 0;
+  clip: auto;
+  white-space: normal;
+  background: var(--bg2);
+  border: 1px solid var(--border2);
+  border-radius: 10px;
+  box-shadow: 0 4px 18px rgba(15, 23, 42, 0.12);
+}
+
+.af-canvas-outline__heading {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0 0 8px;
+}
+.af-canvas-outline ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.af-canvas-outline button {
+  width: 100%;
+  text-align: left;
+  font-size: 12px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  cursor: pointer;
+  color: var(--text);
+}
+.af-canvas-outline button:hover,
+.af-canvas-outline button:focus-visible {
+  border-color: var(--border2);
+  background: var(--bg3);
+  outline: 2px solid var(--blue);
+  outline-offset: 1px;
+}
+.af-canvas-outline button[aria-current='true'] {
+  border-color: var(--blue);
 }

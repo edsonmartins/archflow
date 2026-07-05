@@ -10,7 +10,7 @@ import { useAuthStore } from '../stores/auth-store';
 function ArchflowLogo() {
     return (
         <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
-            <rect width="48" height="48" rx="12" fill="#185FA5"/>
+            <rect width="48" height="48" rx="12" fill="#2563EB"/>
             <circle cx="14" cy="24" r="5" stroke="white" strokeWidth="2"/>
             <circle cx="34" cy="14" r="4" stroke="white" strokeWidth="2"/>
             <circle cx="34" cy="34" r="4" stroke="white" strokeWidth="2"/>
@@ -89,18 +89,20 @@ export default function LoginPage() {
                     </form>
                 </Paper>
 
-                <Alert
-                    icon={<IconInfoCircle size={16} />}
-                    color="blue"
-                    variant="light"
-                    mt="md"
-                    radius="lg"
-                    title={t('login.devCredentials')}
-                >
-                    <Text size="sm">
-                        {t('login.username')}: <Code>admin</Code> &nbsp; {t('login.password')}: <Code>admin123</Code>
-                    </Text>
-                </Alert>
+                {import.meta.env.DEV && (
+                    <Alert
+                        icon={<IconInfoCircle size={16} />}
+                        color="blue"
+                        variant="light"
+                        mt="md"
+                        radius="lg"
+                        title={t('login.devCredentials')}
+                    >
+                        <Text size="sm">
+                            {t('login.username')}: <Code>admin</Code> &nbsp; {t('login.password')}: <Code>admin123</Code>
+                        </Text>
+                    </Alert>
+                )}
             </Box>
         </Center>
     );

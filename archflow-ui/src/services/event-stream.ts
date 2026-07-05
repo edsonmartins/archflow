@@ -87,18 +87,17 @@ export interface StreamConfig {
 const DEFAULT_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? '/api';
 
 /**
- * EventSource wrapper that knows the ArchFlow envelope format.
+ * SSE wrapper that knows the ArchFlow envelope format.
  *
- * Browsers do not support setting Authorization headers on EventSource, so we
- * pass the JWT as a `?token=` query parameter when present in localStorage.
- * The backend StreamController accepts both header- and query-based auth.
+ * Uses fetch + ReadableStream instead of EventSource so authenticated streams
+ * can use the Authorization header and avoid leaking JWTs through query strings.
  *
  * Reconnect strategy: exponential backoff (250ms, 500ms, 1s, 2s, 4s) up to
  * `maxReconnectAttempts`. After that the stream is marked as `error` and the
  * caller can decide whether to retry manually.
  */
 export class ArchflowEventStream {
-    private source: EventSource | null = null;
+    private controller: AbortController | null = null;
     private status: StreamStatus = 'idle';
     private listeners = new Set<(evt: ArchflowEvent) => void>();
     private statusListeners = new Set<(status: StreamStatus) => void>();
@@ -126,9 +125,9 @@ export class ArchflowEventStream {
             clearTimeout(this.reconnectTimer);
             this.reconnectTimer = null;
         }
-        if (this.source) {
-            this.source.close();
-            this.source = null;
+        if (this.controller) {
+            this.controller.abort();
+            this.controller = null;
         }
         this.setStatus('closed');
     }
@@ -152,67 +151,90 @@ export class ArchflowEventStream {
 
     private connect(): void {
         const { tenantId, sessionId, baseUrl = DEFAULT_BASE } = this.config;
-        const token = localStorage.getItem('archflow_token');
+        const token = sessionStorage.getItem('archflow_token');
         const url = new URL(
             `${baseUrl}/stream/${encodeURIComponent(tenantId)}/${encodeURIComponent(sessionId)}`,
             window.location.origin,
         );
-        if (token) url.searchParams.set('token', token);
 
         this.setStatus(this.reconnectAttempts === 0 ? 'connecting' : 'reconnecting');
 
-        const source = new EventSource(url.toString());
-        this.source = source;
+        const controller = new AbortController();
+        this.controller = controller;
 
-        source.onopen = () => {
-            this.reconnectAttempts = 0;
-            this.setStatus('open');
-        };
+        void this.readStream(url, token, controller).catch(() => {
+            this.handleStreamEnd();
+        });
+    }
 
-        source.onmessage = (e) => {
-            this.dispatchRaw(e.data);
-        };
+    private async readStream(url: URL, token: string | null, controller: AbortController): Promise<void> {
+        const response = await fetch(url.toString(), {
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+            signal: controller.signal,
+        });
 
-        // Backend may also emit named events per envelope.type — bind the most
-        // common ones so the parser doesn't drop them when only `event:` is sent.
-        const namedEvents: ArchflowEventType[] = [
-            'delta',
-            'message',
-            'tool_start',
-            'progress',
-            'result',
-            'tool_error',
-            'suspend',
-            'form',
-            'resume',
-            'thinking',
-            'heartbeat',
-            'error',
-            'start',
-            'end',
-        ];
-        for (const name of namedEvents) {
-            source.addEventListener(name, (e) => this.dispatchRaw((e as MessageEvent).data));
+        if (!response.ok || !response.body) {
+            throw new Error(`Stream failed with status ${response.status}`);
         }
 
-        source.onerror = () => {
-            if (this.closedByUser) return;
-            source.close();
-            this.source = null;
-            if (this.config.autoReconnect === false) {
-                this.setStatus('error');
-                return;
+        this.reconnectAttempts = 0;
+        this.setStatus('open');
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            buffer = this.consumeSseBuffer(buffer);
+        }
+
+        const tail = decoder.decode();
+        if (tail) {
+            buffer = this.consumeSseBuffer(buffer + tail);
+        }
+
+        if (!this.closedByUser) {
+            this.handleStreamEnd();
+        }
+    }
+
+    private consumeSseBuffer(buffer: string): string {
+        const normalized = buffer.replace(/\r\n/g, '\n');
+        const frames = normalized.split('\n\n');
+        const remainder = frames.pop() ?? '';
+        for (const frame of frames) {
+            const payload = frame
+                .split('\n')
+                .filter((line) => line.startsWith('data:'))
+                .map((line) => line.slice(5).trimStart())
+                .join('\n')
+                .trim();
+            if (payload) {
+                this.dispatchRaw(payload);
             }
-            const max = this.config.maxReconnectAttempts ?? 5;
-            if (this.reconnectAttempts >= max) {
-                this.setStatus('error');
-                return;
-            }
-            const delay = Math.min(4000, 250 * 2 ** this.reconnectAttempts);
-            this.reconnectAttempts += 1;
-            this.setStatus('reconnecting');
-            this.reconnectTimer = setTimeout(() => this.connect(), delay);
-        };
+        }
+        return remainder;
+    }
+
+    private handleStreamEnd(): void {
+        if (this.closedByUser) return;
+        this.controller = null;
+        if (this.config.autoReconnect === false) {
+            this.setStatus('error');
+            return;
+        }
+        const max = this.config.maxReconnectAttempts ?? 5;
+        if (this.reconnectAttempts >= max) {
+            this.setStatus('error');
+            return;
+        }
+        const delay = Math.min(4000, 250 * 2 ** this.reconnectAttempts);
+        this.reconnectAttempts += 1;
+        this.setStatus('reconnecting');
+        this.reconnectTimer = setTimeout(() => this.connect(), delay);
     }
 
     private dispatchRaw(raw: string): void {
@@ -220,7 +242,7 @@ export class ArchflowEventStream {
         let parsed: ArchflowEvent;
         try {
             parsed = JSON.parse(raw) as ArchflowEvent;
-        } catch (err) {
+        } catch {
             // Heartbeat frames are sometimes plain text — ignore them.
             return;
         }

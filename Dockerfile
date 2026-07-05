@@ -65,7 +65,7 @@ COPY --from=frontend-build /app/dist/ /app/static/
 RUN chown -R archflow:archflow /app
 USER archflow
 
-EXPOSE 8080
+EXPOSE 16080
 
 ENV JAVA_OPTS="-Xmx512m -Xms256m"
 

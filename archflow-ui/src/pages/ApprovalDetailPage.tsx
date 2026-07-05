@@ -7,7 +7,6 @@ import {
     Badge,
     Button,
     Center,
-    Code,
     Group,
     Loader,
     Paper,
@@ -26,7 +25,11 @@ import {
     IconX,
 } from '@tabler/icons-react';
 import { approvalApi, type ApprovalResponse } from '../services/approval-api';
+import { JsonViewer } from '../components/JsonViewer';
+import { Meta } from '../components/Meta';
+import { formatInstant } from '../lib/format';
 import { useTenantStore } from '../stores/useTenantStore';
+import { confirmAction } from '../lib/confirm';
 
 export default function ApprovalDetailPage() {
     const { id } = useParams<{ id: string }>();
@@ -84,6 +87,7 @@ export default function ApprovalDetailPage() {
                 decision,
                 editedPayload: parsedPayload,
                 responderId: 'me',
+                comment: comment.trim() || undefined,
             });
             notifications.show({
                 title: t('approvals.detail.decisionSubmitted'),
@@ -101,6 +105,18 @@ export default function ApprovalDetailPage() {
         } finally {
             setSubmitting(false);
         }
+    };
+
+    // Approve/reject submit an irreversible workflow decision, so confirm first.
+    const confirmDecide = (decision: 'APPROVED' | 'REJECTED' | 'EDITED') => {
+        const isReject = decision === 'REJECTED';
+        confirmAction({
+            title: t(isReject ? 'confirmations.rejectApprovalTitle' : 'confirmations.approveApprovalTitle'),
+            message: t(isReject ? 'confirmations.rejectApprovalMessage' : 'confirmations.approveApprovalMessage'),
+            confirmLabel: t(isReject ? 'confirmations.reject' : 'confirmations.approve'),
+            danger: isReject,
+            onConfirm: () => decide(decision),
+        });
     };
 
     if (loading) {
@@ -150,8 +166,8 @@ export default function ApprovalDetailPage() {
                     <Meta label={t('approvals.detail.tenant')} value={approval.tenantId ?? '—'} />
                     <Meta label={t('approvals.detail.flow')} value={approval.flowId ?? '—'} />
                     <Meta label={t('approvals.detail.step')} value={approval.stepId ?? '—'} />
-                    <Meta label={t('approvals.detail.created')} value={formatDate(approval.createdAt, i18n.resolvedLanguage ?? i18n.language)} />
-                    <Meta label={t('approvals.detail.expires')} value={formatDate(approval.expiresAt, i18n.resolvedLanguage ?? i18n.language)} />
+                    <Meta label={t('approvals.detail.created')} value={formatInstant(approval.createdAt, i18n.resolvedLanguage ?? i18n.language)} />
+                    <Meta label={t('approvals.detail.expires')} value={formatInstant(approval.expiresAt, i18n.resolvedLanguage ?? i18n.language)} />
                 </Group>
                 {approval.description && (
                     <Paper mt="sm" p="sm" radius="sm" bg="var(--mantine-color-gray-0)">
@@ -185,12 +201,7 @@ export default function ApprovalDetailPage() {
                         data-testid="approval-edit-payload"
                     />
                 ) : (
-                    <Code
-                        block
-                        style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}
-                    >
-                        {JSON.stringify(approval.proposal, null, 2)}
-                    </Code>
+                    <JsonViewer value={approval.proposal} autoExpandDepth={2} testId="approval-proposal" />
                 )}
             </Paper>
 
@@ -210,8 +221,9 @@ export default function ApprovalDetailPage() {
                     <Button
                         leftSection={<IconCheck size={14} />}
                         color="teal"
+                        loading={submitting}
                         disabled={submitting}
-                        onClick={() => decide(editMode ? 'EDITED' : 'APPROVED')}
+                        onClick={() => confirmDecide(editMode ? 'EDITED' : 'APPROVED')}
                         data-testid="approval-approve"
                     >
                         {editMode ? t('approvals.detail.saveAndApprove') : t('approvals.detail.approve')}
@@ -220,8 +232,9 @@ export default function ApprovalDetailPage() {
                         leftSection={<IconX size={14} />}
                         color="red"
                         variant="light"
+                        loading={submitting}
                         disabled={submitting}
-                        onClick={() => decide('REJECTED')}
+                        onClick={() => confirmDecide('REJECTED')}
                         data-testid="approval-reject"
                     >
                         {t('approvals.detail.reject')}
@@ -237,24 +250,3 @@ export default function ApprovalDetailPage() {
     );
 }
 
-function Meta({ label, value }: { label: string; value: string }) {
-    return (
-        <Stack gap={2}>
-            <Text size="xs" c="dimmed" tt="uppercase" style={{ letterSpacing: 0.5 }}>
-                {label}
-            </Text>
-            <Text size="sm" ff="DM Mono, monospace">
-                {value}
-            </Text>
-        </Stack>
-    );
-}
-
-function formatDate(iso: string | null, locale: string): string {
-    if (!iso) return '—';
-    try {
-        return new Date(iso).toLocaleString(locale);
-    } catch {
-        return iso;
-    }
-}

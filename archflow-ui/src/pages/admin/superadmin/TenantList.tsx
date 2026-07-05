@@ -1,5 +1,5 @@
 import {
-  Title, Table, Badge, Text, Paper, Stack, Group, Button, SimpleGrid, LoadingOverlay, Alert,
+  Table, Badge, Text, Paper, Stack, Group, Button, SimpleGrid, LoadingOverlay, Alert,
 } from '@mantine/core'
 import { IconPlus, IconAlertCircle } from '@tabler/icons-react'
 import { useEffect, useState } from 'react'
@@ -8,6 +8,9 @@ import { useTranslation } from 'react-i18next'
 import { tenantApi, type TenantStats } from '../../../services/admin-api'
 import { useTenantStore } from '../../../stores/useTenantStore'
 import { UsageBar } from '../../../components/admin/UsageBar'
+import { StatCard } from '../../../components/admin/StatCard'
+import { PageHeader } from '../../../components/PageHeader'
+import { StatusBadge } from '../../../components/StatusBadge'
 
 const PLAN_COLORS: Record<string, string> = {
   enterprise:   'blue',
@@ -20,18 +23,6 @@ const STATUS_COLORS: Record<string, string> = {
   active:    'green',
   trial:     'orange',
   suspended: 'red',
-}
-
-function StatCard({ label, value, color }: { label: string; value: string | number; color: string }) {
-  return (
-    <div style={{
-      padding: '18px 20px', borderRadius: 10,
-      border: '1px solid var(--border)', background: 'var(--bg2)',
-    }}>
-      <div style={{ fontSize: 11, fontWeight: 500, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</div>
-      <div style={{ fontSize: 28, fontWeight: 600, marginTop: 4, letterSpacing: '-0.5px', color }}>{value}</div>
-    </div>
-  )
 }
 
 export default function TenantList() {
@@ -92,12 +83,14 @@ export default function TenantList() {
     <Stack gap="md" pos="relative">
       <LoadingOverlay visible={loading} />
 
-      <Group justify="space-between">
-        <Title order={3}>{t('admin.superadmin.tenants.title')}</Title>
-        <Button leftSection={<IconPlus size={16} />} onClick={() => navigate('/admin/tenants/new')}>
-          {t('admin.superadmin.tenants.newTenant')}
-        </Button>
-      </Group>
+      <PageHeader
+        title={t('admin.superadmin.tenants.title')}
+        actions={
+          <Button leftSection={<IconPlus size={16} />} onClick={() => navigate('/admin/tenants/new')}>
+            {t('admin.superadmin.tenants.newTenant')}
+          </Button>
+        }
+      />
 
       {error && (
         <Alert color="red" icon={<IconAlertCircle size={16} />}>
@@ -134,7 +127,7 @@ export default function TenantList() {
                   <Group gap="sm" wrap="nowrap">
                     <div style={{
                       width: 32, height: 32, borderRadius: 8,
-                      background: '#378ADD15', color: '#378ADD',
+                      background: 'var(--blue-l)', color: 'var(--blue)',
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
                       fontWeight: 700, fontSize: 12,
                     }}>
@@ -146,8 +139,14 @@ export default function TenantList() {
                     </div>
                   </Group>
                 </Table.Td>
-                <Table.Td><Badge color={STATUS_COLORS[tenant.status] ?? 'gray'} size="sm">{tenant.status}</Badge></Table.Td>
-                <Table.Td><Badge variant="light" color={PLAN_COLORS[tenant.plan] ?? 'gray'} size="sm">{tenant.plan}</Badge></Table.Td>
+                <Table.Td>
+                  <StatusBadge
+                    status={tenant.status}
+                    color={STATUS_COLORS[tenant.status] ?? 'gray'}
+                    label={t(`admin.superadmin.tenants.statuses.${tenant.status}`, { defaultValue: tenant.status })}
+                  />
+                </Table.Td>
+                <Table.Td><Badge variant="light" color={PLAN_COLORS[tenant.plan] ?? 'gray'} size="sm">{t(`admin.superadmin.tenants.plans.${tenant.plan}`, { defaultValue: tenant.plan })}</Badge></Table.Td>
                 <Table.Td><Text size="xs" c="dimmed">{tenant.createdAt ?? '—'}</Text></Table.Td>
                 <Table.Td>
                   {tenant.usage?.tokensThisMonth !== undefined && tenant.limits?.tokensPerMonth ? (

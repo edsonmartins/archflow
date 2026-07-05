@@ -219,14 +219,14 @@ test.describe('Auth and workflows', () => {
 
         await page.goto('/login');
         await page.getByLabel('Username').fill('admin');
-        await page.getByLabel('Password').fill('wrong-password');
+        await page.getByRole('textbox', { name: 'Password' }).fill('wrong-password');
         await page.getByRole('button', { name: /sign in/i }).click();
 
         await expect(page.getByText('Invalid credentials')).toBeVisible();
 
         await page.unroute('**/api/**');
         await mockApi(page, { loginSucceeds: true });
-        await page.getByLabel('Password').fill('admin123');
+        await page.getByRole('textbox', { name: 'Password' }).fill('admin123');
         await page.getByRole('button', { name: /sign in/i }).click();
 
         await expect(page).toHaveURL(/\/$/);
@@ -238,7 +238,7 @@ test.describe('Auth and workflows', () => {
         await mockApi(page);
         await authenticate(page);
 
-        await page.goto('/');
+        await page.goto('/workflows');
 
         await expect(page.getByText('Customer Support Flow')).toBeVisible();
         await expect(page.getByText('Invoice Approval')).toBeVisible();
@@ -249,16 +249,18 @@ test.describe('Auth and workflows', () => {
 
         await page.getByPlaceholder(/Search workflows/i).fill('');
 
-        await page.locator('button[title="Execute"]').first().click();
+        await page.getByRole('button', { name: 'Execute' }).first().click();
         await expect(page).toHaveURL(/\/executions\?id=exec-wf-customer$/);
 
-        await page.goto('/');
+        await page.goto('/workflows');
         await page.getByRole('button', { name: 'New Workflow' }).click();
+        // The create modal offers scratch / AI / template — take scratch.
+        await page.getByTestId('create-blank').click();
         await expect(page).toHaveURL(/\/editor\/wf-created$/);
         await expect(page.getByText('Untitled Workflow')).toBeVisible();
 
-        await page.goto('/');
-        await page.locator('button[title="Delete"]').nth(1).click();
+        await page.goto('/workflows');
+        await page.getByRole('button', { name: 'Delete' }).nth(1).click();
         await page.getByRole('dialog', { name: 'Delete Workflow' }).getByRole('button', { name: 'Delete' }).dispatchEvent('click');
         await expect(page.getByText('Invoice Approval')).toBeHidden();
         await expect(page.getByText('Customer Support Flow')).toBeVisible();
@@ -270,13 +272,14 @@ test.describe('Auth and workflows', () => {
 
         await page.goto('/executions');
 
-        await expect(page.locator('span', { hasText: 'Customer Support Flow' }).first()).toBeVisible();
-        await expect(page.locator('span', { hasText: 'Invoice Approval' }).first()).toBeVisible();
+        await expect(page.getByRole('cell', { name: 'Customer Support Flow' })).toBeVisible();
+        await expect(page.getByRole('cell', { name: 'Invoice Approval' })).toBeVisible();
         await expect(page.getByText('Missing invoice total')).toBeVisible();
 
-        await page.locator('select').selectOption('wf-invoice');
+        await page.getByRole('combobox', { name: 'All workflows' }).click();
+        await page.getByRole('option', { name: 'Invoice Approval' }).click();
 
-        await expect(page.locator('span', { hasText: 'Invoice Approval' }).first()).toBeVisible();
+        await expect(page.getByRole('cell', { name: 'Invoice Approval' })).toBeVisible();
         await expect(page.getByText('Customer Support Flow')).toBeHidden();
         await expect(page.getByText('Missing invoice total')).toBeVisible();
     });

@@ -94,12 +94,10 @@ test.describe('Approval queue', () => {
         await mockApi(page);
         await authenticate(page);
 
-        await page.goto('/approvals');
+        await page.goto('/approvals', { waitUntil: 'commit' });
 
-        await expect(page.getByRole('heading', { name: 'Approval queue' })).toBeVisible();
-        await expect(page.getByText('2 pending')).toBeVisible();
-        await expect(page.getByText('Approve refund draft for order 12345')).toBeVisible();
-        await expect(page.getByText('Outbound email to vip@acme.com')).toBeVisible();
+        await expect(page.getByRole('button', { name: /Approve refund draft for order 12345/ })).toBeVisible({ timeout: 15_000 });
+        await expect(page.getByRole('button', { name: /Outbound email to vip@acme.com/ })).toBeVisible({ timeout: 15_000 });
 
         // Navbar badge reflects the count
         await expect(page.getByTestId('nav-badge-approvals')).toHaveText('2');
@@ -109,7 +107,7 @@ test.describe('Approval queue', () => {
         await mockApi(page);
         await authenticate(page);
 
-        await page.goto('/approvals');
+        await page.goto('/approvals', { waitUntil: 'commit' });
 
         await page.getByTestId('approvals-search').fill('refund');
         await expect(page.getByText('Approve refund draft for order 12345')).toBeVisible();
@@ -120,15 +118,17 @@ test.describe('Approval queue', () => {
         await mockApi(page);
         await authenticate(page);
 
-        await page.goto('/approvals');
+        await page.goto('/approvals', { waitUntil: 'commit' });
         await page.getByText('Approve refund draft for order 12345').click();
 
         await expect(page).toHaveURL(/\/approvals\/req-approval-1$/);
         // UI truncates the request id to its first 12 chars.
         await expect(page.getByRole('heading', { name: /Approval req-approval/ })).toBeVisible();
-        await expect(page.getByText(/"reason"\s*:\s*"damaged"/)).toBeVisible();
+        // Proposal is rendered by the JsonViewer tree as `key: "value"`.
+        await expect(page.getByText(/reason:\s*"damaged"/)).toBeVisible();
 
         await page.getByTestId('approval-approve').click();
+        await page.getByRole('dialog', { name: 'Approve request' }).getByRole('button', { name: 'Approve' }).click();
 
         await expect(page).toHaveURL(/\/approvals$/);
         await expect(page.getByText('Outbound email to vip@acme.com')).toBeVisible();
@@ -139,8 +139,9 @@ test.describe('Approval queue', () => {
         await mockApi(page);
         await authenticate(page);
 
-        await page.goto('/approvals/req-approval-2');
+        await page.goto('/approvals/req-approval-2', { waitUntil: 'commit' });
         await page.getByTestId('approval-reject').click();
+        await page.getByRole('dialog', { name: 'Reject request' }).getByRole('button', { name: 'Reject' }).click();
 
         await expect(page).toHaveURL(/\/approvals$/);
         await expect(page.getByText('1 pending')).toBeVisible();

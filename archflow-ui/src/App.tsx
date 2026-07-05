@@ -1,8 +1,11 @@
 import './App.css';
 import '@mantine/core/styles.css';
+import '@mantine/charts/styles.css';
 import '@mantine/notifications/styles.css';
+import '@mantine/spotlight/styles.css';
 import '@xyflow/react/dist/style.css';
 import { MantineProvider } from '@mantine/core';
+import { ModalsProvider } from '@mantine/modals';
 import { useLocalStorage } from '@mantine/hooks';
 import { Notifications } from '@mantine/notifications';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
@@ -11,29 +14,44 @@ import { theme } from './theme';
 import AppLayout from './components/layout/AppLayout';
 import ProtectedRoute from './components/ProtectedRoute';
 import LoginPage from './pages/LoginPage';
+import DashboardPage from './pages/DashboardPage';
 import WorkflowListPage from './pages/WorkflowListPage';
 import { WorkflowEditor as WorkflowEditorPage } from './pages/WorkflowEditorPage';
 import ExecutionHistoryPage from './pages/ExecutionHistoryPage';
 import ConversationsListPage from './pages/ConversationsListPage';
 import ConversationPage from './pages/ConversationPage';
-import TemplatesPage from './pages/TemplatesPage';
-import TemplateDetailPage from './pages/TemplateDetailPage';
-import VoicePlaygroundPage from './pages/VoicePlaygroundPage';
 import ApprovalQueuePage from './pages/ApprovalQueuePage';
 import ApprovalDetailPage from './pages/ApprovalDetailPage';
+import ExecutionDetailPage from './pages/ExecutionDetailPage';
+import ScopedApiKeysPage from './pages/admin/tenant/ScopedApiKeysPage';
 import MarketplacePage from './pages/MarketplacePage';
 import MarketplaceDetailPage from './pages/MarketplaceDetailPage';
-import SkillsPage from './pages/SkillsPage';
 import McpServersPage from './pages/McpServersPage';
 import McpServerDetailPage from './pages/McpServerDetailPage';
-import BrainSentryConfigPage from './pages/BrainSentryConfigPage';
 import LinktorConfigPage from './pages/LinktorConfigPage';
 import LinktorInboxPage from './pages/LinktorInboxPage';
 import LinktorConversationPage from './pages/LinktorConversationPage';
-import ScheduledTriggersPage from './pages/ScheduledTriggersPage';
-import ExecutionDetailPage from './pages/ExecutionDetailPage';
-import AgentPlaygroundPage from './pages/AgentPlaygroundPage';
-import ScopedApiKeysPage from './pages/admin/tenant/ScopedApiKeysPage';
+import ObservabilityLayout from './pages/admin/observability/ObservabilityLayout';
+import ObservabilityOverview from './pages/admin/observability/ObservabilityOverview';
+import RunningFlowsPage from './pages/admin/observability/RunningFlowsPage';
+import TracesPage from './pages/admin/observability/TracesPage';
+import TraceDetailPage from './pages/admin/observability/TraceDetailPage';
+import MetricsPage from './pages/admin/observability/MetricsPage';
+import AuditLogPage from './pages/admin/observability/AuditLogPage';
+import LiveEventsPage from './pages/admin/observability/LiveEventsPage';
+
+// Telas secundárias — lazy loaded (templates, marketplace, playgrounds e
+// configurações não precisam entrar no bundle inicial do app)
+const TemplatesPage           = lazy(() => import('./pages/TemplatesPage'));
+const TemplateDetailPage      = lazy(() => import('./pages/TemplateDetailPage'));
+const VoicePlaygroundPage     = lazy(() => import('./pages/VoicePlaygroundPage'));
+const SkillsPage              = lazy(() => import('./pages/SkillsPage'));
+const BrainSentryConfigPage   = lazy(() => import('./pages/BrainSentryConfigPage'));
+const ScheduledTriggersPage   = lazy(() => import('./pages/ScheduledTriggersPage'));
+const AgentPlaygroundPage     = lazy(() => import('./pages/AgentPlaygroundPage'));
+const DynamicWorkflowPage     = lazy(() => import('./pages/DynamicWorkflowPage'));
+const AgUiRunnerPage          = lazy(() => import('./pages/AgUiRunnerPage'));
+const CopilotAssistantPage    = lazy(() => import('./pages/CopilotAssistantPage'));
 
 // Admin pages — lazy loaded
 const AdminLayout       = lazy(() => import('./components/admin/AdminLayout'));
@@ -47,15 +65,6 @@ const UserManagement    = lazy(() => import('./pages/admin/tenant/UserManagement
 const ApiKeys           = lazy(() => import('./pages/admin/tenant/ApiKeys'));
 
 // Observability pages — lazy loaded
-const ObservabilityLayout  = lazy(() => import('./pages/admin/observability/ObservabilityLayout'));
-const ObservabilityOverview = lazy(() => import('./pages/admin/observability/ObservabilityOverview'));
-const RunningFlowsPage     = lazy(() => import('./pages/admin/observability/RunningFlowsPage'));
-const TracesPage           = lazy(() => import('./pages/admin/observability/TracesPage'));
-const TraceDetailPage      = lazy(() => import('./pages/admin/observability/TraceDetailPage'));
-const MetricsPage          = lazy(() => import('./pages/admin/observability/MetricsPage'));
-const AuditLogPage         = lazy(() => import('./pages/admin/observability/AuditLogPage'));
-const LiveEventsPage       = lazy(() => import('./pages/admin/observability/LiveEventsPage'));
-
 export function useColorScheme() {
     return useLocalStorage<'light' | 'dark'>({
         key: 'archflow-color-scheme',
@@ -68,6 +77,7 @@ function App() {
 
     return (
         <MantineProvider theme={theme} forceColorScheme={colorScheme}>
+            <ModalsProvider>
             <Notifications position="top-right" />
             <BrowserRouter>
                 <Suspense fallback={<div style={{ padding: 40, textAlign: 'center' }}>Loading...</div>}>
@@ -76,7 +86,8 @@ function App() {
 
                         {/* Main app routes */}
                         <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
-                            <Route path="/" element={<WorkflowListPage />} />
+                            <Route path="/" element={<DashboardPage />} />
+                            <Route path="/workflows" element={<WorkflowListPage />} />
                             <Route path="/editor" element={<WorkflowEditorPage />} />
                             <Route path="/editor/:id" element={<WorkflowEditorPage />} />
                             <Route path="/executions" element={<ExecutionHistoryPage />} />
@@ -91,6 +102,9 @@ function App() {
                             <Route path="/marketplace/:id" element={<MarketplaceDetailPage />} />
                             <Route path="/executions/:id" element={<ExecutionDetailPage />} />
                             <Route path="/playground/agent" element={<AgentPlaygroundPage />} />
+                            <Route path="/playground/orchestration" element={<DynamicWorkflowPage />} />
+                            <Route path="/playground/ag-ui" element={<AgUiRunnerPage />} />
+                            <Route path="/playground/copilot" element={<CopilotAssistantPage />} />
                         </Route>
 
                         {/* Admin routes */}
@@ -132,6 +146,7 @@ function App() {
                     </Routes>
                 </Suspense>
             </BrowserRouter>
+            </ModalsProvider>
         </MantineProvider>
     );
 }

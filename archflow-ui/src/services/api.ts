@@ -7,8 +7,62 @@ class ApiError extends Error {
     }
 }
 
+// ── Refresh automático de token ─────────────────────────────────────
+// Renova o access token antes de expirar (margem de 60s). Single-flight:
+// requests concorrentes aguardam o mesmo refresh em vez de disparar vários.
+const REFRESH_MARGIN_MS = 60_000;
+let refreshInFlight: Promise<void> | null = null;
+
+/** Lê o `exp` do payload do JWT sem validar assinatura (só para agendar o refresh). */
+export function tokenExpiresAt(token: string): number | null {
+    try {
+        const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+        return typeof payload.exp === 'number' ? payload.exp * 1000 : null;
+    } catch {
+        return null;
+    }
+}
+
+async function ensureFreshToken(): Promise<void> {
+    const token = sessionStorage.getItem('archflow_token');
+    const refreshToken = sessionStorage.getItem('archflow_refresh_token');
+    if (!token || !refreshToken) return;
+
+    const expiresAt = tokenExpiresAt(token);
+    if (expiresAt === null || expiresAt - Date.now() > REFRESH_MARGIN_MS) return;
+
+    if (!refreshInFlight) {
+        refreshInFlight = (async () => {
+            try {
+                const response = await fetch(`${API_BASE}/auth/refresh`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ refreshToken }),
+                });
+                if (!response.ok) return; // o request original recebe 401 e redireciona
+                const res = await response.json();
+                if (res.accessToken) sessionStorage.setItem('archflow_token', res.accessToken);
+                if (res.refreshToken) sessionStorage.setItem('archflow_refresh_token', res.refreshToken);
+            } catch {
+                // rede indisponível: deixa o request original decidir (401 → login)
+            } finally {
+                refreshInFlight = null;
+            }
+        })();
+    }
+    await refreshInFlight;
+}
+
+/** Endpoints de auth não devem disparar refresh (evita recursão/loop). */
+function skipsRefresh(path: string): boolean {
+    return path.startsWith('/auth/login') || path.startsWith('/auth/refresh');
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-    const token = localStorage.getItem('archflow_token');
+    if (!skipsRefresh(path)) {
+        await ensureFreshToken();
+    }
+    const token = sessionStorage.getItem('archflow_token');
     const headers: Record<string, string> = {
         'Content-Type': 'application/json',
         ...((options.headers as Record<string, string>) || {}),
@@ -24,7 +78,8 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     const response = await fetch(`${API_BASE}${path}`, { ...options, headers });
 
     if (response.status === 401) {
-        localStorage.removeItem('archflow_token');
+        sessionStorage.removeItem('archflow_token');
+        sessionStorage.removeItem('archflow_refresh_token');
         window.location.href = '/login';
         throw new ApiError(401, 'Unauthorized');
     }
@@ -102,8 +157,13 @@ export interface ExecutionSummary {
 }
 
 export const executionApi = {
-    list: (workflowId?: string) =>
-        api.get<ExecutionSummary[]>(workflowId ? `/executions?workflowId=${workflowId}` : '/executions'),
+    list: (options?: { workflowId?: string; limit?: number }) => {
+        const params = new URLSearchParams();
+        if (options?.workflowId) params.set('workflowId', options.workflowId);
+        if (options?.limit) params.set('limit', String(options.limit));
+        const query = params.toString();
+        return api.get<ExecutionSummary[]>(query ? `/executions?${query}` : '/executions');
+    },
     get: (id: string) => api.get<ExecutionSummary>(`/executions/${id}`),
 };
 

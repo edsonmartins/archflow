@@ -24,7 +24,7 @@ interface AuthState {
 
 export const useAuthStore = create<AuthState>((set, get) => ({
     user: null,
-    token: localStorage.getItem('archflow_token'),
+    token: sessionStorage.getItem('archflow_token'),
     loading: false,
     error: null,
 
@@ -32,8 +32,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         set({ loading: true, error: null });
         try {
             const { token, refreshToken } = await authApi.login(username, password);
-            localStorage.setItem('archflow_token', token);
-            localStorage.setItem('archflow_refresh_token', refreshToken);
+            sessionStorage.setItem('archflow_token', token);
+            sessionStorage.setItem('archflow_refresh_token', refreshToken);
             set({ token, loading: false });
             await get().loadUser();
         } catch (e) {
@@ -48,8 +48,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         } catch {
             // ignore logout errors
         }
-        localStorage.removeItem('archflow_token');
-        localStorage.removeItem('archflow_refresh_token');
+        sessionStorage.removeItem('archflow_token');
+        sessionStorage.removeItem('archflow_refresh_token');
         set({ user: null, token: null });
     },
 

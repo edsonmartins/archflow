@@ -1,11 +1,19 @@
-import { useEffect, useCallback, useMemo, useState } from 'react'
-import { useParams }         from 'react-router-dom'
+import { useEffect, useCallback, useMemo, useRef, useState } from 'react'
+import { useParams, useSearchParams } from 'react-router-dom'
 import { useTranslation }    from 'react-i18next'
 import { notifications }     from '@mantine/notifications'
+import { Button, Modal, Stack, Textarea } from '@mantine/core'
 import {
     IconChevronLeft,
     IconChevronRight,
+    IconPlayerPlay,
+    IconPlayerStop,
+    IconSparkles,
+    IconWorldUpload,
 } from '@tabler/icons-react'
+import { runAgUiWorkflow, type AgUiEvent } from '../services/agui-client'
+import { requestCopilotGeneration } from '../components/copilot/CopilotGenerateBridge'
+import { PublishModal } from '../components/PublishModal'
 import { FlowCanvas }        from '../components/FlowCanvas/FlowCanvas'
 import { NodePalette }       from '../components/NodePalette'
 import { PropertyPanel }     from '../components/PropertyPanel'
@@ -77,15 +85,23 @@ function PanelToggle({
 }
 
 function toWorkflowData(detail: any): WorkflowData {
-  const steps = (detail.steps ?? []).map((step: any, i: number) => ({
-    id:          step.id ?? `step-${i}`,
-    type:        step.type?.toLowerCase() ?? 'custom',
-    componentId: step.componentId ?? step.type?.toLowerCase() ?? 'custom',
-    label:       step.operation ?? step.componentId ?? step.type ?? 'Node',
-    category:    NODE_TYPE_TO_CATEGORY[step.type?.toLowerCase()] ?? 'tool' as const,
-    position:    step.position ?? { x: 200 + i * 250, y: 150 },
-    config:      step.configuration ?? {},
-  }))
+  const steps = (detail.steps ?? []).map((step: any, i: number) => {
+    // A YAML/API-authored execution operation lives at the node level; fold it
+    // into `config.operation` so a plain canvas save round-trips it instead of
+    // dropping it (the backend's DefaultFlowStepFactory reads config.operation
+    // first). `label` is the designer's display-name field, kept separate.
+    const config = { ...(step.configuration ?? {}) }
+    if (step.operation && config.operation == null) config.operation = step.operation
+    return {
+      id:          step.id ?? `step-${i}`,
+      type:        step.type?.toLowerCase() ?? 'custom',
+      componentId: step.componentId ?? step.type?.toLowerCase() ?? 'custom',
+      label:       step.label ?? step.operation ?? step.componentId ?? step.type ?? 'Node',
+      category:    NODE_TYPE_TO_CATEGORY[step.type?.toLowerCase()] ?? 'tool' as const,
+      position:    step.position ?? { x: 200 + i * 250, y: 150 },
+      config,
+    }
+  })
 
   const connections = (detail.steps ?? []).flatMap((step: any) =>
     (step.connections ?? []).map((conn: any, j: number) => ({
@@ -103,10 +119,9 @@ type EditorView = 'canvas' | 'yaml'
 
 export function WorkflowEditor() {
   const { id } = useParams<{ id: string }>()
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
 
   const { currentWorkflow: current, fetchWorkflow: loadWorkflow, updateWorkflow, loading: isSaving } = useWorkflowStore()
-  const { getCanvasSnapshot } = useFlowStore()
   // Timestamp (epoch millis) of the most recent successful save. Used
   // by the "saved N seconds ago" indicator in the toolbar.
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(null)
@@ -137,16 +152,19 @@ export function WorkflowEditor() {
     })
   }
 
-  const saveWorkflow = async () => {
+  const saveWorkflow = useCallback(async () => {
     if (!current) return
-    const snapshot = getCanvasSnapshot()
+    const snapshot = useFlowStore.getState().getCanvasSnapshot()
     const merged = {
       ...current,
       steps: snapshot.steps.map(s => ({
         id:            s.id,
         type:          s.type?.toUpperCase(),
         componentId:   s.componentId,
-        operation:     s.label,
+        // Display name goes into `label`; `operation` is reserved for the
+        // execution operation (backend: DefaultFlowStepFactory) and comes
+        // from the node config when the user sets one.
+        label:         s.label,
         position:      s.position,
         configuration: s.config ?? {},
         connections:   snapshot.connections
@@ -160,9 +178,19 @@ export function WorkflowEditor() {
     }
     await updateWorkflow(current.id, merged)
     setLastSavedAt(Date.now())
-  }
-  const workflowData = useMemo(() => current ? toWorkflowData(current) : null, [current])
-  const { selectedNodeId, selectedNodeData, selectNode, startExecution, isExecuting } = useFlowStore()
+  }, [current, updateWorkflow])
+  // The canvas must only be rebuilt on a genuine (re)load — keying this memo
+  // on the workflow OBJECT identity made every save reset the canvas (and
+  // wipe undo history + selection), because updateWorkflow replaces
+  // `currentWorkflow` with the server response. Key on the id plus an
+  // explicit revision that the YAML-save path bumps after reloading.
+  const [canvasRevision, setCanvasRevision] = useState(0)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const workflowData = useMemo(() => current ? toWorkflowData(current) : null, [current?.id, canvasRevision])
+  const {
+    selectedNodeId, selectedNodeData, selectNode,
+    startExecution, adoptExecutionId, updateNodeStatus, finishExecution, abortExecution, isExecuting,
+  } = useFlowStore()
 
   // ── YAML view state ───────────────────────────────────────────
   const [view, setView] = useState<EditorView>('canvas')
@@ -171,10 +199,22 @@ export function WorkflowEditor() {
   const [yamlError, setYamlError] = useState<string | null>(null)
   const [yamlDirty, setYamlDirty] = useState(false)
 
-  // Carregar workflow ao montar
+  // Carregar workflow ao montar. When we're replacing an ALREADY-loaded copy of
+  // the same id (the store persists currentWorkflow across unmount), bump the
+  // canvas revision once the fetch resolves so the memo rebuilds with the fresh
+  // server copy — otherwise reopening a workflow that changed server-side keeps
+  // the stale copy and a Save would overwrite the newer version. A first load or
+  // an id change already rebuilds via the memo's id key, so we must NOT bump
+  // there: it would double-mount the canvas and reset the undo history.
   useEffect(() => {
-    if (id) loadWorkflow(id)
-  }, [id])
+    if (!id) return
+    let cancelled = false
+    const hadSameId = useWorkflowStore.getState().currentWorkflow?.id === id
+    loadWorkflow(id).then(() => {
+      if (!cancelled && hadSameId) setCanvasRevision(v => v + 1)
+    })
+    return () => { cancelled = true }
+  }, [id, loadWorkflow])
 
   // Carrega o YAML do backend quando o usuário abre a aba Code
   useEffect(() => {
@@ -213,20 +253,21 @@ export function WorkflowEditor() {
       setLastSavedAt(Date.now())
       // Reload the JSON-backed canvas so the next Canvas view picks up the edits
       await loadWorkflow(id)
+      setCanvasRevision(v => v + 1)
       notifications.show({
-        title: 'YAML saved',
-        message: 'Workflow updated from YAML',
+        title: t('editor.notif.yamlSaved'),
+        message: t('editor.notif.yamlSavedMsg'),
         color: 'teal',
       })
     } catch (e) {
-      setYamlError(e instanceof Error ? e.message : 'Failed to save YAML')
+      setYamlError(e instanceof Error ? e.message : t('editor.notif.yamlErrorMsg'))
       notifications.show({
-        title: 'YAML error',
-        message: 'Failed to save YAML',
+        title: t('editor.notif.yamlError'),
+        message: t('editor.notif.yamlErrorMsg'),
         color: 'red',
       })
     }
-  }, [id, yamlText, loadWorkflow])
+  }, [id, yamlText, loadWorkflow, t])
 
   // ── Handlers ──────────────────────────────────────────────────
   const handleNodeSelect = useCallback(
@@ -241,29 +282,142 @@ export function WorkflowEditor() {
     try {
       await saveWorkflow()
       notifications.show({
-        title:   'Saved',
-        message: 'Workflow saved successfully',
+        title:   t('editor.notif.saved'),
+        message: t('editor.notif.savedMsg'),
         color:   'teal',
       })
     } catch {
       notifications.show({
-        title:   'Error',
-        message: 'Failed to save workflow',
+        title:   t('editor.notif.saveError'),
+        message: t('editor.notif.saveErrorMsg'),
         color:   'red',
       })
     }
-  }, [current, saveWorkflow])
+  }, [current, saveWorkflow, t])
 
-  const handleExecute = useCallback(() => {
-    // Em produção: chamar API, receber executionId, ouvir SSE
-    const execId = `exec-${Date.now()}`
-    startExecution(execId)
+  // Live run over AG-UI SSE: STEP_* events drive the per-node status
+  // pills / animated edges via useFlowStore.executionState (keyed by
+  // step id, which equals the canvas node id — getCanvasSnapshot
+  // persists steps with the node's id).
+  const abortRunRef = useRef<(() => void) | null>(null)
+  useEffect(() => () => { abortRunRef.current?.() }, [])
+
+  const handleRunEvent = useCallback((ev: AgUiEvent) => {
+    const stepId = typeof ev.stepId === 'string' ? ev.stepId
+      : typeof ev.stepName === 'string' ? ev.stepName : null
+    switch (ev.type) {
+      case 'RUN_STARTED':
+        // Adopt the real execution id minted by the backend (exec-…) without
+        // resetting executionState — a STEP_STARTED that raced ahead of
+        // RUN_STARTED must not be wiped.
+        if (typeof ev.runId === 'string') adoptExecutionId(ev.runId)
+        break
+      case 'STEP_STARTED':
+        if (stepId) updateNodeStatus(stepId, { status: 'running', startedAt: Date.now() })
+        break
+      case 'STEP_FINISHED': {
+        if (!stepId) break
+        const status = ev.status === 'STEP_FAILED' ? 'error'
+          : ev.status === 'STEP_SKIPPED' ? 'skipped'
+          : 'success'
+        updateNodeStatus(stepId, {
+          status,
+          durationMs: typeof ev.durationMs === 'number' ? ev.durationMs : undefined,
+          error: typeof ev.error === 'string' ? ev.error : undefined,
+        })
+        break
+      }
+      case 'RUN_FINISHED':
+        finishExecution()
+        abortRunRef.current = null
+        notifications.show({
+          title:   t('editor.notif.execFinished'),
+          message: t('editor.notif.execFinishedMsg'),
+          color:   'teal',
+        })
+        break
+      case 'RUN_ERROR':
+        abortExecution()
+        abortRunRef.current = null
+        notifications.show({
+          title:   t('editor.notif.execFailed'),
+          message: typeof ev.message === 'string' && ev.message
+            ? ev.message
+            : t('editor.notif.execFailedMsg'),
+          color:   'red',
+        })
+        break
+      default:
+        break
+    }
+  }, [adoptExecutionId, updateNodeStatus, finishExecution, abortExecution, t])
+
+  const handleExecute = useCallback(async () => {
+    if (!current) return
+    if (isExecuting) {
+      // Second click while running = stop: abort the SSE stream (the
+      // backend cancels the run on disconnect) and mark running nodes.
+      abortRunRef.current?.()
+      abortRunRef.current = null
+      abortExecution()
+      notifications.show({
+        title:   t('editor.notif.execStopped'),
+        message: t('editor.notif.execStoppedMsg'),
+        color:   'yellow',
+      })
+      return
+    }
+    try {
+      // The backend executes the persisted workflow, so unsaved canvas
+      // edits must land first.
+      await saveWorkflow()
+    } catch {
+      notifications.show({
+        title:   t('editor.notif.execStartError'),
+        message: t('editor.notif.saveErrorMsg'),
+        color:   'red',
+      })
+      return
+    }
+    startExecution(current.id)
+    abortRunRef.current = runAgUiWorkflow(current.id, {}, handleRunEvent)
     notifications.show({
-      title:   'Execution started',
-      message: `Execution ID: ${execId}`,
+      title:   t('editor.notif.execStarted'),
+      message: t('editor.notif.execStartedMsg', { id: current.id }),
       color:   'blue',
     })
-  }, [startExecution])
+  }, [current, isExecuting, startExecution, abortExecution, handleRunEvent, saveWorkflow, t])
+
+  // ── "Gerar com IA" — hands the goal to the app-wide copilot, whose
+  // frontend tools (addNode/connectNodes) assemble the flow on this canvas.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [aiOpen, setAiOpen] = useState(false)
+  const [aiGoal, setAiGoal] = useState('')
+  const [publishOpen, setPublishOpen] = useState(false)
+
+  useEffect(() => {
+    // /editor/:id?ai=1 (from the create-workflow modal) opens the AI
+    // prompt straight away; strip the flag so refreshes don't re-open it.
+    if (searchParams.get('ai') === '1') {
+      setAiOpen(true)
+      const next = new URLSearchParams(searchParams)
+      next.delete('ai')
+      setSearchParams(next, { replace: true })
+    }
+  }, [searchParams, setSearchParams])
+
+  const handleGenerate = useCallback(() => {
+    const goal = aiGoal.trim()
+    if (!goal) return
+    requestCopilotGeneration(t('editor.ai.promptTemplate', { goal }))
+    setAiOpen(false)
+    setAiGoal('')
+    notifications.show({
+      title:   t('editor.ai.started'),
+      message: t('editor.ai.startedMsg'),
+      color:   'grape',
+    })
+  }, [aiGoal, t])
 
   // ── Auto-save (debounced 3s) ───────────────────────────────────
   // useEffect(() => {
@@ -272,7 +426,7 @@ export function WorkflowEditor() {
   // }, [nodes, edges])   ← ativar quando quiser auto-save
 
   const formattedSavedAt = lastSavedAt
-    ? new Intl.RelativeTimeFormat('en', { numeric: 'auto' }).format(
+    ? new Intl.RelativeTimeFormat(i18n.resolvedLanguage ?? i18n.language, { numeric: 'auto' }).format(
         Math.round((lastSavedAt - Date.now()) / 1000),
         'second'
       )
@@ -294,7 +448,7 @@ export function WorkflowEditor() {
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1 }}>
           <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--color-text-primary)' }}>
-            {current?.metadata?.name ?? 'Untitled workflow'}
+            {current?.metadata?.name ?? t('editor.untitled')}
           </span>
           <span
             style={{
@@ -314,13 +468,19 @@ export function WorkflowEditor() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           {formattedSavedAt && (
             <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginRight: 8 }}>
-              Saved {formattedSavedAt}
+              {t('editor.savedRelative', { time: formattedSavedAt })}
             </span>
           )}
 
           {/* Canvas / Code toggle */}
           <div
             role="tablist"
+            onKeyDown={(e) => {
+              if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+                e.preventDefault()
+                setView(view === 'canvas' ? 'yaml' : 'canvas')
+              }
+            }}
             style={{
               display: 'inline-flex',
               border: '0.5px solid var(--color-border-tertiary)',
@@ -332,6 +492,7 @@ export function WorkflowEditor() {
             <button
               role="tab"
               aria-selected={view === 'canvas'}
+              tabIndex={view === 'canvas' ? 0 : -1}
               data-testid="editor-tab-canvas"
               onClick={() => setView('canvas')}
               style={{
@@ -346,6 +507,7 @@ export function WorkflowEditor() {
             <button
               role="tab"
               aria-selected={view === 'yaml'}
+              tabIndex={view === 'yaml' ? 0 : -1}
               data-testid="editor-tab-code"
               onClick={() => setView('yaml')}
               style={{
@@ -359,9 +521,6 @@ export function WorkflowEditor() {
             </button>
           </div>
 
-          <button aria-label="Undo" style={iconBtnStyle} title="Undo (⌘Z)">↩</button>
-          <button aria-label="Redo" style={iconBtnStyle} title="Redo (⌘⇧Z)">↪</button>
-
           <button
             onClick={view === 'yaml' ? handleSaveYaml : handleSave}
             disabled={isSaving || (view === 'yaml' && !yamlDirty)}
@@ -371,20 +530,82 @@ export function WorkflowEditor() {
             {isSaving ? t('common.saving') : view === 'yaml' ? t('editor.saveYaml') : t('editor.save')}
           </button>
 
-          <button
-            onClick={handleExecute}
-            disabled={isExecuting}
-            style={{
-              ...btnStyle,
-              background: isExecuting ? '#85B7EB' : '#378ADD',
-              border: '0.5px solid #185FA5',
-              color: '#fff',
-            }}
+          <Button
+            onClick={() => setPublishOpen(true)}
+            variant="default"
+            leftSection={<IconWorldUpload size={14} />}
+            size="xs"
+            disabled={!current}
+            data-testid="editor-publish"
           >
-            {isExecuting ? `◌ ${t('common.loading')}` : `▶ ${t('editor.run')}`}
-          </button>
+            {t('editor.publish.button')}
+          </Button>
+
+          <Button
+            onClick={() => setAiOpen(true)}
+            variant="light"
+            color="grape"
+            leftSection={<IconSparkles size={14} />}
+            size="xs"
+            disabled={!current}
+            data-testid="editor-ai"
+          >
+            {t('editor.ai.button')}
+          </Button>
+
+          <Button
+            onClick={handleExecute}
+            color={isExecuting ? 'red' : undefined}
+            variant={isExecuting ? 'light' : 'filled'}
+            leftSection={isExecuting ? <IconPlayerStop size={14} /> : <IconPlayerPlay size={14} />}
+            size="xs"
+            disabled={!current}
+            data-testid="editor-run"
+          >
+            {isExecuting ? t('editor.stop') : t('editor.run')}
+          </Button>
         </div>
       </div>
+
+      <Modal
+        opened={aiOpen}
+        onClose={() => setAiOpen(false)}
+        title={t('editor.ai.title')}
+        centered
+      >
+        <Stack gap="sm">
+          <Textarea
+            label={t('editor.ai.goalLabel')}
+            placeholder={t('editor.ai.goalPlaceholder')}
+            minRows={3}
+            autosize
+            autoFocus
+            value={aiGoal}
+            onChange={(e) => setAiGoal(e.currentTarget.value)}
+            data-testid="editor-ai-goal"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleGenerate()
+            }}
+          />
+          <Button
+            leftSection={<IconSparkles size={14} />}
+            color="grape"
+            disabled={!aiGoal.trim()}
+            onClick={handleGenerate}
+            data-testid="editor-ai-generate"
+          >
+            {t('editor.ai.generate')}
+          </Button>
+        </Stack>
+      </Modal>
+
+      {current && (
+        <PublishModal
+          workflowId={current.id}
+          opened={publishOpen}
+          onClose={() => setPublishOpen(false)}
+        />
+      )}
 
       {/* ── Editor body ──────────────────────────────────────── */}
       {view === 'canvas' ? (
@@ -408,6 +629,13 @@ export function WorkflowEditor() {
           <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
             {workflowData ? (
               <FlowCanvas
+                // Remount on a genuine (re)load so React Flow re-runs its mount
+                // fit-view + node measurement — mutating an already-mounted
+                // instance via props leaves freshly-rebuilt nodes stuck at
+                // visibility:hidden and off-viewport. The key changes only on
+                // id change or an explicit reload (canvasRevision), never on a
+                // plain save, so editing state is preserved.
+                key={`${current?.id ?? 'none'}:${canvasRevision}`}
                 initialWorkflow={workflowData}
                 onNodeSelect={handleNodeSelect}
                 onExecutionRequest={handleExecute}
@@ -451,7 +679,7 @@ export function WorkflowEditor() {
         <div style={{ flex: 1, overflow: 'hidden', padding: 12 }}>
           {yamlLoading ? (
             <div style={{ padding: 40, textAlign: 'center', color: 'var(--color-text-tertiary)' }}>
-              Loading YAML…
+              {t('editor.loadingYaml')}
             </div>
           ) : (
             <YamlEditor
@@ -471,6 +699,7 @@ export function WorkflowEditor() {
 
 // ── Empty state do canvas ────────────────────────────────────────
 function EmptyCanvas() {
+  const { t } = useTranslation()
   return (
     <div
       style={{
@@ -492,10 +721,10 @@ function EmptyCanvas() {
         <line x1="17" y1="25.5" x2="31" y2="32.5" stroke="currentColor" strokeWidth="1.5" strokeDasharray="3 2"/>
       </svg>
       <div style={{ fontSize: 16, fontWeight: 500, color: 'var(--color-text-secondary)' }}>
-        No workflow loaded
+        {t('editor.emptyTitle')}
       </div>
       <div style={{ fontSize: 13, color: 'var(--color-text-tertiary)', maxWidth: 260, textAlign: 'center' }}>
-        Create a new workflow or load an existing one to get started
+        {t('editor.emptyHint')}
       </div>
     </div>
   )
@@ -511,21 +740,6 @@ const btnStyle: React.CSSProperties = {
   border:       '0.5px solid var(--color-border-secondary)',
   background:   'var(--color-background-primary)',
   color:        'var(--color-text-primary)',
-  fontFamily:   'var(--font-sans)',
-}
-
-const iconBtnStyle: React.CSSProperties = {
-  width:        30,
-  height:       30,
-  borderRadius: 7,
-  border:       '0.5px solid var(--color-border-tertiary)',
-  background:   'var(--color-background-primary)',
-  display:      'flex',
-  alignItems:   'center',
-  justifyContent: 'center',
-  cursor:       'pointer',
-  color:        'var(--color-text-secondary)',
-  fontSize:     14,
   fontFamily:   'var(--font-sans)',
 }
 

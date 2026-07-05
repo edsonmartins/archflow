@@ -8,6 +8,8 @@ import org.junit.jupiter.api.io.TempDir;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Set;
@@ -123,49 +125,142 @@ class ExtensionSignatureValidatorTest {
     }
 
     @Test
-    void shouldAcceptRsaWithTrustedKeys() {
-        validator = new ExtensionSignatureValidator(Set.of("trusted-key-1"));
+    void shouldAcceptValidRsaSignatureFromTrustedKey(@TempDir Path tempDir) throws Exception {
+        KeyPair keyPair = generateKeyPair();
+        writeManifestJson(tempDir);
+        String signature = ExtensionSignatureValidator.signRsa(tempDir, keyPair.getPrivate());
 
-        ExtensionManifest manifest = ExtensionManifest.builder()
-                .name("test-ext")
-                .version("1.0.0")
-                .entryPoint("TestExt")
-                .signature("RSA:somesignature")
-                .build();
+        validator = new ExtensionSignatureValidator(
+                Set.of(ExtensionSignatureValidator.encodePublicKey(keyPair.getPublic())));
 
         ExtensionSignatureValidator.ValidationResult result =
-                validator.validate(manifest, Path.of("/tmp"));
+                validator.validate(buildManifest(signature), tempDir);
 
         assertThat(result.valid()).isTrue();
         assertThat(result.message()).contains("RSA signature verified");
     }
 
     @Test
-    void shouldAddAndRemoveTrustedKeys() {
-        validator.addTrustedKey("key-1");
-        validator.addTrustedKey("key-2");
+    void shouldRejectForgedRsaSignature(@TempDir Path tempDir) throws Exception {
+        KeyPair trustedKeyPair = generateKeyPair();
+        writeManifestJson(tempDir);
 
-        ExtensionManifest manifest = ExtensionManifest.builder()
+        validator = new ExtensionSignatureValidator(
+                Set.of(ExtensionSignatureValidator.encodePublicKey(trustedKeyPair.getPublic())));
+
+        // Random bytes posing as a signature must never verify
+        byte[] forged = new byte[256];
+        new java.security.SecureRandom().nextBytes(forged);
+        String forgedSignature = "RSA:" + java.util.Base64.getEncoder().encodeToString(forged);
+
+        ExtensionSignatureValidator.ValidationResult result =
+                validator.validate(buildManifest(forgedSignature), tempDir);
+
+        assertThat(result.valid()).isFalse();
+        assertThat(result.message()).contains("verification failed");
+    }
+
+    @Test
+    void shouldRejectRsaSignatureFromUntrustedKey(@TempDir Path tempDir) throws Exception {
+        KeyPair trustedKeyPair = generateKeyPair();
+        KeyPair untrustedKeyPair = generateKeyPair();
+        writeManifestJson(tempDir);
+        String signature = ExtensionSignatureValidator.signRsa(tempDir, untrustedKeyPair.getPrivate());
+
+        validator = new ExtensionSignatureValidator(
+                Set.of(ExtensionSignatureValidator.encodePublicKey(trustedKeyPair.getPublic())));
+
+        ExtensionSignatureValidator.ValidationResult result =
+                validator.validate(buildManifest(signature), tempDir);
+
+        assertThat(result.valid()).isFalse();
+        assertThat(result.message()).contains("verification failed");
+    }
+
+    @Test
+    void shouldRejectRsaSignatureWhenManifestTampered(@TempDir Path tempDir) throws Exception {
+        KeyPair keyPair = generateKeyPair();
+        writeManifestJson(tempDir);
+        String signature = ExtensionSignatureValidator.signRsa(tempDir, keyPair.getPrivate());
+
+        // Tamper with manifest.json after signing
+        Files.writeString(tempDir.resolve("manifest.json"),
+                "{\"name\":\"test\",\"version\":\"1.0.0\",\"entryPoint\":\"Evil\"}");
+
+        validator = new ExtensionSignatureValidator(
+                Set.of(ExtensionSignatureValidator.encodePublicKey(keyPair.getPublic())));
+
+        ExtensionSignatureValidator.ValidationResult result =
+                validator.validate(buildManifest(signature), tempDir);
+
+        assertThat(result.valid()).isFalse();
+    }
+
+    @Test
+    void shouldIgnoreEmbeddedSignatureFieldWhenVerifying(@TempDir Path tempDir) throws Exception {
+        KeyPair keyPair = generateKeyPair();
+        writeManifestJson(tempDir);
+        String signature = ExtensionSignatureValidator.signRsa(tempDir, keyPair.getPrivate());
+
+        // Re-write the manifest WITH the signature embedded — canonicalization
+        // must strip it so verification still passes
+        Files.writeString(tempDir.resolve("manifest.json"),
+                "{\"name\":\"test\",\"version\":\"1.0.0\",\"signature\":\"" + signature + "\"}");
+
+        validator = new ExtensionSignatureValidator(
+                Set.of(ExtensionSignatureValidator.encodePublicKey(keyPair.getPublic())));
+
+        ExtensionSignatureValidator.ValidationResult result =
+                validator.validate(buildManifest(signature), tempDir);
+
+        assertThat(result.valid()).isTrue();
+    }
+
+    @Test
+    void shouldRejectRsaSignatureThatIsNotBase64(@TempDir Path tempDir) throws Exception {
+        writeManifestJson(tempDir);
+        validator = new ExtensionSignatureValidator(Set.of("any-key"));
+
+        ExtensionSignatureValidator.ValidationResult result =
+                validator.validate(buildManifest("RSA:not!!valid@@base64"), tempDir);
+
+        assertThat(result.valid()).isFalse();
+        assertThat(result.message()).contains("Base64");
+    }
+
+    @Test
+    void shouldAddAndRemoveTrustedKeys(@TempDir Path tempDir) throws Exception {
+        KeyPair keyPair = generateKeyPair();
+        writeManifestJson(tempDir);
+        String signature = ExtensionSignatureValidator.signRsa(tempDir, keyPair.getPrivate());
+        String publicKey = ExtensionSignatureValidator.encodePublicKey(keyPair.getPublic());
+        ExtensionManifest manifest = buildManifest(signature);
+
+        validator.addTrustedKey(publicKey);
+        assertThat(validator.validate(manifest, tempDir).valid()).isTrue();
+
+        assertThat(validator.removeTrustedKey(publicKey)).isTrue();
+        assertThat(validator.validate(manifest, tempDir).valid()).isFalse();
+    }
+
+    private static KeyPair generateKeyPair() throws NoSuchAlgorithmException {
+        KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
+        generator.initialize(2048);
+        return generator.generateKeyPair();
+    }
+
+    private static void writeManifestJson(Path dir) throws IOException {
+        Files.writeString(dir.resolve("manifest.json"),
+                "{\"name\":\"test\",\"version\":\"1.0.0\"}");
+    }
+
+    private static ExtensionManifest buildManifest(String signature) {
+        return ExtensionManifest.builder()
                 .name("test-ext")
                 .version("1.0.0")
                 .entryPoint("TestExt")
-                .signature("RSA:somesignature")
+                .signature(signature)
                 .build();
-
-        // Should accept with trusted keys
-        ExtensionSignatureValidator.ValidationResult result =
-                validator.validate(manifest, Path.of("/tmp"));
-        assertThat(result.valid()).isTrue();
-
-        // Remove all keys
-        boolean removed1 = validator.removeTrustedKey("key-1");
-        boolean removed2 = validator.removeTrustedKey("key-2");
-        assertThat(removed1).isTrue();
-        assertThat(removed2).isTrue();
-
-        // Should reject without trusted keys
-        result = validator.validate(manifest, Path.of("/tmp"));
-        assertThat(result.valid()).isFalse();
     }
 
     @Test

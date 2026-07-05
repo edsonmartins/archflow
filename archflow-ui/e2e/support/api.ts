@@ -54,8 +54,8 @@ export async function installSession(
 
     await page.addInitScript(
         ({ currentRole, currentToken, currentRefreshToken }) => {
-            localStorage.setItem('archflow_token', currentToken);
-            localStorage.setItem('archflow_refresh_token', currentRefreshToken);
+            sessionStorage.setItem('archflow_token', currentToken);
+            sessionStorage.setItem('archflow_refresh_token', currentRefreshToken);
             // Pin the UI language to English so text-based test selectors
             // remain stable regardless of the runner's browser locale or
             // any `archflow-language` value left over from a prior run.

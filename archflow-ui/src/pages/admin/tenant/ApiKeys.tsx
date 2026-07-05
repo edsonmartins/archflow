@@ -1,5 +1,5 @@
 import {
-  Title, Table, Badge, Text, Paper, Stack, Group, Button, ActionIcon,
+  Table, Badge, Text, Paper, Stack, Group, Button, ActionIcon,
   Tooltip, Modal, TextInput, Select, CopyButton, LoadingOverlay, Alert,
 } from '@mantine/core'
 import { IconPlus, IconCopy, IconTrash, IconCheck, IconAlertCircle } from '@tabler/icons-react'
@@ -7,6 +7,8 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { notifications } from '@mantine/notifications'
 import { apiKeyApi, type ApiKey } from '../../../services/admin-api'
+import { confirmAction } from '../../../lib/confirm'
+import { PageHeader } from '../../../components/PageHeader'
 
 const TYPE_COLOR: Record<string, string> = {
   production: 'green', staging: 'yellow', web_component: 'blue',
@@ -50,25 +52,34 @@ export default function ApiKeys() {
     }
   }
 
-  const handleRevoke = async (key: ApiKey) => {
-    try {
-      await apiKeyApi.revoke(key.id)
-      setKeys((prev) => prev.filter((entry) => entry.id !== key.id))
-    } catch (e) {
-      setError(e instanceof Error ? e.message : t('admin.tenant.apiKeys.revokeFailed'))
-    }
+  const handleRevoke = (key: ApiKey) => {
+    confirmAction({
+      title: t('confirmations.revokeKeyTitle'),
+      message: t('confirmations.revokeKeyMessage', { name: key.name }),
+      confirmLabel: t('confirmations.revoke'),
+      onConfirm: async () => {
+        try {
+          await apiKeyApi.revoke(key.id)
+          setKeys((prev) => prev.filter((entry) => entry.id !== key.id))
+        } catch (e) {
+          setError(e instanceof Error ? e.message : t('admin.tenant.apiKeys.revokeFailed'))
+        }
+      },
+    })
   }
 
   return (
     <Stack gap="md" pos="relative">
       <LoadingOverlay visible={loading} />
 
-      <Group justify="space-between">
-        <Title order={3}>{t('admin.tenant.apiKeys.title')}</Title>
-        <Button leftSection={<IconPlus size={16} />} onClick={() => { setCreateOpen(true); setNewKey(null); setKeyName('') }}>
-          {t('admin.tenant.apiKeys.create')}
-        </Button>
-      </Group>
+      <PageHeader
+        title={t('admin.tenant.apiKeys.title')}
+        actions={
+          <Button leftSection={<IconPlus size={16} />} onClick={() => { setCreateOpen(true); setNewKey(null); setKeyName('') }}>
+            {t('admin.tenant.apiKeys.create')}
+          </Button>
+        }
+      />
 
       {error && (
         <Alert color="red" icon={<IconAlertCircle size={16} />}>

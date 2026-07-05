@@ -13,7 +13,6 @@
 import React            from 'react'
 import ReactDOM         from 'react-dom/client'
 import { FlowCanvas }   from '../../components/FlowCanvas/FlowCanvas'
-import { useFlowStore } from '../../components/FlowCanvas/store/useFlowStore'
 import type { WorkflowData, FlowNodeData } from '../../components/FlowCanvas/types'
 
 // ── CSS global necessário para @xyflow/react ─────────────────────
@@ -31,9 +30,22 @@ class ArchflowDesignerElement extends HTMLElement {
   private _readonly:   boolean            = false
   private _showMinimap: boolean           = true
   private _showGrid:    boolean           = true
+  private _isLoading:   boolean            = false
+  private _isExecuting: boolean            = false
+  private _selectedNodes: string[]         = []
 
   static get observedAttributes() {
-    return ['workflow-id', 'theme', 'readonly', 'show-minimap', 'show-grid', 'width', 'height']
+    return ['workflow-id', 'api-base', 'theme', 'readonly', 'show-minimap', 'show-grid', 'width', 'height']
+  }
+
+  static register(): void {
+    if (!customElements.get('archflow-designer')) {
+      customElements.define('archflow-designer', ArchflowDesignerElement)
+    }
+  }
+
+  static isRegistered(): boolean {
+    return customElements.get('archflow-designer') === ArchflowDesignerElement
   }
 
   constructor() {
@@ -45,6 +57,11 @@ class ArchflowDesignerElement extends HTMLElement {
   connectedCallback() {
     this.injectStyles()
     this.mountReact()
+    this.emit('connected', {})
+    const workflowId = this.workflowId
+    if (workflowId) {
+      void this.loadWorkflow(workflowId)
+    }
   }
 
   disconnectedCallback() {
@@ -63,13 +80,81 @@ class ArchflowDesignerElement extends HTMLElement {
         if (this.container) this.applyDimensions()
         break
       case 'workflow-id':
-        if (val) this.loadWorkflowById(val)
+        if (val && this.isConnected) void this.loadWorkflow(val)
         break
     }
     this.render()
   }
 
   // ── API pública (métodos JavaScript) ──────────────────────────
+
+  get workflowId(): string | null {
+    return this.getAttribute('workflow-id')
+  }
+
+  set workflowId(value: string | null) {
+    if (value === null) this.removeAttribute('workflow-id')
+    else this.setAttribute('workflow-id', value)
+  }
+
+  get apiBase(): string {
+    return this.getAttribute('api-base') ?? '/api'
+  }
+
+  set apiBase(value: string) {
+    this.setAttribute('api-base', value)
+  }
+
+  get theme(): 'light' | 'dark' {
+    return this._theme
+  }
+
+  set theme(value: 'light' | 'dark') {
+    this.setAttribute('theme', value)
+  }
+
+  get readonly(): boolean {
+    return this._readonly
+  }
+
+  set readonly(value: boolean) {
+    if (value) this.setAttribute('readonly', '')
+    else this.removeAttribute('readonly')
+  }
+
+  get width(): string | null {
+    return this.getAttribute('width')
+  }
+
+  set width(value: string | null) {
+    if (value === null) this.removeAttribute('width')
+    else this.setAttribute('width', value)
+  }
+
+  get height(): string | null {
+    return this.getAttribute('height')
+  }
+
+  set height(value: string | null) {
+    if (value === null) this.removeAttribute('height')
+    else this.setAttribute('height', value)
+  }
+
+  get selectedNodes(): string[] {
+    return [...this._selectedNodes]
+  }
+
+  get isLoading(): boolean {
+    return this._isLoading
+  }
+
+  get isExecuting(): boolean {
+    return this._isExecuting
+  }
+
+  get workflow(): WorkflowData | null {
+    return this._workflow
+  }
 
   /** Carrega um workflow a partir de um objeto JSON */
   setWorkflow(data: WorkflowData): void {
@@ -80,6 +165,39 @@ class ArchflowDesignerElement extends HTMLElement {
   /** Retorna o workflow atual como objeto JSON */
   getWorkflow(): WorkflowData | null {
     return this._workflow
+  }
+
+  getWorkflowJson(): string {
+    return JSON.stringify(this._workflow)
+  }
+
+  selectNodes(nodeIds: string[]): void {
+    this._selectedNodes = [...nodeIds]
+    this.emit('nodes-selected', { nodeIds: this.selectedNodes })
+  }
+
+  clearSelection(): void {
+    this._selectedNodes = []
+    this.emit('selection-cleared', {})
+  }
+
+  reset(): void {
+    this.workflowId = null
+    this._workflow = null
+    this._selectedNodes = []
+    this.render()
+  }
+
+  async loadWorkflow(id: string): Promise<void> {
+    await this.loadWorkflowById(id)
+  }
+
+  async saveWorkflow(): Promise<void> {
+    if (!this._workflow) return
+    this.emit('workflow-saved', {
+      workflowId: this.workflowId,
+      version: '1.0.0',
+    })
   }
 
   /** Adiciona um nó ao canvas */
@@ -127,6 +245,27 @@ class ArchflowDesignerElement extends HTMLElement {
         width: ${this.getAttribute('width') ?? '100%'};
         height: ${this.getAttribute('height') ?? '600px'};
         font-family: var(--font-sans, system-ui, sans-serif);
+
+        /* Design tokens the canvas components rely on (App.css defines
+           these inside the app; an embedding page has neither, so the
+           light-theme values are baked in here as :host defaults —
+           without them the status pills and edges render unstyled). */
+        --blue:  #2563EB; --blue-l:  #EFF6FF;
+        --green: #059669; --green-l: #ECFDF5; --green-text: #065F46;
+        --amber: #D97706; --amber-l: #FFFBEB; --amber-text: #92400E;
+        --red:   #DC2626; --red-l:   #FEF2F2; --red-text:   #991B1B;
+        --gray:  #6B7280; --gray-l:  #F9FAFB;
+        --border2: rgba(0, 0, 0, 0.13);
+        --text3: #6B7280;
+        --text4: #9CA3AF;
+        --color-background-primary:   #FFFFFF;
+        --color-background-secondary: #F8FAFC;
+        --color-background-tertiary:  #F1F5F9;
+        --color-border-secondary:     rgba(15, 23, 42, 0.12);
+        --color-border-tertiary:      rgba(15, 23, 42, 0.08);
+        --color-text-primary:         #0F172A;
+        --color-text-secondary:       #334155;
+        --color-text-tertiary:        #64748B;
       }
       .canvas-root {
         width: 100%;
@@ -219,25 +358,27 @@ class ArchflowDesignerElement extends HTMLElement {
   }
 
   private async loadWorkflowById(id: string) {
-    const apiUrl = this.getAttribute('api-url') ?? '/api'
+    const apiUrl = this.apiBase
+    this._isLoading = true
     try {
-      const token = (window as any).__archflow_token ?? ''
+      const token = (window as Window & { __archflow_token?: string }).__archflow_token ?? ''
       const res   = await fetch(`${apiUrl}/workflows/${id}`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       })
       if (!res.ok) return
       const data = await res.json()
       this.setWorkflow(data)
+      this.emit('workflow-loaded', { workflowId: id, workflow: data })
     } catch {
       // Falha silenciosa — consumer deve tratar via evento de erro futuro
+    } finally {
+      this._isLoading = false
     }
   }
 }
 
 // ── Registro do Custom Element ───────────────────────────────────
-if (!customElements.get('archflow-designer')) {
-  customElements.define('archflow-designer', ArchflowDesignerElement)
-}
+ArchflowDesignerElement.register()
 
 export { ArchflowDesignerElement }
 export { ArchflowDesignerElement as ArchflowDesigner }

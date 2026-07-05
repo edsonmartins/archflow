@@ -2,8 +2,11 @@ package br.com.archflow.langchain4j.mcp.client;
 
 import br.com.archflow.langchain4j.mcp.McpModel;
 import br.com.archflow.langchain4j.mcp.transport.FakeMcpServerMain;
+import br.com.archflow.langchain4j.mcp.transport.McpCommandPolicy;
 import br.com.archflow.langchain4j.mcp.transport.StdioClientTransport;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -22,6 +25,18 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class StdioMcpClientTest {
 
     private static final String[] SERVER_COMMAND = buildServerCommand();
+
+    // The fake MCP server is spawned via the absolute path of the test JVM,
+    // so the command allow-list is explicitly opened for the whole class.
+    @BeforeAll
+    static void openCommandPolicy() {
+        System.setProperty(McpCommandPolicy.ALLOWED_COMMANDS_PROPERTY, "*");
+    }
+
+    @AfterAll
+    static void restoreCommandPolicy() {
+        System.clearProperty(McpCommandPolicy.ALLOWED_COMMANDS_PROPERTY);
+    }
 
     private StdioMcpClient client;
 

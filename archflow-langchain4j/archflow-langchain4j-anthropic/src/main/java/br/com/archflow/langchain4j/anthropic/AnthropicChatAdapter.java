@@ -1,5 +1,6 @@
 package br.com.archflow.langchain4j.anthropic;
 
+import br.com.archflow.langchain4j.core.security.ConfigSecrets;
 import br.com.archflow.langchain4j.core.spi.LangChainAdapter;
 import br.com.archflow.model.engine.ExecutionContext;
 import dev.langchain4j.data.message.AiMessage;
@@ -8,6 +9,8 @@ import dev.langchain4j.model.anthropic.AnthropicChatModel;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.memory.ChatMemory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.Map;
 import java.util.concurrent.locks.ReentrantLock;
@@ -36,6 +39,8 @@ import java.util.concurrent.locks.ReentrantLock;
  * @see AnthropicChatModel
  */
 public class AnthropicChatAdapter implements LangChainAdapter {
+
+    private static final Logger log = LoggerFactory.getLogger(AnthropicChatAdapter.class);
 
     private final ReentrantLock lock = new ReentrantLock();
     private ChatModel model;
@@ -96,6 +101,10 @@ public class AnthropicChatAdapter implements LangChainAdapter {
     public void configure(Map<String, Object> properties) {
         validate(properties);
         this.config = properties;
+
+        // Config com a api.key redatada — diagnóstico sem vazar o segredo
+        // (o config map fica num campo de vida longa).
+        log.debug("Configuring Anthropic chat adapter: {}", ConfigSecrets.redactForLogging(properties));
 
         String apiKey = (String) properties.get("api.key");
         String modelName = (String) properties.getOrDefault("model.name", "claude-3-5-sonnet-20241022");

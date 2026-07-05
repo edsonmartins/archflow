@@ -51,7 +51,9 @@ public class CorsConfiguration {
             case "test", "testing" -> testing();
             case "staging" -> staging();
             case "prod", "production" -> production();
-            default -> development(); // Default to least restrictive
+            // Fail-safe: an unrecognized environment gets the MOST restrictive
+            // policy — a typo in config must never open CORS to every origin.
+            default -> production();
         };
     }
 

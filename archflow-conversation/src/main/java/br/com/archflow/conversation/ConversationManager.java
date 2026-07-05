@@ -129,7 +129,7 @@ public class ConversationManager {
         conversationsById.put(conversationId, suspended);
 
         log.info("Suspended conversation {} with token {} (expires at {})",
-                conversationId, resumeToken, expiresAt);
+                conversationId, redactToken(resumeToken), expiresAt);
 
         // Publish suspend event
         publishEvent(ArchflowEvent.suspend(conversationId, resumeToken, form));
@@ -148,7 +148,8 @@ public class ConversationManager {
         SuspendedConversation suspended = conversationsByToken.get(resumeToken);
 
         if (suspended == null) {
-            log.warn("Invalid resume token: {}", resumeToken);
+            registerFailedResume();
+            log.warn("Invalid resume token: {}", redactToken(resumeToken));
             return Optional.empty();
         }
 
@@ -164,7 +165,8 @@ public class ConversationManager {
         conversationsByToken.put(resumeToken, resumed);
         conversationsById.put(suspended.getConversationId(), resumed);
 
-        log.info("Resumed conversation {} with token {}", suspended.getConversationId(), resumeToken);
+        log.info("Resumed conversation {} with token {}",
+                suspended.getConversationId(), redactToken(resumeToken));
 
         // Publish resume event
         publishEvent(ArchflowEvent.resume(suspended.getConversationId(), formData));
@@ -307,12 +309,52 @@ public class ConversationManager {
     }
 
     /**
-     * Generates a secure resume token.
+     * Generates a secure resume token: 256 bits from {@link java.security.SecureRandom},
+     * URL-safe Base64. The token space makes online guessing infeasible, which is
+     * why invalid attempts are detected and logged (see {@link #registerFailedResume})
+     * instead of triggering a global lock-out — a lock-out keyed on nothing but
+     * the attempt itself would hand attackers a denial-of-service lever.
      */
     private String generateResumeToken() {
-        return UUID.randomUUID().toString().replace("-", "") +
-                "-" +
-                UUID.randomUUID().toString().replace("-", "");
+        byte[] bytes = new byte[DEFAULT_TOKEN_LENGTH];
+        TOKEN_RANDOM.nextBytes(bytes);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+    }
+
+    private static final java.security.SecureRandom TOKEN_RANDOM = new java.security.SecureRandom();
+
+    /** Failed resume attempts inside the current detection window. */
+    private final java.util.concurrent.atomic.AtomicInteger failedResumeAttempts =
+            new java.util.concurrent.atomic.AtomicInteger();
+    private final java.util.concurrent.atomic.AtomicLong failedResumeWindowStart =
+            new java.util.concurrent.atomic.AtomicLong();
+    private static final int FAILED_RESUME_ALERT_THRESHOLD = 20;
+    private static final long FAILED_RESUME_WINDOW_MILLIS = 60_000;
+
+    /**
+     * Records an invalid resume attempt and emits an alert when the rate inside
+     * the detection window suggests token brute-forcing.
+     */
+    private void registerFailedResume() {
+        long now = System.currentTimeMillis();
+        long windowStart = failedResumeWindowStart.get();
+        if (now - windowStart > FAILED_RESUME_WINDOW_MILLIS
+                && failedResumeWindowStart.compareAndSet(windowStart, now)) {
+            failedResumeAttempts.set(0);
+        }
+        int failures = failedResumeAttempts.incrementAndGet();
+        if (failures == FAILED_RESUME_ALERT_THRESHOLD) {
+            log.error("Possible resume-token brute-force: {} invalid attempts in the last {} ms",
+                    failures, FAILED_RESUME_WINDOW_MILLIS);
+        }
+    }
+
+    /** Renders a token safe for logs: first 8 chars only. */
+    private static String redactToken(String token) {
+        if (token == null) {
+            return "null";
+        }
+        return token.length() <= 8 ? "***" : token.substring(0, 8) + "…";
     }
 
     /**

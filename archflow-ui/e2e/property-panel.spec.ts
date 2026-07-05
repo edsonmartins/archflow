@@ -58,6 +58,13 @@ async function authenticate(page: Page) {
   await installSession(page);
 }
 
+async function selectFirstNode(page: Page, expectedTitle = 'Support Agent') {
+  const node = page.locator('.af-node-card').first();
+  await expect(node).toBeVisible();
+  await node.click();
+  await expect(page.getByTestId('property-panel-node-title')).toHaveText(expectedTitle);
+}
+
 test.describe('Workflow editor — PropertyPanel', () => {
   test('loads the agent node and surfaces its config in PropertyPanel', async ({ page }) => {
     const pageErrors: Error[] = [];
@@ -67,7 +74,7 @@ test.describe('Workflow editor — PropertyPanel', () => {
     await page.goto('/editor/wf-prop');
 
     // Wait for canvas to render the agent node label
-    const node = page.locator('.react-flow__node').first();
+    const node = page.locator('.af-node-card').first();
     await expect(node).toBeVisible();
     await expect(page.getByText('Support Agent').first()).toBeVisible();
 
@@ -75,7 +82,8 @@ test.describe('Workflow editor — PropertyPanel', () => {
     await expect(page.getByText('Flow defaults')).toBeVisible();
 
     // Click the node to select it
-    await node.click({ force: true });
+    await node.click();
+    await expect(page.getByTestId('property-panel-node-title')).toHaveText('Support Agent');
     await page.waitForTimeout(500);
     if (pageErrors.length > 0) {
       throw new Error('Uncaught page errors: ' + pageErrors.map(e => e.message).join('; '));
@@ -84,8 +92,8 @@ test.describe('Workflow editor — PropertyPanel', () => {
     // PropertyPanel swaps to the node fields — the Model select label
     // is only rendered for agent nodes, so its presence proves the
     // panel picked up the selection.
-    await expect(page.getByRole('textbox', { name: 'Model' })).toBeVisible({ timeout: 10000 });
-    await expect(page.getByRole('textbox', { name: 'Execution strategy' })).toBeVisible();
+    await expect(page.getByRole('combobox', { name: 'Model' })).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole('combobox', { name: 'Execution strategy' })).toBeVisible();
   });
 
   test('changing fields in PropertyPanel updates the canvas snapshot and Save sends merged config', async ({ page }) => {
@@ -94,15 +102,14 @@ test.describe('Workflow editor — PropertyPanel', () => {
     await page.goto('/editor/wf-prop');
 
     // Select the agent node
-    await expect(page.locator('.react-flow__node').first()).toBeVisible();
-    await page.locator('.react-flow__node').first().click();
+    await selectFirstNode(page);
 
     // Change agent pattern to ReWOO
-    await page.getByRole('textbox', { name: 'Execution strategy' }).click();
+    await page.getByRole('combobox', { name: 'Execution strategy' }).click();
     await page.getByRole('option', { name: /ReWOO/i }).click();
 
     // Change model to Claude Opus
-    await page.getByRole('textbox', { name: 'Model' }).click();
+    await page.getByRole('combobox', { name: 'Model' }).click();
     await page.getByRole('option', { name: /Claude Opus/i }).click();
 
     // Adjust temperature
@@ -130,11 +137,11 @@ test.describe('Workflow editor — PropertyPanel', () => {
 
     // No node selected → flow defaults panel (the "flow" tier of the
     // model inheritance chain).
-    await expect(page.locator('.react-flow__node').first()).toBeVisible();
+    await expect(page.locator('.af-node-card').first()).toBeVisible();
     await expect(page.getByText('Flow defaults')).toBeVisible();
 
     // Pick a default model for the whole flow.
-    await page.getByRole('textbox', { name: 'Model' }).click();
+    await page.getByRole('combobox', { name: 'Model' }).click();
     await page.getByRole('option', { name: /Claude Opus/i }).click();
 
     // Set default max tokens.
@@ -154,12 +161,11 @@ test.describe('Workflow editor — PropertyPanel', () => {
     await authenticate(page);
     await page.goto('/editor/wf-prop');
 
-    await expect(page.locator('.react-flow__node').first()).toBeVisible();
-    await page.locator('.react-flow__node').first().click();
+    await selectFirstNode(page);
 
     // Persona dropdown should be visible (the API returned 2 personas)
-    await expect(page.getByRole('textbox', { name: 'Persona' })).toBeVisible();
-    await page.getByRole('textbox', { name: 'Persona' }).click();
+    await expect(page.getByRole('combobox', { name: 'Persona' })).toBeVisible();
+    await page.getByRole('combobox', { name: 'Persona' }).click();
     await page.getByRole('option', { name: /Order Tracking/ }).click();
 
     // System prompt becomes populated and disabled
@@ -173,15 +179,14 @@ test.describe('Workflow editor — PropertyPanel', () => {
     await authenticate(page);
     await page.goto('/editor/wf-prop');
 
-    await expect(page.locator('.react-flow__node').first()).toBeVisible();
-    await page.locator('.react-flow__node').first().click();
+    await selectFirstNode(page);
 
     // Open Governance accordion
     await page.getByRole('button', { name: 'Governance' }).click();
 
     // Profile selector is visible
-    await expect(page.getByRole('textbox', { name: 'Profile' })).toBeVisible();
-    await page.getByRole('textbox', { name: 'Profile' }).click();
+    await expect(page.getByRole('combobox', { name: 'Profile' })).toBeVisible();
+    await page.getByRole('combobox', { name: 'Profile' }).click();
     await page.getByRole('option', { name: 'Strict' }).click();
 
     // Escalation threshold is seeded from the shared strict profile fixture.

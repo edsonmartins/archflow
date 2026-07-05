@@ -181,3 +181,26 @@ permanece no produto, plugado via as SPIs (`GovernanceProfileStore`,
    da tabela §4.3).
 4. Adapter no `gestor-rq` e no `integrall` implementando o `GovernanceProfileStore`.
 5. Plugar `GuardrailChain` (já existe no archflow) lendo `settings.guardrails`.
+
+## 8. Status de implementação — IMPLEMENTADO
+
+Passos 1, 2, 3 e 5 feitos em **`archflow-conversation`** (`.../conversation/governance/`).
+Nota de localização: o módulo é `archflow-conversation` (não `archflow-agent` como
+o rascunho tentava) — ele só depende de `archflow-model` (tem o `LLMConfigPatch`) e
+co-localiza com `GuardrailChain`/`PromptRegistry`/`ConversationalAgent`, evitando as
+deps pesadas do engine.
+
+| Artefato | Status |
+|---|---|
+| `GovernanceSettings` + `LLMSettings` (reusa `LLMConfigPatch`, apiKey `WRITE_ONLY`) + `GuardrailSettings` + `RateLimitSettings` | ✅ |
+| `GovernanceProfile`, `GovernanceSnapshot` (com `llmPatch()` — ponte p/ D2) | ✅ |
+| `GovernanceProfileStore` (SPI, com `EMPTY`) | ✅ |
+| `GovernanceResolver` + `DefaultGovernanceResolver` (cache TTL via ConcurrentHashMap; nunca null; ativo-only) | ✅ |
+| Ponte `GovernanceGuardrails.from(settings)` → `GuardrailChain` (+ `PromptInjectionGuardrail`/`ForbiddenOutputGuardrail`, reusa `PiiRedactionGuardrail`) | ✅ |
+
+**Decisões da §4.3 aplicadas:** nunca-null (defaults com `fromDatabase=false`); base64
+fora do core (no store do produto); cache TTL respeitado; core trabalha com objeto
+(JSON fica no store); defaults sobreponíveis.
+
+**Follow-up (passo 4):** adapters de `GovernanceProfileStore` em gestor-rq/integrall;
+e ligar `GovernanceSnapshot.llmPatch()` como `tenantDefault` no `LLMConfigResolver`.

@@ -3,24 +3,51 @@ import {
   IconBuilding, IconUsers, IconKey, IconSettings, IconChartBar,
   IconTopologyRing, IconPlayerPlay,
   IconActivity,
+  IconBook2, IconPlug, IconClockPlay, IconInbox, IconMessageCog,
+  IconShieldLock, IconLockAccess,
 } from '@tabler/icons-react'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useTenantStore } from '../../stores/useTenantStore'
 import { ImpersonationBanner } from './ImpersonationBanner'
 
-const SUPERADMIN_NAV = [
+interface AdminNavItem {
+  key: string
+  icon: typeof IconBuilding
+  path: string
+  /** Match only the exact path (for parents whose children are separate items). */
+  exact?: boolean
+}
+
+const SUPERADMIN_NAV: AdminNavItem[] = [
   { key: 'tenants',       icon: IconBuilding, path: '/admin/tenants' },
   { key: 'observability', icon: IconActivity, path: '/admin/observability' },
   { key: 'globalConfig',  icon: IconSettings, path: '/admin/global' },
   { key: 'usageBilling',  icon: IconChartBar, path: '/admin/billing' },
 ]
 
-const TENANT_NAV = [
-  { key: 'overview', icon: IconChartBar, path: '/admin/workspace' },
-  { key: 'users',    icon: IconUsers,    path: '/admin/workspace/users' },
-  { key: 'apiKeys',  icon: IconKey,      path: '/admin/workspace/keys' },
+const TENANT_NAV: AdminNavItem[] = [
+  { key: 'overview',   icon: IconChartBar,  path: '/admin/workspace', exact: true },
+  { key: 'users',      icon: IconUsers,     path: '/admin/workspace/users' },
+  { key: 'apiKeys',    icon: IconKey,       path: '/admin/workspace/keys' },
+  { key: 'scopedKeys', icon: IconLockAccess, path: '/admin/workspace/api-keys' },
 ]
+
+// Tenant-level integration tools. These routes existed but had no nav
+// entry anywhere, making the features undiscoverable without a deep link.
+const TENANT_TOOLS_NAV: AdminNavItem[] = [
+  { key: 'skills',        icon: IconBook2,      path: '/admin/skills' },
+  { key: 'mcp',           icon: IconPlug,       path: '/admin/mcp' },
+  { key: 'triggers',      icon: IconClockPlay,  path: '/admin/triggers' },
+  { key: 'linktorInbox',  icon: IconInbox,      path: '/admin/linktor/inbox' },
+  { key: 'linktorConfig', icon: IconMessageCog, path: '/admin/linktor', exact: true },
+  { key: 'brainsentry',   icon: IconShieldLock, path: '/admin/brainsentry' },
+]
+
+function isActive(item: AdminNavItem, pathname: string): boolean {
+  return pathname === item.path
+    || (!item.exact && pathname.startsWith(item.path + '/'))
+}
 
 export default function AdminLayout() {
   const navigate = useNavigate()
@@ -65,11 +92,33 @@ export default function AdminLayout() {
             key={item.path}
             label={t(`admin.layout.${item.key}`)}
             leftSection={<item.icon size={18} />}
-            active={location.pathname === item.path || location.pathname.startsWith(item.path + '/')}
+            active={isActive(item, location.pathname)}
             onClick={() => navigate(item.path)}
             variant="light"
           />
         ))}
+
+        {!isSuperadminView && (
+          <>
+            <div style={{ borderTop: '1px solid var(--color-border-tertiary)', margin: '8px 0' }} />
+            <span style={{
+              fontSize: 10, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase',
+              color: 'var(--color-text-tertiary)', padding: '0 10px 4px',
+            }}>
+              {t('admin.layout.integrations')}
+            </span>
+            {TENANT_TOOLS_NAV.map(item => (
+              <NavLink
+                key={item.path}
+                label={t(`admin.layout.${item.key}`)}
+                leftSection={<item.icon size={18} />}
+                active={isActive(item, location.pathname)}
+                onClick={() => navigate(item.path)}
+                variant="light"
+              />
+            ))}
+          </>
+        )}
 
         {isSuperadminView && (
           <>
@@ -77,7 +126,7 @@ export default function AdminLayout() {
             <NavLink
               label={t('admin.layout.workflows')}
               leftSection={<IconTopologyRing size={18} />}
-              onClick={() => navigate('/')}
+              onClick={() => navigate('/workflows')}
               variant="subtle"
               c="dimmed"
             />

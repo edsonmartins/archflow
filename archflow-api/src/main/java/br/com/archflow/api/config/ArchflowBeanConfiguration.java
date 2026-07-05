@@ -42,6 +42,7 @@ import br.com.archflow.langchain4j.realtime.spi.RealtimeAdapter;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -52,7 +53,22 @@ import org.springframework.context.annotation.Configuration;
  * override any service (e.g., replace InMemoryUserRepository with JDBC).
  */
 @Configuration
+@org.springframework.context.annotation.Import(JdbcPersistenceConfiguration.class)
 public class ArchflowBeanConfiguration {
+
+    private static final org.slf4j.Logger log =
+            org.slf4j.LoggerFactory.getLogger(ArchflowBeanConfiguration.class);
+
+    /**
+     * Falha o startup fora de dev/test quando stores em memória estão ativos
+     * (perda de dados no restart). Escape hatch: archflow.allow-in-memory=true.
+     */
+    @Bean
+    public ProductionReadinessGuard productionReadinessGuard(
+            org.springframework.core.env.Environment environment,
+            org.springframework.beans.factory.ListableBeanFactory beanFactory) {
+        return new ProductionReadinessGuard(environment, beanFactory);
+    }
 
     // =========================================================================
     // Security / Auth
@@ -71,15 +87,35 @@ public class ArchflowBeanConfiguration {
         return new JwtService(secret);
     }
 
+    /**
+     * Default in-memory user repository seeded with a bootstrap admin.
+     *
+     * <p>The admin password is resolved from {@code archflow.security.admin-password}
+     * (or the {@code ARCHFLOW_ADMIN_PASSWORD} environment variable). When absent:
+     * under the {@code dev}/{@code test} profiles a fixed development password is
+     * used; otherwise a random password is generated and logged once at WARN so
+     * the deployment is never reachable with a publicly known credential.
+     */
     @Bean
     @ConditionalOnMissingBean
-    public UserRepository userRepository(PasswordService passwordService) {
-        var repo = new InMemoryUserRepository();
-        repo.findByUsername("admin").ifPresent(admin -> {
-            admin.setPasswordHash(passwordService.hash("admin123"));
-            repo.save(admin);
-        });
-        return repo;
+    public UserRepository userRepository(
+            PasswordService passwordService,
+            org.springframework.core.env.Environment environment,
+            @Value("${archflow.security.admin-password:${ARCHFLOW_ADMIN_PASSWORD:}}") String adminPassword) {
+        String resolved = adminPassword;
+        if (resolved == null || resolved.isBlank()) {
+            if (Profiles.isDevLike(environment)) {
+                resolved = "admin123";
+                log.warn("Using fixed development admin password (dev/test profile). "
+                        + "Set archflow.security.admin-password for real deployments.");
+            } else {
+                resolved = PasswordService.generateRandomPassword(24);
+                log.warn("No admin password configured — generated a random one for user 'admin': {} "
+                        + "(set archflow.security.admin-password or ARCHFLOW_ADMIN_PASSWORD to control it)",
+                        resolved);
+            }
+        }
+        return new InMemoryUserRepository(passwordService.hash(resolved));
     }
 
     @Bean
@@ -88,23 +124,21 @@ public class ArchflowBeanConfiguration {
         return new AuthService(jwtService, passwordService, userRepository);
     }
 
+    /**
+     * Default in-memory API key repository — bean próprio (não mais embutido
+     * no apiKeyService) para que deployments possam sobrescrevê-lo com uma
+     * implementação durável e o ProductionReadinessGuard consiga detectá-lo.
+     */
     @Bean
     @ConditionalOnMissingBean
-    public ApiKeyService apiKeyService() {
-        // In-memory API key repository for dev; override for production
-        ApiKeyService.ApiKeyRepository repo = new InMemoryApiKeyRepository();
-        return new ApiKeyService(repo);
+    public ApiKeyService.ApiKeyRepository apiKeyRepository() {
+        return new InMemoryApiKeyRepository();
     }
 
-    /** Simple in-memory implementation of ApiKeyRepository for dev/testing. */
-    private static class InMemoryApiKeyRepository implements ApiKeyService.ApiKeyRepository {
-        private final java.util.concurrent.ConcurrentHashMap<String, br.com.archflow.model.security.ApiKey> store = new java.util.concurrent.ConcurrentHashMap<>();
-
-        @Override public br.com.archflow.model.security.ApiKey save(br.com.archflow.model.security.ApiKey key) { store.put(key.getId(), key); return key; }
-        @Override public java.util.Optional<br.com.archflow.model.security.ApiKey> findById(String id) { return java.util.Optional.ofNullable(store.get(id)); }
-        @Override public java.util.Optional<br.com.archflow.model.security.ApiKey> findByKeyId(String keyId) { return store.values().stream().filter(k -> keyId.equals(k.getKeyId())).findFirst(); }
-        @Override public java.util.List<br.com.archflow.model.security.ApiKey> findByOwnerId(String ownerId) { return store.values().stream().filter(k -> ownerId.equals(k.getOwnerId())).toList(); }
-        @Override public void delete(br.com.archflow.model.security.ApiKey key) { store.remove(key.getId()); }
+    @Bean
+    @ConditionalOnMissingBean
+    public ApiKeyService apiKeyService(ApiKeyService.ApiKeyRepository apiKeyRepository) {
+        return new ApiKeyService(apiKeyRepository);
     }
 
     // =========================================================================
@@ -134,8 +168,13 @@ public class ArchflowBeanConfiguration {
     public ObservabilityService observabilityService(
             InMemoryTraceStore traceStore,
             EventStreamRegistry eventStreamRegistry,
-            RunningFlowsRegistry runningFlowsRegistry) {
-        return new ObservabilityService(null, traceStore, null, eventStreamRegistry, runningFlowsRegistry);
+            RunningFlowsRegistry runningFlowsRegistry,
+            org.springframework.beans.factory.ObjectProvider<AuditRepository> auditRepository) {
+        // AuditRepository é opcional: presente quando archflow.persistence.jdbc.enabled=true
+        // (JdbcAuditRepository) — aí as consultas de auditoria da observabilidade passam a
+        // ler do banco em vez de ficarem vazias. ObjectProvider evita exigir o bean.
+        return new ObservabilityService(null, traceStore, auditRepository.getIfAvailable(),
+                eventStreamRegistry, runningFlowsRegistry);
     }
 
     // =========================================================================
@@ -336,10 +375,65 @@ public class ArchflowBeanConfiguration {
         return new br.com.archflow.agent.persistence.InMemoryFlowRepository();
     }
 
+    /**
+     * Shared flow state store (design-0005 step 4): one {@link br.com.archflow.engine.core.StateManager}
+     * used by the engine, the OrchestrateStep (to materialize the dynamic tree)
+     * and the execution controller (to read it back). In-memory for dev.
+     *
+     * <p>Desligado quando {@code archflow.persistence.jdbc.enabled=true} — aí o
+     * {@link JdbcPersistenceConfiguration} fornece o StateManager durável
+     * (mutuamente exclusivo pela mesma propriedade, sem corrida de ordenação).
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(name = "archflow.persistence.jdbc.enabled", havingValue = "false", matchIfMissing = true)
+    public br.com.archflow.engine.core.StateManager stateManager() {
+        return new br.com.archflow.api.flow.InMemoryStateManager();
+    }
+
+    /**
+     * The real, async {@link br.com.archflow.engine.api.FlowEngine} (design-0005
+     * step 1): virtual-thread execution with backpressure and pause/resume/cancel,
+     * wired from its collaborators (in-memory state for dev). Turns the previously
+     * dormant engine into a usable async executor for every workflow.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public br.com.archflow.engine.api.FlowEngine flowEngine(
+            br.com.archflow.engine.persistence.FlowRepository flowRepository,
+            EventStreamRegistry eventStreamRegistry,
+            RunningFlowsRegistry runningFlowsRegistry,
+            br.com.archflow.engine.core.StateManager stateManager,
+            br.com.archflow.api.web.workflow.InMemoryWorkflowRuntimeStore runtimeStore) {
+        // Registered before create(): the factory snapshots process-wide
+        // listeners into the engine's composite lifecycle listener.
+        br.com.archflow.engine.lifecycle.FlowLifecycleListeners.register(
+                new br.com.archflow.api.flow.StepRecordingListener(runtimeStore));
+        return br.com.archflow.api.flow.FlowEngineFactory.create(
+                flowRepository, eventStreamRegistry, runningFlowsRegistry, stateManager);
+    }
+
     @Bean
     @ConditionalOnMissingBean
     public WorkflowYamlBridge workflowYamlBridge() {
         return new WorkflowYamlBridge();
+    }
+
+    /**
+     * MCP server exposing the stored workflows as tools (Onda E): the
+     * counterpart of the platform's MCP-client support, served by
+     * {@code SpringMcpServerController} at {@code POST /mcp}.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public br.com.archflow.api.mcp.server.WorkflowMcpServer workflowMcpServer(
+            br.com.archflow.api.web.workflow.InMemoryWorkflowRuntimeStore runtimeStore,
+            br.com.archflow.api.flow.WorkflowDeserializer workflowDeserializer,
+            br.com.archflow.engine.api.FlowEngine flowEngine,
+            br.com.archflow.engine.persistence.FlowRepository flowRepository,
+            com.fasterxml.jackson.databind.ObjectMapper jackson2ObjectMapper) {
+        return new br.com.archflow.api.mcp.server.WorkflowMcpServer(
+                runtimeStore, workflowDeserializer, flowEngine, flowRepository, jackson2ObjectMapper);
     }
 
     // =========================================================================
@@ -404,16 +498,30 @@ public class ArchflowBeanConfiguration {
                 "br.com.archflow.plugins.assistants.TechSupportAssistant",
                 "br.com.archflow.plugins.tools.TextTransformTool"
         };
+        java.util.List<String> registered = new java.util.ArrayList<>();
+        java.util.List<String> failed = new java.util.ArrayList<>();
         for (String className : builtIns) {
             try {
                 Class<?> cls = Class.forName(className);
                 Object instance = cls.getDeclaredConstructor().newInstance();
                 if (instance instanceof br.com.archflow.model.ai.AIComponent aic) {
                     catalog.register(aic);
+                    registered.add(className);
                 }
-            } catch (Throwable ignored) {
-                // Plugin jar not on classpath or construction failed — fine.
+            } catch (ClassNotFoundException e) {
+                // Jar do plugin fora do classpath é uma configuração válida,
+                // mas precisa ficar visível — workflows que dependem dele
+                // falhariam de forma misteriosa.
+                failed.add(className + " (not on classpath)");
+            } catch (Throwable e) {
+                failed.add(className + " (failed to construct: " + e.getMessage() + ")");
+                log.warn("Built-in plugin {} failed to construct", className, e);
             }
+        }
+        log.info("Component catalog: {} built-in plugin(s) registered", registered.size());
+        if (!failed.isEmpty()) {
+            log.warn("Component catalog: {} built-in plugin(s) NOT available: {}",
+                    failed.size(), failed);
         }
         return catalog;
     }
@@ -600,13 +708,26 @@ public class ArchflowBeanConfiguration {
             @Value("${archflow.llm.model:gpt-4o-mini}") String model,
             @Value("${archflow.llm.temperature:0.2}") double temperature,
             @Value("${archflow.llm.max-tokens:1024}") int maxTokens,
-            @Value("${archflow.llm.timeout-ms:30000}") long timeoutMs) {
+            @Value("${archflow.llm.timeout-ms:30000}") long timeoutMs,
+            @Value("${archflow.llm.api-key:}") String apiKey,
+            @Value("${archflow.llm.base-url:}") String baseUrl) {
+        // Inline key/baseUrl go into additionalConfig — the resolver reads the key
+        // from additionalConfig.apiKey (tenant key takes precedence). Keep secrets
+        // out of source: set via ARCHFLOW_LLM_API_KEY / ARCHFLOW_LLM_BASE_URL.
+        java.util.Map<String, Object> additional = new java.util.HashMap<>();
+        if (apiKey != null && !apiKey.isBlank()) {
+            additional.put("apiKey", apiKey);
+        }
+        if (baseUrl != null && !baseUrl.isBlank()) {
+            additional.put("baseUrl", baseUrl);
+        }
         return br.com.archflow.model.config.ResolvedLLMConfig.builder()
                 .provider(provider)
                 .model(model)
                 .temperature(temperature)
                 .maxTokens(maxTokens)
                 .timeout(timeoutMs)
+                .additionalConfig(additional)
                 .build();
     }
 
@@ -621,5 +742,49 @@ public class ArchflowBeanConfiguration {
         return new br.com.archflow.langchain4j.provider.DefaultLLMConfigResolver(
                 br.com.archflow.langchain4j.provider.LLMProviderHub.getInstance(),
                 tenantKeyResolver);
+    }
+
+    // =========================================================================
+    // Assist (IA síncrona — família /archflow/assist/*, ADR-0004)
+    // =========================================================================
+
+    /**
+     * Jackson 2 {@link com.fasterxml.jackson.databind.ObjectMapper} bean.
+     *
+     * <p>Spring Boot 4 auto-configures only a Jackson 3 ({@code tools.jackson})
+     * mapper, so the classic {@code com.fasterxml.jackson.databind.ObjectMapper}
+     * is no longer available for injection. The codebase still serializes via
+     * Jackson 2 in several places, so expose a single shared bean here instead of
+     * each consumer building its own — that fixes the missing-bean error once and
+     * gives every consumer one consistent configuration to evolve.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public com.fasterxml.jackson.databind.ObjectMapper jackson2ObjectMapper() {
+        return new com.fasterxml.jackson.databind.ObjectMapper();
+    }
+
+    /**
+     * Confidence scorer used by the dynamic-orchestration verification path
+     * (ConfidenceVoter) and available to the agent layer for escalation.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public br.com.archflow.agent.confidence.ConfidenceScorer confidenceScorer() {
+        return new br.com.archflow.agent.confidence.DefaultConfidenceScorer();
+    }
+
+    /**
+     * Serviço de assistência por IA. Usa o {@code LLMConfigResolver} e o
+     * default da plataforma para resolver o modelo padrão e diagnosticar erros.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public br.com.archflow.api.assist.AssistService assistService(
+            br.com.archflow.langchain4j.provider.LLMConfigResolver llmConfigResolver,
+            br.com.archflow.model.config.ResolvedLLMConfig platformDefaultLLMConfig,
+            com.fasterxml.jackson.databind.ObjectMapper objectMapper) {
+        return new br.com.archflow.api.assist.impl.AssistServiceImpl(
+                llmConfigResolver, platformDefaultLLMConfig, objectMapper);
     }
 }

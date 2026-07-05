@@ -1,7 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { installSession } from './support/api';
 import {
-  type EditorStep,
   type EditorWorkflow,
   installEditorApi,
   renderWorkflowYaml,
@@ -111,13 +110,14 @@ async function authenticate(page: Page) {
 
 /**
  * Selects a specific node by matching its on-screen label. React Flow
- * wraps each node in `.react-flow__node`; we walk them and click the
+ * wraps each visible card in `.af-node-card`; we walk them and click the
  * one whose text matches, so the test isn't sensitive to layout order.
  */
 async function selectNodeByLabel(page: Page, label: string) {
-  const node = page.locator('.react-flow__node').filter({ hasText: label });
+  const node = page.locator('.af-node-card').filter({ hasText: label });
   await expect(node).toBeVisible();
-  await node.click({ force: true });
+  await node.evaluate((element) => (element as HTMLElement).click());
+  await expect(page.getByTestId('property-panel-node-title')).toHaveText(label);
 }
 
 test.describe('Workflow editor — full user journey', () => {
@@ -141,13 +141,13 @@ test.describe('Workflow editor — full user journey', () => {
     await selectNodeByLabel(page, 'Intake Agent');
 
     // Provider Select opens a popup; the textbox holds the selected label
-    await page.getByRole('textbox', { name: 'Provider' }).click();
+    await page.getByRole('combobox', { name: 'Provider' }).click();
     await page.getByRole('option', { name: 'OpenAI' }).click();
 
-    await page.getByRole('textbox', { name: 'Model' }).click();
+    await page.getByRole('combobox', { name: 'Model' }).click();
     await page.getByRole('option', { name: 'GPT-4o Mini' }).click();
 
-    await page.getByRole('textbox', { name: 'Execution strategy' }).click();
+    await page.getByRole('combobox', { name: 'Execution strategy' }).click();
     await page.getByRole('option', { name: /Plan and Execute/ }).click();
 
     await page.getByLabel('Temperature').fill('0.3');
@@ -155,12 +155,12 @@ test.describe('Workflow editor — full user journey', () => {
     await page.getByLabel('Max iterations').fill('15');
 
     // Persona
-    await page.getByRole('textbox', { name: 'Persona' }).click();
+    await page.getByRole('combobox', { name: 'Persona' }).click();
     await page.getByRole('option', { name: 'Customer Support' }).click();
 
     // Governance accordion
     await page.getByRole('button', { name: 'Governance' }).click();
-    await page.getByRole('textbox', { name: 'Profile' }).click();
+    await page.getByRole('combobox', { name: 'Profile' }).click();
     await page.getByRole('option', { name: 'Strict' }).click();
 
     // ════════════════════════════════════════════════════════════════
@@ -169,7 +169,7 @@ test.describe('Workflow editor — full user journey', () => {
     await selectNodeByLabel(page, 'CRM Lookup');
 
     await page.getByLabel('Tool ID').fill('crm_lookup_v2');
-    await page.getByRole('textbox', { name: 'On error' }).click();
+    await page.getByRole('combobox', { name: 'On error' }).click();
     await page.getByRole('option', { name: /Retry with policy/ }).click();
 
     await page.getByLabel('Max attempts').fill('5');
@@ -182,10 +182,13 @@ test.describe('Workflow editor — full user journey', () => {
     // ════════════════════════════════════════════════════════════════
     await selectNodeByLabel(page, 'Response Agent');
 
-    await page.getByRole('textbox', { name: 'Execution strategy' }).click();
+    await page.getByRole('combobox', { name: 'Execution strategy' }).click();
     await page.getByRole('option', { name: /Chain of Thought/ }).click();
 
-    await page.getByRole('textbox', { name: 'Model' }).click();
+    await page.getByRole('combobox', { name: 'Provider' }).click();
+    await page.getByRole('option', { name: 'Anthropic' }).click();
+
+    await page.getByRole('combobox', { name: 'Model' }).click();
     await page.getByRole('option', { name: 'Claude Opus 4.6' }).click();
 
     // ════════════════════════════════════════════════════════════════
@@ -252,7 +255,7 @@ test.describe('Workflow editor — full user journey', () => {
     // ════════════════════════════════════════════════════════════════
     //  STEP 6 — Navigate away and come back: fields must persist
     // ════════════════════════════════════════════════════════════════
-    await page.goto('/');
+    await page.goto('/workflows');
     await expect(page.getByText('Support Triage').first()).toBeVisible();
 
     await page.goto('/editor/wf-journey');
@@ -260,17 +263,17 @@ test.describe('Workflow editor — full user journey', () => {
 
     // Re-select Intake Agent and verify every field round-tripped
     await selectNodeByLabel(page, 'Intake Agent');
-    await expect(page.getByRole('textbox', { name: 'Provider' })).toHaveValue('OpenAI');
-    await expect(page.getByRole('textbox', { name: 'Model' })).toHaveValue('GPT-4o Mini');
-    await expect(page.getByRole('textbox', { name: 'Execution strategy' })).toHaveValue('Plan and Execute');
+    await expect(page.getByRole('combobox', { name: 'Provider' })).toHaveValue('OpenAI');
+    await expect(page.getByRole('combobox', { name: 'Model' })).toHaveValue('GPT-4o Mini');
+    await expect(page.getByRole('combobox', { name: 'Execution strategy' })).toHaveValue('Plan and Execute');
     await expect(page.getByLabel('Temperature')).toHaveValue('0.3');
     await expect(page.getByLabel('Max tokens')).toHaveValue('8192');
-    await expect(page.getByRole('textbox', { name: 'Persona' })).toHaveValue('Customer Support');
+    await expect(page.getByRole('combobox', { name: 'Persona' })).toHaveValue('Customer Support');
 
     // Re-select CRM tool and verify retry policy
     await selectNodeByLabel(page, 'CRM Lookup');
     await expect(page.getByLabel('Tool ID')).toHaveValue('crm_lookup_v2');
-    await expect(page.getByRole('textbox', { name: 'On error' })).toHaveValue('Retry with policy');
+    await expect(page.getByRole('combobox', { name: 'On error' })).toHaveValue('Retry with policy');
     await expect(page.getByLabel('Max attempts')).toHaveValue('5');
     await expect(page.getByLabel('Initial delay (ms)')).toHaveValue('2000');
     await expect(page.getByLabel('Backoff multiplier')).toHaveValue('2.5');
@@ -278,8 +281,8 @@ test.describe('Workflow editor — full user journey', () => {
 
     // Re-select Response Agent
     await selectNodeByLabel(page, 'Response Agent');
-    await expect(page.getByRole('textbox', { name: 'Model' })).toHaveValue('Claude Opus 4.6');
-    await expect(page.getByRole('textbox', { name: 'Execution strategy' })).toHaveValue('Chain of Thought');
+    await expect(page.getByRole('combobox', { name: 'Model' })).toHaveValue('Claude Opus 4.6');
+    await expect(page.getByRole('combobox', { name: 'Execution strategy' })).toHaveValue('Chain of Thought');
 
     // ── No JavaScript errors throughout the journey
     expect(errors, 'Unexpected page errors: ' + errors.join('; ')).toEqual([]);

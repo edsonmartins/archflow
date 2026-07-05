@@ -73,6 +73,7 @@ export const NODE_TYPE_TO_CATEGORY: Record<string, keyof typeof NODE_CATEGORIES>
   'assistant':        'agent',
   'llm-chat':         'agent',
   'llm-streaming':    'agent',
+  'orchestrate':      'agent',
   'condition':        'control',
   'parallel':         'control',
   'loop':             'control',
@@ -111,55 +112,58 @@ export const NODE_TYPE_TO_CATEGORY: Record<string, keyof typeof NODE_CATEGORIES>
 // ── Palette completa (23 tipos do NodeRegistry) ──────────────────
 export const PALETTE_NODES = [
   // AI / Agents
-  { componentId: 'agent',         label: 'Agent',          description: 'Autonomous AI agent',     category: 'agent'   as const, icon: '🤖' },
-  { componentId: 'assistant',     label: 'Assistant',      description: 'Interactive assistant',    category: 'agent'   as const, icon: '🧠' },
-  { componentId: 'llm-chat',      label: 'LLM Chat',       description: 'Language model call',      category: 'agent'   as const, icon: '💬' },
-  { componentId: 'llm-streaming', label: 'LLM Streaming',  description: 'Streaming LLM response',  category: 'agent'   as const, icon: '⚡' },
+  { componentId: 'agent',         label: 'Agent',          description: 'Autonomous AI agent',     category: 'agent'   as const },
+  { componentId: 'assistant',     label: 'Assistant',      description: 'Interactive assistant',    category: 'agent'   as const },
+  { componentId: 'llm-chat',      label: 'LLM Chat',       description: 'Language model call',      category: 'agent'   as const },
+  { componentId: 'llm-streaming', label: 'LLM Streaming',  description: 'Streaming LLM response',  category: 'agent'   as const },
+  { componentId: 'orchestrate',   label: 'Orchestrate',    description: 'Dynamic multi-agent workflow', category: 'agent' as const },
   // Control flow
-  { componentId: 'condition',     label: 'Condition',      description: 'Branch on condition',      category: 'control' as const, icon: '⑂' },
-  { componentId: 'parallel',      label: 'Parallel',       description: 'Run branches in parallel', category: 'control' as const, icon: '⫶' },
-  { componentId: 'loop',          label: 'Loop',           description: 'Iterate over items',       category: 'control' as const, icon: '↻' },
-  { componentId: 'switch',        label: 'Switch',         description: 'Multi-branch switch',      category: 'control' as const, icon: '⋮' },
+  { componentId: 'condition',     label: 'Condition',      description: 'Branch on condition',      category: 'control' as const },
+  { componentId: 'parallel',      label: 'Parallel',       description: 'Run branches in parallel', category: 'control' as const },
+  { componentId: 'loop',          label: 'Loop',           description: 'Iterate over items',       category: 'control' as const },
+  { componentId: 'switch',        label: 'Switch',         description: 'Multi-branch switch',      category: 'control' as const },
   // Data
-  { componentId: 'transform',     label: 'Transform',      description: 'Map and reshape data',     category: 'data'    as const, icon: '⇄' },
-  { componentId: 'map',           label: 'Map',            description: 'Map over collection',      category: 'data'    as const, icon: '⊞' },
-  { componentId: 'filter',        label: 'Filter',         description: 'Filter by condition',      category: 'data'    as const, icon: '▽' },
-  { componentId: 'reduce',        label: 'Reduce',         description: 'Reduce to single value',   category: 'data'    as const, icon: '⊃' },
-  { componentId: 'merge',         label: 'Merge',          description: 'Merge multiple inputs',    category: 'data'    as const, icon: '⊕' },
+  { componentId: 'transform',     label: 'Transform',      description: 'Map and reshape data',     category: 'data'    as const },
+  { componentId: 'map',           label: 'Map',            description: 'Map over collection',      category: 'data'    as const },
+  { componentId: 'filter',        label: 'Filter',         description: 'Filter by condition',      category: 'data'    as const },
+  { componentId: 'reduce',        label: 'Reduce',         description: 'Reduce to single value',   category: 'data'    as const },
+  { componentId: 'merge',         label: 'Merge',          description: 'Merge multiple inputs',    category: 'data'    as const },
   // Tools
-  { componentId: 'tool',          label: 'Tool',           description: 'Execute a tool call',      category: 'tool'    as const, icon: '⚙' },
-  { componentId: 'function',      label: 'Function',       description: 'Custom code function',     category: 'tool'    as const, icon: '⟨⟩' },
-  { componentId: 'custom',        label: 'Custom',         description: 'Custom component',         category: 'tool'    as const, icon: '✦' },
+  { componentId: 'tool',          label: 'Tool',           description: 'Execute a tool call',      category: 'tool'    as const },
+  { componentId: 'function',      label: 'Function',       description: 'Custom code function',     category: 'tool'    as const },
+  { componentId: 'custom',        label: 'Custom',         description: 'Custom component',         category: 'tool'    as const },
   // Vector / Memory
-  { componentId: 'vector-search', label: 'Vector search',  description: 'Semantic retrieval',       category: 'vector'  as const, icon: '◎' },
-  { componentId: 'vector-store',  label: 'Vector store',   description: 'Store embeddings',         category: 'vector'  as const, icon: '⊟' },
-  { componentId: 'embedding',     label: 'Embedding',      description: 'Generate embeddings',      category: 'vector'  as const, icon: '∿' },
-  { componentId: 'rag',           label: 'RAG chain',      description: 'Retrieval-augmented generation', category: 'vector' as const, icon: '📚' },
-  { componentId: 'memory',        label: 'Memory',         description: 'Conversational memory store', category: 'vector' as const, icon: '🧠' },
+  { componentId: 'vector-search', label: 'Vector search',  description: 'Semantic retrieval',       category: 'vector'  as const },
+  { componentId: 'vector-store',  label: 'Vector store',   description: 'Store embeddings',         category: 'vector'  as const },
+  { componentId: 'embedding',     label: 'Embedding',      description: 'Generate embeddings',      category: 'vector'  as const },
+  { componentId: 'rag',           label: 'RAG chain',      description: 'Retrieval-augmented generation', category: 'vector' as const },
+  { componentId: 'memory',        label: 'Memory',         description: 'Conversational memory store', category: 'vector' as const },
   // I/O
-  { componentId: 'prompt-template', label: 'Prompt template', description: 'Parameterized prompt', category: 'io'      as const, icon: '✎' },
-  { componentId: 'prompt-chunk',  label: 'Prompt chunk',   description: 'Partial prompt block',     category: 'io'      as const, icon: '¶' },
-  { componentId: 'input',         label: 'Input',          description: 'Workflow entry point',     category: 'io'      as const, icon: '→' },
-  { componentId: 'output',        label: 'Output',         description: 'Workflow exit point',      category: 'io'      as const, icon: '←' },
+  { componentId: 'prompt-template', label: 'Prompt template', description: 'Parameterized prompt', category: 'io'      as const },
+  { componentId: 'prompt-chunk',  label: 'Prompt chunk',   description: 'Partial prompt block',     category: 'io'      as const },
+  { componentId: 'input',         label: 'Input',          description: 'Workflow entry point',     category: 'io'      as const },
+  { componentId: 'output',        label: 'Output',         description: 'Workflow exit point',      category: 'io'      as const },
   // Knowledge / orchestration / HITL (backend-backed)
-  { componentId: 'skills',        label: 'Skills',         description: 'Activate and read playbook skills',  category: 'knowledge'   as const, icon: '📖' },
-  { componentId: 'approval',      label: 'Human approval', description: 'Pause for a human decision (HITL)',  category: 'control'     as const, icon: '✋' },
-  { componentId: 'subflow',       label: 'Subflow',        description: 'Invoke another workflow as a step',  category: 'control'     as const, icon: '⇲' },
-  { componentId: 'mcp-tool',      label: 'MCP tool',       description: 'Call a tool on a registered MCP server', category: 'tool'    as const, icon: '🔌' },
+  { componentId: 'skills',        label: 'Skills',         description: 'Activate and read playbook skills',  category: 'knowledge'   as const },
+  { componentId: 'approval',      label: 'Human approval', description: 'Pause for a human decision (HITL)',  category: 'control'     as const },
+  { componentId: 'subflow',       label: 'Subflow',        description: 'Invoke another workflow as a step',  category: 'control'     as const },
+  { componentId: 'mcp-tool',      label: 'MCP tool',       description: 'Call a tool on a registered MCP server', category: 'tool'    as const },
   // External messaging (Linktor)
-  { componentId: 'linktor-send',     label: 'Linktor send',     description: 'Post a message to a Linktor conversation', category: 'integration' as const, icon: '✉' },
-  { componentId: 'linktor-escalate', label: 'Linktor escalate', description: 'Hand a conversation off to a human agent', category: 'integration' as const, icon: '🛎' },
+  { componentId: 'linktor-send',     label: 'Linktor send',     description: 'Post a message to a Linktor conversation', category: 'integration' as const },
+  { componentId: 'linktor-escalate', label: 'Linktor escalate', description: 'Hand a conversation off to a human agent', category: 'integration' as const },
   // Auxiliary canvas annotations (n8n-style)
-  { componentId: 'sticky-note',      label: 'Sticky note',      description: 'Yellow comment / annotation card',         category: 'annotation' as const, icon: '✎' },
-  { componentId: 'group-frame',      label: 'Group frame',      description: 'Bounding box that visually groups nodes',   category: 'annotation' as const, icon: '▣' },
-  { componentId: 'section-divider',  label: 'Section divider',  description: 'Labeled horizontal divider',                category: 'annotation' as const, icon: '─' },
+  { componentId: 'sticky-note',      label: 'Sticky note',      description: 'Yellow comment / annotation card',         category: 'annotation' as const },
+  { componentId: 'group-frame',      label: 'Group frame',      description: 'Bounding box that visually groups nodes',   category: 'annotation' as const },
+  { componentId: 'section-divider',  label: 'Section divider',  description: 'Labeled horizontal divider',                category: 'annotation' as const },
 ] as const
 
 // ── Status de execução ───────────────────────────────────────────
-// Aligned with HTML reference exec-badge colors
+// Semantic tokens from App.css — light AND dark variants are defined
+// there, so the badges stay readable in both color schemes.
 export const EXECUTION_STATUS_COLORS = {
-  idle:    { border: 'var(--border2)',  bg: 'transparent',  text: 'var(--text4)' },
-  running: { border: '#D97706',        bg: '#FFFBEB',       text: '#92400E'      },
-  success: { border: '#059669',        bg: '#ECFDF5',       text: '#065F46'      },
-  error:   { border: '#DC2626',        bg: '#FEF2F2',       text: '#991B1B'      },
+  idle:    { border: 'var(--border2)', bg: 'transparent',    text: 'var(--text4)' },
+  running: { border: 'var(--amber)',   bg: 'var(--amber-l)', text: 'var(--amber-text)' },
+  success: { border: 'var(--green)',   bg: 'var(--green-l)', text: 'var(--green-text)' },
+  error:   { border: 'var(--red)',     bg: 'var(--red-l)',   text: 'var(--red-text)' },
+  skipped: { border: 'var(--gray)',    bg: 'var(--gray-l)',  text: 'var(--text3)' },
 } as const

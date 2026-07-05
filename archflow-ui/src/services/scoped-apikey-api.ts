@@ -43,7 +43,7 @@ async function req<T>(path: string, init: RequestInit = {}): Promise<T> {
         ...(init.headers as Record<string, string> ?? {}),
         ...userHeader(),
     }
-    const token = localStorage.getItem('archflow_token')
+    const token = sessionStorage.getItem('archflow_token')
     if (token) (headers as Record<string, string>).Authorization = `Bearer ${token}`
     const res = await fetch(`${import.meta.env.VITE_API_BASE || '/api'}${path}`, { ...init, headers })
     if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`)

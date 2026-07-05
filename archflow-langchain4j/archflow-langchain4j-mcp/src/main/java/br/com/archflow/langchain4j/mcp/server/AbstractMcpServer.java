@@ -355,6 +355,11 @@ public abstract class AbstractMcpServer implements McpServer {
     // ---------------------------------------------------------------------------
 
     private McpModel.ClientCapabilities parseClientCapabilities(Map<String, Object> map) {
+        // `capabilities` is optional in practice; a client that omits it must still
+        // handshake rather than trip an NPE and get -32602 "Invalid client info".
+        if (map == null) {
+            return new McpModel.ClientCapabilities(false, false);
+        }
         return new McpModel.ClientCapabilities(
                 map.containsKey("roots"),
                 map.containsKey("sampling")
@@ -362,6 +367,9 @@ public abstract class AbstractMcpServer implements McpServer {
     }
 
     private McpModel.ClientMetadata parseClientMetadata(Map<String, Object> map) {
+        if (map == null) {
+            return new McpModel.ClientMetadata(null, null);
+        }
         return new McpModel.ClientMetadata(
                 (String) map.get("name"),
                 (String) map.get("version")

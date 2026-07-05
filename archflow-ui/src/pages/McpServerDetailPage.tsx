@@ -5,6 +5,7 @@ import {
     Accordion, Alert, Badge, Button, Card, Code, Group, Stack, Text, Title,
 } from '@mantine/core'
 import { mcpApi, type McpIntrospection } from '../services/mcp-api'
+import { JsonViewer } from '../components/JsonViewer'
 import { ApiError } from '../services/api'
 
 /**
@@ -29,7 +30,7 @@ export default function McpServerDetailPage() {
     useEffect(load, [name])
 
     return (
-        <Stack gap="md" style={{ padding: 24 }} data-testid="mcp-detail">
+        <Stack gap="md" p="md" data-testid="mcp-detail">
             <Group justify="space-between">
                 <Group>
                     <Title order={2}>{name}</Title>
@@ -61,7 +62,7 @@ export default function McpServerDetailPage() {
                                                 <Text fw={600}>{t.name}</Text>
                                             </Group>
                                             <Text size="sm" c="dimmed">{t.description}</Text>
-                                            <Code block>{JSON.stringify(t.inputSchema, null, 2)}</Code>
+                                            <JsonViewer value={t.inputSchema} />
                                         </Stack>
                                     </Card>
                                 ))}

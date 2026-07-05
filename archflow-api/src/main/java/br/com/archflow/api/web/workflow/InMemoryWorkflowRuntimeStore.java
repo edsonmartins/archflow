@@ -11,6 +11,9 @@ public class InMemoryWorkflowRuntimeStore {
 
     private final Map<String, Map<String, Object>> workflows = new ConcurrentHashMap<>();
     private final Map<String, Map<String, Object>> executions = new ConcurrentHashMap<>();
+    // Per-execution stepId → step-record index so lifecycle events patch in
+    // O(1) instead of rescanning the growing steps list on every event.
+    private final Map<String, Map<String, Map<String, Object>>> stepIndexes = new ConcurrentHashMap<>();
 
     public InMemoryWorkflowRuntimeStore() {
         seedDemoWorkflow();
@@ -35,23 +38,157 @@ public class InMemoryWorkflowRuntimeStore {
 
     public void deleteWorkflow(String id) {
         workflows.remove(id);
-        executions.entrySet().removeIf(entry -> id.equals(entry.getValue().get("workflowId")));
+        executions.entrySet().removeIf(entry -> {
+            if (id.equals(entry.getValue().get("workflowId"))) {
+                stepIndexes.remove(entry.getKey());
+                return true;
+            }
+            return false;
+        });
     }
 
     public List<Map<String, Object>> executions() {
-        return executions.values().stream()
+        return executions(null, null);
+    }
+
+    /**
+     * Returns execution records (most-recent first), optionally filtered by
+     * {@code workflowId} and capped at {@code limit}.
+     *
+     * <p>Each record is deep-copied via {@link #snapshot} <em>under its monitor
+     * first</em>, then filtered/sorted/limited on the immutable copies. Reading
+     * the raw {@link LinkedHashMap}s directly here would race
+     * {@code recordStep}, which structurally adds the {@code "steps"} key while
+     * holding the per-record lock — an unsynchronized {@code get} against that
+     * put can throw or misread.</p>
+     */
+    public List<Map<String, Object>> executions(String workflowId, Integer limit) {
+        var stream = executions.values().stream()
+                .map(InMemoryWorkflowRuntimeStore::snapshot)
+                .filter(exec -> workflowId == null || workflowId.equals(exec.get("workflowId")))
                 .sorted(Comparator.comparing((Map<String, Object> exec) ->
-                        exec.getOrDefault("startedAt", "").toString()).reversed())
-                .toList();
+                        exec.getOrDefault("startedAt", "").toString()).reversed());
+        if (limit != null && limit > 0) {
+            stream = stream.limit(limit);
+        }
+        return stream.toList();
     }
 
     public Map<String, Object> getExecution(String id) {
-        return executions.get(id);
+        var execution = executions.get(id);
+        return execution == null ? null : snapshot(execution);
+    }
+
+    /**
+     * Copies an execution record under its monitor so readers (Jackson
+     * serialization in the controllers) never iterate a map/steps list
+     * that an engine lifecycle callback is mutating concurrently.
+     */
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> snapshot(Map<String, Object> execution) {
+        synchronized (execution) {
+            var copy = new LinkedHashMap<>(execution);
+            if (copy.get("steps") instanceof List<?> steps) {
+                var stepsCopy = new ArrayList<Map<String, Object>>(steps.size());
+                for (Object step : steps) {
+                    stepsCopy.add(new LinkedHashMap<>((Map<String, Object>) step));
+                }
+                copy.put("steps", stepsCopy);
+            }
+            return copy;
+        }
+    }
+
+    /** Marks a resumed execution RUNNING again (locked counterpart of completeExecution). */
+    public void markResumed(String id) {
+        var execution = executions.get(id);
+        if (execution == null) {
+            return;
+        }
+        synchronized (execution) {
+            execution.put("status", "RUNNING");
+            execution.put("completedAt", null);
+            execution.put("error", null);
+        }
     }
 
     public Map<String, Object> putExecution(String id, Map<String, Object> execution) {
         executions.put(id, execution);
         return execution;
+    }
+
+    /** Marks a running execution terminal (status + completedAt + optional error). */
+    public void completeExecution(String id, String status, String error) {
+        var execution = executions.get(id);
+        if (execution == null) {
+            return;
+        }
+        synchronized (execution) {
+            execution.put("status", status);
+            execution.put("completedAt", Instant.now().toString());
+            execution.put("error", error);
+        }
+        // The per-step index only accelerates lifecycle patches WHILE a run
+        // streams; a terminally-finished run receives no more recordStep calls,
+        // so drop it to bound memory (the steps themselves stay on the record).
+        // A PAUSED/AWAITING run may still be resumed and record more steps, so
+        // only evict on a genuinely terminal status — evicting early would make
+        // a post-resume recordStep re-create duplicate step entries.
+        if (TERMINAL_STATUSES.contains(status)) {
+            stepIndexes.remove(id);
+        }
+    }
+
+    private static final Set<String> TERMINAL_STATUSES =
+            Set.of("COMPLETED", "FAILED", "STOPPED", "CANCELLED");
+
+    /** Records the wall-clock duration of an execution (set by the lifecycle listener). */
+    public void recordDuration(String id, long durationMs) {
+        var execution = executions.get(id);
+        if (execution == null) {
+            return;
+        }
+        synchronized (execution) {
+            execution.put("duration", durationMs);
+        }
+    }
+
+    /**
+     * Appends/updates a per-step record inside the execution's {@code steps} list,
+     * keyed by stepId. Called from engine lifecycle callbacks (virtual threads),
+     * hence the per-execution synchronization.
+     */
+    @SuppressWarnings("unchecked")
+    public void recordStep(String executionId, String stepId, Map<String, Object> patch) {
+        var execution = executions.get(executionId);
+        if (execution == null || stepId == null) {
+            return;
+        }
+        synchronized (execution) {
+            var steps = (List<Map<String, Object>>) execution.computeIfAbsent(
+                    "steps", k -> new ArrayList<Map<String, Object>>());
+            // Rebuild the index from the steps already on the record when it's
+            // absent (first event, or after a terminal eviction / resume). This
+            // keeps a late or post-resume patch updating the existing step in
+            // place instead of appending a duplicate row.
+            var index = stepIndexes.computeIfAbsent(executionId, k -> {
+                var rebuilt = new LinkedHashMap<String, Map<String, Object>>();
+                for (Map<String, Object> existing : steps) {
+                    Object sid = existing.get("stepId");
+                    if (sid != null) {
+                        rebuilt.put(sid.toString(), existing);
+                    }
+                }
+                return rebuilt;
+            });
+            var step = index.computeIfAbsent(stepId, k -> {
+                var created = new LinkedHashMap<String, Object>();
+                created.put("stepId", stepId);
+                steps.add(created);
+                return created;
+            });
+            step.putAll(patch);
+        }
     }
 
     public Map<String, Object> createExecution(String workflowId, String workflowName) {

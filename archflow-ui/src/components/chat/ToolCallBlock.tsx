@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ActionIcon, Badge, Code, Collapse, Group, Loader, Paper, Stack, Text } from '@mantine/core';
 import { IconCheck, IconChevronDown, IconChevronRight, IconTool, IconX } from '@tabler/icons-react';
+import { formatDuration } from '../../lib/format';
 
 export type ToolCallStatus = 'running' | 'success' | 'error';
 
@@ -102,7 +103,7 @@ export default function ToolCallBlock({ call, defaultOpen = false }: ToolCallBlo
                 </Text>
             )}
 
-            <Collapse in={open}>
+            <Collapse expanded={open}>
                 <Stack gap={6} mt="xs">
                     {call.input && Object.keys(call.input).length > 0 && (
                         <Section label={t('chat.toolCall.input')}>
@@ -150,11 +151,3 @@ function prettyJson(value: unknown): string {
     }
 }
 
-function formatDuration(ms: number): string {
-    if (ms < 1000) return `${Math.round(ms)}ms`;
-    const seconds = ms / 1000;
-    if (seconds < 60) return `${seconds.toFixed(seconds >= 10 ? 0 : 1)}s`;
-    const min = Math.floor(seconds / 60);
-    const rem = Math.round(seconds % 60);
-    return `${min}m ${rem}s`;
-}
