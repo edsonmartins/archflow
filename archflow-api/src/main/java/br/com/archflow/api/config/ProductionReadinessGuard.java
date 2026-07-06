@@ -92,6 +92,9 @@ public class ProductionReadinessGuard implements SmartInitializingSingleton {
         checkBean(br.com.archflow.security.apikey.ApiKeyService.ApiKeyRepository.class,
                 br.com.archflow.api.config.InMemoryApiKeyRepository.class,
                 "ApiKeyRepository — chaves de API", violations);
+        checkBean(br.com.archflow.conversation.state.SuspendedConversationStore.class,
+                br.com.archflow.conversation.state.InMemorySuspendedConversationStore.class,
+                "SuspendedConversationStore — conversas suspensas (suspend/resume)", violations);
         checkQuartz(violations);
 
         // Stores de observabilidade/rascunho: a perda degrada visibilidade,

@@ -150,4 +150,25 @@ public class JdbcPersistenceConfiguration {
             }
         };
     }
+
+    @Bean
+    public br.com.archflow.conversation.state.SuspendedConversationStore suspendedConversationStore(
+            DataSource dataSource) {
+        log.info("JDBC persistence ativo: SuspendedConversationStore durável "
+                + "(suspend/resume sobrevive a restart)");
+        return new br.com.archflow.conversation.persistence.jdbc.JdbcSuspendedConversationStore(dataSource);
+    }
+
+    @Bean
+    public br.com.archflow.conversation.domain.ConversationRepository conversationRepository(
+            DataSource dataSource) {
+        log.info("JDBC persistence ativo: ConversationRepository durável (histórico de conversas)");
+        return new br.com.archflow.conversation.persistence.jdbc.JdbcConversationRepository(dataSource);
+    }
+
+    @Bean
+    public br.com.archflow.conversation.prompt.PromptRegistry promptRegistry(DataSource dataSource) {
+        log.info("JDBC persistence ativo: PromptRegistry durável (versionamento de prompts)");
+        return new br.com.archflow.conversation.persistence.jdbc.JdbcPromptRegistry(dataSource);
+    }
 }

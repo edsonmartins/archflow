@@ -1,5 +1,6 @@
 package br.com.archflow.conversation.form;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
@@ -47,6 +48,29 @@ public class FormData {
         this.submitLabel = builder.submitLabel != null ? builder.submitLabel : "Submit";
         this.cancelLabel = builder.cancelLabel;
         this.metadata = builder.metadata != null ? Map.copyOf(builder.metadata) : null;
+    }
+
+    /**
+     * Construtor de desserialização (Jackson) — reconstrói uma FormData já
+     * validada a partir de JSON, sem passar pela validação do builder. Usado
+     * pela persistência durável de conversas suspensas.
+     */
+    @JsonCreator
+    FormData(
+            @JsonProperty("id") String id,
+            @JsonProperty("title") String title,
+            @JsonProperty("description") String description,
+            @JsonProperty("fields") List<FormField> fields,
+            @JsonProperty("submitLabel") String submitLabel,
+            @JsonProperty("cancelLabel") String cancelLabel,
+            @JsonProperty("metadata") Map<String, Object> metadata) {
+        this.id = id;
+        this.title = title;
+        this.description = description;
+        this.fields = fields != null ? List.copyOf(fields) : List.of();
+        this.submitLabel = submitLabel != null ? submitLabel : "Submit";
+        this.cancelLabel = cancelLabel;
+        this.metadata = metadata != null ? Map.copyOf(metadata) : null;
     }
 
     /**
@@ -175,6 +199,31 @@ public class FormData {
             this.validation = builder.validation;
             this.placeholder = builder.placeholder;
             this.metadata = builder.metadata != null ? Map.copyOf(builder.metadata) : null;
+        }
+
+        /** Construtor de desserialização (Jackson) — ver {@link FormData#FormData}. */
+        @JsonCreator
+        FormField(
+                @JsonProperty("name") String name,
+                @JsonProperty("type") String type,
+                @JsonProperty("label") String label,
+                @JsonProperty("description") String description,
+                @JsonProperty("required") boolean required,
+                @JsonProperty("defaultValue") Object defaultValue,
+                @JsonProperty("options") List<FormOption> options,
+                @JsonProperty("validation") ValidationRule validation,
+                @JsonProperty("placeholder") String placeholder,
+                @JsonProperty("metadata") Map<String, Object> metadata) {
+            this.name = name;
+            this.type = type;
+            this.label = label;
+            this.description = description;
+            this.required = required;
+            this.defaultValue = defaultValue;
+            this.options = options != null ? List.copyOf(options) : null;
+            this.validation = validation;
+            this.placeholder = placeholder;
+            this.metadata = metadata != null ? Map.copyOf(metadata) : null;
         }
 
         /**

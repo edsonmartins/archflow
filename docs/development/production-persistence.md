@@ -29,6 +29,7 @@ Os DDLs versionados estão nos módulos, em `src/main/resources/db/migration/`:
 | `V001__create_flow_state.sql` | archflow-core | `flow_states`, `audit_logs` |
 | `V002__create_flows.sql` | archflow-core | `flows` |
 | `V001__create_conversations.sql` | archflow-conversation | `conversations`, `conversation_messages`, `prompt_versions` |
+| `V002__create_suspended_conversations.sql` | archflow-conversation | `suspended_conversations` (suspend/resume) |
 | `V1__CreateAuditLogTable.sql` | archflow-observability | `af_audit_log` |
 | `V001__create_security.sql` | archflow-security | `users`, `user_roles`, `api_keys` |
 | `V001__create_quartz.sql` | archflow-api | `QRTZ_*` (JDBCJobStore do Quartz) |
@@ -73,34 +74,24 @@ public FlowRepository flowRepository(DataSource ds, FlowJsonCodec codec) {
 }
 ```
 
-## 4. Beans duráveis adicionais (manual)
+## 4. Conversação durável (histórico + suspend/resume)
 
-Os demais stores ainda exigem wiring explícito (vencem os defaults
-`@ConditionalOnMissingBean`):
+Também ligados automaticamente pela flag `archflow.persistence.jdbc.enabled=true`
+(vencem os defaults em memória via `@ConditionalOnMissingBean`):
 
-```java
-@Configuration
-public class ProductionPersistenceConfig {
+- **`SuspendedConversationStore`** durável (`JdbcSuspendedConversationStore`,
+  tabela `suspended_conversations`): conversas aguardando input humano
+  (suspend/resume) **sobrevivem a restart**. O `ConversationManager` agora
+  consome este store por injeção (o `getInstance()` singleton segue existindo,
+  mas só para compat de testes; produção usa o bean). O formulário (`FormData`)
+  é persistido como JSON — o modelo é round-trippável via `@JsonCreator`.
+- **`ConversationRepository`** (`JdbcConversationRepository`): histórico de
+  conversas + mensagens, isolado por tenant.
+- **`PromptRegistry`** (`JdbcPromptRegistry`): versionamento de prompts.
 
-    /** Conversas + mensagens (isolamento por tenant em toda query). */
-    @Bean
-    public ConversationRepository conversationRepository(DataSource ds) {
-        return new JdbcConversationRepository(ds);
-    }
-
-    /** Versionamento de prompts. */
-    @Bean
-    public PromptRegistry promptRegistry(DataSource ds) {
-        return new JdbcPromptRegistry(ds);
-    }
-}
-```
-
-> Nota: `ConversationRepository`/`PromptRegistry` têm implementações JDBC
-> prontas, mas o caminho de runtime (`ConversationManager` singleton) ainda
-> não as consome — ligá-las hoje cobre consumidores diretos (ex.:
-> `ConversationOrchestrator`), não o suspend/resume do singleton. Integrá-las
-> ao `ConversationManager` é trabalho à parte.
+Fora de dev/test, o `ProductionReadinessGuard` **falha o boot** se o
+`SuspendedConversationStore` ativo ainda for o in-memory — a perda de conversas
+suspensas no restart deixa de ser silenciosa.
 
 O **Quartz** (triggers agendados) passa a usar `JDBCJobStore` (`JobStoreTX`)
 automaticamente sob a flag `archflow.persistence.jdbc.enabled=true`, sobre o
@@ -141,5 +132,6 @@ Suba com o profile de produção: se algo em memória sobrou, o boot falha com
 a lista exata dos beans e o que configurar. Os testes de integração
 (`JdbcStateRepositoryPostgresTest`, `ConversationPersistencePostgresTest`,
 `JdbcUserRepositoryPostgresTest`, `JdbcApiKeyRepositoryPostgresTest`,
-`DurableQuartzSchedulerPostgresTest`) provam o caminho completo contra
-PostgreSQL real via Testcontainers, incluindo sobrevivência a restart.
+`DurableQuartzSchedulerPostgresTest`, `JdbcSuspendedConversationStorePostgresTest`)
+provam o caminho completo contra PostgreSQL real via Testcontainers, incluindo
+sobrevivência a restart.

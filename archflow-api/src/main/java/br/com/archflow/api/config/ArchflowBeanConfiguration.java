@@ -281,10 +281,29 @@ public class ArchflowBeanConfiguration {
         return new ConversationControllerImpl(conversationService);
     }
 
+    /**
+     * Store de conversas suspensas — default em memória (perde suspend/resume no
+     * restart). Sob {@code archflow.persistence.jdbc.enabled=true},
+     * {@code JdbcPersistenceConfiguration} fornece a versão durável, que vence
+     * este {@code @ConditionalOnMissingBean}.
+     */
     @Bean
     @ConditionalOnMissingBean
-    public ConversationService conversationService() {
-        return new DefaultConversationService(ConversationManager.getInstance());
+    public br.com.archflow.conversation.state.SuspendedConversationStore suspendedConversationStore() {
+        return new br.com.archflow.conversation.state.InMemorySuspendedConversationStore();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public ConversationManager conversationManager(
+            br.com.archflow.conversation.state.SuspendedConversationStore suspendedConversationStore) {
+        return new ConversationManager(java.time.Duration.ofMinutes(30), suspendedConversationStore);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public ConversationService conversationService(ConversationManager conversationManager) {
+        return new DefaultConversationService(conversationManager);
     }
 
     // =========================================================================
