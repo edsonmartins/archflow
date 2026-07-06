@@ -5,12 +5,18 @@ import br.com.archflow.engine.persistence.RepositoryStateManager;
 import br.com.archflow.engine.persistence.jdbc.JdbcStateRepository;
 import br.com.archflow.observability.audit.AuditRepository;
 import br.com.archflow.observability.audit.JdbcAuditRepository;
+import br.com.archflow.security.apikey.ApiKeyService;
+import br.com.archflow.security.apikey.JdbcApiKeyRepository;
+import br.com.archflow.security.auth.JdbcUserRepository;
+import br.com.archflow.security.auth.UserRepository;
+import br.com.archflow.security.password.PasswordService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.env.Environment;
 
 import javax.sql.DataSource;
 
@@ -56,6 +62,62 @@ public class JdbcPersistenceConfiguration {
     public AuditRepository auditRepository(DataSource dataSource) {
         log.info("JDBC persistence ativo: AuditRepository durável (JdbcAuditRepository)");
         return new JdbcAuditRepository(dataSource);
+    }
+
+    @Bean
+    public UserRepository userRepository(DataSource dataSource) {
+        log.info("JDBC persistence ativo: UserRepository durável (JdbcUserRepository)");
+        return new JdbcUserRepository(dataSource);
+    }
+
+    @Bean
+    public ApiKeyService.ApiKeyRepository apiKeyRepository(DataSource dataSource) {
+        log.info("JDBC persistence ativo: ApiKeyRepository durável (JdbcApiKeyRepository)");
+        return new JdbcApiKeyRepository(dataSource);
+    }
+
+    /**
+     * Semeia o admin de bootstrap depois que o contexto sobe — como
+     * {@link org.springframework.boot.ApplicationRunner}, roda após eventuais
+     * migrations (Flyway) e o schema já existir, ao contrário de fazer I/O
+     * dentro do método de bean. Idempotente: só cria quando ausente, para não
+     * sobrescrever uma senha já rotacionada em restarts.
+     */
+    @Bean
+    public org.springframework.boot.ApplicationRunner adminUserSeeder(
+            UserRepository userRepository,
+            PasswordService passwordService,
+            Environment environment,
+            @Value("${archflow.security.admin-password:${ARCHFLOW_ADMIN_PASSWORD:}}") String adminPassword) {
+        return args -> {
+            try {
+                if (userRepository.findByUsername("admin").isPresent()) {
+                    return;
+                }
+                String resolved = AdminBootstrap.resolvePassword(environment, adminPassword, log);
+                userRepository.save(AdminBootstrap.buildAdmin(passwordService.hash(resolved)));
+                log.info("Default admin user created in durable store (username: admin)");
+            } catch (RuntimeException e) {
+                // Concorrência: outra instância pode ter criado o admin entre o
+                // nosso findByUsername e o save (UNIQUE username). Se agora existe,
+                // seguimos; caso contrário o schema provavelmente não foi migrado.
+                if (adminExistsQuietly(userRepository)) {
+                    log.info("Admin user already present (likely created concurrently); skipping seed");
+                    return;
+                }
+                throw new IllegalStateException(
+                        "Falha ao semear o admin durável — verifique se a migration "
+                                + "V001__create_security.sql (tabelas users/user_roles) foi aplicada.", e);
+            }
+        };
+    }
+
+    private static boolean adminExistsQuietly(UserRepository repository) {
+        try {
+            return repository.findByUsername("admin").isPresent();
+        } catch (RuntimeException e) {
+            return false;
+        }
     }
 
     /**

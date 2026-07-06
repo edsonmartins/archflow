@@ -30,6 +30,7 @@ Os DDLs versionados estão nos módulos, em `src/main/resources/db/migration/`:
 | `V002__create_flows.sql` | archflow-core | `flows` |
 | `V001__create_conversations.sql` | archflow-conversation | `conversations`, `conversation_messages`, `prompt_versions` |
 | `V1__CreateAuditLogTable.sql` | archflow-observability | `af_audit_log` |
+| `V001__create_security.sql` | archflow-security | `users`, `user_roles`, `api_keys` |
 | `V001__create_quartz.sql` | archflow-api | `QRTZ_*` (JDBCJobStore do Quartz) |
 
 Com Flyway no classpath (`org.flywaydb:flyway-core` +
@@ -111,9 +112,15 @@ oficial do Quartz para PostgreSQL). O delegate JDBC é configurável via
 `org.quartz.impl.jdbcjobstore.PostgreSQLDelegate`; troque para o delegate do
 seu banco se não for PostgreSQL).
 
-Para **ApiKeyRepository** e **UserRepository**, implemente as interfaces de
-`archflow-security` sobre o seu banco — os defaults em memória servem apenas
-para dev.
+**ApiKeyRepository** e **UserRepository** já têm implementações JDBC prontas
+em `archflow-security` (`JdbcUserRepository`, `JdbcApiKeyRepository`), ligadas
+automaticamente pela flag `archflow.persistence.jdbc.enabled=true` (mesma
+`JdbcPersistenceConfiguration` acima). Aplique a migration
+`archflow-security/.../db/migration/V001__create_security.sql` (tabelas
+`users`, `user_roles`, `api_keys`). Na primeira subida, o usuário `admin` é
+semeado de forma idempotente com a senha de `archflow.security.admin-password`
+(ou `ARCHFLOW_ADMIN_PASSWORD`); sem ela, uma senha aleatória é gerada e logada
+uma vez. Restarts não sobrescrevem uma senha já rotacionada.
 
 ## 5. ArchFlowAgent embarcado
 
@@ -133,5 +140,6 @@ correto para o runner standalone one-shot.
 Suba com o profile de produção: se algo em memória sobrou, o boot falha com
 a lista exata dos beans e o que configurar. Os testes de integração
 (`JdbcStateRepositoryPostgresTest`, `ConversationPersistencePostgresTest`,
+`JdbcUserRepositoryPostgresTest`, `JdbcApiKeyRepositoryPostgresTest`,
 `DurableQuartzSchedulerPostgresTest`) provam o caminho completo contra
 PostgreSQL real via Testcontainers, incluindo sobrevivência a restart.

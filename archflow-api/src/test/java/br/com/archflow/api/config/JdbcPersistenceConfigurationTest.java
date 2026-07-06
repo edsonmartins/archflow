@@ -4,6 +4,11 @@ import br.com.archflow.engine.core.StateManager;
 import br.com.archflow.engine.persistence.RepositoryStateManager;
 import br.com.archflow.observability.audit.AuditRepository;
 import br.com.archflow.observability.audit.JdbcAuditRepository;
+import br.com.archflow.security.apikey.ApiKeyService;
+import br.com.archflow.security.apikey.JdbcApiKeyRepository;
+import br.com.archflow.security.auth.JdbcUserRepository;
+import br.com.archflow.security.auth.UserRepository;
+import br.com.archflow.security.password.PasswordService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -49,6 +54,10 @@ class JdbcPersistenceConfigurationTest {
                             .isInstanceOf(RepositoryStateManager.class);
                     assertThat(ctx.getBean(AuditRepository.class))
                             .isInstanceOf(JdbcAuditRepository.class);
+                    assertThat(ctx.getBean(UserRepository.class))
+                            .isInstanceOf(JdbcUserRepository.class);
+                    assertThat(ctx.getBean(ApiKeyService.ApiKeyRepository.class))
+                            .isInstanceOf(JdbcApiKeyRepository.class);
                     // Scheduler durável (JobStoreTX), criado sem conectar: getMetaData()
                     // lê a config, não o banco — logo funciona com o DataSource stub.
                     assertThat(ctx.getBean(org.quartz.Scheduler.class).getMetaData()
@@ -68,6 +77,12 @@ class JdbcPersistenceConfigurationTest {
         @Bean
         DataSource dataSource() {
             return new StubDataSource();
+        }
+
+        /** O bean userRepository/adminUserSeeder da config depende de PasswordService. */
+        @Bean
+        PasswordService passwordService() {
+            return new PasswordService();
         }
     }
 
