@@ -65,10 +65,15 @@ class DurableQuartzSchedulerPostgresTest {
 
     @BeforeEach
     void cleanTables() throws SQLException {
+        // As sub-tabelas de trigger têm FK para QRTZ_TRIGGERS (sem CASCADE), e
+        // QRTZ_TRIGGERS tem FK para QRTZ_JOB_DETAILS: apaga na ordem filhos→pais.
         try (Connection conn = dataSource.getConnection()) {
-            // QRTZ_TRIGGERS → *_TRIGGERS têm FK ON DELETE CASCADE; job_details por último.
-            conn.createStatement().execute("DELETE FROM QRTZ_TRIGGERS");
-            conn.createStatement().execute("DELETE FROM QRTZ_JOB_DETAILS");
+            for (String table : new String[]{
+                    "QRTZ_SIMPLE_TRIGGERS", "QRTZ_CRON_TRIGGERS", "QRTZ_SIMPROP_TRIGGERS",
+                    "QRTZ_BLOB_TRIGGERS", "QRTZ_TRIGGERS", "QRTZ_JOB_DETAILS",
+                    "QRTZ_FIRED_TRIGGERS"}) {
+                conn.createStatement().execute("DELETE FROM " + table);
+            }
         }
     }
 
