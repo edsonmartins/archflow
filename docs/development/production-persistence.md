@@ -30,6 +30,7 @@ Os DDLs versionados estão nos módulos, em `src/main/resources/db/migration/`:
 | `V002__create_flows.sql` | archflow-core | `flows` |
 | `V001__create_conversations.sql` | archflow-conversation | `conversations`, `conversation_messages`, `prompt_versions` |
 | `V1__CreateAuditLogTable.sql` | archflow-observability | `af_audit_log` |
+| `V001__create_quartz.sql` | archflow-api | `QRTZ_*` (JDBCJobStore do Quartz) |
 
 Com Flyway no classpath (`org.flywaydb:flyway-core` +
 `flyway-database-postgresql`), o Spring Boot aplica tudo automaticamente.
@@ -100,8 +101,15 @@ public class ProductionPersistenceConfig {
 > `ConversationOrchestrator`), não o suspend/resume do singleton. Integrá-las
 > ao `ConversationManager` é trabalho à parte.
 
-Para o **Quartz** (triggers agendados), sobrescreva o bean `Scheduler` com
-`JDBCJobStore` (tabelas `QRTZ_*` do distribution do Quartz).
+O **Quartz** (triggers agendados) passa a usar `JDBCJobStore` (`JobStoreTX`)
+automaticamente sob a flag `archflow.persistence.jdbc.enabled=true`, sobre o
+mesmo `DataSource` — o `RAMJobStore` default recua via
+`@ConditionalOnMissingBean`. Aplique a migration
+`archflow-api/.../db/migration/V001__create_quartz.sql` (tabelas `QRTZ_*`, DDL
+oficial do Quartz para PostgreSQL). O delegate JDBC é configurável via
+`archflow.persistence.quartz.driver-delegate` (default
+`org.quartz.impl.jdbcjobstore.PostgreSQLDelegate`; troque para o delegate do
+seu banco se não for PostgreSQL).
 
 Para **ApiKeyRepository** e **UserRepository**, implemente as interfaces de
 `archflow-security` sobre o seu banco — os defaults em memória servem apenas
@@ -124,6 +132,6 @@ correto para o runner standalone one-shot.
 
 Suba com o profile de produção: se algo em memória sobrou, o boot falha com
 a lista exata dos beans e o que configurar. Os testes de integração
-(`JdbcStateRepositoryPostgresTest`, `ConversationPersistencePostgresTest`)
-provam o caminho completo contra PostgreSQL real via Testcontainers,
-incluindo sobrevivência a restart.
+(`JdbcStateRepositoryPostgresTest`, `ConversationPersistencePostgresTest`,
+`DurableQuartzSchedulerPostgresTest`) provam o caminho completo contra
+PostgreSQL real via Testcontainers, incluindo sobrevivência a restart.
