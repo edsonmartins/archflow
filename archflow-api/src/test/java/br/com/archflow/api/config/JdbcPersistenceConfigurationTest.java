@@ -58,6 +58,10 @@ class JdbcPersistenceConfigurationTest {
                             .isInstanceOf(JdbcUserRepository.class);
                     assertThat(ctx.getBean(ApiKeyService.ApiKeyRepository.class))
                             .isInstanceOf(JdbcApiKeyRepository.class);
+                    // Scheduler durável (JobStoreTX), criado sem conectar: getMetaData()
+                    // lê a config, não o banco — logo funciona com o DataSource stub.
+                    assertThat(ctx.getBean(org.quartz.Scheduler.class).getMetaData()
+                            .getJobStoreClass().getName()).contains("JobStoreTX");
                 });
     }
 

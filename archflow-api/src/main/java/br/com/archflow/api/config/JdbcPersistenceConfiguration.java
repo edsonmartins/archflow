@@ -119,4 +119,35 @@ public class JdbcPersistenceConfiguration {
             return false;
         }
     }
+
+    /**
+     * Scheduler Quartz durável ({@code JobStoreTX}/{@code JDBCJobStore}) — triggers
+     * agendados sobrevivem a restart, ao contrário do {@code RAMJobStore} default de
+     * {@code ArchflowBeanConfiguration} (que recua via {@code @ConditionalOnMissingBean}).
+     * Requer as tabelas {@code QRTZ_*} (migration {@code V001__create_quartz.sql}). O
+     * delegate JDBC é configurável (default PostgreSQL).
+     */
+    @Bean(destroyMethod = "shutdown")
+    public org.quartz.Scheduler quartzScheduler(
+            DataSource dataSource,
+            @Value("${archflow.persistence.quartz.driver-delegate:"
+                    + "org.quartz.impl.jdbcjobstore.PostgreSQLDelegate}") String driverDelegate)
+            throws org.quartz.SchedulerException {
+        log.info("JDBC persistence ativo: Quartz Scheduler durável (JobStoreTX/JDBCJobStore)");
+        // Cria sem iniciar: getScheduler() não abre conexão. O start() (que faz
+        // I/O — recuperação de triggers) é adiado para depois do refresh, após
+        // eventuais migrations, como no seeder de admin.
+        return DurableQuartzScheduler.create(dataSource, driverDelegate, "archflow-triggers");
+    }
+
+    @Bean
+    public org.springframework.boot.ApplicationRunner quartzSchedulerStarter(
+            org.quartz.Scheduler quartzScheduler) {
+        return args -> {
+            if (!quartzScheduler.isStarted()) {
+                quartzScheduler.start();
+                log.info("Quartz Scheduler durável iniciado (JobStoreTX)");
+            }
+        };
+    }
 }
