@@ -289,6 +289,7 @@ public class ArchflowBeanConfiguration {
      */
     @Bean
     @ConditionalOnMissingBean
+    @ConditionalOnProperty(name = "archflow.persistence.jdbc.enabled", havingValue = "false", matchIfMissing = true)
     public br.com.archflow.conversation.state.SuspendedConversationStore suspendedConversationStore() {
         return new br.com.archflow.conversation.state.InMemorySuspendedConversationStore();
     }

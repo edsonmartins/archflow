@@ -165,7 +165,9 @@ public class ConversationManager {
             return Optional.empty();
         }
 
-        SuspendedConversation resumed = suspended.resume(formData);
+        // formData nulo → mapa vazio: SuspendedConversation.resume usa Map.of(),
+        // que rejeita valores nulos.
+        SuspendedConversation resumed = suspended.resume(formData != null ? formData : Map.of());
         store.save(resumed);
 
         log.info("Resumed conversation {} with token {}",
