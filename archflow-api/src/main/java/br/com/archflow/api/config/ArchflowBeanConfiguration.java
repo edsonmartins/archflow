@@ -102,19 +102,7 @@ public class ArchflowBeanConfiguration {
             PasswordService passwordService,
             org.springframework.core.env.Environment environment,
             @Value("${archflow.security.admin-password:${ARCHFLOW_ADMIN_PASSWORD:}}") String adminPassword) {
-        String resolved = adminPassword;
-        if (resolved == null || resolved.isBlank()) {
-            if (Profiles.isDevLike(environment)) {
-                resolved = "admin123";
-                log.warn("Using fixed development admin password (dev/test profile). "
-                        + "Set archflow.security.admin-password for real deployments.");
-            } else {
-                resolved = PasswordService.generateRandomPassword(24);
-                log.warn("No admin password configured — generated a random one for user 'admin': {} "
-                        + "(set archflow.security.admin-password or ARCHFLOW_ADMIN_PASSWORD to control it)",
-                        resolved);
-            }
-        }
+        String resolved = AdminBootstrap.resolvePassword(environment, adminPassword, log);
         return new InMemoryUserRepository(passwordService.hash(resolved));
     }
 

@@ -46,6 +46,10 @@ public class JdbcUserRepository implements UserRepository {
     public User save(User user) {
         if (user.getId() == null) {
             user.setId("user-" + UUID.randomUUID());
+        }
+        // created_at é NOT NULL: garante-o para qualquer usuário novo, mesmo os
+        // que chegam com id já atribuído (ex.: admin de bootstrap) e sem timestamp.
+        if (user.getCreatedAt() == null) {
             user.setCreatedAt(LocalDateTime.now());
         }
         user.setUpdatedAt(LocalDateTime.now());

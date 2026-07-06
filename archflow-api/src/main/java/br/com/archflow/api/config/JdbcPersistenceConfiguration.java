@@ -3,8 +3,6 @@ package br.com.archflow.api.config;
 import br.com.archflow.engine.core.StateManager;
 import br.com.archflow.engine.persistence.RepositoryStateManager;
 import br.com.archflow.engine.persistence.jdbc.JdbcStateRepository;
-import br.com.archflow.model.security.Role;
-import br.com.archflow.model.security.User;
 import br.com.archflow.observability.audit.AuditRepository;
 import br.com.archflow.observability.audit.JdbcAuditRepository;
 import br.com.archflow.security.apikey.ApiKeyService;
@@ -82,7 +80,8 @@ public class JdbcPersistenceConfiguration {
      * Semeia o admin de bootstrap depois que o contexto sobe — como
      * {@link org.springframework.boot.ApplicationRunner}, roda após eventuais
      * migrations (Flyway) e o schema já existir, ao contrário de fazer I/O
-     * dentro do método de bean.
+     * dentro do método de bean. Idempotente: só cria quando ausente, para não
+     * sobrescrever uma senha já rotacionada em restarts.
      */
     @Bean
     public org.springframework.boot.ApplicationRunner adminUserSeeder(
@@ -90,42 +89,34 @@ public class JdbcPersistenceConfiguration {
             PasswordService passwordService,
             Environment environment,
             @Value("${archflow.security.admin-password:${ARCHFLOW_ADMIN_PASSWORD:}}") String adminPassword) {
-        return args -> seedAdminIfAbsent(userRepository, passwordService, environment, adminPassword);
+        return args -> {
+            try {
+                if (userRepository.findByUsername("admin").isPresent()) {
+                    return;
+                }
+                String resolved = AdminBootstrap.resolvePassword(environment, adminPassword, log);
+                userRepository.save(AdminBootstrap.buildAdmin(passwordService.hash(resolved)));
+                log.info("Default admin user created in durable store (username: admin)");
+            } catch (RuntimeException e) {
+                // Concorrência: outra instância pode ter criado o admin entre o
+                // nosso findByUsername e o save (UNIQUE username). Se agora existe,
+                // seguimos; caso contrário o schema provavelmente não foi migrado.
+                if (adminExistsQuietly(userRepository)) {
+                    log.info("Admin user already present (likely created concurrently); skipping seed");
+                    return;
+                }
+                throw new IllegalStateException(
+                        "Falha ao semear o admin durável — verifique se a migration "
+                                + "V001__create_security.sql (tabelas users/user_roles) foi aplicada.", e);
+            }
+        };
     }
 
-    /**
-     * Semeia o usuário administrador de bootstrap de forma idempotente — só cria
-     * quando ausente, para não sobrescrever uma senha já rotacionada em restarts.
-     * A resolução da senha replica {@code ArchflowBeanConfiguration.userRepository}:
-     * fixa em dev/test; aleatória (logada uma vez) caso contrário.
-     */
-    private void seedAdminIfAbsent(UserRepository repository, PasswordService passwordService,
-            Environment environment, String adminPassword) {
-        if (repository.findByUsername("admin").isPresent()) {
-            return;
+    private static boolean adminExistsQuietly(UserRepository repository) {
+        try {
+            return repository.findByUsername("admin").isPresent();
+        } catch (RuntimeException e) {
+            return false;
         }
-        String resolved = adminPassword;
-        if (resolved == null || resolved.isBlank()) {
-            if (Profiles.isDevLike(environment)) {
-                resolved = "admin123";
-                log.warn("Using fixed development admin password (dev/test profile). "
-                        + "Set archflow.security.admin-password for real deployments.");
-            } else {
-                resolved = PasswordService.generateRandomPassword(24);
-                log.warn("No admin password configured — generated a random one for user 'admin': {} "
-                        + "(set archflow.security.admin-password or ARCHFLOW_ADMIN_PASSWORD to control it)",
-                        resolved);
-            }
-        }
-        User admin = new User();
-        admin.setUsername("admin");
-        admin.setEmail("admin@archflow.local");
-        admin.setPasswordHash(passwordService.hash(resolved));
-        admin.setFirstName("System");
-        admin.setLastName("Administrator");
-        admin.setEnabled(true);
-        admin.addRole(Role.createAdminRole());
-        repository.save(admin);
-        log.info("Default admin user created in durable store (username: admin)");
     }
 }
