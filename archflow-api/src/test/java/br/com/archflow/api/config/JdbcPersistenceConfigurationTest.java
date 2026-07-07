@@ -62,6 +62,13 @@ class JdbcPersistenceConfigurationTest {
                     // lê a config, não o banco — logo funciona com o DataSource stub.
                     assertThat(ctx.getBean(org.quartz.Scheduler.class).getMetaData()
                             .getJobStoreClass().getName()).contains("JobStoreTX");
+                    // Conversas: suspend/resume durável + histórico + prompts.
+                    assertThat(ctx.getBean(br.com.archflow.conversation.state.SuspendedConversationStore.class))
+                            .isInstanceOf(br.com.archflow.conversation.persistence.jdbc.JdbcSuspendedConversationStore.class);
+                    assertThat(ctx.getBean(br.com.archflow.conversation.domain.ConversationRepository.class))
+                            .isInstanceOf(br.com.archflow.conversation.persistence.jdbc.JdbcConversationRepository.class);
+                    assertThat(ctx.getBean(br.com.archflow.conversation.prompt.PromptRegistry.class))
+                            .isInstanceOf(br.com.archflow.conversation.persistence.jdbc.JdbcPromptRegistry.class);
                 });
     }
 

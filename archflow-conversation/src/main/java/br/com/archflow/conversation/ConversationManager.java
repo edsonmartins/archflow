@@ -2,7 +2,9 @@ package br.com.archflow.conversation;
 
 import br.com.archflow.conversation.event.ArchflowEvent;
 import br.com.archflow.conversation.form.FormData;
+import br.com.archflow.conversation.state.InMemorySuspendedConversationStore;
 import br.com.archflow.conversation.state.SuspendedConversation;
+import br.com.archflow.conversation.state.SuspendedConversationStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -53,14 +55,18 @@ public class ConversationManager {
 
     private static volatile ConversationManager instance;
 
-    private final Map<String, SuspendedConversation> conversationsByToken;
-    private final Map<String, SuspendedConversation> conversationsById;
+    private final SuspendedConversationStore store;
     private final Map<String, Consumer<ArchflowEvent>> eventSubscribers;
     private final Duration defaultTimeout;
 
-    private ConversationManager(Duration defaultTimeout) {
-        this.conversationsByToken = new ConcurrentHashMap<>();
-        this.conversationsById = new ConcurrentHashMap<>();
+    /**
+     * Cria um manager sobre um {@link SuspendedConversationStore} injetado — passe
+     * um store JDBC para tornar suspend/resume durável (sobrevive a restart).
+     * Preferível ao {@link #getInstance()} em produção (DI). Um {@code store} nulo
+     * cai para um store em memória.
+     */
+    public ConversationManager(Duration defaultTimeout, SuspendedConversationStore store) {
+        this.store = store != null ? store : new InMemorySuspendedConversationStore();
         this.eventSubscribers = new ConcurrentHashMap<>();
         this.defaultTimeout = defaultTimeout != null ? defaultTimeout : Duration.ofMinutes(DEFAULT_TIMEOUT_MINUTES);
     }
@@ -77,7 +83,7 @@ public class ConversationManager {
      */
     public static synchronized ConversationManager getInstance(Duration timeout) {
         if (instance == null) {
-            instance = new ConversationManager(timeout);
+            instance = new ConversationManager(timeout, new InMemorySuspendedConversationStore());
         }
         return instance;
     }
@@ -125,8 +131,7 @@ public class ConversationManager {
                 .context(context)
                 .build();
 
-        conversationsByToken.put(resumeToken, suspended);
-        conversationsById.put(conversationId, suspended);
+        store.save(suspended);
 
         log.info("Suspended conversation {} with token {} (expires at {})",
                 conversationId, redactToken(resumeToken), expiresAt);
@@ -145,7 +150,7 @@ public class ConversationManager {
      * @return Optional containing the resumed conversation, or empty if token is invalid
      */
     public Optional<SuspendedConversation> resume(String resumeToken, Map<String, Object> formData) {
-        SuspendedConversation suspended = conversationsByToken.get(resumeToken);
+        SuspendedConversation suspended = store.findByToken(resumeToken).orElse(null);
 
         if (suspended == null) {
             registerFailedResume();
@@ -156,14 +161,14 @@ public class ConversationManager {
         if (suspended.isExpired()) {
             log.warn("Attempted to resume expired conversation {}: expired at {}",
                     suspended.getConversationId(), suspended.getExpiresAt());
-            conversationsByToken.remove(resumeToken);
-            conversationsById.remove(suspended.getConversationId());
+            store.deleteById(suspended.getConversationId());
             return Optional.empty();
         }
 
-        SuspendedConversation resumed = suspended.resume(formData);
-        conversationsByToken.put(resumeToken, resumed);
-        conversationsById.put(suspended.getConversationId(), resumed);
+        // formData nulo → mapa vazio: SuspendedConversation.resume usa Map.of(),
+        // que rejeita valores nulos.
+        SuspendedConversation resumed = suspended.resume(formData != null ? formData : Map.of());
+        store.save(resumed);
 
         log.info("Resumed conversation {} with token {}",
                 suspended.getConversationId(), redactToken(resumeToken));
@@ -178,10 +183,9 @@ public class ConversationManager {
      * Gets a suspended conversation by its resume token.
      */
     public Optional<SuspendedConversation> getByToken(String resumeToken) {
-        SuspendedConversation suspended = conversationsByToken.get(resumeToken);
+        SuspendedConversation suspended = store.findByToken(resumeToken).orElse(null);
         if (suspended != null && suspended.isExpired()) {
-            conversationsByToken.remove(resumeToken);
-            conversationsById.remove(suspended.getConversationId());
+            store.deleteById(suspended.getConversationId());
             return Optional.empty();
         }
         return Optional.ofNullable(suspended);
@@ -191,10 +195,9 @@ public class ConversationManager {
      * Gets a suspended conversation by its conversation ID.
      */
     public Optional<SuspendedConversation> getById(String conversationId) {
-        SuspendedConversation suspended = conversationsById.get(conversationId);
+        SuspendedConversation suspended = store.findById(conversationId).orElse(null);
         if (suspended != null && suspended.isExpired()) {
-            conversationsByToken.remove(suspended.getResumeToken());
-            conversationsById.remove(conversationId);
+            store.deleteById(conversationId);
             return Optional.empty();
         }
         return Optional.ofNullable(suspended);
@@ -204,30 +207,22 @@ public class ConversationManager {
      * Cancels a suspended conversation.
      */
     public boolean cancel(String conversationId) {
-        SuspendedConversation suspended = conversationsById.get(conversationId);
-        if (suspended == null) {
-            return false;
+        boolean removed = store.deleteById(conversationId);
+        if (removed) {
+            log.info("Cancelled conversation {}", conversationId);
         }
-
-        SuspendedConversation cancelled = suspended.cancel();
-        conversationsByToken.remove(suspended.getResumeToken());
-        conversationsById.remove(conversationId);
-
-        log.info("Cancelled conversation {}", conversationId);
-        return true;
+        return removed;
     }
 
     /**
      * Removes a completed conversation from the registry.
      */
     public boolean complete(String conversationId) {
-        SuspendedConversation suspended = conversationsById.remove(conversationId);
-        if (suspended != null) {
-            conversationsByToken.remove(suspended.getResumeToken());
+        boolean removed = store.deleteById(conversationId);
+        if (removed) {
             log.info("Completed conversation {}", conversationId);
-            return true;
         }
-        return false;
+        return removed;
     }
 
     /**
@@ -237,23 +232,13 @@ public class ConversationManager {
      */
     public int cleanupExpired() {
         int cleaned = 0;
-
-        Iterator<Map.Entry<String, SuspendedConversation>> it =
-                conversationsById.entrySet().iterator();
-
-        while (it.hasNext()) {
-            Map.Entry<String, SuspendedConversation> entry = it.next();
-            SuspendedConversation suspended = entry.getValue();
-
+        for (SuspendedConversation suspended : store.findAll()) {
             if (suspended.isExpired()) {
-                it.remove();
-                conversationsByToken.remove(suspended.getResumeToken());
+                store.deleteById(suspended.getConversationId());
                 cleaned++;
-
-                log.info("Cleaned up expired conversation {}", entry.getKey());
+                log.info("Cleaned up expired conversation {}", suspended.getConversationId());
             }
         }
-
         return cleaned;
     }
 
@@ -261,7 +246,7 @@ public class ConversationManager {
      * Gets the number of active (waiting) conversations.
      */
     public int getActiveCount() {
-        return (int) conversationsById.values().stream()
+        return (int) store.findAll().stream()
                 .filter(SuspendedConversation::isActive)
                 .count();
     }
@@ -270,7 +255,7 @@ public class ConversationManager {
      * Gets all active conversations.
      */
     public List<SuspendedConversation> getActiveConversations() {
-        return conversationsById.values().stream()
+        return store.findAll().stream()
                 .filter(SuspendedConversation::isActive)
                 .toList();
     }
@@ -386,16 +371,17 @@ public class ConversationManager {
      * Gets statistics about suspended conversations.
      */
     public ConversationStats getStats() {
+        List<SuspendedConversation> all = store.findAll();
         Map<SuspendedConversation.ConversationStatus, Long> counts =
-                conversationsById.values().stream()
-                        .collect(java.util.stream.Collectors.groupingByConcurrent(
+                all.stream()
+                        .collect(java.util.stream.Collectors.groupingBy(
                                 SuspendedConversation::getStatus,
                                 java.util.stream.Collectors.counting()
                         ));
 
         return new ConversationStats(
-                conversationsById.size(),
-                getActiveCount(),
+                all.size(),
+                (int) all.stream().filter(SuspendedConversation::isActive).count(),
                 counts.getOrDefault(SuspendedConversation.ConversationStatus.WAITING, 0L).intValue(),
                 counts.getOrDefault(SuspendedConversation.ConversationStatus.RESUMED, 0L).intValue(),
                 counts.getOrDefault(SuspendedConversation.ConversationStatus.CANCELLED, 0L).intValue(),
