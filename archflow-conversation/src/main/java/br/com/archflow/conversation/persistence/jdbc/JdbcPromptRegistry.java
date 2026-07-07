@@ -19,7 +19,7 @@ import java.util.Optional;
 /**
  * Implementação JDBC do {@link PromptRegistry} — versões de prompt persistidas
  * na tabela {@code prompt_versions} (ver migration
- * {@code V001__create_conversations.sql}).
+ * {@code V2_1__create_conversations.sql}).
  *
  * <p>O número da versão é atribuído via {@code MAX(version) + 1} dentro de uma
  * transação; a PK composta {@code (tenant_id, prompt_id, version)} garante que

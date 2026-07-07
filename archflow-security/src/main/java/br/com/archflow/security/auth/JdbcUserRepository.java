@@ -20,7 +20,7 @@ import java.util.UUID;
 /**
  * Implementação JDBC do {@link UserRepository} — usuários persistidos na tabela
  * {@code users} e seus papéis na tabela {@code user_roles} (ver migration
- * {@code V001__create_security.sql}).
+ * {@code V5_1__create_security.sql}).
  *
  * <p>SQL ANSI portável (PostgreSQL, H2, MySQL). Os papéis são armazenados pelo
  * nome ({@link Role#getName()}) e reidratados a partir das definições built-in

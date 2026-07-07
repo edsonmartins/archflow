@@ -22,7 +22,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Integração com PostgreSQL real: aplica a migration
- * {@code V001__create_security.sql} e exercita o {@link JdbcApiKeyRepository},
+ * {@code V5_1__create_security.sql} e exercita o {@link JdbcApiKeyRepository},
  * incluindo escopos, timestamps opcionais e sobrevivência a "restart".
  */
 @Testcontainers(disabledWithoutDocker = true)
@@ -46,7 +46,7 @@ class JdbcApiKeyRepositoryPostgresTest {
 
         String ddl;
         try (var in = JdbcApiKeyRepositoryPostgresTest.class.getResourceAsStream(
-                "/db/migration/V001__create_security.sql")) {
+                "/db/migration/V5_1__create_security.sql")) {
             ddl = new String(in.readAllBytes(), StandardCharsets.UTF_8);
         }
         try (Connection conn = dataSource.getConnection()) {

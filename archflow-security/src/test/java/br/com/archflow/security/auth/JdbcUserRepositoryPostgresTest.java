@@ -20,7 +20,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Integração com PostgreSQL real: aplica a migration
- * {@code V001__create_security.sql} como está no repositório (valida o DDL) e
+ * {@code V5_1__create_security.sql} como está no repositório (valida o DDL) e
  * exercita o {@link JdbcUserRepository}, incluindo persistência de papéis e
  * sobrevivência a "restart" (nova instância sobre o mesmo DataSource).
  */
@@ -45,7 +45,7 @@ class JdbcUserRepositoryPostgresTest {
 
         String ddl;
         try (var in = JdbcUserRepositoryPostgresTest.class.getResourceAsStream(
-                "/db/migration/V001__create_security.sql")) {
+                "/db/migration/V5_1__create_security.sql")) {
             ddl = new String(in.readAllBytes(), StandardCharsets.UTF_8);
         }
         try (Connection conn = dataSource.getConnection()) {

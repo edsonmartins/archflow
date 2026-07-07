@@ -23,7 +23,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Integração com PostgreSQL real: aplica a migration
- * {@code V002__create_suspended_conversations.sql} e verifica que suspend/resume
+ * {@code V2_2__create_suspended_conversations.sql} e verifica que suspend/resume
  * sobrevive a restart (nova instância do store sobre o mesmo DataSource),
  * incluindo o round-trip do {@link FormData}.
  */
@@ -48,7 +48,7 @@ class JdbcSuspendedConversationStorePostgresTest {
 
         String ddl;
         try (var in = JdbcSuspendedConversationStorePostgresTest.class.getResourceAsStream(
-                "/db/migration/V002__create_suspended_conversations.sql")) {
+                "/db/migration/V2_2__create_suspended_conversations.sql")) {
             ddl = new String(in.readAllBytes(), StandardCharsets.UTF_8);
         }
         try (Connection conn = dataSource.getConnection()) {

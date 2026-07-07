@@ -34,10 +34,13 @@ changes.
 
 ## Database migrations (Flyway)
 
-Only `V001__create_flow_state.sql` ships in v1. It creates the two
-tables the execution engine needs (`flow_states`, `audit_logs`). When
-moving an admin controller from in-memory to JDBC, add a new migration
-version (`V002__...`) — never edit V001.
+`V1_1__create_flow_state.sql` creates the two tables the execution engine
+needs (`flow_states`, `audit_logs`). Migrations are versioned per module with a
+`V<major>_<seq>` prefix (core = `V1_x`, conversation = `V2_x`, security = `V5_x`,
+etc.) so each module numbers independently without colliding on the shared
+`classpath:db/migration` — Flyway sorts `1.1 < 1.2 < 2.1 …`. To add a table,
+append a new minor within the module's major (`V1_3__…`) — never edit a migration
+that may already be applied.
 
 ## Plugin loading (offline operation)
 

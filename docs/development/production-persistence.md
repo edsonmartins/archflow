@@ -26,17 +26,32 @@ Os DDLs versionados estão nos módulos, em `src/main/resources/db/migration/`:
 
 | Migration | Módulo | Tabelas |
 |-----------|--------|---------|
-| `V001__create_flow_state.sql` | archflow-core | `flow_states`, `audit_logs` |
-| `V002__create_flows.sql` | archflow-core | `flows` |
-| `V001__create_conversations.sql` | archflow-conversation | `conversations`, `conversation_messages`, `prompt_versions` |
-| `V002__create_suspended_conversations.sql` | archflow-conversation | `suspended_conversations` (suspend/resume) |
-| `V1__CreateAuditLogTable.sql` | archflow-observability | `af_audit_log` |
-| `V001__create_security.sql` | archflow-security | `users`, `user_roles`, `api_keys` |
-| `V001__create_quartz.sql` | archflow-api | `QRTZ_*` (JDBCJobStore do Quartz) |
+| `V1_1__create_flow_state.sql` | archflow-core | `flow_states`, `audit_logs` |
+| `V1_2__create_flows.sql` | archflow-core | `flows` |
+| `V2_1__create_conversations.sql` | archflow-conversation | `conversations`, `conversation_messages`, `prompt_versions` |
+| `V2_2__create_suspended_conversations.sql` | archflow-conversation | `suspended_conversations` (suspend/resume) |
+| `V3_1__create_chat_memory.sql` | archflow-langchain4j-memory-jdbc | `chat_messages` |
+| `V4_1__CreateAuditLogTable.sql` | archflow-observability | `af_audit_log` |
+| `V5_1__create_security.sql` | archflow-security | `users`, `user_roles`, `api_keys` |
+| `V6_1__create_quartz.sql` | archflow-api | `QRTZ_*` (JDBCJobStore do Quartz) |
 
-Com Flyway no classpath (`org.flywaydb:flyway-core` +
-`flyway-database-postgresql`), o Spring Boot aplica tudo automaticamente.
-Sem Flyway, aplique os arquivos manualmente na ordem.
+**Aplicação automática (Flyway).** O `archflow-api` já traz `flyway-core` +
+`flyway-database-postgresql` no classpath. No boot, quando há um `DataSource`
+(perfil `prod`), o Spring Boot roda `flyway migrate` sobre `classpath:db/migration`
+e cria todo o schema — sem passo manual. Em dev *in-memory* não há `DataSource`,
+então a auto-config se desliga sozinha.
+
+As versões são **prefixadas por módulo** (`V<major>_<seq>`: core=`V1_x`,
+conversation=`V2_x`, memory-jdbc=`V3_x`, observability=`V4_x`, security=`V5_x`,
+api/Quartz=`V6_x`) para que cada módulo numere de forma independente sem colidir
+no `classpath:db/migration` compartilhado — o Flyway ordena `1.1 < 1.2 < 2.1 …`.
+Comportamento (defaults do Flyway): um schema **vazio** é migrado do zero; um
+schema **não-vazio sem histórico** (ex.: DDL aplicado manualmente antes do
+Flyway) faz o Flyway **recusar** com erro claro — o operador então roda
+`flyway baseline` uma vez (ou deixa o Flyway ser dono de um banco limpo). Como a
+persistência durável é nova, o caminho comum é o banco vazio migrando sozinho. O
+`MigrationsFlywayPostgresTest` (Testcontainers) prova que o conjunto inteiro
+aplica em PostgreSQL real sem colisão de versão.
 
 ## 3. Liga automática (StateManager + AuditRepository)
 
@@ -97,7 +112,7 @@ O **Quartz** (triggers agendados) passa a usar `JDBCJobStore` (`JobStoreTX`)
 automaticamente sob a flag `archflow.persistence.jdbc.enabled=true`, sobre o
 mesmo `DataSource` — o `RAMJobStore` default recua via
 `@ConditionalOnMissingBean`. Aplique a migration
-`archflow-api/.../db/migration/V001__create_quartz.sql` (tabelas `QRTZ_*`, DDL
+`archflow-api/.../db/migration/V6_1__create_quartz.sql` (tabelas `QRTZ_*`, DDL
 oficial do Quartz para PostgreSQL). O delegate JDBC é configurável via
 `archflow.persistence.quartz.driver-delegate` (default
 `org.quartz.impl.jdbcjobstore.PostgreSQLDelegate`; troque para o delegate do
@@ -107,7 +122,7 @@ seu banco se não for PostgreSQL).
 em `archflow-security` (`JdbcUserRepository`, `JdbcApiKeyRepository`), ligadas
 automaticamente pela flag `archflow.persistence.jdbc.enabled=true` (mesma
 `JdbcPersistenceConfiguration` acima). Aplique a migration
-`archflow-security/.../db/migration/V001__create_security.sql` (tabelas
+`archflow-security/.../db/migration/V5_1__create_security.sql` (tabelas
 `users`, `user_roles`, `api_keys`). Na primeira subida, o usuário `admin` é
 semeado de forma idempotente com a senha de `archflow.security.admin-password`
 (ou `ARCHFLOW_ADMIN_PASSWORD`); sem ela, uma senha aleatória é gerada e logada

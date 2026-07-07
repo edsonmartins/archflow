@@ -3,6 +3,10 @@ spring:
     name: archflow-api
   profiles:
     active: ${SPRING_PROFILES_ACTIVE:dev}
+  # Flyway aplica classpath:db/migration no boot quando há um DataSource (prod).
+  # Em dev in-memory não há DataSource, então a auto-config se desliga sozinha.
+  # Defaults do Spring Boot: migra um schema vazio do zero; recusa um schema
+  # não-vazio sem histórico (o operador decide via `flyway baseline`).
   jackson:
     default-property-inclusion: non_null
     # Frontend expects ISO8601 strings for java.time.Instant (e.g.

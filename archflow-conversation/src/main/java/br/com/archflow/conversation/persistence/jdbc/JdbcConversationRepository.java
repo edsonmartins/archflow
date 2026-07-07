@@ -21,7 +21,7 @@ import java.util.Optional;
 /**
  * Implementação JDBC do {@link ConversationRepository} — conversas e mensagens
  * persistidas nas tabelas {@code conversations} e {@code conversation_messages}
- * (ver migration {@code V001__create_conversations.sql}).
+ * (ver migration {@code V2_1__create_conversations.sql}).
  *
  * <p>Todas as consultas filtram por {@code tenant_id}, preservando o contrato
  * de isolamento da interface. SQL ANSI portável (PostgreSQL, H2, MySQL);
