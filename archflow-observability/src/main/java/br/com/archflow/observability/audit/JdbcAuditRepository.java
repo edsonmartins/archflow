@@ -14,7 +14,7 @@ import java.util.Optional;
  * JDBC-based implementation of AuditRepository for persistent audit logging.
  *
  * <p>This implementation stores audit events in a relational database.
- * Requires the af_audit_log table to be created (see V1__CreateAuditLogTable.sql).
+ * Requires the af_audit_log table to be created (see V4_1__CreateAuditLogTable.sql).
  *
  * <p>Usage:</p>
  * <pre>

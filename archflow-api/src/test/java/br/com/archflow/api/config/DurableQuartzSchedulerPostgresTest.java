@@ -28,7 +28,7 @@ import java.util.Date;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Integração com PostgreSQL real: aplica a migration {@code V001__create_quartz.sql}
+ * Integração com PostgreSQL real: aplica a migration {@code V6_1__create_quartz.sql}
  * (DDL oficial {@code QRTZ_*}) e verifica que {@link DurableQuartzScheduler} produz
  * um scheduler com {@code JobStoreTX} e que um job agendado é gravado nas tabelas
  * (portanto sobrevive a restart), ao contrário do {@code RAMJobStore}.
@@ -55,7 +55,7 @@ class DurableQuartzSchedulerPostgresTest {
 
         String ddl;
         try (var in = DurableQuartzSchedulerPostgresTest.class.getResourceAsStream(
-                "/db/migration/V001__create_quartz.sql")) {
+                "/db/migration/V6_1__create_quartz.sql")) {
             ddl = new String(in.readAllBytes(), StandardCharsets.UTF_8);
         }
         try (Connection conn = dataSource.getConnection()) {

@@ -21,7 +21,7 @@ import java.util.Optional;
 /**
  * Implementação JDBC do {@link SuspendedConversationStore} — conversas suspensas
  * persistidas na tabela {@code suspended_conversations} (ver migration
- * {@code V002__create_suspended_conversations.sql}), para que suspend/resume
+ * {@code V2_2__create_suspended_conversations.sql}), para que suspend/resume
  * sobreviva a restart.
  *
  * <p>O {@link FormData} e o {@code context} são serializados como JSON em coluna

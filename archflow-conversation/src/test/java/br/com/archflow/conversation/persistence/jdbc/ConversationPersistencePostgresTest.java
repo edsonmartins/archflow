@@ -20,7 +20,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Integração com PostgreSQL real: aplica a migration
- * V001__create_conversations.sql como está no repositório (valida que o DDL
+ * V2_1__create_conversations.sql como está no repositório (valida que o DDL
  * roda no Postgres) e exercita os repositórios JDBC de conversação/prompt.
  */
 @Testcontainers(disabledWithoutDocker = true)
@@ -45,7 +45,7 @@ class ConversationPersistencePostgresTest {
 
         String ddl;
         try (var in = ConversationPersistencePostgresTest.class.getResourceAsStream(
-                "/db/migration/V001__create_conversations.sql")) {
+                "/db/migration/V2_1__create_conversations.sql")) {
             ddl = new String(in.readAllBytes(), StandardCharsets.UTF_8);
         }
         try (Connection conn = dataSource.getConnection()) {

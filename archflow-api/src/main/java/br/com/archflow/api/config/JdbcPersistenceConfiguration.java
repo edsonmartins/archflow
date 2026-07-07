@@ -107,7 +107,7 @@ public class JdbcPersistenceConfiguration {
                 }
                 throw new IllegalStateException(
                         "Falha ao semear o admin durável — verifique se a migration "
-                                + "V001__create_security.sql (tabelas users/user_roles) foi aplicada.", e);
+                                + "V5_1__create_security.sql (tabelas users/user_roles) foi aplicada.", e);
             }
         };
     }
@@ -124,7 +124,7 @@ public class JdbcPersistenceConfiguration {
      * Scheduler Quartz durável ({@code JobStoreTX}/{@code JDBCJobStore}) — triggers
      * agendados sobrevivem a restart, ao contrário do {@code RAMJobStore} default de
      * {@code ArchflowBeanConfiguration} (que recua via {@code @ConditionalOnMissingBean}).
-     * Requer as tabelas {@code QRTZ_*} (migration {@code V001__create_quartz.sql}). O
+     * Requer as tabelas {@code QRTZ_*} (migration {@code V6_1__create_quartz.sql}). O
      * delegate JDBC é configurável (default PostgreSQL).
      */
     @Bean(destroyMethod = "shutdown")

@@ -16,7 +16,7 @@ import java.util.logging.Logger;
 
 /**
  * Implementação JDBC do FlowRepository — definição do fluxo armazenada como
- * JSON na tabela {@code flows} (ver migration {@code V002__create_flows.sql}).
+ * JSON na tabela {@code flows} (ver migration {@code V1_2__create_flows.sql}).
  *
  * <p>A (de)serialização é delegada a um {@link FlowJsonCodec} fornecido pelo
  * caller, já que as implementações concretas de {@link Flow} vivem nas camadas

@@ -21,7 +21,7 @@ import java.util.Set;
 /**
  * Implementação JDBC do {@link ApiKeyService.ApiKeyRepository} — chaves de API
  * persistidas na tabela {@code api_keys} (ver migration
- * {@code V001__create_security.sql}).
+ * {@code V5_1__create_security.sql}).
  *
  * <p>SQL ANSI portável (PostgreSQL, H2, MySQL). Os escopos são serializados como
  * lista dos nomes de constante de {@link ApiKeyScope} (robusto a mudanças nas
