@@ -50,6 +50,14 @@ management:
 
 # archflow observability
 archflow:
+  # Produção usa persistência durável (JDBC/PostgreSQL) por padrão. Liga o
+  # JdbcPersistenceConfiguration e desliga os defaults em memória — o
+  # ProductionReadinessGuard já recusaria o boot com stores in-memory fora de
+  # dev/test, então este default alinha o perfil ao que o guard exige. Requer
+  # spring.datasource.* (acima). Override: ARCHFLOW_PERSISTENCE_JDBC_ENABLED=false.
+  persistence:
+    jdbc:
+      enabled: ${ARCHFLOW_PERSISTENCE_JDBC_ENABLED:true}
   observability:
     metrics:
       enabled: true

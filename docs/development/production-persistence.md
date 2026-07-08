@@ -64,6 +64,11 @@ archflow:
       enabled: true
 ```
 
+O perfil `prod` (`application-prod.yml`) **já traz essa flag ligada por padrão**
+(`${ARCHFLOW_PERSISTENCE_JDBC_ENABLED:true}`), alinhando-se ao que o
+`ProductionReadinessGuard` exige — o deployer só precisa fornecer o `DataSource`.
+Em outros perfis, ligue a flag explicitamente como acima.
+
 Com `archflow.persistence.jdbc.enabled=true` + um `DataSource` no contexto
 (via `spring-boot-starter-jdbc` + `spring.datasource.*`), o
 `JdbcPersistenceConfiguration` liga automaticamente:
