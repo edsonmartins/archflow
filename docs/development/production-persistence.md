@@ -154,4 +154,22 @@ a lista exata dos beans e o que configurar. Os testes de integração
 `JdbcUserRepositoryPostgresTest`, `JdbcApiKeyRepositoryPostgresTest`,
 `DurableQuartzSchedulerPostgresTest`, `JdbcSuspendedConversationStorePostgresTest`)
 provam o caminho completo contra PostgreSQL real via Testcontainers, incluindo
-sobrevivência a restart.
+sobrevivência a restart. O `MigrationsFlywayPostgresTest` prova que todas as
+migrations aplicam juntas sem colisão, e o `ProdBootReadinessBoundaryTest`
+(Docker-free) roda o guard sobre o conjunto de beans do perfil prod.
+
+### Fronteira atual do guard
+
+A leva de persistência durável tornou duráveis seis dos stores que o guard
+checa (state, users, api keys, auditoria, conversas suspensas, Quartz). Faltam
+**dois** que exigem passo do deployer para um boot prod verde:
+
+| Store | Caminho durável | Ação |
+|-------|-----------------|------|
+| `FlowRepository` | `JdbcFlowRepository` (existe) | 1 `@Bean` com o seu `FlowJsonCodec` (§3) |
+| `AgentInvocationQueue` | **nenhum** (só in-memory) | fornecer uma impl durável, ou aceitar a perda com `archflow.allow-in-memory=true` |
+
+A perda da `AgentInvocationQueue` no restart (invocações assíncronas pendentes)
+costuma ser recuperável — mas hoje o guard a trata como hard-fail. Fechar esse
+par (auto-ligar o `JdbcFlowRepository` com um codec de nível api e decidir o
+destino da fila) é o próximo passo para um boot prod verde sem wiring do deployer.
