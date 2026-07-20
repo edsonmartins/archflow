@@ -190,13 +190,39 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-validation</artifactId>
         </dependency>
+        <!-- JDBC: traz spring-jdbc + HikariCP, sem os quais o
+             DataSourceAutoConfiguration não registra o bean DataSource e o
+             perfil prod morre no boot com "No qualifying bean of type
+             javax.sql.DataSource". Não é pego em compilação porque o
+             JdbcPersistenceConfiguration referencia apenas javax.sql.DataSource
+             (JDK) e os repositórios Jdbc* do próprio archflow usam JDBC puro. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-jdbc</artifactId>
+        </dependency>
+        <!-- Driver PostgreSQL em runtime: necessário para o DataSource do perfil
+             prod e para o Flyway aplicar as migrations. Escopo runtime (e não
+             test) — o driver é carregado por reflexão, então nada o exige em
+             tempo de compilação e a falta dele só aparecia em produção. -->
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>runtime</scope>
+        </dependency>
 
         <!-- Flyway: aplica as migrations classpath:db/migration automaticamente no
              boot quando há um DataSource (perfil prod). Sem DataSource a auto-config
-             se desliga (dev in-memory). Versões gerenciadas pelo BOM do Spring Boot. -->
+             se desliga (dev in-memory). Versões gerenciadas pelo BOM do Spring Boot.
+
+             Precisa ser o STARTER, não o flyway-core sozinho: no Spring Boot 4 as
+             auto-configurações saíram do spring-boot-autoconfigure para módulos
+             próprios (aqui, spring-boot-flyway). Só com flyway-core no classpath a
+             biblioteca existe mas ninguém a executa — as migrations nunca rodam e
+             o boot falha depois, ao primeiro acesso a uma tabela ausente
+             (ex.: "relation qrtz_triggers does not exist" no start do Quartz). -->
         <dependency>
-            <groupId>org.flywaydb</groupId>
-            <artifactId>flyway-core</artifactId>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-flyway</artifactId>
         </dependency>
         <dependency>
             <groupId>org.flywaydb</groupId>
@@ -273,11 +299,9 @@
             <artifactId>junit-jupiter</artifactId>
             <scope>test</scope>
         </dependency>
-        <dependency>
-            <groupId>org.postgresql</groupId>
-            <artifactId>postgresql</artifactId>
-            <scope>test</scope>
-        </dependency>
+        <!-- O driver PostgreSQL é declarado acima com escopo runtime, que já o
+             coloca no classpath de teste. Redeclará-lo como test aqui tornaria
+             a dependência duplicada e reverteria o escopo. -->
     </dependencies>
 
     <build>
