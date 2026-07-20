@@ -14,6 +14,12 @@ import java.util.*;
  *
  * <p>Decomposes research tasks into actionable steps, makes decisions
  * based on available information, and plans actions to achieve research goals.
+ *
+ * <p><strong>DEMO implementation — no LLM involved.</strong> Task decomposition,
+ * decision making, and planning are purely heuristic (keyword matching on the task
+ * type and canned step templates); no calls to any language model are made. This
+ * plugin exists as an example and test fixture for the plugin runtime, not as a
+ * real autonomous research agent.
  */
 public class ResearchAgent implements AIAgent, ComponentPlugin {
 
@@ -39,7 +45,8 @@ public class ResearchAgent implements AIAgent, ComponentPlugin {
         return new ComponentMetadata(
                 COMPONENT_ID,
                 "Research Agent",
-                "Autonomous research agent that decomposes tasks, plans actions, and makes decisions",
+                "DEMO agent (heuristic, no LLM): decomposes research tasks and plans actions via "
+                        + "keyword matching and canned templates. Example/test fixture for the plugin runtime",
                 ComponentType.AGENT,
                 VERSION,
                 Set.of("research", "analysis", "planning"),

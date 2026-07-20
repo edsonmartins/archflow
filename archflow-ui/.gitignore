@@ -24,3 +24,5 @@ test-results
 *.njsproj
 *.sln
 *.sw?
+
+dist-app

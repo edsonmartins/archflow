@@ -404,6 +404,48 @@ class ProviderSwitcherTest {
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessageContaining("Unknown provider key");
         }
+
+        @Test
+        @DisplayName("executeWith() hands the operation the model of the requested provider")
+        void executeWithBuildsModelOfRequestedProvider() {
+            ProviderSwitcher switcher = ProviderSwitcher.builder("exec-with-models")
+                    .primary(LLMProviderConfig.builder()
+                            .provider(LLMProvider.OPENAI)
+                            .modelId("gpt-4o")
+                            .apiKey("key1")
+                            .build())
+                    .fallback(LLMProviderConfig.builder()
+                            .provider(LLMProvider.ANTHROPIC)
+                            .modelId("claude-3-5-sonnet-20241022")
+                            .apiKey("key2")
+                            .build())
+                    .build();
+
+            Class<?> primaryModel = switcher.executeWith("primary", model -> model.getClass());
+            Class<?> fallbackModel = switcher.executeWith("fallback", model -> model.getClass());
+
+            assertThat(primaryModel)
+                    .isEqualTo(dev.langchain4j.model.openai.OpenAiChatModel.class);
+            assertThat(fallbackModel)
+                    .isEqualTo(dev.langchain4j.model.anthropic.AnthropicChatModel.class);
+        }
+
+        @Test
+        @DisplayName("executeWithFallback() executes against the primary model")
+        void executeWithFallbackUsesPrimaryModel() {
+            ProviderSwitcher switcher = ProviderSwitcher.builder("exec-fallback-models")
+                    .primary(LLMProviderConfig.builder()
+                            .provider(LLMProvider.OPENAI)
+                            .modelId("gpt-4o")
+                            .apiKey("key1")
+                            .build())
+                    .build();
+
+            Class<?> usedModel = switcher.executeWithFallback(model -> model.getClass(), "test-ctx");
+
+            assertThat(usedModel).isEqualTo(dev.langchain4j.model.openai.OpenAiChatModel.class);
+            assertThat(switcher.getStats("primary").getSuccessCount()).isEqualTo(1);
+        }
     }
 
     // -------------------------------------------------------------------------

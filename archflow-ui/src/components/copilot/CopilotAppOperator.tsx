@@ -17,7 +17,7 @@ const ROUTES: Record<string, string> = {
     conversations: '/conversations',
     approvals: '/approvals',
     templates: '/templates',
-    marketplace: '/marketplace',
+    // marketplace removido — decisão 0.2 do plano de homologação (rota desativada em App.tsx)
     'dynamic-workflow': '/playground/orchestration',
     'ag-ui': '/playground/ag-ui',
     copilot: '/playground/copilot',

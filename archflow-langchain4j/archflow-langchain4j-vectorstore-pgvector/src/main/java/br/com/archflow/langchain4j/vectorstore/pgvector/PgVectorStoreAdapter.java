@@ -1,10 +1,13 @@
 package br.com.archflow.langchain4j.vectorstore.pgvector;
 
+import br.com.archflow.langchain4j.core.filter.MetadataFilterEvaluator;
+import br.com.archflow.langchain4j.core.filter.MetadataJsonCodec;
 import br.com.archflow.langchain4j.core.spi.LangChainAdapter;
 import br.com.archflow.langchain4j.core.spi.LangChainAdapterFactory;
 import br.com.archflow.model.engine.ExecutionContext;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
+import dev.langchain4j.data.document.Metadata;
 import dev.langchain4j.data.embedding.Embedding;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.store.embedding.EmbeddingMatch;
@@ -18,6 +21,21 @@ import java.util.*;
 /**
  * Adapter para armazenamento e busca de embeddings usando PgVector no PostgreSQL.
  * Suporta filtros por metadados e remoção de embeddings.
+ *
+ * <p><b>Metadados:</b> os metadados do {@link TextSegment} são persistidos na
+ * coluna {@code metadata} (TEXT, JSON serializado — portável, sem dependência
+ * de JSONB).
+ *
+ * <p><b>Filtros ({@code request.filter()}):</b> a abordagem escolhida é buscar
+ * os top {@code maxResults * } {@link #FILTER_OVERSAMPLING_FACTOR} candidatos
+ * por similaridade <b>sem</b> filtro no SQL e aplicar o {@link Filter} em
+ * memória sobre os metadados desserializados de cada candidato (correto e
+ * portável; nunca ignora o filtro silenciosamente). Limitação documentada: se
+ * os itens que satisfazem o filtro forem mais raros que
+ * {@code 1/FILTER_OVERSAMPLING_FACTOR} dentro do top-K ampliado, o resultado
+ * pode conter menos itens que {@code maxResults} mesmo existindo mais matches
+ * na base. Tipos de filtro não suportados lançam
+ * {@link UnsupportedOperationException} clara.
  *
  * <p>Exemplo de configuração:
  * <pre>{@code
@@ -43,6 +61,14 @@ public class PgVectorStoreAdapter implements LangChainAdapter, dev.langchain4j.s
      */
     private static final java.util.regex.Pattern VALID_TABLE_NAME =
             java.util.regex.Pattern.compile("^[A-Za-z_][A-Za-z0-9_]{0,62}$");
+
+    /**
+     * Quando há {@code request.filter()}, o SQL busca
+     * {@code maxResults * FILTER_OVERSAMPLING_FACTOR} candidatos por
+     * similaridade e o filtro é aplicado em memória sobre os metadados.
+     * Ver javadoc da classe para a limitação de recall associada.
+     */
+    static final int FILTER_OVERSAMPLING_FACTOR = 10;
 
     private volatile HikariDataSource dataSource;
     private String tableName;
@@ -121,10 +147,14 @@ public class PgVectorStoreAdapter implements LangChainAdapter, dev.langchain4j.s
                     "CREATE TABLE IF NOT EXISTS %s ("
                             + "id VARCHAR(36) PRIMARY KEY, "
                             + "embedding vector(%d), "
-                            + "text TEXT)",
+                            + "text TEXT, "
+                            + "metadata TEXT)",
                     tableName, dimension
             );
             stmt.execute(createTableSql);
+            // Migração leve para tabelas criadas por versões antigas (sem metadata)
+            stmt.execute(String.format(
+                    "ALTER TABLE %s ADD COLUMN IF NOT EXISTS metadata TEXT", tableName));
         } catch (SQLException e) {
             throw new RuntimeException("Failed to initialize PgVector table", e);
         }
@@ -153,10 +183,11 @@ public class PgVectorStoreAdapter implements LangChainAdapter, dev.langchain4j.s
         String id = UUID.randomUUID().toString();
         try (Connection conn = dataSource.getConnection();
              PreparedStatement stmt = conn.prepareStatement(
-                     String.format("INSERT INTO %s (id, embedding, text) VALUES (?, ?::vector, ?) ON CONFLICT (id) DO UPDATE SET embedding = EXCLUDED.embedding, text = EXCLUDED.text", tableName))) {
+                     String.format("INSERT INTO %s (id, embedding, text, metadata) VALUES (?, ?::vector, ?, ?) ON CONFLICT (id) DO UPDATE SET embedding = EXCLUDED.embedding, text = EXCLUDED.text, metadata = EXCLUDED.metadata", tableName))) {
             stmt.setString(1, id);
             stmt.setString(2, vectorToString(embedding.vector()));
             stmt.setString(3, embedded != null ? embedded.text() : null);
+            stmt.setString(4, embedded != null ? MetadataJsonCodec.toJson(embedded.metadata()) : null);
             stmt.executeUpdate();
         } catch (SQLException e) {
             throw new RuntimeException("Error adding embedding to PgVector", e);
@@ -179,12 +210,14 @@ public class PgVectorStoreAdapter implements LangChainAdapter, dev.langchain4j.s
 
         try (Connection conn = dataSource.getConnection();
              PreparedStatement stmt = conn.prepareStatement(
-                     String.format("INSERT INTO %s (id, embedding, text) VALUES (?, ?::vector, ?) ON CONFLICT (id) DO UPDATE SET embedding = EXCLUDED.embedding, text = EXCLUDED.text", tableName))) {
+                     String.format("INSERT INTO %s (id, embedding, text, metadata) VALUES (?, ?::vector, ?, ?) ON CONFLICT (id) DO UPDATE SET embedding = EXCLUDED.embedding, text = EXCLUDED.text, metadata = EXCLUDED.metadata", tableName))) {
             conn.setAutoCommit(false);
             for (int i = 0; i < ids.size(); i++) {
+                TextSegment segment = embedded != null ? embedded.get(i) : null;
                 stmt.setString(1, ids.get(i));
                 stmt.setString(2, vectorToString(embeddings.get(i).vector()));
-                stmt.setString(3, embedded != null ? embedded.get(i).text() : null);
+                stmt.setString(3, segment != null ? segment.text() : null);
+                stmt.setString(4, segment != null ? MetadataJsonCodec.toJson(segment.metadata()) : null);
                 stmt.addBatch();
             }
             stmt.executeBatch();
@@ -194,207 +227,74 @@ public class PgVectorStoreAdapter implements LangChainAdapter, dev.langchain4j.s
         }
     }
 
+    /**
+     * Busca por similaridade (distância de cosseno via {@code <=>}).
+     *
+     * <p>Quando {@code request.filter()} está presente, o SQL busca
+     * {@code maxResults * } {@link #FILTER_OVERSAMPLING_FACTOR} candidatos sem
+     * filtro e o {@link Filter} é aplicado em memória sobre os metadados
+     * desserializados (JSON da coluna {@code metadata}) — ver javadoc da
+     * classe para a abordagem escolhida e sua limitação de recall.
+     *
+     * @throws UnsupportedOperationException se o filtro contiver um tipo não suportado
+     */
     @Override
     public EmbeddingSearchResult<TextSegment> search(EmbeddingSearchRequest request) {
-        try (Connection conn = dataSource.getConnection()) {
-            StringBuilder sql = new StringBuilder(
-                    String.format("SELECT id, embedding, text, embedding <=> ?::vector AS distance FROM %s", tableName)
-            );
-            Filter filter = request.filter();
-            if (filter != null) {
-                sql.append(" WHERE ").append(buildFilterCondition(filter));
-            }
-            sql.append(" ORDER BY distance LIMIT ?");
+        Filter filter = request.filter();
+        // Falha cedo (antes do SQL) se o filtro tiver tipo não suportado
+        MetadataFilterEvaluator.ensureSupported(filter);
 
-            try (PreparedStatement stmt = conn.prepareStatement(sql.toString())) {
-                stmt.setString(1, vectorToString(request.queryEmbedding().vector()));
-                stmt.setInt(2, request.maxResults());
+        int maxResults = request.maxResults();
+        boolean oversampling = filter != null;
+        int fetchLimit = oversampling
+                ? (int) Math.min((long) maxResults * FILTER_OVERSAMPLING_FACTOR, Integer.MAX_VALUE)
+                : maxResults;
 
-                ResultSet rs = stmt.executeQuery();
-                List<EmbeddingMatch<TextSegment>> matches = new ArrayList<>();
+        // No caminho com filtro buscamos maxResults*10 candidatos e descartamos
+        // a maioria em memória — trazer a coluna `embedding` (o vetor inteiro,
+        // ~KBs por linha) de todos eles é desperdício puro. Omite o vetor nesse
+        // caminho (EmbeddingMatch aceita embedding nulo); no caminho exato (sem
+        // filtro) todo candidato retorna, então o vetor é incluído.
+        String columns = oversampling ? "id, text, metadata" : "id, embedding, text, metadata";
 
-                while (rs.next()) {
-                    String id = rs.getString("id");
-                    String embeddingStr = rs.getString("embedding");
-                    String text = rs.getString("text");
-                    double distance = rs.getDouble("distance");
-                    double score = 1 - distance; // Converter distância para similaridade
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(
+                     String.format("SELECT %s, embedding <=> ?::vector AS distance FROM %s ORDER BY distance LIMIT ?",
+                             columns, tableName))) {
+            stmt.setString(1, vectorToString(request.queryEmbedding().vector()));
+            stmt.setInt(2, fetchLimit);
 
-                    if (score >= request.minScore()) {
-                        float[] vector = parseVector(embeddingStr);
-                        Embedding embedding = new Embedding(vector);
-                        TextSegment textSegment = text != null ? TextSegment.from(text) : null;
-                        matches.add(new EmbeddingMatch<>(score, id, embedding, textSegment));
-                    }
+            ResultSet rs = stmt.executeQuery();
+            List<EmbeddingMatch<TextSegment>> matches = new ArrayList<>();
+
+            while (rs.next() && matches.size() < maxResults) {
+                String id = rs.getString("id");
+                String text = rs.getString("text");
+                String metadataJson = rs.getString("metadata");
+                double distance = rs.getDouble("distance");
+                double score = 1 - distance; // Converter distância para similaridade
+
+                if (score < request.minScore()) {
+                    continue;
                 }
 
-                return new EmbeddingSearchResult<>(matches);
+                Metadata metadata = MetadataJsonCodec.fromJson(metadataJson);
+                // Aplica o filtro em memória — nunca ignorado silenciosamente
+                if (!MetadataFilterEvaluator.matches(filter, metadata)) {
+                    continue;
+                }
+
+                Embedding embedding = oversampling
+                        ? null
+                        : new Embedding(parseVector(rs.getString("embedding")));
+                TextSegment textSegment = text != null ? TextSegment.from(text, metadata) : null;
+                matches.add(new EmbeddingMatch<>(score, id, embedding, textSegment));
             }
+
+            return new EmbeddingSearchResult<>(matches);
         } catch (SQLException e) {
             throw new RuntimeException("Error searching embeddings in PgVector", e);
         }
-    }
-
-    /**
-     * Builds a SQL WHERE clause condition from a LangChain4j Filter.
-     *
-     * <p>Supported filter types:
-     * <ul>
-     *   <li>IsEqualTo - key = value</li>
-     *   <li>IsNotEqualTo - key != value</li>
-     *   <li>IsGreaterThan - key > value (numeric)</li>
-     *   <li>IsLessThan - key < value (numeric)</li>
-     *   <li>IsGreaterThanOrEqualTo - key >= value (numeric)</li>
-     *   <li>IsLessThanOrEqualTo - key <= value (numeric)</li>
-     *   <li>IsIn - key IN (values)</li>
-     *   <li>And - logical AND of conditions</li>
-     *   <li>Or - logical OR of conditions</li>
-     * </ul>
-     *
-     * @param filter The filter to convert
-     * @return SQL WHERE condition
-     */
-    private String buildFilterCondition(Filter filter) {
-        if (filter == null) {
-            return "";
-        }
-
-        // Comparison filters
-        if (filter instanceof dev.langchain4j.store.embedding.filter.comparison.IsEqualTo) {
-            dev.langchain4j.store.embedding.filter.comparison.IsEqualTo eq =
-                    (dev.langchain4j.store.embedding.filter.comparison.IsEqualTo) filter;
-            return formatCondition(eq.key(), "=", eq.comparisonValue());
-        }
-
-        if (filter instanceof dev.langchain4j.store.embedding.filter.comparison.IsNotEqualTo) {
-            dev.langchain4j.store.embedding.filter.comparison.IsNotEqualTo ne =
-                    (dev.langchain4j.store.embedding.filter.comparison.IsNotEqualTo) filter;
-            return formatCondition(ne.key(), "!=", ne.comparisonValue());
-        }
-
-        if (filter instanceof dev.langchain4j.store.embedding.filter.comparison.IsGreaterThan) {
-            dev.langchain4j.store.embedding.filter.comparison.IsGreaterThan gt =
-                    (dev.langchain4j.store.embedding.filter.comparison.IsGreaterThan) filter;
-            return formatCondition(gt.key(), ">", gt.comparisonValue());
-        }
-
-        if (filter instanceof dev.langchain4j.store.embedding.filter.comparison.IsLessThan) {
-            dev.langchain4j.store.embedding.filter.comparison.IsLessThan lt =
-                    (dev.langchain4j.store.embedding.filter.comparison.IsLessThan) filter;
-            return formatCondition(lt.key(), "<", lt.comparisonValue());
-        }
-
-        if (filter instanceof dev.langchain4j.store.embedding.filter.comparison.IsGreaterThanOrEqualTo) {
-            dev.langchain4j.store.embedding.filter.comparison.IsGreaterThanOrEqualTo gte =
-                    (dev.langchain4j.store.embedding.filter.comparison.IsGreaterThanOrEqualTo) filter;
-            return formatCondition(gte.key(), ">=", gte.comparisonValue());
-        }
-
-        if (filter instanceof dev.langchain4j.store.embedding.filter.comparison.IsLessThanOrEqualTo) {
-            dev.langchain4j.store.embedding.filter.comparison.IsLessThanOrEqualTo lte =
-                    (dev.langchain4j.store.embedding.filter.comparison.IsLessThanOrEqualTo) filter;
-            return formatCondition(lte.key(), "<=", lte.comparisonValue());
-        }
-
-        if (filter instanceof dev.langchain4j.store.embedding.filter.comparison.IsIn) {
-            dev.langchain4j.store.embedding.filter.comparison.IsIn isIn =
-                    (dev.langchain4j.store.embedding.filter.comparison.IsIn) filter;
-            Collection<?> values = isIn.comparisonValues();
-            return formatInCondition(isIn.key(), values);
-        }
-
-        // Logical filters (binary AND/OR)
-        if (filter instanceof dev.langchain4j.store.embedding.filter.logical.And) {
-            dev.langchain4j.store.embedding.filter.logical.And and =
-                    (dev.langchain4j.store.embedding.filter.logical.And) filter;
-            String left = buildFilterCondition(and.left());
-            String right = buildFilterCondition(and.right());
-            return "(" + left + " AND " + right + ")";
-        }
-
-        if (filter instanceof dev.langchain4j.store.embedding.filter.logical.Or) {
-            dev.langchain4j.store.embedding.filter.logical.Or or =
-                    (dev.langchain4j.store.embedding.filter.logical.Or) filter;
-            String left = buildFilterCondition(or.left());
-            String right = buildFilterCondition(or.right());
-            return "(" + left + " OR " + right + ")";
-        }
-
-        if (filter instanceof dev.langchain4j.store.embedding.filter.logical.Not) {
-            dev.langchain4j.store.embedding.filter.logical.Not not =
-                    (dev.langchain4j.store.embedding.filter.logical.Not) filter;
-            return "NOT (" + buildFilterCondition(not.expression()) + ")";
-        }
-
-        throw new UnsupportedOperationException(
-                "Unsupported filter type: " + filter.getClass().getSimpleName() +
-                ". Supported types: IsEqualTo, IsNotEqualTo, IsGreaterThan, IsLessThan, " +
-                "IsGreaterThanOrEqualTo, IsLessThanOrEqualTo, IsIn, And, Or, Not");
-    }
-
-    /**
-     * Formats a key-operator-value condition.
-     */
-    private String formatCondition(String key, String operator, Object value) {
-        if (value instanceof String || value instanceof Character) {
-            String escaped = value.toString().replace("'", "''");
-            return String.format("%s %s '%s'", sanitizeKey(key), operator, escaped);
-        } else if (value instanceof Number) {
-            return String.format("%s %s %s", sanitizeKey(key), operator, value);
-        } else if (value instanceof Boolean) {
-            return String.format("%s %s %s", sanitizeKey(key), operator,
-                    ((Boolean) value) ? "TRUE" : "FALSE");
-        } else {
-            // For other types, convert to string and escape
-            String escaped = value.toString().replace("'", "''");
-            return String.format("%s %s '%s'", sanitizeKey(key), operator, escaped);
-        }
-    }
-
-    /**
-     * Formats an IN condition for multiple values.
-     */
-    private String formatInCondition(String key, Collection<?> values) {
-        if (values == null || values.isEmpty()) {
-            return "FALSE";
-        }
-        String sanitizedKey = sanitizeKey(key);
-        if (values.size() == 1) {
-            Object first = values.iterator().next();
-            return formatCondition(key, "=", first);
-        }
-
-        List<String> formattedValues = values.stream()
-                .map(v -> {
-                    if (v instanceof String || v instanceof Character) {
-                        return "'" + v.toString().replace("'", "''") + "'";
-                    } else if (v instanceof Number) {
-                        return v.toString();
-                    } else if (v instanceof Boolean) {
-                        return ((Boolean) v) ? "TRUE" : "FALSE";
-                    } else {
-                        return "'" + v.toString().replace("'", "''") + "'";
-                    }
-                })
-                .toList();
-
-        return String.format("%s IN (%s)", sanitizedKey, String.join(", ", formattedValues));
-    }
-
-    /**
-     * Sanitizes a column/key name to prevent SQL injection.
-     * Only allows alphanumeric characters and underscore.
-     */
-    private String sanitizeKey(String key) {
-        if (key == null || key.isEmpty()) {
-            throw new IllegalArgumentException("Filter key cannot be null or empty");
-        }
-        // Basic validation - only allow alphanumeric and underscore
-        if (!key.matches("^[a-zA-Z_][a-zA-Z0-9_]*$")) {
-            throw new IllegalArgumentException(
-                    "Invalid filter key: '" + key + "'. Only alphanumeric characters and underscore are allowed.");
-        }
-        return key;
     }
 
     // Métodos de remoção

@@ -71,6 +71,10 @@ class MigrationsFlywayPostgresTest {
         assertTableExists(ds, "users");                   // archflow-security
         assertTableExists(ds, "api_keys");                // archflow-security
         assertTableExists(ds, "qrtz_job_details");        // archflow-api (Quartz)
+        assertTableExists(ds, "agent_invocations");       // archflow-api (fila durável)
+        assertTableExists(ds, "workflow_documents");      // archflow-api (runtime do designer)
+        assertTableExists(ds, "workflow_executions");     // archflow-api (runtime do designer)
+        assertTableExists(ds, "global_config");           // archflow-api (config admin)
 
         // segunda execução: idempotente
         MigrateResult again = Flyway.configure()

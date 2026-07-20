@@ -39,6 +39,11 @@ class WorkflowToolTest {
         WorkflowToolRegistry.reset();
     }
 
+    /** Creates an executable tool from a workflow with a simple echo executor. */
+    private static WorkflowTool toolFor(Workflow workflow) {
+        return WorkflowTool.from(workflow, input -> Map.of("echo", input));
+    }
+
     @Test
     void testCreateWorkflowTool() {
         WorkflowTool tool = WorkflowTool.builder()
@@ -55,12 +60,25 @@ class WorkflowToolTest {
     }
 
     @Test
-    void testWorkflowToolFromWorkflow() {
-        WorkflowTool tool = WorkflowTool.from(testWorkflow);
+    void testWorkflowToolFromWorkflowWithExecutor() {
+        WorkflowTool tool = WorkflowTool.from(testWorkflow, input -> Map.of("echo", input));
 
         assertThat(tool.getId()).isEqualTo("test-workflow");
         assertThat(tool.getName()).isEqualTo("Test Workflow");
         assertThat(tool.getWorkflow()).isEqualTo(testWorkflow);
+
+        WorkflowToolResult result = tool.execute(Map.of("k", "v"));
+        assertThat(result.success()).isTrue();
+    }
+
+    @Test
+    @SuppressWarnings("deprecation")
+    void testWorkflowToolFromWorkflowWithoutExecutorFailsAtCreation() {
+        // Sem engine no módulo, from(workflow) não tem como executar o workflow:
+        // deve falhar NA CRIAÇÃO, não deixar criar um tool que só explode no execute.
+        assertThatThrownBy(() -> WorkflowTool.from(testWorkflow))
+                .isInstanceOf(UnsupportedOperationException.class)
+                .hasMessageContaining("no workflow engine");
     }
 
     @Test
@@ -205,7 +223,7 @@ class WorkflowToolTest {
 
     @Test
     void testRegistryRegisterTool() {
-        WorkflowTool tool = WorkflowTool.from(testWorkflow);
+        WorkflowTool tool = toolFor(testWorkflow);
 
         boolean registered = registry.register(tool);
 
@@ -216,7 +234,7 @@ class WorkflowToolTest {
 
     @Test
     void testRegistryGetTool() {
-        WorkflowTool tool = WorkflowTool.from(testWorkflow);
+        WorkflowTool tool = toolFor(testWorkflow);
         registry.register(tool);
 
         Optional<WorkflowTool> found = registry.getTool("test-workflow");
@@ -227,7 +245,7 @@ class WorkflowToolTest {
 
     @Test
     void testRegistryGetToolByName() {
-        WorkflowTool tool = WorkflowTool.from(testWorkflow);
+        WorkflowTool tool = toolFor(testWorkflow);
         registry.register(tool);
 
         Optional<WorkflowTool> found = registry.getToolByName("Test Workflow");
@@ -276,7 +294,7 @@ class WorkflowToolTest {
 
     @Test
     void testRegistryUnregister() {
-        WorkflowTool tool = WorkflowTool.from(testWorkflow);
+        WorkflowTool tool = toolFor(testWorkflow);
         registry.register(tool);
 
         WorkflowTool unregistered = registry.unregister("test-workflow");
@@ -298,8 +316,8 @@ class WorkflowToolTest {
                 .description("Sends email notifications")
                 .build();
 
-        registry.register(WorkflowTool.from(workflow1));
-        registry.register(WorkflowTool.from(workflow2));
+        registry.register(toolFor(workflow1));
+        registry.register(toolFor(workflow2));
 
         List<WorkflowTool> results = registry.search("data");
 
@@ -314,7 +332,7 @@ class WorkflowToolTest {
             eventLog.append(event.type()).append(":").append(event.toolId()).append(";");
         });
 
-        WorkflowTool tool = WorkflowTool.from(testWorkflow);
+        WorkflowTool tool = toolFor(testWorkflow);
         registry.register(tool);
 
         assertThat(eventLog.toString()).contains("REGISTERED:test-workflow");
@@ -329,7 +347,7 @@ class WorkflowToolTest {
                 .timeout(Duration.ofSeconds(10))
                 .build();
 
-        registry.register(WorkflowTool.from(testWorkflow));
+        registry.register(toolFor(testWorkflow));
         registry.register(asyncTool);
 
         WorkflowToolRegistry.ToolStats stats = registry.getStats();
@@ -340,22 +358,32 @@ class WorkflowToolTest {
     }
 
     @Test
-    void testRegistryRegisterWorkflow() {
-        WorkflowTool tool = registry.register(testWorkflow);
+    void testRegistryRegisterWorkflowWithExecutor() {
+        WorkflowTool tool = registry.register(testWorkflow, input -> Map.of("echo", input));
 
         assertThat(tool).isNotNull();
         assertThat(registry.hasTool("test-workflow")).isTrue();
+        assertThat(registry.execute("test-workflow", Map.of("k", "v")).success()).isTrue();
+    }
+
+    @Test
+    @SuppressWarnings("deprecation")
+    void testRegistryRegisterWorkflowWithoutExecutorFailsAtCreation() {
+        assertThatThrownBy(() -> registry.register(testWorkflow))
+                .isInstanceOf(UnsupportedOperationException.class)
+                .hasMessageContaining("no workflow engine");
+        assertThat(registry.size()).isZero();
     }
 
     @Test
     void testRegistryGetAllTools() {
-        registry.register(testWorkflow);
+        registry.register(testWorkflow, input -> Map.of("echo", input));
 
         Workflow workflow2 = Workflow.builder()
                 .id("workflow-2")
                 .name("Workflow 2")
                 .build();
-        registry.register(workflow2);
+        registry.register(workflow2, input -> Map.of("echo", input));
 
         List<WorkflowTool> allTools = registry.getAllTools();
 
@@ -385,8 +413,8 @@ class WorkflowToolTest {
 
     @Test
     void testRegistryCreateComposite() {
-        WorkflowTool tool1 = WorkflowTool.from(testWorkflow);
-        WorkflowTool tool2 = WorkflowTool.from(
+        WorkflowTool tool1 = toolFor(testWorkflow);
+        WorkflowTool tool2 = toolFor(
                 Workflow.builder().id("wf2").name("WF2").build()
         );
 
@@ -403,9 +431,80 @@ class WorkflowToolTest {
     }
 
     @Test
-    void testRegistryCreateParallel() {
-        WorkflowTool tool1 = WorkflowTool.from(testWorkflow);
+    void testCompositeChainsOutputToNextInput() {
+        // tool1 devolve {"value": input.value + "-a"}; tool2 recebe esse map e concatena "-b"
+        WorkflowTool tool1 = WorkflowTool.from(
+                Workflow.builder().id("wf-a").name("A").build(),
+                input -> Map.of("value", input.get("value") + "-a")
+        );
         WorkflowTool tool2 = WorkflowTool.from(
+                Workflow.builder().id("wf-b").name("B").build(),
+                input -> Map.of("value", input.get("value") + "-b")
+        );
+
+        WorkflowTool composite = registry.createComposite(
+                "chain", "Chain", "chains", List.of(tool1, tool2));
+
+        WorkflowToolResult result = composite.execute(Map.of("value", "start"));
+
+        assertThat(result.success()).isTrue();
+        assertThat(result.outputAsMap()).containsEntry("value", "start-a-b");
+    }
+
+    @Test
+    void testCompositeWrapsNonMapOutput() {
+        // Output não-Map do passo anterior chega ao próximo como {"input": output}
+        WorkflowTool tool1 = WorkflowTool.from(
+                Workflow.builder().id("wf-a").name("A").build(),
+                input -> "raw-output"
+        );
+        WorkflowTool tool2 = WorkflowTool.from(
+                Workflow.builder().id("wf-b").name("B").build(),
+                input -> "got:" + input.get("input")
+        );
+
+        WorkflowTool composite = registry.createComposite(
+                "chain2", "Chain2", "chains", List.of(tool1, tool2));
+
+        WorkflowToolResult result = composite.execute(Map.of());
+
+        assertThat(result.success()).isTrue();
+        assertThat(result.output()).isEqualTo("got:raw-output");
+    }
+
+    @Test
+    void testCompositeFailsWhenStepFails() {
+        WorkflowTool ok = WorkflowTool.from(
+                Workflow.builder().id("wf-ok").name("OK").build(),
+                input -> Map.of("x", 1)
+        );
+        WorkflowTool boom = WorkflowTool.from(
+                Workflow.builder().id("wf-boom").name("Boom").build(),
+                input -> { throw new RuntimeException("boom"); }
+        );
+
+        WorkflowTool composite = registry.createComposite(
+                "chain3", "Chain3", "chains", List.of(ok, boom));
+
+        WorkflowToolResult result = composite.execute(Map.of());
+
+        assertThat(result.success()).isFalse();
+        assertThat(result.getError()).hasValueSatisfying(error -> {
+            assertThat(error).contains("wf-boom");
+            assertThat(error).contains("boom");
+        });
+    }
+
+    @Test
+    void testCompositeRequiresAtLeastOneTool() {
+        assertThatThrownBy(() -> registry.createComposite("c", "C", "d", List.of()))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void testRegistryCreateParallel() {
+        WorkflowTool tool1 = toolFor(testWorkflow);
+        WorkflowTool tool2 = toolFor(
                 Workflow.builder().id("wf2").name("WF2").build()
         );
 
@@ -419,5 +518,125 @@ class WorkflowToolTest {
         assertThat(parallel.getId()).isEqualTo("parallel-tool");
         assertThat(parallel.isAsync()).isTrue();
         assertThat(parallel.getWorkflow().getMetadata()).containsEntry("parallel", true);
+    }
+
+    @Test
+    void testParallelExecutesAllAndMergesByToolName() {
+        WorkflowTool tool1 = WorkflowTool.from(
+                Workflow.builder().id("wf-a").name("Alpha").build(),
+                input -> "out-a:" + input.get("k")
+        );
+        WorkflowTool tool2 = WorkflowTool.from(
+                Workflow.builder().id("wf-b").name("Beta").build(),
+                input -> "out-b:" + input.get("k")
+        );
+
+        WorkflowTool parallel = registry.createParallel(
+                "par", "Par", "parallel", List.of(tool1, tool2));
+
+        WorkflowToolResult result = parallel.execute(Map.of("k", "v"));
+
+        assertThat(result.success()).isTrue();
+        Map<String, Object> merged = result.outputAsMap();
+        assertThat(merged)
+                .containsEntry("Alpha", "out-a:v")
+                .containsEntry("Beta", "out-b:v");
+    }
+
+    @Test
+    void testParallelFailsWhenBranchFails() {
+        WorkflowTool ok = WorkflowTool.from(
+                Workflow.builder().id("wf-ok").name("OK").build(),
+                input -> "fine"
+        );
+        WorkflowTool boom = WorkflowTool.from(
+                Workflow.builder().id("wf-boom").name("Boom").build(),
+                input -> { throw new RuntimeException("kaput"); }
+        );
+
+        WorkflowTool parallel = registry.createParallel(
+                "par2", "Par2", "parallel", List.of(ok, boom));
+
+        WorkflowToolResult result = parallel.execute(Map.of());
+
+        assertThat(result.success()).isFalse();
+        assertThat(result.getError()).hasValueSatisfying(error -> {
+            assertThat(error).contains("wf-boom");
+            assertThat(error).contains("kaput");
+        });
+    }
+
+    @Test
+    void testParallelRequiresAtLeastOneTool() {
+        assertThatThrownBy(() -> registry.createParallel("p", "P", "d", List.of()))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void testExecuteHonorsTimeout() {
+        WorkflowTool slow = WorkflowTool.builder()
+                .id("slow-tool")
+                .workflow(testWorkflow)
+                .timeout(Duration.ofMillis(100))
+                .executor(input -> {
+                    try {
+                        Thread.sleep(5_000);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new RuntimeException(e);
+                    }
+                    return "never";
+                })
+                .build();
+
+        long start = System.nanoTime();
+        WorkflowToolResult result = slow.execute(Map.of());
+        long elapsedMs = (System.nanoTime() - start) / 1_000_000;
+
+        assertThat(result.success()).isFalse();
+        assertThat(result.getError()).hasValueSatisfying(
+                error -> assertThat(error).contains("timed out"));
+        assertThat(elapsedMs).isLessThan(4_000);
+    }
+
+    @Test
+    void testExecuteHonorsMaxRetries() {
+        java.util.concurrent.atomic.AtomicInteger attempts = new java.util.concurrent.atomic.AtomicInteger();
+        WorkflowTool flaky = WorkflowTool.builder()
+                .id("flaky-tool")
+                .workflow(testWorkflow)
+                .maxRetries(2)
+                .executor(input -> {
+                    if (attempts.incrementAndGet() < 3) {
+                        throw new RuntimeException("transient failure " + attempts.get());
+                    }
+                    return "recovered";
+                })
+                .build();
+
+        WorkflowToolResult result = flaky.execute(Map.of());
+
+        assertThat(result.success()).isTrue();
+        assertThat(result.output()).isEqualTo("recovered");
+        assertThat(attempts.get()).isEqualTo(3);
+    }
+
+    @Test
+    void testExecuteExhaustsRetriesAndReportsLastError() {
+        java.util.concurrent.atomic.AtomicInteger attempts = new java.util.concurrent.atomic.AtomicInteger();
+        WorkflowTool alwaysFails = WorkflowTool.builder()
+                .id("always-fails")
+                .workflow(testWorkflow)
+                .maxRetries(2)
+                .executor(input -> {
+                    throw new RuntimeException("failure " + attempts.incrementAndGet());
+                })
+                .build();
+
+        WorkflowToolResult result = alwaysFails.execute(Map.of());
+
+        assertThat(result.success()).isFalse();
+        assertThat(attempts.get()).isEqualTo(3);
+        assertThat(result.getError()).hasValue("failure 3");
     }
 }

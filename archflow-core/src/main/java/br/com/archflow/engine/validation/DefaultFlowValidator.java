@@ -13,7 +13,10 @@ import java.util.stream.Collectors;
  * Implementação padrão do validador de fluxos.
  */
 public class DefaultFlowValidator implements FlowValidator {
-    
+
+    private final br.com.archflow.engine.execution.ConditionEvaluator conditionEvaluator =
+            new br.com.archflow.engine.execution.ConditionEvaluator();
+
     @Override
     public void validate(Flow flow) throws FlowValidationException {
         List<ValidationError> errors = new ArrayList<>();
@@ -209,23 +212,59 @@ public class DefaultFlowValidator implements FlowValidator {
         }
     }
 
+    // CHAIN/AGENT/TOOL: a interface FlowStep não expõe a configuração do
+    // componente — ela é validada na materialização (DefaultFlowStepFactory
+    // no archflow-api chama ComponentPlugin.validateConfig) e em runtime.
+    // Aqui só existe estrutura de grafo para validar; estes hooks ficam
+    // como pontos de extensão deliberadamente vazios.
+
     private void validateChainConfiguration(FlowStep step, List<ValidationError> errors) {
-        // Implementar validações específicas para Chains
+        // Sem estrutura visível no nível do modelo; ver comentário acima.
     }
 
     private void validateAgentConfiguration(FlowStep step, List<ValidationError> errors) {
-        // Implementar validações específicas para Agents
+        // Sem estrutura visível no nível do modelo; ver comentário acima.
     }
 
     private void validateToolConfiguration(FlowStep step, List<ValidationError> errors) {
-        // Implementar validações específicas para Tools
+        // Sem estrutura visível no nível do modelo; ver comentário acima.
     }
 
     private void validateStepConnections(FlowStep step, ValidationContext context, List<ValidationError> errors) {
-        // Implementar validações de conexões do passo
+        for (StepConnection connection : step.getConnections()) {
+            if (connection.getTargetId() == null || connection.getTargetId().isBlank()) {
+                errors.add(new ValidationError(
+                    "connection.target",
+                    "Connection of step '" + step.getId() + "' has no target",
+                    "CONNECTION_TARGET_REQUIRED",
+                    Map.of("step", step.getId())
+                ));
+            }
+            // As conexões ficam no step de ORIGEM; uma conexão gravada aqui com
+            // sourceId de outro step é ignorada pelo executor — sinaliza o erro
+            // na validação em vez de falhar silenciosamente em runtime.
+            String sourceId = connection.getSourceId();
+            if (sourceId != null && !sourceId.isBlank() && !sourceId.equals(step.getId())) {
+                errors.add(new ValidationError(
+                    "connection.source",
+                    "Connection stored on step '" + step.getId()
+                        + "' declares a different source: '" + sourceId + "'",
+                    "CONNECTION_SOURCE_MISMATCH",
+                    Map.of("step", step.getId(), "sourceId", sourceId)
+                ));
+            }
+        }
     }
 
     private void validateCondition(String condition, List<ValidationError> errors, StepConnection connection) {
-        // Implementar validação de expressões de condição
+        if (!conditionEvaluator.isWellFormed(condition)) {
+            errors.add(new ValidationError(
+                "connection.condition",
+                "Malformed transition condition: \"" + condition + "\"",
+                "CONNECTION_CONDITION_MALFORMED",
+                Map.of("condition", condition,
+                       "connection", connection.getSourceId() + "->" + connection.getTargetId())
+            ));
+        }
     }
 }

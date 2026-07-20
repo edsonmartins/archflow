@@ -163,7 +163,11 @@ export class RealtimeClient {
         return new Promise((resolve, reject) => {
             const { tenantId, personaId, baseUrl = DEFAULT_BASE, webSocketFactory } = this.config;
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const path = `${baseUrl}/realtime/${encodeURIComponent(tenantId)}/${encodeURIComponent(personaId)}`;
+            // Token via query param: browsers não enviam headers em WebSocket;
+            // o backend valida no handshake (WebSocketConfiguration).
+            const token = sessionStorage.getItem('archflow_token');
+            const tokenQuery = token ? `?token=${encodeURIComponent(token)}` : '';
+            const path = `${baseUrl}/realtime/${encodeURIComponent(tenantId)}/${encodeURIComponent(personaId)}${tokenQuery}`;
             const url = baseUrl.startsWith('ws')
                 ? path
                 : `${protocol}//${window.location.host}${path}`;

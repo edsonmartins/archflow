@@ -28,6 +28,9 @@ public class DefaultFlowEngine implements FlowEngine {
     /** Default maximum concurrent flows when no explicit limit is set. */
     private static final int DEFAULT_MAX_CONCURRENT_FLOWS = 10;
 
+    /** Variável de contexto que guarda o requestId da aprovação pendente. */
+    private static final String APPROVAL_REQUEST_KEY = "__archflow.approvalRequestId";
+
     /** Default flow execution timeout (ms) when not configured. */
     private static final long DEFAULT_FLOW_TIMEOUT_MS = 3_600_000; // 1 hour
 
@@ -199,6 +202,13 @@ public class DefaultFlowEngine implements FlowEngine {
             }
             context.setState(state);
 
+            // Restaura as variáveis persistidas (outputs de steps, checkpoint
+            // de concluídos) no contexto — o executor e as condições de
+            // transição leem do contexto, não do FlowState.
+            if (state.getVariables() != null) {
+                state.getVariables().forEach(context::set);
+            }
+
             if (memoryRestorer != null) {
                 try {
                     memoryRestorer.restore(context);
@@ -249,7 +259,7 @@ public class DefaultFlowEngine implements FlowEngine {
             String flowId,
             FlowSetupSupplier supplier) {
 
-        return CompletableFuture.supplyAsync(() -> {
+        CompletableFuture<FlowResult> future = CompletableFuture.supplyAsync(() -> {
             boolean permitAcquired = false;
             long startMs = System.currentTimeMillis();
             try {
@@ -280,6 +290,7 @@ public class DefaultFlowEngine implements FlowEngine {
 
                 try {
                     FlowResult result = executionManager.executeFlow(flow, context);
+                    persistTerminalState(flowId, context, result);
                     long durationMs = System.currentTimeMillis() - startMs;
                     notifyTraceEnd(flowId, tenantId, result, durationMs);
                     safeLifecycle(() -> lifecycleListener.onFlowCompleted(flow, context, result, durationMs));
@@ -291,7 +302,10 @@ public class DefaultFlowEngine implements FlowEngine {
                     safeLifecycle(() -> lifecycleListener.onFlowFailed(flow, context, execError, durationMs));
                     throw execError;
                 } finally {
-                    activeExecutions.remove(flowId);
+                    // Remove apenas a PRÓPRIA entrada: submitApproval pode já
+                    // ter removido esta e registrado a execução do resume sob
+                    // o mesmo flowId — um remove(key) puro a apagaria.
+                    activeExecutions.remove(flowId, execution);
                 }
 
             } catch (InterruptedException e) {
@@ -308,6 +322,22 @@ public class DefaultFlowEngine implements FlowEngine {
                 }
             }
         }, virtualExecutor).orTimeout(flowTimeoutMs, TimeUnit.MILLISECONDS);
+
+        // orTimeout completa a future, mas a virtual thread continuaria
+        // executando o fluxo segurando o permit do semáforo. Sinaliza o
+        // cancelamento cooperativo para a travessia parar e o finally da
+        // task liberar o permit.
+        future.whenComplete((r, err) -> {
+            if (err instanceof java.util.concurrent.TimeoutException) {
+                try {
+                    executionManager.stopFlow(flowId);
+                } catch (Exception ex) {
+                    logger.warning("Failed to signal stop after flow timeout: " + flowId
+                            + " - " + ex.getMessage());
+                }
+            }
+        });
+        return future;
     }
 
     @FunctionalInterface
@@ -351,6 +381,7 @@ public class DefaultFlowEngine implements FlowEngine {
                 if (execution == null) {
                     throw new FlowNotFoundException(flowId);
                 }
+                syncVariablesToState(execution.getContext());
                 stateManager.saveState(flowId, execution.getContext().getState());
                 executionManager.pauseFlow(flowId);
             } catch (Exception e) {
@@ -374,6 +405,7 @@ public class DefaultFlowEngine implements FlowEngine {
                 // STOPPED status and skip re-removing. The entry stays in the
                 // map so the executor can still check state; the finally block
                 // in submitFlow handles the actual map cleanup.
+                syncVariablesToState(execution.getContext());
                 stateManager.saveState(flowId, execution.getContext().getState());
                 executionManager.stopFlow(flowId);
             } catch (Exception e) {
@@ -390,6 +422,12 @@ public class DefaultFlowEngine implements FlowEngine {
                 throw new FlowNotFoundException(flowId);
             }
 
+            String requestId = java.util.UUID.randomUUID().toString();
+            // O requestId vai para as variáveis (persistidas com o estado)
+            // para ser validado em submitApproval.
+            execution.getContext().set(APPROVAL_REQUEST_KEY, requestId);
+            syncVariablesToState(execution.getContext());
+
             FlowState currentState = execution.getContext().getState();
             FlowState awaitingState = FlowState.builder()
                     .tenantId(currentState.getTenantId())
@@ -405,7 +443,11 @@ public class DefaultFlowEngine implements FlowEngine {
             execution.getContext().setState(awaitingState);
             stateManager.saveState(flowId, awaitingState);
 
-            String requestId = java.util.UUID.randomUUID().toString();
+            // Suspende a travessia de fato (cooperativo): sem isso a thread
+            // do fluxo continuaria executando os próximos steps sem esperar
+            // a aprovação.
+            executionManager.pauseFlow(flowId);
+
             logger.info("Flow " + flowId + " awaiting approval: requestId=" + requestId);
             return requestId;
         }
@@ -430,6 +472,17 @@ public class DefaultFlowEngine implements FlowEngine {
             if (currentState.getStatus() != FlowStatus.AWAITING_APPROVAL) {
                 throw new FlowEngineException("Flow is not awaiting approval: " + flowId);
             }
+
+            // Valida o requestId emitido por requestApproval — uma aprovação
+            // com id de outra solicitação (ou nenhuma) é rejeitada.
+            Object storedRequestId = execution.getContext().get(APPROVAL_REQUEST_KEY).orElse(null);
+            if (storedRequestId == null || String.valueOf(storedRequestId).isBlank()
+                    || !storedRequestId.equals(requestId)) {
+                throw new FlowEngineException("Unknown approval requestId for flow " + flowId
+                        + ": " + requestId);
+            }
+            // Consome o requestId (o mapa de variáveis não aceita null)
+            execution.getContext().set(APPROVAL_REQUEST_KEY, "");
 
             if (!approved) {
                 FlowState rejectedState = FlowState.builder()
@@ -556,6 +609,51 @@ public class DefaultFlowEngine implements FlowEngine {
      * Called inside the inner try-catch of {@link #submitFlow} while
      * the execution is still in {@code activeExecutions}.
      */
+    /**
+     * Persiste o estado terminal do fluxo após a execução (sucesso, falha
+     * tratada, cancelamento ou pausa). Sem isso a persistência durável só
+     * veria estados de pause/cancel/approval — após um restart, execuções
+     * concluídas "desapareceriam" e getFlowStatus lançaria FlowNotFound.
+     * Falha de persistência não derruba o fluxo: loga e segue.
+     */
+    private void persistTerminalState(String flowId, ExecutionContext context, FlowResult result) {
+        try {
+            FlowState state = context.getState();
+            if (state == null || result == null) {
+                return;
+            }
+            switch (result.getStatus()) {
+                case COMPLETED -> state.setStatus(FlowStatus.COMPLETED);
+                case FAILED -> state.setStatus(FlowStatus.FAILED);
+                case CANCELLED -> state.setStatus(FlowStatus.STOPPED);
+                // Se um requestApproval marcou AWAITING_APPROVAL, a suspensão
+                // cooperativa devolve PAUSED — preserva o status mais específico.
+                case PAUSED -> {
+                    if (state.getStatus() != FlowStatus.AWAITING_APPROVAL) {
+                        state.setStatus(FlowStatus.PAUSED);
+                    }
+                }
+                default -> { return; }
+            }
+            syncVariablesToState(context);
+            stateManager.saveState(flowId, state);
+        } catch (Exception ex) {
+            logger.severe("Error saving terminal state for flow: " + flowId + " - " + ex.getMessage());
+        }
+    }
+
+    /**
+     * Copia as variáveis do contexto (onde o executor grava outputs e o
+     * checkpoint de steps concluídos) para o FlowState antes de persistir.
+     * Sem isso o estado durável não carrega os dados necessários ao resume.
+     */
+    private void syncVariablesToState(ExecutionContext context) {
+        FlowState state = context.getState();
+        if (state != null && context.getVariables() != null) {
+            state.setVariables(new HashMap<>(context.getVariables()));
+        }
+    }
+
     private void saveErrorState(String flowId, FlowExecution execution, Exception e) {
         try {
             FlowState currentState = execution.getContext().getState();

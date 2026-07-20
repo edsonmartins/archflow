@@ -38,7 +38,15 @@ public class InMemoryStateRepository implements StateRepository {
 
     @Override
     public FlowState getState(String flowId) {
-        return getState("SYSTEM", flowId);
+        // saveState keys by the state's real tenantId; a fixed-tenant lookup
+        // here would never find flows of any tenant other than SYSTEM.
+        // flowId is unique per execution, so a cross-tenant scan is safe.
+        String suffix = ":" + flowId;
+        return states.entrySet().stream()
+                .filter(e -> e.getKey().endsWith(suffix))
+                .map(e -> deepCopyState(e.getValue()))
+                .findFirst()
+                .orElse(null);
     }
 
     @Override

@@ -18,12 +18,12 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * connection needed). The {@code validate()} method is exercised in isolation
  * by supplying maps with various missing or invalid keys.
  *
- * <p>Because no {@link br.com.archflow.langchain4j.core.spi.LangChainAdapterFactory}
- * implementations are registered on the test classpath via SPI,
- * {@link br.com.archflow.langchain4j.core.spi.LangChainRegistry#hasProvider} always
- * returns {@code false}, which means any provider name (even "openai") is treated as
- * unknown. Tests that reach the provider-existence check therefore use the behaviour
- * consistently across all CI environments.
+ * <p>The test classpath registers the following SPI providers:
+ * {@code "openai"} (real chat adapter, via the test-scoped dependency on
+ * archflow-langchain4j-openai) and the fakes {@code "fake-embedding"} /
+ * {@code "fake-vectorstore"} (test resources). Any other provider name
+ * (e.g. "redis", "anthropic") is treated as unknown by
+ * {@link br.com.archflow.langchain4j.core.spi.LangChainRegistry#hasProvider}.
  */
 @DisplayName("RagChainAdapter")
 class RagChainAdapterTest {
@@ -32,8 +32,9 @@ class RagChainAdapterTest {
     // Helpers
     // ---------------------------------------------------------------------------
 
-    /** Returns a map that has ALL three required provider keys set to a name that
-     *  will NOT be found in the (empty test-classpath) registry. */
+    /** Returns a map with ALL three required provider keys. "openai" IS registered
+     *  on the test classpath; "redis" and "anthropic" are NOT, so validation stops
+     *  at the vectorstore check when it gets that far. */
     private Map<String, Object> minimalValidKeys() {
         Map<String, Object> map = new HashMap<>();
         map.put("embedding.provider", "openai");
@@ -141,10 +142,11 @@ class RagChainAdapterTest {
             Map<String, Object> props = minimalValidKeys();
             props.remove("languagemodel.provider");
 
-            // embedding.provider present but unknown provider → "Unsupported embedding provider"
+            // embedding.provider "openai" is registered on the test classpath, so the
+            // embedding check passes; validation then stops at the unknown vector store.
             assertThatThrownBy(() -> adapter.validate(props))
                     .isInstanceOf(IllegalArgumentException.class)
-                    .hasMessageContaining("Unsupported embedding provider");
+                    .hasMessageContaining("Unsupported vector store provider");
         }
     }
 

@@ -18,7 +18,6 @@ import {
     IconMoon,
     IconLayoutSidebarLeftCollapse,
     IconLayoutSidebarLeftExpand,
-    IconBox,
     IconPlayerPlayFilled,
     IconSitemap,
     IconPlugConnected,
@@ -35,6 +34,7 @@ import { useTenantStore } from '../../stores/useTenantStore';
 import { useWorkflowStore } from '../../stores/workflow-store';
 import { useColorScheme } from '../../App';
 import { approvalApi } from '../../services/approval-api';
+import { authFetch } from '../../services/api';
 import LanguageSwitcher from './LanguageSwitcher';
 
 // Labels come from t() at render time so switching languages updates
@@ -60,12 +60,9 @@ const NAV_GROUPS = [
             { key: 'nav.approvals',     icon: IconShieldCheck,      path: '/approvals', withBadge: true },
         ],
     },
-    {
-        key: 'nav.groups.extend',
-        items: [
-            { key: 'nav.marketplace',   icon: IconBox,              path: '/marketplace' },
-        ],
-    },
+    // Grupo "extend" (Marketplace) removido do menu — decisão 0.2 do plano de
+    // homologação: o marketplace não instala plugins de verdade ainda. Religar
+    // junto com as rotas em App.tsx quando o backend integrar a instalação.
     {
         key: 'nav.groups.labs',
         items: [
@@ -85,8 +82,15 @@ export default function AppLayout() {
     // AbstractAgent, nominalmente incompatível com a de @ag-ui/client —
     // em runtime é o mesmo protocolo AG-UI, então o cast é seguro.
     const copilotAgent = useMemo(
-        () => new HttpAgent({ url: '/ag-ui/agent', fetch: window.fetch.bind(window) }) as unknown as
-            NonNullable<Parameters<typeof CopilotKitProvider>[0]['agents__unsafe_dev_only']>[string],
+        () => {
+            // authFetch (services/api) injeta o token ATUAL a cada chamada COM
+            // refresh single-flight — sem o refresh o /ag-ui/agent voltava 401
+            // após a expiração do access token em sessões longas.
+            const copilotFetch: typeof window.fetch = (input, init) =>
+                authFetch(typeof input === 'string' ? input : input.toString(), init ?? undefined);
+            return new HttpAgent({ url: '/ag-ui/agent', fetch: copilotFetch }) as unknown as
+                NonNullable<Parameters<typeof CopilotKitProvider>[0]['agents__unsafe_dev_only']>[string];
+        },
         []);
     const location = useLocation();
     const { t } = useTranslation();

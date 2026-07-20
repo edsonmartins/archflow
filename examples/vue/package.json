@@ -6,7 +6,7 @@
   "type": "module",
   "dependencies": {
     "vue": "^3.4.0",
-    "@archflow/component": "^1.0.0"
+    "@archflow/component": "file:../../archflow-ui"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.0.0",

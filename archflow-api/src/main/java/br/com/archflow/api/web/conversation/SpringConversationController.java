@@ -25,10 +25,25 @@ public class SpringConversationController {
 
     private final ConversationController delegate;
     private final ConversationService conversationService;
+    private final br.com.archflow.api.conversation.ConversationReplyService replyService;
 
-    public SpringConversationController(ConversationController delegate, ConversationService conversationService) {
+    public SpringConversationController(ConversationController delegate,
+                                        ConversationService conversationService,
+                                        br.com.archflow.api.conversation.ConversationReplyService replyService) {
         this.delegate = delegate;
         this.conversationService = conversationService;
+        this.replyService = replyService;
+    }
+
+    /**
+     * Cria uma conversa vazia (registrada por uma mensagem de sistema) e
+     * devolve o id — dá à UI um caminho para iniciar conversas.
+     */
+    @PostMapping
+    public ResponseEntity<Map<String, String>> create() {
+        String id = java.util.UUID.randomUUID().toString();
+        conversationService.addMessage(ConversationMessage.system(id, "Conversa iniciada"));
+        return ResponseEntity.status(HttpStatus.CREATED).body(Map.of("id", id));
     }
 
     @GetMapping
@@ -88,9 +103,16 @@ public class SpringConversationController {
     }
 
     @PostMapping("/{id}/messages")
-    public SendMessageResponse sendMessage(@PathVariable String id, @RequestBody SendMessageRequest request) {
+    public SendMessageResponse sendMessage(@PathVariable String id,
+                                           @RequestBody SendMessageRequest request,
+                                           jakarta.servlet.http.HttpServletRequest http) {
         ConversationMessage message = ConversationMessage.user(id, request.content());
         conversationService.addMessage(message);
+        // Dispara a resposta do agente (assíncrona) — entregue via SSE em
+        // GET /api/stream/{tenant}/{conversationId}.
+        Object tenantAttr = http.getAttribute(
+                br.com.archflow.api.config.ImpersonationFilter.ATTR_TENANT_ID);
+        replyService.replyAsync(id, tenantAttr != null ? tenantAttr.toString() : null);
         return new SendMessageResponse(message.id());
     }
 

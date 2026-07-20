@@ -15,6 +15,13 @@ import java.util.*;
  * <p>Classifies user intents, routes queries to specialized handlers,
  * tracks conversation context, and escalates to human agents when confidence
  * drops below a configurable threshold.
+ *
+ * <p><strong>DEMO implementation — no LLM involved.</strong> Intent classification
+ * and response generation are purely heuristic (keyword/substring matching against
+ * configured intent descriptions); no calls to any language model are made. This
+ * plugin exists as an example and test fixture for the plugin runtime. For real
+ * conversational AI, supply an LLM-backed {@link IntentClassifier} via
+ * {@link #setIntentClassifier(IntentClassifier)} or use an LLM-integrated agent.
  */
 public class ConversationalAgent implements AIAgent, ComponentPlugin {
 
@@ -100,7 +107,8 @@ public class ConversationalAgent implements AIAgent, ComponentPlugin {
         return new ComponentMetadata(
                 COMPONENT_ID,
                 "Conversational Agent",
-                "Customer service and sales conversational agent with intent classification and escalation",
+                "DEMO agent (heuristic, no LLM): customer service conversation flow with keyword-based "
+                        + "intent classification and escalation. Example/test fixture for the plugin runtime",
                 ComponentType.AGENT,
                 VERSION,
                 Set.of("conversation", "customer-service", "sales", "intent-classification"),

@@ -9,6 +9,7 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
+import java.time.Duration;
 import java.util.UUID;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -37,6 +38,9 @@ public class StdioClientTransport implements McpTransport {
 
     private static final Logger log = LoggerFactory.getLogger(StdioClientTransport.class);
 
+    /** Default timeout for {@link #sendRequest(JsonRpc.Request)}. */
+    public static final Duration DEFAULT_REQUEST_TIMEOUT = Duration.ofSeconds(30);
+
     private final String[] command;
     private final ObjectMapper objectMapper;
     private final ConcurrentMap<String, CompletableFuture<JsonRpc.Response>> pendingRequests;
@@ -45,6 +49,8 @@ public class StdioClientTransport implements McpTransport {
     private BufferedReader input;
     private PrintWriter output;
     private Thread readerThread;
+    private Thread stderrThread;
+    private volatile long requestTimeoutMillis = DEFAULT_REQUEST_TIMEOUT.toMillis();
     private final AtomicBoolean active = new AtomicBoolean(false);
     private Consumer<JsonRpc> messageHandler;
     private Consumer<Throwable> errorHandler;
@@ -93,6 +99,21 @@ public class StdioClientTransport implements McpTransport {
         this.extraEnvironment = env;
     }
 
+    /**
+     * Configures the timeout applied to {@link #sendRequest(JsonRpc.Request)}.
+     * When a response does not arrive within this window the returned future
+     * is completed exceptionally with a {@link TimeoutException} and the
+     * request is removed from the pending map.
+     *
+     * @param timeout positive timeout; defaults to {@link #DEFAULT_REQUEST_TIMEOUT}
+     */
+    public void setRequestTimeout(Duration timeout) {
+        if (timeout == null || timeout.isZero() || timeout.isNegative()) {
+            throw new IllegalArgumentException("Request timeout must be positive");
+        }
+        this.requestTimeoutMillis = timeout.toMillis();
+    }
+
     @Override
     public void start() throws IOException {
         if (active.get()) {
@@ -130,6 +151,11 @@ public class StdioClientTransport implements McpTransport {
             // Start reader on a virtual thread (blocking I/O with subprocess)
             readerThread = Thread.ofVirtual().name("mcp-client-reader").start(this::readLoop);
 
+            // Drain stderr on a dedicated daemon thread. If nobody consumes it,
+            // a chatty MCP server fills the OS pipe buffer (~64KB) and every
+            // write on its side blocks, deadlocking the whole protocol.
+            stderrThread = Thread.ofVirtual().name("mcp-client-stderr").start(this::stderrLoop);
+
             log.debug("MCP server process started, PID: {}", process.pid());
 
         } catch (IOException e) {
@@ -147,9 +173,12 @@ public class StdioClientTransport implements McpTransport {
         log.debug("Stopping MCP server process");
         active.set(false);
 
-        // Interrupt reader thread
+        // Interrupt reader threads
         if (readerThread != null) {
             readerThread.interrupt();
+        }
+        if (stderrThread != null) {
+            stderrThread.interrupt();
         }
 
         // Destroy process
@@ -167,9 +196,7 @@ public class StdioClientTransport implements McpTransport {
         }
 
         // Fail all pending requests
-        pendingRequests.forEach((id, future) ->
-                future.completeExceptionally(new IOException("Transport closed")));
-        pendingRequests.clear();
+        failAllPending(() -> new IOException("Transport closed"));
 
         log.debug("MCP server process stopped");
     }
@@ -200,6 +227,12 @@ public class StdioClientTransport implements McpTransport {
     /**
      * Send a request and wait for response.
      *
+     * <p>The returned future completes exceptionally with a
+     * {@link TimeoutException} if no response arrives within the configured
+     * {@linkplain #setRequestTimeout(Duration) request timeout} (default
+     * {@link #DEFAULT_REQUEST_TIMEOUT}), and with an {@link IOException} if
+     * the server process terminates before responding.</p>
+     *
      * @param request Request to send
      * @return Future that completes with response
      */
@@ -208,15 +241,30 @@ public class StdioClientTransport implements McpTransport {
             return CompletableFuture.failedFuture(new IOException("Transport is not active"));
         }
 
+        String id = String.valueOf(request.id());
         CompletableFuture<JsonRpc.Response> future = new CompletableFuture<>();
-        pendingRequests.put(String.valueOf(request.id()), future);
+        pendingRequests.put(id, future);
 
         try {
             send(request);
         } catch (IOException e) {
-            pendingRequests.remove(String.valueOf(request.id()));
-            future.completeExceptionally(e);
+            if (pendingRequests.remove(id, future)) {
+                future.completeExceptionally(e);
+            }
+            return future;
         }
+
+        // Timeout guard. Whoever removes the entry from the map (reader,
+        // stop(), or this timer) owns completing the future — the
+        // remove(id, future) CAS makes the race safe.
+        long timeoutMillis = requestTimeoutMillis;
+        CompletableFuture.delayedExecutor(timeoutMillis, TimeUnit.MILLISECONDS).execute(() -> {
+            if (pendingRequests.remove(id, future)) {
+                future.completeExceptionally(new TimeoutException(
+                        "MCP request '" + request.method() + "' (id=" + id + ") timed out after "
+                                + timeoutMillis + " ms"));
+            }
+        });
 
         return future;
     }
@@ -279,6 +327,39 @@ public class StdioClientTransport implements McpTransport {
         } finally {
             log.debug("Client reader thread ended");
             active.set(false);
+            // EOF or process death: nobody will ever answer the in-flight
+            // requests, so release every caller blocked on a future.
+            failAllPending(() -> new IOException("MCP server process terminated"));
+        }
+    }
+
+    /**
+     * Drain the subprocess stderr so the OS pipe never fills up. Lines are
+     * surfaced at debug level, prefixed with the server executable name.
+     */
+    private void stderrLoop() {
+        String prefix = command[0];
+        try (BufferedReader err = new BufferedReader(new InputStreamReader(process.getErrorStream()))) {
+            String line;
+            while ((line = err.readLine()) != null) {
+                log.debug("[{} stderr] {}", prefix, line);
+            }
+        } catch (IOException e) {
+            log.debug("Stderr reader for [{}] ended: {}", prefix, e.getMessage());
+        }
+    }
+
+    /**
+     * Completes every pending request exceptionally. Entries are removed with
+     * a CAS before completion so this never races with the reader thread or
+     * the per-request timeout timer.
+     */
+    private void failAllPending(java.util.function.Supplier<? extends Throwable> errorSupplier) {
+        for (String id : pendingRequests.keySet()) {
+            CompletableFuture<JsonRpc.Response> future = pendingRequests.remove(id);
+            if (future != null) {
+                future.completeExceptionally(errorSupplier.get());
+            }
         }
     }
 

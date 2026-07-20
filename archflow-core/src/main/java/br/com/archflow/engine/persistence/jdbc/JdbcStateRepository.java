@@ -41,7 +41,27 @@ public class JdbcStateRepository implements StateRepository {
 
     @Override
     public FlowState getState(String flowId) {
-        return getState("SYSTEM", flowId);
+        // saveState keys by the state's real tenantId; a fixed-tenant lookup
+        // here would never find flows of any tenant other than SYSTEM.
+        // flowId is unique per execution, so a cross-tenant lookup is safe.
+        String sql = "SELECT * FROM flow_states WHERE flow_id = ? ORDER BY updated_at DESC LIMIT 1";
+
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+
+            ps.setString(1, flowId);
+
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return mapRowToFlowState(rs);
+                }
+            }
+            return null;
+
+        } catch (SQLException e) {
+            logger.log(Level.SEVERE, "Erro ao recuperar estado: flow=" + flowId, e);
+            throw new RuntimeException("Failed to get flow state", e);
+        }
     }
 
     @Override
@@ -152,12 +172,20 @@ public class JdbcStateRepository implements StateRepository {
 
     @SuppressWarnings("unchecked")
     private FlowState mapRowToFlowState(ResultSet rs) throws SQLException {
+        // metrics/error são reconstruídos com degradação graciosa (fromJson
+        // devolve null com warning se o payload não desserializar); antes eram
+        // simplesmente descartados na leitura. executionPaths não tem coluna
+        // no schema atual (V1) e segue não-persistido.
         return FlowState.builder()
                 .tenantId(rs.getString("tenant_id"))
                 .flowId(rs.getString("flow_id"))
                 .status(FlowStatus.valueOf(rs.getString("status")))
                 .currentStepId(rs.getString("current_step_id"))
                 .variables(fromJson(rs.getString("variables"), Map.class))
+                .metrics(fromJson(rs.getString("metrics"),
+                        br.com.archflow.model.flow.FlowMetrics.class))
+                .error(fromJson(rs.getString("error"),
+                        br.com.archflow.model.error.ExecutionError.class))
                 .build();
     }
 
@@ -166,8 +194,11 @@ public class JdbcStateRepository implements StateRepository {
         try {
             return objectMapper.writeValueAsString(obj);
         } catch (Exception e) {
-            logger.log(Level.WARNING, "Erro ao serializar para JSON", e);
-            return null;
+            // Gravar null silenciosamente faria variáveis sumirem do estado
+            // durável; falha alto para o chamador decidir (o engine loga e
+            // não derruba o fluxo).
+            throw new IllegalStateException(
+                    "Estado do fluxo contém valor não serializável para JSON: " + e.getMessage(), e);
         }
     }
 

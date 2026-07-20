@@ -21,7 +21,27 @@ class ProductionReadinessGuardTest {
     private static StandardEnvironment environment(String... activeProfiles) {
         StandardEnvironment env = new StandardEnvironment();
         env.setActiveProfiles(activeProfiles);
+        // Auth ligada por default nos testes: a checagem de auth do guard tem
+        // teste próprio; aqui o foco são as violações de persistência.
+        env.getPropertySources().addLast(new MapPropertySource("auth-on",
+                Map.of("archflow.security.auth.enabled", "true")));
         return env;
+    }
+
+    @Test
+    @DisplayName("auth desligada fora de dev/test veta o boot (sem escape hatch)")
+    void authDisabledOutsideDevFailsBoot() {
+        StandardEnvironment env = new StandardEnvironment();
+        // allow-in-memory NÃO excusa auth desligada
+        env.getPropertySources().addFirst(new MapPropertySource("test",
+                Map.of(ProductionReadinessGuard.ALLOW_IN_MEMORY_PROPERTY, "true")));
+
+        ProductionReadinessGuard guard = new ProductionReadinessGuard(
+                env, new DefaultListableBeanFactory());
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(guard::afterSingletonsInstantiated)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("archflow.security.auth.enabled");
     }
 
     private static DefaultListableBeanFactory factoryWithInMemoryFlowRepository() {

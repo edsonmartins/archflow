@@ -91,27 +91,18 @@ class DefaultFlowExecutorTest {
         assertThat(result.getOutput()).isEmpty();
     }
 
-    @Test
-    @DisplayName("handleResult throws IllegalStateException for unknown stepId")
-    void handleResultUnknown() {
-        // Previously this silently logged a warning and returned, which
-        // masked double-delivery of step results. The new contract is to
-        // fail fast so the caller sees the mismatch.
-        StepResult result = completedResult("unknown-step", "x");
-        assertThatThrownBy(() -> executor.handleResult(result))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("unknown-step");
-    }
 
     @Test
-    @DisplayName("SKIPPED step marks flow as not-COMPLETED")
-    void skippedStepMarksFlowNotComplete() {
+    @DisplayName("SKIPPED step does not fail the flow")
+    void skippedStepDoesNotFailFlow() {
+        // Skip é desfecho legítimo (o executor inclusive segue o caminho normal
+        // após um skip); apenas FAILED sem caminho de erro falha o fluxo.
         FlowStep step = fakeStep("s1", StepStatus.SKIPPED, null);
         Flow flow = fakeFlow("flow-7", List.of(step));
 
         FlowResult flowResult = executor.execute(flow, createContext("flow-7"));
 
-        assertThat(flowResult.getStatus()).isEqualTo(ExecutionStatus.FAILED);
+        assertThat(flowResult.getStatus()).isEqualTo(ExecutionStatus.COMPLETED);
     }
 
     @Test

@@ -179,4 +179,52 @@ class AuthControllerImplTest {
 
         assertThat(response.expiresIn()).isEqualTo(900); // 15 * 60
     }
+
+    @Nested
+    @DisplayName("audit trail")
+    class AuditTest {
+
+        private final br.com.archflow.observability.audit.InMemoryAuditRepository auditRepo =
+                new br.com.archflow.observability.audit.InMemoryAuditRepository();
+
+        private java.util.List<br.com.archflow.observability.audit.AuditEvent> events() {
+            return auditRepo.query(
+                    br.com.archflow.observability.audit.AuditRepository.AuditQuery.builder().limit(10));
+        }
+
+        @Test
+        @DisplayName("login com sucesso grava LOGIN_SUCCESS")
+        void loginSuccessIsAudited() {
+            controller.setAuditTrail(new br.com.archflow.api.audit.AuditTrail(() -> auditRepo));
+            when(authService.authenticate("john", "password123")).thenReturn(createAuthResult());
+
+            controller.login(new LoginRequest("john", "password123"));
+
+            assertThat(events()).singleElement().satisfies(e -> {
+                assertThat(e.getAction())
+                        .isEqualTo(br.com.archflow.observability.audit.AuditAction.LOGIN_SUCCESS);
+                assertThat(e.getUserId()).isEqualTo("user-1");
+                assertThat(e.getUsername()).isEqualTo("john");
+                assertThat(e.isSuccess()).isTrue();
+            });
+        }
+
+        @Test
+        @DisplayName("login inválido grava LOGIN_FAILED sem vazar detalhes")
+        void loginFailureIsAudited() {
+            controller.setAuditTrail(new br.com.archflow.api.audit.AuditTrail(() -> auditRepo));
+            when(authService.authenticate("john", "wrong"))
+                    .thenThrow(new AuthService.AuthenticationException("Invalid credentials"));
+
+            assertThatThrownBy(() -> controller.login(new LoginRequest("john", "wrong")))
+                    .isInstanceOf(AuthController.AuthenticationException.class);
+
+            assertThat(events()).singleElement().satisfies(e -> {
+                assertThat(e.getAction())
+                        .isEqualTo(br.com.archflow.observability.audit.AuditAction.LOGIN_FAILED);
+                assertThat(e.getUsername()).isEqualTo("john");
+                assertThat(e.isSuccess()).isFalse();
+            });
+        }
+    }
 }

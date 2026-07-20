@@ -6,6 +6,8 @@ import br.com.archflow.api.auth.dto.LoginResponse;
 import br.com.archflow.api.auth.dto.MeResponse;
 import br.com.archflow.api.auth.dto.RefreshTokenRequest;
 import br.com.archflow.api.auth.dto.RefreshTokenResponse;
+import br.com.archflow.api.audit.AuditTrail;
+import br.com.archflow.observability.audit.AuditAction;
 import br.com.archflow.security.auth.AuthService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,6 +27,7 @@ public class AuthControllerImpl implements AuthController {
 
     private final AuthService authService;
     private final long accessTokenExpirationSeconds;
+    private volatile AuditTrail auditTrail = AuditTrail.noop();
 
     /**
      * Creates a new AuthControllerImpl.
@@ -46,6 +49,13 @@ public class AuthControllerImpl implements AuthController {
         this(authService, 15 * 60); // 15 minutes default
     }
 
+    /** Audit event producer (login success/failure) — optional, no-op default. */
+    public void setAuditTrail(AuditTrail auditTrail) {
+        if (auditTrail != null) {
+            this.auditTrail = auditTrail;
+        }
+    }
+
     @Override
     public LoginResponse login(LoginRequest request) {
         try {
@@ -57,6 +67,9 @@ public class AuthControllerImpl implements AuthController {
             );
 
             log.info("User {} authenticated successfully", request.username());
+
+            auditTrail.record(result.userId(), result.username(), AuditAction.LOGIN_SUCCESS,
+                    "auth", result.username(), true, null, null);
 
             return new LoginResponse(
                     result.accessToken(),
@@ -72,6 +85,8 @@ public class AuthControllerImpl implements AuthController {
 
         } catch (AuthService.AuthenticationException e) {
             log.warn("Authentication failed for user {}: {}", request.username(), e.getMessage());
+            auditTrail.record(null, request.username(), AuditAction.LOGIN_FAILED,
+                    "auth", request.username(), false, "Invalid username or password", null);
             throw new AuthenticationException("Invalid username or password", e);
         }
     }

@@ -152,9 +152,11 @@ public class DefaultExecutionContext implements ExecutionContext {
     }
 
     /**
-     * Adiciona métricas de um passo específico
+     * Adiciona métricas de um passo específico.
+     * Sincronizado: steps paralelos compartilham o mesmo contexto e os
+     * acumuladores não são atômicos.
      */
-    public void addStepMetrics(String stepId, StepMetrics metrics) {
+    public synchronized void addStepMetrics(String stepId, StepMetrics metrics) {
         stepMetricsMap.put(stepId, metrics);
         totalTokens += metrics.tokensUsed();
 

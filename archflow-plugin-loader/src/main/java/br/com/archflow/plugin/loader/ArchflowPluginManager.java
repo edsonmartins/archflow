@@ -29,6 +29,39 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+/**
+ * Loads, catalogs and unloads {@link ComponentPlugin}s discovered via
+ * {@link ServiceLoader} ({@code META-INF/services}).
+ *
+ * <h2>Modelo de empacotamento: FAT-JARS obrigatórios</h2>
+ * <p><strong>Não há resolução de dependências em runtime.</strong> Cada jar de
+ * plugin colocado no diretório de plugins deve ser um <em>fat-jar</em>
+ * (uber-jar) contendo todas as suas dependências, exceto as classes
+ * compartilhadas com a aplicação (modelo, plugin-api, LangChain4j — ver
+ * {@link ArchflowPluginClassLoader}). Versões antigas da documentação
+ * prometiam resolução dinâmica de dependências via Jeka; isso nunca foi
+ * implementado e a promessa foi removida — se uma dependência não estiver
+ * dentro do jar nem no classpath da aplicação, o plugin falha com
+ * {@code ClassNotFoundException}.
+ *
+ * <h2>Isolamento: child-first com fallback total ao pai</h2>
+ * <p>O isolamento de classloader é <em>child-first</em> com fallback completo
+ * ao classloader pai: classes não encontradas nos jars do plugin são
+ * delegadas ao classloader da aplicação. Isso significa que <strong>plugins
+ * enxergam todas as classes da aplicação hospedeira</strong> — o isolamento
+ * evita conflitos de versão na direção plugin→aplicação, mas não é uma
+ * barreira de visibilidade nem de segurança.
+ *
+ * <h2>Fronteira de confiança: sem sandbox</h2>
+ * <p>{@link ComponentPlugin#onLoad} (e qualquer inicializador estático das
+ * classes do jar) executa <strong>código arbitrário do jar, sem sandbox,
+ * sem SecurityManager e com os mesmos privilégios da JVM hospedeira</strong>.
+ * Carregar um jar de plugin equivale a executar aquele código com acesso
+ * total ao processo (filesystem, rede, variáveis de ambiente, secrets).
+ * <em>Só carregue jars de fontes confiáveis.</em> O diretório de plugins é a
+ * fronteira de confiança do sistema: proteja-o com permissões de filesystem
+ * e controle de quem pode publicar jars nele.
+ */
 public class ArchflowPluginManager implements AutoCloseable {
     private static final Logger log = LoggerFactory.getLogger(ArchflowPluginManager.class);
 
@@ -70,8 +103,12 @@ public class ArchflowPluginManager implements AutoCloseable {
 
     /**
      * Loads every plugin found in the {@code *.jar} files of a directory.
-     * All jars share one isolated {@link ArchflowPluginClassLoader} (parent
-     * delegation only for shared API packages).
+     * All jars share one {@link ArchflowPluginClassLoader} (child-first, com
+     * fallback total ao classloader pai — ver javadoc da classe).
+     *
+     * <p>Os jars devem ser <strong>fat-jars confiáveis</strong>: não há
+     * resolução de dependências e {@code onLoad} executa código do jar sem
+     * sandbox (ver javadoc da classe sobre a fronteira de confiança).
      *
      * <p>A missing or empty directory is not an error — it simply loads
      * nothing (and logs at INFO). A jar that fails to load IS an error.

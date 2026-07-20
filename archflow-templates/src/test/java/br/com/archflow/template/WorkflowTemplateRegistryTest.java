@@ -27,6 +27,9 @@ class WorkflowTemplateRegistryTest {
     void setUp() {
         WorkflowTemplateRegistry.reset();
         registry = WorkflowTemplateRegistry.getInstance();
+        // These are unit tests of the registry data structure; start from an
+        // empty catalog rather than the SPI-discovered built-in templates.
+        registry.clear();
     }
 
     @AfterEach

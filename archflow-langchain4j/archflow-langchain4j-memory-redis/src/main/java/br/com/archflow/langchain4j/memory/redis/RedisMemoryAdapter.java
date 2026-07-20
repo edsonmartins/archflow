@@ -1,16 +1,21 @@
 package br.com.archflow.langchain4j.memory.redis;
 
+import br.com.archflow.langchain4j.core.memory.ChatMessageCodec;
 import br.com.archflow.langchain4j.core.spi.LangChainAdapter;
 import br.com.archflow.langchain4j.core.spi.LangChainAdapterFactory;
 import br.com.archflow.model.engine.ExecutionContext;
+import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.SystemMessage;
+import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import dev.langchain4j.data.message.UserMessage;
 import redis.clients.jedis.JedisPool;
 import redis.clients.jedis.JedisPoolConfig;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import java.util.ArrayList;
@@ -126,34 +131,58 @@ public class RedisMemoryAdapter implements LangChainAdapter {
         }
     }
 
-    private String serializeMessage(ChatMessage message) throws Exception {
-        ObjectNode node = objectMapper.createObjectNode();
-
-        if (message instanceof UserMessage userMessage) {
-            node.put("type", "user");
-            node.put("content", userMessage.singleText());
-        } else if (message instanceof AiMessage aiMessage) {
-            node.put("type", "ai");
-            node.put("content", aiMessage.text());
-        } else {
-            throw new IllegalArgumentException("Unsupported message type: " + message.getClass());
-        }
-
-        return objectMapper.writeValueAsString(node);
+    /**
+     * Serializa a mensagem no formato canônico da LangChain4j (via
+     * {@link ChatMessageCodec}) — o mesmo formato do backend JDBC, cobrindo
+     * todos os tipos de mensagem. Substitui o formato ad-hoc anterior
+     * ({@code type}/{@code content}), que divergia do JDBC.
+     */
+    String serializeMessage(ChatMessage message) throws Exception {
+        return ChatMessageCodec.toJson(message);
     }
 
-    private ChatMessage deserializeMessage(String json) throws Exception {
+    /**
+     * Desserializa a mensagem. Formato atual: canônico da LangChain4j; o
+     * formato legado ({@code type} + {@code content}, gravado por versões
+     * anteriores) continua sendo lido pelo fallback.
+     */
+    ChatMessage deserializeMessage(String json) throws Exception {
+        ChatMessage canonical = ChatMessageCodec.fromJson(json);
+        if (canonical != null) {
+            return canonical;
+        }
         JsonNode node = objectMapper.readTree(json);
         String type = node.get("type").asText();
-        String content = node.get("content").asText();
 
-        if ("user".equals(type)) {
-            return UserMessage.from(content);
-        } else if ("ai".equals(type)) {
-            return AiMessage.from(content);
-        } else {
-            throw new IllegalArgumentException("Unknown message type: " + type);
-        }
+        return switch (type) {
+            case "user" -> UserMessage.from(node.get("content").asText());
+            case "system" -> SystemMessage.from(node.get("content").asText());
+            case "ai" -> {
+                AiMessage.Builder builder = AiMessage.builder();
+                if (node.hasNonNull("content")) {
+                    builder.text(node.get("content").asText());
+                }
+                JsonNode requestsNode = node.get("toolExecutionRequests");
+                if (requestsNode != null && requestsNode.isArray() && !requestsNode.isEmpty()) {
+                    List<ToolExecutionRequest> requests = new ArrayList<>();
+                    for (JsonNode reqNode : requestsNode) {
+                        requests.add(ToolExecutionRequest.builder()
+                                .id(reqNode.hasNonNull("id") ? reqNode.get("id").asText() : null)
+                                .name(reqNode.get("name").asText())
+                                .arguments(reqNode.hasNonNull("arguments")
+                                        ? reqNode.get("arguments").asText() : null)
+                                .build());
+                    }
+                    builder.toolExecutionRequests(requests);
+                }
+                yield builder.build();
+            }
+            case "tool_execution_result" -> new ToolExecutionResultMessage(
+                    node.hasNonNull("id") ? node.get("id").asText() : null,
+                    node.hasNonNull("toolName") ? node.get("toolName").asText() : null,
+                    node.get("content").asText());
+            default -> throw new IllegalArgumentException("Unknown message type: " + type);
+        };
     }
 
     /**

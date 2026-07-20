@@ -1,6 +1,6 @@
 package br.com.archflow.api.flow;
 
-import br.com.archflow.api.web.workflow.InMemoryWorkflowRuntimeStore;
+import br.com.archflow.api.web.workflow.WorkflowRuntimeStore;
 import br.com.archflow.engine.lifecycle.FlowLifecycleListener;
 import br.com.archflow.model.engine.ExecutionContext;
 import br.com.archflow.model.flow.Flow;
@@ -14,7 +14,7 @@ import java.util.Objects;
 
 /**
  * Persists per-step lifecycle data (status, timings, errors) into the
- * execution record of the {@link InMemoryWorkflowRuntimeStore}, so
+ * execution record of the {@link WorkflowRuntimeStore}, so
  * {@code GET /api/executions/{id}} can serve a step-by-step drill-down
  * instead of only the flow-level status. The flow id equals the
  * execution id in both execution paths ({@code /execute} and AG-UI).
@@ -24,9 +24,9 @@ import java.util.Objects;
  */
 public final class StepRecordingListener implements FlowLifecycleListener {
 
-    private final InMemoryWorkflowRuntimeStore store;
+    private final WorkflowRuntimeStore store;
 
-    public StepRecordingListener(InMemoryWorkflowRuntimeStore store) {
+    public StepRecordingListener(WorkflowRuntimeStore store) {
         this.store = Objects.requireNonNull(store, "store");
     }
 

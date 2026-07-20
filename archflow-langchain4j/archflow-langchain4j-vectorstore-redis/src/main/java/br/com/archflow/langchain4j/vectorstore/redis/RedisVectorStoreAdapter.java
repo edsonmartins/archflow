@@ -1,8 +1,11 @@
 package br.com.archflow.langchain4j.vectorstore.redis;
 
+import br.com.archflow.langchain4j.core.filter.MetadataFilterEvaluator;
+import br.com.archflow.langchain4j.core.filter.MetadataJsonCodec;
 import br.com.archflow.langchain4j.core.spi.LangChainAdapter;
 import br.com.archflow.langchain4j.core.spi.LangChainAdapterFactory;
 import br.com.archflow.model.engine.ExecutionContext;
+import dev.langchain4j.data.document.Metadata;
 import dev.langchain4j.data.embedding.Embedding;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.store.embedding.EmbeddingMatch;
@@ -12,6 +15,8 @@ import dev.langchain4j.store.embedding.EmbeddingStore;
 import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPool;
 import redis.clients.jedis.Pipeline;
+import redis.clients.jedis.params.ScanParams;
+import redis.clients.jedis.resps.ScanResult;
 
 import java.util.*;
 import java.util.stream.Collectors;
@@ -21,6 +26,21 @@ import java.util.stream.Collectors;
  *
  * <p><b>NOTA:</b> O módulo langchain4j-community-redis não está disponível na versão 1.10.0.
  * Esta implementação usa Jedis diretamente para armazenamento de vetores no Redis.
+ *
+ * <p><b>Limites conhecidos (sem RediSearch):</b> a busca é brute-force
+ * <b>O(N)</b> — todas as chaves sob {@code redis.prefix} são percorridas via
+ * {@code SCAN} iterativo (não bloqueia o Redis como {@code KEYS}), o vetor de
+ * cada candidato é desserializado e a similaridade de cosseno é calculada em
+ * memória. Adequado para volumes pequenos/médios; para volumes grandes use um
+ * backend com índice vetorial nativo (RediSearch/pgvector/Pinecone).
+ *
+ * <p><b>Filtros de metadados:</b> {@code request.filter()} é aplicado em
+ * memória sobre os metadados de cada candidato (via
+ * {@link MetadataFilterEvaluator}); filtros nunca são ignorados
+ * silenciosamente. Metadados são persistidos como JSON no campo
+ * {@code metadata} do hash (tipos preservados); o formato legado
+ * {@code metadata.<chave>} (valores como string) ainda é lido para
+ * compatibilidade com dados já gravados.
  *
  * <p>Exemplo de configuração:
  * <pre>{@code
@@ -112,14 +132,10 @@ public class RedisVectorStoreAdapter implements LangChainAdapter, EmbeddingStore
         try (Jedis jedis = requirePool().getResource()) {
             String key = prefix + id;
             jedis.hset(key, "text", embedded.text());
-            // Armazena metadados do TextSegment
-            if (embedded.metadata() != null && !embedded.metadata().toMap().isEmpty()) {
-                Map<String, String> metadata = embedded.metadata().toMap().entrySet().stream()
-                    .collect(Collectors.toMap(
-                        e -> "metadata." + e.getKey(),
-                        e -> String.valueOf(e.getValue())
-                    ));
-                jedis.hset(key, metadata);
+            // Armazena metadados do TextSegment como JSON (tipos preservados)
+            String metadataJson = MetadataJsonCodec.toJson(embedded.metadata());
+            if (metadataJson != null) {
+                jedis.hset(key, "metadata", metadataJson);
             }
         }
         return id;
@@ -150,14 +166,10 @@ public class RedisVectorStoreAdapter implements LangChainAdapter, EmbeddingStore
                 p.hset(key, "vector", vectorToString(embeddings.get(i).vector()));
                 if (embedded.get(i) != null) {
                     p.hset(key, "text", embedded.get(i).text());
-                    // Armazena metadados
-                    if (embedded.get(i).metadata() != null && !embedded.get(i).metadata().toMap().isEmpty()) {
-                        Map<String, String> metadata = embedded.get(i).metadata().toMap().entrySet().stream()
-                            .collect(Collectors.toMap(
-                                e -> "metadata." + e.getKey(),
-                                e -> String.valueOf(e.getValue())
-                            ));
-                        metadata.forEach((k, v) -> p.hset(key, k, v));
+                    // Armazena metadados como JSON (tipos preservados)
+                    String metadataJson = MetadataJsonCodec.toJson(embedded.get(i).metadata());
+                    if (metadataJson != null) {
+                        p.hset(key, "metadata", metadataJson);
                     }
                 }
             }
@@ -165,28 +177,53 @@ public class RedisVectorStoreAdapter implements LangChainAdapter, EmbeddingStore
         }
     }
 
+    /**
+     * Busca brute-force <b>O(N)</b> (sem RediSearch): percorre todas as chaves
+     * sob o prefixo via {@code SCAN} iterativo (não bloqueante), aplica
+     * {@code request.filter()} em memória sobre os metadados de cada candidato
+     * e calcula a similaridade de cosseno com o vetor da query.
+     *
+     * <p>O embedding retornado em cada {@link EmbeddingMatch} é o vetor
+     * <b>armazenado</b> do próprio match (não o vetor da query).
+     *
+     * @throws UnsupportedOperationException se {@code request.filter()} contiver
+     *                                       um tipo de filtro não suportado
+     */
     @Override
     public EmbeddingSearchResult<TextSegment> search(EmbeddingSearchRequest request) {
         int maxResults = request.maxResults() > 0 ? request.maxResults() : 10;
         double minScore = request.minScore();
+        dev.langchain4j.store.embedding.filter.Filter filter = request.filter();
+        // Falha cedo (antes do SCAN) se o filtro tiver tipo não suportado
+        MetadataFilterEvaluator.ensureSupported(filter);
 
-        // Busca todas as chaves com o prefixo usando KEYS
         List<Candidate> candidates = new ArrayList<>();
         try (Jedis jedis = requirePool().getResource()) {
-            Set<String> keys = jedis.keys(prefix + "*");
-
-            for (String key : keys) {
-                Map<String, String> data = jedis.hgetAll(key);
-                String vectorStr = data.get("vector");
-                if (vectorStr != null) {
+            ScanParams params = new ScanParams().match(prefix + "*").count(500);
+            String cursor = ScanParams.SCAN_POINTER_START;
+            do {
+                ScanResult<String> scanResult = jedis.scan(cursor, params);
+                for (String key : scanResult.getResult()) {
+                    Map<String, String> data = jedis.hgetAll(key);
+                    String vectorStr = data.get("vector");
+                    if (vectorStr == null) {
+                        continue;
+                    }
+                    Metadata metadata = readMetadata(data);
+                    // Aplica o filtro ANTES de aceitar o candidato — matches fora
+                    // do filtro nunca vazam para o resultado
+                    if (!MetadataFilterEvaluator.matches(filter, metadata)) {
+                        continue;
+                    }
                     float[] vector = stringToVector(vectorStr);
                     double score = cosineSimilarity(request.queryEmbedding().vector(), vector);
                     if (score >= minScore) {
                         String id = key.substring(prefix.length());
-                        candidates.add(new Candidate(id, score, data));
+                        candidates.add(new Candidate(id, score, vector, data.get("text"), metadata));
                     }
                 }
-            }
+                cursor = scanResult.getCursor();
+            } while (!ScanParams.SCAN_POINTER_START.equals(cursor));
         }
 
         // Ordena por score (similaridade) descendente e pega os top-k
@@ -195,20 +232,39 @@ public class RedisVectorStoreAdapter implements LangChainAdapter, EmbeddingStore
             .limit(maxResults)
             .map(c -> {
                 TextSegment segment = null;
-                if (c.data.containsKey("text")) {
-                    segment = TextSegment.from(c.data.get("text"));
+                if (c.text != null) {
+                    segment = TextSegment.from(c.text, c.metadata);
                 }
-                // EmbeddingMatch constructor: (Double score, String embeddingId, Embedding embedding, Embedded embedded)
+                // Retorna o embedding REAL armazenado do match
                 return new EmbeddingMatch<>(
                     c.score,
                     c.id,
-                    request.queryEmbedding(),
+                    new Embedding(c.vector),
                     segment
                 );
             })
             .collect(Collectors.toList());
 
         return new EmbeddingSearchResult<>(matches);
+    }
+
+    /**
+     * Reconstrói os metadados de um hash do Redis. Prefere o campo
+     * {@code metadata} (JSON, tipos preservados); na ausência dele, lê o
+     * formato legado {@code metadata.<chave>} (valores como string).
+     */
+    static Metadata readMetadata(Map<String, String> data) {
+        String json = data.get("metadata");
+        if (json != null && !json.isBlank()) {
+            return MetadataJsonCodec.fromJson(json);
+        }
+        Map<String, Object> legacy = new LinkedHashMap<>();
+        for (Map.Entry<String, String> entry : data.entrySet()) {
+            if (entry.getKey().startsWith("metadata.") && entry.getValue() != null) {
+                legacy.put(entry.getKey().substring("metadata.".length()), entry.getValue());
+            }
+        }
+        return MetadataJsonCodec.toMetadata(legacy);
     }
 
     /**
@@ -365,12 +421,16 @@ public class RedisVectorStoreAdapter implements LangChainAdapter, EmbeddingStore
     private static class Candidate {
         final String id;
         final double score;
-        final Map<String, String> data;
+        final float[] vector;
+        final String text;
+        final Metadata metadata;
 
-        Candidate(String id, double score, Map<String, String> data) {
+        Candidate(String id, double score, float[] vector, String text, Metadata metadata) {
             this.id = id;
             this.score = score;
-            this.data = data;
+            this.vector = vector;
+            this.text = text;
+            this.metadata = metadata;
         }
     }
 

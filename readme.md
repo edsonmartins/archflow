@@ -45,7 +45,6 @@ Build, visualize, and orchestrate AI agent workflows with a drag-and-drop design
 - **LangChain4j 1.12.2**: 15+ LLM providers (OpenAI, Anthropic, Google, Mistral, Ollama, and more)
 - **MCP Protocol**: Model Context Protocol for standardized tool integration, with cleanup hooks for stdio servers
 - **Agent Skills**: Load, activate, and manage behavioral instruction bundles ([agentskills.io](https://agentskills.io) spec) — now per-tenant scoped
-- **Brain Sentry**: Long-term agent memory with automatic context injection, hybrid search, and PII protection — per-tenant credentials
 - **Spring Boot 4.0.0**: REST API and auto-configuration layer (the agent core itself is framework-agnostic, built on pure Java + LangChain4j)
 - **Suspend/Resume**: Conversational workflows with dynamic forms and human-in-the-loop
 
@@ -80,9 +79,8 @@ archflow implements the industry-standard agent patterns validated by Anthropic,
 - **Role-aware impersonation**: `X-Impersonate-Tenant` is honoured only when the property gate is on **and** the caller's JWT carries the `superadmin` role.
 - **Bounded execution**: Parallel executor enforces per-step (5 min) and aggregate (10 min) timeouts; cancels pending futures on overrun to release worker threads and semaphore permits.
 - **Plugin lifecycle**: `ArchflowPluginManager` is `AutoCloseable` — `unload(pluginId)` closes the per-plugin classloader so jar handles are released on hot reload.
-- **Observability**: OpenTelemetry tracing, Prometheus metrics, in-memory trace store with FIFO eviction, structured logging with tenant MDC.
-- **Two-Level Caching**: Caffeine (L1) + Redis (L2) for LLM responses and embeddings.
-- **Plugin Architecture**: Dynamic plugin loading with SPI discovery and marketplace.
+- **Observability (current)**: in-memory execution trace store with FIFO eviction (exposed via the API), Spring Boot Actuator health endpoints, and structured logging with tenant MDC. OpenTelemetry/Prometheus/Grafana/Jaeger instrumentation lives in the `archflow-observability` library but is **not yet wired into the runtime** — see [Roadmap / experimental modules](#roadmap--experimental-modules).
+- **Plugin Architecture**: plugins are trusted **fat-jars** loaded from a directory with a child-first classloader (full fallback to the application classloader) and SPI (`ServiceLoader`) discovery. There is no runtime dependency resolution and no sandbox — only load trusted jars.
 
 ### Standalone Export
 
@@ -175,13 +173,13 @@ archflow/
 │   ├── archflow-langchain4j-skills/      #   Agent Skills (SKILL.md loader + manager)
 │   ├── archflow-langchain4j-realtime/    #   Realtime / voice adapters
 │   └── archflow-langchain4j-provider-hub/#   Multi-LLM Hub (15+ providers)
-├── archflow-brainsentry/                 # Brain Sentry integration (long-term memory, PII)
-├── archflow-conversation/                # Suspend/resume, episodic memory, summarization
+├── archflow-brainsentry/                 # [experimental] Brain Sentry client library — not on the api runtime classpath yet
+├── archflow-conversation/                # Suspend/resume; guardrails/governance/episodic memory are opt-in libraries (not wired to the server)
 ├── archflow-security/                    # JWT, RBAC, API keys, CORS
-├── archflow-observability/               # OpenTelemetry, Micrometer, audit logging
-├── archflow-performance/                 # Two-level caching, connection pooling
+├── archflow-observability/               # [experimental] OTel/Micrometer classes — nothing instruments the runtime yet
+├── archflow-performance/                 # [experimental] two-level cache library — orphan module, not integrated
 ├── archflow-templates/                   # Workflow templates (Customer Support, RAG, etc.)
-├── archflow-marketplace/                 # Extension marketplace with signature verification
+├── archflow-marketplace/                 # Extension manifest catalog (RSA signature verification lacks trusted keys — checksum only in practice)
 ├── archflow-workflow-tool/               # Workflow-as-Tool pattern
 ├── archflow-standalone/                  # Export workflows as standalone JARs (no server)
 ├── archflow-plugins/                     # Built-in agents (Conversational, Research, etc.)
@@ -190,7 +188,7 @@ archflow/
 ├── archflow-ui/                          # React 19 + Vite + Mantine + Web Component designer
 ├── docs/                                 # PT-BR documentation, architecture diagrams
 ├── docs-site/                            # Docusaurus site
-└── examples/                             # Spring Boot, React, and Vue integration demos
+└── examples/                             # React, Vue, and Spring Boot REST-client demos (see examples/README.md)
 ```
 
 ---
@@ -243,23 +241,6 @@ Map<String, Object> skill = adapter.execute("activate_skill", "docx", context);
 
 Skills are tracked **per tenant** via `TenantContext` — activating `docx` for tenant A
 does not surface as active for tenant B.
-
-### Brain Sentry (Long-Term Memory)
-
-```java
-// Connect to Brain Sentry for cross-session agent memory
-var config = BrainSentryConfig.of("http://localhost:8081/api", "api-key", "tenant-1");
-var client = new BrainSentryClient(config);
-
-// As a ToolInterceptor — automatically enriches prompts with relevant memories
-var interceptor = new BrainSentryInterceptor(client, true);
-toolChainBuilder.addInterceptor(interceptor); // order 5, before guardrails
-
-// As an EpisodicMemory backend — hybrid search (vector + BM25 + graph)
-EpisodicMemory memory = new BrainSentryMemoryAdapter(client);
-memory.store(Episode.of("user-1", "Customer prefers email over phone", 0.8));
-List<ScoredEpisode> results = memory.recall("contact preference", "user-1", 5);
-```
 
 ### Agent Handoff
 
@@ -329,6 +310,22 @@ your running workflows survive restarts.
 
 ---
 
+## Roadmap / experimental modules
+
+The modules below **compile and ship as libraries but are not wired into the server runtime yet**.
+They are listed here so the feature list above stays honest (see `docs/PLANO_HOMOLOGACAO.md`,
+decision 0.2: unwired features are unpublished from the docs until integrated).
+
+| Module | What exists today | What is missing |
+|--------|-------------------|-----------------|
+| `archflow-observability` | OpenTelemetry/Micrometer helper classes, audit logging | Nothing instruments the runtime; no Prometheus/Grafana/Jaeger integration is active. Real observability today = API trace store + Actuator health |
+| `archflow-brainsentry` | Brain Sentry client, interceptor, and `EpisodicMemory` adapter | Module is not on the `archflow-api` runtime classpath; per-tenant config screens exist but nothing consumes them at execution time |
+| `archflow-performance` | Two-level cache (Caffeine + Redis) and pooling helpers | Orphan module — no other pom depends on it; LLM/embedding calls are not cached |
+| `archflow-marketplace` | Extension **manifest catalog** with checksum verification | "Install" registers a manifest only (no code is loaded); RSA signature verification has no trusted keys configured, so it degrades to checksum. Not a marketplace yet |
+| `archflow-conversation` (guardrails/governance/memory/summarizer) | `GuardrailChain`, `GovernanceResolver`, `EpisodicMemory`, `ConversationOrchestrator` as an opt-in library | Not called anywhere in the `archflow-api` execution path — you must wire them programmatically (see the module's `package-info`) |
+
+---
+
 ## Documentation
 
 - 📖 [docs/readme.md](docs/readme.md) — PT-BR documentation index
@@ -343,13 +340,18 @@ your running workflows survive restarts.
 
 ## Examples
 
-| Example | Description | Directory |
-|---------|-------------|-----------|
-| **Spring Boot** | Minimal Spring Boot app embedding the engine | [`examples/spring-boot/`](examples/spring-boot/) |
-| **Spring Boot Integration** | Full Spring Boot app with auth, observability, multi-LLM | [`examples/spring-boot-integration/`](examples/spring-boot-integration/) |
-| **React** | Designer embedded in a React SPA | [`examples/react/`](examples/react/) |
-| **Vue** | Designer embedded in a Vue 3 app | [`examples/vue/`](examples/vue/) |
-| **React Customer Support** | End-to-end customer-support workflow with chat UI | [`examples/react-customer-support/`](examples/react-customer-support/) |
+See [`examples/README.md`](examples/README.md) for the full status of each example.
+
+| Example | What it covers | Status |
+|---------|----------------|--------|
+| **React** ([`examples/react/`](examples/react/)) | Designer web component + async agent invoke (`POST /archflow/agents/{id}/invoke`) + workflow execute | Demo — requires local build of `@archflow/component` (not published on npm) and a running backend |
+| **Vue** ([`examples/vue/`](examples/vue/)) | Same as React, in Vue 3 | Demo — same caveats |
+| **React Customer Support** ([`examples/react-customer-support/`](examples/react-customer-support/)) | REST client (JWT login, list/execute workflows, poll executions) + Mantine UI | Demo — real endpoints, requires local component build |
+| **Spring Boot Integration** ([`examples/spring-boot-integration/`](examples/spring-boot-integration/)) | Spring Boot app consuming the archflow REST API via `WebClient` | Works against a running backend (REST only — no embedded engine) |
+
+The former `examples/spring-boot/` demo was removed: it targeted a Java API that never existed
+(`archflow-spring-boot-starter`, `br.com.archflow.core.FlowEngine`) and did not compile. To embed
+archflow in a Spring Boot app today, consume the REST API as in `spring-boot-integration/`.
 
 ---
 
@@ -358,10 +360,10 @@ your running workflows survive restarts.
 | Layer | Technology |
 |-------|-----------|
 | **Backend** | Java 25, Spring Boot 4.0.0, Apache Camel 4.3.0 |
-| **AI** | LangChain4j 1.12.2, MCP Protocol, Agent Skills, Brain Sentry |
+| **AI** | LangChain4j 1.12.2, MCP Protocol, Agent Skills |
 | **Frontend** | React 19, TypeScript, Vite, Mantine UI, React Flow (@xyflow/react), react-i18next |
 | **Databases** | PostgreSQL with pgvector, Redis |
-| **Observability** | OpenTelemetry, Micrometer, Prometheus, Grafana, Jaeger |
+| **Observability** | API trace store + Actuator health (today); OpenTelemetry/Prometheus/Grafana/Jaeger planned — library exists but is not wired in |
 | **Testing** | JUnit 5 + Mockito + AssertJ (backend), Playwright + Vitest (frontend) |
 | **Build** | Maven 3.8+, Node.js 18+, Docker |
 

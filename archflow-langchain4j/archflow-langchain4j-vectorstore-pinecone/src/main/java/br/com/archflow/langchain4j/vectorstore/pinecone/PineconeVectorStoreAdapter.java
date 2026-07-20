@@ -1,9 +1,11 @@
 package br.com.archflow.langchain4j.vectorstore.pinecone;
 
+import br.com.archflow.langchain4j.core.filter.MetadataJsonCodec;
 import br.com.archflow.langchain4j.core.spi.LangChainAdapter;
 import br.com.archflow.langchain4j.core.spi.LangChainAdapterFactory;
 import br.com.archflow.model.engine.ExecutionContext;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.langchain4j.data.document.Metadata;
 import dev.langchain4j.data.embedding.Embedding;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.store.embedding.EmbeddingMatch;
@@ -11,7 +13,6 @@ import dev.langchain4j.store.embedding.EmbeddingSearchRequest;
 import dev.langchain4j.store.embedding.EmbeddingSearchResult;
 import dev.langchain4j.store.embedding.filter.Filter;
 import org.apache.http.client.methods.CloseableHttpResponse;
-import org.apache.http.client.methods.HttpDelete;
 import org.apache.http.client.methods.HttpPost;
 import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.CloseableHttpClient;
@@ -27,6 +28,14 @@ import java.util.stream.Collectors;
 /**
  * Adapter para armazenamento e busca de embeddings usando Pinecone.
  * Suporta filtros por metadados e remoção de embeddings.
+ *
+ * <p><b>Metadados:</b> TODOS os metadados do {@link TextSegment} são
+ * persistidos como metadata do vetor no Pinecone (além do campo reservado
+ * {@code text} com o conteúdo do segmento), permitindo que
+ * {@code request.filter()} traduzido para a sintaxe nativa do Pinecone
+ * ({@code $eq}, {@code $and}, ...) case por qualquer chave. Remoções usam
+ * {@code POST /vectors/delete} com body {@code {"ids": [...]}} conforme a API
+ * do Pinecone.
  *
  * <p>Exemplo de configuração:
  * <pre>{@code
@@ -101,7 +110,7 @@ public class PineconeVectorStoreAdapter implements LangChainAdapter, dev.langcha
     @Override
     public String add(Embedding embedding, TextSegment embedded) {
         String id = UUID.randomUUID().toString();
-        upsertVectors(Collections.singletonList(new VectorData(id, embedding.vector(), embedded != null ? embedded.text() : null)));
+        upsertVectors(Collections.singletonList(new VectorData(id, embedding.vector(), buildVectorMetadata(embedded))));
         return id;
     }
 
@@ -120,10 +129,73 @@ public class PineconeVectorStoreAdapter implements LangChainAdapter, dev.langcha
 
         List<VectorData> vectors = new ArrayList<>();
         for (int i = 0; i < ids.size(); i++) {
-            String text = embedded != null ? embedded.get(i).text() : null;
-            vectors.add(new VectorData(ids.get(i), embeddings.get(i).vector(), text));
+            Map<String, Object> metadata = embedded != null ? buildVectorMetadata(embedded.get(i)) : null;
+            vectors.add(new VectorData(ids.get(i), embeddings.get(i).vector(), metadata));
         }
         upsertVectors(vectors);
+    }
+
+    /**
+     * Constrói o mapa de metadata do vetor a partir do {@link TextSegment}:
+     * TODOS os metadados do segmento (não apenas {@code text}) mais o campo
+     * reservado {@code text} com o conteúdo. UUIDs são convertidos para
+     * string (o Pinecone aceita string/number/boolean/list-of-string).
+     *
+     * @return o mapa de metadata, ou {@code null} se o segmento for {@code null}
+     */
+    static Map<String, Object> buildVectorMetadata(TextSegment segment) {
+        if (segment == null) {
+            return null;
+        }
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        if (segment.metadata() != null) {
+            for (Map.Entry<String, Object> entry : segment.metadata().toMap().entrySet()) {
+                Object value = entry.getValue();
+                metadata.put(entry.getKey(), value instanceof UUID ? value.toString() : value);
+            }
+        }
+        metadata.put("text", segment.text());
+        return metadata;
+    }
+
+    /**
+     * Constrói o body do request de upsert ({@code POST /vectors/upsert}).
+     */
+    static Map<String, Object> buildUpsertRequestBody(List<VectorData> vectors, String namespace) {
+        Map<String, Object> requestBody = new HashMap<>();
+        requestBody.put("vectors", vectors.stream().map(v -> {
+            Map<String, Object> vector = new HashMap<>();
+            vector.put("id", v.id);
+            vector.put("values", v.values);
+            if (v.metadata != null && !v.metadata.isEmpty()) {
+                vector.put("metadata", v.metadata);
+            }
+            return vector;
+        }).collect(Collectors.toList()));
+        requestBody.put("namespace", namespace);
+        return requestBody;
+    }
+
+    /**
+     * Constrói o body do request de deleção por ids
+     * ({@code POST /vectors/delete} com {@code {"ids": [...]}}).
+     */
+    static Map<String, Object> buildDeleteByIdsRequestBody(Collection<String> ids, String namespace) {
+        Map<String, Object> requestBody = new HashMap<>();
+        requestBody.put("ids", new ArrayList<>(ids));
+        requestBody.put("namespace", namespace);
+        return requestBody;
+    }
+
+    /**
+     * Constrói o body do request de deleção total
+     * ({@code POST /vectors/delete} com {@code {"deleteAll": true}}).
+     */
+    static Map<String, Object> buildDeleteAllRequestBody(String namespace) {
+        Map<String, Object> requestBody = new HashMap<>();
+        requestBody.put("deleteAll", true);
+        requestBody.put("namespace", namespace);
+        return requestBody;
     }
 
     private void upsertVectors(List<VectorData> vectors) {
@@ -132,17 +204,7 @@ public class PineconeVectorStoreAdapter implements LangChainAdapter, dev.langcha
             post.setHeader("Api-Key", apiKey);
             post.setHeader("Content-Type", "application/json");
 
-            Map<String, Object> requestBody = new HashMap<>();
-            requestBody.put("vectors", vectors.stream().map(v -> {
-                Map<String, Object> vector = new HashMap<>();
-                vector.put("id", v.id);
-                vector.put("values", v.values);
-                if (v.text != null) {
-                    vector.put("metadata", Collections.singletonMap("text", v.text));
-                }
-                return vector;
-            }).collect(Collectors.toList()));
-            requestBody.put("namespace", indexName);
+            Map<String, Object> requestBody = buildUpsertRequestBody(vectors, indexName);
 
             post.setEntity(new StringEntity(objectMapper.writeValueAsString(requestBody)));
 
@@ -189,29 +251,8 @@ public class PineconeVectorStoreAdapter implements LangChainAdapter, dev.langcha
                 List<Map<String, Object>> matches = (List<Map<String, Object>>) result.get("matches");
 
                 List<EmbeddingMatch<TextSegment>> embeddingMatches = matches.stream()
-                        .map(match -> {
-                            String id = (String) match.get("id");
-                            double score = (Double) match.get("score");
-                            List<Double> values = (List<Double>) match.get("values");
-                            float[] vector = values.stream().map(Double::floatValue)
-                                    .collect(Collectors.collectingAndThen(Collectors.toList(), list -> {
-                                        float[] array = new float[list.size()];
-                                        for (int i = 0; i < list.size(); i++) {
-                                            array[i] = list.get(i);
-                                        }
-                                        return array;
-                                    }));
-                            Map<String, Object> metadata = (Map<String, Object>) match.get("metadata");
-                            String text = metadata != null ? (String) metadata.get("text") : null;
-
-                            if (score >= request.minScore()) {
-                                Embedding embedding = new Embedding(vector);
-                                TextSegment textSegment = text != null ? TextSegment.from(text) : null;
-                                return new EmbeddingMatch<>(score, id, embedding, textSegment);
-                            }
-                            return null;
-                        })
-                        .filter(Objects::nonNull)
+                        .map(PineconeVectorStoreAdapter::toEmbeddingMatch)
+                        .filter(match -> match.score() >= request.minScore())
                         .collect(Collectors.toList());
 
                 return new EmbeddingSearchResult<>(embeddingMatches);
@@ -318,36 +359,94 @@ public class PineconeVectorStoreAdapter implements LangChainAdapter, dev.langcha
                 "IsGreaterThanOrEqualTo, IsLessThanOrEqualTo, IsIn, And, Or, Not");
     }
 
-    // Métodos de remoção
-    public void remove(String id) {
-        try {
-            HttpDelete delete = new HttpDelete(apiUrl + "/vectors/delete?id=" + id + "&namespace=" + indexName);
-            delete.setHeader("Api-Key", apiKey);
+    /**
+     * Converte um match da resposta do Pinecone em {@link EmbeddingMatch}.
+     * O score é lido via {@link Number} (o JSON pode desserializar como
+     * Integer/Long/Double); os metadados retornados (menos o campo reservado
+     * {@code text}) são reconstruídos no {@link TextSegment}.
+     */
+    @SuppressWarnings("unchecked")
+    static EmbeddingMatch<TextSegment> toEmbeddingMatch(Map<String, Object> match) {
+        String id = (String) match.get("id");
+        // JSON pode trazer score como Integer/Long/Double — nunca faça cast direto
+        double score = ((Number) match.get("score")).doubleValue();
 
-            try (CloseableHttpResponse response = httpClient.execute(delete)) {
-                int statusCode = response.getStatusLine().getStatusCode();
-                if (statusCode != 200) {
-                    throw PineconeApiException.of("remove vector", statusCode, response);
-                }
+        List<Number> values = (List<Number>) match.get("values");
+        float[] vector;
+        if (values != null) {
+            vector = new float[values.size()];
+            for (int i = 0; i < values.size(); i++) {
+                vector[i] = values.get(i).floatValue();
             }
-        } catch (IOException e) {
-            throw new RuntimeException("Error removing embedding from Pinecone", e);
+        } else {
+            vector = new float[0];
         }
+
+        Map<String, Object> metadata = (Map<String, Object>) match.get("metadata");
+        String text = metadata != null ? (String) metadata.get("text") : null;
+
+        TextSegment textSegment = null;
+        if (text != null) {
+            Map<String, Object> segmentMetadata = new LinkedHashMap<>(metadata);
+            segmentMetadata.remove("text");
+            Metadata reconstructed = MetadataJsonCodec.toMetadata(segmentMetadata);
+            textSegment = TextSegment.from(text, reconstructed);
+        }
+
+        return new EmbeddingMatch<>(score, id, new Embedding(vector), textSegment);
     }
 
-    public void removeAll() {
-        try {
-            HttpDelete delete = new HttpDelete(apiUrl + "/vectors/delete?deleteAll=true&namespace=" + indexName);
-            delete.setHeader("Api-Key", apiKey);
+    // Métodos de remoção
 
-            try (CloseableHttpResponse response = httpClient.execute(delete)) {
+    /**
+     * Remove um vetor por id via {@code POST /vectors/delete} com body
+     * {@code {"ids": [id], "namespace": ...}} (formato da API do Pinecone).
+     */
+    public void remove(String id) {
+        if (id == null) {
+            throw new IllegalArgumentException("id cannot be null");
+        }
+        postDelete(buildDeleteByIdsRequestBody(Collections.singletonList(id), indexName), "remove vector");
+    }
+
+    /**
+     * Remove múltiplos vetores por id via {@code POST /vectors/delete} com
+     * body {@code {"ids": [...], "namespace": ...}}.
+     */
+    public void removeAll(Collection<String> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return;
+        }
+        List<String> nonNull = ids.stream().filter(Objects::nonNull).collect(Collectors.toList());
+        if (nonNull.isEmpty()) {
+            return;
+        }
+        postDelete(buildDeleteByIdsRequestBody(nonNull, indexName), "remove vectors");
+    }
+
+    /**
+     * Remove todos os vetores do namespace via {@code POST /vectors/delete}
+     * com body {@code {"deleteAll": true, "namespace": ...}}.
+     */
+    public void removeAll() {
+        postDelete(buildDeleteAllRequestBody(indexName), "remove all vectors");
+    }
+
+    private void postDelete(Map<String, Object> requestBody, String action) {
+        try {
+            HttpPost post = new HttpPost(apiUrl + "/vectors/delete");
+            post.setHeader("Api-Key", apiKey);
+            post.setHeader("Content-Type", "application/json");
+            post.setEntity(new StringEntity(objectMapper.writeValueAsString(requestBody)));
+
+            try (CloseableHttpResponse response = httpClient.execute(post)) {
                 int statusCode = response.getStatusLine().getStatusCode();
                 if (statusCode != 200) {
-                    throw PineconeApiException.of("remove all vectors", statusCode, response);
+                    throw PineconeApiException.of(action, statusCode, response);
                 }
             }
         } catch (IOException e) {
-            throw new RuntimeException("Error removing all embeddings from Pinecone", e);
+            throw new RuntimeException("Error on Pinecone delete (" + action + ")", e);
         }
     }
 
@@ -364,11 +463,17 @@ public class PineconeVectorStoreAdapter implements LangChainAdapter, dev.langcha
                 }
                 return search((EmbeddingSearchRequest) input);
             case "remove":
-                if (!(input instanceof String)) {
-                    throw new IllegalArgumentException("Input must be a String ID for remove operation");
+                if (input instanceof String) {
+                    remove((String) input);
+                    return null;
                 }
-                remove((String) input);
-                return null;
+                if (input instanceof Collection<?>) {
+                    removeAll(((Collection<?>) input).stream()
+                            .map(Object::toString).collect(Collectors.toList()));
+                    return null;
+                }
+                throw new IllegalArgumentException(
+                        "Input must be a String id or Collection<String> for remove operation");
             case "removeAll":
                 if (input != null) {
                     throw new IllegalArgumentException("Input must be null for removeAll operation (Pinecone limitation)");
@@ -411,15 +516,19 @@ public class PineconeVectorStoreAdapter implements LangChainAdapter, dev.langcha
         return ids;
     }
 
-    private static class VectorData {
-        String id;
-        float[] values;
-        String text;
+    /**
+     * Dados internos de um vetor para upsert: id, valores e o mapa completo
+     * de metadata (metadados do segmento + campo reservado {@code text}).
+     */
+    static class VectorData {
+        final String id;
+        final float[] values;
+        final Map<String, Object> metadata;
 
-        VectorData(String id, float[] values, String text) {
+        VectorData(String id, float[] values, Map<String, Object> metadata) {
             this.id = id;
             this.values = values;
-            this.text = text;
+            this.metadata = metadata;
         }
     }
 

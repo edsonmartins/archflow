@@ -1,6 +1,7 @@
 package br.com.archflow.agent.execution;
 
 import br.com.archflow.engine.core.ExecutionManager;
+import br.com.archflow.engine.execution.FlowControl;
 import br.com.archflow.engine.execution.FlowExecutor;
 import br.com.archflow.engine.execution.ParallelExecutor;
 import br.com.archflow.model.engine.ExecutionMetrics;
@@ -48,8 +49,9 @@ public class DefaultExecutionManager implements ExecutionManager {
             ExecutionControl control = new ExecutionControl(flowId);
             activeExecutions.put(flowId, control);
 
-            // Executa o fluxo
-            FlowResult result = flowExecutor.execute(flow, context);
+            // Executa o fluxo passando o sinal cooperativo de pause/cancel —
+            // é ele que faz pauseFlow/stopFlow interromperem a travessia
+            FlowResult result = flowExecutor.execute(flow, context, control);
 
             // Remove controle ao finalizar
             activeExecutions.remove(flowId);
@@ -121,7 +123,7 @@ public class DefaultExecutionManager implements ExecutionManager {
     /**
      * Classe interna para controle de execução
      */
-    private static class ExecutionControl {
+    private static class ExecutionControl implements FlowControl {
         private final String flowId;
         private volatile boolean paused;
         private volatile boolean stopped;
@@ -153,6 +155,16 @@ public class DefaultExecutionManager implements ExecutionManager {
         }
 
         public boolean isStopped() {
+            return stopped;
+        }
+
+        @Override
+        public boolean isPauseRequested() {
+            return paused;
+        }
+
+        @Override
+        public boolean isStopRequested() {
             return stopped;
         }
 

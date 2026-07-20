@@ -1,0 +1,4 @@
+br.com.archflow.plugins.agents.ConversationalAgent
+br.com.archflow.plugins.agents.DataAnalysisAgent
+br.com.archflow.plugins.agents.ResearchAgent
+br.com.archflow.plugins.agents.MonitoringAgent

@@ -26,16 +26,38 @@ public class WebSocketConfiguration implements WebSocketConfigurer {
             "^/api/realtime/([^/]+)/([^/]+)$");
 
     private final SpringRealtimeController realtimeController;
+    private final String[] allowedOrigins;
+    private final br.com.archflow.security.jwt.JwtService jwtService;
+    private final boolean authEnabled;
 
-    public WebSocketConfiguration(SpringRealtimeController realtimeController) {
-        this.realtimeController = realtimeController;
+    // SpringRealtimeController only exists when a RealtimeAdapter is configured
+    // (e.g. the dev profile); a hard constructor dependency would fail the boot
+    // of every profile without one, including prod.
+    public WebSocketConfiguration(
+            org.springframework.beans.factory.ObjectProvider<SpringRealtimeController> realtimeController,
+            org.springframework.beans.factory.ObjectProvider<br.com.archflow.security.jwt.JwtService> jwtService,
+            @org.springframework.beans.factory.annotation.Value(
+                    "${archflow.cors.allowed-origins:http://localhost:5173,http://localhost:5174}")
+            String[] allowedOrigins,
+            @org.springframework.beans.factory.annotation.Value(
+                    "${archflow.security.auth.enabled:false}") boolean authEnabled) {
+        this.realtimeController = realtimeController.getIfAvailable();
+        this.jwtService = jwtService.getIfAvailable();
+        this.allowedOrigins = allowedOrigins;
+        this.authEnabled = authEnabled;
     }
 
     @Override
     public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
+        if (realtimeController == null) {
+            log.info("No RealtimeAdapter configured; realtime WebSocket endpoint not registered");
+            return;
+        }
+        // Mesma property de origins do CORS HTTP (fase 5.7) — antes era "*",
+        // que aceitava handshake de qualquer site.
         registry.addHandler(delegatingHandler(), "/api/realtime/{tenantId}/{personaId}")
                 .addInterceptors(pathVariablesInterceptor())
-                .setAllowedOriginPatterns("*");
+                .setAllowedOrigins(allowedOrigins);
     }
 
     private WebSocketHandler delegatingHandler() {
@@ -91,7 +113,7 @@ public class WebSocketConfiguration implements WebSocketConfigurer {
         };
     }
 
-    private static HandshakeInterceptor pathVariablesInterceptor() {
+    private HandshakeInterceptor pathVariablesInterceptor() {
         return new HandshakeInterceptor() {
             @Override
             public boolean beforeHandshake(org.springframework.http.server.ServerHttpRequest request,
@@ -104,6 +126,20 @@ public class WebSocketConfiguration implements WebSocketConfigurer {
                     log.warn("Rejecting realtime handshake with unexpected path: {}", path);
                     response.setStatusCode(org.springframework.http.HttpStatus.BAD_REQUEST);
                     return false;
+                }
+                // Auth do handshake: browsers não enviam Authorization em WS —
+                // o token JWT vem no query param `token` (o path está fora do
+                // filtro JWT justamente por isso).
+                if (authEnabled) {
+                    String token = org.springframework.web.util.UriComponentsBuilder
+                            .fromUri(request.getURI()).build()
+                            .getQueryParams().getFirst("token");
+                    if (jwtService == null || token == null || token.isBlank()
+                            || !jwtService.isTokenValid(token)) {
+                        log.warn("Rejecting realtime handshake without valid token: {}", path);
+                        response.setStatusCode(org.springframework.http.HttpStatus.UNAUTHORIZED);
+                        return false;
+                    }
                 }
                 String tenantId = m.group(1);
                 String personaId = m.group(2);

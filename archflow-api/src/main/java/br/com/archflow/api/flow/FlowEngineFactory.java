@@ -70,6 +70,12 @@ public final class FlowEngineFactory {
             lifecycle.add(extra);
         }
 
+        StateManager effectiveStateManager =
+                stateManager != null ? stateManager : new InMemoryStateManager();
+        // Checkpoint durável por step (item 1.7): crash no meio do fluxo deixa
+        // o último estado no store; o resume incremental retoma de lá.
+        lifecycle.add(new CheckpointingLifecycleListener(effectiveStateManager));
+
         DefaultFlowExecutor flowExecutor = new DefaultFlowExecutor(
                 Thread.currentThread().getContextClassLoader(), metrics, lifecycle);
         DefaultParallelExecutor parallelExecutor =
@@ -80,7 +86,7 @@ public final class FlowEngineFactory {
         return new DefaultFlowEngine(
                 executionManager,
                 flowRepository,
-                stateManager != null ? stateManager : new InMemoryStateManager(),
+                effectiveStateManager,
                 new DefaultFlowValidator(),
                 null,   // memoryRestorer — tolerated null
                 null,   // traceRecorder — tolerated null

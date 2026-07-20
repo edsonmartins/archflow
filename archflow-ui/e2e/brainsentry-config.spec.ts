@@ -30,7 +30,10 @@ async function mockApi(page: Page) {
     ]);
 }
 
-test.describe('BrainSentry config admin', () => {
+// Suite desativada — decisão 0.2 do plano de homologação: a rota
+// /admin/brainsentry foi desconectada em App.tsx (backend não consome a
+// config). Reativar (remover o .skip) quando a rota for religada.
+test.describe.skip('BrainSentry config admin', () => {
     test('loads current config and can toggle enable flag', async ({ page }) => {
         await installSession(page, { role: 'tenant_admin' });
         await mockApi(page);

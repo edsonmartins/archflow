@@ -118,8 +118,5 @@ class DefaultExecutionManagerTest {
                 @Override public List<ExecutionError> getErrors() { return List.of(); }
             };
         }
-
-        @Override
-        public void handleResult(StepResult result) {}
     }
 }

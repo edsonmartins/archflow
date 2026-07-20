@@ -4,7 +4,7 @@ import {
   IconTopologyRing, IconPlayerPlay,
   IconActivity,
   IconBook2, IconPlug, IconClockPlay, IconInbox, IconMessageCog,
-  IconShieldLock, IconLockAccess,
+  IconLockAccess,
 } from '@tabler/icons-react'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
@@ -41,7 +41,9 @@ const TENANT_TOOLS_NAV: AdminNavItem[] = [
   { key: 'triggers',      icon: IconClockPlay,  path: '/admin/triggers' },
   { key: 'linktorInbox',  icon: IconInbox,      path: '/admin/linktor/inbox' },
   { key: 'linktorConfig', icon: IconMessageCog, path: '/admin/linktor', exact: true },
-  { key: 'brainsentry',   icon: IconShieldLock, path: '/admin/brainsentry' },
+  // Brain Sentry removido do menu — decisão 0.2 do plano de homologação: o
+  // backend não consome a config (módulo fora do classpath). Religar junto
+  // com a rota em App.tsx quando o módulo for integrado.
 ]
 
 function isActive(item: AdminNavItem, pathname: string): boolean {

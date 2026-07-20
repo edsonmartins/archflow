@@ -58,6 +58,32 @@ function skipsRefresh(path: string): boolean {
     return path.startsWith('/auth/login') || path.startsWith('/auth/refresh');
 }
 
+/**
+ * `fetch` autenticado para URLs ABSOLUTAS (fora do prefixo `/api`, ex.:
+ * `/ag-ui/agent`, `/archflow/...`). Aplica a MESMA lógica de `request()`:
+ * refresh single-flight do token, header Authorization, X-Impersonate-Tenant
+ * e Content-Type default. Ao contrário de `request()`, devolve o `Response`
+ * cru (o chamador decide como parsear) e NÃO redireciona no 401 — cada
+ * chamador (SSE/streaming/copilot) trata a falha do seu jeito. Use isto em
+ * vez de `fetch` manual para não perder o refresh de token em sessões longas.
+ */
+export async function authFetch(url: string, options: RequestInit = {}): Promise<Response> {
+    await ensureFreshToken();
+    const token = sessionStorage.getItem('archflow_token');
+    const headers = new Headers(options.headers);
+    if (!headers.has('Content-Type') && options.body) {
+        headers.set('Content-Type', 'application/json');
+    }
+    if (token && !headers.has('Authorization')) {
+        headers.set('Authorization', `Bearer ${token}`);
+    }
+    const impersonating = sessionStorage.getItem('archflow_impersonate_tenant');
+    if (impersonating && !headers.has('X-Impersonate-Tenant')) {
+        headers.set('X-Impersonate-Tenant', impersonating);
+    }
+    return fetch(url, { ...options, headers });
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     if (!skipsRefresh(path)) {
         await ensureFreshToken();
@@ -99,6 +125,8 @@ export const api = {
         request<T>(path, { method: 'POST', body: body ? JSON.stringify(body) : undefined }),
     put: <T>(path: string, body?: unknown) =>
         request<T>(path, { method: 'PUT', body: body ? JSON.stringify(body) : undefined }),
+    patch: <T>(path: string, body?: unknown) =>
+        request<T>(path, { method: 'PATCH', body: body ? JSON.stringify(body) : undefined }),
     delete: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
 };
 
@@ -140,6 +168,8 @@ export const workflowApi = {
     create: (workflow: Partial<WorkflowDetail>) => api.post<WorkflowDetail>('/workflows', workflow),
     update: (id: string, workflow: Partial<WorkflowDetail>) => api.put<WorkflowDetail>(`/workflows/${id}`, workflow),
     delete: (id: string) => api.delete(`/workflows/${id}`),
+    setStatus: (id: string, status: 'draft' | 'active' | 'archived') =>
+        api.patch<WorkflowDetail>(`/workflows/${id}/status`, { status }),
     execute: (id: string, input?: Record<string, unknown>) =>
         api.post<{ executionId: string; status: string }>(`/workflows/${id}/execute`, input),
 };

@@ -383,9 +383,11 @@ class DefaultFlowEngineConcurrencyTest {
             CountDownLatch reachedApproval = new CountDownLatch(1);
             CountDownLatch approvalDecided = new CountDownLatch(1);
 
+            java.util.concurrent.atomic.AtomicReference<String> requestIdRef =
+                    new java.util.concurrent.atomic.AtomicReference<>();
             when(executionManager.executeFlow(eq(flow), any(ExecutionContext.class)))
                     .thenAnswer(inv -> {
-                        engine.requestApproval("flow-1", "step-2", "proposal");
+                        requestIdRef.set(engine.requestApproval("flow-1", "step-2", "proposal"));
                         reachedApproval.countDown();
                         approvalDecided.await();
                         return successResult();
@@ -398,9 +400,9 @@ class DefaultFlowEngineConcurrencyTest {
                     .as("permit consumed by the running flow")
                     .isEqualTo(1);
 
-            // Reject the approval
-            String requestId = "req-1"; // requestApproval returned a UUID but we don't need to match it
-            engine.submitApproval("flow-1", requestId, false, null);
+            // Reject the approval — o requestId real é obrigatório (ids
+            // desconhecidos são rejeitados com FlowEngineException)
+            engine.submitApproval("flow-1", requestIdRef.get(), false, null);
             approvalDecided.countDown();
 
             Thread.sleep(100);

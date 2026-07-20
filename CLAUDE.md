@@ -66,7 +66,7 @@ The project follows a multi-module Maven structure. Key modules and their relati
 
 ### Plugin System
 - **archflow-plugin-api** - Plugin catalog and development interfaces
-- **archflow-plugin-loader** - Dynamic plugin loading with Jeka, classloader isolation
+- **archflow-plugin-loader** - Loads plugin fat-jars from a directory with a child-first classloader (full fallback to the parent). No runtime dependency resolution, no sandbox — only trusted jars.
 - **archflow-plugins** - Pre-built implementations:
   - `archflow-plugin-assistants` - AI assistant implementations
   - `archflow-plugin-agents` - AI agent implementations
@@ -82,13 +82,28 @@ The **archflow-langchain4j** module contains multiple submodules following an Ap
 
 Adapters are discovered via SPI at runtime.
 
+### Server / Protocol
+- **archflow-api** (module) - Spring Boot REST + WebSocket server (controllers, filters, runtime wiring)
+- **archflow-events-proto** - Event protocol shared between engine and UI
+- **archflow-security** - JWT, RBAC, API keys, CORS (used by archflow-api)
+- **archflow-workflow-tool** - Workflow-as-Tool pattern
+- **archflow-templates** - Built-in workflow templates (registered via SPI)
+- **archflow-standalone** - Export/run workflows as standalone JARs (CLI, no server)
+- **archflow-conversation** - Suspend/resume wired to the server; guardrails/governance/episodic memory/summarizer are an OPT-IN library not yet called by the archflow-api execution path
+
+### Experimental / not wired to the runtime (honest state — see docs/PLANO_HOMOLOGACAO.md)
+- **archflow-brainsentry** - Brain Sentry client library; not on the archflow-api runtime classpath
+- **archflow-observability** - OTel/Micrometer classes exist but nothing instruments the runtime (real observability today: API trace store + Actuator health)
+- **archflow-performance** - Two-level cache library; orphan module, no pom depends on it
+- **archflow-marketplace** - Extension manifest catalog; "install" registers a manifest only, RSA signature verification has no trusted keys (checksum in practice)
+
 ### Frontend
 - **archflow-ui** - React + TypeScript + Vite, uses Mantine UI and React Flow for visual workflow designer
 
 ## Key Architectural Patterns
 
 1. **Adapter Pattern** - LangChain4j integrations use Apache Camel-style adapters for extensibility
-2. **Plugin Architecture** - Dynamic loading with dependency management via Jeka
+2. **Plugin Architecture** - Plugins are fat-jars loaded from a directory via `ServiceLoader`, isolated by a child-first classloader with full fallback to the application classloader
 3. **Flow-Based Processing** - Declarative workflow definitions with `Flow`, `FlowStep`, and `FlowConfiguration`
 4. **SPI (Service Provider Interface)** - Used for adapter discovery in archflow-langchain4j
 5. **State Management** - Distributed state management for flow execution contexts
@@ -112,7 +127,7 @@ Test structure follows Arrange-Act-Assert pattern within `src/test/java`.
 
 ## Technology Stack
 
-**Backend**: Java 17+, Spring Boot 3.3.0, Apache Camel 4.3.0, LangChain4j 1.12.2
+**Backend**: Java 25 (compiler release 25; Docker runtime `eclipse-temurin:25-jre-alpine`), Spring Boot 4.0.x, Apache Camel, LangChain4j 1.12.2
 **Frontend**: React 19, TypeScript, Vite, Mantine UI, React Flow
 **Databases**: PostgreSQL with pgvector, Redis
 **Build**: Maven 3.8+, Node.js 18+
@@ -120,6 +135,7 @@ Test structure follows Arrange-Act-Assert pattern within `src/test/java`.
 ## Important Notes
 
 - LangChain4j version is managed via `langchain4j.version` property (currently 1.12.2)
-- Plugin dependencies are resolved dynamically at runtime using Jeka
+- Plugins are **fat-jars** loaded from a plugins directory with a child-first classloader that falls back to the parent (application) classloader. There is NO runtime dependency resolution (the old "Jeka" claim was never implemented) and NO sandbox — `onLoad` runs arbitrary jar code, so only trusted jars may be loaded. See the javadoc of `ArchflowPluginManager` / `ArchflowPluginClassLoader`.
 - Frontend uses Mantine UI components (not shadcn/ui as earlier docs may state)
 - Flow execution is asynchronous with built-in retry policies and parallel processing support
+- **Homologation plan**: `docs/PLANO_HOMOLOGACAO.md` tracks the audit of announced-vs-real features. Decision 0.2: features without runtime wiring are unpublished from the docs until integrated (see the "Experimental" module list above). Decision 0.3: the stack is Spring Boot 4.0.x / Java 25 — do not "fix" docs back to Boot 3.3/Java 17.

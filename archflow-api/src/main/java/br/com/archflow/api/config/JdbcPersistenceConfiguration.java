@@ -65,6 +65,21 @@ public class JdbcPersistenceConfiguration {
     }
 
     @Bean
+    public br.com.archflow.engine.persistence.FlowRepository flowRepository(
+            DataSource dataSource,
+            br.com.archflow.api.flow.WorkflowDeserializer workflowDeserializer) {
+        log.info("JDBC persistence ativo: FlowRepository durável (JdbcFlowRepository/WorkflowJsonCodec)");
+        return new br.com.archflow.engine.persistence.jdbc.JdbcFlowRepository(
+                dataSource, new br.com.archflow.api.flow.WorkflowJsonCodec(workflowDeserializer));
+    }
+
+    @Bean
+    public br.com.archflow.agent.queue.AgentInvocationQueue agentInvocationQueue(DataSource dataSource) {
+        log.info("JDBC persistence ativo: AgentInvocationQueue durável (JdbcAgentInvocationQueue)");
+        return new br.com.archflow.api.queue.JdbcAgentInvocationQueue(dataSource);
+    }
+
+    @Bean
     public UserRepository userRepository(DataSource dataSource) {
         log.info("JDBC persistence ativo: UserRepository durável (JdbcUserRepository)");
         return new JdbcUserRepository(dataSource);
@@ -160,6 +175,13 @@ public class JdbcPersistenceConfiguration {
     }
 
     @Bean
+    public br.com.archflow.api.web.workflow.WorkflowRuntimeStore workflowRuntimeStore(
+            DataSource dataSource) {
+        log.info("JDBC persistence ativo: WorkflowRuntimeStore durável (JdbcWorkflowRuntimeStore)");
+        return new br.com.archflow.api.web.workflow.JdbcWorkflowRuntimeStore(dataSource);
+    }
+
+    @Bean
     public br.com.archflow.conversation.domain.ConversationRepository conversationRepository(
             DataSource dataSource) {
         log.info("JDBC persistence ativo: ConversationRepository durável (histórico de conversas)");
@@ -170,5 +192,11 @@ public class JdbcPersistenceConfiguration {
     public br.com.archflow.conversation.prompt.PromptRegistry promptRegistry(DataSource dataSource) {
         log.info("JDBC persistence ativo: PromptRegistry durável (versionamento de prompts)");
         return new br.com.archflow.conversation.persistence.jdbc.JdbcPromptRegistry(dataSource);
+    }
+
+    @Bean
+    public br.com.archflow.api.admin.store.GlobalConfigStore globalConfigStore(DataSource dataSource) {
+        log.info("JDBC persistence ativo: GlobalConfigStore durável (JdbcGlobalConfigStore)");
+        return new br.com.archflow.api.admin.store.JdbcGlobalConfigStore(dataSource);
     }
 }

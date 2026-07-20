@@ -67,7 +67,12 @@ export const useTenantStore = create<TenantStore>((set, get) => ({
   tenants:       [],
   loading:       false,
 
-  setRole:          (role)   => set({ currentRole: role }),
+  setRole: (role) => {
+    try {
+      sessionStorage.setItem('archflow_role', role)
+    } catch { /* SSR safe */ }
+    set({ currentRole: role })
+  },
   setCurrentTenant: (tenant) => set({ currentTenant: tenant }),
 
   startImpersonation: (tenant) => set({ impersonating: tenant }),

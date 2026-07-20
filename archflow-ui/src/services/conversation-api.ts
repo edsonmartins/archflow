@@ -112,6 +112,9 @@ function buildQuery(params: Record<string, string | number | undefined>): string
 }
 
 export const conversationApi = {
+    createConversation: () =>
+        api.post<{ id: string }>('/conversations', {}),
+
     listConversations: (params?: ConversationListParams) =>
         api.get<PagedResult<Conversation>>(
             `/conversations${buildQuery({

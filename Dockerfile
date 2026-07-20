@@ -47,6 +47,7 @@ WORKDIR /app
 COPY archflow-ui/package*.json ./
 RUN npm ci
 COPY archflow-ui/ .
+# `npm run build` gera o SPA em dist-app/ (o web-component é `build:component`)
 RUN npm run build
 
 # ---- Stage 3: Runtime ----
@@ -59,8 +60,8 @@ WORKDIR /app
 # Copy backend artifact (adjust path to your Spring Boot jar)
 COPY --from=backend-build /app/archflow-api/target/*.jar app.jar
 
-# Copy frontend build to serve as static files
-COPY --from=frontend-build /app/dist/ /app/static/
+# Copy frontend build (SPA) to serve as static files
+COPY --from=frontend-build /app/dist-app/ /app/static/
 
 RUN chown -R archflow:archflow /app
 USER archflow
@@ -69,4 +70,6 @@ EXPOSE 16080
 
 ENV JAVA_OPTS="-Xmx512m -Xms256m"
 
-ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar --spring.resources.static-locations=file:/app/static/"]
+# spring.web.resources.static-locations: nome atual da propriedade
+# (spring.resources.* é o nome legado do Boot 1/2 e é ignorado no Boot 3+)
+ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar --spring.web.resources.static-locations=file:/app/static/"]

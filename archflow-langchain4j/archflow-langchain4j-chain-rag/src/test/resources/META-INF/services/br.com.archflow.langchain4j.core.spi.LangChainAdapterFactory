@@ -1,0 +1,2 @@
+br.com.archflow.langchain4j.chain.rag.testsupport.FakeEmbeddingAdapterFactory
+br.com.archflow.langchain4j.chain.rag.testsupport.FakeVectorStoreAdapterFactory

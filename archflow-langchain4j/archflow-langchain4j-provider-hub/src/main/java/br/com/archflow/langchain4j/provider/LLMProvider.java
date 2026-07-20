@@ -106,7 +106,9 @@ public enum LLMProvider {
         "bedrock",
         "AWS Bedrock",
         "https://bedrock-runtime.{region}.amazonaws.com",
-        true,
+        // Bedrock authenticates via AWS credentials (default provider chain or
+        // extraParams aws.accessKeyId/aws.secretKeyId), not an API key.
+        false,
         true,
         List.of(
             ModelInfo.of("anthropic.claude-3-5-sonnet-20241022-v2:0", "Claude 3.5 Sonnet (Bedrock)", 200000, 1.0),
@@ -123,8 +125,10 @@ public enum LLMProvider {
         "huggingface",
         "Hugging Face",
         "https://api-inference.huggingface.co",
-        false,
+        // The HuggingFace client requires an access token; streaming is not
+        // implemented by langchain4j-hugging-face.
         true,
+        false,
         List.of(
             ModelInfo.of("meta-llama/Llama-3.3-70B-Instruct", "Llama 3.3 70B", 128000, 1.0),
             ModelInfo.of("mistralai/Mixtral-8x7B-Instruct-v0.1", "Mixtral 8x7B", 32768, 1.0),
@@ -140,7 +144,8 @@ public enum LLMProvider {
         "Ollama",
         "http://localhost:11434",
         false,
-        false,
+        // Streaming supported via OllamaStreamingChatModel.
+        true,
         List.of(
             ModelInfo.of("llama3.3", "Llama 3.3", 128000, 1.0),
             ModelInfo.of("llama3.2", "Llama 3.2", 128000, 1.0),
@@ -175,7 +180,9 @@ public enum LLMProvider {
     COHERE(
         "cohere",
         "Cohere",
-        "https://api.cohere.ai/v1",
+        // Cohere's OpenAI-compatibility endpoint (the native API at /v1 is NOT
+        // OpenAI-compatible).
+        "https://api.cohere.ai/compatibility/v1",
         true,
         true,
         List.of(
@@ -224,7 +231,9 @@ public enum LLMProvider {
     QIANFAN(
         "qianfan",
         "Baidu Qianfan (Ernie)",
-        "https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop",
+        // Qianfan v2 OpenAI-compatible endpoint (the legacy aip.baidubce.com
+        // wenxinworkshop RPC API is NOT OpenAI-compatible).
+        "https://qianfan.baidubce.com/v2",
         true,
         true,
         List.of(
@@ -240,7 +249,9 @@ public enum LLMProvider {
     HUNYUAN(
         "hunyuan",
         "Tencent Hunyuan",
-        "https://hunyuan.tencentcloudapi.com",
+        // Hunyuan OpenAI-compatible endpoint (hunyuan.tencentcloudapi.com is the
+        // TC3 cloud API, NOT OpenAI-compatible).
+        "https://api.hunyuan.cloud.tencent.com/v1",
         true,
         true,
         List.of(
@@ -273,7 +284,9 @@ public enum LLMProvider {
         "vertex-ai",
         "Google Vertex AI",
         "https://{location}-aiplatform.googleapis.com/v1",
-        true,
+        // Vertex AI authenticates via Google Application Default Credentials,
+        // not an API key.
+        false,
         true,
         List.of(
             ModelInfo.of("gemini-2.0-flash-exp", "Gemini 2.0 Flash (Vertex)", 1000000, 2.0),

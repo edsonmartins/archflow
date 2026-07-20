@@ -32,6 +32,14 @@
             <artifactId>junit-jupiter</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- Adapter real de chat para o teste de composição RAG + ChatModelProvider.
+             Atenção: coloca o provider SPI "openai" no classpath de teste. -->
+        <dependency>
+            <groupId>br.com.archflow</groupId>
+            <artifactId>archflow-langchain4j-openai</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
         <dependency>
             <groupId>org.assertj</groupId>
             <artifactId>assertj-core</artifactId>
