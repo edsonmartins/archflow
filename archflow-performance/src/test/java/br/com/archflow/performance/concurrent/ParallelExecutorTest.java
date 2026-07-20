@@ -13,6 +13,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Predicate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -335,12 +336,36 @@ class ParallelExecutorTest {
             executor.submit(() -> "done").get(2, TimeUnit.SECONDS);
 
             // Act
-            ParallelExecutor.ExecutorStats stats = executor.getStats();
+            // O future completar NÃO significa que o contador do pool já subiu:
+            // ThreadPoolExecutor.runWorker() chama task.run() (que libera o
+            // get()) e só incrementa completedTasks no finally seguinte. Ler o
+            // contador de uma vez só deixa o teste flaky — ele enxerga 0 quando
+            // cai nessa janela. Espera a janela fechar em vez de supor que fechou.
+            ParallelExecutor.ExecutorStats stats =
+                    awaitStats(s -> s.completedTasks() >= 1, 2, TimeUnit.SECONDS);
 
             // Assert
             assertThat(stats).isNotNull();
             assertThat(stats.isVirtualThreads()).isFalse();
             assertThat(stats.completedTasks()).isGreaterThanOrEqualTo(1);
+        }
+
+        /**
+         * Faz polling em {@link ParallelExecutor#getStats()} até a condição valer
+         * ou o timeout estourar, devolvendo o último snapshot lido. Se a condição
+         * nunca valer, quem chama falha na asserção normalmente — com a mensagem
+         * do AssertJ, em vez de um timeout opaco.
+         */
+        private ParallelExecutor.ExecutorStats awaitStats(
+                Predicate<ParallelExecutor.ExecutorStats> condition,
+                long timeout, TimeUnit unit) throws InterruptedException {
+            long deadline = System.nanoTime() + unit.toNanos(timeout);
+            ParallelExecutor.ExecutorStats stats = executor.getStats();
+            while (!condition.test(stats) && System.nanoTime() < deadline) {
+                Thread.sleep(10);
+                stats = executor.getStats();
+            }
+            return stats;
         }
 
         @Test
