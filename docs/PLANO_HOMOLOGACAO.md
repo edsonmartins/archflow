@@ -346,3 +346,39 @@ graph LR
 - **Ganhos rápidos da primeira semana**: 3.1, 3.2, 4.1, 5.9, 2.1, 1.6, 1.8 — todos S, cada um
   destrava uma feature visível ou fecha um risco de segurança.
 - **Caminho crítico**: Fase 1 (1.1→1.2→1.3→1.4→1.7→1.15) — é o coração do produto e o maior L do plano.
+
+---
+
+## Revisão de código (2026-07-20) — achados e correções
+
+Revisão de alta recall sobre o diff `main...HEAD`. 10 achados; 6 corrigidos, 4 mantidos com justificativa.
+
+**Corrigidos:**
+- [x] **R1** [A] Frontend: `agent-playground-api` e o Copilot faziam `fetch` cru, sem o refresh
+      single-flight de token → 401 silencioso após expiração. Extraído `authFetch` de `api.ts`
+      (refresh + Authorization + X-Impersonate-Tenant) e usado nos 3 pontos.
+- [x] **R4** [A] Memory adapters Redis/JDBC serializavam `ChatMessage` à mão em formatos DIVERGENTES
+      (troca de backend corromperia histórico). Unificados no `ChatMessageCodec` compartilhado
+      (core) sobre `ChatMessageSerializer`/`Deserializer` canônico da LangChain4j, com fallback legado.
+- [x] **R5** [M] `JdbcAgentInvocationQueue.submit` fazia `COUNT(*)` full-scan por enqueue. Trocado por
+      check limitado (`OFFSET cap LIMIT 1`) na mesma conexão do INSERT.
+- [x] **R6** [M] `ConversationReplyService` publicava todo evento em 2 canais (tenant + default).
+      Agora só recorre ao canal default se ninguém recebeu no do tenant (sem entrega dupla).
+- [x] **R7** [M] `PgVectorStoreAdapter` trazia a coluna `embedding` (vetor inteiro) de todos os
+      candidatos superamostrados no caminho com filtro. Omitida nesse caminho (match com embedding nulo).
+- [x] **R9** [baixo] `FlowExecutor.handleResult(StepResult)` + `findScopedKey` eram código morto
+      (nenhum caller de produção). Removidos da interface, do executor e dos testes.
+
+**Mantidos com justificativa (não são defeitos):**
+- **R2/R3** [M] Checkpoint por step e RMW do runtime store têm custo O(n²) em fluxos longos com
+      outputs grandes. É tradeoff de design consciente para escala de homologação; o lock do runtime
+      store já é removido no status terminal (sem leak). O fix profundo (schema de estado por delta /
+      tabela de steps por linha) é um redesenho — e o módulo não tem H2 para testar o caminho JDBC
+      aqui. Checkpoint assíncrono foi considerado e REJEITADO: abriria janela de corrida com o save
+      de estado terminal do engine (trocaria uma questão de eficiência por um bug de correção).
+- **R8** [baixo] Os `new ObjectMapper()` "não compartilhados": o bean `jackson2ObjectMapper` é um
+      `new ObjectMapper()` sem configuração alguma, então injetá-lo não muda comportamento hoje —
+      seria churn sem efeito observável.
+- **R10** [baixo] Injeção do `AuditTrail` por setter: os 4 controllers têm múltiplos construtores
+      (incl. no-arg) e são instanciados direto em vários testes; injeção obrigatória por construtor
+      quebraria essas construções. O default `AuditTrail.noop()` é fallback seguro deliberado.

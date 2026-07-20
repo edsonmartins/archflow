@@ -183,26 +183,33 @@ class JdbcMemoryAdapterTest {
         }
 
         @Test
-        @DisplayName("UserMessage round-trips with plain-text role user")
+        @DisplayName("UserMessage round-trips via canonical json role")
         void userMessage() {
             var row = adapter.serializeMessage(UserMessage.from("hello"));
-            assertThat(row.role()).isEqualTo("user");
-            assertThat(row.content()).isEqualTo("hello");
+            assertThat(row.role()).isEqualTo("json");
 
             var result = adapter.deserializeMessage(row.role(), row.content());
             assertThat(((UserMessage) result).singleText()).isEqualTo("hello");
         }
 
         @Test
-        @DisplayName("plain AiMessage round-trips with plain-text role ai")
+        @DisplayName("plain AiMessage round-trips via canonical json role")
         void plainAiMessage() {
             var row = adapter.serializeMessage(AiMessage.from("the answer"));
-            assertThat(row.role()).isEqualTo("ai");
-            assertThat(row.content()).isEqualTo("the answer");
+            assertThat(row.role()).isEqualTo("json");
 
             var result = adapter.deserializeMessage(row.role(), row.content());
             assertThat(((AiMessage) result).text()).isEqualTo("the answer");
             assertThat(((AiMessage) result).hasToolExecutionRequests()).isFalse();
+        }
+
+        @Test
+        @DisplayName("linhas legadas (role user/ai texto puro) continuam legíveis")
+        void legacyPlainRowsStillRead() {
+            assertThat(((UserMessage) adapter.deserializeMessage("user", "hi")).singleText())
+                    .isEqualTo("hi");
+            assertThat(((AiMessage) adapter.deserializeMessage("ai", "yo")).text())
+                    .isEqualTo("yo");
         }
 
         @Test

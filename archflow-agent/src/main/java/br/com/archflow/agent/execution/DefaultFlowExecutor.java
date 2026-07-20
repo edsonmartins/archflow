@@ -308,13 +308,6 @@ public class DefaultFlowExecutor implements FlowExecutor {
         return targets;
     }
 
-    @Override
-    public void handleResult(StepResult result) {
-        // Interface callers don't carry the flowId; resolution is only safe
-        // when the stepId maps to a single active flow.
-        handleResult(findScopedKey(result.getStepId()), result);
-    }
-
     private void handleResult(String scopedKey, StepResult result) {
         String stepId = result.getStepId();
         logger.info("Processando resultado do step: " + stepId);
@@ -366,27 +359,6 @@ public class DefaultFlowExecutor implements FlowExecutor {
             logger.severe("Erro processando resultado do step " + stepId + ": " + e.getMessage());
             execution.fail(e);
         }
-    }
-
-    /**
-     * Finds the flow-scoped key for a stepId (format "flowId:stepId").
-     * Fails loudly when the same stepId is active in more than one flow —
-     * picking an arbitrary match would deliver the result to the wrong flow.
-     */
-    private String findScopedKey(String stepId) {
-        String suffix = ":" + stepId;
-        String found = null;
-        for (String key : activeExecutions.keySet()) {
-            if (key.endsWith(suffix)) {
-                if (found != null) {
-                    throw new IllegalStateException(
-                            "Ambiguous stepId=" + stepId + " active in multiple flows ("
-                            + found + ", " + key + "); use the flow-scoped dispatch path");
-                }
-                found = key;
-            }
-        }
-        return found;
     }
 
     // A propagação para os próximos steps é responsabilidade exclusiva da

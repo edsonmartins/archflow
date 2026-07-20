@@ -1,5 +1,6 @@
 package br.com.archflow.langchain4j.memory.redis;
 
+import br.com.archflow.langchain4j.core.memory.ChatMessageCodec;
 import br.com.archflow.langchain4j.core.spi.LangChainAdapter;
 import br.com.archflow.langchain4j.core.spi.LangChainAdapterFactory;
 import br.com.archflow.model.engine.ExecutionContext;
@@ -131,66 +132,25 @@ public class RedisMemoryAdapter implements LangChainAdapter {
     }
 
     /**
-     * Serializa uma mensagem para JSON. Formato:
-     * <ul>
-     *   <li>{@code {"type":"user","content":...}}</li>
-     *   <li>{@code {"type":"system","content":...}}</li>
-     *   <li>{@code {"type":"ai","content":...,"toolExecutionRequests":[{"id","name","arguments"}]}}
-     *       (campos opcionais quando ausentes)</li>
-     *   <li>{@code {"type":"tool_execution_result","id":...,"toolName":...,"content":...}}</li>
-     * </ul>
-     * Retrocompatível: mensagens antigas ({@code user}/{@code ai} apenas com
-     * {@code content}) continuam legíveis por {@link #deserializeMessage(String)}.
+     * Serializa a mensagem no formato canônico da LangChain4j (via
+     * {@link ChatMessageCodec}) — o mesmo formato do backend JDBC, cobrindo
+     * todos os tipos de mensagem. Substitui o formato ad-hoc anterior
+     * ({@code type}/{@code content}), que divergia do JDBC.
      */
     String serializeMessage(ChatMessage message) throws Exception {
-        ObjectNode node = objectMapper.createObjectNode();
-
-        if (message instanceof UserMessage userMessage) {
-            node.put("type", "user");
-            node.put("content", userMessage.singleText());
-        } else if (message instanceof SystemMessage systemMessage) {
-            node.put("type", "system");
-            node.put("content", systemMessage.text());
-        } else if (message instanceof AiMessage aiMessage) {
-            node.put("type", "ai");
-            if (aiMessage.text() != null) {
-                node.put("content", aiMessage.text());
-            }
-            if (aiMessage.hasToolExecutionRequests()) {
-                ArrayNode requests = node.putArray("toolExecutionRequests");
-                for (ToolExecutionRequest request : aiMessage.toolExecutionRequests()) {
-                    ObjectNode reqNode = requests.addObject();
-                    if (request.id() != null) {
-                        reqNode.put("id", request.id());
-                    }
-                    reqNode.put("name", request.name());
-                    if (request.arguments() != null) {
-                        reqNode.put("arguments", request.arguments());
-                    }
-                }
-            }
-        } else if (message instanceof ToolExecutionResultMessage toolResult) {
-            node.put("type", "tool_execution_result");
-            if (toolResult.id() != null) {
-                node.put("id", toolResult.id());
-            }
-            if (toolResult.toolName() != null) {
-                node.put("toolName", toolResult.toolName());
-            }
-            node.put("content", toolResult.text());
-        } else {
-            throw new IllegalArgumentException("Unsupported message type: " + message.getClass());
-        }
-
-        return objectMapper.writeValueAsString(node);
+        return ChatMessageCodec.toJson(message);
     }
 
     /**
-     * Desserializa uma mensagem do formato descrito em
-     * {@link #serializeMessage(ChatMessage)}, aceitando também o formato
-     * antigo (apenas {@code type} + {@code content}).
+     * Desserializa a mensagem. Formato atual: canônico da LangChain4j; o
+     * formato legado ({@code type} + {@code content}, gravado por versões
+     * anteriores) continua sendo lido pelo fallback.
      */
     ChatMessage deserializeMessage(String json) throws Exception {
+        ChatMessage canonical = ChatMessageCodec.fromJson(json);
+        if (canonical != null) {
+            return canonical;
+        }
         JsonNode node = objectMapper.readTree(json);
         String type = node.get("type").asText();
 

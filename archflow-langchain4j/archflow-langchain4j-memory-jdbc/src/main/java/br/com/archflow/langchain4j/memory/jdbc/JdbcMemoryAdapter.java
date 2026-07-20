@@ -5,8 +5,7 @@ import br.com.archflow.langchain4j.core.spi.LangChainAdapterFactory;
 import br.com.archflow.model.engine.ExecutionContext;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import br.com.archflow.langchain4j.core.memory.ChatMessageCodec;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
@@ -103,70 +102,25 @@ public class JdbcMemoryAdapter implements LangChainAdapter {
     record SerializedMessage(String role, String content) {}
 
     /**
-     * Serializa uma mensagem para o par (role, content). Formato:
-     * <ul>
-     *   <li>{@code user}/{@code ai}/{@code system} — texto puro em {@code content}
-     *       (retrocompatível com linhas já gravadas)</li>
-     *   <li>{@code ai_tool} — AiMessage com tool requests; {@code content} é JSON
-     *       {@code {"text":...,"toolExecutionRequests":[{"id","name","arguments"}]}}</li>
-     *   <li>{@code tool} — ToolExecutionResultMessage; {@code content} é JSON
-     *       {@code {"id":...,"toolName":...,"text":...}}</li>
-     * </ul>
+     * Serializa a mensagem no formato canônico da LangChain4j (via
+     * {@link ChatMessageCodec}), gravado sob o role marcador {@code json}.
+     * Um único formato de fio, compartilhado com os demais backends de memória
+     * e cobrindo todos os tipos de mensagem — sem formato ad-hoc por adapter.
      */
     SerializedMessage serializeMessage(ChatMessage message) {
-        try {
-            if (message instanceof UserMessage userMsg) {
-                return new SerializedMessage("user", userMsg.singleText());
-            }
-            if (message instanceof SystemMessage systemMsg) {
-                return new SerializedMessage("system", systemMsg.text());
-            }
-            if (message instanceof AiMessage aiMsg) {
-                if (!aiMsg.hasToolExecutionRequests()) {
-                    return new SerializedMessage("ai", aiMsg.text());
-                }
-                ObjectNode node = objectMapper.createObjectNode();
-                if (aiMsg.text() != null) {
-                    node.put("text", aiMsg.text());
-                }
-                ArrayNode requests = node.putArray("toolExecutionRequests");
-                for (ToolExecutionRequest request : aiMsg.toolExecutionRequests()) {
-                    ObjectNode reqNode = requests.addObject();
-                    if (request.id() != null) {
-                        reqNode.put("id", request.id());
-                    }
-                    reqNode.put("name", request.name());
-                    if (request.arguments() != null) {
-                        reqNode.put("arguments", request.arguments());
-                    }
-                }
-                return new SerializedMessage("ai_tool", objectMapper.writeValueAsString(node));
-            }
-            if (message instanceof ToolExecutionResultMessage toolResult) {
-                ObjectNode node = objectMapper.createObjectNode();
-                if (toolResult.id() != null) {
-                    node.put("id", toolResult.id());
-                }
-                if (toolResult.toolName() != null) {
-                    node.put("toolName", toolResult.toolName());
-                }
-                node.put("text", toolResult.text());
-                return new SerializedMessage("tool", objectMapper.writeValueAsString(node));
-            }
-        } catch (Exception e) {
-            throw new IllegalStateException("Failed to serialize message: " + message.getClass(), e);
-        }
-        throw new IllegalArgumentException("Unsupported message type: " + message.getClass());
+        return new SerializedMessage("json", ChatMessageCodec.toJson(message));
     }
 
     /**
-     * Desserializa o par (role, content) gravado por
-     * {@link #serializeMessage(ChatMessage)}. Roles desconhecidos retornam
-     * {@code null} (linha ignorada), preservando compatibilidade futura.
+     * Desserializa o par (role, content). O formato atual é {@code json}
+     * (canônico). Roles legados ({@code user}/{@code system}/{@code ai}/
+     * {@code ai_tool}/{@code tool}, gravados por versões anteriores) continuam
+     * sendo lidos. Roles desconhecidos retornam {@code null} (linha ignorada).
      */
     ChatMessage deserializeMessage(String role, String content) {
         try {
             return switch (role) {
+                case "json" -> ChatMessageCodec.fromJson(content);
                 case "user" -> UserMessage.from(content);
                 case "system" -> SystemMessage.from(content);
                 case "ai" -> AiMessage.from(content);

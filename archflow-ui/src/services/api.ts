@@ -58,6 +58,32 @@ function skipsRefresh(path: string): boolean {
     return path.startsWith('/auth/login') || path.startsWith('/auth/refresh');
 }
 
+/**
+ * `fetch` autenticado para URLs ABSOLUTAS (fora do prefixo `/api`, ex.:
+ * `/ag-ui/agent`, `/archflow/...`). Aplica a MESMA lógica de `request()`:
+ * refresh single-flight do token, header Authorization, X-Impersonate-Tenant
+ * e Content-Type default. Ao contrário de `request()`, devolve o `Response`
+ * cru (o chamador decide como parsear) e NÃO redireciona no 401 — cada
+ * chamador (SSE/streaming/copilot) trata a falha do seu jeito. Use isto em
+ * vez de `fetch` manual para não perder o refresh de token em sessões longas.
+ */
+export async function authFetch(url: string, options: RequestInit = {}): Promise<Response> {
+    await ensureFreshToken();
+    const token = sessionStorage.getItem('archflow_token');
+    const headers = new Headers(options.headers);
+    if (!headers.has('Content-Type') && options.body) {
+        headers.set('Content-Type', 'application/json');
+    }
+    if (token && !headers.has('Authorization')) {
+        headers.set('Authorization', `Bearer ${token}`);
+    }
+    const impersonating = sessionStorage.getItem('archflow_impersonate_tenant');
+    if (impersonating && !headers.has('X-Impersonate-Tenant')) {
+        headers.set('X-Impersonate-Tenant', impersonating);
+    }
+    return fetch(url, { ...options, headers });
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     if (!skipsRefresh(path)) {
         await ensureFreshToken();

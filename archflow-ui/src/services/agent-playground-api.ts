@@ -1,4 +1,4 @@
-import { api } from './api'
+import { authFetch } from './api'
 
 export interface InvokeResponse {
     requestId: string
@@ -25,15 +25,12 @@ export interface MessageResponse {
  * curl.
  */
 export const agentPlaygroundApi = {
+    // authFetch (path absoluto, fora do prefixo /api) aplica refresh de token,
+    // Authorization e X-Impersonate-Tenant — sem ele estas chamadas davam 401
+    // silencioso após a expiração do access token em sessões longas.
     invoke: (agentId: string, tenantId: string, sessionId: string | undefined, payload: Record<string, unknown>) =>
-        fetch(`/archflow/agents/${encodeURIComponent(agentId)}/invoke`, {
+        authFetch(`/archflow/agents/${encodeURIComponent(agentId)}/invoke`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                ...(sessionStorage.getItem('archflow_token') ? {
-                    Authorization: `Bearer ${sessionStorage.getItem('archflow_token')}`,
-                } : {}),
-            },
             body: JSON.stringify({ tenantId, sessionId, payload }),
         }).then(async r => {
             if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`)
@@ -41,17 +38,8 @@ export const agentPlaygroundApi = {
         }),
 
     message: (tenantId: string, agentId: string, message: string, sessionId?: string) =>
-        // Path absoluto (fora do prefixo /api): o truque anterior com '/../'
-        // dependia da normalização de dot-segments do browser e quebrava
-        // atrás de gateways que não normalizam.
-        fetch('/archflow/events/message', {
+        authFetch('/archflow/events/message', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                ...(sessionStorage.getItem('archflow_token') ? {
-                    Authorization: `Bearer ${sessionStorage.getItem('archflow_token')}`,
-                } : {}),
-            },
             body: JSON.stringify({ tenantId, sessionId, agentId, message, metadata: {} }),
         }).then(async r => {
             if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`)

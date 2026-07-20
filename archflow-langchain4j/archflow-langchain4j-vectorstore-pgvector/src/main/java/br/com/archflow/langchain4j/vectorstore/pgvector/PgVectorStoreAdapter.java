@@ -245,13 +245,22 @@ public class PgVectorStoreAdapter implements LangChainAdapter, dev.langchain4j.s
         MetadataFilterEvaluator.ensureSupported(filter);
 
         int maxResults = request.maxResults();
-        int fetchLimit = filter != null
+        boolean oversampling = filter != null;
+        int fetchLimit = oversampling
                 ? (int) Math.min((long) maxResults * FILTER_OVERSAMPLING_FACTOR, Integer.MAX_VALUE)
                 : maxResults;
 
+        // No caminho com filtro buscamos maxResults*10 candidatos e descartamos
+        // a maioria em memória — trazer a coluna `embedding` (o vetor inteiro,
+        // ~KBs por linha) de todos eles é desperdício puro. Omite o vetor nesse
+        // caminho (EmbeddingMatch aceita embedding nulo); no caminho exato (sem
+        // filtro) todo candidato retorna, então o vetor é incluído.
+        String columns = oversampling ? "id, text, metadata" : "id, embedding, text, metadata";
+
         try (Connection conn = dataSource.getConnection();
              PreparedStatement stmt = conn.prepareStatement(
-                     String.format("SELECT id, embedding, text, metadata, embedding <=> ?::vector AS distance FROM %s ORDER BY distance LIMIT ?", tableName))) {
+                     String.format("SELECT %s, embedding <=> ?::vector AS distance FROM %s ORDER BY distance LIMIT ?",
+                             columns, tableName))) {
             stmt.setString(1, vectorToString(request.queryEmbedding().vector()));
             stmt.setInt(2, fetchLimit);
 
@@ -260,7 +269,6 @@ public class PgVectorStoreAdapter implements LangChainAdapter, dev.langchain4j.s
 
             while (rs.next() && matches.size() < maxResults) {
                 String id = rs.getString("id");
-                String embeddingStr = rs.getString("embedding");
                 String text = rs.getString("text");
                 String metadataJson = rs.getString("metadata");
                 double distance = rs.getDouble("distance");
@@ -276,8 +284,9 @@ public class PgVectorStoreAdapter implements LangChainAdapter, dev.langchain4j.s
                     continue;
                 }
 
-                float[] vector = parseVector(embeddingStr);
-                Embedding embedding = new Embedding(vector);
+                Embedding embedding = oversampling
+                        ? null
+                        : new Embedding(parseVector(rs.getString("embedding")));
                 TextSegment textSegment = text != null ? TextSegment.from(text, metadata) : null;
                 matches.add(new EmbeddingMatch<>(score, id, embedding, textSegment));
             }

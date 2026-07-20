@@ -53,30 +53,50 @@ public class JdbcAgentInvocationQueue implements AgentInvocationQueue {
         if (request.recursionDepth() > maxRecursionDepth) {
             throw new MaxRecursionDepthException(request.recursionDepth(), maxRecursionDepth);
         }
-        if (size() >= queueCapacity) {
-            throw new RuntimeException("Invocation queue is full (capacity=" + queueCapacity + ")");
-        }
 
         String sql = """
             INSERT INTO agent_invocations
                 (id, tenant_id, agent_id, payload, parent_execution_id, recursion_depth, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?)
             """;
-        try (Connection conn = dataSource.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, request.requestId());
-            ps.setString(2, request.tenantId());
-            ps.setString(3, request.agentId());
-            ps.setString(4, mapper.writeValueAsString(request.payload()));
-            ps.setString(5, request.parentExecutionId());
-            ps.setInt(6, request.recursionDepth());
-            ps.setTimestamp(7, Timestamp.from(request.createdAt()));
-            ps.executeUpdate();
+        try (Connection conn = dataSource.getConnection()) {
+            // Guarda de capacidade na MESMA conexão do INSERT, com um teste
+            // limitado (para no limite) em vez de COUNT(*) full-scan da tabela.
+            if (atCapacity(conn)) {
+                throw new RuntimeException("Invocation queue is full (capacity=" + queueCapacity + ")");
+            }
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setString(1, request.requestId());
+                ps.setString(2, request.tenantId());
+                ps.setString(3, request.agentId());
+                ps.setString(4, mapper.writeValueAsString(request.payload()));
+                ps.setString(5, request.parentExecutionId());
+                ps.setInt(6, request.recursionDepth());
+                ps.setTimestamp(7, Timestamp.from(request.createdAt()));
+                ps.executeUpdate();
+            }
             logger.info(() -> String.format(
                     "Invocation queued (jdbc): tenant=%s, agent=%s, depth=%d, requestId=%s",
                     request.tenantId(), request.agentId(), request.recursionDepth(), request.requestId()));
+        } catch (RuntimeException e) {
+            throw e;
         } catch (Exception e) {
             throw new RuntimeException("Failed to enqueue agent invocation " + request.requestId(), e);
+        }
+    }
+
+    /**
+     * {@code true} se já existe uma linha na posição {@code queueCapacity} —
+     * ou seja, a fila está cheia. Para no limite ({@code OFFSET cap LIMIT 1}),
+     * sem varrer a tabela inteira como faria um {@code COUNT(*)}.
+     */
+    private boolean atCapacity(Connection conn) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(
+                "SELECT 1 FROM agent_invocations OFFSET ? LIMIT 1")) {
+            ps.setInt(1, queueCapacity);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next();
+            }
         }
     }
 

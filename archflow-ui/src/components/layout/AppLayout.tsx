@@ -34,6 +34,7 @@ import { useTenantStore } from '../../stores/useTenantStore';
 import { useWorkflowStore } from '../../stores/workflow-store';
 import { useColorScheme } from '../../App';
 import { approvalApi } from '../../services/approval-api';
+import { authFetch } from '../../services/api';
 import LanguageSwitcher from './LanguageSwitcher';
 
 // Labels come from t() at render time so switching languages updates
@@ -82,18 +83,12 @@ export default function AppLayout() {
     // em runtime é o mesmo protocolo AG-UI, então o cast é seguro.
     const copilotAgent = useMemo(
         () => {
-            // Injeta o token ATUAL a cada chamada (o token pode ser renovado
-            // durante a sessão) — sem isso o /ag-ui/agent volta 401 com auth
-            // habilitada e o Copilot morre silenciosamente.
-            const authFetch: typeof window.fetch = (input, init) => {
-                const token = sessionStorage.getItem('archflow_token');
-                const headers = new Headers(init?.headers);
-                if (token && !headers.has('Authorization')) {
-                    headers.set('Authorization', `Bearer ${token}`);
-                }
-                return window.fetch(input, { ...init, headers });
-            };
-            return new HttpAgent({ url: '/ag-ui/agent', fetch: authFetch }) as unknown as
+            // authFetch (services/api) injeta o token ATUAL a cada chamada COM
+            // refresh single-flight — sem o refresh o /ag-ui/agent voltava 401
+            // após a expiração do access token em sessões longas.
+            const copilotFetch: typeof window.fetch = (input, init) =>
+                authFetch(typeof input === 'string' ? input : input.toString(), init ?? undefined);
+            return new HttpAgent({ url: '/ag-ui/agent', fetch: copilotFetch }) as unknown as
                 NonNullable<Parameters<typeof CopilotKitProvider>[0]['agents__unsafe_dev_only']>[string];
         },
         []);

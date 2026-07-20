@@ -108,8 +108,12 @@ public class ConversationReplyService {
                 .executionId(tenantId + ":" + conversationId)
                 .data(data)
                 .build();
-        registry.broadcast(tenantId + ":" + conversationId, event);
-        if (!FALLBACK_TENANT.equals(tenantId)) {
+        // O cliente conecta o SSE sob "<tenant>:<conversationId>", onde <tenant>
+        // pode ser o tenant real OU o fallback "default" do frontend. Publica no
+        // canal do tenant; só recorre ao canal "default" se ninguém recebeu ali
+        // — evita entrega dupla (e serialização dobrada) quando os dois coincidem.
+        int delivered = registry.broadcast(tenantId + ":" + conversationId, event);
+        if (delivered == 0 && !FALLBACK_TENANT.equals(tenantId)) {
             registry.broadcast(FALLBACK_TENANT + ":" + conversationId, event);
         }
     }

@@ -91,17 +91,6 @@ class DefaultFlowExecutorTest {
         assertThat(result.getOutput()).isEmpty();
     }
 
-    @Test
-    @DisplayName("handleResult throws IllegalStateException for unknown stepId")
-    void handleResultUnknown() {
-        // Previously this silently logged a warning and returned, which
-        // masked double-delivery of step results. The new contract is to
-        // fail fast so the caller sees the mismatch.
-        StepResult result = completedResult("unknown-step", "x");
-        assertThatThrownBy(() -> executor.handleResult(result))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("unknown-step");
-    }
 
     @Test
     @DisplayName("SKIPPED step does not fail the flow")
