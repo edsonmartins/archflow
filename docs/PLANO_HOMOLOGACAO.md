@@ -40,28 +40,35 @@
 
 Módulos: `archflow-agent`, `archflow-core`, `archflow-model`.
 
-- [ ] **1.1** [B] Corrigir `findNextSteps`/`findErrorSteps` (`DefaultFlowExecutor.java:222-236`):
+- [x] **1.1** [B] Corrigir `findNextSteps`/`findErrorSteps` (`DefaultFlowExecutor.java:222-236`):
       hoje resolvem o **próprio step de origem** (sourceId default = próprio stepId no
       `DefaultFlowStepFactory.java:92`) → recursão infinita em qualquer fluxo com conexões.
       Devem resolver os steps **alvo** (`targetId`) das conexões de saída. — **M**
-- [ ] **1.2** [B] `DefaultFlowExecutor.execute()` (linha 67) executa `flow.getSteps()` inteiro em
+      *(feito 2026-07-20: resolveTargets resolve targetId; propagação removida dos handlers)*
+- [x] **1.2** [B] `DefaultFlowExecutor.execute()` (linha 67) executa `flow.getSteps()` inteiro em
       ordem de lista. Trocar por: identificar steps-raiz do grafo e propagar pelas conexões
       (sem dupla execução quando 1.1 entrar). — **M**
-- [ ] **1.3** [B] Avaliar `StepConnection.getCondition()` na travessia (hoje nunca é lida no runtime).
+      *(feito 2026-07-20: travessia BFS a partir das raízes; cada step roda 1x; modo legado sem conexões preservado)*
+- [x] **1.3** [B] Avaliar `StepConnection.getCondition()` na travessia (hoje nunca é lida no runtime).
       Definir a linguagem de expressão (SpEL/JEXL/formato do designer) e aplicá-la em next/error paths. — **M/L**
-- [ ] **1.4** [B] Cancelamento/pause cooperativo real: passar `ExecutionControl` ao executor e checar
+      *(feito 2026-07-20: ConditionEvaluator no formato do designer `${var} op literal` + contains; permissivo em erro)*
+- [x] **1.4** [B] Cancelamento/pause cooperativo real: passar `ExecutionControl` ao executor e checar
       `isPaused()/isStopped()` entre steps (hoje as flags de `DefaultExecutionManager.java:96-112`
       não são lidas por ninguém — cancel é cosmético). — **M**
+      *(feito 2026-07-20: interface FlowControl no core; executor checa entre steps → CANCELLED/PAUSED)*
 - [ ] **1.5** [B] Human-in-the-loop real: `requestApproval` deve suspender a execução e `submitApproval`
       retomá-la; armazenar e validar o `requestId` (hoje a thread segue executando e o requestId é
       descartado — `DefaultFlowEngine.java:386-453`). — **L**
 - [x] **1.6** [A] `findScopedKey` (`DefaultFlowExecutor.java:174-180`) casa por sufixo `:stepId` e cruza
       resultados entre fluxos concorrentes com IDs de step iguais. Match exato `flowId:stepId`. — **S**
       *(feito 2026-07-20: dispatch interno usa a chave exata; caminho público falha alto se ambíguo)*
-- [ ] **1.7** [A] Persistir estado no caminho feliz e em falha de step com checkpoint por step
+- [~] **1.7** [A] Persistir estado no caminho feliz e em falha de step com checkpoint por step
       (`currentStepId`). Hoje `saveState` só ocorre em pause/cancel/approval, e
       `DefaultExecutionManager.java:59-92` engole exceções devolvendo FAILED sem persistir —
       `getFlowStatus` pós-execução lança `FlowNotFoundException` e a tabela `flow_states` fica vazia. — **M**
+      *(parcial 2026-07-20: currentStepId atualizado no contexto a cada step + estado terminal
+      COMPLETED/FAILED/STOPPED/PAUSED persistido pelo engine; falta o saveState durável POR step,
+      que entra junto com o resume incremental 1.9)*
 - [x] **1.8** [A] Corrigir assimetria de tenant: save grava sob `state.getTenantId()`, load lê fixo sob
       `"SYSTEM"` (`JdbcStateRepository.java:37-45`, `InMemoryStateRepository.java:34-42`) —
       resume/status quebrados para qualquer tenant real. — **S**
@@ -78,9 +85,12 @@ Módulos: `archflow-agent`, `archflow-core`, `archflow-model`.
       descarta metrics/error/executionPaths; `toJson` engole erro de serialização gravando null). — **S**
 - [ ] **1.14** [M] Completar as 5 validações vazias do `DefaultFlowValidator.java:212-230`
       (chain/agent/tool config, connections, condition). — **M**
-- [ ] **1.15** [B] Testes E2E de grafo cobrindo o que as fixtures atuais evitam: fluxos **com conexões**,
+- [~] **1.15** [B] Testes E2E de grafo cobrindo o que as fixtures atuais evitam: fluxos **com conexões**,
       branching condicional, error path, cancel no meio, pause/resume, retry. Sem isso as regressões
       de 1.1–1.10 voltam. — **L**
+      *(parcial 2026-07-20: DefaultFlowExecutorGraphTest — 9 cenários de grafo: ordem, branching,
+      error path, ciclo, sem-entrada, cancel, pause, legado — + ConditionEvaluatorTest com 9 casos.
+      Faltam cenários de resume incremental e retry, junto com 1.9/1.10)*
 
 ## Fase 2 — Boot de produção e persistência da API
 

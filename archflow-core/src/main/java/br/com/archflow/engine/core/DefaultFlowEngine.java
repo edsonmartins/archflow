@@ -280,6 +280,7 @@ public class DefaultFlowEngine implements FlowEngine {
 
                 try {
                     FlowResult result = executionManager.executeFlow(flow, context);
+                    persistTerminalState(flowId, context, result);
                     long durationMs = System.currentTimeMillis() - startMs;
                     notifyTraceEnd(flowId, tenantId, result, durationMs);
                     safeLifecycle(() -> lifecycleListener.onFlowCompleted(flow, context, result, durationMs));
@@ -556,6 +557,32 @@ public class DefaultFlowEngine implements FlowEngine {
      * Called inside the inner try-catch of {@link #submitFlow} while
      * the execution is still in {@code activeExecutions}.
      */
+    /**
+     * Persiste o estado terminal do fluxo após a execução (sucesso, falha
+     * tratada, cancelamento ou pausa). Sem isso a persistência durável só
+     * veria estados de pause/cancel/approval — após um restart, execuções
+     * concluídas "desapareceriam" e getFlowStatus lançaria FlowNotFound.
+     * Falha de persistência não derruba o fluxo: loga e segue.
+     */
+    private void persistTerminalState(String flowId, ExecutionContext context, FlowResult result) {
+        try {
+            FlowState state = context.getState();
+            if (state == null || result == null) {
+                return;
+            }
+            switch (result.getStatus()) {
+                case COMPLETED -> state.setStatus(FlowStatus.COMPLETED);
+                case FAILED -> state.setStatus(FlowStatus.FAILED);
+                case CANCELLED -> state.setStatus(FlowStatus.STOPPED);
+                case PAUSED -> state.setStatus(FlowStatus.PAUSED);
+                default -> { return; }
+            }
+            stateManager.saveState(flowId, state);
+        } catch (Exception ex) {
+            logger.severe("Error saving terminal state for flow: " + flowId + " - " + ex.getMessage());
+        }
+    }
+
     private void saveErrorState(String flowId, FlowExecution execution, Exception e) {
         try {
             FlowState currentState = execution.getContext().getState();

@@ -1,5 +1,6 @@
 package br.com.archflow.agent.execution;
 
+import br.com.archflow.engine.execution.FlowControl;
 import br.com.archflow.engine.execution.FlowExecutor;
 import br.com.archflow.engine.lifecycle.FlowLifecycleListener;
 import br.com.archflow.model.enums.ExecutionStatus;
@@ -13,12 +14,17 @@ import br.com.archflow.model.enums.StepStatus;
 import br.com.archflow.model.flow.Flow;
 import br.com.archflow.model.metrics.StepMetrics;
 
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Deque;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.*;
 import java.util.logging.Logger;
-import java.util.stream.Collectors;
 
 /**
  * Executor de fluxos padrão
@@ -35,6 +41,7 @@ public class DefaultFlowExecutor implements FlowExecutor {
     private final FlowLifecycleListener lifecycleListener;
     private final Map<String, StepExecution> activeExecutions;
     private final long stepTimeoutMs;
+    private final ConditionEvaluator conditionEvaluator = new ConditionEvaluator();
 
     public DefaultFlowExecutor(ClassLoader pluginClassLoader, MetricsCollector metricsCollector) {
         this(pluginClassLoader, metricsCollector, FlowLifecycleListener.NO_OP, DEFAULT_STEP_TIMEOUT_MS);
@@ -56,6 +63,11 @@ public class DefaultFlowExecutor implements FlowExecutor {
 
     @Override
     public FlowResult execute(Flow flow, ExecutionContext context) {
+        return execute(flow, context, FlowControl.NONE);
+    }
+
+    @Override
+    public FlowResult execute(Flow flow, ExecutionContext context, FlowControl control) {
         String flowId = flow.getId();
         Thread.currentThread().setContextClassLoader(pluginClassLoader);
 
@@ -63,18 +75,13 @@ public class DefaultFlowExecutor implements FlowExecutor {
             logger.info("Iniciando execução do fluxo: " + flowId);
             metricsCollector.recordFlowStart(flowId);
 
-            // Executa passos do fluxo
-            List<StepResult> results = executeSteps(flow.getSteps(), context, flow);
+            Traversal traversal = traverse(flow, context, control);
+            List<StepResult> results = traversal.results;
 
-            // Verifica resultado final
-            boolean success = results.stream()
-                    .allMatch(r -> r.getStatus() == StepStatus.COMPLETED);
-
-            // Retorna resultado
             return new FlowResult() {
                 @Override
                 public ExecutionStatus getStatus() {
-                    return success ? ExecutionStatus.COMPLETED : ExecutionStatus.FAILED;
+                    return traversal.status;
                 }
 
                 @Override
@@ -107,10 +114,143 @@ public class DefaultFlowExecutor implements FlowExecutor {
             logger.severe("Erro executando fluxo: " + flowId + " - " + e.getMessage());
             metricsCollector.recordFlowError(flowId, e);
             throw new RuntimeException("Erro executando fluxo: " + flowId, e);
-        } finally {
-            // Flow-scoped state is already on the stack (local variable).
-            // No shared field to clear.
         }
+    }
+
+    /** Resultado da travessia: passos executados + status final do fluxo. */
+    private record Traversal(List<StepResult> results, ExecutionStatus status) {
+    }
+
+    /**
+     * Percorre o fluxo. Dois modos:
+     *
+     * <ul>
+     *   <li><b>Grafo</b> (algum step tem conexões): executa a partir dos steps-raiz
+     *       (sem conexão de entrada) e propaga pelas conexões de saída — caminho
+     *       normal em sucesso/skip, caminho de erro em falha — avaliando a condição
+     *       de cada conexão. Cada step executa no máximo uma vez (ciclos não
+     *       re-executam).</li>
+     *   <li><b>Legado</b> (nenhuma conexão): executa a lista de steps em ordem.</li>
+     * </ul>
+     *
+     * <p>Entre steps o {@link FlowControl} é consultado: stop → CANCELLED,
+     * pause → PAUSED (o estado corrente permanece no contexto para resume).
+     */
+    private Traversal traverse(Flow flow, ExecutionContext context, FlowControl control) {
+        List<FlowStep> steps = flow.getSteps() != null ? flow.getSteps() : List.of();
+        List<StepResult> results = new ArrayList<>();
+        if (steps.isEmpty()) {
+            return new Traversal(results, ExecutionStatus.COMPLETED);
+        }
+
+        boolean graphMode = steps.stream()
+                .anyMatch(s -> s.getConnections() != null && !s.getConnections().isEmpty());
+
+        Map<String, FlowStep> byId = new HashMap<>();
+        steps.forEach(s -> byId.put(s.getId(), s));
+
+        Deque<FlowStep> queue = new ArrayDeque<>();
+        if (graphMode) {
+            Set<String> targeted = new HashSet<>();
+            for (FlowStep s : steps) {
+                for (StepConnection c : connectionsOf(s)) {
+                    targeted.add(c.getTargetId());
+                }
+            }
+            steps.stream().filter(s -> !targeted.contains(s.getId())).forEach(queue::add);
+            if (queue.isEmpty()) {
+                throw new IllegalStateException(
+                        "Fluxo sem step de entrada (todas as conexões formam ciclo): " + flow.getId());
+            }
+        } else {
+            queue.addAll(steps);
+        }
+
+        Set<String> executed = new HashSet<>();
+        boolean unhandledFailure = false;
+        int stepIndex = 0;
+        int totalSteps = steps.size();
+
+        while (!queue.isEmpty()) {
+            if (control.isStopRequested()) {
+                logger.info("Fluxo " + flow.getId() + " cancelado; interrompendo travessia");
+                return new Traversal(results, ExecutionStatus.CANCELLED);
+            }
+            if (control.isPauseRequested()) {
+                logger.info("Fluxo " + flow.getId() + " pausado; suspendendo travessia");
+                return new Traversal(results, ExecutionStatus.PAUSED);
+            }
+
+            FlowStep step = queue.poll();
+            if (!executed.add(step.getId())) {
+                continue;
+            }
+
+            // Checkpoint para resume: marca o step corrente no estado antes de executar
+            if (context.getState() != null) {
+                context.getState().setCurrentStepId(step.getId());
+            }
+
+            StepResult result = executeStep(step, context, flow, stepIndex++, totalSteps);
+            results.add(result);
+
+            if (!graphMode) {
+                if (result.getStatus().isError()) {
+                    unhandledFailure = true;
+                }
+                continue;
+            }
+
+            if (result.getStatus() == StepStatus.FAILED) {
+                List<FlowStep> errorTargets = resolveTargets(step, byId, true, context);
+                if (errorTargets.isEmpty()) {
+                    unhandledFailure = true;
+                } else {
+                    errorTargets.forEach(queue::add);
+                }
+            } else {
+                resolveTargets(step, byId, false, context).forEach(queue::add);
+            }
+        }
+
+        return new Traversal(results,
+                unhandledFailure ? ExecutionStatus.FAILED : ExecutionStatus.COMPLETED);
+    }
+
+    private static List<StepConnection> connectionsOf(FlowStep step) {
+        return step.getConnections() != null ? step.getConnections() : List.of();
+    }
+
+    /**
+     * Resolve os steps-alvo das conexões de saída de {@code step}
+     * ({@code errorPath} escolhe entre caminho de erro e caminho normal),
+     * avaliando a condição de cada conexão contra o contexto.
+     */
+    private List<FlowStep> resolveTargets(FlowStep step, Map<String, FlowStep> byId,
+                                          boolean errorPath, ExecutionContext context) {
+        List<FlowStep> targets = new ArrayList<>();
+        for (StepConnection conn : connectionsOf(step)) {
+            if (conn.isErrorPath() != errorPath) {
+                continue;
+            }
+            // As conexões ficam no step de ORIGEM (sourceId default = próprio id);
+            // ignora defensivamente uma conexão gravada no step errado.
+            String sourceId = conn.getSourceId();
+            if (sourceId != null && !sourceId.isBlank() && !sourceId.equals(step.getId())) {
+                continue;
+            }
+            if (!conditionEvaluator.evaluate(conn.getCondition().orElse(null), context)) {
+                continue;
+            }
+            FlowStep target = byId.get(conn.getTargetId());
+            if (target == null) {
+                logger.warning("Conexão de " + step.getId() + " aponta para step inexistente: "
+                        + conn.getTargetId());
+                continue;
+            }
+            targets.add(target);
+        }
+        return targets;
     }
 
     @Override
@@ -194,18 +334,15 @@ public class DefaultFlowExecutor implements FlowExecutor {
         return found;
     }
 
+    // A propagação para os próximos steps é responsabilidade exclusiva da
+    // travessia em traverse(); estes handlers só registram o resultado no
+    // contexto. (A versão anterior também disparava executeSteps daqui, o que
+    // duplicava execuções quando combinado com o laço principal.)
+
     private void handleSuccess(StepExecution execution, StepResult result) {
         logger.info("Step " + result.getStepId() + " concluído com sucesso");
-
-        // Atualiza estado do fluxo
         execution.getContext().set("step." + result.getStepId() + ".output",
                 result.getOutput().orElse(null));
-
-        // Executa próximos passos se houver
-        List<FlowStep> nextSteps = findNextSteps(execution.getFlow(), result.getStepId());
-        if (!nextSteps.isEmpty()) {
-            executeSteps(nextSteps, execution.getContext(), execution.getFlow());
-        }
     }
 
     private void handleFailure(StepExecution execution, StepResult result) {
@@ -213,51 +350,12 @@ public class DefaultFlowExecutor implements FlowExecutor {
                 result.getErrors().stream()
                         .map(StepError::message)
                         .findFirst().orElse("Sem mensagem de erro"));
-
-        // Registra erro no contexto
         execution.getContext().set("step." + result.getStepId() + ".error",
                 result.getErrors());
-
-        // Executa caminhos de erro se definidos
-        List<FlowStep> errorSteps = findErrorSteps(execution.getFlow(), result.getStepId());
-        if (!errorSteps.isEmpty()) {
-            executeSteps(errorSteps, execution.getContext(), execution.getFlow());
-        }
     }
 
     private void handleSkipped(StepExecution execution, StepResult result) {
         logger.info("Step " + result.getStepId() + " ignorado");
-
-        // Executa próximos passos normalmente
-        List<FlowStep> nextSteps = findNextSteps(execution.getFlow(), result.getStepId());
-        if (!nextSteps.isEmpty()) {
-            executeSteps(nextSteps, execution.getContext(), execution.getFlow());
-        }
-    }
-
-    private List<FlowStep> findNextSteps(Flow flow, String stepId) {
-        return flow.getSteps().stream()
-                .filter(step -> step.getConnections().stream()
-                        .anyMatch(conn -> !conn.isErrorPath() &&
-                                conn.getSourceId().equals(stepId)))
-                .collect(Collectors.toList());
-    }
-
-    private List<FlowStep> findErrorSteps(Flow flow, String stepId) {
-        return flow.getSteps().stream()
-                .filter(step -> step.getConnections().stream()
-                        .anyMatch(conn -> conn.isErrorPath() &&
-                                conn.getSourceId().equals(stepId)))
-                .collect(Collectors.toList());
-    }
-
-    private List<StepResult> executeSteps(List<FlowStep> steps, ExecutionContext context, Flow flow) {
-        int stepCount = steps.size();
-        List<StepResult> results = new java.util.ArrayList<>(stepCount);
-        for (int i = 0; i < stepCount; i++) {
-            results.add(executeStep(steps.get(i), context, flow, i, stepCount));
-        }
-        return results;
     }
 
     private StepResult executeStep(FlowStep step, ExecutionContext context, Flow flow,
