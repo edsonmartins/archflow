@@ -33,6 +33,14 @@ archflow:
   # Se api-key estiver definida, o controller exige o header X-ArchFlow-Key; vazio = libera (dev).
   assist:
     api-key: ${ARCHFLOW_ASSIST_API_KEY:}
+  # VendaX Core como MCP server HTTP (POST /mcp). O agente QP consome as tools do
+  # Core (resolver_sku, simular/firmar/enviar_cotacao, sugerir_itens, ...). O
+  # HttpMcpClient envia Authorization: Bearer <service-token> + X-TENANT-ID a cada
+  # chamada. Vazio = integração desligada (POST /api/agents/qp/quote responde 503).
+  vendax:
+    mcp:
+      base-url: ${ARCHFLOW_VENDAX_MCP_URL:}
+      service-token: ${ARCHFLOW_VENDAX_MCP_TOKEN:}
 
 logging:
   level:
