@@ -188,4 +188,66 @@ class JwtAuthenticationFilterTest {
         verify(chain, times(1)).doFilter(req, resp);
         verify(resp, never()).setStatus(401);
     }
+
+    @Test
+    @DisplayName("serves SPA static assets without a token even when auth is enabled")
+    void permitsSpaStaticAssets() throws Exception {
+        JwtAuthenticationFilter filter = new JwtAuthenticationFilter(jwtService, true, "");
+
+        for (String staticPath : new String[] {"/", "/index.html", "/assets/index-abc123.js", "/vite.svg"}) {
+            HttpServletRequest req = mock(HttpServletRequest.class);
+            HttpServletResponse resp = mock(HttpServletResponse.class);
+            FilterChain chain = mock(FilterChain.class);
+            when(req.getRequestURI()).thenReturn(staticPath);
+            when(req.getHeader("Authorization")).thenReturn(null);
+
+            filter.doFilter(req, resp, chain);
+
+            verify(chain, times(1)).doFilter(req, resp);
+            verify(resp, never()).setStatus(401);
+        }
+    }
+
+    @Test
+    @DisplayName("serves SPA client-side routes (BrowserRouter) without a token")
+    void permitsSpaClientRoutes() throws Exception {
+        JwtAuthenticationFilter filter = new JwtAuthenticationFilter(jwtService, true, "");
+
+        // Deep-link direto numa rota do SPA: o servidor devolve index.html e o
+        // React Router assume. O filtro não pode 401 aqui, senão a tela de login
+        // (ela própria uma rota do SPA) fica inacessível.
+        for (String route : new String[] {"/login", "/workflows", "/editor/42", "/admin/tenants"}) {
+            HttpServletRequest req = mock(HttpServletRequest.class);
+            HttpServletResponse resp = mock(HttpServletResponse.class);
+            FilterChain chain = mock(FilterChain.class);
+            when(req.getRequestURI()).thenReturn(route);
+            when(req.getHeader("Authorization")).thenReturn(null);
+
+            filter.doFilter(req, resp, chain);
+
+            verify(chain, times(1)).doFilter(req, resp);
+            verify(resp, never()).setStatus(401);
+        }
+    }
+
+    @Test
+    @DisplayName("still rejects protected API prefixes without a token")
+    void stillRejectsApiPrefixes() throws Exception {
+        JwtAuthenticationFilter filter = new JwtAuthenticationFilter(jwtService, true, "");
+
+        // Garante que abrir os estáticos não abriu as APIs junto.
+        for (String api : new String[] {"/api/workflows", "/archflow/agents", "/mcp", "/ag-ui"}) {
+            HttpServletRequest req = mock(HttpServletRequest.class);
+            HttpServletResponse resp = mock(HttpServletResponse.class);
+            FilterChain chain = mock(FilterChain.class);
+            when(req.getRequestURI()).thenReturn(api);
+            when(req.getHeader("Authorization")).thenReturn(null);
+            when(resp.getWriter()).thenReturn(new PrintWriter(new StringWriter()));
+
+            filter.doFilter(req, resp, chain);
+
+            verify(resp).setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+            verify(chain, never()).doFilter(any(), any());
+        }
+    }
 }

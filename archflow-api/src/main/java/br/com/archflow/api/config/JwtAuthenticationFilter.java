@@ -30,8 +30,16 @@ import java.util.Set;
  * request attributes with the user / role / tenant claims, and rejects
  * requests to protected endpoints when the token is missing or invalid.
  *
- * <p>Public paths (login, refresh, health checks, websockets) bypass
- * the filter entirely. Everything else requires a valid access token.
+ * <p>Only requests to a protected API prefix ({@link #PROTECTED_PREFIXES})
+ * require a token; the public paths ({@link #DEFAULT_PUBLIC_PATHS}) are carved
+ * out even within those prefixes. Everything <em>outside</em> the API prefixes
+ * — the bundled SPA's {@code index.html}, its {@code /assets/*} bundle, and its
+ * client-side routes ({@code /workflows}, {@code /login}, …) — is served
+ * without a token, because the archflow-api process also serves the frontend
+ * as static files and a {@code BrowserRouter} SPA needs those paths to reach
+ * {@code index.html}. The SPA authenticates by calling {@code /api/*}, which
+ * this filter still guards. Protecting the whole path space instead would 401
+ * the login screen itself, making the deployment unreachable.
  *
  * <p>Run order is set to {@link Ordered#HIGHEST_PRECEDENCE} + 10 so this
  * filter runs <em>before</em> {@link ImpersonationFilter}; impersonation
@@ -68,6 +76,21 @@ public class JwtAuthenticationFilter implements Filter {
             // Assist (IA síncrona, ADR-0004): protegido por chave estática
             // opcional (X-ArchFlow-Key) no próprio controller, não por JWT.
             "/archflow/assist/"
+    );
+
+    /**
+     * Prefixos que carregam dados/ações e exigem token (menos os públicos acima).
+     * Cobre todos os {@code @RequestMapping} dos controllers da API. Requests
+     * fora destes prefixos são tratados como recursos estáticos / rotas do SPA
+     * e passam sem token — a autenticação do SPA acontece nas chamadas a estes
+     * prefixos. Novos grupos de endpoint que não caiam sob um destes precisam
+     * ser adicionados aqui.
+     */
+    private static final List<String> PROTECTED_PREFIXES = List.of(
+            "/api/",
+            "/archflow/",
+            "/mcp",
+            "/ag-ui"
     );
 
     private final JwtService jwtService;
@@ -119,7 +142,7 @@ public class JwtAuthenticationFilter implements Filter {
             try {
                 Claims claims = jwtService.validateToken(token);
                 if (!"access".equals(claims.get("type", String.class))) {
-                    if (!enabled || isPublic) {
+                    if (!enabled || isPublic || !isProtectedPath(path)) {
                         // permissive: just skip populating attributes
                     } else {
                         reject(httpResp, "INVALID_TOKEN_TYPE", "Refresh tokens cannot be used for API calls");
@@ -132,15 +155,15 @@ public class JwtAuthenticationFilter implements Filter {
                     populateAttributes(http, claims);
                 }
             } catch (RuntimeException e) {
-                if (enabled && !isPublic) {
+                if (enabled && !isPublic && isProtectedPath(path)) {
                     log.debug("Rejected request to {} — invalid token: {}", path, e.getMessage());
                     reject(httpResp, "INVALID_TOKEN", "Invalid or expired access token");
                     return;
                 }
                 // Permissive mode: log and continue without auth attributes.
-                log.debug("Ignoring invalid token (auth disabled or public path): {}", e.getMessage());
+                log.debug("Ignoring invalid token (auth disabled, public path or static/SPA): {}", e.getMessage());
             }
-        } else if (enabled && !isPublic) {
+        } else if (enabled && !isPublic && isProtectedPath(path)) {
             reject(httpResp, "MISSING_TOKEN", "Authorization header is required");
             return;
         }
@@ -151,6 +174,20 @@ public class JwtAuthenticationFilter implements Filter {
     private boolean isPublicPath(String path) {
         if (path == null) return false;
         for (String prefix : publicPaths) {
+            if (path.equals(prefix) || path.startsWith(prefix)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * True when the path targets a protected API prefix. Everything else
+     * (static assets, SPA client-side routes) is served without a token.
+     */
+    private boolean isProtectedPath(String path) {
+        if (path == null) return false;
+        for (String prefix : PROTECTED_PREFIXES) {
             if (path.equals(prefix) || path.startsWith(prefix)) {
                 return true;
             }

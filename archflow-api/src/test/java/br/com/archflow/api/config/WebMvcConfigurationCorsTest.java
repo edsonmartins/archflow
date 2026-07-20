@@ -27,7 +27,7 @@ class WebMvcConfigurationCorsTest {
     @DisplayName("headers explícitos (sem wildcard) e credenciais habilitadas")
     void explicitHeadersNoWildcard() {
         var registry = new InspectableCorsRegistry();
-        new WebMvcConfiguration(new String[] {"http://localhost:5173"})
+        new WebMvcConfiguration(new String[] {"http://localhost:5173"}, new String[] {"classpath:/static/"})
                 .addCorsMappings(registry);
 
         CorsConfiguration config = registry.configs().get("/api/**");
