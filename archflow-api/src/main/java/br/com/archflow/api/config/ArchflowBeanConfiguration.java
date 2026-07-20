@@ -60,6 +60,24 @@ public class ArchflowBeanConfiguration {
             org.slf4j.LoggerFactory.getLogger(ArchflowBeanConfiguration.class);
 
     /**
+     * Propriedade que liga a persistência durável ({@link JdbcPersistenceConfiguration}).
+     *
+     * <p>Os defaults em memória que o {@code JdbcPersistenceConfiguration} também
+     * define ({@code userRepository}, {@code apiKeyRepository}, {@code quartzScheduler})
+     * recuam por esta propriedade, e não apenas por {@link ConditionalOnMissingBean}.
+     *
+     * <p>Motivo: {@code @ConditionalOnMissingBean} só recua se o outro bean <em>já
+     * tiver sido registrado</em>. Como esta classe e a JDBC são ambas
+     * component-scanned e esta vem primeiro na ordem de varredura, o bean em
+     * memória era registrado antes e o da JDBC falhava com
+     * {@code BeanDefinitionOverrideException} — o perfil {@code prod} não subia.
+     * A condição por propriedade é determinística e não depende de ordem.
+     * ({@code @ConditionalOnMissingBean} foi mantido para que integradores ainda
+     * consigam sobrescrever os beans por conta própria.)
+     */
+    static final String JDBC_ENABLED = "archflow.persistence.jdbc.enabled";
+
+    /**
      * Falha o startup fora de dev/test quando stores em memória estão ativos
      * (perda de dados no restart). Escape hatch: archflow.allow-in-memory=true.
      */
@@ -98,6 +116,7 @@ public class ArchflowBeanConfiguration {
      */
     @Bean
     @ConditionalOnMissingBean
+    @ConditionalOnProperty(name = JDBC_ENABLED, havingValue = "false", matchIfMissing = true)
     public UserRepository userRepository(
             PasswordService passwordService,
             org.springframework.core.env.Environment environment,
@@ -119,6 +138,7 @@ public class ArchflowBeanConfiguration {
      */
     @Bean
     @ConditionalOnMissingBean
+    @ConditionalOnProperty(name = JDBC_ENABLED, havingValue = "false", matchIfMissing = true)
     public ApiKeyService.ApiKeyRepository apiKeyRepository() {
         return new InMemoryApiKeyRepository();
     }
@@ -475,6 +495,7 @@ public class ArchflowBeanConfiguration {
 
     @Bean(destroyMethod = "shutdown")
     @ConditionalOnMissingBean
+    @ConditionalOnProperty(name = JDBC_ENABLED, havingValue = "false", matchIfMissing = true)
     public org.quartz.Scheduler quartzScheduler() throws org.quartz.SchedulerException {
         // In-memory Quartz scheduler — sufficient for single-instance dev
         // deployments. Production clusters should override this bean with
