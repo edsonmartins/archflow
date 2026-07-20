@@ -810,4 +810,38 @@ public class ArchflowBeanConfiguration {
         return new br.com.archflow.api.assist.impl.AssistServiceImpl(
                 llmConfigResolver, platformDefaultLLMConfig, objectMapper);
     }
+
+    // =========================================================================
+    // Integração VendaX Core (MCP) — agente QP
+    // =========================================================================
+
+    /**
+     * Provider do MCP client HTTP do VendaX Core, por tenant. Config default via
+     * properties; overrides por tenant via {@code configure()}.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public br.com.archflow.api.mcp.vendax.VendaxMcpClientProvider vendaxMcpClientProvider(
+            @Value("${archflow.vendax.mcp.base-url:}") String baseUrl,
+            @Value("${archflow.vendax.mcp.service-token:}") String serviceToken) {
+        return new br.com.archflow.api.mcp.vendax.VendaxMcpClientProvider(baseUrl, serviceToken);
+    }
+
+    /** Loop de tool-calling nativo server-side (motor reutilizável). */
+    @Bean
+    @ConditionalOnMissingBean
+    public br.com.archflow.api.agent.mcp.McpAgentRunner mcpAgentRunner(
+            br.com.archflow.langchain4j.provider.LLMConfigResolver llmConfigResolver,
+            br.com.archflow.model.config.ResolvedLLMConfig platformDefaultLLMConfig) {
+        return new br.com.archflow.api.agent.mcp.McpAgentRunner(llmConfigResolver, platformDefaultLLMConfig);
+    }
+
+    /** Agente QP: orquestra as tools do VendaX Core sobre o loop nativo. */
+    @Bean
+    @ConditionalOnMissingBean
+    public br.com.archflow.api.agent.qp.QpAgentService qpAgentService(
+            br.com.archflow.api.agent.mcp.McpAgentRunner mcpAgentRunner,
+            br.com.archflow.api.mcp.vendax.VendaxMcpClientProvider vendaxMcpClientProvider) {
+        return new br.com.archflow.api.agent.qp.QpAgentService(mcpAgentRunner, vendaxMcpClientProvider);
+    }
 }
