@@ -1,4 +1,4 @@
-package br.com.archflow.agent.execution;
+package br.com.archflow.engine.execution;
 
 import br.com.archflow.model.engine.ExecutionContext;
 
@@ -36,6 +36,30 @@ public final class ConditionEvaluator {
     private static final Pattern CONTAINS = Pattern.compile(
             "^(.+?)\\s+contains\\s+(.+)$", Pattern.CASE_INSENSITIVE);
     private static final Pattern PLACEHOLDER = Pattern.compile("^\\$\\{(.+)}$");
+
+    /**
+     * Checagem estática de boa-formação, para validação de fluxos (sem
+     * contexto). Uma condição é malformada quando contém um operador mas
+     * não casa com a gramática {@code operando op operando} — ex.:
+     * {@code "${a} >"}. Operando único e condição em branco são válidos.
+     */
+    public boolean isWellFormed(String condition) {
+        if (condition == null || condition.isBlank()) {
+            return true;
+        }
+        String expr = condition.trim();
+        Matcher contains = CONTAINS.matcher(expr);
+        if (contains.matches()) {
+            return !contains.group(1).isBlank() && !contains.group(2).isBlank();
+        }
+        Matcher m = COMPARISON.matcher(expr);
+        if (m.matches()) {
+            return !m.group(1).isBlank() && !m.group(3).isBlank();
+        }
+        // Tem cara de comparação mas não parseou → malformada
+        return !expr.matches(".*(==|!=|>=|<=|>|<).*")
+                && !expr.toLowerCase().matches(".*\\bcontains\\b.*");
+    }
 
     /**
      * @return {@code true} se a transição deve ser seguida

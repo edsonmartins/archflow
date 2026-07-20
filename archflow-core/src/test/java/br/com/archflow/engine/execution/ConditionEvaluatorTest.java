@@ -1,4 +1,4 @@
-package br.com.archflow.agent.execution;
+package br.com.archflow.engine.execution;
 
 import br.com.archflow.model.engine.DefaultExecutionContext;
 import br.com.archflow.model.engine.ExecutionContext;
@@ -94,5 +94,18 @@ class ConditionEvaluatorTest {
     @DisplayName("condição não avaliável segue a transição (permissivo, com warning)")
     void unevaluableFollows() {
         assertThat(evaluator.evaluate("${a} >", context)).isTrue();
+    }
+
+    @Test
+    @DisplayName("isWellFormed distingue condições válidas de malformadas")
+    void wellFormedness() {
+        assertThat(evaluator.isWellFormed(null)).isTrue();
+        assertThat(evaluator.isWellFormed("  ")).isTrue();
+        assertThat(evaluator.isWellFormed("${a} > 1")).isTrue();
+        assertThat(evaluator.isWellFormed("${tags} contains 'vip'")).isTrue();
+        assertThat(evaluator.isWellFormed("${flag}")).isTrue();
+        assertThat(evaluator.isWellFormed("${a} >")).isFalse();
+        assertThat(evaluator.isWellFormed("== 1")).isFalse();
+        assertThat(evaluator.isWellFormed("${a} contains ")).isFalse();
     }
 }

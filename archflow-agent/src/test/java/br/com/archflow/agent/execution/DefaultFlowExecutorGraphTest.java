@@ -198,6 +198,53 @@ class DefaultFlowExecutorGraphTest {
         assertThat(executionOrder).containsExactly("s1", "s2");
     }
 
+    @Test
+    @DisplayName("resume incremental: steps concluídos em execução anterior não reexecutam")
+    void incrementalResumeSkipsCompletedSteps() {
+        FlowStep a = step("A", StepStatus.COMPLETED, null, conn("A", "B", null, false));
+        FlowStep b = step("B", StepStatus.COMPLETED, null, conn("B", "C", null, false));
+        FlowStep c = step("C", StepStatus.COMPLETED, "fim", new StepConnection[0]);
+        Flow flow = flow("g10", List.of(a, b, c));
+
+        ExecutionContext ctx = context("g10");
+        // Simula estado restaurado de uma execução pausada após A e B
+        ctx.set(DefaultFlowExecutor.COMPLETED_STEPS_KEY, List.of("A", "B"));
+
+        FlowResult result = executor.execute(flow, ctx);
+
+        assertThat(result.getStatus()).isEqualTo(ExecutionStatus.COMPLETED);
+        assertThat(executionOrder).containsExactly("C");
+    }
+
+    @Test
+    @DisplayName("retry: step FAILED é retentado conforme RetryConfig até suceder")
+    void retryUntilSuccess() {
+        DefaultFlowExecutor retryingExecutor = new DefaultFlowExecutor(
+                Thread.currentThread().getContextClassLoader(),
+                new MetricsCollector(AgentConfig.builder().build()),
+                null, 0,
+                new br.com.archflow.agent.config.RetryConfig(3, 1, 2.0));
+
+        var attempts = new java.util.concurrent.atomic.AtomicInteger();
+        FlowStep flaky = new FlowStep() {
+            @Override public String getId() { return "A"; }
+            @Override public StepType getType() { return StepType.TOOL; }
+            @Override public List<StepConnection> getConnections() { return List.of(); }
+            @Override public CompletableFuture<StepResult> execute(ExecutionContext context) {
+                executionOrder.add("A");
+                boolean ok = attempts.incrementAndGet() >= 3;
+                return CompletableFuture.completedFuture(
+                        result("A", ok ? StepStatus.COMPLETED : StepStatus.FAILED, ok ? "ok" : null));
+            }
+        };
+        Flow flow = flow("g11", List.of(flaky));
+
+        FlowResult result = retryingExecutor.execute(flow, context("g11"));
+
+        assertThat(result.getStatus()).isEqualTo(ExecutionStatus.COMPLETED);
+        assertThat(executionOrder).containsExactly("A", "A", "A");
+    }
+
     // ── helpers ─────────────────────────────────────────────────
 
     private static final class MutableControl implements FlowControl {

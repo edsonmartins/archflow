@@ -350,7 +350,9 @@ public class ArchFlowAgent implements AutoCloseable {
         return new DefaultFlowExecutor(
                 pluginManager.getPluginClassLoader(),
                 metricsCollector,
-                lifecycleListener
+                lifecycleListener,
+                0, // usa o timeout de step default
+                config.retryConfig()
         );
     }
 

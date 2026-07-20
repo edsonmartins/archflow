@@ -56,9 +56,12 @@ Módulos: `archflow-agent`, `archflow-core`, `archflow-model`.
       `isPaused()/isStopped()` entre steps (hoje as flags de `DefaultExecutionManager.java:96-112`
       não são lidas por ninguém — cancel é cosmético). — **M**
       *(feito 2026-07-20: interface FlowControl no core; executor checa entre steps → CANCELLED/PAUSED)*
-- [ ] **1.5** [B] Human-in-the-loop real: `requestApproval` deve suspender a execução e `submitApproval`
+- [x] **1.5** [B] Human-in-the-loop real: `requestApproval` deve suspender a execução e `submitApproval`
       retomá-la; armazenar e validar o `requestId` (hoje a thread segue executando e o requestId é
       descartado — `DefaultFlowEngine.java:386-453`). — **L**
+      *(feito 2026-07-20: requestApproval pausa cooperativamente e grava requestId nas variáveis
+      persistidas; submitApproval valida o id e rejeita desconhecidos; status AWAITING_APPROVAL
+      preservado no estado terminal; corrida do activeExecutions corrigida com remove(key, value))*
 - [x] **1.6** [A] `findScopedKey` (`DefaultFlowExecutor.java:174-180`) casa por sufixo `:stepId` e cruza
       resultados entre fluxos concorrentes com IDs de step iguais. Match exato `flowId:stepId`. — **S**
       *(feito 2026-07-20: dispatch interno usa a chave exata; caminho público falha alto se ambíguo)*
@@ -73,10 +76,16 @@ Módulos: `archflow-agent`, `archflow-core`, `archflow-model`.
       `"SYSTEM"` (`JdbcStateRepository.java:37-45`, `InMemoryStateRepository.java:34-42`) —
       resume/status quebrados para qualquer tenant real. — **S**
       *(feito 2026-07-20: `getState(flowId)` resolve por flowId em qualquer tenant nos dois repositórios)*
-- [ ] **1.9** [A] Resume incremental: usar o checkpoint (1.7) para pular steps concluídos
+- [x] **1.9** [A] Resume incremental: usar o checkpoint (1.7) para pular steps concluídos
       (hoje `resumeFlow` reexecuta o fluxo inteiro → efeitos colaterais duplicados). — **M**
-- [ ] **1.10** [A] Retry real no executor honrando `AgentConfig.retryConfig`/`RetryPolicy`
+      *(feito 2026-07-20: executor registra concluídos em `__archflow.completedSteps` (variável
+      persistida); resume pula concluídos e só propaga. Correção estrutural junto: variáveis do
+      contexto sincronizadas para o FlowState em todo save e restauradas no resumeFlow — antes
+      save/restore de variáveis não se conectavam)*
+- [x] **1.10** [A] Retry real no executor honrando `AgentConfig.retryConfig`/`RetryPolicy`
       (aceitos e nunca aplicados; o único retry existente é o do `FuncAgentExecutor`). — **M**
+      *(feito 2026-07-20: executeStepWithRetry com backoff exponencial, respeitando pause/cancel;
+      ArchFlowAgent passa config.retryConfig(); FlowEngineFactory do api segue sem retry por default)*
 - [x] **1.11** [M] Timeout de fluxo deve cancelar a execução e liberar permit do `flowSemaphore` +
       `activeExecutions` (`DefaultFlowEngine.java:310` — hoje `orTimeout` vaza a thread e o permit). — **M**
       *(feito 2026-07-20: whenComplete no timeout sinaliza stopFlow → cancel cooperativo → finally libera o permit)*
@@ -87,8 +96,12 @@ Módulos: `archflow-agent`, `archflow-core`, `archflow-model`.
       descarta metrics/error/executionPaths; `toJson` engole erro de serialização gravando null). — **S**
       *(feito 2026-07-20: metrics/error reconstruídos na leitura; toJson falha alto em valor não
       serializável. executionPaths segue sem coluna no schema V1 — entra com 1.9 se necessário)*
-- [ ] **1.14** [M] Completar as 5 validações vazias do `DefaultFlowValidator.java:212-230`
+- [x] **1.14** [M] Completar as 5 validações vazias do `DefaultFlowValidator.java:212-230`
       (chain/agent/tool config, connections, condition). — **M**
+      *(feito 2026-07-20: validateStepConnections (target vazio, sourceId de outro step) e
+      validateCondition (isWellFormed do ConditionEvaluator, movido para o core) implementados;
+      chain/agent/tool documentados como pontos de extensão — a config não é visível no modelo,
+      é validada na materialização pelo ComponentPlugin.validateConfig)*
 - [~] **1.15** [B] Testes E2E de grafo cobrindo o que as fixtures atuais evitam: fluxos **com conexões**,
       branching condicional, error path, cancel no meio, pause/resume, retry. Sem isso as regressões
       de 1.1–1.10 voltam. — **L**

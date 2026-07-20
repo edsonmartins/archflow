@@ -1,5 +1,6 @@
 package br.com.archflow.agent.execution;
 
+import br.com.archflow.engine.execution.ConditionEvaluator;
 import br.com.archflow.engine.execution.FlowControl;
 import br.com.archflow.engine.execution.FlowExecutor;
 import br.com.archflow.engine.lifecycle.FlowLifecycleListener;
@@ -36,29 +37,45 @@ public class DefaultFlowExecutor implements FlowExecutor {
      * plugin from blocking a flow thread indefinitely. */
     private static final long DEFAULT_STEP_TIMEOUT_MS = 10 * 60 * 1000L; // 10 min
 
+    /**
+     * Variável de contexto com os ids dos steps já concluídos (COMPLETED ou
+     * SKIPPED). É persistida junto com o estado do fluxo e permite ao resume
+     * pular steps concluídos em vez de reexecutar o fluxo inteiro.
+     */
+    public static final String COMPLETED_STEPS_KEY = "__archflow.completedSteps";
+
     private final ClassLoader pluginClassLoader;
     private final MetricsCollector metricsCollector;
     private final FlowLifecycleListener lifecycleListener;
     private final Map<String, StepExecution> activeExecutions;
     private final long stepTimeoutMs;
+    /** Retry por step (null = sem retry, 1 tentativa). */
+    private final br.com.archflow.agent.config.RetryConfig retryConfig;
     private final ConditionEvaluator conditionEvaluator = new ConditionEvaluator();
 
     public DefaultFlowExecutor(ClassLoader pluginClassLoader, MetricsCollector metricsCollector) {
-        this(pluginClassLoader, metricsCollector, FlowLifecycleListener.NO_OP, DEFAULT_STEP_TIMEOUT_MS);
+        this(pluginClassLoader, metricsCollector, FlowLifecycleListener.NO_OP, DEFAULT_STEP_TIMEOUT_MS, null);
     }
 
     public DefaultFlowExecutor(ClassLoader pluginClassLoader, MetricsCollector metricsCollector,
                                FlowLifecycleListener lifecycleListener) {
-        this(pluginClassLoader, metricsCollector, lifecycleListener, DEFAULT_STEP_TIMEOUT_MS);
+        this(pluginClassLoader, metricsCollector, lifecycleListener, DEFAULT_STEP_TIMEOUT_MS, null);
     }
 
     public DefaultFlowExecutor(ClassLoader pluginClassLoader, MetricsCollector metricsCollector,
                                FlowLifecycleListener lifecycleListener, long stepTimeoutMs) {
+        this(pluginClassLoader, metricsCollector, lifecycleListener, stepTimeoutMs, null);
+    }
+
+    public DefaultFlowExecutor(ClassLoader pluginClassLoader, MetricsCollector metricsCollector,
+                               FlowLifecycleListener lifecycleListener, long stepTimeoutMs,
+                               br.com.archflow.agent.config.RetryConfig retryConfig) {
         this.pluginClassLoader = pluginClassLoader;
         this.metricsCollector = metricsCollector;
         this.lifecycleListener = lifecycleListener != null ? lifecycleListener : FlowLifecycleListener.NO_OP;
         this.activeExecutions = new ConcurrentHashMap<>();
         this.stepTimeoutMs = stepTimeoutMs > 0 ? stepTimeoutMs : DEFAULT_STEP_TIMEOUT_MS;
+        this.retryConfig = retryConfig;
     }
 
     @Override
@@ -167,6 +184,7 @@ public class DefaultFlowExecutor implements FlowExecutor {
         }
 
         Set<String> executed = new HashSet<>();
+        Set<String> completedInPriorRun = readCompletedSteps(context);
         boolean unhandledFailure = false;
         int stepIndex = 0;
         int totalSteps = steps.size();
@@ -186,13 +204,28 @@ public class DefaultFlowExecutor implements FlowExecutor {
                 continue;
             }
 
+            // Resume incremental: step concluído em execução anterior não
+            // reexecuta (efeitos colaterais não duplicam); apenas propaga
+            // pelos alvos — os outputs restaurados alimentam as condições.
+            if (completedInPriorRun.contains(step.getId())) {
+                logger.info("Step " + step.getId() + " já concluído em execução anterior; pulando (resume)");
+                if (graphMode) {
+                    resolveTargets(step, byId, false, context).forEach(queue::add);
+                }
+                continue;
+            }
+
             // Checkpoint para resume: marca o step corrente no estado antes de executar
             if (context.getState() != null) {
                 context.getState().setCurrentStepId(step.getId());
             }
 
-            StepResult result = executeStep(step, context, flow, stepIndex++, totalSteps);
+            StepResult result = executeStepWithRetry(step, context, flow, stepIndex++, totalSteps, control);
             results.add(result);
+
+            if (result.getStatus() == StepStatus.COMPLETED || result.getStatus() == StepStatus.SKIPPED) {
+                recordCompletedStep(context, step.getId());
+            }
 
             if (!graphMode) {
                 if (result.getStatus().isError()) {
@@ -219,6 +252,28 @@ public class DefaultFlowExecutor implements FlowExecutor {
 
     private static List<StepConnection> connectionsOf(FlowStep step) {
         return step.getConnections() != null ? step.getConnections() : List.of();
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Set<String> readCompletedSteps(ExecutionContext context) {
+        return context.get(COMPLETED_STEPS_KEY)
+                .filter(v -> v instanceof java.util.Collection)
+                .map(v -> (Set<String>) ((java.util.Collection<?>) v).stream()
+                        .map(String::valueOf)
+                        .collect(java.util.stream.Collectors.toCollection(HashSet::new)))
+                .orElseGet(HashSet::new);
+    }
+
+    private static void recordCompletedStep(ExecutionContext context, String stepId) {
+        // Lista (e não Set) para round-trip JSON estável na persistência
+        List<String> completed = new ArrayList<>(context.get(COMPLETED_STEPS_KEY)
+                .filter(v -> v instanceof java.util.Collection)
+                .map(v -> ((java.util.Collection<?>) v).stream().map(String::valueOf).toList())
+                .orElse(List.of()));
+        if (!completed.contains(stepId)) {
+            completed.add(stepId);
+        }
+        context.set(COMPLETED_STEPS_KEY, completed);
     }
 
     /**
@@ -356,6 +411,37 @@ public class DefaultFlowExecutor implements FlowExecutor {
 
     private void handleSkipped(StepExecution execution, StepResult result) {
         logger.info("Step " + result.getStepId() + " ignorado");
+    }
+
+    /**
+     * Executa o step honrando o {@code RetryConfig} (item 1.10 do plano):
+     * um step FAILED é retentado até {@code maxAttempts} tentativas totais,
+     * com backoff exponencial, a menos que pause/cancel seja sinalizado.
+     */
+    private StepResult executeStepWithRetry(FlowStep step, ExecutionContext context, Flow flow,
+                                            int stepIndex, int stepCount, FlowControl control) {
+        int maxAttempts = retryConfig != null ? Math.max(1, retryConfig.maxAttempts()) : 1;
+        long delayMs = retryConfig != null ? retryConfig.initialDelay() : 0L;
+
+        StepResult result = executeStep(step, context, flow, stepIndex, stepCount);
+        for (int attempt = 2; attempt <= maxAttempts && result.getStatus() == StepStatus.FAILED; attempt++) {
+            if (control.isStopRequested() || control.isPauseRequested()) {
+                break;
+            }
+            logger.info("Step " + step.getId() + " falhou; retry " + (attempt - 1)
+                    + "/" + (maxAttempts - 1) + " em " + delayMs + "ms");
+            if (delayMs > 0) {
+                try {
+                    Thread.sleep(delayMs);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+            delayMs = (long) (delayMs * retryConfig.backoffMultiplier());
+            result = executeStep(step, context, flow, stepIndex, stepCount);
+        }
+        return result;
     }
 
     private StepResult executeStep(FlowStep step, ExecutionContext context, Flow flow,
