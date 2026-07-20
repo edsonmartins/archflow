@@ -52,7 +52,10 @@ async function mockApi(page: Page) {
     ]);
 }
 
-test.describe('Marketplace page', () => {
+// Suite desativada — decisão 0.2 do plano de homologação: a rota /marketplace
+// foi desconectada em App.tsx (instalação não carrega código de plugin de
+// verdade). Reativar (remover o .skip) quando a rota for religada.
+test.describe.skip('Marketplace page', () => {
     test('lists extensions from the backend', async ({ page }) => {
         await installSession(page);
         await mockApi(page);

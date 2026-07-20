@@ -18,7 +18,6 @@ import {
     IconMoon,
     IconLayoutSidebarLeftCollapse,
     IconLayoutSidebarLeftExpand,
-    IconBox,
     IconPlayerPlayFilled,
     IconSitemap,
     IconPlugConnected,
@@ -60,12 +59,9 @@ const NAV_GROUPS = [
             { key: 'nav.approvals',     icon: IconShieldCheck,      path: '/approvals', withBadge: true },
         ],
     },
-    {
-        key: 'nav.groups.extend',
-        items: [
-            { key: 'nav.marketplace',   icon: IconBox,              path: '/marketplace' },
-        ],
-    },
+    // Grupo "extend" (Marketplace) removido do menu — decisão 0.2 do plano de
+    // homologação: o marketplace não instala plugins de verdade ainda. Religar
+    // junto com as rotas em App.tsx quando o backend integrar a instalação.
     {
         key: 'nav.groups.labs',
         items: [

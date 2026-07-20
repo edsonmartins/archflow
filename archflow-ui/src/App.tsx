@@ -24,8 +24,6 @@ import ApprovalQueuePage from './pages/ApprovalQueuePage';
 import ApprovalDetailPage from './pages/ApprovalDetailPage';
 import ExecutionDetailPage from './pages/ExecutionDetailPage';
 import ScopedApiKeysPage from './pages/admin/tenant/ScopedApiKeysPage';
-import MarketplacePage from './pages/MarketplacePage';
-import MarketplaceDetailPage from './pages/MarketplaceDetailPage';
 import McpServersPage from './pages/McpServersPage';
 import McpServerDetailPage from './pages/McpServerDetailPage';
 import LinktorConfigPage from './pages/LinktorConfigPage';
@@ -40,13 +38,12 @@ import MetricsPage from './pages/admin/observability/MetricsPage';
 import AuditLogPage from './pages/admin/observability/AuditLogPage';
 import LiveEventsPage from './pages/admin/observability/LiveEventsPage';
 
-// Telas secundárias — lazy loaded (templates, marketplace, playgrounds e
+// Telas secundárias — lazy loaded (templates, playgrounds e
 // configurações não precisam entrar no bundle inicial do app)
 const TemplatesPage           = lazy(() => import('./pages/TemplatesPage'));
 const TemplateDetailPage      = lazy(() => import('./pages/TemplateDetailPage'));
 const VoicePlaygroundPage     = lazy(() => import('./pages/VoicePlaygroundPage'));
 const SkillsPage              = lazy(() => import('./pages/SkillsPage'));
-const BrainSentryConfigPage   = lazy(() => import('./pages/BrainSentryConfigPage'));
 const ScheduledTriggersPage   = lazy(() => import('./pages/ScheduledTriggersPage'));
 const AgentPlaygroundPage     = lazy(() => import('./pages/AgentPlaygroundPage'));
 const DynamicWorkflowPage     = lazy(() => import('./pages/DynamicWorkflowPage'));
@@ -98,8 +95,10 @@ function App() {
                             <Route path="/playground/voice" element={<VoicePlaygroundPage />} />
                             <Route path="/approvals" element={<ApprovalQueuePage />} />
                             <Route path="/approvals/:id" element={<ApprovalDetailPage />} />
-                            <Route path="/marketplace" element={<MarketplacePage />} />
-                            <Route path="/marketplace/:id" element={<MarketplaceDetailPage />} />
+                            {/* Marketplace (/marketplace) desativado — decisão 0.2 do plano de
+                                homologação: "instalar" só registra o manifest em memória, sem
+                                carregar código de plugin. Religar quando o backend instalar
+                                plugins de verdade (páginas mantidas em src/pages/Marketplace*). */}
                             <Route path="/executions/:id" element={<ExecutionDetailPage />} />
                             <Route path="/playground/agent" element={<AgentPlaygroundPage />} />
                             <Route path="/playground/orchestration" element={<DynamicWorkflowPage />} />
@@ -126,7 +125,11 @@ function App() {
                             <Route path="skills" element={<SkillsPage />} />
                             <Route path="mcp" element={<McpServersPage />} />
                             <Route path="mcp/:name" element={<McpServerDetailPage />} />
-                            <Route path="brainsentry" element={<BrainSentryConfigPage />} />
+                            {/* Brain Sentry (/admin/brainsentry) desativado — decisão 0.2 do
+                                plano de homologação: a UI gravava config que nenhum código do
+                                backend consome (módulo brainsentry fora do classpath). Religar
+                                quando o backend integrar o módulo (página mantida em
+                                src/pages/BrainSentryConfigPage.tsx). */}
                             <Route path="linktor" element={<LinktorConfigPage />} />
                             <Route path="linktor/inbox" element={<LinktorInboxPage />} />
                             <Route path="linktor/inbox/:id" element={<LinktorConversationPage />} />

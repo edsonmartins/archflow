@@ -65,13 +65,14 @@ Módulos: `archflow-agent`, `archflow-core`, `archflow-model`.
 - [x] **1.6** [A] `findScopedKey` (`DefaultFlowExecutor.java:174-180`) casa por sufixo `:stepId` e cruza
       resultados entre fluxos concorrentes com IDs de step iguais. Match exato `flowId:stepId`. — **S**
       *(feito 2026-07-20: dispatch interno usa a chave exata; caminho público falha alto se ambíguo)*
-- [~] **1.7** [A] Persistir estado no caminho feliz e em falha de step com checkpoint por step
+- [x] **1.7** [A] Persistir estado no caminho feliz e em falha de step com checkpoint por step
       (`currentStepId`). Hoje `saveState` só ocorre em pause/cancel/approval, e
       `DefaultExecutionManager.java:59-92` engole exceções devolvendo FAILED sem persistir —
       `getFlowStatus` pós-execução lança `FlowNotFoundException` e a tabela `flow_states` fica vazia. — **M**
-      *(parcial 2026-07-20: currentStepId atualizado no contexto a cada step + estado terminal
-      COMPLETED/FAILED/STOPPED/PAUSED persistido pelo engine; falta o saveState durável POR step,
-      que entra junto com o resume incremental 1.9)*
+      *(feito 2026-07-20 em duas levas: currentStepId + estado terminal persistidos pelo engine;
+      e CheckpointingLifecycleListener no FlowEngineFactory salva o estado (com variáveis
+      sincronizadas) após CADA step — crash no meio do fluxo deixa o checkpoint no banco e o
+      resume incremental (1.9) retoma de lá)*
 - [x] **1.8** [A] Corrigir assimetria de tenant: save grava sob `state.getTenantId()`, load lê fixo sob
       `"SYSTEM"` (`JdbcStateRepository.java:37-45`, `InMemoryStateRepository.java:34-42`) —
       resume/status quebrados para qualquer tenant real. — **S**
@@ -159,12 +160,15 @@ Módulos: `archflow-api`, `archflow-standalone`, deploy.
 - [x] **3.2** [B] Registrar os 4 templates built-in (`META-INF/services/...WorkflowTemplate` ou registro
       programático no boot) — `/api/templates` e a galeria da UI retornam vazio sempre. Teste idem. — **S**
       *(feito 2026-07-20: arquivo SPI + TemplateSpiRegistrationTest; registry ganhou `clear()` para testes unitários)*
-- [ ] **3.3** [M] `POST /api/templates/{id}/install` deve persistir o workflow gerado no repositório
+- [x] **3.3** [M] `POST /api/templates/{id}/install` deve persistir o workflow gerado no repositório
       (hoje só devolve o JSON — "instalar" não cria nada executável). — **S**
-- [ ] **3.4** [A] Plugin loader: a "resolução de dependências via Jeka" anunciada não existe (zero
+      *(feito 2026-07-20: install cria rascunho no WorkflowRuntimeStore com a configuração do
+      template; os templates atuais produzem metadados, não steps de designer — canvas nasce vazio)*
+- [x] **3.4** [A] Plugin loader: a "resolução de dependências via Jeka" anunciada não existe (zero
       referências no código). Decidir: implementar ou corrigir docs exigindo fat-jars. Documentar a
       fronteira de confiança (fallback total ao classloader pai + `onLoad` sem sandbox = só jars
       confiáveis). — **S** (docs) / **L** (implementar)
+      *(feito 2026-07-20: javadoc do ArchflowPluginManager/ClassLoader documenta fat-jars obrigatórios, fallback total ao pai e ausência de sandbox (fronteira de confiança = diretório de plugins); promessa de Jeka removida de CLAUDE.md e docs/)*
 
 ## Fase 4 — Frontend (`archflow-ui`)
 
@@ -281,36 +285,46 @@ Módulos: `archflow-api`, `archflow-standalone`, deploy.
 
 ## Fase 7 — Satélites: integrar ou despublicar (conforme 0.2)
 
-- [ ] **7.1** [A] Observability: nada emite métrica/span pelas classes do módulo e o archflow-api nem
+- [x] **7.1** [A] Observability: nada emite métrica/span pelas classes do módulo e o archflow-api nem
       tem actuator/micrometer no pom. Integrar (instrumentar engine/api, expor Prometheus) ou remover
       a promessa "OTel/Prometheus/Grafana/Jaeger" do readme. — **L** / **S**
-- [ ] **7.2** [A] Brainsentry: módulo fora do classpath do api; a UI de config grava em memória algo que
+      *(feito 2026-07-20 conforme decisão 0.2: despublicado — readme move OTel/Prometheus/Grafana/Jaeger para "Roadmap/experimental"; observabilidade real documentada como trace store da API + actuator)*
+- [x] **7.2** [A] Brainsentry: módulo fora do classpath do api; a UI de config grava em memória algo que
       nada consome. Integrar (dependência + wiring do interceptor + docker do serviço externo) ou
       retirar UI/docs. — **L** / **S**
-- [ ] **7.3** [A] Performance/cache: módulo órfão (nenhum pom depende dele). Integrar os interceptors de
+      *(feito 2026-07-20: despublicado — rota/menu removidos da UI (páginas preservadas), readme/CLAUDE.md marcam o módulo como experimental fora do classpath)*
+- [x] **7.3** [A] Performance/cache: módulo órfão (nenhum pom depende dele). Integrar os interceptors de
       cache LLM/embedding ou retirar das docs. Se integrar: trocar a serialização Java nativa do
       `RedisCacheManager` (vetor de desserialização insegura). — **M** / **S**
-- [ ] **7.4** [A] Marketplace: "instalar" só registra manifest em memória (em `/tmp`), não carrega
+      *(feito 2026-07-20: despublicado — módulo órfão documentado como experimental no readme/CLAUDE.md)*
+- [x] **7.4** [A] Marketplace: "instalar" só registra manifest em memória (em `/tmp`), não carrega
       código, e as `trustedKeys` RSA nunca são configuradas (verificação de assinatura reduzida a
       checksum). Ponte com o plugin-loader + persistência + trustedKeys, ou rebaixar a "catálogo"
       nas docs. — **L** / **S**
-- [ ] **7.5** [M] Examples: `examples/spring-boot` não compila (importa API imaginária,
+      *(feito 2026-07-20: despublicado — rota/menu removidos da UI; docs rebaixam para "catálogo de manifests, verificação = checksum")*
+- [x] **7.5** [M] Examples: `examples/spring-boot` não compila (importa API imaginária,
       `archflow-spring-boot-starter` não existe) — corrigir ou remover; react/vue dependem de pacote
       npm não publicado e chamam endpoints inexistentes. — **M**
-- [ ] **7.6** [A] Docs vs realidade: atualizar readme/CLAUDE.md (Jeka, observability, brainsentry,
+      *(feito 2026-07-20: examples/spring-boot DELETADO (API imaginária); react/vue corrigidos para POST /archflow/agents/{id}/invoke real + dep npm via file:../../archflow-ui com build local; examples/README.md honesto)*
+- [x] **7.6** [A] Docs vs realidade: atualizar readme/CLAUDE.md (Jeka, observability, brainsentry,
       marketplace, templates, caching, tabela de examples, stack Java/Boot) para o estado real —
       em homologação, feature anunciada e inexistente é bug. — **S**
-- [ ] **7.7** [M] Guardrails/governança/summarizer do archflow-conversation: integrar ao caminho de
+      *(feito 2026-07-20: readme/CLAUDE.md com estado real — stack Boot 4/Java 25, Jeka removido (fat-jars + child-first), seção "Roadmap/experimental", tabela de examples e módulos atualizada; docs/overview, roadmap e architecture alinhados)*
+- [x] **7.7** [M] Guardrails/governança/summarizer do archflow-conversation: integrar ao caminho de
       execução do servidor ou documentar explicitamente como biblioteca opt-in. — **M**
+      *(feito 2026-07-20: package-info do archflow-conversation documenta guardrails/governança/memória episódica/summarizer como biblioteca OPT-IN não chamada pelo caminho de execução)*
 
 ## Fase 8 — Residuais
 
-- [ ] **8.1** [M] `WorkflowToolRegistry.createComposite/createParallel` ignoram a lista de tools e criam
+- [x] **8.1** [M] `WorkflowToolRegistry.createComposite/createParallel` ignoram a lista de tools e criam
       tool sem executor (qualquer `execute()` lança `IllegalStateException`); `timeout`/`async`/
       `maxRetries` do builder nunca aplicados. Implementar ou remover a API. — **M**
-- [ ] **8.2** [M] Plugins "AI" pré-construídos usam regex, não LLM (`ConversationalAgent:383-421` etc.).
+      *(feito 2026-07-20: composite encadeia com passagem de output; parallel executa e faz merge por nome; timeout/maxRetries honrados no execute; from/register sem executor falham NA CRIAÇÃO com overloads novos que exigem executor; 52 testes)*
+- [x] **8.2** [M] Plugins "AI" pré-construídos usam regex, não LLM (`ConversationalAgent:383-421` etc.).
       Ligar ao provider hub ou documentar como demo heurística. — **M**
-- [ ] **8.3** [S] Dependência morta `archflow-workflow-tool` → `archflow-templates`. — **S**
+      *(feito 2026-07-20: javadoc + descrição de catálogo dos 3 agentes marcam DEMO heurístico sem LLM)*
+- [x] **8.3** [S] Dependência morta `archflow-workflow-tool` → `archflow-templates`. — **S**
+      *(feito 2026-07-20: dependência archflow-templates removida do pom do workflow-tool)*
 
 ---
 

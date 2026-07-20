@@ -19,6 +19,12 @@ import java.util.stream.Collectors;
  * chart suggestion for visualization, and trend prediction/forecasting.
  * Includes schema introspection for intelligent query generation and
  * configurable table access controls.
+ *
+ * <p><strong>DEMO implementation — no LLM involved.</strong> "Text-to-SQL" and
+ * request analysis are purely heuristic: regular expressions extract table/column/metric
+ * references and keyword matching picks the task type; no calls to any language model
+ * are made. This plugin exists as an example and test fixture for the plugin runtime
+ * and should not be relied on for real natural-language data analysis.
  */
 public class DataAnalysisAgent implements AIAgent, ComponentPlugin {
 
@@ -111,7 +117,8 @@ public class DataAnalysisAgent implements AIAgent, ComponentPlugin {
         return new ComponentMetadata(
                 COMPONENT_ID,
                 "Data Analysis Agent",
-                "Autonomous data analysis agent that generates SQL, analyzes data, suggests visualizations, and forecasts trends",
+                "DEMO agent (heuristic, no LLM): generates SQL and analyzes requests via regex/keyword "
+                        + "matching. Example/test fixture for the plugin runtime",
                 ComponentType.AGENT,
                 VERSION,
                 Set.of("query", "analysis", "visualization", "forecasting"),

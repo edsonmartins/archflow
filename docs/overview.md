@@ -22,7 +22,7 @@ O archflow resolve estes desafios oferecendo:
 
 - **Framework Java Nativo**: Integração completa com LangChain4j
 - **Engine Robusto**: Execução confiável e distribuída de fluxos
-- **Sistema de Plugins**: Gestão automática com Jeka
+- **Sistema de Plugins**: Fat-jars carregados de diretório com classloader isolado
 - **Monitoramento**: Métricas detalhadas e observabilidade
 - **Extensibilidade**: Arquitetura modular e plugável
 
@@ -35,10 +35,10 @@ O archflow resolve estes desafios oferecendo:
 - Tratamento de erros robusto
 
 ### Sistema de Plugins
-- Carregamento dinâmico via Jeka
-- Gestão de dependências automática
-- Versionamento de componentes
-- Hot reload de plugins
+- Carregamento dinâmico de fat-jars a partir de um diretório (descoberta via SPI/`ServiceLoader`)
+- Sem resolução de dependências em runtime — cada plugin deve embutir suas dependências (fat-jar)
+- Isolamento child-first com fallback total ao classloader da aplicação (sem sandbox — só jars confiáveis)
+- Load/unload em runtime (o classloader do plugin é fechado no unload)
 
 ### Adaptadores LangChain4j
 - ModelAdapter para diferentes LLMs

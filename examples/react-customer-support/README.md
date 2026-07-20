@@ -6,6 +6,14 @@ A simple React demo that connects to the archflow backend to list, design, and e
 
 - Node.js 18+
 - Archflow backend running at `http://localhost:8080`
+- Local build of `@archflow/component` — the package is **not published on npm**;
+  it is referenced via `file:../../archflow-ui`. Build it first:
+
+  ```bash
+  cd ../../archflow-ui
+  npm install
+  npm run build:component
+  ```
 
 ## Running
 

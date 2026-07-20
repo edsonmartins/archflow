@@ -16,10 +16,9 @@ O desenvolvimento do archflow está organizado em fases incrementais, focando pr
 - [x] Tratamento de erros
 
 ### Sistema de Plugins
-- [x] Integração com Jeka
-- [x] Carregamento dinâmico
-- [x] Gestão de dependências
-- [x] Isolamento de classloader
+- [x] Carregamento dinâmico (fat-jars de um diretório, descoberta via SPI)
+- [x] Isolamento de classloader (child-first com fallback ao pai)
+- [ ] Resolução de dependências em runtime (a antiga "integração com Jeka" nunca foi implementada — plugins devem ser fat-jars)
 - [ ] Hot reload
 - [ ] Versionamento avançado
 

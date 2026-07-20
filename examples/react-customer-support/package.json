@@ -9,7 +9,7 @@
     "react-dom": "^19.0.0",
     "@mantine/core": "^7.17.0",
     "@mantine/hooks": "^7.17.0",
-    "@archflow/component": "^1.0.0"
+    "@archflow/component": "file:../../archflow-ui"
   },
   "devDependencies": {
     "@types/react": "^19.0.8",

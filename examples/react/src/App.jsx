@@ -7,7 +7,10 @@ function App() {
   const [loading, setLoading] = useState(false);
   const designerRef = useRef(null);
 
-  // Enviar mensagem para o agente
+  // Invocar um agente diretamente (gatilho sob demanda).
+  // Endpoint real do backend: POST /archflow/agents/{agentId}/invoke
+  // A invocação é ASSÍNCRONA — a resposta é um "accepted" com requestId,
+  // não a resposta do agente (não há endpoint de chat/stream síncrono).
   const sendMessage = async () => {
     if (!message.trim()) return;
 
@@ -15,46 +18,23 @@ function App() {
     setResponse('');
 
     try {
-      const res = await fetch('/api/agents/customer-service/chat', {
+      const res = await fetch('/archflow/agents/customer-service/invoke', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message }),
+        body: JSON.stringify({
+          tenantId: 'default',
+          payload: { message },
+        }),
       });
 
       const data = await res.json();
-      setResponse(data.response);
+      // data => { requestId, tenantId, agentId, status: "accepted" }
+      setResponse(`Invocação aceita (requestId: ${data.requestId}, status: ${data.status})`);
     } catch (error) {
       setResponse('Erro: ' + error.message);
     } finally {
       setLoading(false);
     }
-  };
-
-  // Streaming com EventSource
-  const streamMessage = () => {
-    if (!message.trim()) return;
-
-    setLoading(true);
-    setResponse('');
-
-    const eventSource = new EventSource(
-      `/api/agents/customer-service/stream?message=${encodeURIComponent(message)}`
-    );
-
-    eventSource.addEventListener('message', (e) => {
-      setResponse((prev) => prev + e.data);
-    });
-
-    eventSource.onerror = () => {
-      eventSource.close();
-      setLoading(false);
-    };
-
-    eventSource.onopen = () => {
-      setLoading(false);
-    };
-
-    return () => eventSource.close();
   };
 
   return (
@@ -78,9 +58,9 @@ function App() {
           </div>
         </section>
 
-        {/* Exemplo do Chat */}
+        {/* Exemplo de invocação de agente (assíncrona) */}
         <section className="section">
-          <h2>Chat com Agente</h2>
+          <h2>Invocar Agente (assíncrono)</h2>
           <div className="chat-container">
             <div className="chat-messages">
               {response && (
@@ -111,13 +91,6 @@ function App() {
                 disabled={loading || !message.trim()}
               >
                 Enviar
-              </button>
-              <button
-                onClick={streamMessage}
-                disabled={loading || !message.trim()}
-                className="secondary"
-              >
-                Stream
               </button>
             </div>
           </div>

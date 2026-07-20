@@ -78,12 +78,32 @@ public class WorkflowToolRegistry {
     }
 
     /**
-     * Registers a workflow as a tool.
+     * Registers a workflow as a tool, using the given executor to run it.
+     *
+     * <p>This module has no workflow engine, so the caller must supply the function
+     * that actually executes the workflow (typically a closure over a flow engine).
      */
-    public WorkflowTool register(Workflow workflow) {
-        WorkflowTool tool = WorkflowTool.from(workflow);
+    public WorkflowTool register(Workflow workflow,
+                                 java.util.function.Function<Map<String, Object>, Object> executor) {
+        WorkflowTool tool = WorkflowTool.from(workflow, executor);
         register(tool);
         return tool;
+    }
+
+    /**
+     * Unsupported: registering a bare {@link Workflow} cannot produce an executable
+     * tool because this module has no workflow engine. Failing at registration is
+     * deliberate — more honest than registering a tool that only fails on execute.
+     *
+     * @throws UnsupportedOperationException always
+     * @deprecated use {@link #register(Workflow, java.util.function.Function)} with an executor
+     */
+    @Deprecated
+    public WorkflowTool register(Workflow workflow) {
+        throw new UnsupportedOperationException(
+                "register(Workflow) cannot create an executable tool: module "
+                + "archflow-workflow-tool has no workflow engine to run '" + workflow.getId()
+                + "'. Use register(workflow, executor) and supply an executor.");
     }
 
     /**
@@ -164,15 +184,28 @@ public class WorkflowToolRegistry {
 
     /**
      * Creates a composite tool that chains multiple tools together.
-     * The output of each tool becomes the input for the next.
+     *
+     * <p>The tools are executed sequentially, in list order. The initial input map is
+     * passed to the first tool; each tool's output then becomes the input of the next:
+     * a {@code Map} output is passed as-is (keys converted to {@code String}), any other
+     * non-null output is wrapped as {@code {"input": output}}. The composite's output is
+     * the output of the last tool. If any tool fails, the composite fails immediately
+     * with an error identifying the failing tool.
+     *
+     * @throws IllegalArgumentException if {@code tools} is empty
      */
     public WorkflowTool createComposite(String id, String name, String description, List<WorkflowTool> tools) {
+        if (tools == null || tools.isEmpty()) {
+            throw new IllegalArgumentException("createComposite requires at least one tool");
+        }
+        List<WorkflowTool> chain = List.copyOf(tools);
+
         Workflow compositeWorkflow = Workflow.builder()
                 .id(id)
                 .name(name)
                 .description(description)
                 .addMetadata("composite", true)
-                .addMetadata("toolCount", tools.size())
+                .addMetadata("toolCount", chain.size())
                 .build();
 
         return WorkflowTool.builder()
@@ -180,19 +213,45 @@ public class WorkflowToolRegistry {
                 .name(name)
                 .description(description)
                 .workflow(compositeWorkflow)
+                .executor(input -> {
+                    Object current = input;
+                    for (WorkflowTool step : chain) {
+                        WorkflowToolResult result = step.execute(toInputMap(current));
+                        if (!result.success()) {
+                            throw new WorkflowToolResult.WorkflowToolExecutionException(
+                                    "Composite tool '" + id + "' failed at step '" + step.getId()
+                                    + "': " + result.error());
+                        }
+                        current = result.output();
+                    }
+                    return current;
+                })
                 .build();
     }
 
     /**
      * Creates a parallel tool that executes multiple tools in parallel and merges results.
+     *
+     * <p>All tools receive the same input map and run concurrently (via
+     * {@link java.util.concurrent.CompletableFuture#supplyAsync(java.util.function.Supplier)}).
+     * The output is a {@code Map<String, Object>} indexed by each tool's name (on name
+     * collision, the key is suffixed with {@code "#<index>"}). If any tool fails, the
+     * parallel tool fails with an error identifying the failing tool.
+     *
+     * @throws IllegalArgumentException if {@code tools} is empty
      */
     public WorkflowTool createParallel(String id, String name, String description, List<WorkflowTool> tools) {
+        if (tools == null || tools.isEmpty()) {
+            throw new IllegalArgumentException("createParallel requires at least one tool");
+        }
+        List<WorkflowTool> branches = List.copyOf(tools);
+
         Workflow parallelWorkflow = Workflow.builder()
                 .id(id)
                 .name(name)
                 .description(description)
                 .addMetadata("parallel", true)
-                .addMetadata("toolCount", tools.size())
+                .addMetadata("toolCount", branches.size())
                 .build();
 
         return WorkflowTool.builder()
@@ -201,7 +260,46 @@ public class WorkflowToolRegistry {
                 .description(description)
                 .workflow(parallelWorkflow)
                 .async(true)
+                .executor(input -> {
+                    List<java.util.concurrent.CompletableFuture<WorkflowToolResult>> futures =
+                            branches.stream()
+                                    .map(tool -> java.util.concurrent.CompletableFuture
+                                            .supplyAsync(() -> tool.execute(input)))
+                                    .collect(Collectors.toList());
+
+                    Map<String, Object> merged = new LinkedHashMap<>();
+                    for (int i = 0; i < branches.size(); i++) {
+                        WorkflowTool branch = branches.get(i);
+                        WorkflowToolResult result = futures.get(i).join();
+                        if (!result.success()) {
+                            throw new WorkflowToolResult.WorkflowToolExecutionException(
+                                    "Parallel tool '" + id + "' failed at branch '" + branch.getId()
+                                    + "': " + result.error());
+                        }
+                        String key = branch.getName();
+                        if (merged.containsKey(key)) {
+                            key = key + "#" + i;
+                        }
+                        merged.put(key, result.output());
+                    }
+                    return merged;
+                })
                 .build();
+    }
+
+    /**
+     * Converts a previous tool's output into the input map of the next tool in a chain.
+     */
+    private static Map<String, Object> toInputMap(Object value) {
+        if (value == null) {
+            return Map.of();
+        }
+        if (value instanceof Map<?, ?> map) {
+            Map<String, Object> converted = new LinkedHashMap<>();
+            map.forEach((k, v) -> converted.put(String.valueOf(k), v));
+            return converted;
+        }
+        return Map.of("input", value);
     }
 
     /**

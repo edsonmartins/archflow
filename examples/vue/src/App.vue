@@ -5,6 +5,10 @@ const message = ref('');
 const response = ref('');
 const loading = ref(false);
 
+// Invocar um agente diretamente (gatilho sob demanda).
+// Endpoint real do backend: POST /archflow/agents/{agentId}/invoke
+// A invocação é ASSÍNCRONA — a resposta é um "accepted" com requestId,
+// não a resposta do agente (não há endpoint de chat/stream síncrono).
 const sendMessage = async () => {
   if (!message.value.trim()) return;
 
@@ -12,14 +16,18 @@ const sendMessage = async () => {
   response.value = '';
 
   try {
-    const res = await fetch('/api/agents/customer-service/chat', {
+    const res = await fetch('/archflow/agents/customer-service/invoke', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: message.value }),
+      body: JSON.stringify({
+        tenantId: 'default',
+        payload: { message: message.value },
+      }),
     });
 
     const data = await res.json();
-    response.value = data.response;
+    // data => { requestId, tenantId, agentId, status: "accepted" }
+    response.value = `Invocação aceita (requestId: ${data.requestId}, status: ${data.status})`;
   } catch (error) {
     response.value = 'Erro: ' + error.message;
   } finally {
@@ -62,9 +70,9 @@ const executeWorkflow = async () => {
         </div>
       </section>
 
-      <!-- Chat -->
+      <!-- Invocação de agente (assíncrona) -->
       <section class="section">
-        <h2>Chat com Agente</h2>
+        <h2>Invocar Agente (assíncrono)</h2>
         <div class="chat-container">
           <div class="chat-messages">
             <div v-if="response" class="message assistant">

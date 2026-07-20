@@ -6,7 +6,7 @@
   "dependencies": {
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "@archflow/component": "^1.0.0"
+    "@archflow/component": "file:../../archflow-ui"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.2.1",

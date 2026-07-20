@@ -82,19 +82,59 @@ public class WorkflowTool {
     }
 
     /**
-     * Creates a WorkflowTool from a workflow.
+     * Creates a WorkflowTool from a workflow, using the given executor to run it.
+     *
+     * <p>This module has no workflow engine, so it cannot derive an executor from
+     * the {@link Workflow} alone — the caller must supply one (typically a closure
+     * over a flow engine, e.g. {@code input -> flowEngine.execute(flow, input)}).
+     *
+     * @param workflow the workflow this tool represents
+     * @param executor function that actually executes the workflow
+     * @return a fully executable WorkflowTool
      */
-    public static WorkflowTool from(Workflow workflow) {
+    public static WorkflowTool from(Workflow workflow, Function<Map<String, Object>, Object> executor) {
+        Objects.requireNonNull(executor, "executor is required");
         return builder()
                 .id(workflow.getId())
                 .name(workflow.getName())
                 .description(workflow.getDescription())
                 .workflow(workflow)
+                .executor(executor)
                 .build();
     }
 
     /**
+     * Unsupported: this module has no workflow engine, so a tool created from a
+     * {@link Workflow} alone would have no way to execute it.
+     *
+     * <p>Failing here (at creation) is deliberate — it is more honest than
+     * returning a tool that only blows up when {@code execute()} is called.
+     * Use {@link #from(Workflow, Function)} and supply an executor instead.
+     *
+     * @throws UnsupportedOperationException always
+     * @deprecated use {@link #from(Workflow, Function)} with an explicit executor
+     */
+    @Deprecated
+    public static WorkflowTool from(Workflow workflow) {
+        throw new UnsupportedOperationException(
+                "WorkflowTool.from(Workflow) cannot create an executable tool: module "
+                + "archflow-workflow-tool has no workflow engine to run '" + workflow.getId()
+                + "'. Use WorkflowTool.from(workflow, executor) and supply an executor "
+                + "(e.g. a closure over your FlowEngine).");
+    }
+
+    /**
      * Executes the workflow with the given input.
+     *
+     * <p>Builder options are honored as follows:
+     * <ul>
+     *   <li>{@code timeout} — each attempt runs at most this long; on expiry the
+     *       attempt fails with a timeout error (and the underlying task is cancelled).</li>
+     *   <li>{@code maxRetries} — failed attempts (including timeouts) are re-executed
+     *       up to this many additional times; the last error is reported on exhaustion.</li>
+     *   <li>{@code async} — a hint for callers: this method is always synchronous;
+     *       tools flagged async should preferably be invoked via {@link #executeAsync(Map)}.</li>
+     * </ul>
      *
      * @param input The input parameters for the workflow
      * @return The result of the workflow execution
@@ -102,27 +142,61 @@ public class WorkflowTool {
     public WorkflowToolResult execute(Map<String, Object> input) {
         Instant start = Instant.now();
         String executionId = java.util.UUID.randomUUID().toString();
+        int maxAttempts = maxRetries + 1;
+        Exception lastError = null;
 
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                log.debug("Executing workflow tool {} (executionId: {}, attempt {}/{})",
+                        id, executionId, attempt, maxAttempts);
+
+                Object output = executeAttempt(input);
+
+                Duration duration = Duration.between(start, Instant.now());
+                log.debug("Workflow tool {} completed in {}ms", id, duration.toMillis());
+                return WorkflowToolResult.success(output, duration, executionId);
+
+            } catch (Exception e) {
+                lastError = e;
+                if (attempt < maxAttempts) {
+                    log.warn("Workflow tool {} attempt {}/{} failed: {} — retrying",
+                            id, attempt, maxAttempts, e.getMessage());
+                }
+            }
+        }
+
+        Duration duration = Duration.between(start, Instant.now());
+        log.error("Workflow tool {} failed after {}ms ({} attempt(s))",
+                id, duration.toMillis(), maxAttempts, lastError);
+
+        String message = lastError.getMessage() != null
+                ? lastError.getMessage()
+                : lastError.getClass().getSimpleName();
+        return WorkflowToolResult.failure(message, duration, executionId);
+    }
+
+    /**
+     * Runs a single execution attempt, enforcing the configured timeout (if any).
+     */
+    private Object executeAttempt(Map<String, Object> input) throws Exception {
+        if (timeout == null) {
+            return executeWorkflow(input);
+        }
+
+        java.util.concurrent.CompletableFuture<Object> future =
+                java.util.concurrent.CompletableFuture.supplyAsync(() -> executeWorkflow(input));
         try {
-            log.debug("Executing workflow tool {} (executionId: {})", id, executionId);
-
-            // Execute the workflow
-            Object output = executeWorkflow(input);
-
-            Instant end = Instant.now();
-            Duration duration = Duration.between(start, end);
-
-            log.debug("Workflow tool {} completed in {}ms", id, duration.toMillis());
-
-            return WorkflowToolResult.success(output, duration, executionId);
-
-        } catch (Exception e) {
-            Instant end = Instant.now();
-            Duration duration = Duration.between(start, end);
-
-            log.error("Workflow tool {} failed after {}ms", id, duration.toMillis(), e);
-
-            return WorkflowToolResult.failure(e.getMessage(), duration, executionId);
+            return future.get(timeout.toMillis(), java.util.concurrent.TimeUnit.MILLISECONDS);
+        } catch (java.util.concurrent.TimeoutException e) {
+            future.cancel(true);
+            throw new java.util.concurrent.TimeoutException(
+                    "Workflow tool '" + id + "' timed out after " + timeout.toMillis() + "ms");
+        } catch (java.util.concurrent.ExecutionException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof Exception ex) {
+                throw ex;
+            }
+            throw e;
         }
     }
 
@@ -271,16 +345,31 @@ public class WorkflowTool {
             return this;
         }
 
+        /**
+         * Maximum duration of a single execution attempt. Enforced by
+         * {@link WorkflowTool#execute(Map)}: on expiry the attempt fails with a
+         * timeout error and is retried if {@code maxRetries > 0}. {@code null}
+         * (default) means no timeout.
+         */
         public Builder timeout(Duration timeout) {
             this.timeout = timeout;
             return this;
         }
 
+        /**
+         * Marks this tool as preferring asynchronous invocation. This is a hint
+         * for callers ({@link WorkflowTool#execute(Map)} is always synchronous);
+         * async-flagged tools should be invoked via {@link WorkflowTool#executeAsync(Map)}.
+         */
         public Builder async(boolean async) {
             this.async = async;
             return this;
         }
 
+        /**
+         * Number of additional executions attempted by {@link WorkflowTool#execute(Map)}
+         * after a failed attempt (including timeouts). Default 0 (no retries).
+         */
         public Builder maxRetries(int maxRetries) {
             this.maxRetries = maxRetries;
             return this;
