@@ -57,6 +57,16 @@ public class WorkflowTemplateRegistry {
     }
 
     /**
+     * Removes all registered templates from this instance (mainly for testing;
+     * unlike {@link #reset()}, the next {@link #getInstance()} does not re-run
+     * SPI discovery on the same instance).
+     */
+    public void clear() {
+        templates.clear();
+        templatesByCategory.clear();
+    }
+
+    /**
      * Loads templates via ServiceLoader (SPI).
      */
     private void loadTemplates() {

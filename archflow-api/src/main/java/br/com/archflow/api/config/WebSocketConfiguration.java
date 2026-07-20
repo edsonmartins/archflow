@@ -27,12 +27,20 @@ public class WebSocketConfiguration implements WebSocketConfigurer {
 
     private final SpringRealtimeController realtimeController;
 
-    public WebSocketConfiguration(SpringRealtimeController realtimeController) {
-        this.realtimeController = realtimeController;
+    // SpringRealtimeController only exists when a RealtimeAdapter is configured
+    // (e.g. the dev profile); a hard constructor dependency would fail the boot
+    // of every profile without one, including prod.
+    public WebSocketConfiguration(
+            org.springframework.beans.factory.ObjectProvider<SpringRealtimeController> realtimeController) {
+        this.realtimeController = realtimeController.getIfAvailable();
     }
 
     @Override
     public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
+        if (realtimeController == null) {
+            log.info("No RealtimeAdapter configured; realtime WebSocket endpoint not registered");
+            return;
+        }
         registry.addHandler(delegatingHandler(), "/api/realtime/{tenantId}/{personaId}")
                 .addInterceptors(pathVariablesInterceptor())
                 .setAllowedOriginPatterns("*");

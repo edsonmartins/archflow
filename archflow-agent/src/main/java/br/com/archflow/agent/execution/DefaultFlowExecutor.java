@@ -115,12 +115,15 @@ public class DefaultFlowExecutor implements FlowExecutor {
 
     @Override
     public void handleResult(StepResult result) {
+        // Interface callers don't carry the flowId; resolution is only safe
+        // when the stepId maps to a single active flow.
+        handleResult(findScopedKey(result.getStepId()), result);
+    }
+
+    private void handleResult(String scopedKey, StepResult result) {
         String stepId = result.getStepId();
         logger.info("Processando resultado do step: " + stepId);
 
-        // Lookup uses the flow-scoped key. We search for any entry
-        // ending with ":stepId" — the flowId prefix was set in executeStep.
-        String scopedKey = findScopedKey(stepId);
         StepExecution execution = scopedKey != null ? activeExecutions.get(scopedKey) : null;
         if (execution == null) {
             // Truly unknown stepId — either never registered or already
@@ -170,13 +173,25 @@ public class DefaultFlowExecutor implements FlowExecutor {
         }
     }
 
-    /** Finds the flow-scoped key for a stepId (format "flowId:stepId"). */
+    /**
+     * Finds the flow-scoped key for a stepId (format "flowId:stepId").
+     * Fails loudly when the same stepId is active in more than one flow —
+     * picking an arbitrary match would deliver the result to the wrong flow.
+     */
     private String findScopedKey(String stepId) {
         String suffix = ":" + stepId;
+        String found = null;
         for (String key : activeExecutions.keySet()) {
-            if (key.endsWith(suffix)) return key;
+            if (key.endsWith(suffix)) {
+                if (found != null) {
+                    throw new IllegalStateException(
+                            "Ambiguous stepId=" + stepId + " active in multiple flows ("
+                            + found + ", " + key + "); use the flow-scoped dispatch path");
+                }
+                found = key;
+            }
         }
-        return null;
+        return found;
     }
 
     private void handleSuccess(StepExecution execution, StepResult result) {
@@ -264,9 +279,9 @@ public class DefaultFlowExecutor implements FlowExecutor {
                     .whenComplete((r, error) -> {
                         if (error != null) {
                             logger.severe("Erro executando step " + stepId + ": " + error.getMessage());
-                            handleResult(createErrorResult(step, error));
+                            handleResult(scopedKey, createErrorResult(step, error));
                         } else {
-                            handleResult(r);
+                            handleResult(scopedKey, r);
                         }
                     });
 

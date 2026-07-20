@@ -1,5 +1,19 @@
 import { create } from 'zustand';
 import { authApi } from '../services/api';
+import { useTenantStore, type UserRole } from './useTenantStore';
+
+/**
+ * Maps backend role names (ADMIN/DESIGNER/EXECUTOR/VIEWER, with or without
+ * ROLE_ prefix) to the UI role model. The backend has no SUPERADMIN role, so
+ * ADMIN gets full UI access.
+ */
+function mapRolesToUserRole(roles: string[]): UserRole {
+    const normalized = roles.map((r) => r.replace(/^ROLE_/i, '').toLowerCase());
+    if (normalized.includes('superadmin') || normalized.includes('admin')) return 'superadmin';
+    if (normalized.includes('tenant_admin')) return 'tenant_admin';
+    if (normalized.includes('designer') || normalized.includes('executor') || normalized.includes('editor')) return 'editor';
+    return 'viewer';
+}
 
 interface User {
     id: string;
@@ -50,6 +64,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         }
         sessionStorage.removeItem('archflow_token');
         sessionStorage.removeItem('archflow_refresh_token');
+        useTenantStore.getState().setRole('viewer');
+        sessionStorage.removeItem('archflow_role');
         set({ user: null, token: null });
     },
 
@@ -59,6 +75,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         try {
             const res = await authApi.me();
             set({ user: { ...res, name: res.username, email: res.email ?? '' }, loading: false });
+            useTenantStore.getState().setRole(mapRolesToUserRole(res.roles ?? []));
         } catch {
             set({ user: null, loading: false });
         }

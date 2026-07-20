@@ -1,0 +1,4 @@
+br.com.archflow.template.support.CustomerSupportTemplate
+br.com.archflow.template.processing.DocumentProcessingTemplate
+br.com.archflow.template.knowledge.KnowledgeBaseTemplate
+br.com.archflow.template.supervisor.AgentSupervisorTemplate

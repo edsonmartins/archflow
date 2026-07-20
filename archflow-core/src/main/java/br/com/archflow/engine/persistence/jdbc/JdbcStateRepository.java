@@ -41,7 +41,27 @@ public class JdbcStateRepository implements StateRepository {
 
     @Override
     public FlowState getState(String flowId) {
-        return getState("SYSTEM", flowId);
+        // saveState keys by the state's real tenantId; a fixed-tenant lookup
+        // here would never find flows of any tenant other than SYSTEM.
+        // flowId is unique per execution, so a cross-tenant lookup is safe.
+        String sql = "SELECT * FROM flow_states WHERE flow_id = ? ORDER BY updated_at DESC LIMIT 1";
+
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+
+            ps.setString(1, flowId);
+
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return mapRowToFlowState(rs);
+                }
+            }
+            return null;
+
+        } catch (SQLException e) {
+            logger.log(Level.SEVERE, "Erro ao recuperar estado: flow=" + flowId, e);
+            throw new RuntimeException("Failed to get flow state", e);
+        }
     }
 
     @Override

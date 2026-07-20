@@ -274,7 +274,12 @@ public class LLMProviderHub {
             case OPENAI -> openAiStreaming(config, config.getBaseUrl());
             case OPENROUTER -> openAiStreaming(config, config.getBaseUrl() != null
                     ? config.getBaseUrl() : LLMProvider.OPENROUTER.getBaseUrl());
-            case DEEPSEEK, MISTRAL -> openAiStreaming(config, config.getBaseUrl());
+            // Without an explicit default baseUrl these would hit api.openai.com,
+            // sending the DeepSeek/Mistral API key to the wrong provider.
+            case DEEPSEEK -> openAiStreaming(config, config.getBaseUrl() != null
+                    ? config.getBaseUrl() : "https://api.deepseek.com");
+            case MISTRAL -> openAiStreaming(config, config.getBaseUrl() != null
+                    ? config.getBaseUrl() : "https://api.mistral.ai/v1");
             case ANTHROPIC -> anthropicStreaming(config);
             default -> throw new IllegalArgumentException(
                     "Streaming not yet supported for " + config.getProvider().getDisplayName());
