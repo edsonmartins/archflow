@@ -249,7 +249,7 @@ public class DefaultFlowEngine implements FlowEngine {
             String flowId,
             FlowSetupSupplier supplier) {
 
-        return CompletableFuture.supplyAsync(() -> {
+        CompletableFuture<FlowResult> future = CompletableFuture.supplyAsync(() -> {
             boolean permitAcquired = false;
             long startMs = System.currentTimeMillis();
             try {
@@ -309,6 +309,22 @@ public class DefaultFlowEngine implements FlowEngine {
                 }
             }
         }, virtualExecutor).orTimeout(flowTimeoutMs, TimeUnit.MILLISECONDS);
+
+        // orTimeout completa a future, mas a virtual thread continuaria
+        // executando o fluxo segurando o permit do semáforo. Sinaliza o
+        // cancelamento cooperativo para a travessia parar e o finally da
+        // task liberar o permit.
+        future.whenComplete((r, err) -> {
+            if (err instanceof java.util.concurrent.TimeoutException) {
+                try {
+                    executionManager.stopFlow(flowId);
+                } catch (Exception ex) {
+                    logger.warning("Failed to signal stop after flow timeout: " + flowId
+                            + " - " + ex.getMessage());
+                }
+            }
+        });
+        return future;
     }
 
     @FunctionalInterface

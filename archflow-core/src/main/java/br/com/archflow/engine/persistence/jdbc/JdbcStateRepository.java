@@ -172,12 +172,20 @@ public class JdbcStateRepository implements StateRepository {
 
     @SuppressWarnings("unchecked")
     private FlowState mapRowToFlowState(ResultSet rs) throws SQLException {
+        // metrics/error são reconstruídos com degradação graciosa (fromJson
+        // devolve null com warning se o payload não desserializar); antes eram
+        // simplesmente descartados na leitura. executionPaths não tem coluna
+        // no schema atual (V1) e segue não-persistido.
         return FlowState.builder()
                 .tenantId(rs.getString("tenant_id"))
                 .flowId(rs.getString("flow_id"))
                 .status(FlowStatus.valueOf(rs.getString("status")))
                 .currentStepId(rs.getString("current_step_id"))
                 .variables(fromJson(rs.getString("variables"), Map.class))
+                .metrics(fromJson(rs.getString("metrics"),
+                        br.com.archflow.model.flow.FlowMetrics.class))
+                .error(fromJson(rs.getString("error"),
+                        br.com.archflow.model.error.ExecutionError.class))
                 .build();
     }
 
@@ -186,8 +194,11 @@ public class JdbcStateRepository implements StateRepository {
         try {
             return objectMapper.writeValueAsString(obj);
         } catch (Exception e) {
-            logger.log(Level.WARNING, "Erro ao serializar para JSON", e);
-            return null;
+            // Gravar null silenciosamente faria variáveis sumirem do estado
+            // durável; falha alto para o chamador decidir (o engine loga e
+            // não derruba o fluxo).
+            throw new IllegalStateException(
+                    "Estado do fluxo contém valor não serializável para JSON: " + e.getMessage(), e);
         }
     }
 

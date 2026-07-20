@@ -77,12 +77,16 @@ Módulos: `archflow-agent`, `archflow-core`, `archflow-model`.
       (hoje `resumeFlow` reexecuta o fluxo inteiro → efeitos colaterais duplicados). — **M**
 - [ ] **1.10** [A] Retry real no executor honrando `AgentConfig.retryConfig`/`RetryPolicy`
       (aceitos e nunca aplicados; o único retry existente é o do `FuncAgentExecutor`). — **M**
-- [ ] **1.11** [M] Timeout de fluxo deve cancelar a execução e liberar permit do `flowSemaphore` +
+- [x] **1.11** [M] Timeout de fluxo deve cancelar a execução e liberar permit do `flowSemaphore` +
       `activeExecutions` (`DefaultFlowEngine.java:310` — hoje `orTimeout` vaza a thread e o permit). — **M**
-- [ ] **1.12** [M] Métricas atômicas: `DefaultExecutionContext.addStepMetrics` (linhas 157-164) faz
+      *(feito 2026-07-20: whenComplete no timeout sinaliza stopFlow → cancel cooperativo → finally libera o permit)*
+- [x] **1.12** [M] Métricas atômicas: `DefaultExecutionContext.addStepMetrics` (linhas 157-164) faz
       `+=` não-atômico em contexto compartilhado por steps paralelos. — **S**
-- [ ] **1.13** [M] `JdbcStateRepository`: round-trip completo do `FlowState` (hoje `mapRowToFlowState`
+      *(feito 2026-07-20: addStepMetrics sincronizado)*
+- [x] **1.13** [M] `JdbcStateRepository`: round-trip completo do `FlowState` (hoje `mapRowToFlowState`
       descarta metrics/error/executionPaths; `toJson` engole erro de serialização gravando null). — **S**
+      *(feito 2026-07-20: metrics/error reconstruídos na leitura; toJson falha alto em valor não
+      serializável. executionPaths segue sem coluna no schema V1 — entra com 1.9 se necessário)*
 - [ ] **1.14** [M] Completar as 5 validações vazias do `DefaultFlowValidator.java:212-230`
       (chain/agent/tool config, connections, condition). — **M**
 - [~] **1.15** [B] Testes E2E de grafo cobrindo o que as fixtures atuais evitam: fluxos **com conexões**,
