@@ -43,12 +43,21 @@ RUN mvn clean package -DskipTests -B
 # ---- Stage 2: Build frontend ----
 FROM node:18-alpine AS frontend-build
 
+# archflow-ui é um projeto pnpm: existe apenas pnpm-lock.yaml, NÃO há
+# package-lock.json. `npm ci` falha aqui ("lock file not found"), por isso o
+# build usa pnpm — a mesma combinação (pnpm 9 + Node 18) do job `frontend`
+# em .github/workflows/ci.yml.
+RUN corepack enable && corepack prepare pnpm@9 --activate
+
 WORKDIR /app
-COPY archflow-ui/package*.json ./
-RUN npm ci
+
+# Manifesto + lockfile primeiro, para cachear a camada de dependências.
+COPY archflow-ui/package.json archflow-ui/pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
+
 COPY archflow-ui/ .
-# `npm run build` gera o SPA em dist-app/ (o web-component é `build:component`)
-RUN npm run build
+# `pnpm run build` gera o SPA em dist-app/ (o web-component é `build:component`)
+RUN pnpm run build
 
 # ---- Stage 3: Runtime ----
 FROM eclipse-temurin:25-jre-alpine
