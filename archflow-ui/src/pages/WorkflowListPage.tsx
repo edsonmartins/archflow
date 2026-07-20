@@ -11,6 +11,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useWorkflowStore } from '../stores/workflow-store';
+import { workflowApi } from '../services/api';
 import { clickableRow } from '../components/DataTable';
 import { OptionCard } from '../components/OptionCard';
 
@@ -44,6 +45,11 @@ export default function WorkflowListPage() {
     }, [search, workflows]);
 
     const handleDelete = async () => { if (deleteId) { await deleteWorkflow(deleteId); setDeleteId(null); } };
+
+    const handleToggleStatus = async (id: string, currentStatus: string) => {
+        await workflowApi.setStatus(id, currentStatus === 'active' ? 'draft' : 'active');
+        await fetchWorkflows();
+    };
     const handleExecute = async (id: string) => { try { const eid = await executeWorkflow(id); navigate(`/executions?id=${eid}`); } catch { /* surfaced via store error state */ } };
 
     // Creation offers three paths (modal): blank canvas, template gallery,
@@ -187,6 +193,20 @@ export default function WorkflowListPage() {
                                             onClick={() => navigate(`/editor/${w.id}`)}
                                         >
                                             <IconPencil size={16} />
+                                        </ActionIcon>
+                                    </Tooltip>
+                                    <Tooltip label={w.status === 'active'
+                                        ? t('workflows.actions.deactivate', 'Voltar para rascunho')
+                                        : t('workflows.actions.activate', 'Ativar')}>
+                                        <ActionIcon
+                                            variant="subtle"
+                                            color={w.status === 'active' ? 'yellow' : 'teal'}
+                                            aria-label={w.status === 'active'
+                                                ? t('workflows.actions.deactivate', 'Voltar para rascunho')
+                                                : t('workflows.actions.activate', 'Ativar')}
+                                            onClick={() => void handleToggleStatus(w.id, w.status)}
+                                        >
+                                            {w.status === 'active' ? <IconPlayerPause size={16} /> : <IconRobot size={16} />}
                                         </ActionIcon>
                                     </Tooltip>
                                     <Tooltip label={t('workflows.actions.delete')}>

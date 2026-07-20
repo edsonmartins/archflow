@@ -76,6 +76,9 @@ class JdbcPersistenceConfigurationTest {
                             .isInstanceOf(br.com.archflow.conversation.persistence.jdbc.JdbcConversationRepository.class);
                     assertThat(ctx.getBean(br.com.archflow.conversation.prompt.PromptRegistry.class))
                             .isInstanceOf(br.com.archflow.conversation.persistence.jdbc.JdbcPromptRegistry.class);
+                    // Config admin durável (modelos/planos/toggles).
+                    assertThat(ctx.getBean(br.com.archflow.api.admin.store.GlobalConfigStore.class))
+                            .isInstanceOf(br.com.archflow.api.admin.store.JdbcGlobalConfigStore.class);
                 });
     }
 

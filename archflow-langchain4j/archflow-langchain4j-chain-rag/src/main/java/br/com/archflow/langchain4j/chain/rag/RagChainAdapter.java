@@ -1,5 +1,6 @@
 package br.com.archflow.langchain4j.chain.rag;
 
+import br.com.archflow.langchain4j.core.spi.ChatModelProvider;
 import br.com.archflow.langchain4j.core.spi.LangChainAdapter;
 import br.com.archflow.langchain4j.core.spi.LangChainAdapterFactory;
 import br.com.archflow.langchain4j.core.spi.LangChainRegistry;
@@ -157,15 +158,40 @@ public class RagChainAdapter implements LangChainAdapter {
         // Obtém language model
         LangChainAdapter languageModelAdapter = LangChainRegistry.createAdapter(
                 (String) properties.get("languagemodel.provider"), "chat", properties);
-        if (!(languageModelAdapter instanceof ChatModel)) {
-            throw new IllegalStateException("Provider " + properties.get("languagemodel.provider") + " does not return a ChatModel");
-        }
-        ChatModel languageModel = (ChatModel) languageModelAdapter;
+        ChatModel languageModel = resolveChatModel(
+                languageModelAdapter, (String) properties.get("languagemodel.provider"));
 
         // Configura a chain
         this.chain = ConversationalChain.builder()
                 .chatModel(languageModel)
                 .build();
+    }
+
+    /**
+     * Resolve o {@link ChatModel} a partir do adapter retornado pelo registry.
+     *
+     * <p>Aceita duas formas de expor o modelo:
+     * <ul>
+     *   <li>{@link ChatModelProvider} (preferido) — o adapter encapsula o modelo
+     *       e o expõe via {@link ChatModelProvider#getChatModel()};</li>
+     *   <li>{@link ChatModel} direto — retrocompatibilidade com adapters que
+     *       implementam a interface do LangChain4j.</li>
+     * </ul>
+     *
+     * @param adapter  adapter criado pelo registry para o tipo {@code chat}
+     * @param provider nome do provider (para mensagens de erro)
+     * @return o modelo de chat configurado
+     * @throws IllegalStateException se o adapter não expõe um {@code ChatModel}
+     */
+    static ChatModel resolveChatModel(LangChainAdapter adapter, String provider) {
+        if (adapter instanceof ChatModelProvider chatModelProvider) {
+            return chatModelProvider.getChatModel();
+        }
+        if (adapter instanceof ChatModel chatModel) {
+            return chatModel;
+        }
+        throw new IllegalStateException("Provider " + provider
+                + " does not expose a ChatModel (adapter must implement ChatModelProvider or ChatModel)");
     }
 
     /**

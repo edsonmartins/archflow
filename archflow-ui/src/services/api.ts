@@ -99,6 +99,8 @@ export const api = {
         request<T>(path, { method: 'POST', body: body ? JSON.stringify(body) : undefined }),
     put: <T>(path: string, body?: unknown) =>
         request<T>(path, { method: 'PUT', body: body ? JSON.stringify(body) : undefined }),
+    patch: <T>(path: string, body?: unknown) =>
+        request<T>(path, { method: 'PATCH', body: body ? JSON.stringify(body) : undefined }),
     delete: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
 };
 
@@ -140,6 +142,8 @@ export const workflowApi = {
     create: (workflow: Partial<WorkflowDetail>) => api.post<WorkflowDetail>('/workflows', workflow),
     update: (id: string, workflow: Partial<WorkflowDetail>) => api.put<WorkflowDetail>(`/workflows/${id}`, workflow),
     delete: (id: string) => api.delete(`/workflows/${id}`),
+    setStatus: (id: string, status: 'draft' | 'active' | 'archived') =>
+        api.patch<WorkflowDetail>(`/workflows/${id}/status`, { status }),
     execute: (id: string, input?: Record<string, unknown>) =>
         api.post<{ executionId: string; status: string }>(`/workflows/${id}/execute`, input),
 };

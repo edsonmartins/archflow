@@ -133,8 +133,9 @@ Módulos: `archflow-api`, `archflow-standalone`, deploy.
       *(feito 2026-07-20: interface WorkflowRuntimeStore extraída; JdbcWorkflowRuntimeStore +
       migração V6_3 (workflow_documents/workflow_executions); guard promovido a blocker para o
       in-memory; todos os consumidores migrados para a interface)*
-- [ ] **2.5** [M] Persistir config admin (catálogo de modelos, toggles, plan defaults — hoje in-memory
+- [x] **2.5** [M] Persistir config admin (catálogo de modelos, toggles, plan defaults — hoje in-memory
       em `GlobalConfigControllerImpl:32-46`, revertem no restart). — **M**
+      *(feito 2026-07-20: GlobalConfigStore (in-memory default + JdbcGlobalConfigStore, migração V6_4); warnIfPresent no guard)*
 - [x] **2.6** [A] docker-compose de homologação subindo com perfil `prod` + Postgres + smoke test de
       boot (o compose atual usa `dev` e não exercita a persistência durável). — **M**
       *(feito 2026-07-20: docker-compose.prod.yml com perfil prod, ARCHFLOW_JWT_SECRET obrigatório
@@ -176,20 +177,26 @@ Módulos: `archflow-api`, `archflow-standalone`, deploy.
       *(feito 2026-07-20: `vite build` → SPA em dist-app/ (Dockerfile serve); `vite build --mode
       component` → lib em dist/ (empacotamento npm preservado). Follow-up: fallback de rota SPA no
       Spring para deep links — refresh em /workflows/x dará 404 no static serving puro)*
-- [ ] **4.3** [B] Chat de conversas (conforme 0.4): o front conecta em `GET /api/stream/{tenant}/{session}`
+- [x] **4.3** [B] Chat de conversas (conforme 0.4): o front conecta em `GET /api/stream/{tenant}/{session}`
       que **não existe** no backend, e `POST /conversations/{id}/messages` só persiste sem disparar
       agente → spinner eterno. Implementar endpoint SSE + pipeline de resposta, ou ocultar a tela. — **L** / **S**
-- [ ] **4.4** [M] Não há caminho na UI para **criar** conversa (lista só navega). — **S**
-- [ ] **4.5** [A] Com auth ligada: `HttpAgent` do CopilotKit chama `/ag-ui/agent` sem `Authorization`
+      *(feito 2026-07-20: SpringStreamController (SSE em /api/stream/{tenant}/{session}, envelope do event-stream.ts) + ConversationReplyService (LLM via LLMConfigResolver, eventos chat/start|message|end|error, persistência da resposta))*
+- [x] **4.4** [M] Não há caminho na UI para **criar** conversa (lista só navega). — **S**
+      *(feito 2026-07-20: POST /api/conversations + botão "Nova conversa" na lista)*
+- [x] **4.5** [A] Com auth ligada: `HttpAgent` do CopilotKit chama `/ag-ui/agent` sem `Authorization`
       (`AppLayout.tsx:87`) e o WebSocket de voz usa `/api/realtime/...` fora dos `publicPaths`
       (`JwtAuthenticationFilter.java:147-155`) → 401 em Copilot, "Gerar com IA" e voz.
       Enviar token e/ou corrigir a autenticação desses canais. — **M**
-- [ ] **4.6** [M] Ciclo de vida de workflow: backend fixa `status: "draft"` e não há ação de ativação —
+      *(feito 2026-07-20: Copilot injeta o token atual por chamada (authFetch); WS de voz autentica por token em query param validado no handshake — /api/realtime/ fora do filtro JWT com gate real no interceptor)*
+- [x] **4.6** [M] Ciclo de vida de workflow: backend fixa `status: "draft"` e não há ação de ativação —
       card "Ativos" do dashboard eternamente 0. Implementar draft→active (back + front). — **M**
-- [ ] **4.7** [M] `ApprovalDetailPage.tsx:39` usa o objeto `TenantInfo` inteiro como tenantId
+      *(feito 2026-07-20: PATCH /api/workflows/{id}/status (draft|active|archived) + toggle na lista; auditado)*
+- [x] **4.7** [M] `ApprovalDetailPage.tsx:39` usa o objeto `TenantInfo` inteiro como tenantId
       (`[object Object]`); `agent-playground-api.ts:44` depende de normalização de `/../` no path. — **S**
-- [ ] **4.8** [M] `LiveEventsPage` (`/admin/observability/live`) usa o mesmo stream inexistente do 4.3 —
+      *(feito 2026-07-20: impersonating?.id e paths absolutos /archflow/* no playground)*
+- [x] **4.8** [M] `LiveEventsPage` (`/admin/observability/live`) usa o mesmo stream inexistente do 4.3 —
       resolver junto. — **S**
+      *(feito 2026-07-20: resolvido pelo SpringStreamController — mesmo endpoint)*
 
 ## Fase 5 — Segurança
 
@@ -210,18 +217,22 @@ Módulos: `archflow-api`, `archflow-standalone`, deploy.
       aleatório de 192 bits (CSPRNG), onde dicionário/rainbow são inviáveis e um KDF caro
       adicionaria ~100ms a cada request autenticado; SHA-256 é a prática de GitHub/Stripe para
       tokens de API. BCrypt permanece onde pertence: senhas humanas no PasswordService)*
-- [ ] **5.4** [A] Enforcement de superadmin no `GlobalConfigController` (o Javadoc exige, o código não
+- [x] **5.4** [A] Enforcement de superadmin no `GlobalConfigController` (o Javadoc exige, o código não
       tem): ligar o `PermissionAspect`/`@RequiresPermission` do archflow-security — hoje o aspecto
       não é aplicado em nenhum controller. — **M**
-- [ ] **5.5** [A] Remover os dados mockados hardcoded de `getAuditLog`/`getUsageByTenant`/`exportUsageCsv`
+      *(feito 2026-07-20: AdminRoleInterceptor exige ADMIN/superadmin em /api/admin/global/** e /api/admin/tenants/**; bypass só com auth desligada (dev); 403 JSON)*
+- [x] **5.5** [A] Remover os dados mockados hardcoded de `getAuditLog`/`getUsageByTenant`/`exportUsageCsv`
       (`GlobalConfigControllerImpl.java:88-123` — "Acme Corp", "Demo Trial"): ligar ao
       `JdbcAuditRepository` e a agregação real de uso. — **M**
-- [ ] **5.6** [A] Instrumentar produtores de `AuditEvent`: o `JdbcAuditRepository` existe mas **nenhum
+      *(feito 2026-07-20: getAuditLog lê do AuditRepository real; usage/CSV vazios — "Acme Corp"/"Demo Trial" removidos)*
+- [x] **5.6** [A] Instrumentar produtores de `AuditEvent`: o `JdbcAuditRepository` existe mas **nenhum
       código grava evento** — a trilha de auditoria fica eternamente vazia. Cobrir operações
       críticas (login, CRUD de workflow, execução, config admin, API keys). — **M**
-- [ ] **5.7** [M] CORS: default de prod utilizável (env documentada), restringir
+      *(feito 2026-07-20: AuditTrail central (no-op sem repo) gravando login, CRUD/execute de workflow, API keys, tenants e config global)*
+- [x] **5.7** [M] CORS: default de prod utilizável (env documentada), restringir
       `setAllowedOriginPatterns("*")` do WS (`WebSocketConfiguration.java:37`), e remover ou ligar a
       `CorsConfiguration` morta do archflow-security. — **S**
+      *(feito 2026-07-20: headers CORS explícitos; WS usa a property de origins em vez de "*"; CorsConfiguration morta do archflow-security deletada)*
 - [x] **5.8** [M] `ImpersonationFilter.java:100-107`: "sem roles = pode impersonar" — inverter para negar. — **S**
       *(feito 2026-07-20: sem roles no request → nega; ADMIN/superadmin permitidos)*
 - [x] **5.9** [A] `LLMProviderHub.java:277`: streaming DeepSeek/Mistral sem baseUrl default cai no
@@ -231,33 +242,42 @@ Módulos: `archflow-api`, `archflow-standalone`, deploy.
 
 ## Fase 6 — Adapters LangChain4j
 
-- [ ] **6.1** [A] Provider Hub conforme 0.1: corrigir reflexão de Gemini
+- [x] **6.1** [A] Provider Hub conforme 0.1: corrigir reflexão de Gemini
       (`GoogleAiGeminiChatModel`), Bedrock (classe + modelId/região/credenciais), Watsonx, Vertex;
       remover os falsos "OpenAI-compatible"; alinhar `LLMProvider.supportsStreaming` com o que
       `createStreamingModel` implementa; propagar a causa real nos erros de reflexão. — **L**
-- [ ] **6.2** [B] `RagChainAdapter.java:160` exige `ChatModel`, que nenhum chat adapter implementa —
+      *(feito 2026-07-20: 16 providers com builders tipados (sem reflexão) — deps oficiais 1.12.2 p/ Gemini/Bedrock/Watsonx/Vertex/HuggingFace; endpoints compat corrigidos (Cohere/Qianfan/Hunyuan); supportsStreaming honesto; erros com causa real. Validação "correto por construção" — sem credenciais reais)*
+- [x] **6.2** [B] `RagChainAdapter.java:160` exige `ChatModel`, que nenhum chat adapter implementa —
       RAG inutilizável para 100% das combinações. Expor o `ChatModel` interno dos adapters
       (ex.: interface `ChatModelProvider`) ou construir a partir do config. — **M**
-- [ ] **6.3** [A] Vector stores: Redis ignora `request.filter()` silenciosamente (vazamento entre
+      *(feito 2026-07-20: interface ChatModelProvider no core SPI; adapters a implementam; RagChainAdapter aceita — teste de composição prova o configure que antes falhava)*
+- [x] **6.3** [A] Vector stores: Redis ignora `request.filter()` silenciosamente (vazamento entre
       tenants/coleções) e retorna o embedding da query como embedding do match; pgvector não persiste
       metadados mas gera `WHERE chave = valor` tratando chave como coluna (SQLException sempre);
       Pinecone só persiste `text`. Implementar filtros reais (JSONB no pgvector; RediSearch ou filtro
       pós-busca no Redis) e migrar `KEYS`→`SCAN`. — **L**
-- [ ] **6.4** [A] MCP stdio (`StdioClientTransport`): consumir stderr do subprocesso (deadlock com
+      *(feito 2026-07-20: MetadataFilterEvaluator compartilhado no core; Redis com SCAN+filtro+embedding real; pgvector com coluna metadata (ALTER IF NOT EXISTS) e filtro em memória com oversampling; Pinecone com metadados completos)*
+- [x] **6.4** [A] MCP stdio (`StdioClientTransport`): consumir stderr do subprocesso (deadlock com
       ~64KB de log), timeout em `sendRequest`, completar exceptionalmente os `pendingRequests` em
       EOF/morte do processo (hoje `.get()` pendura para sempre). — **M**
-- [ ] **6.5** [M] Memória Redis/JDBC rejeita `SystemMessage`/`ToolExecutionResultMessage`
+      *(feito 2026-07-20: stderr drenado em thread daemon; pendingRequests completados em EOF; timeout 30s configurável com CAS anti-race)*
+- [x] **6.5** [M] Memória Redis/JDBC rejeita `SystemMessage`/`ToolExecutionResultMessage`
       (`RedisMemoryAdapter.serializeMessage:139`, `JdbcMemoryAdapter:88`) — histórico agentic com
       tools quebra no persist. — **S**
-- [ ] **6.6** [M] Pinecone: `remove` usa `DELETE ?id=` em vez de `POST /vectors/delete` com body
+      *(feito 2026-07-20: SystemMessage/ToolExecutionResultMessage/AiMessage+toolRequests nos dois adapters, com retrocompat)*
+- [x] **6.6** [M] Pinecone: `remove` usa `DELETE ?id=` em vez de `POST /vectors/delete` com body
       `{"ids":[...]}`; cast `(Double) score` quebra com score inteiro. — **S**
-- [ ] **6.7** [M] Chat adapters serializam toda chamada HTTP sob `ReentrantLock` (ex.:
+      *(feito 2026-07-20: POST /vectors/delete com body; score/values via Number)*
+- [x] **6.7** [M] Chat adapters serializam toda chamada HTTP sob `ReentrantLock` (ex.:
       `OpenAiChatAdapter.execute:148`) — paralelismo vira fila. Restringir o lock à
       configuração, não à chamada. — **S**
-- [ ] **6.8** [M] Limpar duplicatas mortas: `OpenAiAdapterFactory` (não registrada) vs
+      *(feito 2026-07-20: modelo em referência volátil, rede fora do lock nos 4 adapters)*
+- [x] **6.8** [M] Limpar duplicatas mortas: `OpenAiAdapterFactory` (não registrada) vs
       `OpenAiChatAdapterFactory`; `package-info` do chain-rag copiado no módulo anthropic. — **S**
-- [ ] **6.9** [M] `LLMProviderHub.withProvider` (linhas 640-664) muta config global sem sincronização
+      *(feito 2026-07-20: OpenAiAdapterFactory e package-info copiado deletados)*
+- [x] **6.9** [M] `LLMProviderHub.withProvider` (linhas 640-664) muta config global sem sincronização
       — chamadas concorrentes usam provider errado. — **S**
+      *(feito 2026-07-20: withProvider com override thread-local — config compartilhado nunca é mutado)*
 
 ## Fase 7 — Satélites: integrar ou despublicar (conforme 0.2)
 

@@ -3,7 +3,11 @@ package br.com.archflow.langchain4j.memory.redis;
 import br.com.archflow.langchain4j.core.spi.LangChainAdapter;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.AiMessage;
+import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.SystemMessage;
+import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import dev.langchain4j.data.message.UserMessage;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -300,6 +304,117 @@ class RedisMemoryAdapterTest {
             var parsed = objectMapper.readTree(json);
 
             assertThat(parsed.get("content").asText()).isEqualTo(unicodeContent);
+        }
+    }
+
+    @Nested
+    @DisplayName("serializeMessage / deserializeMessage round-trip")
+    class MessageRoundTrip {
+
+        private final RedisMemoryAdapter adapter = new RedisMemoryAdapter();
+
+        private ChatMessage roundTrip(ChatMessage message) throws Exception {
+            return adapter.deserializeMessage(adapter.serializeMessage(message));
+        }
+
+        @Test
+        @DisplayName("UserMessage round-trips")
+        void userMessage() throws Exception {
+            var result = roundTrip(UserMessage.from("hello"));
+
+            assertThat(result).isInstanceOf(UserMessage.class);
+            assertThat(((UserMessage) result).singleText()).isEqualTo("hello");
+        }
+
+        @Test
+        @DisplayName("plain AiMessage round-trips")
+        void plainAiMessage() throws Exception {
+            var result = roundTrip(AiMessage.from("the answer"));
+
+            assertThat(result).isInstanceOf(AiMessage.class);
+            assertThat(((AiMessage) result).text()).isEqualTo("the answer");
+            assertThat(((AiMessage) result).hasToolExecutionRequests()).isFalse();
+        }
+
+        @Test
+        @DisplayName("SystemMessage round-trips")
+        void systemMessage() throws Exception {
+            var result = roundTrip(SystemMessage.from("you are a helpful agent"));
+
+            assertThat(result).isInstanceOf(SystemMessage.class);
+            assertThat(((SystemMessage) result).text()).isEqualTo("you are a helpful agent");
+        }
+
+        @Test
+        @DisplayName("ToolExecutionResultMessage round-trips")
+        void toolExecutionResultMessage() throws Exception {
+            var original = new ToolExecutionResultMessage("call-1", "get_weather", "{\"temp\":22}");
+
+            var result = roundTrip(original);
+
+            assertThat(result).isInstanceOf(ToolExecutionResultMessage.class);
+            var toolResult = (ToolExecutionResultMessage) result;
+            assertThat(toolResult.id()).isEqualTo("call-1");
+            assertThat(toolResult.toolName()).isEqualTo("get_weather");
+            assertThat(toolResult.text()).isEqualTo("{\"temp\":22}");
+        }
+
+        @Test
+        @DisplayName("AiMessage with tool execution requests round-trips")
+        void aiMessageWithToolRequests() throws Exception {
+            var request = ToolExecutionRequest.builder()
+                    .id("call-1")
+                    .name("get_weather")
+                    .arguments("{\"city\":\"Curitiba\"}")
+                    .build();
+            var original = AiMessage.from(java.util.List.of(request));
+
+            var result = roundTrip(original);
+
+            assertThat(result).isInstanceOf(AiMessage.class);
+            var ai = (AiMessage) result;
+            assertThat(ai.hasToolExecutionRequests()).isTrue();
+            assertThat(ai.toolExecutionRequests()).hasSize(1);
+            var restored = ai.toolExecutionRequests().get(0);
+            assertThat(restored.id()).isEqualTo("call-1");
+            assertThat(restored.name()).isEqualTo("get_weather");
+            assertThat(restored.arguments()).isEqualTo("{\"city\":\"Curitiba\"}");
+        }
+
+        @Test
+        @DisplayName("AiMessage with text AND tool requests round-trips")
+        void aiMessageWithTextAndToolRequests() throws Exception {
+            var request = ToolExecutionRequest.builder()
+                    .id("call-2")
+                    .name("search")
+                    .arguments("{\"q\":\"archflow\"}")
+                    .build();
+            var original = AiMessage.from("Let me check.", java.util.List.of(request));
+
+            var result = roundTrip(original);
+
+            var ai = (AiMessage) result;
+            assertThat(ai.text()).isEqualTo("Let me check.");
+            assertThat(ai.toolExecutionRequests()).hasSize(1);
+            assertThat(ai.toolExecutionRequests().get(0).name()).isEqualTo("search");
+        }
+
+        @Test
+        @DisplayName("legacy JSON (old format, type+content only) still deserializes")
+        void legacyFormatBackwardCompatible() throws Exception {
+            var user = adapter.deserializeMessage("{\"type\":\"user\",\"content\":\"old user\"}");
+            var ai = adapter.deserializeMessage("{\"type\":\"ai\",\"content\":\"old ai\"}");
+
+            assertThat(((UserMessage) user).singleText()).isEqualTo("old user");
+            assertThat(((AiMessage) ai).text()).isEqualTo("old ai");
+        }
+
+        @Test
+        @DisplayName("unknown type throws")
+        void unknownTypeThrows() {
+            assertThatThrownBy(() -> adapter.deserializeMessage("{\"type\":\"weird\",\"content\":\"x\"}"))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("weird");
         }
     }
 

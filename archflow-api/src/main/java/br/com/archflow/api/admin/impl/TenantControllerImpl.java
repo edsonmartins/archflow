@@ -3,6 +3,8 @@ package br.com.archflow.api.admin.impl;
 import br.com.archflow.api.admin.TenantController;
 import br.com.archflow.api.admin.dto.TenantDto;
 import br.com.archflow.api.admin.dto.TenantDto.*;
+import br.com.archflow.api.audit.AuditTrail;
+import br.com.archflow.observability.audit.AuditAction;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -16,6 +18,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public class TenantControllerImpl implements TenantController {
     private static final Logger log = LoggerFactory.getLogger(TenantControllerImpl.class);
     private final Map<String, TenantDto> tenants = new ConcurrentHashMap<>();
+    private volatile AuditTrail auditTrail = AuditTrail.noop();
 
     /** No-arg constructor seeds demo tenants — used by tests / dev profile. */
     public TenantControllerImpl() {
@@ -34,6 +37,13 @@ public class TenantControllerImpl implements TenantController {
             var usage = new TenantUsageDto(340, 4_200_000, 12, 5);
             tenants.put("tenant_rio_quality", new TenantDto("tenant_rio_quality", "Rio Quality", "enterprise", "active",
                     "admin@rioquality.com.br", "Food Distribution", limits, usage, limits.allowedModels(), "2025-06"));
+        }
+    }
+
+    /** Audit event producer (tenant lifecycle) — optional, no-op default. */
+    public void setAuditTrail(AuditTrail auditTrail) {
+        if (auditTrail != null) {
+            this.auditTrail = auditTrail;
         }
     }
 
@@ -63,6 +73,8 @@ public class TenantControllerImpl implements TenantController {
                 request.allowedModels() != null ? request.allowedModels() : List.of(),
                 Instant.now().toString().substring(0, 7));
         tenants.put(request.tenantId(), tenant);
+        auditTrail.record(AuditAction.CREATE, "tenant", request.tenantId(), true, null,
+                Map.of("name", String.valueOf(request.name()), "plan", String.valueOf(request.plan())));
         return tenant;
     }
 
@@ -102,6 +114,7 @@ public class TenantControllerImpl implements TenantController {
                     update.allowedModels() != null ? update.allowedModels() : existing.allowedModels(),
                     existing.createdAt());
         });
+        auditTrail.record(AuditAction.UPDATE, "tenant", tenantId, true, null, null);
         return updated;
     }
 
@@ -113,6 +126,8 @@ public class TenantControllerImpl implements TenantController {
             return new TenantDto(t.id(), t.name(), t.plan(), "suspended",
                     t.adminEmail(), t.sector(), t.limits(), t.usage(), t.allowedModels(), t.createdAt());
         });
+        auditTrail.record(AuditAction.UPDATE, "tenant", tenantId, true, null,
+                Map.of("status", "suspended"));
     }
 
     @Override
@@ -123,11 +138,14 @@ public class TenantControllerImpl implements TenantController {
             return new TenantDto(t.id(), t.name(), t.plan(), "active",
                     t.adminEmail(), t.sector(), t.limits(), t.usage(), t.allowedModels(), t.createdAt());
         });
+        auditTrail.record(AuditAction.UPDATE, "tenant", tenantId, true, null,
+                Map.of("status", "active"));
     }
 
     @Override
     public void deleteTenant(String tenantId) {
         log.info("Deleting tenant: {}", tenantId);
         tenants.remove(tenantId);
+        auditTrail.record(AuditAction.DELETE, "tenant", tenantId, true, null, null);
     }
 }

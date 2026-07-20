@@ -13,6 +13,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -232,6 +233,106 @@ class StdioClientTransportTest {
             t.start();
             assertThat(errorLatch.await(3, TimeUnit.SECONDS)).isTrue();
             assertThat(error.get()).isInstanceOf(IOException.class);
+        } finally {
+            t.stop();
+        }
+    }
+
+    @Test
+    @DisplayName("pending requests fail with 'process terminated' when server dies (EOF)")
+    void pendingRequestsFailOnProcessDeath() throws Exception {
+        // Server reads one line and exits without ever answering.
+        Path dyingScript = tempDir.resolve("dying.sh");
+        Files.writeString(dyingScript, """
+                #!/bin/sh
+                read -r line
+                exit 0
+                """);
+        Files.setPosixFilePermissions(dyingScript, Set.copyOf(
+                java.nio.file.attribute.PosixFilePermissions.fromString("rwxr-xr-x")));
+
+        StdioClientTransport t = new StdioClientTransport(dyingScript.toString());
+        try {
+            t.start();
+            CompletableFuture<JsonRpc.Response> future =
+                    t.sendRequest(JsonRpc.Request.create("tools/list", Map.of()));
+
+            assertThatThrownBy(() -> future.get(3, TimeUnit.SECONDS))
+                    .isInstanceOf(ExecutionException.class)
+                    .hasCauseInstanceOf(IOException.class)
+                    .hasMessageContaining("MCP server process terminated");
+        } finally {
+            t.stop();
+        }
+    }
+
+    @Test
+    @DisplayName("sendRequest times out with TimeoutException when server never answers")
+    void sendRequestTimesOut() throws Exception {
+        // The echo script answers with a Request (same method echoed back),
+        // never with a Response — the pending future can only time out.
+        StdioClientTransport t = new StdioClientTransport(echoScript.toString());
+        t.setRequestTimeout(Duration.ofMillis(300));
+        try {
+            t.start();
+            CompletableFuture<JsonRpc.Response> future =
+                    t.sendRequest(JsonRpc.Request.create("tools/list", Map.of()));
+
+            assertThatThrownBy(() -> future.get(3, TimeUnit.SECONDS))
+                    .isInstanceOf(ExecutionException.class)
+                    .hasCauseInstanceOf(TimeoutException.class)
+                    .hasMessageContaining("timed out");
+            // Transport keeps working after a timeout.
+            assertThat(t.isActive()).isTrue();
+        } finally {
+            t.stop();
+        }
+    }
+
+    @Test
+    @DisplayName("setRequestTimeout rejects null, zero and negative values")
+    void setRequestTimeoutValidation() {
+        StdioClientTransport t = new StdioClientTransport("cat");
+        assertThatThrownBy(() -> t.setRequestTimeout(null))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> t.setRequestTimeout(Duration.ZERO))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> t.setRequestTimeout(Duration.ofSeconds(-1)))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    @DisplayName("server flooding stderr does not deadlock the protocol")
+    void stderrFloodDoesNotDeadlock() throws Exception {
+        // Writes ~300KB to stderr (far beyond the ~64KB OS pipe buffer)
+        // BEFORE serving requests. Without a dedicated stderr drain the
+        // script blocks on its own stderr writes and never answers.
+        Path noisyScript = tempDir.resolve("noisy.sh");
+        Files.writeString(noisyScript, """
+                #!/bin/sh
+                i=0
+                while [ $i -lt 300 ]; do
+                  printf '%01000d\\n' 0 >&2
+                  i=$((i+1))
+                done
+                while IFS= read -r line; do
+                  id=$(printf '%s' "$line" | sed -n 's/.*"id":"\\([^"]*\\)".*/\\1/p')
+                  if [ -n "$id" ]; then
+                    printf '{"jsonrpc":"2.0","id":"%s","result":{"ok":true}}\\n' "$id"
+                  fi
+                done
+                """);
+        Files.setPosixFilePermissions(noisyScript, Set.copyOf(
+                java.nio.file.attribute.PosixFilePermissions.fromString("rwxr-xr-x")));
+
+        StdioClientTransport t = new StdioClientTransport(noisyScript.toString());
+        try {
+            t.start();
+            CompletableFuture<JsonRpc.Response> future =
+                    t.sendRequest(JsonRpc.Request.create("ping", Map.of()));
+
+            JsonRpc.Response resp = future.get(10, TimeUnit.SECONDS);
+            assertThat(resp.isError()).isFalse();
         } finally {
             t.stop();
         }

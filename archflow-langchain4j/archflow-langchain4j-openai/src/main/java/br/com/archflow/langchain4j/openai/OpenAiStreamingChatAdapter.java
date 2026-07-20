@@ -38,12 +38,19 @@ import java.util.function.Consumer;
  *   <li>{@code generateStream} - Gera resposta em streaming a partir de uma entrada</li>
  *   <li>{@code chatStream} - Chat em streaming com memória de conversa</li>
  * </ul>
+ *
+ * <p><b>Concorrência:</b> o modelo é mantido numa referência {@code volatile};
+ * o lock interno protege apenas a troca de configuração (configure/shutdown),
+ * nunca a chamada de rede/streaming. Quem reconfigura troca a referência de
+ * forma atômica: streams em voo terminam no modelo antigo e chamadas
+ * subsequentes usam o novo.
  */
 public class OpenAiStreamingChatAdapter implements LangChainAdapter {
 
+    /** Protege apenas leitura/troca de configuração — nunca a chamada de rede. */
     private final ReentrantLock lock = new ReentrantLock();
-    private StreamingChatModel model;
-    private Map<String, Object> config;
+    private volatile StreamingChatModel model;
+    private volatile Map<String, Object> config;
 
     @Override
     public void validate(Map<String, Object> properties) {
@@ -76,7 +83,6 @@ public class OpenAiStreamingChatAdapter implements LangChainAdapter {
     @Override
     public void configure(Map<String, Object> properties) {
         validate(properties);
-        this.config = properties;
 
         String apiKey = (String) properties.get("api.key");
         String modelName = (String) properties.getOrDefault("model.name", "gpt-4o-mini");
@@ -95,29 +101,38 @@ public class OpenAiStreamingChatAdapter implements LangChainAdapter {
             modelBuilder.maxTokens(maxTokens);
         }
 
-        this.model = modelBuilder.build();
-    }
+        StreamingChatModel newModel = modelBuilder.build();
 
-    @Override
-    public Object execute(String operation, Object input, ExecutionContext context) throws Exception {
+        // Lock apenas para a troca de configuração (referências voláteis).
         lock.lock();
         try {
-            return doExecute(operation, input, context);
+            this.config = properties;
+            this.model = newModel;
         } finally {
             lock.unlock();
         }
     }
 
-    private Object doExecute(String operation, Object input, ExecutionContext context) throws Exception {
-            if (model == null) {
-                throw new IllegalStateException("Adapter not configured. Call configure() first.");
-            }
+    @Override
+    public Object execute(String operation, Object input, ExecutionContext context) throws Exception {
+        // Leitura volátil: captura o modelo corrente numa variável local e faz a
+        // chamada de rede FORA do lock — execuções paralelas não são serializadas.
+        // Reconfigurações trocam a referência; streams em voo usam o modelo antigo.
+        StreamingChatModel current = this.model;
+        if (current == null) {
+            throw new IllegalStateException("Adapter not configured. Call configure() first.");
+        }
 
+        return doExecute(current, operation, input, context);
+    }
+
+    private Object doExecute(StreamingChatModel model, String operation, Object input, ExecutionContext context)
+            throws Exception {
             if ("generateStream".equals(operation)) {
                 if (!(input instanceof String)) {
                     throw new IllegalArgumentException("Input must be a string for 'generateStream' operation");
                 }
-                return generateStream((String) input);
+                return generateStream(model, (String) input);
             }
 
             if ("chatStream".equals(operation)) {
@@ -130,7 +145,7 @@ public class OpenAiStreamingChatAdapter implements LangChainAdapter {
                     throw new IllegalStateException("Chat memory not available in context");
                 }
 
-                return chatStream((String) input, memory);
+                return chatStream(model, (String) input, memory);
             }
 
             throw new IllegalArgumentException("Unsupported operation: " + operation);
@@ -142,7 +157,7 @@ public class OpenAiStreamingChatAdapter implements LangChainAdapter {
      * @param input Texto de entrada
      * @return CompletableFuture que completa com a resposta completa
      */
-    private CompletableFuture<String> generateStream(String input) {
+    private CompletableFuture<String> generateStream(StreamingChatModel model, String input) {
         CompletableFuture<String> resultFuture = new CompletableFuture<>();
         StringBuilder fullResponse = new StringBuilder();
 
@@ -176,7 +191,7 @@ public class OpenAiStreamingChatAdapter implements LangChainAdapter {
      * @param memory Memória de chat
      * @return CompletableFuture que completa com a resposta completa
      */
-    private CompletableFuture<String> chatStream(String input, ChatMemory memory) {
+    private CompletableFuture<String> chatStream(StreamingChatModel model, String input, ChatMemory memory) {
         CompletableFuture<String> resultFuture = new CompletableFuture<>();
 
         UserMessage userMessage = UserMessage.from(input);
@@ -207,7 +222,12 @@ public class OpenAiStreamingChatAdapter implements LangChainAdapter {
 
     @Override
     public void shutdown() {
-        this.model = null;
-        this.config = null;
+        lock.lock();
+        try {
+            this.model = null;
+            this.config = null;
+        } finally {
+            lock.unlock();
+        }
     }
 }

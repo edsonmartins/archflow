@@ -341,6 +341,132 @@ class PineconeVectorStoreAdapterTest {
         }
     }
 
+    // ========== Request body construction (no network) ==========
+
+    @Nested
+    @DisplayName("request bodies")
+    class RequestBodyTests {
+
+        private final com.fasterxml.jackson.databind.ObjectMapper mapper =
+                new com.fasterxml.jackson.databind.ObjectMapper();
+
+        @Test
+        @DisplayName("upsert body persists ALL segment metadata plus text")
+        void upsertBodyIncludesAllMetadata() {
+            var segment = dev.langchain4j.data.segment.TextSegment.from(
+                    "hello world",
+                    new dev.langchain4j.data.document.Metadata(Map.of("segment", "tenant-a", "year", 2024)));
+            var metadata = PineconeVectorStoreAdapter.buildVectorMetadata(segment);
+            var vectors = List.of(new PineconeVectorStoreAdapter.VectorData(
+                    "id-1", new float[]{0.1f, 0.2f}, metadata));
+
+            var body = PineconeVectorStoreAdapter.buildUpsertRequestBody(vectors, "ns");
+
+            assertThat(body).containsEntry("namespace", "ns");
+            @SuppressWarnings("unchecked")
+            var vectorList = (List<Map<String, Object>>) body.get("vectors");
+            assertThat(vectorList).hasSize(1);
+            var vector = vectorList.get(0);
+            assertThat(vector).containsEntry("id", "id-1");
+            var meta = asMap(vector.get("metadata"));
+            assertThat(meta)
+                    .containsEntry("text", "hello world")
+                    .containsEntry("segment", "tenant-a")
+                    .containsEntry("year", 2024);
+        }
+
+        @Test
+        @DisplayName("upsert body omits metadata when segment is null")
+        void upsertBodyWithoutSegment() {
+            var vectors = List.of(new PineconeVectorStoreAdapter.VectorData(
+                    "id-1", new float[]{0.1f}, PineconeVectorStoreAdapter.buildVectorMetadata(null)));
+
+            var body = PineconeVectorStoreAdapter.buildUpsertRequestBody(vectors, "ns");
+
+            @SuppressWarnings("unchecked")
+            var vectorList = (List<Map<String, Object>>) body.get("vectors");
+            assertThat(vectorList.get(0)).doesNotContainKey("metadata");
+        }
+
+        @Test
+        @DisplayName("delete-by-ids body serializes to {\"ids\": [...]} JSON")
+        void deleteByIdsBody() throws Exception {
+            var body = PineconeVectorStoreAdapter.buildDeleteByIdsRequestBody(
+                    List.of("a", "b"), "ns");
+
+            assertThat(body).containsEntry("namespace", "ns");
+            assertThat(body.get("ids")).isEqualTo(List.of("a", "b"));
+
+            var json = mapper.writeValueAsString(body);
+            assertThat(json).contains("\"ids\":[\"a\",\"b\"]");
+            assertThat(json).doesNotContain("deleteAll");
+        }
+
+        @Test
+        @DisplayName("delete-all body serializes to {\"deleteAll\": true} JSON")
+        void deleteAllBody() throws Exception {
+            var body = PineconeVectorStoreAdapter.buildDeleteAllRequestBody("ns");
+
+            var json = mapper.writeValueAsString(body);
+            assertThat(json).contains("\"deleteAll\":true");
+            assertThat(json).contains("\"namespace\":\"ns\"");
+        }
+    }
+
+    // ========== Match parsing (no network) ==========
+
+    @Nested
+    @DisplayName("toEmbeddingMatch()")
+    class ToEmbeddingMatchTests {
+
+        @Test
+        @DisplayName("parses integer score without ClassCastException")
+        void integerScore() {
+            var match = new HashMap<String, Object>();
+            match.put("id", "id-1");
+            match.put("score", 1); // JSON integer, not Double
+            match.put("values", List.of(1, 2)); // integers too
+
+            var result = PineconeVectorStoreAdapter.toEmbeddingMatch(match);
+
+            assertThat(result.score()).isEqualTo(1.0);
+            assertThat(result.embedding().vector()).containsExactly(1.0f, 2.0f);
+        }
+
+        @Test
+        @DisplayName("parses double score and reconstructs segment metadata")
+        void doubleScoreWithMetadata() {
+            var match = new HashMap<String, Object>();
+            match.put("id", "id-2");
+            match.put("score", 0.87);
+            match.put("values", List.of(0.5, 0.25));
+            match.put("metadata", Map.of("text", "hello", "segment", "tenant-a", "year", 2024));
+
+            var result = PineconeVectorStoreAdapter.toEmbeddingMatch(match);
+
+            assertThat(result.score()).isEqualTo(0.87);
+            assertThat(result.embeddingId()).isEqualTo("id-2");
+            assertThat(result.embedded().text()).isEqualTo("hello");
+            assertThat(result.embedded().metadata().toMap())
+                    .containsEntry("segment", "tenant-a")
+                    .containsEntry("year", 2024)
+                    .doesNotContainKey("text");
+        }
+
+        @Test
+        @DisplayName("match without metadata yields null segment")
+        void noMetadata() {
+            var match = new HashMap<String, Object>();
+            match.put("id", "id-3");
+            match.put("score", 0.5);
+            match.put("values", List.of(1.0));
+
+            var result = PineconeVectorStoreAdapter.toEmbeddingMatch(match);
+
+            assertThat(result.embedded()).isNull();
+        }
+    }
+
     // ========== generateIds ==========
 
     @Nested

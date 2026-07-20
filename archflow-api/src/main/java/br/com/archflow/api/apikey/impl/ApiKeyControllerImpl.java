@@ -4,11 +4,14 @@ import br.com.archflow.api.apikey.ApiKeyController;
 import br.com.archflow.api.apikey.dto.ApiKeyResponse;
 import br.com.archflow.api.apikey.dto.CreateApiKeyRequest;
 import br.com.archflow.api.apikey.dto.CreateApiKeyResponse;
+import br.com.archflow.api.audit.AuditTrail;
+import br.com.archflow.observability.audit.AuditAction;
 import br.com.archflow.security.apikey.ApiKeyService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -22,6 +25,7 @@ public class ApiKeyControllerImpl implements ApiKeyController {
     private static final Logger log = LoggerFactory.getLogger(ApiKeyControllerImpl.class);
 
     private final ApiKeyService apiKeyService;
+    private volatile AuditTrail auditTrail = AuditTrail.noop();
 
     /**
      * Creates a new ApiKeyControllerImpl.
@@ -30,6 +34,13 @@ public class ApiKeyControllerImpl implements ApiKeyController {
      */
     public ApiKeyControllerImpl(ApiKeyService apiKeyService) {
         this.apiKeyService = apiKeyService;
+    }
+
+    /** Audit event producer (create/revoke) — optional, no-op default. */
+    public void setAuditTrail(AuditTrail auditTrail) {
+        if (auditTrail != null) {
+            this.auditTrail = auditTrail;
+        }
     }
 
     @Override
@@ -46,6 +57,9 @@ public class ApiKeyControllerImpl implements ApiKeyController {
         br.com.archflow.model.security.ApiKey apiKey = result.apiKey();
 
         log.info("API key created successfully: {} for user: {}", apiKey.getKeyId(), userId);
+
+        auditTrail.record(userId, null, AuditAction.CREATE, "apikey", apiKey.getKeyId(),
+                true, null, Map.of("name", String.valueOf(request.name())));
 
         return new CreateApiKeyResponse(
                 apiKey.getId(),
@@ -90,8 +104,12 @@ public class ApiKeyControllerImpl implements ApiKeyController {
 
         try {
             apiKeyService.revokeApiKey(keyId, userId);
+            auditTrail.record(userId, null, AuditAction.DELETE, "apikey", keyId,
+                    true, null, null);
         } catch (ApiKeyService.ApiKeyNotFoundException e) {
             log.warn("API key not found: {} for user: {}", keyId, userId);
+            auditTrail.record(userId, null, AuditAction.DELETE, "apikey", keyId,
+                    false, "API key not found", null);
             throw new NotFoundException(e.getMessage());
         }
     }

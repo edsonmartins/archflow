@@ -26,7 +26,7 @@ export interface MessageResponse {
  */
 export const agentPlaygroundApi = {
     invoke: (agentId: string, tenantId: string, sessionId: string | undefined, payload: Record<string, unknown>) =>
-        fetch(`${import.meta.env.VITE_API_BASE || '/api'}/../archflow/agents/${encodeURIComponent(agentId)}/invoke`, {
+        fetch(`/archflow/agents/${encodeURIComponent(agentId)}/invoke`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -41,7 +41,20 @@ export const agentPlaygroundApi = {
         }),
 
     message: (tenantId: string, agentId: string, message: string, sessionId?: string) =>
-        api.post<MessageResponse>('/../archflow/events/message', {
-            tenantId, sessionId, agentId, message, metadata: {},
+        // Path absoluto (fora do prefixo /api): o truque anterior com '/../'
+        // dependia da normalização de dot-segments do browser e quebrava
+        // atrás de gateways que não normalizam.
+        fetch('/archflow/events/message', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                ...(sessionStorage.getItem('archflow_token') ? {
+                    Authorization: `Bearer ${sessionStorage.getItem('archflow_token')}`,
+                } : {}),
+            },
+            body: JSON.stringify({ tenantId, sessionId, agentId, message, metadata: {} }),
+        }).then(async r => {
+            if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`)
+            return r.json() as Promise<MessageResponse>
         }),
 }

@@ -193,4 +193,10 @@ public class JdbcPersistenceConfiguration {
         log.info("JDBC persistence ativo: PromptRegistry durável (versionamento de prompts)");
         return new br.com.archflow.conversation.persistence.jdbc.JdbcPromptRegistry(dataSource);
     }
+
+    @Bean
+    public br.com.archflow.api.admin.store.GlobalConfigStore globalConfigStore(DataSource dataSource) {
+        log.info("JDBC persistence ativo: GlobalConfigStore durável (JdbcGlobalConfigStore)");
+        return new br.com.archflow.api.admin.store.JdbcGlobalConfigStore(dataSource);
+    }
 }

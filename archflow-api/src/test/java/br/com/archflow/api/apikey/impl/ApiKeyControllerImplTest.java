@@ -165,4 +165,57 @@ class ApiKeyControllerImplTest {
                     .isInstanceOf(ApiKeyController.NotFoundException.class);
         }
     }
+
+    @Nested
+    @DisplayName("audit trail")
+    class AuditTest {
+
+        private final br.com.archflow.observability.audit.InMemoryAuditRepository auditRepo =
+                new br.com.archflow.observability.audit.InMemoryAuditRepository();
+
+        private java.util.List<br.com.archflow.observability.audit.AuditEvent> events() {
+            return auditRepo.query(
+                    br.com.archflow.observability.audit.AuditRepository.AuditQuery.builder().limit(10));
+        }
+
+        @Test
+        @DisplayName("criação de chave grava CREATE com o keyId e o ator")
+        void createIsAudited() {
+            controller.setAuditTrail(new br.com.archflow.api.audit.AuditTrail(() -> auditRepo));
+            var request = new CreateApiKeyRequest("My Key", Set.of(ApiKeyScope.WORKFLOW_READ), null);
+            var result = new ApiKeyService.ApiKeyWithSecret(
+                    createMockApiKey("id-1", "key-1", "My Key"), "secret-123");
+            when(apiKeyService.createApiKey("owner-1", "My Key", Set.of(ApiKeyScope.WORKFLOW_READ), null))
+                    .thenReturn(result);
+
+            controller.createApiKey("owner-1", request);
+
+            assertThat(events()).singleElement().satisfies(e -> {
+                assertThat(e.getAction())
+                        .isEqualTo(br.com.archflow.observability.audit.AuditAction.CREATE);
+                assertThat(e.getResourceType()).isEqualTo("apikey");
+                assertThat(e.getResourceId()).isEqualTo("key-1");
+                assertThat(e.getUserId()).isEqualTo("owner-1");
+            });
+        }
+
+        @Test
+        @DisplayName("revogação grava DELETE; not-found grava falha")
+        void revokeIsAudited() {
+            controller.setAuditTrail(new br.com.archflow.api.audit.AuditTrail(() -> auditRepo));
+
+            controller.revokeApiKey("owner-1", "key-1");
+            doThrow(new ApiKeyService.ApiKeyNotFoundException("Not found"))
+                    .when(apiKeyService).revokeApiKey("missing", "owner-1");
+            assertThatThrownBy(() -> controller.revokeApiKey("owner-1", "missing"))
+                    .isInstanceOf(ApiKeyController.NotFoundException.class);
+
+            var events = events();
+            assertThat(events).hasSize(2);
+            assertThat(events).allMatch(e ->
+                    e.getAction() == br.com.archflow.observability.audit.AuditAction.DELETE);
+            assertThat(events).anyMatch(e -> e.getResourceId().equals("key-1") && e.isSuccess());
+            assertThat(events).anyMatch(e -> e.getResourceId().equals("missing") && !e.isSuccess());
+        }
+    }
 }

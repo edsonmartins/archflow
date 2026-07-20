@@ -63,10 +63,41 @@
             <artifactId>langchain4j-ollama</artifactId>
         </dependency>
 
+        <!-- AWS Bedrock (version managed by langchain4j-bom / ${langchain4j.version}) -->
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-bedrock</artifactId>
+        </dependency>
+
+        <!-- Google Vertex AI (Gemini on Vertex; beta artifact managed by langchain4j-bom) -->
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-vertex-ai-gemini</artifactId>
+        </dependency>
+
+        <!-- Hugging Face Inference API (beta artifact managed by langchain4j-bom) -->
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-hugging-face</artifactId>
+        </dependency>
+
+        <!-- IBM Watsonx (beta artifact managed by langchain4j-bom) -->
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-watsonx</artifactId>
+        </dependency>
+
         <!-- Logging -->
         <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-api</artifactId>
+        </dependency>
+        <!-- The AWS SDK Apache HTTP client (pulled by langchain4j-bedrock) uses
+             commons-logging; bridge it to SLF4J instead of shipping commons-logging. -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>jcl-over-slf4j</artifactId>
+            <scope>runtime</scope>
         </dependency>
 
         <!-- Test Dependencies -->

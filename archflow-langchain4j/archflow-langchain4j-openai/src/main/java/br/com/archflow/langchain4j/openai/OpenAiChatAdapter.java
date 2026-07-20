@@ -1,6 +1,7 @@
 package br.com.archflow.langchain4j.openai;
 
 import br.com.archflow.langchain4j.core.security.ConfigSecrets;
+import br.com.archflow.langchain4j.core.spi.ChatModelProvider;
 import br.com.archflow.langchain4j.core.spi.LangChainAdapter;
 import br.com.archflow.model.engine.ExecutionContext;
 import dev.langchain4j.data.message.AiMessage;
@@ -34,17 +35,25 @@ import java.util.concurrent.locks.ReentrantLock;
  * );
  * }</pre>
  *
+ * <p><b>Concorrência:</b> o modelo é mantido numa referência {@code volatile};
+ * o lock interno protege apenas a troca de configuração (configure/shutdown),
+ * nunca a chamada de rede. Execuções paralelas fazem uma leitura volátil da
+ * referência e chamam o modelo fora do lock. Quem reconfigura troca a
+ * referência de forma atômica: chamadas em voo terminam no modelo antigo e
+ * chamadas subsequentes usam o novo.
+ *
  * @see LangChainAdapter
  * @see ChatModel
  * @see OpenAiChatModel
  */
-public class OpenAiChatAdapter implements LangChainAdapter {
+public class OpenAiChatAdapter implements LangChainAdapter, ChatModelProvider {
 
     private static final Logger log = LoggerFactory.getLogger(OpenAiChatAdapter.class);
 
+    /** Protege apenas leitura/troca de configuração — nunca a chamada de rede. */
     private final ReentrantLock lock = new ReentrantLock();
-    private ChatModel model;
-    private Map<String, Object> config;
+    private volatile ChatModel model;
+    private volatile Map<String, Object> config;
 
     /**
      * Valida as configurações fornecidas para o adapter.
@@ -103,7 +112,6 @@ public class OpenAiChatAdapter implements LangChainAdapter {
     @Override
     public void configure(Map<String, Object> properties) {
         validate(properties);
-        this.config = properties;
 
         // Config com a api.key redatada — diagnóstico sem vazar o segredo
         // (o config map fica num campo de vida longa).
@@ -117,12 +125,37 @@ public class OpenAiChatAdapter implements LangChainAdapter {
                 : 2048;
 
         // LangChain4j 1.10.0: Builder pattern para criação do modelo
-        this.model = OpenAiChatModel.builder()
+        ChatModel newModel = OpenAiChatModel.builder()
                 .apiKey(apiKey)
                 .modelName(modelName)
                 .temperature(temperature)
                 .maxTokens(maxTokens)
                 .build();
+
+        // Lock apenas para a troca de configuração (referências voláteis).
+        lock.lock();
+        try {
+            this.config = properties;
+            this.model = newModel;
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Expõe o {@link ChatModel} interno já configurado para composição
+     * (ex.: RAG chain, agents).
+     */
+    @Override
+    public ChatModel getChatModel() {
+        ChatModel current = this.model;
+        if (current == null) {
+            throw new IllegalStateException(
+                    "OpenAiChatAdapter is not configured. Call configure() before getChatModel().");
+        }
+        return current;
     }
 
     /**
@@ -145,19 +178,19 @@ public class OpenAiChatAdapter implements LangChainAdapter {
      */
     @Override
     public Object execute(String operation, Object input, ExecutionContext context) throws Exception {
-        lock.lock();
-        try {
-            if (model == null) {
-                throw new IllegalStateException("Adapter not configured. Call configure() first.");
-            }
-
-            return doExecute(operation, input, context);
-        } finally {
-            lock.unlock();
+        // Leitura volátil: captura o modelo corrente numa variável local e faz a
+        // chamada de rede FORA do lock — execuções paralelas não são serializadas.
+        // Reconfigurações trocam a referência; chamadas em voo usam o modelo antigo.
+        ChatModel current = this.model;
+        if (current == null) {
+            throw new IllegalStateException("Adapter not configured. Call configure() first.");
         }
+
+        return doExecute(current, operation, input, context);
     }
 
-    private Object doExecute(String operation, Object input, ExecutionContext context) throws Exception {
+    private Object doExecute(ChatModel model, String operation, Object input, ExecutionContext context)
+            throws Exception {
         try {
             if ("generate".equals(operation)) {
                 if (!(input instanceof String)) {
@@ -193,7 +226,12 @@ public class OpenAiChatAdapter implements LangChainAdapter {
 
     @Override
     public void shutdown() {
-        this.model = null;
-        this.config = null;
+        lock.lock();
+        try {
+            this.model = null;
+            this.config = null;
+        } finally {
+            lock.unlock();
+        }
     }
 }

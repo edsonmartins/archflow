@@ -1,6 +1,12 @@
 package br.com.archflow.langchain4j.memory.jdbc;
 
 import br.com.archflow.langchain4j.core.spi.LangChainAdapter;
+import dev.langchain4j.agent.tool.ToolExecutionRequest;
+import dev.langchain4j.data.message.AiMessage;
+import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.SystemMessage;
+import dev.langchain4j.data.message.ToolExecutionResultMessage;
+import dev.langchain4j.data.message.UserMessage;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -162,6 +168,125 @@ class JdbcMemoryAdapterTest {
 
             // should not throw
             adapter.configure(props);
+        }
+    }
+
+    @Nested
+    @DisplayName("serializeMessage / deserializeMessage round-trip")
+    class MessageRoundTrip {
+
+        private final JdbcMemoryAdapter adapter = new JdbcMemoryAdapter();
+
+        private ChatMessage roundTrip(ChatMessage message) {
+            var row = adapter.serializeMessage(message);
+            return adapter.deserializeMessage(row.role(), row.content());
+        }
+
+        @Test
+        @DisplayName("UserMessage round-trips with plain-text role user")
+        void userMessage() {
+            var row = adapter.serializeMessage(UserMessage.from("hello"));
+            assertThat(row.role()).isEqualTo("user");
+            assertThat(row.content()).isEqualTo("hello");
+
+            var result = adapter.deserializeMessage(row.role(), row.content());
+            assertThat(((UserMessage) result).singleText()).isEqualTo("hello");
+        }
+
+        @Test
+        @DisplayName("plain AiMessage round-trips with plain-text role ai")
+        void plainAiMessage() {
+            var row = adapter.serializeMessage(AiMessage.from("the answer"));
+            assertThat(row.role()).isEqualTo("ai");
+            assertThat(row.content()).isEqualTo("the answer");
+
+            var result = adapter.deserializeMessage(row.role(), row.content());
+            assertThat(((AiMessage) result).text()).isEqualTo("the answer");
+            assertThat(((AiMessage) result).hasToolExecutionRequests()).isFalse();
+        }
+
+        @Test
+        @DisplayName("SystemMessage round-trips")
+        void systemMessage() {
+            var result = roundTrip(SystemMessage.from("you are a helpful agent"));
+
+            assertThat(result).isInstanceOf(SystemMessage.class);
+            assertThat(((SystemMessage) result).text()).isEqualTo("you are a helpful agent");
+        }
+
+        @Test
+        @DisplayName("ToolExecutionResultMessage round-trips")
+        void toolExecutionResultMessage() {
+            var original = new ToolExecutionResultMessage("call-1", "get_weather", "{\"temp\":22}");
+
+            var result = roundTrip(original);
+
+            assertThat(result).isInstanceOf(ToolExecutionResultMessage.class);
+            var toolResult = (ToolExecutionResultMessage) result;
+            assertThat(toolResult.id()).isEqualTo("call-1");
+            assertThat(toolResult.toolName()).isEqualTo("get_weather");
+            assertThat(toolResult.text()).isEqualTo("{\"temp\":22}");
+        }
+
+        @Test
+        @DisplayName("AiMessage with tool execution requests round-trips")
+        void aiMessageWithToolRequests() {
+            var request = ToolExecutionRequest.builder()
+                    .id("call-1")
+                    .name("get_weather")
+                    .arguments("{\"city\":\"Curitiba\"}")
+                    .build();
+            var original = AiMessage.from(java.util.List.of(request));
+
+            var result = roundTrip(original);
+
+            var ai = (AiMessage) result;
+            assertThat(ai.hasToolExecutionRequests()).isTrue();
+            assertThat(ai.toolExecutionRequests()).hasSize(1);
+            var restored = ai.toolExecutionRequests().get(0);
+            assertThat(restored.id()).isEqualTo("call-1");
+            assertThat(restored.name()).isEqualTo("get_weather");
+            assertThat(restored.arguments()).isEqualTo("{\"city\":\"Curitiba\"}");
+        }
+
+        @Test
+        @DisplayName("AiMessage with text AND tool requests round-trips")
+        void aiMessageWithTextAndToolRequests() {
+            var request = ToolExecutionRequest.builder()
+                    .id("call-2")
+                    .name("search")
+                    .arguments("{\"q\":\"archflow\"}")
+                    .build();
+            var original = AiMessage.from("Let me check.", java.util.List.of(request));
+
+            var result = roundTrip(original);
+
+            var ai = (AiMessage) result;
+            assertThat(ai.text()).isEqualTo("Let me check.");
+            assertThat(ai.toolExecutionRequests()).hasSize(1);
+            assertThat(ai.toolExecutionRequests().get(0).name()).isEqualTo("search");
+        }
+
+        @Test
+        @DisplayName("legacy rows (plain user/ai) still deserialize")
+        void legacyRowsBackwardCompatible() {
+            var user = adapter.deserializeMessage("user", "old user");
+            var ai = adapter.deserializeMessage("ai", "old ai");
+
+            assertThat(((UserMessage) user).singleText()).isEqualTo("old user");
+            assertThat(((AiMessage) ai).text()).isEqualTo("old ai");
+        }
+
+        @Test
+        @DisplayName("unknown role returns null (skipped) instead of throwing")
+        void unknownRoleSkipped() {
+            assertThat(adapter.deserializeMessage("weird", "x")).isNull();
+        }
+
+        @Test
+        @DisplayName("malformed JSON content for tool role returns null instead of throwing")
+        void malformedJsonSkipped() {
+            assertThat(adapter.deserializeMessage("tool", "not-json")).isNull();
         }
     }
 

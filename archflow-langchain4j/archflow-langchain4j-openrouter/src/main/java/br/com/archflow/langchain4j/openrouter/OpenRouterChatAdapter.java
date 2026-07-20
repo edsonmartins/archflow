@@ -1,5 +1,6 @@
 package br.com.archflow.langchain4j.openrouter;
 
+import br.com.archflow.langchain4j.core.spi.ChatModelProvider;
 import br.com.archflow.langchain4j.core.spi.LangChainAdapter;
 import br.com.archflow.model.config.ResolvedLLMConfig;
 import br.com.archflow.model.engine.ExecutionContext;
@@ -33,17 +34,25 @@ import java.util.logging.Logger;
  *   <li>{@code fallback.base.url} — URL do provider fallback (ex: "http://localhost:11434/v1")</li>
  *   <li>{@code fallback.model.name} — Modelo fallback (ex: "llama3.1")</li>
  * </ul>
+ *
+ * <p><b>Concorrência:</b> modelo, fallback e config são mantidos em referências
+ * {@code volatile}; o lock interno protege apenas a troca de configuração
+ * (configure/shutdown), nunca a chamada de rede. Execuções paralelas capturam
+ * as referências correntes em variáveis locais e chamam o modelo fora do lock.
+ * Quem reconfigura troca as referências: chamadas em voo terminam no modelo
+ * antigo e chamadas subsequentes usam o novo.
  */
-public class OpenRouterChatAdapter implements LangChainAdapter {
+public class OpenRouterChatAdapter implements LangChainAdapter, ChatModelProvider {
 
+    /** Protege apenas leitura/troca de configuração — nunca a chamada de rede. */
     private final ReentrantLock lock = new ReentrantLock();
     private static final Logger logger = Logger.getLogger(OpenRouterChatAdapter.class.getName());
     private static final String DEFAULT_BASE_URL = "https://openrouter.ai/api/v1";
     private static final String DEFAULT_MODEL = "openai/gpt-4o-mini";
 
-    private ChatModel model;
-    private ChatModel fallbackModel;
-    private Map<String, Object> config;
+    private volatile ChatModel model;
+    private volatile ChatModel fallbackModel;
+    private volatile Map<String, Object> config;
 
     @Override
     public void validate(Map<String, Object> properties) {
@@ -59,7 +68,6 @@ public class OpenRouterChatAdapter implements LangChainAdapter {
     @Override
     public void configure(Map<String, Object> properties) {
         validate(properties);
-        this.config = properties;
 
         String apiKey = (String) properties.get("api.key");
         String modelName = (String) properties.getOrDefault("model.name", DEFAULT_MODEL);
@@ -68,7 +76,7 @@ public class OpenRouterChatAdapter implements LangChainAdapter {
         Integer maxTokens = properties.get("maxTokens") != null
                 ? ((Number) properties.get("maxTokens")).intValue() : 2048;
 
-        this.model = OpenAiChatModel.builder()
+        ChatModel newModel = OpenAiChatModel.builder()
                 .apiKey(apiKey)
                 .baseUrl(baseUrl)
                 .modelName(modelName)
@@ -77,11 +85,12 @@ public class OpenRouterChatAdapter implements LangChainAdapter {
                 .build();
 
         // Configurar fallback (ex: Ollama local)
+        ChatModel newFallbackModel = null;
         String fallbackBaseUrl = (String) properties.get("fallback.base.url");
         if (fallbackBaseUrl != null && !fallbackBaseUrl.isBlank()) {
             String fallbackModelName = (String) properties.getOrDefault("fallback.model.name", "llama3.1");
             String fallbackApiKey = (String) properties.getOrDefault("fallback.api.key", "ollama");
-            this.fallbackModel = OpenAiChatModel.builder()
+            newFallbackModel = OpenAiChatModel.builder()
                     .apiKey(fallbackApiKey)
                     .baseUrl(fallbackBaseUrl)
                     .modelName(fallbackModelName)
@@ -91,26 +100,55 @@ public class OpenRouterChatAdapter implements LangChainAdapter {
             logger.info("OpenRouter fallback configured: " + fallbackBaseUrl + " / " + fallbackModelName);
         }
 
+        // Lock apenas para a troca de configuração (referências voláteis).
+        lock.lock();
+        try {
+            this.config = properties;
+            this.model = newModel;
+            this.fallbackModel = newFallbackModel;
+        } finally {
+            lock.unlock();
+        }
+
         logger.info("OpenRouter adapter configured: " + baseUrl + " / " + modelName);
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Expõe o {@link ChatModel} default interno já configurado para
+     * composição (ex.: RAG chain, agents). Fallback e overrides por contexto
+     * não se aplicam ao modelo retornado.
+     */
+    @Override
+    public ChatModel getChatModel() {
+        ChatModel current = this.model;
+        if (current == null) {
+            throw new IllegalStateException(
+                    "OpenRouterChatAdapter is not configured. Call configure() before getChatModel().");
+        }
+        return current;
     }
 
     @Override
     public Object execute(String operation, Object input, ExecutionContext context) throws Exception {
-        lock.lock();
-        try {
-            return doExecute(operation, input, context);
-        } finally {
-            lock.unlock();
+        // Leitura volátil: captura as referências correntes em variáveis locais e
+        // faz a chamada de rede FORA do lock — execuções paralelas não são
+        // serializadas. Reconfigurações trocam as referências; chamadas em voo
+        // usam o modelo antigo.
+        ChatModel currentModel = this.model;
+        ChatModel currentFallback = this.fallbackModel;
+        if (currentModel == null) {
+            throw new IllegalStateException("Adapter not configured. Call configure() first.");
         }
+
+        return doExecute(currentModel, currentFallback, operation, input, context);
     }
 
-    private Object doExecute(String operation, Object input, ExecutionContext context) throws Exception {
-            if (model == null) {
-                throw new IllegalStateException("Adapter not configured. Call configure() first.");
-            }
-
+    private Object doExecute(ChatModel model, ChatModel fallbackModel, String operation, Object input,
+                             ExecutionContext context) throws Exception {
             // Resolve modelo por tenant/agente via ExecutionContext.variables
-            ChatModel resolved = resolveModel(context);
+            ChatModel resolved = resolveModel(model, context);
 
             try {
                 return executeWithModel(resolved, operation, input, context);
@@ -133,10 +171,10 @@ public class OpenRouterChatAdapter implements LangChainAdapter {
      *   <li>modelo default configurado.</li>
      * </ol>
      */
-    private ChatModel resolveModel(ExecutionContext context) {
+    private ChatModel resolveModel(ChatModel defaultModel, ExecutionContext context) {
         EffectiveModel eff = effectiveModel(context);
         if (eff == null) {
-            return model;
+            return defaultModel;
         }
         OpenAiChatModel.OpenAiChatModelBuilder b = OpenAiChatModel.builder()
                 .apiKey(eff.apiKey())
@@ -157,6 +195,9 @@ public class OpenRouterChatAdapter implements LangChainAdapter {
         if (context == null) {
             return null;
         }
+        // Leitura volátil única do config corrente — decisão consistente mesmo
+        // com reconfiguração concorrente.
+        Map<String, Object> config = this.config;
         Object resolved = context.get(ExecutionKeys.LLM_RESOLVED_CONFIG).orElse(null);
         if (resolved instanceof ResolvedLLMConfig r && r.model() != null && !r.model().isBlank()) {
             String apiKey = strOr(r.additionalConfig().get("apiKey"), (String) config.get("api.key"));
@@ -212,9 +253,14 @@ public class OpenRouterChatAdapter implements LangChainAdapter {
 
     @Override
     public void shutdown() {
-        this.model = null;
-        this.fallbackModel = null;
-        this.config = null;
+        lock.lock();
+        try {
+            this.model = null;
+            this.fallbackModel = null;
+            this.config = null;
+        } finally {
+            lock.unlock();
+        }
     }
 
     /**

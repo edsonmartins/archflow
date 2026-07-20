@@ -60,6 +60,10 @@ public class JwtAuthenticationFilter implements Filter {
             "/api/health",
             "/actuator/",
             "/realtime/",
+            // Handshake do WS de voz: browsers não enviam Authorization em
+            // WebSocket — o gate real é a validação do token (query param)
+            // no interceptor do WebSocketConfiguration.
+            "/api/realtime/",
             "/ws/",
             // Assist (IA síncrona, ADR-0004): protegido por chave estática
             // opcional (X-ArchFlow-Key) no próprio controller, não por JWT.

@@ -1,12 +1,34 @@
 package br.com.archflow.langchain4j.provider;
 
+import dev.langchain4j.model.anthropic.AnthropicChatModel;
+import dev.langchain4j.model.anthropic.AnthropicStreamingChatModel;
+import dev.langchain4j.model.azure.AzureOpenAiChatModel;
+import dev.langchain4j.model.azure.AzureOpenAiStreamingChatModel;
+import dev.langchain4j.model.bedrock.BedrockChatModel;
+import dev.langchain4j.model.bedrock.BedrockStreamingChatModel;
+import dev.langchain4j.model.chat.ChatModel;
+import dev.langchain4j.model.chat.StreamingChatModel;
+import dev.langchain4j.model.googleai.GoogleAiGeminiChatModel;
+import dev.langchain4j.model.googleai.GoogleAiGeminiStreamingChatModel;
+import dev.langchain4j.model.huggingface.HuggingFaceChatModel;
+import dev.langchain4j.model.ollama.OllamaChatModel;
+import dev.langchain4j.model.ollama.OllamaStreamingChatModel;
+import dev.langchain4j.model.openai.OpenAiChatModel;
+import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
+import dev.langchain4j.model.vertexai.gemini.VertexAiGeminiChatModel;
+import dev.langchain4j.model.vertexai.gemini.VertexAiGeminiStreamingChatModel;
+import dev.langchain4j.model.watsonx.WatsonxChatModel;
+import dev.langchain4j.model.watsonx.WatsonxStreamingChatModel;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -393,5 +415,356 @@ class LLMProviderHubTest {
             ProviderSwitcher.builder("test").build();
         }).isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Primary config is required");
+    }
+
+    // ========== Provider -> model mapping (no network involved) ==========
+
+    /**
+     * Builds a minimal, valid config for each provider (fake credentials; model
+     * construction never performs network calls).
+     */
+    static LLMProviderConfig minimalConfig(LLMProvider provider) {
+        LLMProviderConfig.Builder builder = LLMProviderConfig.builder(provider)
+                .apiKey("test-key");
+        switch (provider) {
+            case AZURE_OPENAI -> builder.azure("https://my-resource.openai.azure.com", "my-deployment", "test-key");
+            case BEDROCK -> builder.bedrock("us-east-1", "AKIAIOSFODNN7EXAMPLE", "secret-key");
+            case WATSONX -> builder.watsonx("my-project-id", "test-key", "https://us-south.ml.cloud.ibm.com");
+            case VERTEX_AI -> builder.extraParam("vertex.project", "my-project")
+                    .extraParam("vertex.location", "us-central1");
+            default -> { /* apiKey + default modelId is enough */ }
+        }
+        return builder.build();
+    }
+
+    @Nested
+    @DisplayName("createModel: provider -> blocking model class")
+    class BlockingModelConstruction {
+
+        private ChatModel modelFor(LLMProvider provider) {
+            hub.registerConfig("m:" + provider.getId(), minimalConfig(provider));
+            return hub.getModel("m:" + provider.getId(), false);
+        }
+
+        @Test
+        void openAi() {
+            assertThat(modelFor(LLMProvider.OPENAI)).isInstanceOf(OpenAiChatModel.class);
+        }
+
+        @Test
+        void anthropic() {
+            assertThat(modelFor(LLMProvider.ANTHROPIC)).isInstanceOf(AnthropicChatModel.class);
+        }
+
+        @Test
+        void azureOpenAi() {
+            assertThat(modelFor(LLMProvider.AZURE_OPENAI)).isInstanceOf(AzureOpenAiChatModel.class);
+        }
+
+        @Test
+        void gemini() {
+            assertThat(modelFor(LLMProvider.GEMINI)).isInstanceOf(GoogleAiGeminiChatModel.class);
+        }
+
+        @Test
+        void ollama() {
+            assertThat(modelFor(LLMProvider.OLLAMA)).isInstanceOf(OllamaChatModel.class);
+        }
+
+        @Test
+        void bedrock() {
+            assertThat(modelFor(LLMProvider.BEDROCK)).isInstanceOf(BedrockChatModel.class);
+        }
+
+        @Test
+        void huggingFace() {
+            assertThat(modelFor(LLMProvider.HUGGINGFACE)).isInstanceOf(HuggingFaceChatModel.class);
+        }
+
+        @Test
+        void watsonx() {
+            assertThat(modelFor(LLMProvider.WATSONX)).isInstanceOf(WatsonxChatModel.class);
+        }
+
+        @Test
+        void vertexAi() {
+            assertThat(modelFor(LLMProvider.VERTEX_AI)).isInstanceOf(VertexAiGeminiChatModel.class);
+        }
+
+        @Test
+        void openAiCompatibleProvidersUseOpenAiClient() {
+            for (LLMProvider provider : List.of(
+                    LLMProvider.DEEPSEEK, LLMProvider.TONGYI, LLMProvider.MISTRAL,
+                    LLMProvider.COHERE, LLMProvider.QIANFAN, LLMProvider.HUNYUAN,
+                    LLMProvider.OPENROUTER)) {
+                assertThat(modelFor(provider))
+                        .as("provider %s", provider)
+                        .isInstanceOf(OpenAiChatModel.class);
+            }
+        }
+
+        @Test
+        void watsonxWithoutProjectIdFailsWithHonestMessage() {
+            hub.registerConfig("wx-bad", LLMProviderConfig.builder(LLMProvider.WATSONX)
+                    .apiKey("key")
+                    .build());
+
+            assertThatThrownBy(() -> hub.getModel("wx-bad", false))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("watsonx.projectId");
+        }
+
+        @Test
+        void vertexAiWithoutProjectFailsWithHonestMessage() {
+            hub.registerConfig("vx-bad", LLMProviderConfig.builder(LLMProvider.VERTEX_AI)
+                    .build());
+
+            assertThatThrownBy(() -> hub.getModel("vx-bad", false))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("vertex.project");
+        }
+    }
+
+    @Nested
+    @DisplayName("createStreamingModel: provider -> streaming model class")
+    class StreamingModelConstruction {
+
+        private StreamingChatModel streamingFor(LLMProvider provider) {
+            hub.registerConfig("s:" + provider.getId(), minimalConfig(provider));
+            return hub.getStreamingModel("s:" + provider.getId(), false);
+        }
+
+        @Test
+        void openAi() {
+            assertThat(streamingFor(LLMProvider.OPENAI)).isInstanceOf(OpenAiStreamingChatModel.class);
+        }
+
+        @Test
+        void anthropic() {
+            assertThat(streamingFor(LLMProvider.ANTHROPIC)).isInstanceOf(AnthropicStreamingChatModel.class);
+        }
+
+        @Test
+        void azureOpenAi() {
+            assertThat(streamingFor(LLMProvider.AZURE_OPENAI)).isInstanceOf(AzureOpenAiStreamingChatModel.class);
+        }
+
+        @Test
+        void gemini() {
+            assertThat(streamingFor(LLMProvider.GEMINI)).isInstanceOf(GoogleAiGeminiStreamingChatModel.class);
+        }
+
+        @Test
+        void ollama() {
+            assertThat(streamingFor(LLMProvider.OLLAMA)).isInstanceOf(OllamaStreamingChatModel.class);
+        }
+
+        @Test
+        void bedrock() {
+            assertThat(streamingFor(LLMProvider.BEDROCK)).isInstanceOf(BedrockStreamingChatModel.class);
+        }
+
+        @Test
+        void watsonx() {
+            assertThat(streamingFor(LLMProvider.WATSONX)).isInstanceOf(WatsonxStreamingChatModel.class);
+        }
+
+        @Test
+        void vertexAi() {
+            assertThat(streamingFor(LLMProvider.VERTEX_AI)).isInstanceOf(VertexAiGeminiStreamingChatModel.class);
+        }
+
+        @Test
+        void openAiCompatibleProvidersUseOpenAiStreamingClient() {
+            for (LLMProvider provider : List.of(
+                    LLMProvider.DEEPSEEK, LLMProvider.TONGYI, LLMProvider.MISTRAL,
+                    LLMProvider.COHERE, LLMProvider.QIANFAN, LLMProvider.HUNYUAN,
+                    LLMProvider.OPENROUTER)) {
+                assertThat(streamingFor(provider))
+                        .as("provider %s", provider)
+                        .isInstanceOf(OpenAiStreamingChatModel.class);
+            }
+        }
+
+        @Test
+        void huggingFaceDoesNotSupportStreaming() {
+            hub.registerConfig("s:hf", minimalConfig(LLMProvider.HUGGINGFACE));
+
+            assertThatThrownBy(() -> hub.getStreamingModel("s:hf", false))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("does not support streaming");
+        }
+
+        @Test
+        void supportsStreamingFlagMatchesImplementation() {
+            for (LLMProvider provider : LLMProvider.values()) {
+                hub.registerConfig("flag:" + provider.getId(), minimalConfig(provider));
+                if (provider.supportsStreaming()) {
+                    assertThat(hub.getStreamingModel("flag:" + provider.getId(), false))
+                            .as("provider %s declares streaming support", provider)
+                            .isNotNull();
+                } else {
+                    assertThatThrownBy(() -> hub.getStreamingModel("flag:" + provider.getId(), false))
+                            .as("provider %s declares no streaming support", provider)
+                            .isInstanceOf(IllegalArgumentException.class)
+                            .hasMessageContaining("does not support streaming");
+                }
+            }
+        }
+    }
+
+    @Nested
+    @DisplayName("OpenAI-compatible default endpoints")
+    class OpenAiCompatibleEndpoints {
+
+        @Test
+        void compatibilityEndpointsAreTheRealOnes() {
+            assertThat(LLMProvider.COHERE.getBaseUrl())
+                    .isEqualTo("https://api.cohere.ai/compatibility/v1");
+            assertThat(LLMProvider.QIANFAN.getBaseUrl())
+                    .isEqualTo("https://qianfan.baidubce.com/v2");
+            assertThat(LLMProvider.HUNYUAN.getBaseUrl())
+                    .isEqualTo("https://api.hunyuan.cloud.tencent.com/v1");
+            assertThat(LLMProvider.DEEPSEEK.getBaseUrl())
+                    .isEqualTo("https://api.deepseek.com/v1");
+            assertThat(LLMProvider.TONGYI.getBaseUrl())
+                    .isEqualTo("https://dashscope.aliyuncs.com/compatible-mode/v1");
+            assertThat(LLMProvider.MISTRAL.getBaseUrl())
+                    .isEqualTo("https://api.mistral.ai/v1");
+            assertThat(LLMProvider.OPENROUTER.getBaseUrl())
+                    .isEqualTo("https://openrouter.ai/api/v1");
+        }
+
+        @Test
+        void blockingAndStreamingShareTheSameDefaultBaseUrl() {
+            // Both paths resolve the endpoint through the same helper, so the
+            // streaming default can never drift from the blocking default.
+            for (LLMProvider provider : List.of(
+                    LLMProvider.DEEPSEEK, LLMProvider.TONGYI, LLMProvider.MISTRAL,
+                    LLMProvider.COHERE, LLMProvider.QIANFAN, LLMProvider.HUNYUAN,
+                    LLMProvider.OPENROUTER)) {
+                LLMProviderConfig config = minimalConfig(provider);
+                assertThat(LLMProviderHub.effectiveBaseUrl(config))
+                        .as("default baseUrl for %s", provider)
+                        .isEqualTo(provider.getBaseUrl());
+            }
+        }
+
+        @Test
+        void explicitBaseUrlOverridesDefault() {
+            LLMProviderConfig config = LLMProviderConfig.builder(LLMProvider.COHERE)
+                    .apiKey("key")
+                    .baseUrl("https://proxy.example.com/v1")
+                    .build();
+
+            assertThat(LLMProviderHub.effectiveBaseUrl(config))
+                    .isEqualTo("https://proxy.example.com/v1");
+        }
+    }
+
+    @Nested
+    @DisplayName("withProvider: thread-safe temporary override")
+    class WithProviderTests {
+
+        private LLMProviderConfig openAiConfig() {
+            return LLMProviderConfig.builder(LLMProvider.OPENAI)
+                    .modelId("gpt-4o")
+                    .apiKey("openai-key")
+                    .build();
+        }
+
+        private LLMProviderConfig anthropicConfig() {
+            return LLMProviderConfig.builder(LLMProvider.ANTHROPIC)
+                    .modelId("claude-3-5-sonnet-20241022")
+                    .apiKey("anthropic-key")
+                    .build();
+        }
+
+        @Test
+        void operationSeesTemporaryProvider() {
+            hub.registerConfig("ctx", openAiConfig());
+
+            ChatModel duringOverride = hub.withProvider("ctx", anthropicConfig(),
+                    () -> hub.getModel("ctx", false));
+
+            assertThat(duringOverride).isInstanceOf(AnthropicChatModel.class);
+            assertThat(hub.getModel("ctx", false)).isInstanceOf(OpenAiChatModel.class);
+        }
+
+        @Test
+        void sharedConfigIsNeverMutated() {
+            LLMProviderConfig original = openAiConfig();
+            hub.registerConfig("ctx", original);
+
+            hub.withProvider("ctx", anthropicConfig(), () -> {
+                assertThat(hub.getConfig("ctx")).contains(anthropicConfig());
+                return null;
+            });
+
+            assertThat(hub.getConfig("ctx")).contains(original);
+        }
+
+        @Test
+        void otherThreadsAreUnaffectedDuringOverride() throws Exception {
+            hub.registerConfig("ctx", openAiConfig());
+
+            AtomicReference<LLMProvider> seenByOtherThread = new AtomicReference<>();
+            AtomicReference<Class<?>> modelSeenByOtherThread = new AtomicReference<>();
+
+            hub.withProvider("ctx", anthropicConfig(), () -> {
+                Thread other = new Thread(() -> {
+                    seenByOtherThread.set(hub.getConfig("ctx").orElseThrow().getProvider());
+                    modelSeenByOtherThread.set(hub.getModel("ctx", false).getClass());
+                });
+                other.start();
+                try {
+                    other.join(30_000);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new RuntimeException(e);
+                }
+                return null;
+            });
+
+            assertThat(seenByOtherThread.get()).isEqualTo(LLMProvider.OPENAI);
+            assertThat(modelSeenByOtherThread.get()).isEqualTo(OpenAiChatModel.class);
+        }
+
+        @Test
+        void overrideIsRemovedEvenWhenOperationThrows() {
+            hub.registerConfig("ctx", openAiConfig());
+
+            assertThatThrownBy(() -> hub.withProvider("ctx", anthropicConfig(), () -> {
+                throw new IllegalStateException("boom");
+            })).isInstanceOf(IllegalStateException.class).hasMessage("boom");
+
+            assertThat(hub.getConfig("ctx")).contains(openAiConfig());
+            assertThat(hub.getModel("ctx", false)).isInstanceOf(OpenAiChatModel.class);
+        }
+
+        @Test
+        void sharedModelCacheIsNotPolluted() {
+            hub.registerConfig("ctx", openAiConfig());
+            ChatModel cached = hub.getModel("ctx");
+            assertThat(hub.getCacheSize()).isEqualTo(1);
+
+            hub.withProvider("ctx", anthropicConfig(), () -> hub.getModel("ctx"));
+
+            assertThat(hub.getCacheSize()).isEqualTo(1);
+            assertThat(hub.getModel("ctx")).isSameAs(cached);
+        }
+
+        @Test
+        void invalidTemporaryConfigIsRejected() {
+            hub.registerConfig("ctx", openAiConfig());
+
+            LLMProviderConfig invalid = LLMProviderConfig.builder(LLMProvider.ANTHROPIC)
+                    .modelId("claude-3-5-sonnet-20241022")
+                    .build(); // missing API key
+
+            assertThatThrownBy(() -> hub.withProvider("ctx", invalid, () -> "unreachable"))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("API key is required");
+        }
     }
 }

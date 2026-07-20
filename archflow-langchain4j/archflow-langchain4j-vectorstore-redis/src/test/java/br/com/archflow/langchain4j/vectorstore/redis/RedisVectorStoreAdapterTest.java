@@ -262,6 +262,50 @@ class RedisVectorStoreAdapterTest {
     }
 
     @Nested
+    @DisplayName("readMetadata()")
+    class ReadMetadataTest {
+
+        @Test
+        @DisplayName("prefers the JSON 'metadata' field, preserving types")
+        void jsonFormat() {
+            var data = new HashMap<String, String>();
+            data.put("vector", "1.0,2.0");
+            data.put("text", "hello");
+            data.put("metadata", "{\"segment\":\"tenant-a\",\"year\":2024}");
+
+            var metadata = RedisVectorStoreAdapter.readMetadata(data);
+
+            assertThat(metadata.toMap())
+                    .containsEntry("segment", "tenant-a")
+                    .containsEntry("year", 2024);
+        }
+
+        @Test
+        @DisplayName("falls back to legacy flattened 'metadata.<key>' fields as strings")
+        void legacyFormat() {
+            var data = new HashMap<String, String>();
+            data.put("vector", "1.0,2.0");
+            data.put("metadata.segment", "tenant-a");
+            data.put("metadata.year", "2024");
+
+            var metadata = RedisVectorStoreAdapter.readMetadata(data);
+
+            assertThat(metadata.toMap())
+                    .containsEntry("segment", "tenant-a")
+                    .containsEntry("year", "2024");
+        }
+
+        @Test
+        @DisplayName("returns empty metadata when nothing is stored")
+        void emptyMetadata() {
+            var data = new HashMap<String, String>();
+            data.put("vector", "1.0,2.0");
+
+            assertThat(RedisVectorStoreAdapter.readMetadata(data).toMap()).isEmpty();
+        }
+    }
+
+    @Nested
     @DisplayName("vectorToString() / stringToVector()")
     class VectorSerializationTest {
 

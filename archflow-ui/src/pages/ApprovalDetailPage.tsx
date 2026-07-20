@@ -36,7 +36,7 @@ export default function ApprovalDetailPage() {
     const navigate = useNavigate();
     const { t, i18n } = useTranslation();
     const { impersonating, currentRole } = useTenantStore();
-    const tenantId = impersonating ?? (currentRole === 'superadmin' ? 'all' : 'default');
+    const tenantId = impersonating?.id ?? (currentRole === 'superadmin' ? 'all' : 'default');
 
     const [approval, setApproval] = useState<ApprovalResponse | null>(null);
     const [loading, setLoading] = useState(true);

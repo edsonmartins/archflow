@@ -116,6 +116,11 @@ public class ProductionReadinessGuard implements SmartInitializingSingleton {
         // durável embutida hoje).
         warnIfPresent(br.com.archflow.api.admin.observability.impl.InMemoryTraceStore.class,
                 "InMemoryTraceStore — traces de execução serão perdidos no restart");
+        // Config admin (modelos/planos/toggles) é recuperável — o controller
+        // recai nos defaults embutidos — então WARN, não violação fatal.
+        warnIfPresent(br.com.archflow.api.admin.store.InMemoryGlobalConfigStore.class,
+                "InMemoryGlobalConfigStore — configuração admin (modelos/planos/toggles) "
+                        + "será perdida no restart");
 
         return violations;
     }

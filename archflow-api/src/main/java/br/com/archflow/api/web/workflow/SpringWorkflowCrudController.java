@@ -1,7 +1,9 @@
 package br.com.archflow.api.web.workflow;
 
+import br.com.archflow.api.audit.AuditTrail;
 import br.com.archflow.api.flow.WorkflowDeserializer;
 import br.com.archflow.engine.api.FlowEngine;
+import br.com.archflow.observability.audit.AuditAction;
 import br.com.archflow.engine.persistence.FlowRepository;
 import br.com.archflow.model.engine.DefaultExecutionContext;
 import br.com.archflow.model.engine.ExecutionContext;
@@ -30,15 +32,18 @@ public class SpringWorkflowCrudController {
     private final WorkflowDeserializer deserializer;
     private final FlowEngine flowEngine;
     private final FlowRepository flowRepository;
+    private final AuditTrail auditTrail;
 
     public SpringWorkflowCrudController(WorkflowRuntimeStore store,
                                         WorkflowDeserializer deserializer,
                                         FlowEngine flowEngine,
-                                        FlowRepository flowRepository) {
+                                        FlowRepository flowRepository,
+                                        AuditTrail auditTrail) {
         this.store = store;
         this.deserializer = deserializer;
         this.flowEngine = flowEngine;
         this.flowRepository = flowRepository;
+        this.auditTrail = auditTrail != null ? auditTrail : AuditTrail.noop();
     }
 
     @GetMapping
@@ -66,6 +71,8 @@ public class SpringWorkflowCrudController {
         created.putIfAbsent("steps", List.of());
         created.putIfAbsent("configuration", Map.of());
         store.putWorkflow(id, created);
+        auditTrail.record(AuditAction.CREATE, "workflow", id, true, null,
+                Map.of("name", workflowName(created)));
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
 
@@ -79,6 +86,8 @@ public class SpringWorkflowCrudController {
         updated.putIfAbsent("steps", List.of());
         updated.putIfAbsent("configuration", Map.of());
         store.putWorkflow(id, updated);
+        auditTrail.record(AuditAction.UPDATE, "workflow", id, true, null,
+                Map.of("name", workflowName(updated)));
         return ResponseEntity.ok(updated);
     }
 
@@ -86,7 +95,31 @@ public class SpringWorkflowCrudController {
     public ResponseEntity<Void> delete(@PathVariable String id) {
         if (!store.hasWorkflow(id)) return ResponseEntity.notFound().build();
         store.deleteWorkflow(id);
+        auditTrail.record(AuditAction.DELETE, "workflow", id, true, null, null);
         return ResponseEntity.noContent().build();
+    }
+
+    /** Ciclo de vida do workflow (draft → active → archived). */
+    private static final java.util.Set<String> VALID_STATUSES =
+            java.util.Set.of("draft", "active", "archived");
+
+    @PatchMapping("/{id}/status")
+    public ResponseEntity<Map<String, Object>> setStatus(@PathVariable String id,
+                                                         @RequestBody Map<String, Object> body) {
+        var workflow = store.getWorkflow(id);
+        if (workflow == null) return ResponseEntity.notFound().build();
+        String status = String.valueOf(body.get("status")).toLowerCase(Locale.ROOT);
+        if (!VALID_STATUSES.contains(status)) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "Invalid status: " + status + " (expected draft|active|archived)"));
+        }
+        var updated = new LinkedHashMap<>(workflow);
+        updated.put("status", status);
+        updated.put("updatedAt", Instant.now().toString());
+        store.putWorkflow(id, updated);
+        auditTrail.record(AuditAction.UPDATE, "workflow", id, true, null,
+                Map.of("status", status));
+        return ResponseEntity.ok(updated);
     }
 
     @PostMapping("/{id}/execute")
@@ -113,6 +146,9 @@ public class SpringWorkflowCrudController {
         if (input != null) {
             input.forEach(ctx::set);
         }
+
+        auditTrail.record(AuditAction.WORKFLOW_EXECUTE, "workflow", id, true, null,
+                Map.of("executionId", executionId));
 
         // Fire-and-track: return immediately, update status when the run finishes.
         flowEngine.execute(flow, ctx).whenComplete((result, err) ->

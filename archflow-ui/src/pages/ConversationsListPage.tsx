@@ -12,7 +12,7 @@ import {
     TextInput,
     Title,
 } from '@mantine/core';
-import { IconRefresh, IconSearch } from '@tabler/icons-react';
+import { IconPlus, IconRefresh, IconSearch } from '@tabler/icons-react';
 import {
     conversationApi,
     type Conversation,
@@ -76,14 +76,27 @@ export default function ConversationsListPage() {
         <Stack p="md" gap="md">
             <Group justify="space-between">
                 <Title order={2}>{t('conversations.title')}</Title>
-                <Button
-                    leftSection={<IconRefresh size={16} />}
-                    variant="subtle"
-                    size="sm"
-                    onClick={() => load()}
-                >
-                    {t('common.refresh')}
-                </Button>
+                <Group gap="xs">
+                    <Button
+                        leftSection={<IconRefresh size={16} />}
+                        variant="subtle"
+                        size="sm"
+                        onClick={() => load()}
+                    >
+                        {t('common.refresh')}
+                    </Button>
+                    <Button
+                        leftSection={<IconPlus size={16} />}
+                        size="sm"
+                        onClick={() => {
+                            void conversationApi
+                                .createConversation()
+                                .then(({ id }) => navigate(`/conversations/${id}`));
+                        }}
+                    >
+                        {t('conversations.new', 'Nova conversa')}
+                    </Button>
+                </Group>
             </Group>
 
             <Group gap="sm" wrap="wrap">

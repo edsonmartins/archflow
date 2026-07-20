@@ -1,17 +1,33 @@
 package br.com.archflow.langchain4j.provider;
 
-import dev.langchain4j.model.chat.ChatModel;
-import dev.langchain4j.model.chat.StreamingChatModel;
-import dev.langchain4j.model.openai.OpenAiChatModel;
-import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
 import dev.langchain4j.model.anthropic.AnthropicChatModel;
 import dev.langchain4j.model.anthropic.AnthropicStreamingChatModel;
 import dev.langchain4j.model.azure.AzureOpenAiChatModel;
-import dev.langchain4j.model.chat.response.ChatResponse;
+import dev.langchain4j.model.azure.AzureOpenAiStreamingChatModel;
+import dev.langchain4j.model.bedrock.BedrockChatModel;
+import dev.langchain4j.model.bedrock.BedrockStreamingChatModel;
+import dev.langchain4j.model.chat.ChatModel;
+import dev.langchain4j.model.chat.StreamingChatModel;
+import dev.langchain4j.model.chat.request.ChatRequestParameters;
+import dev.langchain4j.model.googleai.GoogleAiGeminiChatModel;
+import dev.langchain4j.model.googleai.GoogleAiGeminiStreamingChatModel;
+import dev.langchain4j.model.huggingface.HuggingFaceChatModel;
+import dev.langchain4j.model.ollama.OllamaChatModel;
+import dev.langchain4j.model.ollama.OllamaStreamingChatModel;
+import dev.langchain4j.model.openai.OpenAiChatModel;
+import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
+import dev.langchain4j.model.vertexai.gemini.VertexAiGeminiChatModel;
+import dev.langchain4j.model.vertexai.gemini.VertexAiGeminiStreamingChatModel;
+import dev.langchain4j.model.watsonx.WatsonxChatModel;
+import dev.langchain4j.model.watsonx.WatsonxStreamingChatModel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
+import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.services.bedrockruntime.BedrockRuntimeAsyncClient;
+import software.amazon.awssdk.services.bedrockruntime.BedrockRuntimeClient;
 
-import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
@@ -61,6 +77,14 @@ public class LLMProviderHub {
     private final Map<String, CachedModel> modelCache;
     private final Map<String, String> activeProviders; // context -> providerId
     private final Map<String, ProviderSwitchListener> switchListeners;
+
+    /**
+     * Per-thread temporary config overrides used by {@link #withProvider}. Keeping the
+     * override thread-local means a temporary provider swap never mutates the shared
+     * {@link #configs} map, so concurrent callers of {@link #getModel(String)} are not
+     * affected by another thread's override.
+     */
+    private final ThreadLocal<Map<String, LLMProviderConfig>> threadLocalOverrides = new ThreadLocal<>();
 
     private LLMProviderHub() {
         this.configs = new ConcurrentHashMap<>();
@@ -122,8 +146,15 @@ public class LLMProviderHub {
 
     /**
      * Gets a registered configuration.
+     *
+     * <p>If the calling thread is inside {@link #withProvider}, the temporary
+     * override for this config ID is returned instead of the shared config.
      */
     public Optional<LLMProviderConfig> getConfig(String configId) {
+        LLMProviderConfig override = overrideFor(configId);
+        if (override != null) {
+            return Optional.of(override);
+        }
         return Optional.ofNullable(configs.get(configId));
     }
 
@@ -168,6 +199,12 @@ public class LLMProviderHub {
      * @throws IllegalArgumentException if config ID is not registered
      */
     public ChatModel getModel(String configId, boolean useCache) {
+        LLMProviderConfig override = overrideFor(configId);
+        if (override != null) {
+            // Ephemeral model for a thread-local override: never touches the shared cache.
+            return createModel(override);
+        }
+
         LLMProviderConfig config = getConfig(configId)
                 .orElseThrow(() -> new IllegalArgumentException("Config not registered: " + configId));
 
@@ -207,7 +244,6 @@ public class LLMProviderHub {
      * @return A StreamingChatModel instance
      * @throws IllegalArgumentException if config ID is not registered or provider doesn't support streaming
      */
-    @SuppressWarnings("unchecked")
     public StreamingChatModel getStreamingModel(String configId, boolean useCache) {
         LLMProviderConfig config = getConfig(configId)
                 .orElseThrow(() -> new IllegalArgumentException("Config not registered: " + configId));
@@ -215,6 +251,11 @@ public class LLMProviderHub {
         if (!config.getProvider().supportsStreaming()) {
             throw new IllegalArgumentException(
                     "Provider " + config.getProvider().getDisplayName() + " does not support streaming");
+        }
+
+        if (overrideFor(configId) != null) {
+            // Ephemeral model for a thread-local override: never touches the shared cache.
+            return createStreamingModel(config);
         }
 
         String cacheKey = configId + ":streaming";
@@ -238,52 +279,73 @@ public class LLMProviderHub {
     /**
      * Creates a new ChatModel from the given configuration.
      */
-    private ChatModel createModel(LLMProviderConfig config) {
+    ChatModel createModel(LLMProviderConfig config) {
         return switch (config.getProvider()) {
             case OPENAI -> createOpenAiModel(config);
             case ANTHROPIC -> createAnthropicModel(config);
             case AZURE_OPENAI -> createAzureOpenAiModel(config);
             case GEMINI -> createGeminiModel(config);
             case OLLAMA -> createOllamaModel(config);
-            case DEEPSEEK -> createDeepSeekModel(config);
-            case TONGYI -> createTongyiModel(config);
-            case MISTRAL -> createMistralModel(config);
-            case COHERE -> createCohereModel(config);
             case BEDROCK -> createBedrockModel(config);
             case HUGGINGFACE -> createHuggingFaceModel(config);
-            case QIANFAN -> createQianfanModel(config);
-            case HUNYUAN -> createHunyuanModel(config);
             case WATSONX -> createWatsonxModel(config);
             case VERTEX_AI -> createVertexAiModel(config);
-            case OPENROUTER -> createOpenRouterModel(config);
-            default -> throw new UnsupportedOperationException(
-                    "Provider " + config.getProvider().getDisplayName() + " is not yet supported. " +
-                    "Supported providers: OpenAI, Anthropic, Azure OpenAI, Gemini, Ollama, " +
-                    "DeepSeek, Tongyi, Mistral, Cohere, Bedrock, HuggingFace, Qianfan, Hunyuan, Watsonx, Vertex AI.");
+            // OpenAI-compatible providers: same OpenAI client, provider-specific
+            // compatibility endpoint (see LLMProvider baseUrl for each).
+            case DEEPSEEK, TONGYI, MISTRAL, COHERE, QIANFAN, HUNYUAN, OPENROUTER ->
+                    createOpenAiCompatibleModel(config);
         };
     }
 
     /**
      * Creates a new StreamingChatModel from the given configuration.
+     *
+     * <p>Every provider whose {@link LLMProvider#supportsStreaming()} returns
+     * {@code true} MUST be handled here; providers without a streaming
+     * implementation must declare {@code supportsStreaming = false}.
      */
-    private StreamingChatModel createStreamingModel(LLMProviderConfig config) {
-        // Build real streaming models (the previous code cast the blocking models,
-        // which throws ClassCastException). OpenAI-compatible providers reuse the
-        // OpenAI streaming model with a baseUrl override.
+    StreamingChatModel createStreamingModel(LLMProviderConfig config) {
         return switch (config.getProvider()) {
             case OPENAI -> openAiStreaming(config, config.getBaseUrl());
-            case OPENROUTER -> openAiStreaming(config, config.getBaseUrl() != null
-                    ? config.getBaseUrl() : LLMProvider.OPENROUTER.getBaseUrl());
-            // Without an explicit default baseUrl these would hit api.openai.com,
-            // sending the DeepSeek/Mistral API key to the wrong provider.
-            case DEEPSEEK -> openAiStreaming(config, config.getBaseUrl() != null
-                    ? config.getBaseUrl() : "https://api.deepseek.com");
-            case MISTRAL -> openAiStreaming(config, config.getBaseUrl() != null
-                    ? config.getBaseUrl() : "https://api.mistral.ai/v1");
             case ANTHROPIC -> anthropicStreaming(config);
-            default -> throw new IllegalArgumentException(
-                    "Streaming not yet supported for " + config.getProvider().getDisplayName());
+            case AZURE_OPENAI -> createAzureOpenAiStreamingModel(config);
+            case GEMINI -> createGeminiStreamingModel(config);
+            case OLLAMA -> createOllamaStreamingModel(config);
+            case BEDROCK -> createBedrockStreamingModel(config);
+            case WATSONX -> createWatsonxStreamingModel(config);
+            case VERTEX_AI -> createVertexAiStreamingModel(config);
+            // OpenAI-compatible providers stream through the OpenAI streaming client
+            // using the SAME default baseUrl as the blocking path.
+            case DEEPSEEK, TONGYI, MISTRAL, COHERE, QIANFAN, HUNYUAN, OPENROUTER ->
+                    openAiStreaming(config, effectiveBaseUrl(config));
+            case HUGGINGFACE -> throw new UnsupportedOperationException(
+                    "Streaming is not implemented for provider Hugging Face "
+                            + "(langchain4j-hugging-face provides no streaming chat model)");
         };
+    }
+
+    /**
+     * Resolves the base URL used for a provider: the config override if present,
+     * otherwise the provider's default endpoint. Both the blocking and streaming
+     * paths of OpenAI-compatible providers use this same resolution.
+     */
+    static String effectiveBaseUrl(LLMProviderConfig config) {
+        return config.getBaseUrl() != null ? config.getBaseUrl() : config.getProvider().getBaseUrl();
+    }
+
+    /**
+     * Runs a model factory, translating a missing-class error (dependency excluded
+     * at runtime) into an exception that names the class that was actually missing
+     * and preserves the original cause.
+     */
+    private static <T> T requireDependency(String providerName, String artifact, Supplier<T> factory) {
+        try {
+            return factory.get();
+        } catch (NoClassDefFoundError e) {
+            throw new IllegalStateException(
+                    providerName + " provider requires the '" + artifact + "' dependency on the classpath"
+                            + " (missing class: " + e.getMessage() + ")", e);
+        }
     }
 
     private StreamingChatModel openAiStreaming(LLMProviderConfig config, String baseUrl) {
@@ -341,15 +403,14 @@ public class LLMProviderHub {
         return builder.build();
     }
 
-    private ChatModel createOpenRouterModel(LLMProviderConfig config) {
-        // OpenRouter uses an OpenAI-compatible API — delegate with baseUrl override
-        String baseUrl = config.getBaseUrl() != null
-                ? config.getBaseUrl()
-                : LLMProvider.OPENROUTER.getBaseUrl();
-
+    /**
+     * Blocking model for providers exposing an OpenAI-compatible endpoint
+     * (DeepSeek, Tongyi/Qwen, Mistral, Cohere compat, Qianfan v2, Hunyuan, OpenRouter).
+     */
+    private ChatModel createOpenAiCompatibleModel(LLMProviderConfig config) {
         var builder = OpenAiChatModel.builder()
+                .baseUrl(effectiveBaseUrl(config))
                 .apiKey(config.getApiKey())
-                .baseUrl(baseUrl)
                 .modelName(config.getModelId())
                 .temperature(config.getTemperature())
                 .timeout(config.getTimeout());
@@ -397,221 +458,323 @@ public class LLMProviderHub {
                 .build();
     }
 
-    private ChatModel createGeminiModel(LLMProviderConfig config) {
-        // Dynamically create Gemini model using reflection since we might not have the dependency
-        try {
-            // Check if the Gemini classes are available
-            Class<?> geminiClass = Class.forName("dev.langchain4j.model.google.gemini.GeminiChatModel");
-            Class<?> builderClass = Class.forName("dev.langchain4j.model.google.gemini.GeminiChatModel$GeminiChatModelBuilder");
+    private StreamingChatModel createAzureOpenAiStreamingModel(LLMProviderConfig config) {
+        String deploymentId = config.getExtraParam("azure.deploymentId", String.class,
+                config.getModelId());
 
-            Object builder = geminiClass.getMethod("builder").invoke(null);
-
-            // Set properties using reflection
-            builder.getClass().getMethod("apiKey", String.class).invoke(builder, config.getApiKey());
-            builder.getClass().getMethod("modelName", String.class).invoke(builder, config.getModelId());
-            builder.getClass().getMethod("temperature", Double.class).invoke(builder, config.getTemperature());
-            builder.getClass().getMethod("timeout", Duration.class).invoke(builder, config.getTimeout());
-
-            return (ChatModel) builder.getClass().getMethod("build").invoke(builder);
-        } catch (Exception e) {
-            throw new UnsupportedOperationException(
-                    "Gemini provider requires langchain4j-google-ai-gemini dependency", e);
+        var builder = AzureOpenAiStreamingChatModel.builder()
+                .endpoint(config.getBaseUrl())
+                .apiKey(config.getApiKey())
+                .deploymentName(deploymentId)
+                .temperature(config.getTemperature())
+                .timeout(config.getTimeout());
+        if (config.getTopP() != null) {
+            builder.topP(config.getTopP());
         }
+        if (config.getMaxTokens() != null) {
+            builder.maxTokens(config.getMaxTokens());
+        }
+        return builder.build();
+    }
+
+    private ChatModel createGeminiModel(LLMProviderConfig config) {
+        return requireDependency("Google Gemini", "dev.langchain4j:langchain4j-google-ai-gemini", () -> {
+            var builder = GoogleAiGeminiChatModel.builder()
+                    .apiKey(config.getApiKey())
+                    .modelName(config.getModelId())
+                    .temperature(config.getTemperature())
+                    .timeout(config.getTimeout());
+            if (config.getBaseUrl() != null) {
+                builder.baseUrl(config.getBaseUrl());
+            }
+            if (config.getTopP() != null) {
+                builder.topP(config.getTopP());
+            }
+            if (config.getMaxTokens() != null) {
+                builder.maxOutputTokens(config.getMaxTokens());
+            }
+            return builder.build();
+        });
+    }
+
+    private StreamingChatModel createGeminiStreamingModel(LLMProviderConfig config) {
+        return requireDependency("Google Gemini", "dev.langchain4j:langchain4j-google-ai-gemini", () -> {
+            var builder = GoogleAiGeminiStreamingChatModel.builder()
+                    .apiKey(config.getApiKey())
+                    .modelName(config.getModelId())
+                    .temperature(config.getTemperature())
+                    .timeout(config.getTimeout());
+            if (config.getBaseUrl() != null) {
+                builder.baseUrl(config.getBaseUrl());
+            }
+            if (config.getTopP() != null) {
+                builder.topP(config.getTopP());
+            }
+            if (config.getMaxTokens() != null) {
+                builder.maxOutputTokens(config.getMaxTokens());
+            }
+            return builder.build();
+        });
     }
 
     private ChatModel createOllamaModel(LLMProviderConfig config) {
-        try {
-            Class<?> ollamaClass = Class.forName("dev.langchain4j.model.ollama.OllamaChatModel");
-            Class<?> builderClass = Class.forName("dev.langchain4j.model.ollama.OllamaChatModel$OllamaChatModelBuilder");
-
-            Object builder = ollamaClass.getMethod("builder").invoke(null);
-
-            String baseUrl = config.getBaseUrl() != null ? config.getBaseUrl() : "http://localhost:11434";
-
-            builder.getClass().getMethod("baseUrl", String.class).invoke(builder, baseUrl);
-            builder.getClass().getMethod("modelName", String.class).invoke(builder, config.getModelId());
-            builder.getClass().getMethod("temperature", Double.class).invoke(builder, config.getTemperature());
-            builder.getClass().getMethod("timeout", Duration.class).invoke(builder, config.getTimeout());
-
-            return (ChatModel) builder.getClass().getMethod("build").invoke(builder);
-        } catch (Exception e) {
-            throw new UnsupportedOperationException(
-                    "Ollama provider requires langchain4j-ollama dependency", e);
-        }
+        return requireDependency("Ollama", "dev.langchain4j:langchain4j-ollama", () -> {
+            var builder = OllamaChatModel.builder()
+                    .baseUrl(effectiveBaseUrl(config))
+                    .modelName(config.getModelId())
+                    .temperature(config.getTemperature())
+                    .timeout(config.getTimeout());
+            if (config.getTopP() != null) {
+                builder.topP(config.getTopP());
+            }
+            if (config.getMaxTokens() != null) {
+                builder.numPredict(config.getMaxTokens());
+            }
+            return builder.build();
+        });
     }
 
-    private ChatModel createDeepSeekModel(LLMProviderConfig config) {
-        // DeepSeek uses OpenAI-compatible API
-        String baseUrl = config.getBaseUrl() != null ? config.getBaseUrl() : "https://api.deepseek.com";
-
-        return OpenAiChatModel.builder()
-                .baseUrl(baseUrl)
-                .apiKey(config.getApiKey())
-                .modelName(config.getModelId())
-                .temperature(config.getTemperature())
-                .timeout(config.getTimeout())
-                .build();
-    }
-
-    private ChatModel createTongyiModel(LLMProviderConfig config) {
-        // Tongyi uses OpenAI-compatible API
-        String baseUrl = config.getBaseUrl() != null
-                ? config.getBaseUrl()
-                : "https://dashscope.aliyuncs.com/compatible-mode/v1";
-
-        return OpenAiChatModel.builder()
-                .baseUrl(baseUrl)
-                .apiKey(config.getApiKey())
-                .modelName(config.getModelId())
-                .temperature(config.getTemperature())
-                .timeout(config.getTimeout())
-                .build();
-    }
-
-    private ChatModel createMistralModel(LLMProviderConfig config) {
-        // Mistral AI uses OpenAI-compatible API
-        String baseUrl = config.getBaseUrl() != null
-                ? config.getBaseUrl()
-                : "https://api.mistral.ai/v1";
-
-        return OpenAiChatModel.builder()
-                .baseUrl(baseUrl)
-                .apiKey(config.getApiKey())
-                .modelName(config.getModelId())
-                .temperature(config.getTemperature())
-                .timeout(config.getTimeout())
-                .build();
-    }
-
-    private ChatModel createCohereModel(LLMProviderConfig config) {
-        // Cohere uses OpenAI-compatible API via their v1 endpoint
-        String baseUrl = config.getBaseUrl() != null
-                ? config.getBaseUrl()
-                : "https://api.cohere.ai/v1";
-
-        return OpenAiChatModel.builder()
-                .baseUrl(baseUrl)
-                .apiKey(config.getApiKey())
-                .modelName(config.getModelId())
-                .temperature(config.getTemperature())
-                .timeout(config.getTimeout())
-                .build();
+    private StreamingChatModel createOllamaStreamingModel(LLMProviderConfig config) {
+        return requireDependency("Ollama", "dev.langchain4j:langchain4j-ollama", () -> {
+            var builder = OllamaStreamingChatModel.builder()
+                    .baseUrl(effectiveBaseUrl(config))
+                    .modelName(config.getModelId())
+                    .temperature(config.getTemperature())
+                    .timeout(config.getTimeout());
+            if (config.getTopP() != null) {
+                builder.topP(config.getTopP());
+            }
+            if (config.getMaxTokens() != null) {
+                builder.numPredict(config.getMaxTokens());
+            }
+            return builder.build();
+        });
     }
 
     private ChatModel createBedrockModel(LLMProviderConfig config) {
-        // AWS Bedrock - uses reflection to access the Bedrock classes
-        try {
-            Class<?> bedrockClass = Class.forName("dev.langchain4j.model.bedrock.BedrockAnthropicMessageChatModel");
-            Class<?> builderClass = Class.forName("dev.langchain4j.model.bedrock.BedrockAnthropicMessageChatModel$Builder");
+        return requireDependency("AWS Bedrock", "dev.langchain4j:langchain4j-bedrock", () -> {
+            var builder = BedrockChatModel.builder()
+                    .modelId(config.getModelId())
+                    .timeout(config.getTimeout())
+                    .defaultRequestParameters(bedrockRequestParameters(config));
 
-            Object builder = bedrockClass.getMethod("builder").invoke(null);
+            Region region = resolveAwsRegion(config);
+            if (region != null) {
+                builder.region(region);
+            }
 
-            // Set properties using reflection
-            builder.getClass().getMethod("temperature", Double.class).invoke(builder, config.getTemperature());
-            builder.getClass().getMethod("timeout", Duration.class).invoke(builder, config.getTimeout());
-            builder.getClass().getMethod("maxTokens", Integer.class).invoke(builder,
-                    config.getMaxTokens() != null ? config.getMaxTokens() : 4096);
+            StaticCredentialsProvider credentials = awsStaticCredentials(config);
+            if (credentials != null) {
+                var clientBuilder = BedrockRuntimeClient.builder().credentialsProvider(credentials);
+                if (region != null) {
+                    clientBuilder.region(region);
+                }
+                builder.client(clientBuilder.build());
+            }
+            return builder.build();
+        });
+    }
 
-            return (ChatModel) builder.getClass().getMethod("build").invoke(builder);
-        } catch (Exception e) {
-            throw new UnsupportedOperationException(
-                    "Bedrock provider requires langchain4j-aws dependency", e);
+    private StreamingChatModel createBedrockStreamingModel(LLMProviderConfig config) {
+        return requireDependency("AWS Bedrock", "dev.langchain4j:langchain4j-bedrock", () -> {
+            var builder = BedrockStreamingChatModel.builder()
+                    .modelId(config.getModelId())
+                    .timeout(config.getTimeout())
+                    .defaultRequestParameters(bedrockRequestParameters(config));
+
+            Region region = resolveAwsRegion(config);
+            if (region != null) {
+                builder.region(region);
+            }
+
+            StaticCredentialsProvider credentials = awsStaticCredentials(config);
+            if (credentials != null) {
+                var clientBuilder = BedrockRuntimeAsyncClient.builder().credentialsProvider(credentials);
+                if (region != null) {
+                    clientBuilder.region(region);
+                }
+                builder.client(clientBuilder.build());
+            }
+            return builder.build();
+        });
+    }
+
+    private ChatRequestParameters bedrockRequestParameters(LLMProviderConfig config) {
+        var params = ChatRequestParameters.builder()
+                .temperature(config.getTemperature());
+        if (config.getTopP() != null) {
+            params.topP(config.getTopP());
         }
+        if (config.getMaxTokens() != null) {
+            params.maxOutputTokens(config.getMaxTokens());
+        }
+        return params.build();
+    }
+
+    /**
+     * Resolves the AWS region: explicit config (extraParam {@code aws.region}, set by
+     * {@code LLMProviderConfig.Builder.bedrock(...)}) first, then the standard AWS
+     * environment variables. Returns {@code null} to fall back to the SDK/langchain4j
+     * default (us-east-1).
+     */
+    private Region resolveAwsRegion(LLMProviderConfig config) {
+        String region = config.getExtraParam("aws.region", String.class);
+        if (region == null || region.isBlank()) {
+            region = System.getenv("AWS_REGION");
+        }
+        if (region == null || region.isBlank()) {
+            region = System.getenv("AWS_DEFAULT_REGION");
+        }
+        return (region == null || region.isBlank()) ? null : Region.of(region);
+    }
+
+    /**
+     * Static AWS credentials if both keys were configured via
+     * {@code LLMProviderConfig.Builder.bedrock(region, accessKey, secretKey)};
+     * otherwise {@code null} to use the AWS default credentials provider chain.
+     */
+    private StaticCredentialsProvider awsStaticCredentials(LLMProviderConfig config) {
+        String accessKey = config.getExtraParam("aws.accessKeyId", String.class);
+        String secretKey = config.getExtraParam("aws.secretKeyId", String.class);
+        if (accessKey != null && !accessKey.isBlank() && secretKey != null && !secretKey.isBlank()) {
+            return StaticCredentialsProvider.create(AwsBasicCredentials.create(accessKey, secretKey));
+        }
+        return null;
     }
 
     private ChatModel createHuggingFaceModel(LLMProviderConfig config) {
-        // HuggingFace Inference API uses OpenAI-compatible format
-        String baseUrl = config.getBaseUrl() != null
-                ? config.getBaseUrl()
-                : "https://api-inference.huggingface.co/v1";
-
-        return OpenAiChatModel.builder()
-                .baseUrl(baseUrl)
-                .apiKey(config.getApiKey())
-                .modelName(config.getModelId())
-                .temperature(config.getTemperature())
-                .timeout(config.getTimeout())
-                .build();
-    }
-
-    private ChatModel createQianfanModel(LLMProviderConfig config) {
-        // Baidu Qianfan uses OpenAI-compatible API
-        String baseUrl = config.getBaseUrl() != null
-                ? config.getBaseUrl()
-                : "https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop";
-
-        return OpenAiChatModel.builder()
-                .baseUrl(baseUrl)
-                .apiKey(config.getApiKey())
-                .modelName(config.getModelId())
-                .temperature(config.getTemperature())
-                .timeout(config.getTimeout())
-                .build();
-    }
-
-    private ChatModel createHunyuanModel(LLMProviderConfig config) {
-        // Tencent Hunyuan uses OpenAI-compatible API
-        String baseUrl = config.getBaseUrl() != null
-                ? config.getBaseUrl()
-                : "https://hunyuan.tencentcloudapi.com/v1";
-
-        return OpenAiChatModel.builder()
-                .baseUrl(baseUrl)
-                .apiKey(config.getApiKey())
-                .modelName(config.getModelId())
-                .temperature(config.getTemperature())
-                .timeout(config.getTimeout())
-                .build();
+        return requireDependency("Hugging Face", "dev.langchain4j:langchain4j-hugging-face", () -> {
+            var builder = HuggingFaceChatModel.builder()
+                    .accessToken(config.getApiKey())
+                    .modelId(config.getModelId())
+                    .temperature(config.getTemperature())
+                    .timeout(config.getTimeout());
+            if (config.getBaseUrl() != null) {
+                builder.baseUrl(config.getBaseUrl());
+            }
+            if (config.getMaxTokens() != null) {
+                builder.maxNewTokens(config.getMaxTokens());
+            }
+            return builder.build();
+        });
     }
 
     private ChatModel createWatsonxModel(LLMProviderConfig config) {
-        // IBM Watsonx - uses reflection to access the IBM classes
-        try {
-            Class<?> watsonxClass = Class.forName("dev.langchain4j.model.ibm.WatsonxChatModel");
-            Class<?> builderClass = Class.forName("dev.langchain4j.model.ibm.WatsonxChatModel$Builder");
-
-            Object builder = watsonxClass.getMethod("builder").invoke(null);
-
-            // Set properties using reflection
-            builder.getClass().getMethod("apiKey", String.class).invoke(builder, config.getApiKey());
-            builder.getClass().getMethod("modelId", String.class).invoke(builder, config.getModelId());
-            builder.getClass().getMethod("temperature", Double.class).invoke(builder, config.getTemperature());
-            builder.getClass().getMethod("timeout", Duration.class).invoke(builder, config.getTimeout());
-
-            if (config.getBaseUrl() != null) {
-                builder.getClass().getMethod("endpoint", String.class).invoke(builder, config.getBaseUrl());
+        String projectId = requireWatsonxScope(config);
+        String spaceId = config.getExtraParam("watsonx.spaceId", String.class);
+        return requireDependency("IBM Watsonx", "dev.langchain4j:langchain4j-watsonx", () -> {
+            var builder = WatsonxChatModel.builder()
+                    .baseUrl(effectiveBaseUrl(config))
+                    .apiKey(config.getApiKey())
+                    .modelName(config.getModelId())
+                    .temperature(config.getTemperature())
+                    .timeout(config.getTimeout());
+            if (projectId != null) {
+                builder.projectId(projectId);
             }
+            if (spaceId != null && !spaceId.isBlank()) {
+                builder.spaceId(spaceId);
+            }
+            if (config.getTopP() != null) {
+                builder.topP(config.getTopP());
+            }
+            if (config.getMaxTokens() != null) {
+                builder.maxOutputTokens(config.getMaxTokens());
+            }
+            return builder.build();
+        });
+    }
 
-            return (ChatModel) builder.getClass().getMethod("build").invoke(builder);
-        } catch (Exception e) {
-            throw new UnsupportedOperationException(
-                    "Watsonx provider requires langchain4j-ibm-watsonx dependency", e);
+    private StreamingChatModel createWatsonxStreamingModel(LLMProviderConfig config) {
+        String projectId = requireWatsonxScope(config);
+        String spaceId = config.getExtraParam("watsonx.spaceId", String.class);
+        return requireDependency("IBM Watsonx", "dev.langchain4j:langchain4j-watsonx", () -> {
+            var builder = WatsonxStreamingChatModel.builder()
+                    .baseUrl(effectiveBaseUrl(config))
+                    .apiKey(config.getApiKey())
+                    .modelName(config.getModelId())
+                    .temperature(config.getTemperature())
+                    .timeout(config.getTimeout());
+            if (projectId != null) {
+                builder.projectId(projectId);
+            }
+            if (spaceId != null && !spaceId.isBlank()) {
+                builder.spaceId(spaceId);
+            }
+            if (config.getTopP() != null) {
+                builder.topP(config.getTopP());
+            }
+            if (config.getMaxTokens() != null) {
+                builder.maxOutputTokens(config.getMaxTokens());
+            }
+            return builder.build();
+        });
+    }
+
+    /**
+     * Validates the Watsonx scope (projectId or spaceId) and returns the projectId
+     * (may be {@code null} when only spaceId is configured).
+     */
+    private String requireWatsonxScope(LLMProviderConfig config) {
+        String projectId = config.getExtraParam("watsonx.projectId", String.class);
+        String spaceId = config.getExtraParam("watsonx.spaceId", String.class);
+        boolean hasProject = projectId != null && !projectId.isBlank();
+        boolean hasSpace = spaceId != null && !spaceId.isBlank();
+        if (!hasProject && !hasSpace) {
+            throw new IllegalArgumentException(
+                    "IBM Watsonx requires extraParam 'watsonx.projectId' (or 'watsonx.spaceId'). "
+                            + "Use LLMProviderConfig.builder().watsonx(projectId, apiKey, endpoint).");
         }
+        return hasProject ? projectId : null;
     }
 
     private ChatModel createVertexAiModel(LLMProviderConfig config) {
-        // Google Vertex AI - similar to Gemini but for enterprise
-        try {
-            Class<?> vertexClass = Class.forName("dev.langchain4j.model.vertexai.VertexAiChatModel");
-            Class<?> builderClass = Class.forName("dev.langchain4j.model.vertexai.VertexAiChatModel$VertexAiChatModelBuilder");
-
-            Object builder = vertexClass.getMethod("builder").invoke(null);
-
-            // Set properties using reflection
-            builder.getClass().getMethod("apiKey", String.class).invoke(builder, config.getApiKey());
-            builder.getClass().getMethod("modelName", String.class).invoke(builder, config.getModelId());
-            builder.getClass().getMethod("temperature", Double.class).invoke(builder, config.getTemperature());
-            builder.getClass().getMethod("timeout", Duration.class).invoke(builder, config.getTimeout());
-
-            if (config.getBaseUrl() != null) {
-                builder.getClass().getMethod("endpoint", String.class).invoke(builder, config.getBaseUrl());
+        return requireDependency("Vertex AI", "dev.langchain4j:langchain4j-vertex-ai-gemini", () -> {
+            var builder = VertexAiGeminiChatModel.builder()
+                    .project(requireVertexParam(config, "vertex.project"))
+                    .location(requireVertexParam(config, "vertex.location"))
+                    .modelName(config.getModelId());
+            if (config.getTemperature() != null) {
+                builder.temperature(config.getTemperature().floatValue());
             }
+            if (config.getTopP() != null) {
+                builder.topP(config.getTopP().floatValue());
+            }
+            if (config.getMaxTokens() != null) {
+                builder.maxOutputTokens(config.getMaxTokens());
+            }
+            return builder.build();
+        });
+    }
 
-            return (ChatModel) builder.getClass().getMethod("build").invoke(builder);
-        } catch (Exception e) {
-            throw new UnsupportedOperationException(
-                    "Vertex AI provider requires langchain4j-google-ai-gemini dependency", e);
+    private StreamingChatModel createVertexAiStreamingModel(LLMProviderConfig config) {
+        return requireDependency("Vertex AI", "dev.langchain4j:langchain4j-vertex-ai-gemini", () -> {
+            var builder = VertexAiGeminiStreamingChatModel.builder()
+                    .project(requireVertexParam(config, "vertex.project"))
+                    .location(requireVertexParam(config, "vertex.location"))
+                    .modelName(config.getModelId());
+            if (config.getTemperature() != null) {
+                builder.temperature(config.getTemperature().floatValue());
+            }
+            if (config.getTopP() != null) {
+                builder.topP(config.getTopP().floatValue());
+            }
+            if (config.getMaxTokens() != null) {
+                builder.maxOutputTokens(config.getMaxTokens());
+            }
+            return builder.build();
+        });
+    }
+
+    private String requireVertexParam(LLMProviderConfig config, String key) {
+        String value = config.getExtraParam(key, String.class);
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException(
+                    "Vertex AI requires extraParam '" + key + "'. "
+                            + "Use LLMProviderConfig.builder().vertexAi(project, location, apiKey); "
+                            + "authentication uses Google Application Default Credentials.");
         }
+        return value;
     }
 
     // ========== Runtime Switching ==========
@@ -636,6 +799,11 @@ public class LLMProviderHub {
     /**
      * Executes an operation with a temporary provider override.
      *
+     * <p>The override is <b>thread-local</b>: only the calling thread sees the
+     * temporary configuration, so the shared config registry is never mutated and
+     * concurrent threads using the same config ID are unaffected. Models built for
+     * the override are ephemeral and never stored in the shared model cache.
+     *
      * @param configId The base configuration ID
      * @param tempConfig Temporary configuration to use
      * @param operation The operation to execute
@@ -643,29 +811,31 @@ public class LLMProviderHub {
      * @return The result of the operation
      */
     public <T> T withProvider(String configId, LLMProviderConfig tempConfig, Supplier<T> operation) {
-        String cacheKey = configId + ":temp";
-        try {
-            // Store original config
-            LLMProviderConfig original = configs.get(configId);
-            if (original != null) {
-                configs.put(cacheKey, original);
-            }
+        tempConfig.validate();
 
-            // Apply temporary config
-            registerConfig(configId, tempConfig);
-
-            // Execute operation
-            return operation.get();
-
-        } finally {
-            // Restore original config
-            LLMProviderConfig original = configs.remove(cacheKey);
-            if (original != null) {
-                registerConfig(configId, original);
-            }
-            // Clear temp cache
-            modelCache.remove(configId);
+        Map<String, LLMProviderConfig> overrides = threadLocalOverrides.get();
+        if (overrides == null) {
+            overrides = new HashMap<>();
+            threadLocalOverrides.set(overrides);
         }
+        LLMProviderConfig previous = overrides.put(configId, tempConfig);
+        try {
+            return operation.get();
+        } finally {
+            if (previous != null) {
+                overrides.put(configId, previous);
+            } else {
+                overrides.remove(configId);
+            }
+            if (overrides.isEmpty()) {
+                threadLocalOverrides.remove();
+            }
+        }
+    }
+
+    private LLMProviderConfig overrideFor(String configId) {
+        Map<String, LLMProviderConfig> overrides = threadLocalOverrides.get();
+        return overrides != null ? overrides.get(configId) : null;
     }
 
     /**

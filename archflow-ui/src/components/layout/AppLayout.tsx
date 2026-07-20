@@ -85,8 +85,21 @@ export default function AppLayout() {
     // AbstractAgent, nominalmente incompatível com a de @ag-ui/client —
     // em runtime é o mesmo protocolo AG-UI, então o cast é seguro.
     const copilotAgent = useMemo(
-        () => new HttpAgent({ url: '/ag-ui/agent', fetch: window.fetch.bind(window) }) as unknown as
-            NonNullable<Parameters<typeof CopilotKitProvider>[0]['agents__unsafe_dev_only']>[string],
+        () => {
+            // Injeta o token ATUAL a cada chamada (o token pode ser renovado
+            // durante a sessão) — sem isso o /ag-ui/agent volta 401 com auth
+            // habilitada e o Copilot morre silenciosamente.
+            const authFetch: typeof window.fetch = (input, init) => {
+                const token = sessionStorage.getItem('archflow_token');
+                const headers = new Headers(init?.headers);
+                if (token && !headers.has('Authorization')) {
+                    headers.set('Authorization', `Bearer ${token}`);
+                }
+                return window.fetch(input, { ...init, headers });
+            };
+            return new HttpAgent({ url: '/ag-ui/agent', fetch: authFetch }) as unknown as
+                NonNullable<Parameters<typeof CopilotKitProvider>[0]['agents__unsafe_dev_only']>[string];
+        },
         []);
     const location = useLocation();
     const { t } = useTranslation();
