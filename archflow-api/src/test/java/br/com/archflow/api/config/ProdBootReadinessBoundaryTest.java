@@ -51,15 +51,27 @@ class ProdBootReadinessBoundaryTest {
 
     /** Ambiente sem profile dev/test → o guard roda de verdade (como em prod). */
     private static StandardEnvironment prodLikeEnvironment() {
-        return new StandardEnvironment();
+        StandardEnvironment env = new StandardEnvironment();
+        // Como no perfil prod real: auth ligada (o guard recusa boot com auth
+        // desligada fora de dev/test — checagem separada das de persistência).
+        env.getPropertySources().addFirst(new org.springframework.core.env.MapPropertySource(
+                "test", java.util.Map.of("archflow.security.auth.enabled", "true")));
+        return env;
     }
 
     /**
      * Beans duráveis que {@code JdbcPersistenceConfiguration} liga sob a flag — os
-     * seis stores que a leva de persistência tornou duráveis. Flow e Queue ficam a
-     * cargo do chamador (o ponto do teste).
+     * stores que a leva de persistência tornou duráveis (incluindo o
+     * {@code JdbcWorkflowRuntimeStore} do runtime do designer). Flow e Queue ficam
+     * a cargo do chamador (o ponto do teste).
      */
     private static DefaultListableBeanFactory durableStoresFactory() throws Exception {
+        return durableStoresFactory(
+                new br.com.archflow.api.web.workflow.JdbcWorkflowRuntimeStore(new StubDataSource()));
+    }
+
+    private static DefaultListableBeanFactory durableStoresFactory(
+            br.com.archflow.api.web.workflow.WorkflowRuntimeStore workflowRuntimeStore) throws Exception {
         DataSource ds = new StubDataSource();
         DefaultListableBeanFactory factory = new DefaultListableBeanFactory();
         factory.registerSingleton("stateManager",
@@ -69,6 +81,7 @@ class ProdBootReadinessBoundaryTest {
         factory.registerSingleton("auditRepository", new JdbcAuditRepository(ds));
         factory.registerSingleton("suspendedConversationStore",
                 new br.com.archflow.conversation.persistence.jdbc.JdbcSuspendedConversationStore(ds));
+        factory.registerSingleton("workflowRuntimeStore", workflowRuntimeStore);
         // Quartz JDBCJobStore (JobStoreTX), criado sem conectar ao banco.
         factory.registerSingleton("quartzScheduler",
                 DurableQuartzScheduler.create(ds, QUARTZ_DELEGATE, "archflow-triggers-smoke"));
@@ -96,16 +109,47 @@ class ProdBootReadinessBoundaryTest {
                 .matches(e -> !e.getMessage().contains("InMemoryAuditRepository"), "AuditRepository durável")
                 .matches(e -> !e.getMessage().contains("InMemorySuspendedConversationStore"),
                         "SuspendedConversationStore durável")
+                .matches(e -> !e.getMessage().contains("InMemoryWorkflowRuntimeStore"),
+                        "WorkflowRuntimeStore durável")
                 .matches(e -> !e.getMessage().contains("RAMJobStore"), "Quartz durável");
+    }
+
+    @Test
+    @DisplayName("runtime store de workflows in-memory é blocker: guard cita InMemoryWorkflowRuntimeStore")
+    void inMemoryWorkflowRuntimeStore_guardFailsCitingIt() throws Exception {
+        DefaultListableBeanFactory factory = durableStoresFactory(
+                new br.com.archflow.api.web.workflow.InMemoryWorkflowRuntimeStore());
+        // Flow e Queue duráveis (como no cenário verde) — isola o runtime store
+        // como a única violação.
+        DataSource ds = new StubDataSource();
+        factory.registerSingleton("flowRepository",
+                new br.com.archflow.engine.persistence.jdbc.JdbcFlowRepository(ds,
+                        new br.com.archflow.api.flow.WorkflowJsonCodec(mock(
+                                br.com.archflow.api.flow.WorkflowDeserializer.class))));
+        factory.registerSingleton("agentInvocationQueue",
+                new br.com.archflow.api.queue.JdbcAgentInvocationQueue(ds));
+
+        ProductionReadinessGuard guard = new ProductionReadinessGuard(prodLikeEnvironment(), factory);
+
+        assertThatThrownBy(guard::afterSingletonsInstantiated)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("InMemoryWorkflowRuntimeStore")
+                .hasMessageContaining("WorkflowRuntimeStore — workflows e execuções do designer");
     }
 
     @Test
     @DisplayName("com Flow e Queue duráveis, o guard fica verde — provam ser os únicos blockers")
     void withDurableFlowAndQueue_guardPasses() throws Exception {
         DefaultListableBeanFactory factory = durableStoresFactory();
-        // Qualquer implementação que não seja a classe in-memory conta como durável.
-        factory.registerSingleton("flowRepository", mock(FlowRepository.class));
-        factory.registerSingleton("agentInvocationQueue", mock(AgentInvocationQueue.class));
+        // As implementações duráveis REAIS que o JdbcPersistenceConfiguration
+        // liga em prod (construtores só guardam referências).
+        DataSource ds = new StubDataSource();
+        factory.registerSingleton("flowRepository",
+                new br.com.archflow.engine.persistence.jdbc.JdbcFlowRepository(ds,
+                        new br.com.archflow.api.flow.WorkflowJsonCodec(mock(
+                                br.com.archflow.api.flow.WorkflowDeserializer.class))));
+        factory.registerSingleton("agentInvocationQueue",
+                new br.com.archflow.api.queue.JdbcAgentInvocationQueue(ds));
 
         ProductionReadinessGuard guard = new ProductionReadinessGuard(prodLikeEnvironment(), factory);
 

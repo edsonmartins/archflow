@@ -50,6 +50,17 @@ public class ProductionReadinessGuard implements SmartInitializingSingleton {
             return;
         }
 
+        // Auth desligada fora de dev/test deixa TODOS os endpoints abertos —
+        // sem escape hatch (archflow.allow-in-memory cobre perda de dados,
+        // não ausência de autenticação).
+        if (!environment.getProperty("archflow.security.auth.enabled", Boolean.class, false)) {
+            throw new IllegalStateException(
+                    "Refusing to start: archflow.security.auth.enabled is false (or unset) outside "
+                    + "the dev/test profiles — every endpoint would be reachable without "
+                    + "authentication. Enable it (the prod profile already does) or activate "
+                    + "the dev profile.");
+        }
+
         List<String> violations = collectViolations();
         if (violations.isEmpty()) {
             log.info("Production readiness guard: no in-memory stores detected");
@@ -95,6 +106,9 @@ public class ProductionReadinessGuard implements SmartInitializingSingleton {
         checkBean(br.com.archflow.conversation.state.SuspendedConversationStore.class,
                 br.com.archflow.conversation.state.InMemorySuspendedConversationStore.class,
                 "SuspendedConversationStore — conversas suspensas (suspend/resume)", violations);
+        checkBean(br.com.archflow.api.web.workflow.WorkflowRuntimeStore.class,
+                br.com.archflow.api.web.workflow.InMemoryWorkflowRuntimeStore.class,
+                "WorkflowRuntimeStore — workflows e execuções do designer", violations);
         checkQuartz(violations);
 
         // Stores de observabilidade/rascunho: a perda degrada visibilidade,
@@ -102,8 +116,6 @@ public class ProductionReadinessGuard implements SmartInitializingSingleton {
         // durável embutida hoje).
         warnIfPresent(br.com.archflow.api.admin.observability.impl.InMemoryTraceStore.class,
                 "InMemoryTraceStore — traces de execução serão perdidos no restart");
-        warnIfPresent(br.com.archflow.api.web.workflow.InMemoryWorkflowRuntimeStore.class,
-                "InMemoryWorkflowRuntimeStore — runtime de workflows do designer será perdido no restart");
 
         return violations;
     }

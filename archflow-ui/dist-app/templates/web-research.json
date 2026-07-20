@@ -1,0 +1,25 @@
+{
+  "id": "web-research",
+  "name": "Web research → report",
+  "icon": "🔎",
+  "summary": "Searches the web, scrapes top results and summarizes them into a structured report.",
+  "description": "Issues a web search, fetches the top results in parallel, runs an extractor to get clean text, and uses an LLM to compile a report with sources. Citations propagate to the chat surface for verification.",
+  "category": "research",
+  "tags": ["web-search", "scraping", "report"],
+  "complexity": "advanced",
+  "steps": [
+    { "id": "s1", "type": "input", "componentId": "input", "label": "Topic", "category": "io", "position": { "x": 60, "y": 220 }, "config": {} },
+    { "id": "s2", "type": "tool", "componentId": "tool", "label": "Web search", "category": "tool", "position": { "x": 280, "y": 220 }, "config": { "name": "web_search" } },
+    { "id": "s3", "type": "map", "componentId": "map", "label": "Fetch top N", "category": "data", "position": { "x": 520, "y": 220 }, "config": { "topN": 5 } },
+    { "id": "s4", "type": "tool", "componentId": "tool", "label": "Extract text", "category": "tool", "position": { "x": 760, "y": 220 }, "config": { "name": "extract_text" } },
+    { "id": "s5", "type": "llm-chat", "componentId": "llm-chat", "label": "Compile report", "category": "agent", "position": { "x": 1000, "y": 220 }, "config": { "model": "gpt-4o", "format": "markdown" } },
+    { "id": "s6", "type": "output", "componentId": "output", "label": "Report", "category": "io", "position": { "x": 1240, "y": 220 }, "config": {} }
+  ],
+  "connections": [
+    { "id": "c1", "sourceId": "s1", "targetId": "s2", "isErrorPath": false },
+    { "id": "c2", "sourceId": "s2", "targetId": "s3", "isErrorPath": false },
+    { "id": "c3", "sourceId": "s3", "targetId": "s4", "isErrorPath": false },
+    { "id": "c4", "sourceId": "s4", "targetId": "s5", "isErrorPath": false },
+    { "id": "c5", "sourceId": "s5", "targetId": "s6", "isErrorPath": false }
+  ]
+}

@@ -31,7 +31,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 class JdbcPersistenceConfigurationTest {
 
     private final ApplicationContextRunner runner = new ApplicationContextRunner()
-            .withUserConfiguration(JdbcPersistenceConfiguration.class);
+            .withUserConfiguration(JdbcPersistenceConfiguration.class)
+            // Dependência do flowRepository (o codec delega a desserialização a ele)
+            .withBean(br.com.archflow.api.flow.WorkflowDeserializer.class,
+                    () -> org.mockito.Mockito.mock(br.com.archflow.api.flow.WorkflowDeserializer.class));
 
     @Test
     @DisplayName("desligado por padrão (property ausente) — config não cria beans")
@@ -58,6 +61,10 @@ class JdbcPersistenceConfigurationTest {
                             .isInstanceOf(JdbcUserRepository.class);
                     assertThat(ctx.getBean(ApiKeyService.ApiKeyRepository.class))
                             .isInstanceOf(JdbcApiKeyRepository.class);
+                    assertThat(ctx.getBean(br.com.archflow.engine.persistence.FlowRepository.class))
+                            .isInstanceOf(br.com.archflow.engine.persistence.jdbc.JdbcFlowRepository.class);
+                    assertThat(ctx.getBean(br.com.archflow.agent.queue.AgentInvocationQueue.class))
+                            .isInstanceOf(br.com.archflow.api.queue.JdbcAgentInvocationQueue.class);
                     // Scheduler durável (JobStoreTX), criado sem conectar: getMetaData()
                     // lê a config, não o banco — logo funciona com o DataSource stub.
                     assertThat(ctx.getBean(org.quartz.Scheduler.class).getMetaData()

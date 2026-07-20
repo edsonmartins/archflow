@@ -19,7 +19,7 @@ import java.util.Objects;
 /**
  * YAML view/edit endpoint for the workflow CRUD surface.
  *
- * <p>Reads and writes through {@link InMemoryWorkflowRuntimeStore} — the
+ * <p>Reads and writes through {@link WorkflowRuntimeStore} — the
  * same document store the JSON CRUD controller uses — so the "Code" tab
  * in the editor always sees the latest workflow, regardless of whether
  * it was last edited as YAML or via the canvas.
@@ -31,7 +31,7 @@ public class SpringWorkflowYamlController {
     private static final TypeReference<LinkedHashMap<String, Object>> DOC_TYPE =
             new TypeReference<>() { };
 
-    private final InMemoryWorkflowRuntimeStore store;
+    private final WorkflowRuntimeStore store;
     private final WorkflowYamlBridge bridge;
     // Local mapper avoids depending on the Spring Boot autoconfigured
     // bean, which isn't always present (the classpath carries both
@@ -41,7 +41,7 @@ public class SpringWorkflowYamlController {
             .registerModule(new JavaTimeModule())
             .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
-    public SpringWorkflowYamlController(InMemoryWorkflowRuntimeStore store,
+    public SpringWorkflowYamlController(WorkflowRuntimeStore store,
                                         WorkflowYamlBridge bridge) {
         this.store = Objects.requireNonNull(store, "store");
         this.bridge = Objects.requireNonNull(bridge, "bridge");

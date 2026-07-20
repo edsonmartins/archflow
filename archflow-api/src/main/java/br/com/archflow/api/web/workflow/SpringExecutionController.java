@@ -21,11 +21,11 @@ import java.util.Map;
 @RequestMapping("/api/executions")
 public class SpringExecutionController {
 
-    private final InMemoryWorkflowRuntimeStore store;
+    private final WorkflowRuntimeStore store;
     private final FlowEngine flowEngine;
     private final StateManager stateManager;
 
-    public SpringExecutionController(InMemoryWorkflowRuntimeStore store, FlowEngine flowEngine,
+    public SpringExecutionController(WorkflowRuntimeStore store, FlowEngine flowEngine,
                                      StateManager stateManager) {
         this.store = store;
         this.flowEngine = flowEngine;

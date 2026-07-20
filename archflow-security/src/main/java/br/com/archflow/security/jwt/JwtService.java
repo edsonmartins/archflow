@@ -48,14 +48,17 @@ public class JwtService {
      * Creates a JwtService with custom expiration times.
      */
     public JwtService(String secretKey, long accessTokenExpirationMs, long refreshTokenExpirationMs) {
-        // Ensure the key is properly encoded for HS256
+        if (secretKey == null || secretKey.isBlank()) {
+            throw new IllegalArgumentException(
+                    "JWT secret is required (set ARCHFLOW_JWT_SECRET / archflow.security.jwt.secret)");
+        }
         byte[] keyBytes = secretKey.getBytes(StandardCharsets.UTF_8);
         if (keyBytes.length < 32) {
-            // Pad the key if it's too short
-            byte[] paddedKey = new byte[32];
-            System.arraycopy(keyBytes, 0, paddedKey, 0, keyBytes.length);
-            keyBytes = paddedKey;
-            log.warn("JWT secret key was too short, padded to 256 bits");
+            // Falha alto: preencher com zeros produziria uma chave de baixa
+            // entropia com tokens forjáveis — pior que não subir.
+            throw new IllegalArgumentException(
+                    "JWT secret must be at least 256 bits (32 bytes) for HS256; got "
+                            + keyBytes.length + " bytes. Set a stronger ARCHFLOW_JWT_SECRET.");
         }
         this.signingKey = Keys.hmacShaKeyFor(keyBytes);
         this.accessTokenExpirationMs = accessTokenExpirationMs;
@@ -64,10 +67,12 @@ public class JwtService {
     }
 
     /**
-     * Generates a random secret key suitable for HS256.
+     * Generates a random secret key suitable for HS256 (256 bits from a CSPRNG).
      */
     public static String generateSecretKey() {
-        return Base64.getEncoder().encodeToString(UUID.randomUUID().toString().getBytes());
+        byte[] bytes = new byte[32];
+        new java.security.SecureRandom().nextBytes(bytes);
+        return Base64.getEncoder().encodeToString(bytes);
     }
 
     // ========== Token Generation ==========

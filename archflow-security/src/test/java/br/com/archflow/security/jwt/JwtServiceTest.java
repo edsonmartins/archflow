@@ -241,18 +241,18 @@ class JwtServiceTest {
     // ========== Constructor edge case ==========
 
     @Test
-    void constructor_withShortSecretKey_doesNotThrow() {
-        // Key shorter than 32 chars — must be padded by the service
-        assertDoesNotThrow(() -> new JwtService("short"));
+    void constructor_withShortSecretKey_failsFast() {
+        // Segredo < 256 bits era padeado com zeros (chave fraca, tokens
+        // forjáveis); agora o boot recusa com mensagem acionável.
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> new JwtService("short"));
+        assertTrue(ex.getMessage().contains("256 bits"));
     }
 
     @Test
-    void constructor_withShortSecretKey_producesWorkingService() {
-        JwtService service = new JwtService("short");
-        String token = service.generateAccessToken("user-1", "ivy");
-
-        assertTrue(service.isTokenValid(token));
-        assertEquals("user-1", service.extractUserId(token));
+    void constructor_withBlankSecretKey_failsFast() {
+        assertThrows(IllegalArgumentException.class, () -> new JwtService("  "));
+        assertThrows(IllegalArgumentException.class, () -> new JwtService(null));
     }
 
     // ========== generateSecretKey ==========

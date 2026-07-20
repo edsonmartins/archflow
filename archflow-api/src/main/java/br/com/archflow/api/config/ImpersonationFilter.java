@@ -100,9 +100,13 @@ public class ImpersonationFilter implements Filter {
     private boolean callerCanImpersonate(HttpServletRequest http) {
         Object rolesAttr = http.getAttribute(JwtAuthenticationFilter.ATTR_ROLES);
         if (rolesAttr instanceof List<?> roles) {
-            return roles.contains("superadmin") || roles.contains("ROLE_SUPERADMIN");
+            return roles.contains("superadmin") || roles.contains("ROLE_SUPERADMIN")
+                    || roles.contains("ADMIN") || roles.contains("ROLE_ADMIN");
         }
-        // No JWT roles — fall back to the property gate (dev mode).
-        return true;
+        // Sem roles no request (auth desligada) → NEGA. "Sem autenticação =
+        // pode impersonar" permitiria a qualquer cliente ler qualquer tenant
+        // via header; em dev com auth off, use o tenant real em vez de
+        // impersonation.
+        return false;
     }
 }

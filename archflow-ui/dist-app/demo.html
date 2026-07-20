@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ArchflowDesigner - Web Component Demo</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+      background: #0f172a;
+      color: #f1f5f9;
+      padding: 20px;
+    }
+
+    header {
+      max-width: 1200px;
+      margin: 0 auto 30px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid #334155;
+    }
+
+    h1 {
+      font-size: 28px;
+      font-weight: 700;
+      margin-bottom: 10px;
+      background: linear-gradient(135deg, #60a5fa, #a78bfa);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .subtitle {
+      color: #94a3b8;
+      font-size: 14px;
+    }
+
+    .demo-container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    .demo-section {
+      margin-bottom: 40px;
+    }
+
+    .demo-section h2 {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 15px;
+      color: #e2e8f0;
+    }
+
+    .demo-controls {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+
+    button {
+      padding: 10px 16px;
+      border-radius: 8px;
+      border: 1px solid #475569;
+      background: #1e293b;
+      color: #f1f5f9;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    button:hover {
+      background: #334155;
+      border-color: #60a5fa;
+    }
+
+    button.primary {
+      background: #3b82f6;
+      border-color: #3b82f6;
+    }
+
+    button.primary:hover {
+      background: #2563eb;
+    }
+
+    #event-log {
+      margin-top: 20px;
+      padding: 15px;
+      background: #1e293b;
+      border-radius: 8px;
+      border: 1px solid #334155;
+      max-height: 200px;
+      overflow-y: auto;
+      font-family: 'Monaco', 'Menlo', monospace;
+      font-size: 12px;
+    }
+
+    #event-log .log-entry {
+      padding: 4px 0;
+      border-bottom: 1px solid #334155;
+      display: flex;
+      gap: 10px;
+    }
+
+    #event-log .log-entry:last-child {
+      border-bottom: none;
+    }
+
+    #event-log .log-time {
+      color: #64748b;
+    }
+
+    #event-log .log-type {
+      color: #60a5fa;
+      font-weight: 600;
+    }
+
+    #event-log .log-detail {
+      color: #94a3b8;
+    }
+
+    .info-box {
+      padding: 15px;
+      background: #1e293b;
+      border-radius: 8px;
+      border-left: 4px solid #3b82f6;
+      margin-bottom: 20px;
+    }
+
+    .info-box h3 {
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 8px;
+      color: #e2e8f0;
+    }
+
+    .info-box p {
+      font-size: 13px;
+      color: #94a3b8;
+      line-height: 1.5;
+    }
+
+    .info-box code {
+      background: #334155;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 12px;
+      color: #60a5fa;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>ArchflowDesigner</h1>
+    <p class="subtitle">Web Component Demo - Framework-Agnostic Visual AI Workflow Builder</p>
+  </header>
+
+  <main class="demo-container">
+    <div class="demo-section">
+      <div class="info-box">
+        <h3>About this Demo</h3>
+        <p>
+          This is a standalone HTML page demonstrating the <code>&lt;archflow-designer&gt;</code> Web Component.
+          No framework required - just pure HTML, CSS, and JavaScript.
+        </p>
+      </div>
+
+      <h2>Designer Controls</h2>
+      <div class="demo-controls">
+        <button class="primary" onclick="loadWorkflow('wf-001')">Load Workflow</button>
+        <button onclick="toggleTheme()">Toggle Theme</button>
+        <button onclick="setReadonly()">Toggle Readonly</button>
+        <button onclick="setSize()">Resize Component</button>
+        <button onclick="resetDesigner()">Reset</button>
+      </div>
+    </div>
+
+    <div class="demo-section">
+      <h2>Web Component</h2>
+      <!-- The ArchflowDesigner Web Component -->
+      <archflow-designer
+        id="designer"
+        workflow-id=""
+        api-base="http://localhost:8080/api"
+        theme="dark"
+        width="100%"
+        height="500px">
+      </archflow-designer>
+    </div>
+
+    <div class="demo-section">
+      <h2>Event Log</h2>
+      <div id="event-log">
+        <div class="log-entry">
+          <span class="log-time">--:--:--</span>
+          <span class="log-type">INFO</span>
+          <span class="log-detail">Event listener attached. Waiting for events...</span>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Load the Web Component -->
+  <script type="module">
+    import { ArchflowDesigner } from './src/web-component/index.ts';
+
+    // Register the web component
+    customElements.define('archflow-designer', ArchflowDesigner);
+
+    // Get the designer element
+    const designer = document.getElementById('designer');
+    const eventLog = document.getElementById('event-log');
+
+    // Event logging
+    function logEvent(type, detail) {
+      const entry = document.createElement('div');
+      entry.className = 'log-entry';
+
+      const time = new Date().toLocaleTimeString();
+      const detailStr = JSON.stringify(detail);
+
+      entry.innerHTML = `
+        <span class="log-time">${time}</span>
+        <span class="log-type">${type}</span>
+        <span class="log-detail">${detailStr}</span>
+      `;
+
+      eventLog.insertBefore(entry, eventLog.firstChild);
+
+      // Keep only last 20 entries
+      while (eventLog.children.length > 20) {
+        eventLog.removeChild(eventLog.lastChild);
+      }
+    }
+
+    // Listen to all archflow events
+    designer.addEventListener('archflow-connected', (e) => {
+      logEvent('CONNECTED', e.detail);
+    });
+
+    designer.addEventListener('workflow-loaded', (e) => {
+      logEvent('WORKFLOW_LOADED', { id: e.detail.workflow?.id });
+    });
+
+    designer.addEventListener('workflow-saved', (e) => {
+      logEvent('WORKFLOW_SAVED', { id: e.detail.workflow?.id });
+    });
+
+    designer.addEventListener('workflow-executed', (e) => {
+      logEvent('WORKFLOW_EXECUTED', { status: e.detail.result?.status });
+    });
+
+    designer.addEventListener('node-selected', (e) => {
+      logEvent('NODE_SELECTED', { nodeId: e.detail.nodeId });
+    });
+
+    designer.addEventListener('archflow-error', (e) => {
+      logEvent('ERROR', { type: e.detail.type, message: e.detail.message });
+    });
+
+    // Global functions for buttons
+    window.loadWorkflow = (id) => {
+      designer.workflowId = id;
+      designer.loadWorkflow(id);
+    };
+
+    window.toggleTheme = () => {
+      designer.theme = designer.theme === 'dark' ? 'light' : 'dark';
+    };
+
+    window.setReadonly = () => {
+      designer.readonly = !designer.readonly;
+    };
+
+    window.setSize = () => {
+      designer.height = designer.height === '500px' ? '700px' : '500px';
+    };
+
+    window.resetDesigner = () => {
+      designer.reset();
+    };
+
+    // Expose for debugging
+    window.designer = designer;
+  </script>
+</body>
+</html>

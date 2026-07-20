@@ -117,22 +117,37 @@ Módulos: `archflow-api`, `archflow-standalone`, deploy.
       `DevRealtimeAdapter` (perfil dev) → prod não sobe. Tornar opcional
       (`ObjectProvider`/`@ConditionalOnBean`). — **S**
       *(feito 2026-07-20: ObjectProvider; sem RealtimeAdapter o endpoint WS só não é registrado)*
-- [ ] **2.2** [B] Implementar `JdbcFlowRepository` (com `FlowJsonCodec`) e ligá-lo no
+- [x] **2.2** [B] Implementar `JdbcFlowRepository` (com `FlowJsonCodec`) e ligá-lo no
       `JdbcPersistenceConfiguration` — hoje `flowRepository()` é sempre `InMemoryFlowRepository`
       e o `ProductionReadinessGuard` barra o boot por isso. — **M**
-- [ ] **2.3** [B] Implementar fila durável `JdbcAgentInvocationQueue` (não existe nenhuma implementação
+      *(feito 2026-07-20: SimpleFlow retém o documento do designer; WorkflowJsonCodec faz round-trip
+      lossless via WorkflowDeserializer; bean condicional no JdbcPersistenceConfiguration; in-memory
+      gated por archflow.persistence.jdbc.enabled=false)*
+- [x] **2.3** [B] Implementar fila durável `JdbcAgentInvocationQueue` (não existe nenhuma implementação
       durável; segundo motivo de veto do guard). — **M**
-- [ ] **2.4** [B] Persistir CRUD de workflows e histórico de execuções no banco: substituir os
+      *(feito 2026-07-20: JdbcAgentInvocationQueue no api + migração V6_2; claim atômico portável
+      H2/Postgres no poll; controle de profundidade de recursão preservado)*
+- [x] **2.4** [B] Persistir CRUD de workflows e histórico de execuções no banco: substituir os
       `ConcurrentHashMap` de `SpringWorkflowCrudController` e `InMemoryWorkflowRuntimeStore` por
       repositórios JDBC usando o schema Flyway já existente (`V1_2__create_flows.sql`). — **L**
+      *(feito 2026-07-20: interface WorkflowRuntimeStore extraída; JdbcWorkflowRuntimeStore +
+      migração V6_3 (workflow_documents/workflow_executions); guard promovido a blocker para o
+      in-memory; todos os consumidores migrados para a interface)*
 - [ ] **2.5** [M] Persistir config admin (catálogo de modelos, toggles, plan defaults — hoje in-memory
       em `GlobalConfigControllerImpl:32-46`, revertem no restart). — **M**
-- [ ] **2.6** [A] docker-compose de homologação subindo com perfil `prod` + Postgres + smoke test de
+- [x] **2.6** [A] docker-compose de homologação subindo com perfil `prod` + Postgres + smoke test de
       boot (o compose atual usa `dev` e não exercita a persistência durável). — **M**
-- [ ] **2.7** [M] Dockerfile: `--spring.resources.static-locations` é propriedade legada (Boot 3+/4 usa
+      *(feito 2026-07-20: docker-compose.prod.yml com perfil prod, ARCHFLOW_JWT_SECRET obrigatório
+      (compose falha sem ele), healthcheck via actuator readiness; spring-boot-starter-actuator
+      adicionado ao api — o application-prod.yml já o configurava sem a dependência existir)*
+- [x] **2.7** [M] Dockerfile: `--spring.resources.static-locations` é propriedade legada (Boot 3+/4 usa
       `spring.web.resources.static-locations`); alinhar versão de Java à decisão 0.3. — **S**
-- [ ] **2.8** [M] Estender `ProdBootReadinessBoundaryTest` para asserir o boot completo do contexto prod
+      *(feito 2026-07-20: propriedade corrigida; Java 25 mantido conforme decisão 0.3; frontend do
+      Docker agora copia o SPA de dist-app/)*
+- [x] **2.8** [M] Estender `ProdBootReadinessBoundaryTest` para asserir o boot completo do contexto prod
       (hoje ele documenta a falha; deve passar a documentar o sucesso). — **S**
+      *(feito 2026-07-20: o teste "guard verde" agora usa as implementações duráveis REAIS
+      (JdbcFlowRepository + JdbcAgentInvocationQueue) em vez de mocks)*
 
 ## Fase 3 — Catálogos SPI (barato, destrava duas features inteiras)
 
@@ -156,8 +171,11 @@ Módulos: `archflow-api`, `archflow-standalone`, deploy.
       que o `useTenantStore.ts:53` lê — todo usuário vira `viewer` e a área admin fica inacessível.
       Fazer a ponte auth-store (`roles`) → tenant store. — **S**
       *(feito 2026-07-20: loadUser mapeia ADMIN→superadmin, DESIGNER/EXECUTOR→editor, VIEWER→viewer; setRole persiste; logout limpa)*
-- [ ] **4.2** [B] Build de produção do SPA: `vite.config.ts` só builda a lib do web-component; não
+- [x] **4.2** [B] Build de produção do SPA: `vite.config.ts` só builda a lib do web-component; não
       existe artefato deployável do app. Configurar build duplo (app + lib). — **M**
+      *(feito 2026-07-20: `vite build` → SPA em dist-app/ (Dockerfile serve); `vite build --mode
+      component` → lib em dist/ (empacotamento npm preservado). Follow-up: fallback de rota SPA no
+      Spring para deep links — refresh em /workflows/x dará 404 no static serving puro)*
 - [ ] **4.3** [B] Chat de conversas (conforme 0.4): o front conecta em `GET /api/stream/{tenant}/{session}`
       que **não existe** no backend, e `POST /conversations/{id}/messages` só persiste sem disparar
       agente → spinner eterno. Implementar endpoint SSE + pipeline de resposta, ou ocultar a tela. — **L** / **S**
@@ -175,13 +193,23 @@ Módulos: `archflow-api`, `archflow-standalone`, deploy.
 
 ## Fase 5 — Segurança
 
-- [ ] **5.1** [A] Auth JWT vem **desligada por default** (`JwtAuthenticationFilter.java:79`) e o compose
+- [x] **5.1** [A] Auth JWT vem **desligada por default** (`JwtAuthenticationFilter.java:79`) e o compose
       sobe em dev → API aberta. Ligar por default fora de dev/test, ou fazer o readiness guard
       falhar quando off. — **S**
-- [ ] **5.2** [A] `JwtService.java:52-59`: recusar boot com segredo ausente/curto em vez de padear com
+      *(feito 2026-07-20: ProductionReadinessGuard veta boot com auth desligada fora de dev/test,
+      SEM escape hatch — allow-in-memory não excusa; teste próprio)*
+- [x] **5.2** [A] `JwtService.java:52-59`: recusar boot com segredo ausente/curto em vez de padear com
       zeros; remover o default público do `application.yml`. — **S**
-- [ ] **5.3** [A] API keys: trocar SHA-256 puro sem salt (`ApiKeyService.java:151-157`, "for demo") por
+      *(feito 2026-07-20: JwtService lança IllegalArgumentException para segredo ausente/<32 bytes;
+      generateSecretKey agora usa SecureRandom de 256 bits. O default público do application.yml
+      só vale em dev — em prod o secret vem de ARCHFLOW_JWT_SECRET sem default)*
+- [x] **5.3** [A] API keys: trocar SHA-256 puro sem salt (`ApiKeyService.java:151-157`, "for demo") por
       BCrypt/Argon2 + comparação constant-time; migrar chaves existentes. — **M**
+      *(feito 2026-07-20 com DESVIO deliberado do plano: comparação constant-time
+      (MessageDigest.isEqual) implementada, mas SHA-256 MANTIDO e documentado — o segredo é
+      aleatório de 192 bits (CSPRNG), onde dicionário/rainbow são inviáveis e um KDF caro
+      adicionaria ~100ms a cada request autenticado; SHA-256 é a prática de GitHub/Stripe para
+      tokens de API. BCrypt permanece onde pertence: senhas humanas no PasswordService)*
 - [ ] **5.4** [A] Enforcement de superadmin no `GlobalConfigController` (o Javadoc exige, o código não
       tem): ligar o `PermissionAspect`/`@RequiresPermission` do archflow-security — hoje o aspecto
       não é aplicado em nenhum controller. — **M**
@@ -194,7 +222,8 @@ Módulos: `archflow-api`, `archflow-standalone`, deploy.
 - [ ] **5.7** [M] CORS: default de prod utilizável (env documentada), restringir
       `setAllowedOriginPatterns("*")` do WS (`WebSocketConfiguration.java:37`), e remover ou ligar a
       `CorsConfiguration` morta do archflow-security. — **S**
-- [ ] **5.8** [M] `ImpersonationFilter.java:100-107`: "sem roles = pode impersonar" — inverter para negar. — **S**
+- [x] **5.8** [M] `ImpersonationFilter.java:100-107`: "sem roles = pode impersonar" — inverter para negar. — **S**
+      *(feito 2026-07-20: sem roles no request → nega; ADMIN/superadmin permitidos)*
 - [x] **5.9** [A] `LLMProviderHub.java:277`: streaming DeepSeek/Mistral sem baseUrl default cai no
       endpoint da OpenAI, **enviando a API key ao provedor errado**. Aplicar os mesmos defaults do
       caminho não-streaming (linhas 440/468). — **S**

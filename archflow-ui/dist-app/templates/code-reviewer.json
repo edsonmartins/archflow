@@ -1,0 +1,26 @@
+{
+  "id": "code-reviewer",
+  "name": "Code reviewer",
+  "icon": "🧑‍💻",
+  "summary": "Reviews a pull request diff, flags issues and suggests improvements.",
+  "description": "Pulls a diff from the input, runs static checks via tools, asks an LLM to review the code with a structured rubric, and outputs a markdown comment ready to be posted to GitHub.",
+  "category": "code",
+  "tags": ["code-review", "pr", "static-analysis"],
+  "complexity": "intermediate",
+  "steps": [
+    { "id": "s1", "type": "input", "componentId": "input", "label": "PR diff", "category": "io", "position": { "x": 60, "y": 220 }, "config": {} },
+    { "id": "s2", "type": "tool", "componentId": "tool", "label": "Static lint", "category": "tool", "position": { "x": 280, "y": 120 }, "config": { "name": "lint_diff" } },
+    { "id": "s3", "type": "tool", "componentId": "tool", "label": "Security scan", "category": "tool", "position": { "x": 280, "y": 320 }, "config": { "name": "sast_diff" } },
+    { "id": "s4", "type": "merge", "componentId": "merge", "label": "Merge findings", "category": "data", "position": { "x": 520, "y": 220 }, "config": {} },
+    { "id": "s5", "type": "llm-chat", "componentId": "llm-chat", "label": "LLM review", "category": "agent", "position": { "x": 740, "y": 220 }, "config": { "model": "gpt-4o", "rubric": "code_review" } },
+    { "id": "s6", "type": "output", "componentId": "output", "label": "Markdown comment", "category": "io", "position": { "x": 960, "y": 220 }, "config": {} }
+  ],
+  "connections": [
+    { "id": "c1", "sourceId": "s1", "targetId": "s2", "isErrorPath": false },
+    { "id": "c2", "sourceId": "s1", "targetId": "s3", "isErrorPath": false },
+    { "id": "c3", "sourceId": "s2", "targetId": "s4", "isErrorPath": false },
+    { "id": "c4", "sourceId": "s3", "targetId": "s4", "isErrorPath": false },
+    { "id": "c5", "sourceId": "s4", "targetId": "s5", "isErrorPath": false },
+    { "id": "c6", "sourceId": "s5", "targetId": "s6", "isErrorPath": false }
+  ]
+}

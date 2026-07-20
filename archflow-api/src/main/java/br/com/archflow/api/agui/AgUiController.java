@@ -3,7 +3,7 @@ package br.com.archflow.api.agui;
 import br.com.archflow.agent.streaming.ArchflowEvent;
 import br.com.archflow.agent.streaming.EventStreamRegistry;
 import br.com.archflow.api.flow.WorkflowDeserializer;
-import br.com.archflow.api.web.workflow.InMemoryWorkflowRuntimeStore;
+import br.com.archflow.api.web.workflow.WorkflowRuntimeStore;
 import br.com.archflow.engine.api.FlowEngine;
 import br.com.archflow.engine.core.StateManager;
 import br.com.archflow.model.engine.DefaultExecutionContext;
@@ -40,7 +40,7 @@ import static br.com.archflow.api.agui.AgUiEvent.fields;
 @RequestMapping("/ag-ui")
 public class AgUiController {
 
-    private final InMemoryWorkflowRuntimeStore store;
+    private final WorkflowRuntimeStore store;
     private final WorkflowDeserializer deserializer;
     private final FlowEngine flowEngine;
     private final EventStreamRegistry streamRegistry;
@@ -48,7 +48,7 @@ public class AgUiController {
     private final StateManager stateManager;
     private final ObjectMapper json;
 
-    public AgUiController(InMemoryWorkflowRuntimeStore store,
+    public AgUiController(WorkflowRuntimeStore store,
                           WorkflowDeserializer deserializer,
                           FlowEngine flowEngine,
                           EventStreamRegistry streamRegistry,

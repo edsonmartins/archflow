@@ -1,13 +1,16 @@
 package br.com.archflow.api.web.workflow;
 
-import org.springframework.stereotype.Component;
-
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
-@Component
-public class InMemoryWorkflowRuntimeStore {
+/**
+ * Default in-memory {@link WorkflowRuntimeStore} (dev/test): tudo se perde no
+ * restart. Registrado por {@code ArchflowBeanConfiguration} apenas quando
+ * {@code archflow.persistence.jdbc.enabled} está desligado — em prod o
+ * {@link JdbcWorkflowRuntimeStore} durável assume.
+ */
+public class InMemoryWorkflowRuntimeStore implements WorkflowRuntimeStore {
 
     private final Map<String, Map<String, Object>> workflows = new ConcurrentHashMap<>();
     private final Map<String, Map<String, Object>> executions = new ConcurrentHashMap<>();

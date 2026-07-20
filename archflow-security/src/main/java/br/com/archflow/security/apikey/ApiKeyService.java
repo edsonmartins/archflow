@@ -121,7 +121,11 @@ public class ApiKeyService {
         ApiKey apiKey = apiKeyRepository.findByKeyId(keyId)
                 .orElseThrow(() -> new ApiKeyNotFoundException("API key not found: " + keyId));
 
-        if (!hashSecret(keySecret).equals(apiKey.getKeySecret())) {
+        // Comparação constant-time: equals() de String vaza o prefixo
+        // coincidente pelo tempo de resposta (timing attack).
+        byte[] expected = apiKey.getKeySecret().getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        byte[] actual = hashSecret(keySecret).getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        if (!java.security.MessageDigest.isEqual(expected, actual)) {
             throw new ApiKeyNotFoundException("Invalid API key secret");
         }
 
@@ -149,8 +153,12 @@ public class ApiKeyService {
     }
 
     private String hashSecret(String secret) {
-        // Simple hash for demo - use BCrypt or more secure hashing in production
-        // For now, using SHA-256 with Java's built-in MessageDigest
+        // SHA-256 sem salt é adequado AQUI (e é a prática de GitHub/Stripe para
+        // tokens de API): o segredo é aleatório de 192 bits gerado por CSPRNG —
+        // dicionário/rainbow são inviáveis e um KDF caro (BCrypt/Argon2) só
+        // adicionaria ~100ms a CADA request autenticado. KDF caro é para senhas
+        // escolhidas por humanos (ver PasswordService). A comparação no
+        // validateApiKey é constant-time.
         try {
             java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");
             byte[] hash = digest.digest(secret.getBytes(java.nio.charset.StandardCharsets.UTF_8));

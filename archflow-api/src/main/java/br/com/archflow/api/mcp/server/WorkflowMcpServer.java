@@ -1,7 +1,7 @@
 package br.com.archflow.api.mcp.server;
 
 import br.com.archflow.api.flow.WorkflowDeserializer;
-import br.com.archflow.api.web.workflow.InMemoryWorkflowRuntimeStore;
+import br.com.archflow.api.web.workflow.WorkflowRuntimeStore;
 import br.com.archflow.engine.api.FlowEngine;
 import br.com.archflow.engine.persistence.FlowRepository;
 import br.com.archflow.langchain4j.mcp.McpModel;
@@ -36,13 +36,13 @@ public class WorkflowMcpServer extends AbstractMcpServer {
 
     static final String TOOL_PREFIX = "workflow_";
 
-    private final InMemoryWorkflowRuntimeStore store;
+    private final WorkflowRuntimeStore store;
     private final WorkflowDeserializer deserializer;
     private final FlowEngine flowEngine;
     private final FlowRepository flowRepository;
     private final ObjectMapper json;
 
-    public WorkflowMcpServer(InMemoryWorkflowRuntimeStore store,
+    public WorkflowMcpServer(WorkflowRuntimeStore store,
                              WorkflowDeserializer deserializer,
                              FlowEngine flowEngine,
                              FlowRepository flowRepository,

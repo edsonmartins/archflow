@@ -26,12 +26,12 @@ import java.util.*;
 @RequestMapping("/api/workflows")
 public class SpringWorkflowCrudController {
 
-    private final InMemoryWorkflowRuntimeStore store;
+    private final WorkflowRuntimeStore store;
     private final WorkflowDeserializer deserializer;
     private final FlowEngine flowEngine;
     private final FlowRepository flowRepository;
 
-    public SpringWorkflowCrudController(InMemoryWorkflowRuntimeStore store,
+    public SpringWorkflowCrudController(WorkflowRuntimeStore store,
                                         WorkflowDeserializer deserializer,
                                         FlowEngine flowEngine,
                                         FlowRepository flowRepository) {

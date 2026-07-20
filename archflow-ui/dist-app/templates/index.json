@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "templates": [
+    { "id": "sac-basic", "file": "sac-basic.json" },
+    { "id": "rag-doc-qa", "file": "rag-doc-qa.json" },
+    { "id": "code-reviewer", "file": "code-reviewer.json" },
+    { "id": "content-writer", "file": "content-writer.json" },
+    { "id": "web-research", "file": "web-research.json" },
+    { "id": "email-triage", "file": "email-triage.json" }
+  ]
+}

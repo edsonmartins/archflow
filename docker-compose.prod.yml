@@ -1,0 +1,68 @@
+# ============================================================
+# Homologação / produção — perfil `prod` com persistência durável.
+#
+#   ARCHFLOW_JWT_SECRET="<segredo forte, >= 32 bytes>" \
+#   docker compose -f docker-compose.prod.yml up --build
+#
+# Diferenças do docker-compose.yml (dev):
+#   - SPRING_PROFILES_ACTIVE=prod: auth JWT ligada, JDBC durável ligado,
+#     sem seed de dados demo, sem impersonation.
+#   - ARCHFLOW_JWT_SECRET é OBRIGATÓRIO (o compose falha sem ele em vez de
+#     subir com chave fraca).
+#   - Credenciais do Postgres vêm de env vars (defaults só para homologação
+#     local — sobrescreva em qualquer ambiente compartilhado).
+# ============================================================
+services:
+
+  app:
+    build: .
+    ports:
+      - "16080:16080"
+    environment:
+      - SPRING_PROFILES_ACTIVE=prod
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/${POSTGRES_DB:-archflow}
+      - SPRING_DATASOURCE_USERNAME=${POSTGRES_USER:-archflow}
+      - SPRING_DATASOURCE_PASSWORD=${POSTGRES_PASSWORD:-archflow}
+      - SPRING_DATA_REDIS_HOST=redis
+      - SPRING_DATA_REDIS_PORT=6379
+      - ARCHFLOW_JWT_SECRET=${ARCHFLOW_JWT_SECRET:?defina ARCHFLOW_JWT_SECRET (segredo JWT de no minimo 32 bytes)}
+      - ARCHFLOW_CORS_ORIGINS=${ARCHFLOW_CORS_ORIGINS:-http://localhost:16080}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:16080/actuator/health/readiness | grep -q UP"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-archflow}
+      POSTGRES_USER: ${POSTGRES_USER:-archflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-archflow}
+    volumes:
+      - postgres_prod_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-archflow}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_prod_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_prod_data:
+  redis_prod_data:

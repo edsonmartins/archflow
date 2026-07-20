@@ -65,6 +65,21 @@ public class JdbcPersistenceConfiguration {
     }
 
     @Bean
+    public br.com.archflow.engine.persistence.FlowRepository flowRepository(
+            DataSource dataSource,
+            br.com.archflow.api.flow.WorkflowDeserializer workflowDeserializer) {
+        log.info("JDBC persistence ativo: FlowRepository durável (JdbcFlowRepository/WorkflowJsonCodec)");
+        return new br.com.archflow.engine.persistence.jdbc.JdbcFlowRepository(
+                dataSource, new br.com.archflow.api.flow.WorkflowJsonCodec(workflowDeserializer));
+    }
+
+    @Bean
+    public br.com.archflow.agent.queue.AgentInvocationQueue agentInvocationQueue(DataSource dataSource) {
+        log.info("JDBC persistence ativo: AgentInvocationQueue durável (JdbcAgentInvocationQueue)");
+        return new br.com.archflow.api.queue.JdbcAgentInvocationQueue(dataSource);
+    }
+
+    @Bean
     public UserRepository userRepository(DataSource dataSource) {
         log.info("JDBC persistence ativo: UserRepository durável (JdbcUserRepository)");
         return new JdbcUserRepository(dataSource);
@@ -157,6 +172,13 @@ public class JdbcPersistenceConfiguration {
         log.info("JDBC persistence ativo: SuspendedConversationStore durável "
                 + "(suspend/resume sobrevive a restart)");
         return new br.com.archflow.conversation.persistence.jdbc.JdbcSuspendedConversationStore(dataSource);
+    }
+
+    @Bean
+    public br.com.archflow.api.web.workflow.WorkflowRuntimeStore workflowRuntimeStore(
+            DataSource dataSource) {
+        log.info("JDBC persistence ativo: WorkflowRuntimeStore durável (JdbcWorkflowRuntimeStore)");
+        return new br.com.archflow.api.web.workflow.JdbcWorkflowRuntimeStore(dataSource);
     }
 
     @Bean

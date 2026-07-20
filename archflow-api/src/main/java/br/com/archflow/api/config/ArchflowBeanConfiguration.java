@@ -313,6 +313,7 @@ public class ArchflowBeanConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
+    @ConditionalOnProperty(name = "archflow.persistence.jdbc.enabled", havingValue = "false", matchIfMissing = true)
     public AgentInvocationQueue agentInvocationQueue() {
         return new InMemoryAgentInvocationQueue();
     }
@@ -379,6 +380,7 @@ public class ArchflowBeanConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
+    @ConditionalOnProperty(name = "archflow.persistence.jdbc.enabled", havingValue = "false", matchIfMissing = true)
     public br.com.archflow.engine.persistence.FlowRepository flowRepository() {
         return new br.com.archflow.agent.persistence.InMemoryFlowRepository();
     }
@@ -400,6 +402,19 @@ public class ArchflowBeanConfiguration {
     }
 
     /**
+     * Runtime store dos workflows do designer — default em memória (workflows e
+     * execuções se perdem no restart). Sob {@code archflow.persistence.jdbc.enabled=true},
+     * {@code JdbcPersistenceConfiguration} fornece o {@code JdbcWorkflowRuntimeStore}
+     * durável (mutuamente exclusivo pela mesma propriedade).
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(name = "archflow.persistence.jdbc.enabled", havingValue = "false", matchIfMissing = true)
+    public br.com.archflow.api.web.workflow.WorkflowRuntimeStore workflowRuntimeStore() {
+        return new br.com.archflow.api.web.workflow.InMemoryWorkflowRuntimeStore();
+    }
+
+    /**
      * The real, async {@link br.com.archflow.engine.api.FlowEngine} (design-0005
      * step 1): virtual-thread execution with backpressure and pause/resume/cancel,
      * wired from its collaborators (in-memory state for dev). Turns the previously
@@ -412,7 +427,7 @@ public class ArchflowBeanConfiguration {
             EventStreamRegistry eventStreamRegistry,
             RunningFlowsRegistry runningFlowsRegistry,
             br.com.archflow.engine.core.StateManager stateManager,
-            br.com.archflow.api.web.workflow.InMemoryWorkflowRuntimeStore runtimeStore) {
+            br.com.archflow.api.web.workflow.WorkflowRuntimeStore runtimeStore) {
         // Registered before create(): the factory snapshots process-wide
         // listeners into the engine's composite lifecycle listener.
         br.com.archflow.engine.lifecycle.FlowLifecycleListeners.register(
@@ -435,7 +450,7 @@ public class ArchflowBeanConfiguration {
     @Bean
     @ConditionalOnMissingBean
     public br.com.archflow.api.mcp.server.WorkflowMcpServer workflowMcpServer(
-            br.com.archflow.api.web.workflow.InMemoryWorkflowRuntimeStore runtimeStore,
+            br.com.archflow.api.web.workflow.WorkflowRuntimeStore runtimeStore,
             br.com.archflow.api.flow.WorkflowDeserializer workflowDeserializer,
             br.com.archflow.engine.api.FlowEngine flowEngine,
             br.com.archflow.engine.persistence.FlowRepository flowRepository,

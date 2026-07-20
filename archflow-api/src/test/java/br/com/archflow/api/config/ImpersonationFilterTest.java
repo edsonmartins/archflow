@@ -56,8 +56,10 @@ class ImpersonationFilterTest {
     }
 
     @Test
-    @DisplayName("accepts impersonation when enabled and no JWT roles attribute is present (dev mode)")
-    void acceptsInDevMode() throws Exception {
+    @DisplayName("rejects impersonation when no JWT roles attribute is present (auth off ≠ carta branca)")
+    void rejectsWithoutRolesAttribute() throws Exception {
+        // Comportamento antigo ("sem roles = pode") deixava qualquer cliente
+        // ler qualquer tenant via header quando auth estava desligada.
         ImpersonationFilter filter = new ImpersonationFilter(true);
         HttpServletRequest req = mock(HttpServletRequest.class);
         HttpServletResponse resp = mock(HttpServletResponse.class);
@@ -69,7 +71,9 @@ class ImpersonationFilterTest {
 
         filter.doFilter(req, resp, chain);
 
-        verify(req).setAttribute(ImpersonationFilter.ATTR_TENANT_ID, "tenant_acme");
+        verify(req, org.mockito.Mockito.never())
+                .setAttribute(ImpersonationFilter.ATTR_TENANT_ID, "tenant_acme");
+        verify(chain, times(1)).doFilter(req, resp);
     }
 
     @Test

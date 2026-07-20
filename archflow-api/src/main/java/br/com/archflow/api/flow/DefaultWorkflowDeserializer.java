@@ -38,7 +38,7 @@ public class DefaultWorkflowDeserializer implements WorkflowDeserializer {
                 .map(stepFactory::create)
                 .toList();
 
-        return new SimpleFlow(str(json.get("id"), ""), metadata, steps);
+        return new SimpleFlow(str(json.get("id"), ""), metadata, steps, json);
     }
 
     private static String str(Object v, String fallback) {
