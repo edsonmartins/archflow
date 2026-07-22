@@ -36,11 +36,11 @@
 - Enterprise features from day one
 
 **Stack Tecnológico:**
-- Backend: Java 17+, Spring Boot 3.x, LangChain4j 1.12.2
+- Backend: Java 25, Spring Boot 4.0.x, LangChain4j 1.18.0
 - Frontend: React 19 (uso) + Web Component (distribuição)
-- AI: LangChain4j 1.12.2, Spring AI 1.1+
+- AI: LangChain4j 1.18.0 (Spring AI **não** é dependência do projeto)
 - Protocolos: MCP v1.0, SSE, WebSocket
-- Enterprise: Spring Security, Keycloak, OpenTelemetry
+- Enterprise: Spring Security; Keycloak e OpenTelemetry são **planejados**, não integrados
 
 **Objetivo:** Primeiro lançamento (v1.0.0) em 20-30 semanas
 

@@ -5,7 +5,7 @@
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Java](https://img.shields.io/badge/Java-25-orange)](https://openjdk.org/projects/jdk/25/)
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-4.0.0-green)](https://spring.io/projects/spring-boot)
-[![LangChain4j](https://img.shields.io/badge/LangChain4j-1.12.2-brightgreen)](https://github.com/langchain4j/langchain4j)
+[![LangChain4j](https://img.shields.io/badge/LangChain4j-1.18.0-brightgreen)](https://github.com/langchain4j/langchain4j)
 [![i18n](https://img.shields.io/badge/i18n-PT--BR%20%7C%20EN-purple)](archflow-ui/src/i18n)
 
 **Visual Java-Native Platform for AI Agent Workflows**
@@ -42,7 +42,7 @@ Build, visualize, and orchestrate AI agent workflows with a drag-and-drop design
 
 ### Java-Native AI Engine
 
-- **LangChain4j 1.12.2**: 15+ LLM providers (OpenAI, Anthropic, Google, Mistral, Ollama, and more)
+- **LangChain4j 1.18.0**: 15+ LLM providers (OpenAI, Anthropic, Google, Mistral, Ollama, and more)
 - **MCP Protocol**: Model Context Protocol for standardized tool integration, with cleanup hooks for stdio servers
 - **Agent Skills**: Load, activate, and manage behavioral instruction bundles ([agentskills.io](https://agentskills.io) spec) — now per-tenant scoped
 - **Spring Boot 4.0.0**: REST API and auto-configuration layer (the agent core itself is framework-agnostic, built on pure Java + LangChain4j)
@@ -166,7 +166,7 @@ archflow/
 ├── archflow-events-proto/                # Event protocol shared between engine and UI
 ├── archflow-plugin-api/                  # Plugin SPI: catalog, metadata, lifecycle
 ├── archflow-plugin-loader/               # Classloader-isolated plugin loader (AutoCloseable)
-├── archflow-langchain4j/                 # LangChain4j 1.12.2 integration
+├── archflow-langchain4j/                 # LangChain4j 1.18.0 integration
 │   ├── archflow-langchain4j-openai/      #   OpenAI adapter
 │   ├── archflow-langchain4j-anthropic/   #   Anthropic adapter
 │   ├── archflow-langchain4j-mcp/         #   MCP Protocol client
@@ -331,7 +331,7 @@ decision 0.2: unwired features are unpublished from the docs until integrated).
 - 📖 [docs/readme.md](docs/readme.md) — PT-BR documentation index
 - 🏗 [Architecture](docs/architecture/architecture.md) — engine, plugins, adapters
 - 🚀 [Quickstart](docs/development/quickstart.md) — first workflow in ~10 minutes
-- 🛠 [Stack](docs/development/stack.md) — Java 25, Spring Boot 4.0.0, LangChain4j 1.12.2
+- 🛠 [Stack](docs/development/stack.md) — Java 25, Spring Boot 4.0.0, LangChain4j 1.18.0
 - 📋 [Release notes (v1)](docs/development/RELEASE_NOTES_v1.md) — operations, profiles, env vars
 - 🗺 [Roadmap](docs/roadmap.md) — what's next
 - 🌐 [Docusaurus site](docs-site/) — built docs (work in progress)
@@ -360,7 +360,7 @@ archflow in a Spring Boot app today, consume the REST API as in `spring-boot-int
 | Layer | Technology |
 |-------|-----------|
 | **Backend** | Java 25, Spring Boot 4.0.0, Apache Camel 4.3.0 |
-| **AI** | LangChain4j 1.12.2, MCP Protocol, Agent Skills |
+| **AI** | LangChain4j 1.18.0, MCP Protocol, Agent Skills |
 | **Frontend** | React 19, TypeScript, Vite, Mantine UI, React Flow (@xyflow/react), react-i18next |
 | **Databases** | PostgreSQL with pgvector, Redis |
 | **Observability** | API trace store + Actuator health (today); OpenTelemetry/Prometheus/Grafana/Jaeger planned — library exists but is not wired in |
