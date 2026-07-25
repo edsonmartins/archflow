@@ -160,6 +160,17 @@ public class MetricsCollector implements Closeable {
         registry.recordValue("llm_total_tokens", inputTokens + outputTokens);
     }
 
+    /**
+     * Registra o tamanho do catálogo de tools enviado ao modelo.
+     *
+     * <p>É o custo que se paga em TODO turno; sem esta série não havia como
+     * perceber que o catálogo cresceu até disputar a janela com o problema.
+     */
+    public void recordToolCatalog(int toolCount, long estimatedTokens) {
+        registry.recordValue("tool_catalog_size", toolCount);
+        registry.recordValue("tool_catalog_tokens", estimatedTokens);
+    }
+
     /** Nome de tool vira chave de métrica; só letras, dígitos e {@code _}. */
     private static String sanitizeMetricKey(String name) {
         if (name == null || name.isBlank()) {

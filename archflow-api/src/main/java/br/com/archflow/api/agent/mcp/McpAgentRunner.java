@@ -61,21 +61,31 @@ public class McpAgentRunner {
     private final LLMConfigResolver llmConfigResolver;
     private final ResolvedLLMConfig platformDefault;
     private final MetricsCollector metrics;
+    private final int catalogWarnTokens;
     private final ObjectMapper mapper = new ObjectMapper();
 
     public McpAgentRunner(LLMConfigResolver llmConfigResolver, ResolvedLLMConfig platformDefault) {
-        this(llmConfigResolver, platformDefault, null);
+        this(llmConfigResolver, platformDefault, null, 0);
+    }
+
+    public McpAgentRunner(LLMConfigResolver llmConfigResolver, ResolvedLLMConfig platformDefault,
+                          MetricsCollector metrics) {
+        this(llmConfigResolver, platformDefault, metrics, 0);
     }
 
     /**
-     * @param metrics coletor compartilhado com o engine; {@code null} desliga a
-     *                instrumentação (usado em testes que não a exercitam)
+     * @param metrics           coletor compartilhado com o engine; {@code null}
+     *                          desliga a instrumentação
+     * @param catalogWarnTokens acima disto, o catálogo de tools gera aviso com os
+     *                          maiores contribuintes; {@code 0} desliga o aviso
+     *                          (a medição continua)
      */
     public McpAgentRunner(LLMConfigResolver llmConfigResolver, ResolvedLLMConfig platformDefault,
-                          MetricsCollector metrics) {
+                          MetricsCollector metrics, int catalogWarnTokens) {
         this.llmConfigResolver = llmConfigResolver;
         this.platformDefault = platformDefault;
         this.metrics = metrics;
+        this.catalogWarnTokens = Math.max(0, catalogWarnTokens);
     }
 
     /**
@@ -133,6 +143,7 @@ public class McpAgentRunner {
         try {
             List<McpModel.Tool> allowed = allowedTools(client.listTools().get(), policy, tenantId);
             allowed.forEach(t -> schemas.put(t.name(), t.inputSchema()));
+            accountForCatalog(allowed, tenantId);
             tools = McpToolSpecifications.from(allowed);
         } catch (Exception e) {
             throw new RuntimeException("Falha ao listar tools do MCP server: " + e.getMessage(), e);
@@ -229,6 +240,37 @@ public class McpAgentRunner {
 
         log.warn("Loop de tool-calling atingiu maxIterations={} sem resposta final", maxIterations);
         return new Result(lastText, toolCalls);
+    }
+
+    /**
+     * Mede o custo do catálogo e avisa quando ele passa do limite configurado.
+     *
+     * <p>Não descarta tool nenhuma: cortar em silêncio mudaria a capacidade do
+     * agente sem ninguém pedir, e escolher <em>qual</em> cortar exige a seleção
+     * semântica que ainda não existe. O aviso nomeia os maiores contribuintes
+     * para o operador saber o que enxugar.
+     */
+    private void accountForCatalog(List<McpModel.Tool> tools, String tenantId) {
+        if (tools.isEmpty()) {
+            return;
+        }
+        ToolCatalogBudget.Estimate estimate = ToolCatalogBudget.estimate(tools);
+        log.debug("Catálogo de {} tool(s) ≈ {} tokens por turno (tenant={})",
+                tools.size(), estimate.totalTokens(), tenantId);
+        if (metrics != null) {
+            try {
+                metrics.recordToolCatalog(tools.size(), estimate.totalTokens());
+            } catch (RuntimeException e) {
+                log.debug("Falha ao registrar métrica do catálogo: {}", e.getMessage());
+            }
+        }
+        if (catalogWarnTokens > 0 && estimate.totalTokens() > catalogWarnTokens) {
+            log.warn("Catálogo de tools ≈ {} tokens por turno (limite de aviso {}, tenant={}). "
+                            + "Isso é enviado a CADA turno e disputa a janela com o problema. "
+                            + "Maiores contribuintes: {}",
+                    estimate.totalTokens(), catalogWarnTokens, tenantId,
+                    estimate.topContributors(5));
+        }
     }
 
     /**
