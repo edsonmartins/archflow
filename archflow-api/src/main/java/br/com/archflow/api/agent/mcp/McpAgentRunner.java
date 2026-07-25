@@ -40,6 +40,14 @@ import java.util.Objects;
  * ao montar o catálogo enviado ao modelo e novamente antes de cada
  * {@code callTool}. A segunda checagem não é redundante — o modelo pode emitir
  * um nome de tool que não estava no catálogo.
+ *
+ * <p>O resultado de cada tool carrega um {@link ToolTrust} decidido pela
+ * {@link ToolTrustPolicy} (default: tudo que vem do server é
+ * {@link ToolTrust#UNTRUSTED}). Conteúdo não-confiável volta ao modelo dentro de
+ * uma {@link UntrustedContentFence} com nonce por execução, e o system prompt
+ * ganha a regra que diz ao modelo para tratar o que está cercado como dado.
+ * Sem isso, uma linha de log com "ignore as instruções anteriores" chega ao
+ * modelo com o mesmo status da instrução do operador.
  */
 public class McpAgentRunner {
 
@@ -55,8 +63,16 @@ public class McpAgentRunner {
         this.platformDefault = platformDefault;
     }
 
-    /** Uma chamada de tool executada no loop (para o chamador extrair, ex., o quote). */
-    public record ToolCall(String name, Map<String, Object> arguments, String resultText, boolean isError) {
+    /**
+     * Uma chamada de tool executada no loop (para o chamador extrair, ex., o quote).
+     *
+     * <p>{@code resultText} é o payload <b>cru</b> devolvido pela tool — sem a
+     * cerca que vai ao modelo. Quem consome programaticamente (extrair um quote,
+     * auditar) quer o dado; a cerca é um detalhe do canal com o LLM.
+     * {@code trust} registra como o conteúdo foi tratado.
+     */
+    public record ToolCall(String name, Map<String, Object> arguments, String resultText,
+                           boolean isError, ToolTrust trust) {
     }
 
     /** Resultado do loop: texto final do assistente + as tools executadas na ordem. */
@@ -75,13 +91,22 @@ public class McpAgentRunner {
 
     public Result run(String tenantId, String systemPrompt, String userMessage,
                       McpClient client, ToolAccessPolicy policy) {
-        return run(tenantId, systemPrompt, userMessage, client, policy, DEFAULT_MAX_ITERATIONS);
+        return run(tenantId, systemPrompt, userMessage, client, policy,
+                ToolTrustPolicy.untrustedByDefault(), DEFAULT_MAX_ITERATIONS);
     }
 
     public Result run(String tenantId, String systemPrompt, String userMessage,
                       McpClient client, ToolAccessPolicy policy, int maxIterations) {
+        return run(tenantId, systemPrompt, userMessage, client, policy,
+                ToolTrustPolicy.untrustedByDefault(), maxIterations);
+    }
+
+    public Result run(String tenantId, String systemPrompt, String userMessage,
+                      McpClient client, ToolAccessPolicy policy, ToolTrustPolicy trustPolicy,
+                      int maxIterations) {
         Objects.requireNonNull(policy, "policy é obrigatória — use ToolAccessPolicy.allowAll() "
                 + "para declarar explicitamente que o agente pode usar todas as tools do server");
+        Objects.requireNonNull(trustPolicy, "trustPolicy é obrigatória");
 
         ChatModel model = llmConfigResolver.resolveModel(
                 LLMResolutionRequest.builder(platformDefault).tenantId(tenantId).build());
@@ -93,8 +118,15 @@ public class McpAgentRunner {
             throw new RuntimeException("Falha ao listar tools do MCP server: " + e.getMessage(), e);
         }
 
+        // Nonce por execução: o marcador de fechamento não pode ser previsto por
+        // quem escreveu o conteúdo que a tool vai devolver.
+        UntrustedContentFence fence = UntrustedContentFence.create();
+
         List<ChatMessage> messages = new ArrayList<>();
-        messages.add(SystemMessage.from(systemPrompt));
+        // A regra sobre a cerca vai na mensagem de SISTEMA — o lado confiável da
+        // conversa. Anunciá-la de dentro do próprio conteúdo cercado seria pedir
+        // ao dado que se autodeclare inofensivo.
+        messages.add(SystemMessage.from(systemPrompt + "\n" + fence.preamble()));
         messages.add(UserMessage.from(userMessage));
         List<ToolCall> toolCalls = new ArrayList<>();
         String lastText = "";
@@ -116,6 +148,10 @@ public class McpAgentRunner {
                 Map<String, Object> args = Map.of();
                 String resultText;
                 boolean isError = true;
+                // Texto de erro é nosso, não do server: não é conteúdo de
+                // terceiro e não entra na cerca. Só o payload de uma execução
+                // bem-sucedida é que carrega a marca da política.
+                ToolTrust trust = ToolTrust.TRUSTED;
 
                 if (!policy.isAllowed(req.name())) {
                     // Segunda checagem da política: o catálogo enviado ao modelo já
@@ -132,6 +168,9 @@ public class McpAgentRunner {
                                 new McpModel.ToolArguments(req.name(), args)).get();
                         resultText = textOf(tr);
                         isError = tr.isError();
+                        if (!isError) {
+                            trust = trustPolicy.trustOf(req.name());
+                        }
                     } catch (MalformedToolArgumentsException e) {
                         // Antes: argumentos ilegíveis viravam Map.of() e a tool era
                         // executada assim mesmo. Agora a tool não roda e o modelo
@@ -146,8 +185,12 @@ public class McpAgentRunner {
                     }
                 }
 
-                toolCalls.add(new ToolCall(req.name(), args, resultText, isError));
-                messages.add(ToolExecutionResultMessage.from(req, resultText));
+                // O chamador recebe o payload cru; o modelo recebe o cercado.
+                toolCalls.add(new ToolCall(req.name(), args, resultText, isError, trust));
+                String forModel = trust == ToolTrust.UNTRUSTED
+                        ? fence.wrap(req.name(), resultText)
+                        : resultText;
+                messages.add(ToolExecutionResultMessage.from(req, forModel));
             }
         }
 
