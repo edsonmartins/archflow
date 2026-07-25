@@ -9,23 +9,25 @@ Commit auditado: `5231c4a7ffb5c7826c3b7cffc94598ec195e581e` (branch `feat/vendax
 >
 > | ID | Veredito na auditoria | Situação agora | O que mudou |
 > |----|----------------------|----------------|-------------|
-> | C1 | `PARCIAL` | `PARCIAL` (caminho MCP resolvido) | `ToolAccessPolicy` é obrigatória no `McpAgentRunner`, aplicada ao montar o catálogo **e** antes de cada `callTool`. `QpAgentService` declara sua allowlist de 8 tools. O catálogo de componentes do caminho de workflow **continua global** — o gap estrutural permanece. |
-> | C2 | `AUSENTE` | `AUSENTE` | Não mexido. Resultado de tool segue como texto puro, sem envelope de proveniência. |
-> | C3 | `PARCIAL` | `PARCIAL` (gate alcançável) | `StepType.APPROVAL` + `HumanApprovalStep` são o produtor que faltava; `ApprovalQueueService` deriva a fila de `StateManager.findByStatus` e decide pelo motor; a proposta passou a ser persistida. A durabilidade **no nível do turno do agente** continua ausente — o `McpAgentRunner` segue sem checkpoint. |
+> | C1 | `PARCIAL` | `NATIVO` (com ressalva) | Caminho MCP: `ToolAccessPolicy` obrigatória, aplicada ao montar o catálogo **e** antes de cada `callTool`. Caminho de workflow: `ComponentAccessPolicy` + `ScopedComponentCatalog` filtram no ponto de resolução, e o `ORCHESTRATE` herda o escopo. **Ressalva:** o escopo é *opt-in* — allowlist ausente ⇒ irrestrito, para não quebrar workflows salvos. O isolamento é agora possível e verificado; não é imposto por default. |
+> | C2 | `AUSENTE` | `PARCIAL` | Resultado de tool carrega `ToolTrust`; conteúdo não-confiável volta ao modelo cercado (nonce por execução + regra no system prompt). Não atravessa `ComponentStep`/`ConversationalAgent`, que seguem devolvendo `Object`/`String` sem envelope. |
+> | C3 | `PARCIAL` | `PARCIAL` (gate alcançável) | `StepType.APPROVAL` + `HumanApprovalStep` são o produtor que faltava; `ApprovalQueueService` deriva a fila de `StateManager.findByStatus` e decide pelo motor; proposta e decisor passaram a ser persistidos. A durabilidade **no nível do turno do agente** continua ausente — o `McpAgentRunner` segue sem checkpoint. |
 > | C4 | `AUSENTE` | `AUSENTE` (parcialmente mitigado) | A allowlist reduz o catálogo enviado, mas não há seleção dinâmica, lazy loading nem contabilidade de tokens. |
-> | C5 | `PARCIAL` | `PARCIAL` | O `McpAgentRunner` ganhou um ponto de decisão pré-invocação com poder de veto (a política). A `ToolInterceptorChain` genérica **continua sem chamador**, e `ComponentStep`/`ConversationalAgent` seguem sem interceptação. |
+> | C5 | `PARCIAL` | `NATIVO` | `ToolInterceptorChain` ganhou chamador: `ComponentStep` invoca através dela e `beforeExecute` aborta de verdade. No laço MCP o veto é a `ToolAccessPolicy`. Fora: `ConversationalAgent` de `archflow-conversation` (inverteria dependência de módulo e é código sem chamador). |
 > | C7 | `PARCIAL` | `PARCIAL` (metade resolvida) | Argumento malformado não invoca mais a tool — o erro volta ao modelo, que pode corrigir. Continua sem validação de schema e sem retry estruturado. |
 > | C11 | `AUSENTE` | `PARCIAL` | `TraceStoreRecorder` virou bean e é passado ao engine (falhas também produzem trace); `MetricsCollector` passou a ser compartilhado entre engine e `ObservabilityService`. Continua sem OTel, sem cadeia de tool calls e sem custo em token. |
+> | C12 | `PARCIAL` | `PARCIAL` (isolamento herdado) | Sub-agentes agora herdam o escopo de componentes do fluxo, então um supervisor restrito não delega para um agente irrestrito. O `ExecutionContext` continua sendo repassado inteiro. |
 >
-> Inalterados: **C6, C8, C9, C10, C12, C13**.
+> Inalterados: **C6, C8, C9, C10, C13**.
 >
-> Coberto por `HumanApprovalGateE2ETest`, `ApprovalStepBeanGraphTest`, `McpAgentRunnerPolicyTest`
-> e `ApprovalQueueServiceTest`. Suíte completa do reator verde após as mudanças.
+> Coberto por `HumanApprovalGateE2ETest`, `ApprovalStepBeanGraphTest`, `McpAgentRunnerPolicyTest`,
+> `UntrustedContentFenceTest`, `ComponentStepInterceptorTest`, `ScopedComponentCatalogTest`,
+> `FlowComponentScopeTest` e `ApprovalQueueServiceTest`. Suíte completa do reator verde.
 >
 > **As duas respostas diretas do fim do relatório mudam assim:** (1) o interrupt/resume durável
 > continua sendo de *step do grafo*, mas agora é **alcançável de fora** (step → fila → decisão →
-> retomada); (2) o registro de tools continua **global** no caminho de workflow e passou a ser
-> **por agente, com allowlist aplicada** no caminho MCP.
+> retomada); (2) o registro de tools continua global **por default**, mas passou a ser
+> **escopável por fluxo e por agente, com a restrição aplicada na resolução** — nos dois caminhos.
 
 > Escopo entregue: C1–C13. C1–C5 foram investigadas a fundo (leitura de implementação + rastreio
 > de chamadores em código de produção); C6–C13 foram verificadas com profundidade menor mas com
