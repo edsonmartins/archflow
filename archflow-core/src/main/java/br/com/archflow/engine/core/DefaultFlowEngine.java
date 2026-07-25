@@ -473,6 +473,13 @@ public class DefaultFlowEngine implements FlowEngine {
     @Override
     public CompletableFuture<FlowResult> submitApproval(String flowId, String requestId,
                                                          boolean approved, Object editedPayload) {
+        return submitApproval(flowId, requestId, approved, editedPayload, null, null);
+    }
+
+    @Override
+    public CompletableFuture<FlowResult> submitApproval(String flowId, String requestId,
+                                                        boolean approved, Object editedPayload,
+                                                        String decidedBy, String comment) {
         ExecutionContext contextForResume;
         // The entire validate+persist sequence runs under transitionLock so
         // concurrent pause/cancel/submitApproval observe a consistent view.
@@ -515,6 +522,7 @@ public class DefaultFlowEngine implements FlowEngine {
                         currentState.getVariables() != null ? currentState.getVariables() : Map.of());
                 rejectedVars.put(APPROVAL_REQUEST_KEY, "");
                 rejectedVars.put(ExecutionKeys.APPROVAL_DECISION, "REJECTED");
+                recordDecider(rejectedVars, decidedBy, comment);
                 FlowState rejectedState = rebuildState(currentState, FlowStatus.STOPPED, rejectedVars);
                 stateManager.saveState(flowId, rejectedState);
                 if (liveContext != null) {
@@ -538,6 +546,7 @@ public class DefaultFlowEngine implements FlowEngine {
             // A decisão fica no estado para os steps seguintes ramificarem
             // (`${__archflow.approvalDecision} == APPROVED`) e para a auditoria.
             vars.put(ExecutionKeys.APPROVAL_DECISION, "APPROVED");
+            recordDecider(vars, decidedBy, comment);
             if (editedPayload != null) {
                 vars.put(ExecutionKeys.APPROVAL_PAYLOAD, editedPayload);
             }
@@ -577,6 +586,18 @@ public class DefaultFlowEngine implements FlowEngine {
     }
 
     // ── Internal helpers ────────────────────────────────────────────
+
+    /**
+     * Grava a identidade do decisor junto da decisão, nas mesmas variáveis e sob
+     * o mesmo lock — um log paralelo poderia divergir do estado persistido, e é
+     * o estado que responde "quem autorizou isto".
+     */
+    private static void recordDecider(Map<String, Object> vars, String decidedBy, String comment) {
+        vars.put(ExecutionKeys.APPROVAL_DECIDED_AT, java.time.Instant.now().toString());
+        // O mapa de variáveis vai para JSON e não aceita null; ausente vira "".
+        vars.put(ExecutionKeys.APPROVAL_DECIDED_BY, decidedBy != null ? decidedBy : "");
+        vars.put(ExecutionKeys.APPROVAL_COMMENT, comment != null ? comment : "");
+    }
 
     private static Object variableOf(FlowState state, String key) {
         Map<String, Object> vars = state.getVariables();

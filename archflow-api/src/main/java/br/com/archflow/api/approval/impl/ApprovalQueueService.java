@@ -103,7 +103,8 @@ public class ApprovalQueueService {
         Object editedPayload = "EDITED".equals(decision) ? request.editedPayload() : null;
 
         try {
-            flowEngine.submitApproval(state.getFlowId(), requestId, approved, editedPayload);
+            flowEngine.submitApproval(state.getFlowId(), requestId, approved, editedPayload,
+                    request.responderId(), request.comment());
         } catch (RuntimeException e) {
             // O motor é a autoridade: uma corrida (duas submissões simultâneas)
             // é barrada lá, não aqui.
@@ -113,6 +114,8 @@ public class ApprovalQueueService {
 
         log.info("Aprovação {} decidida como {} por {} (flow={})",
                 requestId, decision, request.responderId(), state.getFlowId());
+        // O decisor e a justificativa ficam no estado durável, gravados pelo
+        // motor sob o mesmo lock da decisão — não só aqui no log.
         return snapshot;
     }
 

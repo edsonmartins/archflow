@@ -55,6 +55,15 @@ public final class ExecutionKeys {
     /** {@code String} {@code APPROVED}|{@code REJECTED} — decisão humana registrada. */
     public static final String APPROVAL_DECISION = "__archflow.approvalDecision";
 
+    /** {@code String} — quem decidiu. Gravado com a decisão, sob o mesmo lock. */
+    public static final String APPROVAL_DECIDED_BY = "__archflow.approvalDecidedBy";
+
+    /** {@code String} — justificativa do decisor. */
+    public static final String APPROVAL_COMMENT = "__archflow.approvalComment";
+
+    /** {@code String} ISO-8601 — quando a decisão foi submetida. */
+    public static final String APPROVAL_DECIDED_AT = "__archflow.approvalDecidedAt";
+
     /** Payload editado pelo humano ao aprovar, quando houver. */
     public static final String APPROVAL_PAYLOAD = "approvalPayload";
 }

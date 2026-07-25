@@ -494,6 +494,26 @@ public class ArchflowBeanConfiguration {
                 metricsCollector, traceStoreRecorder, 16, 3_600_000L, 8);
     }
 
+    /**
+     * Cadeia de interceptores aplicada a cada invocação de componente pelo
+     * {@code ComponentStep}. A cadeia existia completa em archflow-agent —
+     * inclusive com {@code beforeExecute} capaz de abortar a execução — e não
+     * tinha nenhum chamador em produção; era um ponto de extensão inalcançável.
+     *
+     * <p>O default traz apenas interceptores aditivos (log e métricas). Cache e
+     * guardrails ficam de fora de propósito: ligá-los por default mudaria o
+     * comportamento de fluxos existentes. Um deployment que os queira declara
+     * o próprio bean.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public br.com.archflow.agent.tool.ToolInterceptorChain toolInterceptorChain() {
+        return br.com.archflow.agent.tool.ToolInterceptorChain.builder()
+                .addInterceptor(new br.com.archflow.agent.tool.interceptor.LoggingInterceptor())
+                .addInterceptor(new br.com.archflow.agent.tool.interceptor.MetricsInterceptor())
+                .build();
+    }
+
     @Bean
     @ConditionalOnMissingBean
     public WorkflowYamlBridge workflowYamlBridge() {

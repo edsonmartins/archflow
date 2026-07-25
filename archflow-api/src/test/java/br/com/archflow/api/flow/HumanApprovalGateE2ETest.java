@@ -134,9 +134,11 @@ class HumanApprovalGateE2ETest {
                 .as("o gate não pode reexecutar nem duplicar a remediação")
                 .hasValue(1);
 
-        // (4) a decisão fica registrada e a fila esvazia
+        // (4) a decisão fica registrada — com quem decidiu, para a auditoria
         assertThat(stateManager.loadState(FLOW_ID).getVariables())
-                .containsEntry(ExecutionKeys.APPROVAL_DECISION, "APPROVED");
+                .containsEntry(ExecutionKeys.APPROVAL_DECISION, "APPROVED")
+                .containsEntry(ExecutionKeys.APPROVAL_DECIDED_BY, "sre-1")
+                .containsKey(ExecutionKeys.APPROVAL_DECIDED_AT);
         assertThat(queue.listPending("acme")).isEmpty();
     }
 

@@ -3,6 +3,7 @@ package br.com.archflow.api.flow;
 import br.com.archflow.agent.streaming.EventStreamRegistry;
 import br.com.archflow.api.orchestration.DynamicWorkflowService;
 import br.com.archflow.engine.api.FlowEngine;
+import br.com.archflow.agent.tool.ToolInterceptorChain;
 import br.com.archflow.engine.core.StateManager;
 import br.com.archflow.model.flow.FlowStep;
 import br.com.archflow.model.flow.StepConnection;
@@ -33,10 +34,19 @@ public class DefaultFlowStepFactory implements FlowStepFactory {
     private final EventStreamRegistry streamRegistry;
     private final StateManager stateManager;
     private final ObjectProvider<FlowEngine> flowEngine;
+    private final ToolInterceptorChain interceptors;
 
     public DefaultFlowStepFactory(ComponentCatalog catalog, DynamicWorkflowService dynamicWorkflowService,
                                   EventStreamRegistry streamRegistry, StateManager stateManager,
                                   ObjectProvider<FlowEngine> flowEngine) {
+        this(catalog, dynamicWorkflowService, streamRegistry, stateManager, flowEngine, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public DefaultFlowStepFactory(ComponentCatalog catalog, DynamicWorkflowService dynamicWorkflowService,
+                                  EventStreamRegistry streamRegistry, StateManager stateManager,
+                                  ObjectProvider<FlowEngine> flowEngine,
+                                  ToolInterceptorChain interceptors) {
         this.catalog = catalog;
         this.dynamicWorkflowService = dynamicWorkflowService;
         this.streamRegistry = streamRegistry;
@@ -45,6 +55,7 @@ public class DefaultFlowStepFactory implements FlowStepFactory {
         // FlowEngine → FlowRepository → WorkflowDeserializer → esta factory:
         // uma injeção direta fecharia o ciclo.
         this.flowEngine = flowEngine;
+        this.interceptors = interceptors;
     }
 
     @Override
@@ -76,7 +87,7 @@ public class DefaultFlowStepFactory implements FlowStepFactory {
         return new ComponentStep(
                 id, StepType.TOOL,
                 componentId == null ? "" : componentId.toString(),
-                operation, connections, catalog);
+                operation, connections, catalog, interceptors);
     }
 
     private static String str(Object v, String fallback) {

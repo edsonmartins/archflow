@@ -102,6 +102,24 @@ public interface FlowEngine {
      */
     default CompletableFuture<FlowResult> submitApproval(String flowId, String requestId,
                                                           boolean approved, Object editedPayload) {
+        return submitApproval(flowId, requestId, approved, editedPayload, null, null);
+    }
+
+    /**
+     * Como {@link #submitApproval(String, String, boolean, Object)}, registrando
+     * <b>quem</b> decidiu e por quê.
+     *
+     * <p>Existe porque uma aprovação sem decisor identificado não é auditável: a
+     * pergunta que se faz depois de uma remediação é "quem autorizou isto", e a
+     * resposta precisa estar no mesmo estado durável da decisão — gravada sob o
+     * mesmo lock, não em um log à parte que pode divergir.
+     *
+     * @param decidedBy identificador de quem decidiu (pode ser {@code null})
+     * @param comment   justificativa do decisor (pode ser {@code null})
+     */
+    default CompletableFuture<FlowResult> submitApproval(String flowId, String requestId,
+                                                         boolean approved, Object editedPayload,
+                                                         String decidedBy, String comment) {
         throw new UnsupportedOperationException("Human-in-the-loop not supported by this engine");
     }
 }

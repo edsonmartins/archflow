@@ -39,7 +39,8 @@ class ApprovalQueueServiceTest {
 
     /** Motor falso: registra as submissões e simula o consumo do requestId. */
     private static final class RecordingEngine implements FlowEngine {
-        record Submission(String flowId, String requestId, boolean approved, Object payload) {}
+        record Submission(String flowId, String requestId, boolean approved, Object payload,
+                          String decidedBy, String comment) {}
 
         final List<Submission> submissions = new ArrayList<>();
         private final StateManager stateManager;
@@ -51,11 +52,13 @@ class ApprovalQueueServiceTest {
 
         @Override
         public CompletableFuture<FlowResult> submitApproval(String flowId, String requestId,
-                                                            boolean approved, Object editedPayload) {
+                                                            boolean approved, Object editedPayload,
+                                                            String decidedBy, String comment) {
             if (failWith != null) {
                 throw failWith;
             }
-            submissions.add(new Submission(flowId, requestId, approved, editedPayload));
+            submissions.add(new Submission(flowId, requestId, approved, editedPayload,
+                    decidedBy, comment));
             // Espelha o motor real: consome o requestId e tira o fluxo de
             // AWAITING_APPROVAL, então ele deixa de ser encontrável na fila.
             FlowState state = stateManager.loadState(flowId);
@@ -252,6 +255,20 @@ class ApprovalQueueServiceTest {
                 new ApprovalSubmitRequest("acme", "REJECTED", null, "x")))
                 .isInstanceOf(NoSuchElementException.class);
         assertThat(engine.submissions).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("decisor e justificativa chegam ao motor para virar estado auditável")
+    void deciderReachesTheEngine() {
+        awaitingApproval("flow-a", "acme", "req-1", "step-1", Instant.now());
+
+        service.submitDecision("req-1", new ApprovalSubmitRequest(
+                "acme", "REJECTED", null, "bob", "o serviço está em janela de pico"));
+
+        assertThat(engine.submissions).singleElement().satisfies(s -> {
+            assertThat(s.decidedBy()).isEqualTo("bob");
+            assertThat(s.comment()).isEqualTo("o serviço está em janela de pico");
+        });
     }
 
     @Test
