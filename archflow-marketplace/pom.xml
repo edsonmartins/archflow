@@ -10,6 +10,10 @@
         <version>1.0.0</version>
     </parent>
 
+    <properties>
+        <jacoco.min.coverage>0.75</jacoco.min.coverage>
+    </properties>
+
     <artifactId>archflow-marketplace</artifactId>
     <name>archflow-marketplace</name>
     <description>Extension marketplace with signature verification and RBAC for archflow</description>

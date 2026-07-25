@@ -20,6 +20,12 @@
         <langchain4j.version>1.18.0</langchain4j.version>
         <camel.version>4.3.0</camel.version>
         <spring-boot.version>4.0.0</spring-boot.version>
+        <!--
+          Piso de cobertura do módulo (ratchet — ver o goal `check` do jacoco).
+          Default conservador; cada módulo sobe o seu no próprio pom conforme
+          melhora. Não é a meta do projeto, é o chão que não se pode furar.
+        -->
+        <jacoco.min.coverage>0.30</jacoco.min.coverage>
     </properties>
 
     <modules>
@@ -169,6 +175,41 @@
                             <goals>
                                 <goal>report</goal>
                             </goals>
+                        </execution>
+                        <!--
+                          Gate de RATCHET, não de aspiração.
+
+                          Não havia goal `check` nenhum: a documentação falava em
+                          "mínimo 80%" e o build não verificava nada. Fixar 80%
+                          agora quebraria o build na hora — a cobertura real vai
+                          de ~38% a ~98% dependendo do módulo.
+
+                          O piso é por módulo (`jacoco.min.coverage`), começa
+                          ABAIXO do que cada um já tem e existe para impedir
+                          REGRESSÃO, não para premiar. Subir um piso é uma
+                          alteração de uma linha no pom do módulo, e é assim que
+                          a cobertura avança de verdade.
+                        -->
+                        <execution>
+                            <id>check</id>
+                            <phase>test</phase>
+                            <goals>
+                                <goal>check</goal>
+                            </goals>
+                            <configuration>
+                                <rules>
+                                    <rule>
+                                        <element>BUNDLE</element>
+                                        <limits>
+                                            <limit>
+                                                <counter>INSTRUCTION</counter>
+                                                <value>COVEREDRATIO</value>
+                                                <minimum>${jacoco.min.coverage}</minimum>
+                                            </limit>
+                                        </limits>
+                                    </rule>
+                                </rules>
+                            </configuration>
                         </execution>
                     </executions>
                 </plugin>

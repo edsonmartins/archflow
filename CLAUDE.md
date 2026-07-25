@@ -91,6 +91,32 @@ Adapters are discovered via SPI at runtime.
 - **archflow-standalone** - Export/run workflows as standalone JARs (CLI, no server)
 - **archflow-conversation** - Suspend/resume wired to the server; guardrails/governance/episodic memory/summarizer are an OPT-IN library not yet called by the archflow-api execution path
 
+### The LangChain4j adapter layer is NOT on the execution path
+
+This is the single largest gap between what the project offers and what it runs, so read it before
+touching anything LLM-related.
+
+There are **two** LLM integration layers and only one is wired:
+
+- **`archflow-langchain4j-provider-hub`** (`LLMConfigResolver` → `LLMProviderHub` → `ChatModel`) —
+  this is what actually runs. `McpAgentRunner`, `AgUiAgentController` and `DynamicWorkflowService`
+  all go through it.
+- **The `LangChainAdapter` SPI layer** (`archflow-langchain4j-{openai,anthropic,memory-*,
+  vectorstore-*,chain-rag,...}`, ~25k LOC across 15 submodules) — **nothing ever instantiates one.**
+  The only production reference to `LangChainRegistry` outside those modules is
+  `CatalogControllerImpl:127`, which calls `getProvidersOfType` to **list** provider ids for the
+  designer. `createAdapter` has no production caller at all.
+
+Consequences to keep in mind:
+- The designer offers adapter providers that cannot execute. Adapters are not `AIComponent`s, so a
+  node naming one fails at `ComponentStep` with "component not found".
+- The chat adapters read `ExecutionContext.getChatMemory()`, but since they never run, **nothing
+  writes chat memory during a flow**. That is why `MemoryRestorer` is still passed as `null` — a
+  restorer would repopulate a store nobody fills and nobody reads. Wiring it before there is a
+  writer would be another hook without a caller.
+- Bridging adapters into the catalog is a design decision (different interface, different
+  lifecycle), not a mechanical fix.
+
 ### Experimental / not wired to the runtime (honest state — see docs/PLANO_HOMOLOGACAO.md)
 - **archflow-brainsentry** - Brain Sentry client library; not on the archflow-api runtime classpath
 - **archflow-observability** - OTel/Micrometer classes exist but nothing instruments the runtime; only the audit trail (`AuditRepository`) is consumed. Real observability today: flow/step metrics from `MetricsCollector` (shared with `ObservabilityService`), the API trace store fed by `TraceStoreRecorder`, and Actuator health. There are no OTel spans and no per-tool-call latency/token accounting
@@ -121,9 +147,12 @@ Adapters are discovered via SPI at runtime.
 - **JUnit 5** for unit tests
 - **Mockito** for mocking
 - **AssertJ** for assertions
-- **JaCoCo** for coverage — report only (`prepare-agent` + `report` + `report-aggregate`). There is
-  no `check` goal and no minimum-coverage rule: 80% is the target the project aims for, not a gate
-  the build enforces. Do not describe it as "required" until a `check` execution exists.
+- **JaCoCo** for coverage, with a **ratchet gate**, not an aspirational one. Real coverage ranges
+  from ~38% to ~98% per module, so a flat 80% rule would fail the build immediately. Each module
+  declares `jacoco.min.coverage` (global default `0.30`, higher in the stronger modules) and the
+  `check` goal enforces it — the floor exists to block regression, not to reward. Raising a floor
+  is a one-line change in the module's pom; that is how coverage actually advances here. Do not
+  describe 80% as "required".
 
 Test structure follows Arrange-Act-Assert pattern within `src/test/java`.
 

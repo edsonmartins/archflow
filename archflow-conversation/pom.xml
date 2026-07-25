@@ -10,6 +10,10 @@
         <version>1.0.0</version>
     </parent>
 
+    <properties>
+        <jacoco.min.coverage>0.80</jacoco.min.coverage>
+    </properties>
+
     <artifactId>archflow-conversation</artifactId>
     <name>archflow-conversation</name>
     <description>Conversation management with suspend/resume capability for AI workflows</description>
