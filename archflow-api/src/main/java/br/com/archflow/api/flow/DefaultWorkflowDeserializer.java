@@ -23,9 +23,25 @@ public class DefaultWorkflowDeserializer implements WorkflowDeserializer {
     private static final Logger logger = LoggerFactory.getLogger(DefaultWorkflowDeserializer.class);
 
     private final FlowStepFactory stepFactory;
+    private final boolean requireAllowlist;
 
     public DefaultWorkflowDeserializer(FlowStepFactory stepFactory) {
+        this(stepFactory, false);
+    }
+
+    /**
+     * @param requireAllowlist quando {@code true}, um fluxo sem
+     *                         {@code configuration.allowedComponents} não resolve
+     *                         componente nenhum (fail-closed). Default
+     *                         {@code false} — ver {@link #componentPolicyOf}.
+     */
+    @org.springframework.beans.factory.annotation.Autowired
+    public DefaultWorkflowDeserializer(
+            FlowStepFactory stepFactory,
+            @org.springframework.beans.factory.annotation.Value(
+                    "${archflow.components.require-allowlist:false}") boolean requireAllowlist) {
         this.stepFactory = stepFactory;
+        this.requireAllowlist = requireAllowlist;
     }
 
     @Override
@@ -51,15 +67,29 @@ public class DefaultWorkflowDeserializer implements WorkflowDeserializer {
 
     /**
      * Allowlist de componentes declarada pelo fluxo em
-     * {@code configuration.allowedComponents}. Ausente significa <b>sem
-     * restrição</b>, e não "nada permitido": tornar o default fechado quebraria
-     * todo workflow já salvo e o designer, cuja liberdade de escolher qualquer
-     * componente é o ponto. Um fluxo que precise da garantia — "este nunca toca
-     * um componente de escrita" — declara a lista.
+     * {@code configuration.allowedComponents}.
+     *
+     * <p>Ausente significa <b>sem restrição</b> por default, e não "nada
+     * permitido": fechar isso globalmente quebraria todo workflow já salvo e o
+     * designer, cuja liberdade de escolher qualquer componente é o ponto. Um
+     * fluxo que precise da garantia — "este nunca toca um componente de escrita"
+     * — declara a lista.
+     *
+     * <p>Um deployment que queira a garantia para <b>todos</b> os fluxos liga
+     * {@code archflow.components.require-allowlist=true}: aí a ausência passa a
+     * negar tudo, e um fluxo sem lista falha alto (todo step reporta
+     * "component not found") em vez de rodar irrestrito. É opt-in porque a
+     * escolha é de produto: quem liga precisa ter migrado os fluxos antes.
      */
-    private static ComponentAccessPolicy componentPolicyOf(Map<String, Object> json) {
+    private ComponentAccessPolicy componentPolicyOf(Map<String, Object> json) {
         Object declared = asMap(json.get("configuration")).get("allowedComponents");
         if (!(declared instanceof List<?> ids)) {
+            if (requireAllowlist) {
+                logger.warn("Fluxo {} não declara configuration.allowedComponents e "
+                                + "archflow.components.require-allowlist=true — nenhum componente será resolvido",
+                        str(json.get("id"), "?"));
+                return ComponentAccessPolicy.allowOnly(List.of());
+            }
             return ComponentAccessPolicy.allowAll();
         }
         List<String> allowed = ids.stream().filter(Objects::nonNull).map(Object::toString).toList();

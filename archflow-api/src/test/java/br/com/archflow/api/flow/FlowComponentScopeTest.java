@@ -118,4 +118,35 @@ class FlowComponentScopeTest {
         assertThat(writerRuns).hasValue(1);
         assertThat(result.getStatus()).isEqualTo(StepStatus.COMPLETED);
     }
+
+    @Test
+    @DisplayName("require-allowlist=true: fluxo sem lista falha alto em vez de rodar irrestrito")
+    void requireAllowlistFailsClosed() {
+        WorkflowDeserializer strict = new DefaultWorkflowDeserializer(
+                new DefaultFlowStepFactory(catalog, mock(DynamicWorkflowService.class),
+                        null, null, null),
+                true);
+
+        Flow flow = strict.toFlow(workflow(WRITER, null));
+        StepResult result = flow.getSteps().get(0).execute(context()).join();
+
+        assertThat(writerRuns)
+                .as("com o modo estrito ligado, a ausencia de lista nega tudo")
+                .hasValue(0);
+        assertThat(result.getStatus()).isEqualTo(StepStatus.FAILED);
+    }
+
+    @Test
+    @DisplayName("require-allowlist=true: fluxo que declara a lista continua funcionando")
+    void requireAllowlistHonoursDeclaredList() {
+        WorkflowDeserializer strict = new DefaultWorkflowDeserializer(
+                new DefaultFlowStepFactory(catalog, mock(DynamicWorkflowService.class),
+                        null, null, null),
+                true);
+
+        Flow flow = strict.toFlow(workflow(READER, List.of(READER)));
+        StepResult result = flow.getSteps().get(0).execute(context()).join();
+
+        assertThat(result.getStatus()).isEqualTo(StepStatus.COMPLETED);
+    }
 }
