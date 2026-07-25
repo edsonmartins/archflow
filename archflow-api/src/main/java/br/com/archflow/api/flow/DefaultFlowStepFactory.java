@@ -8,7 +8,9 @@ import br.com.archflow.engine.core.StateManager;
 import br.com.archflow.model.flow.FlowStep;
 import br.com.archflow.model.flow.StepConnection;
 import br.com.archflow.model.flow.StepType;
+import br.com.archflow.plugin.api.catalog.ComponentAccessPolicy;
 import br.com.archflow.plugin.api.catalog.ComponentCatalog;
+import br.com.archflow.plugin.api.catalog.ScopedComponentCatalog;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 
@@ -59,14 +61,23 @@ public class DefaultFlowStepFactory implements FlowStepFactory {
     }
 
     @Override
-    public FlowStep create(Map<String, Object> node) {
+    public FlowStep create(Map<String, Object> node, ComponentAccessPolicy componentPolicy) {
         String id = str(node.get("id"), "step");
         String type = str(node.get("type"), "");
         Map<String, Object> config = config(node);
         List<StepConnection> connections = connections(id, node.get("connections"));
+        ComponentAccessPolicy policy =
+                componentPolicy != null ? componentPolicy : ComponentAccessPolicy.allowAll();
+        // O step só enxerga o recorte que o fluxo declarou: nem resolve nem lista
+        // o que está fora dele.
+        ComponentCatalog scopedCatalog = ScopedComponentCatalog.of(catalog, policy);
 
         if (StepType.ORCHESTRATE.name().equalsIgnoreCase(type)) {
-            return new OrchestrateStep(id, connections, config, dynamicWorkflowService, streamRegistry, stateManager);
+            // Os sub-agentes herdam o escopo do fluxo — sem isso, um passo
+            // restrito delegaria para um agente irrestrito e a restrição seria
+            // contornável por delegação.
+            return new OrchestrateStep(id, connections, config, dynamicWorkflowService,
+                    streamRegistry, stateManager, policy);
         }
 
         if (StepType.APPROVAL.name().equalsIgnoreCase(type)) {
@@ -87,7 +98,7 @@ public class DefaultFlowStepFactory implements FlowStepFactory {
         return new ComponentStep(
                 id, StepType.TOOL,
                 componentId == null ? "" : componentId.toString(),
-                operation, connections, catalog, interceptors);
+                operation, connections, scopedCatalog, interceptors);
     }
 
     private static String str(Object v, String fallback) {

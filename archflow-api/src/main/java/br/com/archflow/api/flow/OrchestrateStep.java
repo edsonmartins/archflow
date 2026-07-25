@@ -12,6 +12,7 @@ import br.com.archflow.model.flow.FlowStep;
 import br.com.archflow.model.flow.StepConnection;
 import br.com.archflow.model.flow.StepResult;
 import br.com.archflow.model.flow.StepType;
+import br.com.archflow.plugin.api.catalog.ComponentAccessPolicy;
 
 import java.util.List;
 import java.util.Map;
@@ -33,16 +34,27 @@ public final class OrchestrateStep implements FlowStep {
     private final DynamicWorkflowService service;
     private final EventStreamRegistry streamRegistry;
     private final StateManager stateManager;
+    private final ComponentAccessPolicy componentPolicy;
 
     public OrchestrateStep(String id, List<StepConnection> connections,
                            Map<String, Object> config, DynamicWorkflowService service,
                            EventStreamRegistry streamRegistry, StateManager stateManager) {
+        this(id, connections, config, service, streamRegistry, stateManager,
+                ComponentAccessPolicy.allowAll());
+    }
+
+    public OrchestrateStep(String id, List<StepConnection> connections,
+                           Map<String, Object> config, DynamicWorkflowService service,
+                           EventStreamRegistry streamRegistry, StateManager stateManager,
+                           ComponentAccessPolicy componentPolicy) {
         this.id = id;
         this.connections = connections == null ? List.of() : List.copyOf(connections);
         this.config = config == null ? Map.of() : config;
         this.service = service;
         this.streamRegistry = streamRegistry;
         this.stateManager = stateManager;
+        this.componentPolicy = componentPolicy == null
+                ? ComponentAccessPolicy.allowAll() : componentPolicy;
     }
 
     @Override public String getId() { return id; }
@@ -84,7 +96,7 @@ public final class OrchestrateStep implements FlowStep {
                     ? new MaterializingOrchestrationListener(state, streaming)
                     : streaming;
 
-            SupervisorResult result = service.runOn(req, context, listener);
+            SupervisorResult result = service.runOn(req, context, listener, componentPolicy);
             List<Object> confirmed = result.confirmed();
             context.set(id, confirmed);
             context.set(ComponentStep.INPUT_KEY, confirmed);

@@ -86,7 +86,7 @@ class DefaultFlowStepFactoryTest {
         DynamicWorkflowService service = mock(DynamicWorkflowService.class);
         ExecutionContext ctx = mock(ExecutionContext.class);
         when(ctx.get("input")).thenReturn(Optional.empty());
-        when(service.runOn(any(), eq(ctx), any())).thenReturn(new SupervisorResult(List.of("done"), 1));
+        when(service.runOn(any(), eq(ctx), any(), any())).thenReturn(new SupervisorResult(List.of("done"), 1));
 
         FlowStep step = new DefaultFlowStepFactory(
                 mock(ComponentCatalog.class), service,
@@ -107,7 +107,7 @@ class DefaultFlowStepFactoryTest {
 
         ArgumentCaptor<br.com.archflow.api.orchestration.DynamicWorkflowRequest> req =
                 ArgumentCaptor.forClass(br.com.archflow.api.orchestration.DynamicWorkflowRequest.class);
-        verify(service).runOn(req.capture(), eq(ctx), any());
+        verify(service).runOn(req.capture(), eq(ctx), any(), any());
         assertThat(req.getValue().goal()).isEqualTo("audit");
     }
 }
