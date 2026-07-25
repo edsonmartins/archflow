@@ -93,7 +93,7 @@ Adapters are discovered via SPI at runtime.
 
 ### Experimental / not wired to the runtime (honest state — see docs/PLANO_HOMOLOGACAO.md)
 - **archflow-brainsentry** - Brain Sentry client library; not on the archflow-api runtime classpath
-- **archflow-observability** - OTel/Micrometer classes exist but nothing instruments the runtime (real observability today: API trace store + Actuator health)
+- **archflow-observability** - OTel/Micrometer classes exist but nothing instruments the runtime; only the audit trail (`AuditRepository`) is consumed. Real observability today: flow/step metrics from `MetricsCollector` (shared with `ObservabilityService`), the API trace store fed by `TraceStoreRecorder`, and Actuator health. There are no OTel spans and no per-tool-call latency/token accounting
 - **archflow-performance** - Two-level cache library; orphan module, no pom depends on it
 - **archflow-marketplace** - Extension manifest catalog; "install" registers a manifest only, RSA signature verification has no trusted keys (checksum in practice)
 
@@ -121,7 +121,9 @@ Adapters are discovered via SPI at runtime.
 - **JUnit 5** for unit tests
 - **Mockito** for mocking
 - **AssertJ** for assertions
-- **JaCoCo** for coverage (minimum 80% required)
+- **JaCoCo** for coverage — report only (`prepare-agent` + `report` + `report-aggregate`). There is
+  no `check` goal and no minimum-coverage rule: 80% is the target the project aims for, not a gate
+  the build enforces. Do not describe it as "required" until a `check` execution exists.
 
 Test structure follows Arrange-Act-Assert pattern within `src/test/java`.
 
@@ -138,4 +140,6 @@ Test structure follows Arrange-Act-Assert pattern within `src/test/java`.
 - Plugins are **fat-jars** loaded from a plugins directory with a child-first classloader that falls back to the parent (application) classloader. There is NO runtime dependency resolution (the old "Jeka" claim was never implemented) and NO sandbox — `onLoad` runs arbitrary jar code, so only trusted jars may be loaded. See the javadoc of `ArchflowPluginManager` / `ArchflowPluginClassLoader`.
 - Frontend uses Mantine UI components (not shadcn/ui as earlier docs may state)
 - Flow execution is asynchronous with built-in retry policies and parallel processing support
+- **Human-in-the-loop**: a `StepType.APPROVAL` node (`HumanApprovalStep`) calls `FlowEngine.requestApproval`, which persists the state as `AWAITING_APPROVAL` and cooperatively suspends the traversal — the flow survives a process restart while it waits. `ApprovalQueueService` derives the pending queue from `StateManager.findByStatus` (no in-memory index) and routes decisions to `FlowEngine.submitApproval`. The well-known variable keys live in `ExecutionKeys` (`APPROVAL_*`), shared by the engine and the API. Note: the reviewer's `responderId`/`comment` are logged but not persisted — the engine's `submitApproval` signature does not carry them
+- **Tool allowlist**: `McpAgentRunner` requires a `ToolAccessPolicy` on every run and applies it twice (filtering the catalogue sent to the model, then re-checking before `callTool`). `GovernanceProfile.isToolAllowed` plugs in via `ToolAccessPolicy.of(profile)`. Adding a new agent means deciding its tool set explicitly
 - **Homologation plan**: `docs/PLANO_HOMOLOGACAO.md` tracks the audit of announced-vs-real features. Decision 0.2: features without runtime wiring are unpublished from the docs until integrated (see the "Experimental" module list above). Decision 0.3: the stack is Spring Boot 4.0.x / Java 25 — do not "fix" docs back to Boot 3.3/Java 17.
