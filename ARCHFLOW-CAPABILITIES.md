@@ -12,22 +12,40 @@ Commit auditado: `5231c4a7ffb5c7826c3b7cffc94598ec195e581e` (branch `feat/vendax
 > | C1 | `PARCIAL` | `NATIVO` (com ressalva) | Caminho MCP: `ToolAccessPolicy` obrigatória, aplicada ao montar o catálogo **e** antes de cada `callTool`. Caminho de workflow: `ComponentAccessPolicy` + `ScopedComponentCatalog` filtram no ponto de resolução, e o `ORCHESTRATE` herda o escopo. **Ressalva:** o escopo é *opt-in* — allowlist ausente ⇒ irrestrito, para não quebrar workflows salvos. O isolamento é agora possível e verificado; não é imposto por default. |
 > | C2 | `AUSENTE` | `PARCIAL` | Resultado de tool carrega `ToolTrust`; conteúdo não-confiável volta ao modelo cercado (nonce por execução + regra no system prompt). Não atravessa `ComponentStep`/`ConversationalAgent`, que seguem devolvendo `Object`/`String` sem envelope. |
 > | C3 | `PARCIAL` | `PARCIAL` (gate alcançável) | `StepType.APPROVAL` + `HumanApprovalStep` são o produtor que faltava; `ApprovalQueueService` deriva a fila de `StateManager.findByStatus` e decide pelo motor; proposta e decisor passaram a ser persistidos. A durabilidade **no nível do turno do agente** continua ausente — o `McpAgentRunner` segue sem checkpoint. |
-> | C4 | `AUSENTE` | `AUSENTE` (parcialmente mitigado) | A allowlist reduz o catálogo enviado, mas não há seleção dinâmica, lazy loading nem contabilidade de tokens. |
+> | C4 | `AUSENTE` | `PARCIAL` | `ToolCatalogBudget` mede o custo do catálogo por execução, registra `tool_catalog_tokens` e avisa acima do limite nomeando os maiores contribuintes. **Seleção dinâmica continua ausente** — medir não é escolher, e nada é descartado. |
+> | C6 | `PARCIAL` | `NATIVO` | `HttpMcpClient` fala Streamable HTTP completo: SSE, `Mcp-Session-Id`, recuperação de sessão vencida (404/400 → reinicializa e repete), `DELETE` no close. Verificado contra um server local que implementa a spec. Não abre o stream GET servidor→cliente (não recebe notificações não solicitadas). |
 > | C5 | `PARCIAL` | `NATIVO` | `ToolInterceptorChain` ganhou chamador: `ComponentStep` invoca através dela e `beforeExecute` aborta de verdade. No laço MCP o veto é a `ToolAccessPolicy`. Fora: `ConversationalAgent` de `archflow-conversation` (inverteria dependência de módulo e é código sem chamador). |
-> | C7 | `PARCIAL` | `PARCIAL` (metade resolvida) | Argumento malformado não invoca mais a tool — o erro volta ao modelo, que pode corrigir. Continua sem validação de schema e sem retry estruturado. |
-> | C11 | `AUSENTE` | `PARCIAL` | `TraceStoreRecorder` virou bean e é passado ao engine (falhas também produzem trace); `MetricsCollector` passou a ser compartilhado entre engine e `ObservabilityService`. Continua sem OTel, sem cadeia de tool calls e sem custo em token. |
+> | C7 | `PARCIAL` | `PARCIAL` | Além do JSON malformado, argumentos válidos-mas-errados (obrigatório ausente, tipo trocado, fora do enum) são barrados contra o `inputSchema` e devolvidos ao modelo. Sem retry automático nem reparo de saída. |
+> | C11 | `AUSENTE` | `PARCIAL` | Além do trace store e do coletor compartilhado: latência, contagem e taxa de falha **por nome de tool**, tokens por turno e custo do catálogo. Continua sem spans OTel. |
 > | C12 | `PARCIAL` | `PARCIAL` (isolamento herdado) | Sub-agentes agora herdam o escopo de componentes do fluxo, então um supervisor restrito não delega para um agente irrestrito. O `ExecutionContext` continua sendo repassado inteiro. |
 >
-> Inalterados: **C6, C8, C9, C10, C13**.
+> Inalterados: **C8, C9, C10, C13**.
+>
+> ### Achado novo, que a auditoria original não registrou
+>
+> **A camada de adapters LangChain4j (~25k LOC, 15 submódulos) não está no caminho de execução.**
+> Há duas camadas de integração com LLM e só o `provider-hub` roda. A única referência de produção
+> ao `LangChainRegistry` fora daqueles módulos é `CatalogControllerImpl:127`, que chama
+> `getProvidersOfType` para **listar** ids no designer; `createAdapter` não tem chamador de produção
+> algum. Consequências: o designer oferece providers que não executam, e — como são os chat adapters
+> que leem `getChatMemory()` — **nada grava memória de chat durante um fluxo**. É por isso que o
+> `MemoryRestorer` continua desligado: ligá-lo repovoaria um store que ninguém preenche nem lê.
+> Fazer a ponte adapters↔catálogo é decisão de desenho, não conserto mecânico.
 >
 > Coberto por `HumanApprovalGateE2ETest`, `ApprovalStepBeanGraphTest`, `McpAgentRunnerPolicyTest`,
-> `UntrustedContentFenceTest`, `ComponentStepInterceptorTest`, `ScopedComponentCatalogTest`,
-> `FlowComponentScopeTest` e `ApprovalQueueServiceTest`. Suíte completa do reator verde.
+> `UntrustedContentFenceTest`, `AgUiUntrustedInputTest`, `ComponentStepInterceptorTest`,
+> `ScopedComponentCatalogTest`, `FlowComponentScopeTest`, `ApprovalQueueServiceTest`,
+> `ToolArgumentValidatorTest`, `ToolCatalogBudgetTest`, `HttpMcpClientSpecInteropTest`,
+> `LLMProviderHubConcurrencyTest` e os testes JDBC (H2 + Postgres real). Suíte do reator verde.
 >
 > **As duas respostas diretas do fim do relatório mudam assim:** (1) o interrupt/resume durável
 > continua sendo de *step do grafo*, mas agora é **alcançável de fora** (step → fila → decisão →
 > retomada); (2) o registro de tools continua global **por default**, mas passou a ser
 > **escopável por fluxo e por agente, com a restrição aplicada na resolução** — nos dois caminhos.
+>
+> Incógnitas fechadas: interop MCP (server local que fala a spec) e concorrência multi-tenant do
+> `LLMProviderHub` (sem bug — o desenho se sustenta). Continua aberto: migrations nunca aplicadas
+> de ponta a ponta num ambiente limpo.
 
 > Escopo entregue: C1–C13. C1–C5 foram investigadas a fundo (leitura de implementação + rastreio
 > de chamadores em código de produção); C6–C13 foram verificadas com profundidade menor mas com
