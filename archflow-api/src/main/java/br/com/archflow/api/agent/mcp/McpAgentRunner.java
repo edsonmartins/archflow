@@ -1,5 +1,6 @@
 package br.com.archflow.api.agent.mcp;
 
+import br.com.archflow.api.trust.UntrustedContentFence;
 import br.com.archflow.langchain4j.mcp.McpClient;
 import br.com.archflow.langchain4j.mcp.McpModel;
 import br.com.archflow.langchain4j.provider.LLMConfigResolver;

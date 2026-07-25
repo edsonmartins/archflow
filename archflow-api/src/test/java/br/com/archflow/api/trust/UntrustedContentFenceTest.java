@@ -1,4 +1,4 @@
-package br.com.archflow.api.agent.mcp;
+package br.com.archflow.api.trust;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

@@ -1,4 +1,4 @@
-package br.com.archflow.api.agent.mcp;
+package br.com.archflow.api.trust;
 
 import java.util.UUID;
 
@@ -25,7 +25,7 @@ import java.util.UUID;
  * <p>Conteúdo {@link ToolTrust#TRUSTED} não é cercado — uma cerca em tudo é
  * ruído e ensina o modelo a ignorá-la.
  */
-final class UntrustedContentFence {
+public final class UntrustedContentFence {
 
     private final String nonce;
 
@@ -33,17 +33,17 @@ final class UntrustedContentFence {
         this.nonce = nonce;
     }
 
-    static UntrustedContentFence create() {
+    public static UntrustedContentFence create() {
         return new UntrustedContentFence(
                 UUID.randomUUID().toString().replace("-", "").substring(0, 16));
     }
 
     /** Nonce fixo — só para tornar o teste determinístico. */
-    static UntrustedContentFence withNonce(String nonce) {
+    public static UntrustedContentFence withNonce(String nonce) {
         return new UntrustedContentFence(nonce);
     }
 
-    String nonce() {
+    public String nonce() {
         return nonce;
     }
 
@@ -51,7 +51,7 @@ final class UntrustedContentFence {
      * Instrução a acrescentar ao system prompt. Precisa vir do lado confiável da
      * conversa (a mensagem de sistema), nunca de dentro da cerca.
      */
-    String preamble() {
+    public String preamble() {
         return """
 
                 --- REGRA DE SEGURANÇA (não negociável) ---
@@ -78,7 +78,7 @@ final class UntrustedContentFence {
      * @param toolName nome da tool de origem (para o modelo saber de onde veio)
      * @param content  payload devolvido pela tool
      */
-    String wrap(String toolName, String content) {
+    public String wrap(String toolName, String content) {
         String safeContent = content == null ? "" : content.replace(nonce, "");
         String safeName = sanitizeName(toolName);
         return "[archflow:untrusted id=" + nonce + " tool=" + safeName + "]\n"
