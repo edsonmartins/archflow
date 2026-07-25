@@ -19,18 +19,28 @@ Commit auditado: `5231c4a7ffb5c7826c3b7cffc94598ec195e581e` (branch `feat/vendax
 > | C11 | `AUSENTE` | `PARCIAL` | Além do trace store e do coletor compartilhado: latência, contagem e taxa de falha **por nome de tool**, tokens por turno e custo do catálogo. Continua sem spans OTel. |
 > | C12 | `PARCIAL` | `PARCIAL` (isolamento herdado) | Sub-agentes agora herdam o escopo de componentes do fluxo, então um supervisor restrito não delega para um agente irrestrito. O `ExecutionContext` continua sendo repassado inteiro. |
 >
-> Inalterados: **C8, C9, C10, C13**.
+> | C10 | `PARCIAL` | `PARCIAL` (exercitado) | A memória de trabalho (conversa) agora sobrevive à suspensão via `FlowStateChatMemory`, sem tabela nova — vai nas variáveis do `FlowState`. A memória de **longo prazo** continua sem dono do lado do ArchFlow: `EpisodicMemory.store()` segue sem chamador, que é o comportamento desejado para o OpsLenz. |
 >
-> ### Achado novo, que a auditoria original não registrou
+> Inalterados: **C8, C9, C13**.
 >
-> **A camada de adapters LangChain4j (~25k LOC, 15 submódulos) não está no caminho de execução.**
-> Há duas camadas de integração com LLM e só o `provider-hub` roda. A única referência de produção
-> ao `LangChainRegistry` fora daqueles módulos é `CatalogControllerImpl:127`, que chama
-> `getProvidersOfType` para **listar** ids no designer; `createAdapter` não tem chamador de produção
-> algum. Consequências: o designer oferece providers que não executam, e — como são os chat adapters
-> que leem `getChatMemory()` — **nada grava memória de chat durante um fluxo**. É por isso que o
-> `MemoryRestorer` continua desligado: ligá-lo repovoaria um store que ninguém preenche nem lê.
-> Fazer a ponte adapters↔catálogo é decisão de desenho, não conserto mecânico.
+> ### Achado que a auditoria original não registrou — e sua correção
+>
+> **A camada de adapters LangChain4j (~25k LOC, 15 submódulos) não estava no caminho de execução.**
+> O designer listava os providers e `createAdapter` não tinha chamador de produção algum: um nó
+> apontando para "openai" falhava com "component not found", porque adapter não é `AIComponent`.
+> Era o maior descompasso entre o que o projeto oferecia e o que executava.
+>
+> **Corrigido.** `LangChainAdapterComponent` faz a ponte (as duas interfaces são quase idênticas).
+> Roteamento conservador — só entra no caminho de adapter quando o registry realmente tem aquele
+> provider naquele tipo, então nenhum workflow existente muda. Criação preguiçosa (a factory exige
+> chave), cache por tenant (a chave vem do `TenantKeyResolver`) e o resolver tem precedência sobre
+> chave inline no JSON.
+>
+> **Efeito em cascata:** com adapters de chat executáveis, a memória de chat passou a ter escritor —
+> e aí o `MemoryRestorer`, que eu tinha deixado desligado com justificativa, passou a se justificar.
+> `FlowStateChatMemory` captura a conversa no checkpoint e a restaura no resume. Antes da ponte
+> ligá-lo teria sido mais um hook sem chamador; depois dela, não ligá-lo deixava o agente amnésico
+> ao voltar de um gate de aprovação.
 >
 > Coberto por `HumanApprovalGateE2ETest`, `ApprovalStepBeanGraphTest`, `McpAgentRunnerPolicyTest`,
 > `UntrustedContentFenceTest`, `AgUiUntrustedInputTest`, `ComponentStepInterceptorTest`,
