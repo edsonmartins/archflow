@@ -16,6 +16,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -281,6 +282,91 @@ class ApprovalQueueServiceTest {
                 new ApprovalSubmitRequest("acme", "APPROVED", null, "x")))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("req-1");
+    }
+
+    @DisplayName("expiração")
+    @org.junit.jupiter.api.Nested
+    class Expiry {
+
+        private static final Instant NOW = Instant.parse("2026-07-25T12:00:00Z");
+        private static final Duration TIMEOUT = Duration.ofHours(24);
+
+        /** Serviço com relógio fixo — não é preciso esperar o prazo passar. */
+        private ApprovalQueueService serviceAt(Instant now) {
+            return new ApprovalQueueService(stateManager, engine, TIMEOUT,
+                    java.time.Clock.fixed(now, java.time.ZoneOffset.UTC));
+        }
+
+        @Test
+        @DisplayName("expiresAt = solicitada + prazo")
+        void exposesTheDeadline() {
+            Instant requested = NOW.minus(Duration.ofHours(1));
+            awaitingApproval("flow-a", "acme", "req-1", "step-1", requested);
+
+            assertThat(serviceAt(NOW).listPending("acme")).singleElement()
+                    .satisfies(r -> assertThat(r.expiresAt()).isEqualTo(requested.plus(TIMEOUT)));
+        }
+
+        @Test
+        @DisplayName("vencida sai da fila e não aceita mais decisão")
+        void expiredIsNotActionable() {
+            awaitingApproval("flow-a", "acme", "req-1", "step-1",
+                    NOW.minus(Duration.ofHours(25)));
+            ApprovalQueueService service = serviceAt(NOW);
+
+            assertThat(service.listPending("acme")).isEmpty();
+            assertThatThrownBy(() -> service.submitDecision("req-1",
+                    new ApprovalSubmitRequest("acme", "APPROVED", null, "alice")))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("expired");
+            assertThat(engine.submissions)
+                    .as("uma proposta vencida descreve um mundo que ja mudou")
+                    .isEmpty();
+        }
+
+        @Test
+        @DisplayName("expireStale recusa as vencidas, identificando o timeout como decisor")
+        void sweepRejectsExpired() {
+            awaitingApproval("flow-a", "acme", "req-1", "step-1", NOW.minus(Duration.ofHours(25)));
+            awaitingApproval("flow-b", "acme", "req-2", "step-1", NOW.minus(Duration.ofHours(1)));
+
+            int expired = serviceAt(NOW).expireStale();
+
+            assertThat(expired).isEqualTo(1);
+            assertThat(engine.submissions).singleElement().satisfies(s -> {
+                assertThat(s.requestId()).isEqualTo("req-1");
+                assertThat(s.approved())
+                        .as("timeout NUNCA pode virar aprovacao")
+                        .isFalse();
+                assertThat(s.decidedBy()).isEqualTo("system:timeout");
+            });
+        }
+
+        @Test
+        @DisplayName("sem prazo configurado nada expira e expiresAt fica nulo")
+        void noTimeoutMeansNoExpiry() {
+            awaitingApproval("flow-a", "acme", "req-1", "step-1",
+                    NOW.minus(Duration.ofDays(365)));
+
+            // `service` do setUp é construído sem timeout.
+            assertThat(service.listPending("acme")).singleElement()
+                    .satisfies(r -> assertThat(r.expiresAt()).isNull());
+            assertThat(service.expireStale()).isZero();
+            assertThat(engine.submissions).isEmpty();
+        }
+
+        @Test
+        @DisplayName("estado sem instante de solicitação não expira — não há como calcular")
+        void missingRequestedAtNeverExpires() {
+            Map<String, Object> vars = new HashMap<>();
+            vars.put(ExecutionKeys.APPROVAL_REQUEST_ID, "req-legado");
+            stateManager.saveState("flow-legado", FlowState.builder()
+                    .tenantId("acme").flowId("flow-legado")
+                    .status(FlowStatus.AWAITING_APPROVAL).variables(vars).build());
+
+            assertThat(serviceAt(NOW).listPending("acme")).hasSize(1);
+            assertThat(serviceAt(NOW).expireStale()).isZero();
+        }
     }
 
     @Test

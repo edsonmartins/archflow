@@ -316,8 +316,27 @@ public class ArchflowBeanConfiguration {
     @ConditionalOnMissingBean
     public ApprovalQueueService approvalQueueService(
             br.com.archflow.engine.core.StateManager stateManager,
-            br.com.archflow.engine.api.FlowEngine flowEngine) {
-        return new ApprovalQueueService(stateManager, flowEngine);
+            br.com.archflow.engine.api.FlowEngine flowEngine,
+            @Value("${archflow.approval.timeout:PT24H}") java.time.Duration approvalTimeout) {
+        return new ApprovalQueueService(stateManager, flowEngine, approvalTimeout);
+    }
+
+    /**
+     * Aplica o prazo das aprovações pendentes.
+     *
+     * <p>Antes nada expirava {@code AWAITING_APPROVAL}: uma remediação proposta
+     * ficava pendurada para sempre, segurando estado e poluindo uma fila que
+     * nunca esvaziava. O prazo default é generoso (24h) e a decisão de timeout é
+     * sempre REJECTED — "ninguém olhou" não pode virar "pode executar".
+     * {@code archflow.approval.timeout=PT0S} restaura o comportamento anterior.
+     */
+    @Bean(initMethod = "start", destroyMethod = "close")
+    @ConditionalOnMissingBean
+    public br.com.archflow.api.approval.impl.ApprovalTimeoutSweeper approvalTimeoutSweeper(
+            ApprovalQueueService approvalQueueService,
+            @Value("${archflow.approval.sweep-interval:PT5M}") java.time.Duration sweepInterval) {
+        return new br.com.archflow.api.approval.impl.ApprovalTimeoutSweeper(
+                approvalQueueService, sweepInterval);
     }
 
     @Bean

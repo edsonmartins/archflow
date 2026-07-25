@@ -119,6 +119,33 @@ class JdbcStateRepositoryPostgresTest {
     }
 
     @Test
+    @DisplayName("getStatesByStatus alimenta a fila de aprovações no Postgres real")
+    void getStatesByStatusOnRealPostgres() {
+        repo.saveState("acme", "f1", FlowState.builder()
+                .tenantId("acme").flowId("f1").status(FlowStatus.AWAITING_APPROVAL)
+                .currentStepId("gate")
+                .variables(Map.of(
+                        "__archflow.approvalRequestId", "req-1",
+                        "__archflow.approvalProposal", Map.of("acao", "reiniciar")))
+                .build());
+        repo.saveState("beta", "f2", FlowState.builder()
+                .tenantId("beta").flowId("f2").status(FlowStatus.AWAITING_APPROVAL).build());
+        repo.saveState("acme", "f3", FlowState.builder()
+                .tenantId("acme").flowId("f3").status(FlowStatus.RUNNING).build());
+
+        List<FlowState> pending = repo.getStatesByStatus("AWAITING_APPROVAL");
+
+        assertThat(pending).extracting(FlowState::getFlowId)
+                .containsExactlyInAnyOrder("f1", "f2");
+        assertThat(pending)
+                .filteredOn(s -> "f1".equals(s.getFlowId()))
+                .singleElement()
+                .satisfies(s -> assertThat(s.getVariables())
+                        .containsEntry("__archflow.approvalRequestId", "req-1"));
+        assertThat(repo.getStatesByStatus("STOPPED")).isEmpty();
+    }
+
+    @Test
     @DisplayName("estado é isolado por tenant")
     void tenantIsolation() {
         repo.saveState("tenantA", "f1", FlowState.builder()

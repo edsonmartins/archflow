@@ -10,6 +10,8 @@ import br.com.archflow.model.flow.FlowStatus;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
@@ -41,12 +43,39 @@ public class ApprovalQueueService {
     /** Sentinela que o admin usa para "todos os tenants". */
     private static final String ALL_TENANTS = "all";
 
+    /** Identidade registrada como decisor quando quem decide é o timeout. */
+    static final String TIMEOUT_DECIDER = "system:timeout";
+
     private final StateManager stateManager;
     private final FlowEngine flowEngine;
+    private final Duration timeout;
+    private final Clock clock;
 
+    /** Sem prazo — as aprovações esperam indefinidamente. */
     public ApprovalQueueService(StateManager stateManager, FlowEngine flowEngine) {
+        this(stateManager, flowEngine, Duration.ZERO, Clock.systemUTC());
+    }
+
+    /**
+     * @param timeout prazo de uma aprovação pendente; {@code null}, zero ou
+     *                negativo desliga a expiração
+     */
+    public ApprovalQueueService(StateManager stateManager, FlowEngine flowEngine, Duration timeout) {
+        this(stateManager, flowEngine, timeout, Clock.systemUTC());
+    }
+
+    /** Relógio injetável — o teste não precisa esperar o prazo passar de verdade. */
+    public ApprovalQueueService(StateManager stateManager, FlowEngine flowEngine,
+                                Duration timeout, Clock clock) {
         this.stateManager = Objects.requireNonNull(stateManager, "stateManager");
         this.flowEngine = Objects.requireNonNull(flowEngine, "flowEngine");
+        this.timeout = timeout == null || timeout.isNegative() ? Duration.ZERO : timeout;
+        this.clock = Objects.requireNonNull(clock, "clock");
+    }
+
+    /** {@code true} quando há prazo configurado. */
+    public boolean hasTimeout() {
+        return !timeout.isZero();
     }
 
     /**
@@ -57,6 +86,9 @@ public class ApprovalQueueService {
     public List<ApprovalResponse> listPending(String tenantId) {
         return pendingStates().stream()
                 .filter(state -> matchesTenant(state, tenantId))
+                // Expirada não é acionável: não deve ser oferecida a decisão.
+                // O sweeper a resolve; enquanto não roda, ela some da fila.
+                .filter(state -> !isExpired(state))
                 .map(state -> toResponse(state, "PENDING"))
                 .filter(Objects::nonNull)
                 .sorted(Comparator.comparing(
@@ -95,6 +127,12 @@ public class ApprovalQueueService {
 
         FlowState state = findPendingByRequestId(requestId)
                 .orElseThrow(() -> new NoSuchElementException("Approval not found: " + requestId));
+        if (isExpired(state)) {
+            // Uma proposta vencida descreve um mundo que já mudou. Executá-la
+            // agora pode ser pior do que não fazer nada — quem decide precisa
+            // ver a situação atual, não a de ontem.
+            throw new IllegalStateException("Approval expired: " + requestId);
+        }
         // Capturado ANTES de submeter: a submissão troca o status e consome o
         // requestId, então o estado pendente deixa de ser encontrável.
         ApprovalResponse snapshot = toResponse(state, decision);
@@ -124,6 +162,42 @@ public class ApprovalQueueService {
         return listPending(tenantId).size();
     }
 
+    /**
+     * Resolve as aprovações vencidas aplicando a decisão de timeout.
+     *
+     * <p>A decisão é sempre <b>REJECTED</b>: o timeout significa que ninguém
+     * olhou, e "ninguém olhou" nunca pode virar "pode executar". Um fluxo
+     * suspenso indefinidamente também é um vazamento — segura estado e aparece
+     * como pendência viva numa fila que nunca esvazia.
+     *
+     * @return quantas foram expiradas
+     */
+    public int expireStale() {
+        if (!hasTimeout()) {
+            return 0;
+        }
+        List<FlowState> expired = pendingStates().stream().filter(this::isExpired).toList();
+        int resolved = 0;
+        for (FlowState state : expired) {
+            String requestId = variable(state, ExecutionKeys.APPROVAL_REQUEST_ID);
+            if (requestId == null || requestId.isBlank()) {
+                continue;
+            }
+            try {
+                flowEngine.submitApproval(state.getFlowId(), requestId, false, null,
+                        TIMEOUT_DECIDER, "expirada apos " + timeout);
+                resolved++;
+                log.info("Aprovação {} expirada após {} (flow={}) — recusada automaticamente",
+                        requestId, timeout, state.getFlowId());
+            } catch (RuntimeException e) {
+                // Uma decisão humana concorrente já pode ter consumido o id;
+                // não é erro, é corrida perdida. Segue para as demais.
+                log.debug("Não foi possível expirar a aprovação {}: {}", requestId, e.getMessage());
+            }
+        }
+        return resolved;
+    }
+
     // ── helpers ──────────────────────────────────────────────────
 
     private List<FlowState> pendingStates() {
@@ -134,6 +208,24 @@ public class ApprovalQueueService {
         return pendingStates().stream()
                 .filter(state -> requestId.equals(variable(state, ExecutionKeys.APPROVAL_REQUEST_ID)))
                 .findFirst();
+    }
+
+    /**
+     * Prazo da solicitação, ou {@code null} quando não há timeout configurado ou
+     * o estado não registra quando foi solicitada (fluxos suspensos por versões
+     * anteriores). Sem instante de início não há como expirar com segurança.
+     */
+    private Instant expiresAt(FlowState state) {
+        if (!hasTimeout()) {
+            return null;
+        }
+        Instant requestedAt = parseInstant(variable(state, ExecutionKeys.APPROVAL_REQUESTED_AT));
+        return requestedAt == null ? null : requestedAt.plus(timeout);
+    }
+
+    private boolean isExpired(FlowState state) {
+        Instant deadline = expiresAt(state);
+        return deadline != null && clock.instant().isAfter(deadline);
     }
 
     private static boolean matchesTenant(FlowState state, String tenantId) {
@@ -148,7 +240,7 @@ public class ApprovalQueueService {
      *         fluxo em AWAITING_APPROVAL sem id pendente não é uma aprovação
      *         acionável e não deve poluir a fila.
      */
-    private static ApprovalResponse toResponse(FlowState state, String status) {
+    private ApprovalResponse toResponse(FlowState state, String status) {
         String requestId = variable(state, ExecutionKeys.APPROVAL_REQUEST_ID);
         if (requestId == null || requestId.isBlank()) {
             return null;
@@ -164,10 +256,9 @@ public class ApprovalQueueService {
                 variable(state, ExecutionKeys.APPROVAL_DESCRIPTION),
                 rawVariable(state, ExecutionKeys.APPROVAL_PROPOSAL),
                 parseInstant(variable(state, ExecutionKeys.APPROVAL_REQUESTED_AT)),
-                // O gate do motor não expira sozinho: uma aprovação fica pendente
-                // até alguém decidir. Sem prazo a informar, o campo vai nulo em
-                // vez de inventar um.
-                null);
+                // Nulo quando não há timeout configurado — o campo informa o
+                // prazo real, não um valor inventado.
+                expiresAt(state));
     }
 
     private static Object rawVariable(FlowState state, String key) {
