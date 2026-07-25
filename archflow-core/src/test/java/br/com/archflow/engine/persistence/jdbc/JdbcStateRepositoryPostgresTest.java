@@ -55,6 +55,7 @@ class JdbcStateRepositoryPostgresTest {
                     variables       JSON,
                     metrics         JSON,
                     error           JSON,
+                    execution_paths JSON,
                     updated_at      TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     PRIMARY KEY (tenant_id, flow_id)
                 )
@@ -143,6 +144,30 @@ class JdbcStateRepositoryPostgresTest {
                 .satisfies(s -> assertThat(s.getVariables())
                         .containsEntry("__archflow.approvalRequestId", "req-1"));
         assertThat(repo.getStatesByStatus("STOPPED")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("executionPaths sobrevive ao round-trip (coluna acrescentada em V1_3)")
+    void executionPathsRoundTrip() {
+        repo.saveState("acme", "f1", FlowState.builder()
+                .tenantId("acme").flowId("f1").status(FlowStatus.PAUSED)
+                .executionPaths(List.of(
+                        br.com.archflow.model.flow.ExecutionPath.builder()
+                                .pathId("p1")
+                                .status(br.com.archflow.model.flow.PathStatus.COMPLETED)
+                                .completedSteps(List.of("s1", "s2"))
+                                .build()))
+                .build());
+
+        FlowState loaded = repo.getState("acme", "f1");
+
+        assertThat(loaded.getExecutionPaths())
+                .as("um fluxo com ramos paralelos perdia a arvore de execucao no restart")
+                .singleElement()
+                .satisfies(p -> {
+                    assertThat(p.getPathId()).isEqualTo("p1");
+                    assertThat(p.getCompletedSteps()).containsExactly("s1", "s2");
+                });
     }
 
     @Test

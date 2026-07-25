@@ -47,6 +47,7 @@ class JdbcStateRepositoryTest {
                     variables       TEXT,
                     metrics         TEXT,
                     error           TEXT,
+                    execution_paths TEXT,
                     updated_at      TIMESTAMP,
                     PRIMARY KEY (tenant_id, flow_id)
                 )

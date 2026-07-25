@@ -72,14 +72,15 @@ public class JdbcStateRepository implements StateRepository {
     @Override
     public void saveState(String tenantId, String flowId, FlowState state) {
         String sql = """
-            INSERT INTO flow_states (tenant_id, flow_id, status, current_step_id, variables, metrics, error, updated_at)
-            VALUES (?, ?, ?, ?, ?::json, ?::json, ?::json, ?)
+            INSERT INTO flow_states (tenant_id, flow_id, status, current_step_id, variables, metrics, error, execution_paths, updated_at)
+            VALUES (?, ?, ?, ?, ?::json, ?::json, ?::json, ?::json, ?)
             ON CONFLICT (tenant_id, flow_id) DO UPDATE SET
                 status = EXCLUDED.status,
                 current_step_id = EXCLUDED.current_step_id,
                 variables = EXCLUDED.variables,
                 metrics = EXCLUDED.metrics,
                 error = EXCLUDED.error,
+                execution_paths = EXCLUDED.execution_paths,
                 updated_at = EXCLUDED.updated_at
             """;
 
@@ -93,7 +94,8 @@ public class JdbcStateRepository implements StateRepository {
             ps.setString(5, toJson(state.getVariables()));
             ps.setString(6, toJson(state.getMetrics()));
             ps.setString(7, toJson(state.getError()));
-            ps.setTimestamp(8, Timestamp.from(Instant.now()));
+            ps.setString(8, toJson(state.getExecutionPaths()));
+            ps.setTimestamp(9, Timestamp.from(Instant.now()));
 
             ps.executeUpdate();
             logger.fine("Estado salvo para tenant=" + tenantId + ", flow=" + flowId);
@@ -195,10 +197,8 @@ public class JdbcStateRepository implements StateRepository {
 
     @SuppressWarnings("unchecked")
     private FlowState mapRowToFlowState(ResultSet rs) throws SQLException {
-        // metrics/error são reconstruídos com degradação graciosa (fromJson
-        // devolve null com warning se o payload não desserializar); antes eram
-        // simplesmente descartados na leitura. executionPaths não tem coluna
-        // no schema atual (V1) e segue não-persistido.
+        // metrics/error/executionPaths são reconstruídos com degradação graciosa
+        // (fromJson devolve null com warning se o payload não desserializar).
         return FlowState.builder()
                 .tenantId(rs.getString("tenant_id"))
                 .flowId(rs.getString("flow_id"))
@@ -209,7 +209,31 @@ public class JdbcStateRepository implements StateRepository {
                         br.com.archflow.model.flow.FlowMetrics.class))
                 .error(fromJson(rs.getString("error"),
                         br.com.archflow.model.error.ExecutionError.class))
+                .executionPaths(readExecutionPaths(rs))
                 .build();
+    }
+
+    /**
+     * Lê a coluna acrescentada em V1_3. Tolera a ausência da coluna para não
+     * quebrar um deployment cujo schema ainda não migrou — o resto do estado
+     * continua utilizável, que é preferível a não carregar o fluxo.
+     */
+    private List<br.com.archflow.model.flow.ExecutionPath> readExecutionPaths(ResultSet rs) {
+        try {
+            String json = rs.getString("execution_paths");
+            if (json == null || json.isBlank()) {
+                return null;
+            }
+            return objectMapper.readValue(json, objectMapper.getTypeFactory()
+                    .constructCollectionType(List.class,
+                            br.com.archflow.model.flow.ExecutionPath.class));
+        } catch (SQLException e) {
+            logger.log(Level.FINE, "Coluna execution_paths ausente (schema anterior a V1_3)");
+            return null;
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "Erro ao desserializar execution_paths", e);
+            return null;
+        }
     }
 
     private String toJson(Object obj) {
