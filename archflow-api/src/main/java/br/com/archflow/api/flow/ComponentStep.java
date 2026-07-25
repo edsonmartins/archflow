@@ -34,6 +34,7 @@ public final class ComponentStep implements FlowStep {
     private final List<StepConnection> connections;
     private final ComponentCatalog catalog;
     private final ToolInterceptorChain interceptors;
+    private final AIComponent resolved;
 
     public ComponentStep(String id, StepType type, String componentId, String operation,
                          List<StepConnection> connections, ComponentCatalog catalog) {
@@ -43,6 +44,19 @@ public final class ComponentStep implements FlowStep {
     public ComponentStep(String id, StepType type, String componentId, String operation,
                          List<StepConnection> connections, ComponentCatalog catalog,
                          ToolInterceptorChain interceptors) {
+        this(id, type, componentId, operation, connections, catalog, interceptors, null);
+    }
+
+    /**
+     * @param resolved componente já materializado; quando presente, o catálogo
+     *                 não é consultado. É o caminho dos nós servidos por um
+     *                 adapter LangChain4j, que não vive no catálogo — ele é
+     *                 construído a partir da config <b>deste</b> nó, e um
+     *                 singleton compartilhado não poderia carregar config de nó.
+     */
+    public ComponentStep(String id, StepType type, String componentId, String operation,
+                         List<StepConnection> connections, ComponentCatalog catalog,
+                         ToolInterceptorChain interceptors, AIComponent resolved) {
         this.id = id;
         this.type = type;
         this.componentId = componentId;
@@ -50,6 +64,7 @@ public final class ComponentStep implements FlowStep {
         this.connections = connections == null ? List.of() : List.copyOf(connections);
         this.catalog = catalog;
         this.interceptors = interceptors;
+        this.resolved = resolved;
     }
 
     @Override public String getId() { return id; }
@@ -59,7 +74,9 @@ public final class ComponentStep implements FlowStep {
     @Override
     public CompletableFuture<StepResult> execute(ExecutionContext context) {
         long start = System.nanoTime();
-        AIComponent component = catalog.getComponent(componentId).orElse(null);
+        AIComponent component = resolved != null
+                ? resolved
+                : catalog.getComponent(componentId).orElse(null);
         if (component == null) {
             return CompletableFuture.completedFuture(
                     SimpleStepResult.failed(id, "component not found: " + componentId, elapsedMs(start)));

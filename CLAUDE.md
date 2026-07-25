@@ -91,31 +91,30 @@ Adapters are discovered via SPI at runtime.
 - **archflow-standalone** - Export/run workflows as standalone JARs (CLI, no server)
 - **archflow-conversation** - Suspend/resume wired to the server; guardrails/governance/episodic memory/summarizer are an OPT-IN library not yet called by the archflow-api execution path
 
-### The LangChain4j adapter layer is NOT on the execution path
-
-This is the single largest gap between what the project offers and what it runs, so read it before
-touching anything LLM-related.
-
-There are **two** LLM integration layers and only one is wired:
+### Two LLM integration layers — know which one you are in
 
 - **`archflow-langchain4j-provider-hub`** (`LLMConfigResolver` → `LLMProviderHub` → `ChatModel`) —
-  this is what actually runs. `McpAgentRunner`, `AgUiAgentController` and `DynamicWorkflowService`
-  all go through it.
+  used by `McpAgentRunner`, `AgUiAgentController` and `DynamicWorkflowService`. This is the path for
+  **agent loops**.
 - **The `LangChainAdapter` SPI layer** (`archflow-langchain4j-{openai,anthropic,memory-*,
-  vectorstore-*,chain-rag,...}`, ~25k LOC across 15 submodules) — **nothing ever instantiates one.**
-  The only production reference to `LangChainRegistry` outside those modules is
-  `CatalogControllerImpl:127`, which calls `getProvidersOfType` to **list** provider ids for the
-  designer. `createAdapter` has no production caller at all.
+  vectorstore-*,chain-rag,...}`) — used by **workflow nodes**, through the bridge below.
 
-Consequences to keep in mind:
-- The designer offers adapter providers that cannot execute. Adapters are not `AIComponent`s, so a
-  node naming one fails at `ComponentStep` with "component not found".
-- The chat adapters read `ExecutionContext.getChatMemory()`, but since they never run, **nothing
-  writes chat memory during a flow**. That is why `MemoryRestorer` is still passed as `null` — a
-  restorer would repopulate a store nobody fills and nobody reads. Wiring it before there is a
-  writer would be another hook without a caller.
-- Bridging adapters into the catalog is a design decision (different interface, different
-  lifecycle), not a mechanical fix.
+Until recently the adapter layer had **no invoker at all**: `createAdapter` was never called in
+production and a node naming a provider failed with "component not found", because an adapter is not
+an `AIComponent`. `LangChainAdapterComponent` (`br.com.archflow.api.flow.adapter`) is the bridge —
+the two interfaces are nearly identical, so it is thin. Things to keep in mind when touching it:
+
+- **Routing is conservative.** `AdapterNodeTypes.isAdapterNode` only routes when the registry really
+  has that provider for that node type; anything else falls through to the `ComponentCatalog`, so
+  existing workflows are unaffected.
+- **Creation is lazy.** The adapter factory calls `configure` → `validate`, which requires the API
+  key. Building at deserialization time would make merely opening a workflow in the designer throw.
+- **The adapter cache is per tenant.** The key comes from `TenantKeyResolver` and the tenant is only
+  known at execute time; one shared configured adapter would hand one tenant's key to another.
+- **Secrets do not live in the workflow JSON.** The resolver wins over an inline `apiKey` left in a
+  node — governance must not be overridable by a forgotten field.
+- **`MemoryRestorer` is still `null` on purpose.** Chat memory is read by the chat adapters, but
+  nothing *writes* it during a flow yet. A restorer would repopulate a store nobody fills.
 
 ### Experimental / not wired to the runtime (honest state — see docs/PLANO_HOMOLOGACAO.md)
 - **archflow-brainsentry** - Brain Sentry client library; not on the archflow-api runtime classpath

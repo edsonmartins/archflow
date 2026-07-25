@@ -4,6 +4,9 @@ import br.com.archflow.agent.streaming.EventStreamRegistry;
 import br.com.archflow.api.orchestration.DynamicWorkflowService;
 import br.com.archflow.engine.api.FlowEngine;
 import br.com.archflow.agent.tool.ToolInterceptorChain;
+import br.com.archflow.api.flow.adapter.AdapterNodeTypes;
+import br.com.archflow.api.flow.adapter.LangChainAdapterComponent;
+import br.com.archflow.langchain4j.provider.TenantKeyResolver;
 import br.com.archflow.engine.core.StateManager;
 import br.com.archflow.model.flow.FlowStep;
 import br.com.archflow.model.flow.StepConnection;
@@ -37,6 +40,7 @@ public class DefaultFlowStepFactory implements FlowStepFactory {
     private final StateManager stateManager;
     private final ObjectProvider<FlowEngine> flowEngine;
     private final ToolInterceptorChain interceptors;
+    private final TenantKeyResolver tenantKeyResolver;
 
     public DefaultFlowStepFactory(ComponentCatalog catalog, DynamicWorkflowService dynamicWorkflowService,
                                   EventStreamRegistry streamRegistry, StateManager stateManager,
@@ -44,11 +48,20 @@ public class DefaultFlowStepFactory implements FlowStepFactory {
         this(catalog, dynamicWorkflowService, streamRegistry, stateManager, flowEngine, null);
     }
 
-    @org.springframework.beans.factory.annotation.Autowired
     public DefaultFlowStepFactory(ComponentCatalog catalog, DynamicWorkflowService dynamicWorkflowService,
                                   EventStreamRegistry streamRegistry, StateManager stateManager,
                                   ObjectProvider<FlowEngine> flowEngine,
                                   ToolInterceptorChain interceptors) {
+        this(catalog, dynamicWorkflowService, streamRegistry, stateManager, flowEngine,
+                interceptors, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public DefaultFlowStepFactory(ComponentCatalog catalog, DynamicWorkflowService dynamicWorkflowService,
+                                  EventStreamRegistry streamRegistry, StateManager stateManager,
+                                  ObjectProvider<FlowEngine> flowEngine,
+                                  ToolInterceptorChain interceptors,
+                                  TenantKeyResolver tenantKeyResolver) {
         this.catalog = catalog;
         this.dynamicWorkflowService = dynamicWorkflowService;
         this.streamRegistry = streamRegistry;
@@ -58,6 +71,7 @@ public class DefaultFlowStepFactory implements FlowStepFactory {
         // uma injeção direta fecharia o ciclo.
         this.flowEngine = flowEngine;
         this.interceptors = interceptors;
+        this.tenantKeyResolver = tenantKeyResolver != null ? tenantKeyResolver : TenantKeyResolver.NOOP;
     }
 
     @Override
@@ -91,14 +105,39 @@ public class DefaultFlowStepFactory implements FlowStepFactory {
         if (componentId == null) {
             componentId = node.get("type");
         }
-        // Explicit config wins; the node-level field is a fallback for
-        // YAML/API-authored flows. Designer saves keep the display name in
-        // `label`, so it never reaches the execution operation.
-        String operation = str(config.get("operation"), str(node.get("operation"), "execute"));
+
+        // Nó servido por um adapter LangChain4j (openai/anthropic/redis/...).
+        // Só entra aqui quando o registry REALMENTE tem aquele provider para
+        // aquele tipo — qualquer outra coisa cai no catálogo, então nenhum
+        // workflow existente muda de comportamento.
+        String providerId = str(config.get("provider"),
+                componentId == null ? null : componentId.toString());
+        if (AdapterNodeTypes.isAdapterNode(type, providerId)) {
+            if (!policy.isAllowed(providerId)) {
+                // Fora do escopo do fluxo: cai no ComponentStep normal, que não
+                // resolve e falha com "component not found" — mesmo tratamento
+                // dos demais componentes negados.
+                return new ComponentStep(id, StepType.TOOL, providerId, operationOf(config, node),
+                        connections, scopedCatalog, interceptors);
+            }
+            LangChainAdapterComponent adapter = new LangChainAdapterComponent(
+                    providerId, AdapterNodeTypes.adapterTypeFor(type), config, tenantKeyResolver);
+            return new ComponentStep(id, StepType.TOOL, adapter.componentId(),
+                    operationOf(config, node), connections, scopedCatalog, interceptors, adapter);
+        }
         return new ComponentStep(
                 id, StepType.TOOL,
                 componentId == null ? "" : componentId.toString(),
-                operation, connections, scopedCatalog, interceptors);
+                operationOf(config, node), connections, scopedCatalog, interceptors);
+    }
+
+    /**
+     * Operação do nó. Config explícita vence; o campo do nó é fallback para
+     * fluxos escritos em YAML/API. O designer guarda o nome de exibição em
+     * {@code label}, então ele nunca chega aqui.
+     */
+    private static String operationOf(Map<String, Object> config, Map<String, Object> node) {
+        return str(config.get("operation"), str(node.get("operation"), "execute"));
     }
 
     private static String str(Object v, String fallback) {
