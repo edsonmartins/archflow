@@ -22,6 +22,7 @@ import org.slf4j.LoggerFactory;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * Loop de tool-calling NATIVO server-side — o motor que faltava no ArchFlow
@@ -34,6 +35,11 @@ import java.util.Map;
  * <p>Usa o {@link McpClient} diretamente (um server por execução, escopo por
  * tenant) — a {@code McpToolRegistry} multiplexa vários servers, camada que
  * não é necessária aqui.
+ *
+ * <p>Toda execução exige uma {@link ToolAccessPolicy}, aplicada em dois pontos:
+ * ao montar o catálogo enviado ao modelo e novamente antes de cada
+ * {@code callTool}. A segunda checagem não é redundante — o modelo pode emitir
+ * um nome de tool que não estava no catálogo.
  */
 public class McpAgentRunner {
 
@@ -67,18 +73,22 @@ public class McpAgentRunner {
         }
     }
 
-    public Result run(String tenantId, String systemPrompt, String userMessage, McpClient client) {
-        return run(tenantId, systemPrompt, userMessage, client, DEFAULT_MAX_ITERATIONS);
+    public Result run(String tenantId, String systemPrompt, String userMessage,
+                      McpClient client, ToolAccessPolicy policy) {
+        return run(tenantId, systemPrompt, userMessage, client, policy, DEFAULT_MAX_ITERATIONS);
     }
 
     public Result run(String tenantId, String systemPrompt, String userMessage,
-                      McpClient client, int maxIterations) {
+                      McpClient client, ToolAccessPolicy policy, int maxIterations) {
+        Objects.requireNonNull(policy, "policy é obrigatória — use ToolAccessPolicy.allowAll() "
+                + "para declarar explicitamente que o agente pode usar todas as tools do server");
+
         ChatModel model = llmConfigResolver.resolveModel(
                 LLMResolutionRequest.builder(platformDefault).tenantId(tenantId).build());
 
         List<ToolSpecification> tools;
         try {
-            tools = McpToolSpecifications.from(client.listTools().get());
+            tools = allowedTools(client.listTools().get(), policy, tenantId);
         } catch (Exception e) {
             throw new RuntimeException("Falha ao listar tools do MCP server: " + e.getMessage(), e);
         }
@@ -103,19 +113,39 @@ public class McpAgentRunner {
             }
 
             for (ToolExecutionRequest req : ai.toolExecutionRequests()) {
-                Map<String, Object> args = parseArguments(req.arguments());
+                Map<String, Object> args = Map.of();
                 String resultText;
-                boolean isError;
-                try {
-                    McpModel.ToolResult tr = client.callTool(
-                            new McpModel.ToolArguments(req.name(), args)).get();
-                    resultText = textOf(tr);
-                    isError = tr.isError();
-                } catch (Exception e) {
-                    resultText = "ERRO ao executar a tool " + req.name() + ": " + e.getMessage();
-                    isError = true;
-                    log.warn("Falha na tool MCP {}: {}", req.name(), e.getMessage());
+                boolean isError = true;
+
+                if (!policy.isAllowed(req.name())) {
+                    // Segunda checagem da política: o catálogo enviado ao modelo já
+                    // estava filtrado, mas um modelo pode emitir um nome que não
+                    // estava lá. A tool NÃO é executada.
+                    resultText = "ERRO: a tool '" + req.name()
+                            + "' não está autorizada para este agente.";
+                    log.warn("Tool '{}' negada pela política de acesso (tenant={})",
+                            req.name(), tenantId);
+                } else {
+                    try {
+                        args = parseArguments(req.arguments());
+                        McpModel.ToolResult tr = client.callTool(
+                                new McpModel.ToolArguments(req.name(), args)).get();
+                        resultText = textOf(tr);
+                        isError = tr.isError();
+                    } catch (MalformedToolArgumentsException e) {
+                        // Antes: argumentos ilegíveis viravam Map.of() e a tool era
+                        // executada assim mesmo. Agora a tool não roda e o modelo
+                        // recebe o erro, podendo repetir a chamada corretamente.
+                        resultText = "ERRO: argumentos inválidos para a tool " + req.name()
+                                + " (" + e.getMessage() + "). Repita a chamada com um objeto JSON válido.";
+                        log.warn("Argumentos inválidos para a tool MCP {}: {}",
+                                req.name(), e.getMessage());
+                    } catch (Exception e) {
+                        resultText = "ERRO ao executar a tool " + req.name() + ": " + e.getMessage();
+                        log.warn("Falha na tool MCP {}: {}", req.name(), e.getMessage());
+                    }
                 }
+
                 toolCalls.add(new ToolCall(req.name(), args, resultText, isError));
                 messages.add(ToolExecutionResultMessage.from(req, resultText));
             }
@@ -125,6 +155,19 @@ public class McpAgentRunner {
         return new Result(lastText, toolCalls);
     }
 
+    /** Sinaliza que o modelo emitiu argumentos que não são um objeto JSON. */
+    static final class MalformedToolArgumentsException extends RuntimeException {
+        MalformedToolArgumentsException(String message) {
+            super(message);
+        }
+    }
+
+    /**
+     * Argumentos ausentes/vazios são legítimos (tool sem parâmetros) e viram um
+     * mapa vazio. Qualquer outro conteúdo que não desserialize como objeto JSON
+     * é erro e <b>impede</b> a execução da tool — invocá-la com argumentos vazios
+     * seria executar uma ação diferente da que o modelo pediu.
+     */
     private Map<String, Object> parseArguments(String argumentsJson) {
         if (argumentsJson == null || argumentsJson.isBlank()) {
             return Map.of();
@@ -134,9 +177,41 @@ public class McpAgentRunner {
             Map<String, Object> parsed = mapper.readValue(argumentsJson, Map.class);
             return parsed != null ? parsed : Map.of();
         } catch (Exception e) {
-            log.warn("Argumentos de tool não-JSON, usando vazio: {}", argumentsJson);
-            return Map.of();
+            throw new MalformedToolArgumentsException(
+                    "esperado um objeto JSON, recebido: " + truncate(argumentsJson));
         }
+    }
+
+    private static String truncate(String value) {
+        return value.length() <= 200 ? value : value.substring(0, 200) + "…";
+    }
+
+    /**
+     * Catálogo efetivamente enviado ao modelo: só as tools que a política
+     * autoriza. O que foi descartado vai para o log — um catálogo silenciosamente
+     * reduzido se parece com um server que não expõe a tool.
+     */
+    private static List<ToolSpecification> allowedTools(List<McpModel.Tool> discovered,
+                                                        ToolAccessPolicy policy,
+                                                        String tenantId) {
+        List<McpModel.Tool> allowed = new ArrayList<>();
+        List<String> denied = new ArrayList<>();
+        for (McpModel.Tool tool : discovered) {
+            if (policy.isAllowed(tool.name())) {
+                allowed.add(tool);
+            } else {
+                denied.add(tool.name());
+            }
+        }
+        if (!denied.isEmpty()) {
+            log.info("Política de acesso ocultou {} de {} tools do MCP server (tenant={}): {}",
+                    denied.size(), discovered.size(), tenantId, denied);
+        }
+        if (allowed.isEmpty() && !discovered.isEmpty()) {
+            log.warn("Nenhuma das {} tools do MCP server é permitida pela política (tenant={}) — "
+                    + "o agente rodará sem tools", discovered.size(), tenantId);
+        }
+        return McpToolSpecifications.from(allowed);
     }
 
     private String textOf(McpModel.ToolResult result) {
