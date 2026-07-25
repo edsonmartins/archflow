@@ -1,5 +1,6 @@
 package br.com.archflow.api.agent.mcp;
 
+import br.com.archflow.agent.metrics.MetricsCollector;
 import br.com.archflow.api.trust.UntrustedContentFence;
 import br.com.archflow.langchain4j.mcp.McpClient;
 import br.com.archflow.langchain4j.mcp.McpModel;
@@ -17,6 +18,7 @@ import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.response.ChatResponse;
+import dev.langchain4j.model.output.TokenUsage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -58,11 +60,22 @@ public class McpAgentRunner {
 
     private final LLMConfigResolver llmConfigResolver;
     private final ResolvedLLMConfig platformDefault;
+    private final MetricsCollector metrics;
     private final ObjectMapper mapper = new ObjectMapper();
 
     public McpAgentRunner(LLMConfigResolver llmConfigResolver, ResolvedLLMConfig platformDefault) {
+        this(llmConfigResolver, platformDefault, null);
+    }
+
+    /**
+     * @param metrics coletor compartilhado com o engine; {@code null} desliga a
+     *                instrumentação (usado em testes que não a exercitam)
+     */
+    public McpAgentRunner(LLMConfigResolver llmConfigResolver, ResolvedLLMConfig platformDefault,
+                          MetricsCollector metrics) {
         this.llmConfigResolver = llmConfigResolver;
         this.platformDefault = platformDefault;
+        this.metrics = metrics;
     }
 
     /**
@@ -143,6 +156,7 @@ public class McpAgentRunner {
                     .messages(messages)
                     .toolSpecifications(tools)
                     .build());
+            recordTurn(response);
             AiMessage ai = response.aiMessage();
             messages.add(ai);
             lastText = ai.text() != null ? ai.text() : lastText;
@@ -152,6 +166,7 @@ public class McpAgentRunner {
             }
 
             for (ToolExecutionRequest req : ai.toolExecutionRequests()) {
+                long startedAt = System.nanoTime();
                 Map<String, Object> args = Map.of();
                 String resultText;
                 boolean isError = true;
@@ -202,6 +217,7 @@ public class McpAgentRunner {
                     }
                 }
 
+                recordToolCall(req.name(), startedAt, !isError);
                 // O chamador recebe o payload cru; o modelo recebe o cercado.
                 toolCalls.add(new ToolCall(req.name(), args, resultText, isError, trust));
                 String forModel = trust == ToolTrust.UNTRUSTED
@@ -213,6 +229,37 @@ public class McpAgentRunner {
 
         log.warn("Loop de tool-calling atingiu maxIterations={} sem resposta final", maxIterations);
         return new Result(lastText, toolCalls);
+    }
+
+    /**
+     * Latência e sucesso de uma invocação. Uma falha ao instrumentar não pode
+     * derrubar a execução do agente — a métrica é observação, não requisito.
+     */
+    private void recordToolCall(String toolName, long startedAtNanos, boolean success) {
+        if (metrics == null) {
+            return;
+        }
+        try {
+            metrics.recordToolCall(toolName,
+                    (System.nanoTime() - startedAtNanos) / 1_000_000, success);
+        } catch (RuntimeException e) {
+            log.debug("Falha ao registrar métrica da tool {}: {}", toolName, e.getMessage());
+        }
+    }
+
+    /** Tokens do turno, quando o provider os reporta. */
+    private void recordTurn(ChatResponse response) {
+        if (metrics == null || response.tokenUsage() == null) {
+            return;
+        }
+        try {
+            TokenUsage usage = response.tokenUsage();
+            metrics.recordLlmTurn(
+                    usage.inputTokenCount() == null ? 0 : usage.inputTokenCount(),
+                    usage.outputTokenCount() == null ? 0 : usage.outputTokenCount());
+        } catch (RuntimeException e) {
+            log.debug("Falha ao registrar tokens do turno: {}", e.getMessage());
+        }
     }
 
     /** Sinaliza que o modelo emitiu argumentos que não são um objeto JSON. */

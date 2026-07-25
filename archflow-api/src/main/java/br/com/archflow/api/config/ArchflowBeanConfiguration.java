@@ -930,8 +930,12 @@ public class ArchflowBeanConfiguration {
     @ConditionalOnMissingBean
     public br.com.archflow.api.agent.mcp.McpAgentRunner mcpAgentRunner(
             br.com.archflow.langchain4j.provider.LLMConfigResolver llmConfigResolver,
-            br.com.archflow.model.config.ResolvedLLMConfig platformDefaultLLMConfig) {
-        return new br.com.archflow.api.agent.mcp.McpAgentRunner(llmConfigResolver, platformDefaultLLMConfig);
+            br.com.archflow.model.config.ResolvedLLMConfig platformDefaultLLMConfig,
+            br.com.archflow.agent.metrics.MetricsCollector metricsCollector) {
+        // Mesmo coletor do engine e do ObservabilityService: latência e taxa de
+        // falha por tool aparecem junto das métricas de fluxo, não num silo.
+        return new br.com.archflow.api.agent.mcp.McpAgentRunner(
+                llmConfigResolver, platformDefaultLLMConfig, metricsCollector);
     }
 
     /** Agente QP: orquestra as tools do VendaX Core sobre o loop nativo. */

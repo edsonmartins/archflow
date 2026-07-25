@@ -391,6 +391,73 @@ class McpAgentRunnerPolicyTest {
         }
     }
 
+    // ── Instrumentação ───────────────────────────────────────────────
+
+    @Nested
+    @DisplayName("métricas do laço")
+    class Instrumentation {
+
+        private br.com.archflow.agent.metrics.MetricsCollector collector() {
+            return new br.com.archflow.agent.metrics.MetricsCollector(
+                    br.com.archflow.agent.config.AgentConfig.builder().build());
+        }
+
+        private McpAgentRunner instrumentedRunner(ChatModel model,
+                                                  br.com.archflow.agent.metrics.MetricsCollector m) {
+            return new McpAgentRunner(new ScriptedResolver(model),
+                    ResolvedLLMConfig.builder().provider("openai").model("fake").build(), m);
+        }
+
+        @Test
+        @DisplayName("conta a chamada e a latência por nome de tool")
+        void recordsCallsPerTool() {
+            var m = collector();
+            ScriptedChatModel model = new ScriptedChatModel(List.of(
+                    callsTool(READ_TOOL, "{}"),
+                    AiMessage.from("fim")));
+
+            instrumentedRunner(model, m).run("acme", "sys", "user",
+                    new RecordingMcpClient(), ToolAccessPolicy.allowAll());
+
+            var counters = m.getAggregatedMetrics().counters();
+            assertThat(counters).containsEntry("tool_calls_total", 1L);
+            assertThat(counters).containsEntry("tool_calls_ler_logs", 1L);
+            assertThat(counters).doesNotContainKey("tool_errors_total");
+            assertThat(m.getAggregatedMetrics().values()).containsKey("tool_duration_ler_logs");
+        }
+
+        @Test
+        @DisplayName("tool negada conta como erro daquela tool")
+        void recordsErrorsPerTool() {
+            var m = collector();
+            ScriptedChatModel model = new ScriptedChatModel(List.of(
+                    callsTool(WRITE_TOOL, "{}"),
+                    AiMessage.from("fim")));
+
+            instrumentedRunner(model, m).run("acme", "sys", "user", new RecordingMcpClient(),
+                    ToolAccessPolicy.allowOnly(List.of(READ_TOOL)));
+
+            var counters = m.getAggregatedMetrics().counters();
+            assertThat(counters).containsEntry("tool_errors_total", 1L);
+            assertThat(counters).containsEntry("tool_errors_reiniciar_servico", 1L);
+        }
+
+        @Test
+        @DisplayName("sem coletor, o laço roda igual — instrumentação é observação, não requisito")
+        void runsWithoutCollector() {
+            ScriptedChatModel model = new ScriptedChatModel(List.of(
+                    callsTool(READ_TOOL, "{}"),
+                    AiMessage.from("fim")));
+            RecordingMcpClient client = new RecordingMcpClient();
+
+            var result = runnerFor(model).run("acme", "sys", "user", client,
+                    ToolAccessPolicy.allowAll());
+
+            assertThat(client.invocations).hasSize(1);
+            assertThat(result.toolCalls()).hasSize(1);
+        }
+    }
+
     // ── Contrato ─────────────────────────────────────────────────────
 
     @Test
