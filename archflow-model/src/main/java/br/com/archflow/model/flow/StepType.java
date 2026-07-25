@@ -19,5 +19,14 @@ public enum StepType {
      * a goal, fan out to catalog-routed agents, adversarially verify and loop
      * until convergence, bounded by a token budget.
      */
-    ORCHESTRATE
+    ORCHESTRATE,
+
+    /**
+     * Human-in-the-loop gate: suspends the flow in
+     * {@link FlowStatus#AWAITING_APPROVAL} with a proposal for a person to
+     * review, and only continues once a decision is submitted. The suspension
+     * is durable — the engine persists the state, so the flow survives a
+     * process restart while it waits.
+     */
+    APPROVAL
 }

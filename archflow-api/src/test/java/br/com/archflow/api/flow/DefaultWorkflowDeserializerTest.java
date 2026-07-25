@@ -16,7 +16,7 @@ class DefaultWorkflowDeserializerTest {
     private final WorkflowDeserializer deserializer = new DefaultWorkflowDeserializer(
             new DefaultFlowStepFactory(mock(ComponentCatalog.class), mock(DynamicWorkflowService.class),
                     mock(br.com.archflow.agent.streaming.EventStreamRegistry.class),
-                    mock(br.com.archflow.engine.core.StateManager.class)));
+                    mock(br.com.archflow.engine.core.StateManager.class), null));
 
     @Test
     void buildsAnExecutableFlowFromWorkflowJson() {

@@ -171,9 +171,35 @@ public class ArchflowBeanConfiguration {
         return new InMemoryTraceStore();
     }
 
+    /**
+     * Escritor do {@link InMemoryTraceStore}. É passado ao engine em
+     * {@link #flowEngine} — sem esta ligação o store nunca recebe um trace e
+     * toda a tela de observabilidade do admin fica vazia.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public br.com.archflow.api.admin.observability.impl.TraceStoreRecorder traceStoreRecorder(
+            InMemoryTraceStore traceStore) {
+        return new br.com.archflow.api.admin.observability.impl.TraceStoreRecorder(traceStore);
+    }
+
+    /**
+     * Coletor compartilhado entre o engine (que grava) e o
+     * {@link ObservabilityService} (que lê). Antes cada lado tinha o seu:
+     * o engine criava um interno na factory e o serviço recebia {@code null},
+     * então nenhuma métrica de fluxo chegava à API.
+     */
+    @Bean(destroyMethod = "close")
+    @ConditionalOnMissingBean
+    public br.com.archflow.agent.metrics.MetricsCollector metricsCollector() {
+        return new br.com.archflow.agent.metrics.MetricsCollector(
+                br.com.archflow.agent.config.AgentConfig.builder().build());
+    }
+
     @Bean
     @ConditionalOnMissingBean
     public ObservabilityService observabilityService(
+            br.com.archflow.agent.metrics.MetricsCollector metricsCollector,
             InMemoryTraceStore traceStore,
             EventStreamRegistry eventStreamRegistry,
             RunningFlowsRegistry runningFlowsRegistry,
@@ -181,7 +207,7 @@ public class ArchflowBeanConfiguration {
         // AuditRepository é opcional: presente quando archflow.persistence.jdbc.enabled=true
         // (JdbcAuditRepository) — aí as consultas de auditoria da observabilidade passam a
         // ler do banco em vez de ficarem vazias. ObjectProvider evita exigir o bean.
-        return new ObservabilityService(null, traceStore, auditRepository.getIfAvailable(),
+        return new ObservabilityService(metricsCollector, traceStore, auditRepository.getIfAvailable(),
                 eventStreamRegistry, runningFlowsRegistry);
     }
 
@@ -279,10 +305,19 @@ public class ArchflowBeanConfiguration {
     // Controller implementations — Approval (HITL)
     // =========================================================================
 
+    /**
+     * A fila de aprovações lê o estado durável dos fluxos e decide pelo motor.
+     * Antes recebia um {@code ApprovalRegistry} em memória recém-criado cujo
+     * {@code register()} não tinha produtor algum: a fila nunca saía de vazia e
+     * não sobreviveria a restart, enquanto o gate durável do engine ficava
+     * inalcançável do lado de fora.
+     */
     @Bean
     @ConditionalOnMissingBean
-    public ApprovalQueueService approvalQueueService() {
-        return new ApprovalQueueService(new br.com.archflow.conversation.approval.ApprovalRegistry());
+    public ApprovalQueueService approvalQueueService(
+            br.com.archflow.engine.core.StateManager stateManager,
+            br.com.archflow.engine.api.FlowEngine flowEngine) {
+        return new ApprovalQueueService(stateManager, flowEngine);
     }
 
     @Bean
@@ -447,13 +482,16 @@ public class ArchflowBeanConfiguration {
             EventStreamRegistry eventStreamRegistry,
             RunningFlowsRegistry runningFlowsRegistry,
             br.com.archflow.engine.core.StateManager stateManager,
-            br.com.archflow.api.web.workflow.WorkflowRuntimeStore runtimeStore) {
+            br.com.archflow.api.web.workflow.WorkflowRuntimeStore runtimeStore,
+            br.com.archflow.agent.metrics.MetricsCollector metricsCollector,
+            br.com.archflow.api.admin.observability.impl.TraceStoreRecorder traceStoreRecorder) {
         // Registered before create(): the factory snapshots process-wide
         // listeners into the engine's composite lifecycle listener.
         br.com.archflow.engine.lifecycle.FlowLifecycleListeners.register(
                 new br.com.archflow.api.flow.StepRecordingListener(runtimeStore));
         return br.com.archflow.api.flow.FlowEngineFactory.create(
-                flowRepository, eventStreamRegistry, runningFlowsRegistry, stateManager);
+                flowRepository, eventStreamRegistry, runningFlowsRegistry, stateManager,
+                metricsCollector, traceStoreRecorder, 16, 3_600_000L, 8);
     }
 
     @Bean

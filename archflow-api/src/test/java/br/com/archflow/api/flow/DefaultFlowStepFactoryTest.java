@@ -28,7 +28,7 @@ class DefaultFlowStepFactoryTest {
 
     private final DefaultFlowStepFactory factory = new DefaultFlowStepFactory(
             mock(ComponentCatalog.class), mock(DynamicWorkflowService.class),
-            mock(EventStreamRegistry.class), mock(StateManager.class));
+            mock(EventStreamRegistry.class), mock(StateManager.class), null);
 
     @Test
     void buildsOrchestrateStepForOrchestrateType() {
@@ -56,7 +56,7 @@ class DefaultFlowStepFactoryTest {
 
         FlowStep step = new DefaultFlowStepFactory(
                 catalog, mock(DynamicWorkflowService.class),
-                mock(EventStreamRegistry.class), mock(StateManager.class))
+                mock(EventStreamRegistry.class), mock(StateManager.class), null)
                 .create(Map.of(
                         "id", "s1",
                         "type", "TOOL",
@@ -90,7 +90,7 @@ class DefaultFlowStepFactoryTest {
 
         FlowStep step = new DefaultFlowStepFactory(
                 mock(ComponentCatalog.class), service,
-                mock(EventStreamRegistry.class), mock(StateManager.class))
+                mock(EventStreamRegistry.class), mock(StateManager.class), null)
                 .create(Map.of(
                         "id", "o1",
                         "type", "ORCHESTRATE",

@@ -7,6 +7,9 @@ import br.com.archflow.engine.lifecycle.FlowLifecycleListener;
 import br.com.archflow.engine.persistence.FlowRepository;
 import br.com.archflow.model.engine.DefaultExecutionContext;
 import br.com.archflow.model.engine.ExecutionContext;
+import br.com.archflow.model.engine.ExecutionKeys;
+import br.com.archflow.model.engine.ExecutionMetrics;
+import br.com.archflow.model.enums.ExecutionStatus;
 import br.com.archflow.model.error.ExecutionError;
 import br.com.archflow.model.flow.*;
 import br.com.archflow.engine.validation.FlowValidator;
@@ -29,7 +32,7 @@ public class DefaultFlowEngine implements FlowEngine {
     private static final int DEFAULT_MAX_CONCURRENT_FLOWS = 10;
 
     /** Variável de contexto que guarda o requestId da aprovação pendente. */
-    private static final String APPROVAL_REQUEST_KEY = "__archflow.approvalRequestId";
+    private static final String APPROVAL_REQUEST_KEY = ExecutionKeys.APPROVAL_REQUEST_ID;
 
     /** Default flow execution timeout (ms) when not configured. */
     private static final long DEFAULT_FLOW_TIMEOUT_MS = 3_600_000; // 1 hour
@@ -299,6 +302,9 @@ public class DefaultFlowEngine implements FlowEngine {
                     long durationMs = System.currentTimeMillis() - startMs;
                     // Save error state while the execution is still in the map
                     saveErrorState(flowId, execution, execError);
+                    // Sem isto o TraceRecorder só enxerga execuções bem-sucedidas —
+                    // um painel de traces que nunca mostra falha é pior que nenhum.
+                    notifyTraceEnd(flowId, tenantId, failedResult(context, execError), durationMs);
                     safeLifecycle(() -> lifecycleListener.onFlowFailed(flow, context, execError, durationMs));
                     throw execError;
                 } finally {
@@ -426,6 +432,17 @@ public class DefaultFlowEngine implements FlowEngine {
             // O requestId vai para as variáveis (persistidas com o estado)
             // para ser validado em submitApproval.
             execution.getContext().set(APPROVAL_REQUEST_KEY, requestId);
+            // A proposta era recebida e descartada: o humano ficava sem NADA para
+            // avaliar. Vai junto do requestId, nas variáveis persistidas, para que
+            // a fila de aprovações sobreviva ao restart com o payload intacto.
+            if (proposal != null) {
+                execution.getContext().set(ExecutionKeys.APPROVAL_PROPOSAL, proposal);
+            }
+            if (stepId != null) {
+                execution.getContext().set(ExecutionKeys.APPROVAL_STEP_ID, stepId);
+            }
+            execution.getContext().set(
+                    ExecutionKeys.APPROVAL_REQUESTED_AT, java.time.Instant.now().toString());
             syncVariablesToState(execution.getContext());
 
             FlowState currentState = execution.getContext().getState();
@@ -494,8 +511,11 @@ public class DefaultFlowEngine implements FlowEngine {
             }
 
             if (!approved) {
-                FlowState rejectedState = rebuildState(currentState, FlowStatus.STOPPED,
-                        currentState.getVariables());
+                Map<String, Object> rejectedVars = new HashMap<>(
+                        currentState.getVariables() != null ? currentState.getVariables() : Map.of());
+                rejectedVars.put(APPROVAL_REQUEST_KEY, "");
+                rejectedVars.put(ExecutionKeys.APPROVAL_DECISION, "REJECTED");
+                FlowState rejectedState = rebuildState(currentState, FlowStatus.STOPPED, rejectedVars);
                 stateManager.saveState(flowId, rejectedState);
                 if (liveContext != null) {
                     liveContext.setState(rejectedState);
@@ -515,8 +535,11 @@ public class DefaultFlowEngine implements FlowEngine {
             Map<String, Object> vars = new HashMap<>(
                     currentState.getVariables() != null ? currentState.getVariables() : Map.of());
             vars.put(APPROVAL_REQUEST_KEY, "");
+            // A decisão fica no estado para os steps seguintes ramificarem
+            // (`${__archflow.approvalDecision} == APPROVED`) e para a auditoria.
+            vars.put(ExecutionKeys.APPROVAL_DECISION, "APPROVED");
             if (editedPayload != null) {
-                vars.put("approvalPayload", editedPayload);
+                vars.put(ExecutionKeys.APPROVAL_PAYLOAD, editedPayload);
             }
             // Mantém AWAITING_APPROVAL para que resumeFlow faça a transição
             // padrão AWAITING_APPROVAL → RUNNING e restaure as variáveis.
@@ -650,6 +673,37 @@ public class DefaultFlowEngine implements FlowEngine {
                 logger.warning("TraceRecorder.onFlowEnd failed: " + ex.getMessage());
             }
         }
+    }
+
+    /**
+     * {@link FlowResult} sintético para o caminho de exceção, onde o executor
+     * não chegou a produzir um. Existe apenas para dar ao {@link TraceRecorder}
+     * o mesmo contrato que ele recebe no caminho de sucesso.
+     */
+    private static FlowResult failedResult(ExecutionContext context, Exception error) {
+        List<ExecutionError> errors = List.of(
+                ExecutionError.fromException("FLOW_EXECUTION_ERROR", error, "FlowEngine"));
+        return new FlowResult() {
+            @Override
+            public ExecutionStatus getStatus() {
+                return ExecutionStatus.FAILED;
+            }
+
+            @Override
+            public Optional<Object> getOutput() {
+                return Optional.empty();
+            }
+
+            @Override
+            public ExecutionMetrics getMetrics() {
+                return context != null ? context.getMetrics() : null;
+            }
+
+            @Override
+            public List<ExecutionError> getErrors() {
+                return errors;
+            }
+        };
     }
 
     /**

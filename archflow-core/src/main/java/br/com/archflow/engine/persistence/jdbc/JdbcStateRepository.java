@@ -170,6 +170,29 @@ public class JdbcStateRepository implements StateRepository {
         }
     }
 
+    @Override
+    public List<FlowState> getStatesByStatus(String status) {
+        String sql = "SELECT * FROM flow_states WHERE status = ? ORDER BY updated_at DESC";
+        List<FlowState> results = new ArrayList<>();
+
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+
+            ps.setString(1, status);
+
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    results.add(mapRowToFlowState(rs));
+                }
+            }
+            return results;
+
+        } catch (SQLException e) {
+            logger.log(Level.SEVERE, "Erro ao listar estados por status: " + status, e);
+            throw new RuntimeException("Failed to list flow states by status", e);
+        }
+    }
+
     @SuppressWarnings("unchecked")
     private FlowState mapRowToFlowState(ResultSet rs) throws SQLException {
         // metrics/error são reconstruídos com degradação graciosa (fromJson

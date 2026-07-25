@@ -2,11 +2,13 @@ package br.com.archflow.api.flow;
 
 import br.com.archflow.agent.streaming.EventStreamRegistry;
 import br.com.archflow.api.orchestration.DynamicWorkflowService;
+import br.com.archflow.engine.api.FlowEngine;
 import br.com.archflow.engine.core.StateManager;
 import br.com.archflow.model.flow.FlowStep;
 import br.com.archflow.model.flow.StepConnection;
 import br.com.archflow.model.flow.StepType;
 import br.com.archflow.plugin.api.catalog.ComponentCatalog;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -19,7 +21,8 @@ import java.util.Optional;
 /**
  * Maps a workflow-JSON node to an executable {@link FlowStep}: an
  * {@link OrchestrateStep} for {@code type="ORCHESTRATE"} (design-0004 step 2),
- * otherwise a {@link ComponentStep} (ASSISTANT/AGENT/TOOL). The remaining
+ * a {@link HumanApprovalStep} for {@code type="APPROVAL"} (the human-in-the-loop
+ * gate), otherwise a {@link ComponentStep} (ASSISTANT/AGENT/TOOL). The remaining
  * granular orchestration kinds (FAN_OUT/VERIFY/LOOP_UNTIL) are a follow-up.
  */
 @Component
@@ -29,13 +32,19 @@ public class DefaultFlowStepFactory implements FlowStepFactory {
     private final DynamicWorkflowService dynamicWorkflowService;
     private final EventStreamRegistry streamRegistry;
     private final StateManager stateManager;
+    private final ObjectProvider<FlowEngine> flowEngine;
 
     public DefaultFlowStepFactory(ComponentCatalog catalog, DynamicWorkflowService dynamicWorkflowService,
-                                  EventStreamRegistry streamRegistry, StateManager stateManager) {
+                                  EventStreamRegistry streamRegistry, StateManager stateManager,
+                                  ObjectProvider<FlowEngine> flowEngine) {
         this.catalog = catalog;
         this.dynamicWorkflowService = dynamicWorkflowService;
         this.streamRegistry = streamRegistry;
         this.stateManager = stateManager;
+        // ObjectProvider (resolução tardia) porque o grafo de beans é
+        // FlowEngine → FlowRepository → WorkflowDeserializer → esta factory:
+        // uma injeção direta fecharia o ciclo.
+        this.flowEngine = flowEngine;
     }
 
     @Override
@@ -47,6 +56,11 @@ public class DefaultFlowStepFactory implements FlowStepFactory {
 
         if (StepType.ORCHESTRATE.name().equalsIgnoreCase(type)) {
             return new OrchestrateStep(id, connections, config, dynamicWorkflowService, streamRegistry, stateManager);
+        }
+
+        if (StepType.APPROVAL.name().equalsIgnoreCase(type)) {
+            return new HumanApprovalStep(id, connections, config,
+                    flowEngine == null ? null : flowEngine::getObject);
         }
 
         // componentId, falling back to the node "type" (the designer often uses
