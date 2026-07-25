@@ -143,6 +143,54 @@ class HumanApprovalGateE2ETest {
     }
 
     @Test
+    @DisplayName("a conversa sobrevive à suspensão — o agente não volta amnésico")
+    void chatMemorySurvivesTheGate() throws Exception {
+        List<String> vistoDepois = new java.util.ArrayList<>();
+
+        // Step que conversa antes do gate, e outro que lê a conversa depois.
+        FlowStep conversa = new FlowStep() {
+            @Override public String getId() { return "conversa"; }
+            @Override public StepType getType() { return StepType.TOOL; }
+            @Override public List<StepConnection> getConnections() {
+                return List.of(edge("conversa", "gate"));
+            }
+            @Override public CompletableFuture<StepResult> execute(ExecutionContext c) {
+                c.getChatMemory().add(
+                        dev.langchain4j.data.message.UserMessage.from("reinicia o traefik?"));
+                c.getChatMemory().add(
+                        dev.langchain4j.data.message.AiMessage.from("proponho reiniciar"));
+                return CompletableFuture.completedFuture(SimpleStepResult.ok("conversa", "ok", 1));
+            }
+        };
+        FlowStep depois = new FlowStep() {
+            @Override public String getId() { return "remediar"; }
+            @Override public StepType getType() { return StepType.TOOL; }
+            @Override public List<StepConnection> getConnections() { return List.of(); }
+            @Override public CompletableFuture<StepResult> execute(ExecutionContext c) {
+                c.getChatMemory().messages().forEach(m -> vistoDepois.add(m.getClass().getSimpleName()));
+                afterGateRuns.incrementAndGet();
+                return CompletableFuture.completedFuture(SimpleStepResult.ok("remediar", "ok", 1));
+            }
+        };
+        HumanApprovalStep gate = new HumanApprovalStep("gate",
+                List.of(edge("gate", "remediar")), Map.of("proposal", "reiniciar"), () -> engine);
+        Flow flow = new SimpleFlow(FLOW_ID,
+                new FlowMetadata("Conversa", "", "1.0.0", null, null, List.of()),
+                List.of(conversa, gate, depois));
+        flowRepository.save(flow);
+
+        engine.execute(flow, context()).get(15, TimeUnit.SECONDS);
+        ApprovalResponse request = queue.listPending("acme").get(0);
+        queue.submitDecision(request.requestId(),
+                new ApprovalSubmitRequest("acme", "APPROVED", null, "sre-1"));
+        waitUntil(() -> afterGateRuns.get() == 1);
+
+        assertThat(vistoDepois)
+                .as("o resume cria uma ChatMemory nova; sem restauracao a conversa sumia")
+                .containsExactly("UserMessage", "AiMessage");
+    }
+
+    @Test
     @DisplayName("recusar encerra o fluxo sem executar a remediação")
     void rejectionStopsTheFlow() throws Exception {
         engine.execute(flowWithGate(), context()).get(15, TimeUnit.SECONDS);

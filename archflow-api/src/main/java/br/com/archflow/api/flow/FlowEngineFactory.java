@@ -26,8 +26,9 @@ import java.util.concurrent.Executors;
  * step 1), mirroring the canonical wiring in {@code ArchFlowAgent}. Kept as a
  * plain factory (no Spring) so the full graph is unit-testable without a context.
  *
- * <p>{@code memoryRestorer} is passed as {@code null} (the engine tolerates it,
- * as ArchFlowAgent does); a {@link InMemoryStateManager} backs state/resume for dev.
+ * <p>A {@link FlowStateChatMemory} restores the conversation on resume (the
+ * checkpoint listener captures it into the flow variables); a
+ * {@link InMemoryStateManager} backs state/resume for dev.
  *
  * <p>The {@link TraceRecorder} and the {@link MetricsCollector} are parameters of
  * the full overload: without a caller supplying them the engine produces no trace
@@ -112,7 +113,9 @@ public final class FlowEngineFactory {
                 flowRepository,
                 effectiveStateManager,
                 new DefaultFlowValidator(),
-                null,   // memoryRestorer — tolerated null
+                // Restaura a conversa que o CheckpointingLifecycleListener
+                // capturou nas variáveis — sem isto o resume perde o histórico.
+                new FlowStateChatMemory(),
                 traceRecorder,
                 maxConcurrentFlows,
                 flowTimeoutMs,
