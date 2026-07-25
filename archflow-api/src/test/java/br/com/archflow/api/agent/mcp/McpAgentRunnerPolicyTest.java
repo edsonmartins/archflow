@@ -38,6 +38,7 @@ class McpAgentRunnerPolicyTest {
 
     private static final String READ_TOOL = "ler_logs";
     private static final String WRITE_TOOL = "reiniciar_servico";
+    private static final String STRICT_TOOL = "ler_logs_do_servico";
 
     // ── Fakes ────────────────────────────────────────────────────────
 
@@ -61,9 +62,14 @@ class McpAgentRunnerPolicyTest {
 
         @Override public CompletableFuture<List<McpModel.Tool>> listTools() {
             Map<String, Object> schema = Map.of("type", "object", "properties", Map.of());
+            Map<String, Object> strictSchema = Map.of(
+                    "type", "object",
+                    "required", List.of("servico"),
+                    "properties", Map.of("servico", Map.of("type", "string")));
             return CompletableFuture.completedFuture(List.of(
                     new McpModel.Tool(READ_TOOL, "lê logs", schema),
-                    new McpModel.Tool(WRITE_TOOL, "reinicia um serviço", schema)));
+                    new McpModel.Tool(WRITE_TOOL, "reinicia um serviço", schema),
+                    new McpModel.Tool(STRICT_TOOL, "exige servico", strictSchema)));
         }
 
         @Override public CompletableFuture<McpModel.ToolResult> callTool(McpModel.ToolArguments arguments) {
@@ -155,7 +161,8 @@ class McpAgentRunnerPolicyTest {
             runnerFor(model).run("acme", "sys", "user", new RecordingMcpClient(),
                     ToolAccessPolicy.allowAll());
 
-            assertThat(model.catalogsSeen.get(0)).containsExactlyInAnyOrder(READ_TOOL, WRITE_TOOL);
+            assertThat(model.catalogsSeen.get(0))
+                    .containsExactlyInAnyOrder(READ_TOOL, WRITE_TOOL, STRICT_TOOL);
         }
     }
 
@@ -231,6 +238,56 @@ class McpAgentRunnerPolicyTest {
             });
             // O modelo teve a chance de corrigir: houve um turno seguinte.
             assertThat(model.catalogsSeen).hasSize(2);
+        }
+
+        @Test
+        @DisplayName("JSON bem formado mas fora do schema não executa a tool")
+        void schemaViolationDoesNotInvokeTheTool() {
+            ScriptedChatModel model = new ScriptedChatModel(List.of(
+                    callsTool(STRICT_TOOL, "{\"servico\": 42}"),
+                    AiMessage.from("corrijo já")));
+            RecordingMcpClient client = new RecordingMcpClient();
+
+            var result = runnerFor(model).run("acme", "sys", "user", client,
+                    ToolAccessPolicy.allowAll());
+
+            assertThat(client.invocations)
+                    .as("numero mandado como string/inteiro no lugar errado nao pode chegar na tool")
+                    .isEmpty();
+            assertThat(result.toolCalls()).singleElement().satisfies(call -> {
+                assertThat(call.isError()).isTrue();
+                assertThat(call.resultText()).contains("servico").contains("string");
+            });
+        }
+
+        @Test
+        @DisplayName("campo obrigatório ausente não executa a tool")
+        void missingRequiredFieldDoesNotInvokeTheTool() {
+            ScriptedChatModel model = new ScriptedChatModel(List.of(
+                    callsTool(STRICT_TOOL, "{}"),
+                    AiMessage.from("ok")));
+            RecordingMcpClient client = new RecordingMcpClient();
+
+            var result = runnerFor(model).run("acme", "sys", "user", client,
+                    ToolAccessPolicy.allowAll());
+
+            assertThat(client.invocations).isEmpty();
+            assertThat(result.toolCalls()).singleElement()
+                    .satisfies(call -> assertThat(call.resultText()).contains("obrigatório"));
+        }
+
+        @Test
+        @DisplayName("argumentos válidos pelo schema chegam à tool")
+        void schemaValidArgumentsReachTheTool() {
+            ScriptedChatModel model = new ScriptedChatModel(List.of(
+                    callsTool(STRICT_TOOL, "{\"servico\":\"traefik\"}"),
+                    AiMessage.from("fim")));
+            RecordingMcpClient client = new RecordingMcpClient();
+
+            runnerFor(model).run("acme", "sys", "user", client, ToolAccessPolicy.allowAll());
+
+            assertThat(client.invocations).singleElement()
+                    .satisfies(c -> assertThat(c.arguments()).containsEntry("servico", "traefik"));
         }
 
         @Test

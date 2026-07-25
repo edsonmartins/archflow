@@ -21,6 +21,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -113,8 +114,13 @@ public class McpAgentRunner {
                 LLMResolutionRequest.builder(platformDefault).tenantId(tenantId).build());
 
         List<ToolSpecification> tools;
+        // Schemas guardados por nome: o mesmo contrato que descrevemos ao modelo
+        // é o que conferimos na volta.
+        Map<String, Map<String, Object>> schemas = new HashMap<>();
         try {
-            tools = allowedTools(client.listTools().get(), policy, tenantId);
+            List<McpModel.Tool> allowed = allowedTools(client.listTools().get(), policy, tenantId);
+            allowed.forEach(t -> schemas.put(t.name(), t.inputSchema()));
+            tools = McpToolSpecifications.from(allowed);
         } catch (Exception e) {
             throw new RuntimeException("Falha ao listar tools do MCP server: " + e.getMessage(), e);
         }
@@ -165,6 +171,15 @@ public class McpAgentRunner {
                 } else {
                     try {
                         args = parseArguments(req.arguments());
+                        // JSON bem formado e errado (campo obrigatório ausente,
+                        // número como string, valor fora do enum) chegava à tool
+                        // e virava erro do server — ou execução com semântica
+                        // diferente da pretendida.
+                        List<String> violations =
+                                ToolArgumentValidator.validate(schemas.get(req.name()), args);
+                        if (!violations.isEmpty()) {
+                            throw new MalformedToolArgumentsException(String.join("; ", violations));
+                        }
                         McpModel.ToolResult tr = client.callTool(
                                 new McpModel.ToolArguments(req.name(), args)).get();
                         resultText = textOf(tr);
@@ -175,9 +190,10 @@ public class McpAgentRunner {
                     } catch (MalformedToolArgumentsException e) {
                         // Antes: argumentos ilegíveis viravam Map.of() e a tool era
                         // executada assim mesmo. Agora a tool não roda e o modelo
-                        // recebe o erro, podendo repetir a chamada corretamente.
+                        // recebe o erro — específico o bastante para ele corrigir
+                        // no turno seguinte.
                         resultText = "ERRO: argumentos inválidos para a tool " + req.name()
-                                + " (" + e.getMessage() + "). Repita a chamada com um objeto JSON válido.";
+                                + " (" + e.getMessage() + "). Corrija e repita a chamada.";
                         log.warn("Argumentos inválidos para a tool MCP {}: {}",
                                 req.name(), e.getMessage());
                     } catch (Exception e) {
@@ -235,9 +251,9 @@ public class McpAgentRunner {
      * autoriza. O que foi descartado vai para o log — um catálogo silenciosamente
      * reduzido se parece com um server que não expõe a tool.
      */
-    private static List<ToolSpecification> allowedTools(List<McpModel.Tool> discovered,
-                                                        ToolAccessPolicy policy,
-                                                        String tenantId) {
+    private static List<McpModel.Tool> allowedTools(List<McpModel.Tool> discovered,
+                                                    ToolAccessPolicy policy,
+                                                    String tenantId) {
         List<McpModel.Tool> allowed = new ArrayList<>();
         List<String> denied = new ArrayList<>();
         for (McpModel.Tool tool : discovered) {
@@ -255,7 +271,7 @@ public class McpAgentRunner {
             log.warn("Nenhuma das {} tools do MCP server é permitida pela política (tenant={}) — "
                     + "o agente rodará sem tools", discovered.size(), tenantId);
         }
-        return McpToolSpecifications.from(allowed);
+        return allowed;
     }
 
     private String textOf(McpModel.ToolResult result) {
