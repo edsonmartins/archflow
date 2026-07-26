@@ -1,0 +1,83 @@
+# Ensaio da publicação no Maven Central, sem publicar.
+#
+# Sobe o bundle, deixa o Central VALIDAR e para. Serve para descobrir uma
+# rejeição de validação sem gastar uma tag — que foi exatamente o que aconteceu
+# na v1.1.0: o deployment foi recusado por metadados ausentes no POM publicado, e
+# a única forma de tentar de novo seria outra tag.
+#
+# Um deployment que fica em VALIDATED não publica nada e pode ser descartado em
+# central.sonatype.com/publishing/deployments (botão Drop). Descarte antes de
+# publicar a versão de verdade, para não colidir.
+name: Central Dry Run
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Versão a validar (sem o 'v'). Vazio = a versão dos POMs."
+        required: false
+        default: ""
+
+jobs:
+  validate:
+    name: Validar no Central (sem publicar)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          java-version: '25'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Set POM version
+        if: inputs.version != ''
+        run: mvn -B versions:set -DnewVersion="${{ inputs.version }}" -DgenerateBackupPoms=false
+
+      # Sem testes: o que se valida aqui é o empacotamento e os metadados, não o
+      # comportamento — para isso existe o CI. O install completo é necessário
+      # porque o archflow-sdk-java depende do archflow-standalone, que não entra
+      # no reator restringido pelo -pl abaixo.
+      - name: Build
+        run: mvn -B clean install -DskipTests
+
+      - name: Import GPG key
+        run: |
+          export GNUPGHOME="$(mktemp -d)"
+          echo "GNUPGHOME=$GNUPGHOME" >> $GITHUB_ENV
+          echo "${{ secrets.GPG_PRIVATE_KEY }}" | base64 --decode | gpg --batch --import
+          echo "allow-loopback-pinentry" > "$GNUPGHOME/gpg-agent.conf"
+          echo "pinentry-mode loopback" > "$GNUPGHOME/gpg.conf"
+          gpgconf --reload gpg-agent || true
+
+      # O POM que sobe é o achatado (flatten-maven-plugin, profile maven-central).
+      # Deixá-lo no log é deliberado: a primeira falha foi de metadado no POM
+      # publicado, que não é o pom.xml do módulo nem o POM efetivo.
+      - name: Mostrar o POM que será publicado
+        run: |
+          for m in archflow-model archflow-dsl archflow-sdk-java; do
+            echo "::group::$m/.flattened-pom.xml"
+            cat "$m/.flattened-pom.xml" || echo "(ainda não gerado)"
+            echo "::endgroup::"
+          done
+
+      - name: Upload e validação (sem publicar)
+        env:
+          MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          MAVEN_CENTRAL_TOKEN: ${{ secrets.MAVEN_CENTRAL_TOKEN }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
+        run: |
+          mvn -B deploy -Pmaven-central -DskipTests \
+            -Darchflow.publish.auto=false \
+            -Darchflow.publish.waitUntil=validated \
+            -pl archflow-model,archflow-dsl,archflow-sdk-java \
+            -s .maven-settings.xml.template
+
+      - name: Lembrete
+        run: |
+          echo "Validado. O deployment está PARADO no portal, nada foi publicado."
+          echo "Descarte-o (Drop) em https://central.sonatype.com/publishing/deployments"
+          echo "antes de criar a tag da versão de verdade."

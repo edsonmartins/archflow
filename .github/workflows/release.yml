@@ -125,12 +125,20 @@ jobs:
       - name: Build
         run: pnpm run build
 
+      # dist-app/, não dist/. O vite.config.ts produz dois artefatos: `vite build`
+      # gera o SPA em dist-app/ (o que o Dockerfile serve como estático) e
+      # `vite build --mode component` gera a lib do web-component em dist/.
+      # Apontando para dist/ o upload não achava nada, avisava e seguia — o job
+      # ficava verde, e quem quebrava era o Docker, com "Artifact not found",
+      # levando o Create GitHub Release junto por dependência.
       - name: Upload frontend artifacts
         uses: actions/upload-artifact@v4
         with:
           name: frontend-dist
-          path: archflow-ui/dist/
+          path: archflow-ui/dist-app/
           retention-days: 1
+          # Sem isto o passo volta a passar em silêncio se o caminho mudar.
+          if-no-files-found: error
 
   docker:
     name: Build & Push Docker Image

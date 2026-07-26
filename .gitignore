@@ -53,3 +53,6 @@ playwright-report/
 ### OS Files ###
 .DS_Store
 Thumbs.db
+
+# gerado pelo flatten-maven-plugin no profile maven-central
+.flattened-pom.xml

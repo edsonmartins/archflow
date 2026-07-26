@@ -128,6 +128,41 @@ O `install` completo antes não é opcional: o `archflow-sdk-java` depende do
 `archflow-standalone`, que não está no reator restringido pelo `-pl` nem no
 Central.
 
+## O POM publicado não é o pom.xml do módulo
+
+Vale saber disto antes de mexer no profile, porque foi o que reprovou a primeira
+tentativa.
+
+O Maven publica o `pom.xml` **cru** do módulo, com o `<parent>` que ele declara.
+Como só 3 dos 38 módulos vão para o Central, a raiz do reator não está lá — e
+sem o parent nada é herdado. O Central rejeitou os três artefatos com:
+
+```
+License information is missing
+SCM URL is not defined
+Developers information is missing
+Dependency version information is missing for: langchain4j, commons-lang3, ...
+```
+
+Nada disso faltava nos POMs; faltava o parent de onde vinha. Conferir o POM
+**efetivo** (`help:effective-pom`) não pega o problema, porque ele resolve o
+parent no reator local — é um artefato diferente do que sobe.
+
+O `flatten-maven-plugin` (modo `ossrh`, no profile `maven-central`) resolve na
+origem: publica um `.flattened-pom.xml` sem `<parent>`, com as versões já
+resolvidas e com licenses/scm/developers/url embutidos. Para conferir o que
+realmente vai subir:
+
+```bash
+mvn package -Pmaven-central -DskipTests -Dgpg.skip=true \
+    -pl archflow-model,archflow-dsl,archflow-sdk-java
+cat archflow-dsl/.flattened-pom.xml
+```
+
+A alternativa seria publicar a raiz do reator junto, mas ela importa 4 BOMs
+(Spring Boot, Camel, LangChain4j, Testcontainers) — quem dependesse do
+`archflow-dsl` herdaria todos.
+
 ## Antes da primeira publicação
 
 O caminho de publicação **não foi exercitado de ponta a ponta** — falta
@@ -145,7 +180,20 @@ mvn deploy -Pmaven-central -DskipTests -DskipPublishing=true \
 
 Isso monta e assina o bundle sem enviá-lo.
 
-### Ensaio com upload, mas sem publicar
+### Ensaio pelo GitHub (não precisa de credencial local)
+
+O workflow **Central Dry Run** (`.github/workflows/central-dry-run.yml`) faz o
+ensaio completo usando os secrets já cadastrados: sobe o bundle, deixa o Central
+validar e para. Dispare por *Actions → Central Dry Run → Run workflow*.
+
+É a forma de descobrir uma rejeição **sem gastar uma tag**. Ele também imprime o
+`.flattened-pom.xml` de cada artefato no log, que é o POM que de fato sobe.
+
+Um deployment em `VALIDATED` não publica nada. **Descarte-o** (botão Drop em
+central.sonatype.com/publishing/deployments) antes de criar a tag da versão de
+verdade, para os dois não colidirem.
+
+### Ensaio com upload, mas sem publicar (local)
 
 Mais próximo do real: sobe o bundle, deixa o Central **validar** e para antes de
 publicar, para você conferir os artefatos no portal e concluir com um clique.

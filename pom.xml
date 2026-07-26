@@ -111,6 +111,7 @@
         <maven.javadoc.plugin.version>3.6.3</maven.javadoc.plugin.version>
         <maven.gpg.plugin.version>3.2.7</maven.gpg.plugin.version>
         <central.publishing.plugin.version>0.10.0</central.publishing.plugin.version>
+        <flatten.plugin.version>1.6.0</flatten.plugin.version>
     </properties>
 
     <modules>
@@ -350,6 +351,57 @@
                                 <phase>verify</phase>
                                 <goals>
                                     <goal>sign</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+
+                    <!--
+                      O POM que vai para o Central é o pom.xml CRU do módulo, não
+                      o efetivo. Como a raiz do reator não é publicada (só 3 dos
+                      38 módulos vão), o <parent> que esses poms declaram não
+                      existe no Central — e sem ele nada é herdado. A primeira
+                      tentativa de publicar foi rejeitada exatamente assim, nos
+                      três artefatos:
+
+                        License information is missing
+                        SCM URL is not defined
+                        Developers information is missing
+                        Dependency version information is missing for: langchain4j,
+                        commons-lang3, junit-jupiter, mockito, assertj
+
+                      Nada disso faltava no pom — faltava o parent de onde vinham.
+
+                      O flatten resolve na origem certa: publica um POM sem
+                      <parent>, com as versões já resolvidas e com
+                      licenses/scm/developers/url/description embutidos. O modo
+                      `ossrh` é o que existe para este caso.
+
+                      A alternativa seria publicar a raiz do reator junto, mas ela
+                      importa 4 BOMs (Spring Boot, Camel, LangChain4j,
+                      Testcontainers) no dependencyManagement — quem dependesse do
+                      archflow-dsl herdaria todos.
+                    -->
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>flatten-maven-plugin</artifactId>
+                        <version>${flatten.plugin.version}</version>
+                        <configuration>
+                            <flattenMode>ossrh</flattenMode>
+                        </configuration>
+                        <executions>
+                            <execution>
+                                <id>flatten</id>
+                                <phase>process-resources</phase>
+                                <goals>
+                                    <goal>flatten</goal>
+                                </goals>
+                            </execution>
+                            <execution>
+                                <id>flatten-clean</id>
+                                <phase>clean</phase>
+                                <goals>
+                                    <goal>clean</goal>
                                 </goals>
                             </execution>
                         </executions>
