@@ -20,6 +20,13 @@ spring:
       host: ${SPRING_DATA_REDIS_HOST:localhost}
       port: ${SPRING_DATA_REDIS_PORT:6379}
       password: ${SPRING_DATA_REDIS_PASSWORD:}
+  flyway:
+    # As migrações são numeradas POR MÓDULO (V1_x core, V2_x conversation, V3_x memória,
+    # V4_x observabilidade, V5_x segurança, V6_x api), não em ordem cronológica global. Uma
+    # migração nova num módulo de prefixo baixo — como a V1_3 do core — chega depois de V6_x já
+    # aplicadas, e o Flyway a recusa como "resolved migration not applied", derrubando o boot.
+    # Sem isto, evoluir o core exigiria renumerar a migração para o fim da fila global.
+    out-of-order: ${SPRING_FLYWAY_OUT_OF_ORDER:true}
 
 # Spring Boot Actuator - Production
 management:
