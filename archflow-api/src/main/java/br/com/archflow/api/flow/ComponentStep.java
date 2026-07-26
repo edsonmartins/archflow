@@ -1,5 +1,8 @@
 package br.com.archflow.api.flow;
 
+import br.com.archflow.agent.tool.ToolContext;
+import br.com.archflow.agent.tool.ToolInterceptorChain;
+import br.com.archflow.agent.tool.ToolResult;
 import br.com.archflow.model.ai.AIComponent;
 import br.com.archflow.model.engine.ExecutionContext;
 import br.com.archflow.model.flow.FlowStep;
@@ -30,15 +33,38 @@ public final class ComponentStep implements FlowStep {
     private final String operation;
     private final List<StepConnection> connections;
     private final ComponentCatalog catalog;
+    private final ToolInterceptorChain interceptors;
+    private final AIComponent resolved;
 
     public ComponentStep(String id, StepType type, String componentId, String operation,
                          List<StepConnection> connections, ComponentCatalog catalog) {
+        this(id, type, componentId, operation, connections, catalog, null);
+    }
+
+    public ComponentStep(String id, StepType type, String componentId, String operation,
+                         List<StepConnection> connections, ComponentCatalog catalog,
+                         ToolInterceptorChain interceptors) {
+        this(id, type, componentId, operation, connections, catalog, interceptors, null);
+    }
+
+    /**
+     * @param resolved componente já materializado; quando presente, o catálogo
+     *                 não é consultado. É o caminho dos nós servidos por um
+     *                 adapter LangChain4j, que não vive no catálogo — ele é
+     *                 construído a partir da config <b>deste</b> nó, e um
+     *                 singleton compartilhado não poderia carregar config de nó.
+     */
+    public ComponentStep(String id, StepType type, String componentId, String operation,
+                         List<StepConnection> connections, ComponentCatalog catalog,
+                         ToolInterceptorChain interceptors, AIComponent resolved) {
         this.id = id;
         this.type = type;
         this.componentId = componentId;
         this.operation = operation;
         this.connections = connections == null ? List.of() : List.copyOf(connections);
         this.catalog = catalog;
+        this.interceptors = interceptors;
+        this.resolved = resolved;
     }
 
     @Override public String getId() { return id; }
@@ -48,14 +74,16 @@ public final class ComponentStep implements FlowStep {
     @Override
     public CompletableFuture<StepResult> execute(ExecutionContext context) {
         long start = System.nanoTime();
-        AIComponent component = catalog.getComponent(componentId).orElse(null);
+        AIComponent component = resolved != null
+                ? resolved
+                : catalog.getComponent(componentId).orElse(null);
         if (component == null) {
             return CompletableFuture.completedFuture(
                     SimpleStepResult.failed(id, "component not found: " + componentId, elapsedMs(start)));
         }
         try {
             Object input = context.get(INPUT_KEY).orElse(null);
-            Object output = component.execute(operation, input, context);
+            Object output = invoke(component, input, context);
             context.set(id, output);
             context.set(INPUT_KEY, output);
             return CompletableFuture.completedFuture(SimpleStepResult.ok(id, output, elapsedMs(start)));
@@ -63,6 +91,45 @@ public final class ComponentStep implements FlowStep {
             String msg = e.getMessage() == null ? e.toString() : e.getMessage();
             return CompletableFuture.completedFuture(SimpleStepResult.failed(id, msg, elapsedMs(start)));
         }
+    }
+
+    /**
+     * Invoca o componente através da {@link ToolInterceptorChain} quando há uma
+     * configurada, senão direto.
+     *
+     * <p>Este era o segundo ponto de invocação de tool sem nenhuma interceptação:
+     * a cadeia existia completa (com {@code beforeExecute} capaz de abortar) e não
+     * tinha chamador em produção. Ligá-la aqui dá ao caminho de workflow o mesmo
+     * veto pré-invocação que o laço MCP ganhou com a {@code ToolAccessPolicy}.
+     *
+     * <p>Um interceptor que aborta vira {@link ToolResult.Status#ERROR}, que o
+     * step traduz em falha — o componente não roda.
+     */
+    private Object invoke(AIComponent component, Object input, ExecutionContext context)
+            throws Exception {
+        if (interceptors == null || interceptors.getInterceptors().isEmpty()) {
+            return component.execute(operation, input, context);
+        }
+
+        ToolContext toolContext = ToolContext.builder()
+                .executionId(id)
+                .toolName(componentId)
+                .input(input)
+                .executionContext(context)
+                .build();
+
+        ToolResult<?> result = ToolInterceptorChain.builder()
+                .addInterceptors(interceptors.getInterceptors())
+                .toolExecutor(tc -> ToolResult.success(
+                        component.execute(operation, tc.getInput(), context)))
+                .build()
+                .execute(toolContext);
+
+        if (result.isError()) {
+            throw new IllegalStateException(result.getMessage()
+                    .orElse("tool interceptor rejeitou a execução de " + componentId));
+        }
+        return result.getData().orElse(null);
     }
 
     private static long elapsedMs(long startNanos) {

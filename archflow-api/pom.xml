@@ -15,6 +15,7 @@
     <description>API REST do archflow para gerenciamento e monitoramento de fluxos de IA</description>
 
     <properties>
+        <jacoco.min.coverage>0.50</jacoco.min.coverage>
         <jakarta.validation.version>3.0.2</jakarta.validation.version>
         <slf4j.version>2.0.9</slf4j.version>
     </properties>
@@ -24,6 +25,17 @@
         <dependency>
             <groupId>br.com.archflow</groupId>
             <artifactId>archflow-model</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <!--
+          Carregamento de plugins de um diretório. Estava fora do classpath do
+          servidor, então a descoberta em runtime não existia: o catálogo só
+          tinha a lista de built-ins hard-coded por nome de classe.
+        -->
+        <dependency>
+            <groupId>br.com.archflow</groupId>
+            <artifactId>archflow-plugin-loader</artifactId>
             <version>${project.version}</version>
         </dependency>
 

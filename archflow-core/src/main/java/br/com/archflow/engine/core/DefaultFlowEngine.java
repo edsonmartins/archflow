@@ -7,6 +7,9 @@ import br.com.archflow.engine.lifecycle.FlowLifecycleListener;
 import br.com.archflow.engine.persistence.FlowRepository;
 import br.com.archflow.model.engine.DefaultExecutionContext;
 import br.com.archflow.model.engine.ExecutionContext;
+import br.com.archflow.model.engine.ExecutionKeys;
+import br.com.archflow.model.engine.ExecutionMetrics;
+import br.com.archflow.model.enums.ExecutionStatus;
 import br.com.archflow.model.error.ExecutionError;
 import br.com.archflow.model.flow.*;
 import br.com.archflow.engine.validation.FlowValidator;
@@ -29,7 +32,7 @@ public class DefaultFlowEngine implements FlowEngine {
     private static final int DEFAULT_MAX_CONCURRENT_FLOWS = 10;
 
     /** Variável de contexto que guarda o requestId da aprovação pendente. */
-    private static final String APPROVAL_REQUEST_KEY = "__archflow.approvalRequestId";
+    private static final String APPROVAL_REQUEST_KEY = ExecutionKeys.APPROVAL_REQUEST_ID;
 
     /** Default flow execution timeout (ms) when not configured. */
     private static final long DEFAULT_FLOW_TIMEOUT_MS = 3_600_000; // 1 hour
@@ -299,6 +302,9 @@ public class DefaultFlowEngine implements FlowEngine {
                     long durationMs = System.currentTimeMillis() - startMs;
                     // Save error state while the execution is still in the map
                     saveErrorState(flowId, execution, execError);
+                    // Sem isto o TraceRecorder só enxerga execuções bem-sucedidas —
+                    // um painel de traces que nunca mostra falha é pior que nenhum.
+                    notifyTraceEnd(flowId, tenantId, failedResult(context, execError), durationMs);
                     safeLifecycle(() -> lifecycleListener.onFlowFailed(flow, context, execError, durationMs));
                     throw execError;
                 } finally {
@@ -426,6 +432,17 @@ public class DefaultFlowEngine implements FlowEngine {
             // O requestId vai para as variáveis (persistidas com o estado)
             // para ser validado em submitApproval.
             execution.getContext().set(APPROVAL_REQUEST_KEY, requestId);
+            // A proposta era recebida e descartada: o humano ficava sem NADA para
+            // avaliar. Vai junto do requestId, nas variáveis persistidas, para que
+            // a fila de aprovações sobreviva ao restart com o payload intacto.
+            if (proposal != null) {
+                execution.getContext().set(ExecutionKeys.APPROVAL_PROPOSAL, proposal);
+            }
+            if (stepId != null) {
+                execution.getContext().set(ExecutionKeys.APPROVAL_STEP_ID, stepId);
+            }
+            execution.getContext().set(
+                    ExecutionKeys.APPROVAL_REQUESTED_AT, java.time.Instant.now().toString());
             syncVariablesToState(execution.getContext());
 
             FlowState currentState = execution.getContext().getState();
@@ -456,64 +473,99 @@ public class DefaultFlowEngine implements FlowEngine {
     @Override
     public CompletableFuture<FlowResult> submitApproval(String flowId, String requestId,
                                                          boolean approved, Object editedPayload) {
+        return submitApproval(flowId, requestId, approved, editedPayload, null, null);
+    }
+
+    @Override
+    public CompletableFuture<FlowResult> submitApproval(String flowId, String requestId,
+                                                        boolean approved, Object editedPayload,
+                                                        String decidedBy, String comment) {
         ExecutionContext contextForResume;
-        // The entire validate+remove sequence runs under transitionLock so
+        // The entire validate+persist sequence runs under transitionLock so
         // concurrent pause/cancel/submitApproval observe a consistent view.
         // resumeFlow (which re-registers via putIfAbsent) must also run
         // under the lock so a concurrent pause between our remove() and
         // resumeFlow's register does not see a phantom-missing flow.
         synchronized (transitionLock) {
+            // A suspensão cooperativa (AWAITING_APPROVAL) desenrola a travessia
+            // e remove o fluxo de activeExecutions — então, quando o humano
+            // decide, o fluxo normalmente NÃO está mais vivo em memória. A fonte
+            // de verdade é o estado persistido; a entrada viva, quando existe
+            // (ex.: mock que bloqueia em testes), é apenas um atalho.
             FlowExecution execution = activeExecutions.get(flowId);
-            if (execution == null) {
+            ExecutionContext liveContext = execution != null ? execution.getContext() : null;
+            FlowState currentState = liveContext != null
+                    ? liveContext.getState()
+                    : stateManager.loadState(flowId);
+            if (currentState == null) {
                 throw new FlowNotFoundException(flowId);
             }
 
-            FlowState currentState = execution.getContext().getState();
             if (currentState.getStatus() != FlowStatus.AWAITING_APPROVAL) {
                 throw new FlowEngineException("Flow is not awaiting approval: " + flowId);
             }
 
             // Valida o requestId emitido por requestApproval — uma aprovação
-            // com id de outra solicitação (ou nenhuma) é rejeitada.
-            Object storedRequestId = execution.getContext().get(APPROVAL_REQUEST_KEY).orElse(null);
+            // com id de outra solicitação (ou nenhuma) é rejeitada. O id vive
+            // nas variáveis do contexto (fluxo vivo) ou do estado persistido.
+            Object storedRequestId = liveContext != null
+                    ? liveContext.get(APPROVAL_REQUEST_KEY).orElse(null)
+                    : variableOf(currentState, APPROVAL_REQUEST_KEY);
             if (storedRequestId == null || String.valueOf(storedRequestId).isBlank()
                     || !storedRequestId.equals(requestId)) {
                 throw new FlowEngineException("Unknown approval requestId for flow " + flowId
                         + ": " + requestId);
             }
-            // Consome o requestId (o mapa de variáveis não aceita null)
-            execution.getContext().set(APPROVAL_REQUEST_KEY, "");
 
             if (!approved) {
-                FlowState rejectedState = FlowState.builder()
-                        .tenantId(currentState.getTenantId())
-                        .flowId(currentState.getFlowId())
-                        .status(FlowStatus.STOPPED)
-                        .currentStepId(currentState.getCurrentStepId())
-                        .variables(currentState.getVariables())
-                        .executionPaths(currentState.getExecutionPaths())
-                        .metrics(currentState.getMetrics())
-                        .build();
-                execution.getContext().setState(rejectedState);
+                Map<String, Object> rejectedVars = new HashMap<>(
+                        currentState.getVariables() != null ? currentState.getVariables() : Map.of());
+                rejectedVars.put(APPROVAL_REQUEST_KEY, "");
+                rejectedVars.put(ExecutionKeys.APPROVAL_DECISION, "REJECTED");
+                recordDecider(rejectedVars, decidedBy, comment);
+                FlowState rejectedState = rebuildState(currentState, FlowStatus.STOPPED, rejectedVars);
                 stateManager.saveState(flowId, rejectedState);
-                executionManager.stopFlow(flowId);
-                // Note: we do NOT release the semaphore or remove from
-                // activeExecutions here — the original submitFlow() virtual
-                // thread is still running, blocked inside executionManager.
-                // executeFlow. stopFlow signals it to unblock; its finally
-                // block will release the permit and remove the map entry
-                // exactly once.
+                if (liveContext != null) {
+                    liveContext.setState(rejectedState);
+                    // Sinaliza a thread original (ainda em executeFlow) para
+                    // desbloquear; seu finally libera o permit e remove a
+                    // entrada do mapa exatamente uma vez.
+                    executionManager.stopFlow(flowId);
+                }
                 return CompletableFuture.completedFuture(null);
             }
 
+            // Consome o requestId e grava a decisão NO STORE (o mapa de
+            // variáveis não aceita null). Persistir a consumação sob o lock
+            // fecha a janela assíncrona entre remove()/resume e o putIfAbsent
+            // do submitFlow: uma submissão duplicada nessa janela recarrega o
+            // estado, vê o requestId já consumido e é rejeitada acima.
+            Map<String, Object> vars = new HashMap<>(
+                    currentState.getVariables() != null ? currentState.getVariables() : Map.of());
+            vars.put(APPROVAL_REQUEST_KEY, "");
+            // A decisão fica no estado para os steps seguintes ramificarem
+            // (`${__archflow.approvalDecision} == APPROVED`) e para a auditoria.
+            vars.put(ExecutionKeys.APPROVAL_DECISION, "APPROVED");
+            recordDecider(vars, decidedBy, comment);
             if (editedPayload != null) {
-                execution.getContext().set("approvalPayload", editedPayload);
+                vars.put(ExecutionKeys.APPROVAL_PAYLOAD, editedPayload);
             }
+            // Mantém AWAITING_APPROVAL para que resumeFlow faça a transição
+            // padrão AWAITING_APPROVAL → RUNNING e restaure as variáveis.
+            FlowState consumedState = rebuildState(currentState, FlowStatus.AWAITING_APPROVAL, vars);
+            stateManager.saveState(flowId, consumedState);
 
-            // Remove the current entry so resumeFlow → submitFlow can
-            // re-register via putIfAbsent without hitting "already running".
-            activeExecutions.remove(flowId);
-            contextForResume = execution.getContext();
+            if (liveContext != null) {
+                // Remove a entrada viva para que resumeFlow → submitFlow possa
+                // re-registrar via putIfAbsent sem esbarrar em "already running".
+                liveContext.setState(consumedState);
+                activeExecutions.remove(flowId);
+                contextForResume = liveContext;
+            } else {
+                // Fluxo reidratado do store: contexto novo; resumeFlow recarrega
+                // estado e variáveis a partir do StateManager.
+                contextForResume = createResumeContext(consumedState);
+            }
             return resumeFlow(flowId, contextForResume);
         }
     }
@@ -534,6 +586,58 @@ public class DefaultFlowEngine implements FlowEngine {
     }
 
     // ── Internal helpers ────────────────────────────────────────────
+
+    /**
+     * Grava a identidade do decisor junto da decisão, nas mesmas variáveis e sob
+     * o mesmo lock — um log paralelo poderia divergir do estado persistido, e é
+     * o estado que responde "quem autorizou isto".
+     */
+    private static void recordDecider(Map<String, Object> vars, String decidedBy, String comment) {
+        vars.put(ExecutionKeys.APPROVAL_DECIDED_AT, java.time.Instant.now().toString());
+        // O mapa de variáveis vai para JSON e não aceita null; ausente vira "".
+        vars.put(ExecutionKeys.APPROVAL_DECIDED_BY, decidedBy != null ? decidedBy : "");
+        vars.put(ExecutionKeys.APPROVAL_COMMENT, comment != null ? comment : "");
+    }
+
+    private static Object variableOf(FlowState state, String key) {
+        Map<String, Object> vars = state.getVariables();
+        return vars != null ? vars.get(key) : null;
+    }
+
+    /** Cópia de {@code base} com novo status e variáveis, preservando o resto. */
+    private static FlowState rebuildState(FlowState base, FlowStatus status,
+                                          Map<String, Object> variables) {
+        return FlowState.builder()
+                .tenantId(base.getTenantId())
+                .flowId(base.getFlowId())
+                .status(status)
+                .currentStepId(base.getCurrentStepId())
+                .variables(variables)
+                .executionPaths(base.getExecutionPaths())
+                .metrics(base.getMetrics())
+                .error(base.getError())
+                .build();
+    }
+
+    /**
+     * Contexto novo para retomar um fluxo reidratado do {@link StateManager}
+     * (sem entrada viva em {@code activeExecutions}). {@code resumeFlow} recarrega
+     * estado e variáveis do store; aqui só reconstruímos a identidade
+     * (tenant/user/session) e a memória de chat.
+     */
+    private ExecutionContext createResumeContext(FlowState state) {
+        String tenantId = state.getTenantId() != null ? state.getTenantId() : "SYSTEM";
+        Object userId = variableOf(state, "userId");
+        Object sessionId = variableOf(state, "sessionId");
+        return new DefaultExecutionContext(
+                tenantId,
+                userId != null ? String.valueOf(userId) : null,
+                sessionId != null ? String.valueOf(sessionId) : null,
+                MessageWindowChatMemory.builder()
+                        .maxMessages(100)
+                        .build()
+        );
+    }
 
     private ExecutionContext createInitialContext(Flow flow, Map<String, Object> input) {
         Map<String, Object> vars = input != null ? new HashMap<>(input) : new HashMap<>();
@@ -590,6 +694,37 @@ public class DefaultFlowEngine implements FlowEngine {
                 logger.warning("TraceRecorder.onFlowEnd failed: " + ex.getMessage());
             }
         }
+    }
+
+    /**
+     * {@link FlowResult} sintético para o caminho de exceção, onde o executor
+     * não chegou a produzir um. Existe apenas para dar ao {@link TraceRecorder}
+     * o mesmo contrato que ele recebe no caminho de sucesso.
+     */
+    private static FlowResult failedResult(ExecutionContext context, Exception error) {
+        List<ExecutionError> errors = List.of(
+                ExecutionError.fromException("FLOW_EXECUTION_ERROR", error, "FlowEngine"));
+        return new FlowResult() {
+            @Override
+            public ExecutionStatus getStatus() {
+                return ExecutionStatus.FAILED;
+            }
+
+            @Override
+            public Optional<Object> getOutput() {
+                return Optional.empty();
+            }
+
+            @Override
+            public ExecutionMetrics getMetrics() {
+                return context != null ? context.getMetrics() : null;
+            }
+
+            @Override
+            public List<ExecutionError> getErrors() {
+                return errors;
+            }
+        };
     }
 
     /**

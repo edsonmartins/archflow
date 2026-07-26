@@ -2,8 +2,10 @@ package br.com.archflow.engine.persistence;
 
 import br.com.archflow.engine.core.StateManager;
 import br.com.archflow.model.flow.FlowState;
+import br.com.archflow.model.flow.FlowStatus;
 import br.com.archflow.model.flow.StateUpdate;
 
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -32,6 +34,14 @@ public class RepositoryStateManager implements StateManager {
     @Override
     public FlowState loadState(String flowId) {
         return repository.getState(flowId);
+    }
+
+    @Override
+    public List<FlowState> findByStatus(FlowStatus status) {
+        if (status == null) {
+            return List.of();
+        }
+        return repository.getStatesByStatus(status.name());
     }
 
     @Override

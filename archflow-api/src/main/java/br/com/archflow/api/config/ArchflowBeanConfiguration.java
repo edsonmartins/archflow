@@ -171,9 +171,35 @@ public class ArchflowBeanConfiguration {
         return new InMemoryTraceStore();
     }
 
+    /**
+     * Escritor do {@link InMemoryTraceStore}. É passado ao engine em
+     * {@link #flowEngine} — sem esta ligação o store nunca recebe um trace e
+     * toda a tela de observabilidade do admin fica vazia.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public br.com.archflow.api.admin.observability.impl.TraceStoreRecorder traceStoreRecorder(
+            InMemoryTraceStore traceStore) {
+        return new br.com.archflow.api.admin.observability.impl.TraceStoreRecorder(traceStore);
+    }
+
+    /**
+     * Coletor compartilhado entre o engine (que grava) e o
+     * {@link ObservabilityService} (que lê). Antes cada lado tinha o seu:
+     * o engine criava um interno na factory e o serviço recebia {@code null},
+     * então nenhuma métrica de fluxo chegava à API.
+     */
+    @Bean(destroyMethod = "close")
+    @ConditionalOnMissingBean
+    public br.com.archflow.agent.metrics.MetricsCollector metricsCollector() {
+        return new br.com.archflow.agent.metrics.MetricsCollector(
+                br.com.archflow.agent.config.AgentConfig.builder().build());
+    }
+
     @Bean
     @ConditionalOnMissingBean
     public ObservabilityService observabilityService(
+            br.com.archflow.agent.metrics.MetricsCollector metricsCollector,
             InMemoryTraceStore traceStore,
             EventStreamRegistry eventStreamRegistry,
             RunningFlowsRegistry runningFlowsRegistry,
@@ -181,7 +207,7 @@ public class ArchflowBeanConfiguration {
         // AuditRepository é opcional: presente quando archflow.persistence.jdbc.enabled=true
         // (JdbcAuditRepository) — aí as consultas de auditoria da observabilidade passam a
         // ler do banco em vez de ficarem vazias. ObjectProvider evita exigir o bean.
-        return new ObservabilityService(null, traceStore, auditRepository.getIfAvailable(),
+        return new ObservabilityService(metricsCollector, traceStore, auditRepository.getIfAvailable(),
                 eventStreamRegistry, runningFlowsRegistry);
     }
 
@@ -279,10 +305,38 @@ public class ArchflowBeanConfiguration {
     // Controller implementations — Approval (HITL)
     // =========================================================================
 
+    /**
+     * A fila de aprovações lê o estado durável dos fluxos e decide pelo motor.
+     * Antes recebia um {@code ApprovalRegistry} em memória recém-criado cujo
+     * {@code register()} não tinha produtor algum: a fila nunca saía de vazia e
+     * não sobreviveria a restart, enquanto o gate durável do engine ficava
+     * inalcançável do lado de fora.
+     */
     @Bean
     @ConditionalOnMissingBean
-    public ApprovalQueueService approvalQueueService() {
-        return new ApprovalQueueService(new br.com.archflow.conversation.approval.ApprovalRegistry());
+    public ApprovalQueueService approvalQueueService(
+            br.com.archflow.engine.core.StateManager stateManager,
+            br.com.archflow.engine.api.FlowEngine flowEngine,
+            @Value("${archflow.approval.timeout:PT24H}") java.time.Duration approvalTimeout) {
+        return new ApprovalQueueService(stateManager, flowEngine, approvalTimeout);
+    }
+
+    /**
+     * Aplica o prazo das aprovações pendentes.
+     *
+     * <p>Antes nada expirava {@code AWAITING_APPROVAL}: uma remediação proposta
+     * ficava pendurada para sempre, segurando estado e poluindo uma fila que
+     * nunca esvaziava. O prazo default é generoso (24h) e a decisão de timeout é
+     * sempre REJECTED — "ninguém olhou" não pode virar "pode executar".
+     * {@code archflow.approval.timeout=PT0S} restaura o comportamento anterior.
+     */
+    @Bean(initMethod = "start", destroyMethod = "close")
+    @ConditionalOnMissingBean
+    public br.com.archflow.api.approval.impl.ApprovalTimeoutSweeper approvalTimeoutSweeper(
+            ApprovalQueueService approvalQueueService,
+            @Value("${archflow.approval.sweep-interval:PT5M}") java.time.Duration sweepInterval) {
+        return new br.com.archflow.api.approval.impl.ApprovalTimeoutSweeper(
+                approvalQueueService, sweepInterval);
     }
 
     @Bean
@@ -447,13 +501,37 @@ public class ArchflowBeanConfiguration {
             EventStreamRegistry eventStreamRegistry,
             RunningFlowsRegistry runningFlowsRegistry,
             br.com.archflow.engine.core.StateManager stateManager,
-            br.com.archflow.api.web.workflow.WorkflowRuntimeStore runtimeStore) {
+            br.com.archflow.api.web.workflow.WorkflowRuntimeStore runtimeStore,
+            br.com.archflow.agent.metrics.MetricsCollector metricsCollector,
+            br.com.archflow.api.admin.observability.impl.TraceStoreRecorder traceStoreRecorder,
+            @Value("${archflow.flow.strict-conditions:false}") boolean strictConditions) {
         // Registered before create(): the factory snapshots process-wide
         // listeners into the engine's composite lifecycle listener.
         br.com.archflow.engine.lifecycle.FlowLifecycleListeners.register(
                 new br.com.archflow.api.flow.StepRecordingListener(runtimeStore));
         return br.com.archflow.api.flow.FlowEngineFactory.create(
-                flowRepository, eventStreamRegistry, runningFlowsRegistry, stateManager);
+                flowRepository, eventStreamRegistry, runningFlowsRegistry, stateManager,
+                metricsCollector, traceStoreRecorder, 16, 3_600_000L, 8, strictConditions);
+    }
+
+    /**
+     * Cadeia de interceptores aplicada a cada invocação de componente pelo
+     * {@code ComponentStep}. A cadeia existia completa em archflow-agent —
+     * inclusive com {@code beforeExecute} capaz de abortar a execução — e não
+     * tinha nenhum chamador em produção; era um ponto de extensão inalcançável.
+     *
+     * <p>O default traz apenas interceptores aditivos (log e métricas). Cache e
+     * guardrails ficam de fora de propósito: ligá-los por default mudaria o
+     * comportamento de fluxos existentes. Um deployment que os queira declara
+     * o próprio bean.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public br.com.archflow.agent.tool.ToolInterceptorChain toolInterceptorChain() {
+        return br.com.archflow.agent.tool.ToolInterceptorChain.builder()
+                .addInterceptor(new br.com.archflow.agent.tool.interceptor.LoggingInterceptor())
+                .addInterceptor(new br.com.archflow.agent.tool.interceptor.MetricsInterceptor())
+                .build();
     }
 
     @Bean
@@ -525,9 +603,65 @@ public class ArchflowBeanConfiguration {
     // Catalog (agents/assistants/tools + langchain4j adapters)
     // =========================================================================
 
+    /**
+     * Carrega plugins de um diretório de fat-jars, quando
+     * {@code archflow.plugins.directory} aponta para um.
+     *
+     * <p><b>Opt-in de propósito, e não por acaso.</b> Carregar um jar executa
+     * {@code ComponentPlugin.onLoad} e os inicializadores estáticos das suas
+     * classes — <b>código arbitrário, sem sandbox, com os privilégios da JVM</b>
+     * (filesystem, rede, variáveis de ambiente, segredos). Ligar isso por
+     * default transformaria um diretório numa porta de execução remota. Só
+     * aponte para um diretório cujos jars você produziu ou audita.
+     *
+     * <p>Diretório ausente ou vazio não é erro — carrega nada. Um jar que falha
+     * ao carregar É erro, e falha alto: um plugin quebrado sumindo em silêncio
+     * faria o workflow que depende dele falhar depois, de forma misteriosa.
+     */
+    @Bean(destroyMethod = "close")
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(name = "archflow.plugins.directory")
+    public br.com.archflow.plugin.loader.ArchflowPluginManager archflowPluginManager(
+            @Value("${archflow.plugins.directory:}") String pluginsDirectory) {
+        var manager = new br.com.archflow.plugin.loader.ArchflowPluginManager();
+        if (pluginsDirectory == null || pluginsDirectory.isBlank()) {
+            log.info("archflow.plugins.directory vazio — nenhum plugin externo carregado");
+            return manager;
+        }
+        log.warn("Carregando plugins de {} — jars de plugin executam código SEM SANDBOX "
+                + "com os privilégios desta JVM; só use jars confiáveis", pluginsDirectory);
+        java.util.List<String> loaded =
+                manager.loadFromDirectory(java.nio.file.Path.of(pluginsDirectory));
+        log.info("{} plugin(s) externo(s) carregado(s): {}", loaded.size(), loaded);
+        return manager;
+    }
+
     @Bean
     @ConditionalOnMissingBean
-    public br.com.archflow.plugin.api.catalog.ComponentCatalog componentCatalog() {
+    public br.com.archflow.plugin.api.catalog.ComponentCatalog componentCatalog(
+            org.springframework.beans.factory.ObjectProvider<
+                    br.com.archflow.plugin.loader.ArchflowPluginManager> pluginManager) {
+        br.com.archflow.plugin.api.catalog.ComponentCatalog catalog = seedBuiltIns();
+        // O manager mantém catálogo próprio; os componentes dele são copiados
+        // para o do app, que é o que o ComponentStep resolve.
+        var manager = pluginManager.getIfAvailable();
+        if (manager != null) {
+            int copied = 0;
+            for (var meta : manager.getCatalog().listComponents()) {
+                var component = manager.getCatalog().getComponent(meta.id()).orElse(null);
+                if (component != null) {
+                    catalog.register(component);
+                    copied++;
+                }
+            }
+            if (copied > 0) {
+                log.info("Component catalog: {} componente(s) de plugin externo registrado(s)", copied);
+            }
+        }
+        return catalog;
+    }
+
+    private br.com.archflow.plugin.api.catalog.ComponentCatalog seedBuiltIns() {
         // Dev-friendly default so the catalog is never null. Seeds built-in
         // plugins via reflection so they show up in the UI without
         // forcing a hard dependency loop — if a plugin jar is missing
@@ -853,8 +987,30 @@ public class ArchflowBeanConfiguration {
     @ConditionalOnMissingBean
     public br.com.archflow.api.agent.mcp.McpAgentRunner mcpAgentRunner(
             br.com.archflow.langchain4j.provider.LLMConfigResolver llmConfigResolver,
-            br.com.archflow.model.config.ResolvedLLMConfig platformDefaultLLMConfig) {
-        return new br.com.archflow.api.agent.mcp.McpAgentRunner(llmConfigResolver, platformDefaultLLMConfig);
+            br.com.archflow.model.config.ResolvedLLMConfig platformDefaultLLMConfig,
+            br.com.archflow.agent.metrics.MetricsCollector metricsCollector,
+            br.com.archflow.api.agent.mcp.McpAgentStateStore mcpAgentStateStore,
+            @Value("${archflow.agent.tool-catalog.warn-tokens:4000}") int catalogWarnTokens) {
+        // Mesmo coletor do engine e do ObservabilityService: latência e taxa de
+        // falha por tool aparecem junto das métricas de fluxo, não num silo.
+        return new br.com.archflow.api.agent.mcp.McpAgentRunner(
+                llmConfigResolver, platformDefaultLLMConfig, metricsCollector, catalogWarnTokens,
+                mcpAgentStateStore);
+    }
+
+    /**
+     * Store dos laços de tool-calling suspensos aguardando decisão humana.
+     *
+     * <p>Em memória por default (dev). O durável vive em
+     * {@link JdbcPersistenceConfiguration} — e importa que seja o durável:
+     * suspender um laço num store volátil dá uma pausa que não sobrevive a
+     * restart, que é justamente o único motivo de suspender.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(name = JDBC_ENABLED, havingValue = "false", matchIfMissing = true)
+    public br.com.archflow.api.agent.mcp.McpAgentStateStore mcpAgentStateStore() {
+        return new br.com.archflow.api.agent.mcp.InMemoryMcpAgentStateStore();
     }
 
     /** Agente QP: orquestra as tools do VendaX Core sobre o loop nativo. */
@@ -864,5 +1020,44 @@ public class ArchflowBeanConfiguration {
             br.com.archflow.api.agent.mcp.McpAgentRunner mcpAgentRunner,
             br.com.archflow.api.mcp.vendax.VendaxMcpClientProvider vendaxMcpClientProvider) {
         return new br.com.archflow.api.agent.qp.QpAgentService(mcpAgentRunner, vendaxMcpClientProvider);
+    }
+
+    /** Caminho de volta ao VendaX Core: resultado assinado do agente. */
+    @Bean
+    @ConditionalOnMissingBean
+    public br.com.archflow.api.agent.vendax.VendaxResultSender vendaxResultSender(
+            @Value("${archflow.vendax.core.base-url:}") String coreBaseUrl,
+            @Value("${archflow.vendax.core.result-secret:}") String resultSecret) {
+        return new br.com.archflow.api.agent.vendax.VendaxResultSender(coreBaseUrl, resultSecret);
+    }
+
+    /**
+     * Executor dos agentes acionados pelo Core. Pool limitado de propósito: cada execução segura um
+     * LLM e várias chamadas MCP, então uma rajada de mensagens não pode virar uma thread por
+     * mensagem — a fila espera, o Core não fica bloqueado de todo modo (responde 202).
+     */
+    @Bean(destroyMethod = "shutdown")
+    @ConditionalOnMissingBean(name = "vendaxAgentExecutor")
+    public java.util.concurrent.ExecutorService vendaxAgentExecutor(
+            @Value("${archflow.vendax.agent.threads:4}") int threads) {
+        return java.util.concurrent.Executors.newFixedThreadPool(threads, r -> {
+            Thread t = new Thread(r, "vendax-agent");
+            t.setDaemon(true);
+            return t;
+        });
+    }
+
+    /** Roteia o invoke do Core para o agente certo e devolve o resultado. */
+    @Bean
+    @ConditionalOnMissingBean
+    public br.com.archflow.api.agent.vendax.VendaxAgentDispatcher vendaxAgentDispatcher(
+            br.com.archflow.api.agent.qp.QpAgentService qpAgentService,
+            br.com.archflow.api.agent.mcp.McpAgentRunner mcpAgentRunner,
+            br.com.archflow.api.mcp.vendax.VendaxMcpClientProvider vendaxMcpClientProvider,
+            br.com.archflow.api.agent.vendax.VendaxResultSender vendaxResultSender,
+            java.util.concurrent.ExecutorService vendaxAgentExecutor) {
+        return new br.com.archflow.api.agent.vendax.VendaxAgentDispatcher(
+                qpAgentService, mcpAgentRunner, vendaxMcpClientProvider,
+                vendaxResultSender, vendaxAgentExecutor);
     }
 }

@@ -55,6 +55,7 @@ class JdbcStateRepositoryPostgresTest {
                     variables       JSON,
                     metrics         JSON,
                     error           JSON,
+                    execution_paths JSON,
                     updated_at      TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     PRIMARY KEY (tenant_id, flow_id)
                 )
@@ -116,6 +117,57 @@ class JdbcStateRepositoryPostgresTest {
         assertThat(repo.getState("acme", "flow-1").getStatus())
                 .isEqualTo(FlowStatus.COMPLETED);
         assertThat(repo.getStatesByTenant("acme")).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("getStatesByStatus alimenta a fila de aprovações no Postgres real")
+    void getStatesByStatusOnRealPostgres() {
+        repo.saveState("acme", "f1", FlowState.builder()
+                .tenantId("acme").flowId("f1").status(FlowStatus.AWAITING_APPROVAL)
+                .currentStepId("gate")
+                .variables(Map.of(
+                        "__archflow.approvalRequestId", "req-1",
+                        "__archflow.approvalProposal", Map.of("acao", "reiniciar")))
+                .build());
+        repo.saveState("beta", "f2", FlowState.builder()
+                .tenantId("beta").flowId("f2").status(FlowStatus.AWAITING_APPROVAL).build());
+        repo.saveState("acme", "f3", FlowState.builder()
+                .tenantId("acme").flowId("f3").status(FlowStatus.RUNNING).build());
+
+        List<FlowState> pending = repo.getStatesByStatus("AWAITING_APPROVAL");
+
+        assertThat(pending).extracting(FlowState::getFlowId)
+                .containsExactlyInAnyOrder("f1", "f2");
+        assertThat(pending)
+                .filteredOn(s -> "f1".equals(s.getFlowId()))
+                .singleElement()
+                .satisfies(s -> assertThat(s.getVariables())
+                        .containsEntry("__archflow.approvalRequestId", "req-1"));
+        assertThat(repo.getStatesByStatus("STOPPED")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("executionPaths sobrevive ao round-trip (coluna acrescentada em V1_3)")
+    void executionPathsRoundTrip() {
+        repo.saveState("acme", "f1", FlowState.builder()
+                .tenantId("acme").flowId("f1").status(FlowStatus.PAUSED)
+                .executionPaths(List.of(
+                        br.com.archflow.model.flow.ExecutionPath.builder()
+                                .pathId("p1")
+                                .status(br.com.archflow.model.flow.PathStatus.COMPLETED)
+                                .completedSteps(List.of("s1", "s2"))
+                                .build()))
+                .build());
+
+        FlowState loaded = repo.getState("acme", "f1");
+
+        assertThat(loaded.getExecutionPaths())
+                .as("um fluxo com ramos paralelos perdia a arvore de execucao no restart")
+                .singleElement()
+                .satisfies(p -> {
+                    assertThat(p.getPathId()).isEqualTo("p1");
+                    assertThat(p.getCompletedSteps()).containsExactly("s1", "s2");
+                });
     }
 
     @Test

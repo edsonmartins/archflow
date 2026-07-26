@@ -28,7 +28,7 @@ class DefaultFlowStepFactoryTest {
 
     private final DefaultFlowStepFactory factory = new DefaultFlowStepFactory(
             mock(ComponentCatalog.class), mock(DynamicWorkflowService.class),
-            mock(EventStreamRegistry.class), mock(StateManager.class));
+            mock(EventStreamRegistry.class), mock(StateManager.class), null);
 
     @Test
     void buildsOrchestrateStepForOrchestrateType() {
@@ -56,7 +56,7 @@ class DefaultFlowStepFactoryTest {
 
         FlowStep step = new DefaultFlowStepFactory(
                 catalog, mock(DynamicWorkflowService.class),
-                mock(EventStreamRegistry.class), mock(StateManager.class))
+                mock(EventStreamRegistry.class), mock(StateManager.class), null)
                 .create(Map.of(
                         "id", "s1",
                         "type", "TOOL",
@@ -86,11 +86,11 @@ class DefaultFlowStepFactoryTest {
         DynamicWorkflowService service = mock(DynamicWorkflowService.class);
         ExecutionContext ctx = mock(ExecutionContext.class);
         when(ctx.get("input")).thenReturn(Optional.empty());
-        when(service.runOn(any(), eq(ctx), any())).thenReturn(new SupervisorResult(List.of("done"), 1));
+        when(service.runOn(any(), eq(ctx), any(), any())).thenReturn(new SupervisorResult(List.of("done"), 1));
 
         FlowStep step = new DefaultFlowStepFactory(
                 mock(ComponentCatalog.class), service,
-                mock(EventStreamRegistry.class), mock(StateManager.class))
+                mock(EventStreamRegistry.class), mock(StateManager.class), null)
                 .create(Map.of(
                         "id", "o1",
                         "type", "ORCHESTRATE",
@@ -107,7 +107,7 @@ class DefaultFlowStepFactoryTest {
 
         ArgumentCaptor<br.com.archflow.api.orchestration.DynamicWorkflowRequest> req =
                 ArgumentCaptor.forClass(br.com.archflow.api.orchestration.DynamicWorkflowRequest.class);
-        verify(service).runOn(req.capture(), eq(ctx), any());
+        verify(service).runOn(req.capture(), eq(ctx), any(), any());
         assertThat(req.getValue().goal()).isEqualTo("audit");
     }
 }

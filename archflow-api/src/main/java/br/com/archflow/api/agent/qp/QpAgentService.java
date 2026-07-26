@@ -1,11 +1,13 @@
 package br.com.archflow.api.agent.qp;
 
 import br.com.archflow.api.agent.mcp.McpAgentRunner;
+import br.com.archflow.api.agent.mcp.ToolAccessPolicy;
 import br.com.archflow.api.mcp.vendax.VendaxMcpClientProvider;
 import br.com.archflow.langchain4j.mcp.McpClient;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -23,8 +25,25 @@ import java.util.UUID;
  */
 public class QpAgentService {
 
+    /**
+     * Allowlist do agente QP — exatamente as tools do fluxo documentado acima.
+     * O VendaX Core expõe mais do que isso, e crescerá; sem esta lista o agente
+     * receberia toda tool nova do Core (inclusive destrutiva) sem revisão.
+     * Alterar esta lista é uma mudança de escopo consciente do agente.
+     */
+    static final Set<String> ALLOWED_TOOLS = Set.of(
+            "resolver_sku",
+            "registrar_resolucao",
+            "simular_cotacao",
+            "firmar_cotacao",
+            "enviar_pedido",
+            "sugerir_itens",
+            "registrar_decisao",
+            "obter_eventos_operacionais");
+
     private final McpAgentRunner runner;
     private final VendaxMcpClientProvider vendax;
+    private final ToolAccessPolicy toolPolicy = ToolAccessPolicy.allowOnly(ALLOWED_TOOLS);
 
     public QpAgentService(McpAgentRunner runner, VendaxMcpClientProvider vendax) {
         this.runner = runner;
@@ -58,7 +77,8 @@ public class QpAgentService {
         String systemPrompt = buildSystemPrompt(request, chaveIdempotencia);
         String userMessage = buildUserMessage(request);
 
-        McpAgentRunner.Result result = runner.run(tenantId, systemPrompt, userMessage, client);
+        McpAgentRunner.Result result =
+                runner.run(tenantId, systemPrompt, userMessage, client, toolPolicy);
 
         String quote = extractQuote(result);
         return new QpResult(result.finalText(), result.toolCalls(), quote, chaveIdempotencia);

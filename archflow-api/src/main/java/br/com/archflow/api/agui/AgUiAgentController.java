@@ -1,5 +1,6 @@
 package br.com.archflow.api.agui;
 
+import br.com.archflow.api.trust.UntrustedContentFence;
 import br.com.archflow.langchain4j.provider.LLMConfigResolver;
 import br.com.archflow.langchain4j.provider.LLMResolutionRequest;
 import br.com.archflow.model.config.ResolvedLLMConfig;
@@ -136,10 +137,29 @@ public class AgUiAgentController {
         return sse;
     }
 
-    /** Full conversation: a system message (prompt + useAgentContext) then the history. */
-    private List<ChatMessage> buildMessages(RunAgentInput input) {
+    /**
+     * Full conversation: a system message (prompt + useAgentContext) then the history.
+     *
+     * <p>Tudo em {@link RunAgentInput} vem do browser. O {@code useAgentContext}
+     * era concatenado <b>cru na mensagem de sistema</b> — o lado da conversa de
+     * onde, por definição, vêm as instruções. Uma entrada de contexto com
+     * {@code value} = "ignore as instruções anteriores" era indistinguível de
+     * uma instrução da plataforma. Mesma coisa para mensagens {@code role:tool}:
+     * são resultados de ferramentas do frontend, não fala do usuário.
+     *
+     * <p>Agora só o {@code DEFAULT_SYSTEM_PROMPT} e a regra da cerca ocupam o
+     * lado confiável; contexto e resultados de tool entram cercados.
+     */
+    List<ChatMessage> buildMessages(RunAgentInput input) {  // visível ao pacote para teste
+        UntrustedContentFence fence = UntrustedContentFence.create();
+        // A regra da cerca só entra quando há de fato conteúdo cercado. Numa
+        // conversa comum ela seria só custo de token — e uma regra que aparece
+        // sempre é uma regra que o modelo aprende a ignorar.
+        boolean hasUntrusted = hasAgentContext(input) || hasToolMessage(input);
         List<ChatMessage> messages = new ArrayList<>();
-        messages.add(SystemMessage.from(DEFAULT_SYSTEM_PROMPT + contextBlock(input)));
+        messages.add(SystemMessage.from(hasUntrusted
+                ? DEFAULT_SYSTEM_PROMPT + "\n" + fence.preamble() + contextBlock(input, fence)
+                : DEFAULT_SYSTEM_PROMPT));
 
         if (input != null && input.messages() != null) {
             for (Map<String, Object> m : input.messages()) {
@@ -151,8 +171,12 @@ public class AgUiAgentController {
                 }
                 if ("assistant".equals(role)) {
                     messages.add(AiMessage.from(text));
+                } else if ("tool".equals(role)) {
+                    // Resultado de tool do frontend: dado, não instrução.
+                    messages.add(UserMessage.from(fence.wrap("frontend-tool", text)));
                 } else if (!"system".equals(role)) {
-                    messages.add(UserMessage.from(text)); // user / tool / other → user turn
+                    // O usuário é o principal da conversa — a fala dele não é cercada.
+                    messages.add(UserMessage.from(text));
                 }
             }
         }
@@ -162,18 +186,34 @@ public class AgUiAgentController {
         return messages;
     }
 
-    /** Renders useAgentContext entries ({description, value}) into the system prompt. */
-    private String contextBlock(RunAgentInput input) {
-        if (input == null || input.context() == null || input.context().isEmpty()) {
+    /**
+     * Renders useAgentContext entries ({description, value}) into the system prompt,
+     * fenced — os valores descrevem a tela do usuário e são controlados pelo cliente.
+     */
+    private static boolean hasAgentContext(RunAgentInput input) {
+        return input != null && input.context() != null && !input.context().isEmpty();
+    }
+
+    private static boolean hasToolMessage(RunAgentInput input) {
+        if (input == null || input.messages() == null) {
+            return false;
+        }
+        return input.messages().stream()
+                .anyMatch(m -> "tool".equals(String.valueOf(m.get("role"))));
+    }
+
+    private String contextBlock(RunAgentInput input, UntrustedContentFence fence) {
+        if (!hasAgentContext(input)) {
             return "";
         }
-        StringBuilder sb = new StringBuilder("\n\nContext about the app and the user's screen:");
+        StringBuilder sb = new StringBuilder();
         for (Map<String, Object> entry : input.context()) {
             Object desc = entry.get("description");
             Object value = entry.get("value");
             sb.append("\n- ").append(desc).append(": ").append(value);
         }
-        return sb.toString();
+        return "\n\nContext about the app and the user's screen:\n"
+                + fence.wrap("useAgentContext", sb.toString().stripLeading());
     }
 
     /** Converts AG-UI frontend tools (useFrontendTool) to langchain4j ToolSpecifications. */

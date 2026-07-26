@@ -42,13 +42,22 @@ class CatalogAgentWorkerTest {
         when(router.route("classify ticket", ComponentType.AGENT))
                 .thenReturn(Optional.of(new ScoredComponent("classifier", null, 0.9)));
         when(catalog.getComponent("classifier")).thenReturn(Optional.of(agent));
-        when(agent.executeTask(any(Task.class), eq(context)))
+        // O sub-agente recebe um contexto RECORTADO (SubAgentContext), não o do
+        // fluxo — antes recebia o contexto inteiro, com toda variável e a
+        // conversa acumulada.
+        when(agent.executeTask(any(Task.class), any(ExecutionContext.class)))
                 .thenReturn(br.com.archflow.model.ai.domain.Result.success("BUG"));
 
         Result<Object> result = worker.apply("classify ticket");
 
         assertThat(result.ok()).isTrue();
         assertThat(result.value()).isEqualTo("BUG");
+
+        var passed = org.mockito.ArgumentCaptor.forClass(ExecutionContext.class);
+        org.mockito.Mockito.verify(agent).executeTask(any(Task.class), passed.capture());
+        assertThat(passed.getValue())
+                .as("delegar nao pode entregar o contexto do fluxo")
+                .isNotSameAs(context);
     }
 
     @Test

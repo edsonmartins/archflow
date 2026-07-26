@@ -24,8 +24,11 @@ import br.com.archflow.orchestration.Planner;
 import br.com.archflow.orchestration.VerifyPolicy;
 import br.com.archflow.orchestration.Voter;
 import br.com.archflow.orchestration.Worker;
+import br.com.archflow.plugin.api.catalog.ComponentAccessPolicy;
 import br.com.archflow.plugin.api.catalog.ComponentCatalog;
 import br.com.archflow.plugin.api.catalog.ComponentQueryRouter;
+import br.com.archflow.plugin.api.catalog.DefaultComponentQueryRouter;
+import br.com.archflow.plugin.api.catalog.ScopedComponentCatalog;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import dev.langchain4j.model.chat.ChatModel;
 import org.springframework.stereotype.Service;
@@ -88,6 +91,21 @@ public class DynamicWorkflowService {
      * to {@code listener}.
      */
     public SupervisorResult runOn(DynamicWorkflowRequest req, ExecutionContext ctx, OrchestrationListener listener) {
+        return runOn(req, ctx, listener, ComponentAccessPolicy.allowAll());
+    }
+
+    /**
+     * Como {@link #runOn(DynamicWorkflowRequest, ExecutionContext, OrchestrationListener)},
+     * restringindo quais componentes os agentes-trabalhadores podem ser.
+     *
+     * <p>A restrição precisa alcançar TAMBÉM o roteador: se o worker enxergasse
+     * um catálogo restrito mas o roteador o irrestrito, o roteador escolheria um
+     * componente que o worker depois não resolve — falharia fechado, mas com
+     * mensagem enganosa e desperdiçando a rodada.
+     */
+    public SupervisorResult runOn(DynamicWorkflowRequest req, ExecutionContext ctx,
+                                  OrchestrationListener listener,
+                                  ComponentAccessPolicy componentPolicy) {
         if (req.goal() == null || req.goal().isBlank()) {
             throw new IllegalArgumentException("goal is required");
         }
@@ -108,8 +126,15 @@ public class DynamicWorkflowService {
                 LLMResolutionRequest.builder(platformDefault).build());
         ChatFunction chat = model::chat;
 
+        ComponentAccessPolicy policy = componentPolicy != null
+                ? componentPolicy : ComponentAccessPolicy.allowAll();
+        ComponentCatalog scopedCatalog = ScopedComponentCatalog.of(catalog, policy);
+        ComponentQueryRouter scopedRouter = scopedCatalog == catalog
+                ? router
+                : new DefaultComponentQueryRouter(scopedCatalog);
+
         Planner<String> planner = new LlmPlanner(chat);
-        Worker<String, Object> worker = new CatalogAgentWorker(router, catalog, ctx);
+        Worker<String, Object> worker = new CatalogAgentWorker(scopedRouter, scopedCatalog, ctx);
         Voter<String> voter = new ConfidenceVoter(scorer, req.goal());
 
         BudgetLedger budget = req.budgetTokens() != null

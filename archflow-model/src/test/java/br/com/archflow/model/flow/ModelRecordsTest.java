@@ -19,7 +19,7 @@ class ModelRecordsTest {
         void allValuesPresent() {
             assertThat(StepType.values()).containsExactly(
                     StepType.ASSISTANT, StepType.AGENT, StepType.TOOL, StepType.CHAIN, StepType.CUSTOM,
-                    StepType.ORCHESTRATE);
+                    StepType.ORCHESTRATE, StepType.APPROVAL);
         }
 
         @Test

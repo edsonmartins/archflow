@@ -6,6 +6,13 @@
 >
 > Severidades: **[B]** bloqueador · **[A]** alto · **[M]** médio.
 > Tamanhos: **S** (< ½ dia) · **M** (½–2 dias) · **L** (> 2 dias), estimativas grosseiras.
+>
+> **Lição de 2026-07-25** (auditoria de capacidades — ver `ARCHFLOW-CAPABILITIES.md`): marcar um
+> item como feito porque o *mecanismo* existe e passa em teste unitário não basta. Vários itens
+> deste plano estavam corretos e sem nenhum chamador no caminho de execução — o gate de aprovação
+> (1.5), a cadeia de interceptores de tool, o `TraceStoreRecorder`, o `MemoryRestorer`. Antes de
+> marcar `[x]`, verifique com `rg` que existe um chamador fora de teste, e prefira um teste que
+> atravesse a fiação (não só a unidade).
 
 ## Critério de saída (Definition of Done da homologação)
 
@@ -62,6 +69,18 @@ Módulos: `archflow-agent`, `archflow-core`, `archflow-model`.
       *(feito 2026-07-20: requestApproval pausa cooperativamente e grava requestId nas variáveis
       persistidas; submitApproval valida o id e rejeita desconhecidos; status AWAITING_APPROVAL
       preservado no estado terminal; corrida do activeExecutions corrigida com remove(key, value))*
+      *(completado 2026-07-25: o item ficou meio-feito até aqui — o gate era correto e durável mas
+      **inalcançável**: nenhum `StepType` chamava `requestApproval`, nenhum endpoint chamava
+      `submitApproval`, e `/api/approvals/*` servia um `ApprovalRegistry` em memória sem produtor
+      (fila sempre vazia, e que não sobreviveria a restart). Além disso `requestApproval` recebia
+      `proposal` e a descartava, deixando o decisor sem o que avaliar. Agora: `StepType.APPROVAL` +
+      `HumanApprovalStep` são o produtor; `ApprovalQueueService` deriva a fila de
+      `StateManager.findByStatus(AWAITING_APPROVAL)` e decide pelo motor; a proposta, o stepId e o
+      instante da solicitação são persistidos. Coberto por `HumanApprovalGateE2ETest` (suspende →
+      fila → aprova/recusa/edita → retoma sem duplicar efeito) e `ApprovalStepBeanGraphTest`
+      (a resolução tardia do engine não fecha ciclo de beans no perfil JDBC).
+      Pendente: `responderId`/`comment` do decisor são logados mas não persistidos — a assinatura
+      de `submitApproval` não os carrega)*
 - [x] **1.6** [A] `findScopedKey` (`DefaultFlowExecutor.java:174-180`) casa por sufixo `:stepId` e cruza
       resultados entre fluxos concorrentes com IDs de step iguais. Match exato `flowId:stepId`. — **S**
       *(feito 2026-07-20: dispatch interno usa a chave exata; caminho público falha alto se ambíguo)*

@@ -2,8 +2,10 @@ package br.com.archflow.api.flow;
 
 import br.com.archflow.engine.core.StateManager;
 import br.com.archflow.model.flow.FlowState;
+import br.com.archflow.model.flow.FlowStatus;
 import br.com.archflow.model.flow.StateUpdate;
 
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -34,5 +36,15 @@ public final class InMemoryStateManager implements StateManager {
         if (state != null && update != null) {
             update.apply(state);
         }
+    }
+
+    @Override
+    public List<FlowState> findByStatus(FlowStatus status) {
+        if (status == null) {
+            return List.of();
+        }
+        return states.values().stream()
+                .filter(s -> s.getStatus() == status)
+                .toList();
     }
 }

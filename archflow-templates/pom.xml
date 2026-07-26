@@ -10,6 +10,10 @@
         <version>1.0.0</version>
     </parent>
 
+    <properties>
+        <jacoco.min.coverage>0.90</jacoco.min.coverage>
+    </properties>
+
     <artifactId>archflow-templates</artifactId>
     <name>archflow-templates</name>
     <description>Pre-built workflow templates for common AI patterns</description>

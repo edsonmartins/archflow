@@ -47,6 +47,7 @@ class JdbcStateRepositoryTest {
                     variables       TEXT,
                     metrics         TEXT,
                     error           TEXT,
+                    execution_paths TEXT,
                     updated_at      TIMESTAMP,
                     PRIMARY KEY (tenant_id, flow_id)
                 )
@@ -83,6 +84,22 @@ class JdbcStateRepositoryTest {
             ps.setString(2, flowId);
             ps.setString(3, status);
             ps.setString(4, stepId);
+            ps.executeUpdate();
+        }
+    }
+
+    /** Como {@link #insertState}, gravando também o JSON de variáveis. */
+    private void insertStateWithVariables(String tenantId, String flowId, String status,
+                                          String stepId, String variablesJson) throws SQLException {
+        try (Connection conn = dataSource.getConnection()) {
+            var ps = conn.prepareStatement(
+                    "INSERT INTO flow_states (tenant_id, flow_id, status, current_step_id, variables, updated_at)"
+                            + " VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)");
+            ps.setString(1, tenantId);
+            ps.setString(2, flowId);
+            ps.setString(3, status);
+            ps.setString(4, stepId);
+            ps.setString(5, variablesJson);
             ps.executeUpdate();
         }
     }
@@ -127,6 +144,69 @@ class JdbcStateRepositoryTest {
     @Test
     void getStatesByTenantReturnsEmptyForUnknown() {
         assertThat(repo.getStatesByTenant("ghost")).isEmpty();
+    }
+
+    /**
+     * A fila de aprovações humanas é montada inteiramente sobre esta consulta:
+     * um fluxo pendente é um estado em {@code AWAITING_APPROVAL}, e ele precisa
+     * ser encontrável entre todos os tenants (o link que o operador abre não
+     * carrega tenant).
+     */
+    @Nested
+    @DisplayName("getStatesByStatus")
+    class ByStatus {
+
+        @Test
+        @DisplayName("traz apenas os estados no status pedido, entre todos os tenants")
+        void filtersByStatusAcrossTenants() throws SQLException {
+            insertState("acme", "f1", "AWAITING_APPROVAL", "gate");
+            insertState("beta", "f2", "AWAITING_APPROVAL", "gate");
+            insertState("acme", "f3", "RUNNING", "s1");
+            insertState("acme", "f4", "COMPLETED", "s9");
+
+            List<FlowState> pending = repo.getStatesByStatus("AWAITING_APPROVAL");
+
+            assertThat(pending).extracting(FlowState::getFlowId)
+                    .containsExactlyInAnyOrder("f1", "f2");
+            assertThat(pending).extracting(FlowState::getStatus)
+                    .containsOnly(FlowStatus.AWAITING_APPROVAL);
+            assertThat(pending).extracting(FlowState::getTenantId)
+                    .containsExactlyInAnyOrder("acme", "beta");
+        }
+
+        @Test
+        @DisplayName("carrega as variáveis — é de lá que sai o requestId e a proposta")
+        void loadsVariables() throws SQLException {
+            // Insert direto: o upsert do repositório usa ON CONFLICT, que o H2
+            // em modo PostgreSQL não aceita (mesmo motivo do helper insertState).
+            insertStateWithVariables("acme", "f1", "AWAITING_APPROVAL", "gate", """
+                    {"__archflow.approvalRequestId":"req-1",\
+                    "__archflow.approvalProposal":{"acao":"reiniciar"}}""");
+
+            List<FlowState> pending = repo.getStatesByStatus("AWAITING_APPROVAL");
+
+            assertThat(pending).singleElement().satisfies(loaded -> {
+                assertThat(loaded.getVariables())
+                        .containsEntry("__archflow.approvalRequestId", "req-1");
+                assertThat(loaded.getVariables())
+                        .containsEntry("__archflow.approvalProposal", Map.of("acao", "reiniciar"));
+            });
+        }
+
+        @Test
+        @DisplayName("status sem nenhum estado devolve lista vazia, não null")
+        void emptyWhenNoneMatch() {
+            assertThat(repo.getStatesByStatus("AWAITING_APPROVAL")).isEmpty();
+        }
+
+        @Test
+        @DisplayName("não vaza estados de outro status")
+        void doesNotLeakOtherStatuses() throws SQLException {
+            insertState("acme", "f1", "RUNNING", "s1");
+
+            assertThat(repo.getStatesByStatus("AWAITING_APPROVAL")).isEmpty();
+            assertThat(repo.getStatesByStatus("RUNNING")).hasSize(1);
+        }
     }
 
     @Test

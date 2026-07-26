@@ -53,6 +53,9 @@ public final class CheckpointingLifecycleListener implements FlowLifecycleListen
             if (state == null) {
                 return;
             }
+            // A conversa vive no heap da ChatMemory; sem copiá-la para as
+            // variáveis antes de persistir, o resume devolve o agente amnésico.
+            FlowStateChatMemory.capture(context);
             if (context.getVariables() != null) {
                 state.setVariables(new HashMap<>(context.getVariables()));
             }

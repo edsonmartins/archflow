@@ -20,7 +20,7 @@ class WorkflowJsonCodecTest {
     private final WorkflowDeserializer deserializer = new DefaultWorkflowDeserializer(
             new DefaultFlowStepFactory(mock(ComponentCatalog.class), mock(DynamicWorkflowService.class),
                     mock(br.com.archflow.agent.streaming.EventStreamRegistry.class),
-                    mock(br.com.archflow.engine.core.StateManager.class)));
+                    mock(br.com.archflow.engine.core.StateManager.class), null));
 
     private final WorkflowJsonCodec codec = new WorkflowJsonCodec(deserializer);
 

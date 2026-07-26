@@ -198,9 +198,12 @@ public class DefaultFlowValidator implements FlowValidator {
             case ASSISTANT:
             case CUSTOM:
             case ORCHESTRATE:
+            case APPROVAL:
                 // Executable steps with no structural config to validate up front
                 // (they validate their inputs at runtime). Notably ORCHESTRATE
-                // (ADR-0002/design-0004) decides its sub-graph dynamically.
+                // (ADR-0002/design-0004) decides its sub-graph dynamically, and
+                // APPROVAL takes its proposal from config or from the previous
+                // step's output — both are runtime concerns.
                 break;
             default:
                 errors.add(new ValidationError(

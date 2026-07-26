@@ -37,4 +37,15 @@ public interface StateRepository {
     default List<FlowState> getStatesByTenant(String tenantId) {
         return List.of();
     }
+
+    /**
+     * Lista os estados em um dado status, entre todos os tenants. Suporta as
+     * filas montadas a partir do estado durável (ex.: aprovações pendentes),
+     * onde a busca começa por um id de requisição e não por tenant.
+     *
+     * @param status nome do status ({@code FlowStatus.name()})
+     */
+    default List<FlowState> getStatesByStatus(String status) {
+        return List.of();
+    }
 }
