@@ -89,6 +89,8 @@ Adapters are discovered via SPI at runtime.
 - **archflow-workflow-tool** - Workflow-as-Tool pattern
 - **archflow-templates** - Built-in workflow templates (registered via SPI)
 - **archflow-standalone** - Export/run workflows as standalone JARs (CLI, no server)
+- **archflow-dsl** - Java DSL for authoring workflows in code, emitting the canonical document (JSON/YAML). Depends only on `archflow-model` + Jackson — no Spring, no engine
+- **archflow-sdk-java** - `ArchflowClient` (REST) and `EmbeddedWorkflowRunner` (in-process). The `archflow-standalone` dependency is `optional`: only the embedded runner needs it, and it drags the whole engine along
 - **archflow-conversation** - Suspend/resume wired to the server; guardrails/governance/episodic memory/summarizer are an OPT-IN library not yet called by the archflow-api execution path
 
 ### Two LLM integration layers — know which one you are in
@@ -124,6 +126,27 @@ the two interfaces are nearly identical, so it is thin. Things to keep in mind w
 
 ### Frontend
 - **archflow-ui** - React + TypeScript + Vite, uses Mantine UI and React Flow for visual workflow designer
+
+### The workflow document has three readers — keep them in agreement
+
+The stored workflow JSON (`{id, metadata, configuration, steps[]}`) is parsed by
+`DefaultFlowStepFactory` (executes it), carried by the `Serializable*` POJOs of `archflow-standalone`
+(YAML bridge + standalone execution), and now written by `archflow-dsl`. Nothing in the compiler
+forces them to agree, so two tests do: `DslConformanceTest` runs DSL output through the *real*
+deserializer, and `AdapterNodeTypesMirrorTest` fails in both directions if the node-type lists drift.
+
+Two traps that already bit:
+
+- **Edges live inside each step** (`steps[].connections`), which is where the engine reads them. The
+  UI templates in `archflow-ui/public/templates` carry a *top-level* `connections` array — a different
+  format. Emitting that one gives a flow that opens fine in the designer and doesn't walk when executed.
+- **`type` has two dialects.** The factory treats it as a free string (`"llm-chat"`, `"input"` — what
+  the designer writes); `SerializableStep` used to declare it as the `StepType` enum, so *every*
+  designer-authored flow failed `GET /api/workflows/{id}/yaml` and couldn't run standalone. Only
+  hand-written flows using enum names worked — including the test fixtures, which is why nothing
+  caught it. `SerializableStep` now keeps the raw string for transport and derives `StepType` (`TOOL`
+  when it isn't an enum name, matching what the engine assigns). Do not "simplify" it back to an enum
+  field, and do not let the raw type be rewritten on output — adapter routing matches on the node type.
 
 ## Key Architectural Patterns
 

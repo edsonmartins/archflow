@@ -37,6 +37,22 @@
           quem o usa colide com a versão que a aplicação já tem.
         -->
 
+        <!--
+          OPCIONAL, e é o ponto: só o EmbeddedWorkflowRunner precisa disto, e
+          ele traz o motor inteiro junto (agent + core + events-proto). Quem usa
+          o SDK apenas para escrever um YAML ou falar com o servidor por REST
+          não deve herdar esse peso — optional=true impede a propagação
+          transitiva. Quem quiser executar embarcado declara archflow-standalone
+          explicitamente; sem ele, EmbeddedWorkflowRunner.create() falha com uma
+          mensagem dizendo exatamente isso, em vez de um NoClassDefFoundError.
+        -->
+        <dependency>
+            <groupId>br.com.archflow</groupId>
+            <artifactId>archflow-standalone</artifactId>
+            <version>${project.version}</version>
+            <optional>true</optional>
+        </dependency>
+
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>

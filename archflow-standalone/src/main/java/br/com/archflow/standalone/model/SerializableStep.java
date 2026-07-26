@@ -30,6 +30,12 @@ import java.util.concurrent.CompletableFuture;
 public class SerializableStep implements FlowStep {
 
     private String id;
+    /**
+     * O {@code type} <b>como veio</b>. Ver {@link #setType(String)} — o designer
+     * grava aqui o tipo do nó ({@code "llm-chat"}), não o nome de um
+     * {@link StepType}.
+     */
+    private String rawType;
     private StepType type;
     private String componentId;
     /** Display name shown on the canvas node (designer field). */
@@ -48,6 +54,7 @@ public class SerializableStep implements FlowStep {
                              Map<String, Object> config, List<SerializableConnection> connections) {
         this.id = id;
         this.type = type;
+        this.rawType = type != null ? type.name() : null;
         this.componentId = componentId;
         this.operation = operation;
         this.configuration = config != null ? Map.copyOf(config) : Map.of();
@@ -62,6 +69,16 @@ public class SerializableStep implements FlowStep {
     }
 
     @Override public String getId() { return id; }
+
+    /**
+     * O {@link StepType} do contrato {@code FlowStep}.
+     *
+     * <p>{@code @JsonIgnore} porque o que vai para o JSON é {@link #getTypeAsText()},
+     * o tipo cru — senão um {@code llm-chat} do designer voltaria gravado como
+     * {@code TOOL} e o roteamento de adapter, que casa pelo tipo do nó, deixaria
+     * de reconhecer o passo em silêncio.
+     */
+    @com.fasterxml.jackson.annotation.JsonIgnore
     @Override public StepType getType() { return type; }
     @Override @SuppressWarnings("unchecked")
     public List<StepConnection> getConnections() { return (List<StepConnection>) (List<?>) connections; }
@@ -91,7 +108,54 @@ public class SerializableStep implements FlowStep {
     public Map<String, Object> getConfiguration() { return configuration; }
 
     public void setId(String id) { this.id = id; }
-    public void setType(StepType type) { this.type = type; }
+
+    /**
+     * O {@code type} como aparece no JSON.
+     *
+     * <p><b>Dois dialetos convivem neste campo.</b> Fluxos escritos à mão e o
+     * modelo do standalone usam o nome do enum ({@code "AGENT"}); o designer
+     * visual grava o tipo do nó ({@code "input"}, {@code "llm-chat"},
+     * {@code "vector-search"}), que é o que o {@code DefaultFlowStepFactory} lê
+     * — lá o campo sempre foi string livre.
+     *
+     * <p>Enquanto isto era um {@code setType(StepType)}, o Jackson recusava o
+     * segundo dialeto e <b>todo fluxo feito no designer</b> falhava ao virar
+     * YAML ({@code GET /api/workflows/{id}/yaml}) e não podia rodar no
+     * standalone. Passava só quem usasse o nome do enum — inclusive os fixtures
+     * dos testes, que por isso não pegaram nada.
+     *
+     * <p>Agora o valor cru é guardado para o transporte e o {@link StepType}
+     * é derivado: {@code TOOL} quando não é nome de enum, que é exatamente o que
+     * o motor atribui a qualquer passo que não seja ORCHESTRATE nem APPROVAL.
+     */
+    @com.fasterxml.jackson.annotation.JsonSetter("type")
+    public void setType(String type) {
+        this.rawType = type;
+        this.type = toStepType(type);
+    }
+
+    /** Sobrecarga tipada para quem constrói o passo em código. */
+    public void setType(StepType type) {
+        this.type = type;
+        this.rawType = type != null ? type.name() : null;
+    }
+
+    /** O {@code type} que vai para o JSON/YAML: o cru, preservado. */
+    @com.fasterxml.jackson.annotation.JsonGetter("type")
+    public String getTypeAsText() {
+        return rawType != null ? rawType : (type != null ? type.name() : null);
+    }
+
+    private static StepType toStepType(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        try {
+            return StepType.valueOf(raw.trim().toUpperCase(java.util.Locale.ROOT));
+        } catch (IllegalArgumentException notAnEnumName) {
+            return StepType.TOOL;
+        }
+    }
     public void setComponentId(String componentId) { this.componentId = componentId; }
     public void setLabel(String label) { this.label = label; }
     public void setOperation(String operation) { this.operation = operation; }
