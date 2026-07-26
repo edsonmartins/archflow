@@ -144,3 +144,20 @@ mvn deploy -Pmaven-central -DskipTests -DskipPublishing=true \
 ```
 
 Isso monta e assina o bundle sem enviá-lo.
+
+### Ensaio com upload, mas sem publicar
+
+Mais próximo do real: sobe o bundle, deixa o Central **validar** e para antes de
+publicar, para você conferir os artefatos no portal e concluir com um clique.
+Recomendado na primeira vez, porque uma versão publicada não se remove.
+
+```bash
+mvn deploy -Pmaven-central -DskipTests \
+    -Darchflow.publish.auto=false -Darchflow.publish.waitUntil=validated \
+    -pl archflow-model,archflow-dsl,archflow-sdk-java \
+    -s .maven-settings.xml.template
+```
+
+Conclua em https://central.sonatype.com/publishing/deployments. As duas
+propriedades existem porque uma `<configuration>` literal no POM venceria o
+`-D` da linha de comando — sem elas, não haveria como ensaiar.

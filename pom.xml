@@ -100,6 +100,13 @@
           Publicados hoje: archflow-model, archflow-dsl, archflow-sdk-java.
         -->
         <archflow.publish.skip>true</archflow.publish.skip>
+        <!--
+          Publica sozinho ao final. Para um ensaio — subir e validar sem
+          publicar — use `-Darchflow.publish.auto=false -Darchflow.publish.waitUntil=validated`
+          e conclua manualmente em central.sonatype.com/publishing/deployments.
+        -->
+        <archflow.publish.auto>true</archflow.publish.auto>
+        <archflow.publish.waitUntil>published</archflow.publish.waitUntil>
         <maven.source.plugin.version>3.3.0</maven.source.plugin.version>
         <maven.javadoc.plugin.version>3.6.3</maven.javadoc.plugin.version>
         <maven.gpg.plugin.version>3.2.7</maven.gpg.plugin.version>
@@ -355,8 +362,17 @@
                         <extensions>true</extensions>
                         <configuration>
                             <publishingServerId>central</publishingServerId>
-                            <autoPublish>true</autoPublish>
-                            <waitUntil>published</waitUntil>
+                            <!--
+                              Via propriedade, e não literal: uma <configuration>
+                              fixa vence o -D da linha de comando, e aí não
+                              haveria como fazer um ensaio. Com a propriedade,
+                              `-Darchflow.publish.auto=false` sobe e valida o
+                              bundle mas deixa a publicação para um clique no
+                              portal — o que se quer numa primeira vez, já que o
+                              Central não aceita remover uma versão publicada.
+                            -->
+                            <autoPublish>${archflow.publish.auto}</autoPublish>
+                            <waitUntil>${archflow.publish.waitUntil}</waitUntil>
                             <skipPublishing>${archflow.publish.skip}</skipPublishing>
                         </configuration>
                     </plugin>
