@@ -1021,4 +1021,43 @@ public class ArchflowBeanConfiguration {
             br.com.archflow.api.mcp.vendax.VendaxMcpClientProvider vendaxMcpClientProvider) {
         return new br.com.archflow.api.agent.qp.QpAgentService(mcpAgentRunner, vendaxMcpClientProvider);
     }
+
+    /** Caminho de volta ao VendaX Core: resultado assinado do agente. */
+    @Bean
+    @ConditionalOnMissingBean
+    public br.com.archflow.api.agent.vendax.VendaxResultSender vendaxResultSender(
+            @Value("${archflow.vendax.core.base-url:}") String coreBaseUrl,
+            @Value("${archflow.vendax.core.result-secret:}") String resultSecret) {
+        return new br.com.archflow.api.agent.vendax.VendaxResultSender(coreBaseUrl, resultSecret);
+    }
+
+    /**
+     * Executor dos agentes acionados pelo Core. Pool limitado de propósito: cada execução segura um
+     * LLM e várias chamadas MCP, então uma rajada de mensagens não pode virar uma thread por
+     * mensagem — a fila espera, o Core não fica bloqueado de todo modo (responde 202).
+     */
+    @Bean(destroyMethod = "shutdown")
+    @ConditionalOnMissingBean(name = "vendaxAgentExecutor")
+    public java.util.concurrent.ExecutorService vendaxAgentExecutor(
+            @Value("${archflow.vendax.agent.threads:4}") int threads) {
+        return java.util.concurrent.Executors.newFixedThreadPool(threads, r -> {
+            Thread t = new Thread(r, "vendax-agent");
+            t.setDaemon(true);
+            return t;
+        });
+    }
+
+    /** Roteia o invoke do Core para o agente certo e devolve o resultado. */
+    @Bean
+    @ConditionalOnMissingBean
+    public br.com.archflow.api.agent.vendax.VendaxAgentDispatcher vendaxAgentDispatcher(
+            br.com.archflow.api.agent.qp.QpAgentService qpAgentService,
+            br.com.archflow.api.agent.mcp.McpAgentRunner mcpAgentRunner,
+            br.com.archflow.api.mcp.vendax.VendaxMcpClientProvider vendaxMcpClientProvider,
+            br.com.archflow.api.agent.vendax.VendaxResultSender vendaxResultSender,
+            java.util.concurrent.ExecutorService vendaxAgentExecutor) {
+        return new br.com.archflow.api.agent.vendax.VendaxAgentDispatcher(
+                qpAgentService, mcpAgentRunner, vendaxMcpClientProvider,
+                vendaxResultSender, vendaxAgentExecutor);
+    }
 }
