@@ -9,9 +9,21 @@
     </parent>
 
     <artifactId>archflow-sdk-java</artifactId>
+    <name>archflow-sdk-java</name>
+    <url>https://github.com/edsonmartins/archflow/tree/main/archflow-sdk-java</url>
     <description>SDK Java: publica e executa no servidor archflow os workflows escritos na DSL</description>
 
     <properties>
+        <!--
+          Publicado no Maven Central — com uma ressalva registrada aqui porque
+          ela é consequência de uma decisão de escopo, não um descuido:
+          archflow-standalone NÃO é publicado (ele vai ganhar um instalador
+          próprio). Como a dependência é optional, ela não quebra a resolução de
+          quem consome o SDK do Central, mas o EmbeddedWorkflowRunner não
+          funciona lá — só para quem constrói o projeto do fonte. O próprio
+          runner diz isso ao falhar, e o RELEASING.md repete.
+        -->
+        <archflow.publish.skip>false</archflow.publish.skip>
         <jacoco.min.coverage>0.70</jacoco.min.coverage>
     </properties>
 

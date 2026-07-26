@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  settings.xml para publicação no Maven Central (Sonatype Central Portal).
+  Usado pelo profile 'maven-central':
+
+      mvn deploy -Pmaven-central -s .maven-settings.xml.template
+
+  Variáveis de ambiente esperadas:
+    MAVEN_CENTRAL_USERNAME  -> "username" do token gerado em central.sonatype.com
+                               (Account -> Generate User Token)
+    MAVEN_CENTRAL_TOKEN     -> "password" do mesmo token
+    MAVEN_GPG_PASSPHRASE    -> passphrase da chave GPG que assina os artefatos
+
+  Este arquivo NÃO contém segredo nenhum — só as referências às variáveis — e por
+  isso é versionado. Não substitua as ${env.*} por valores literais.
+-->
+<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0
+                              https://maven.apache.org/xsd/settings-1.0.0.xsd">
+    <servers>
+        <server>
+            <!-- Casa com <publishingServerId>central</publishingServerId> no pom. -->
+            <id>central</id>
+            <username>${env.MAVEN_CENTRAL_USERNAME}</username>
+            <password>${env.MAVEN_CENTRAL_TOKEN}</password>
+        </server>
+    </servers>
+
+    <profiles>
+        <profile>
+            <id>gpg</id>
+            <properties>
+                <gpg.executable>gpg</gpg.executable>
+                <gpg.passphrase>${env.MAVEN_GPG_PASSPHRASE}</gpg.passphrase>
+            </properties>
+        </profile>
+    </profiles>
+
+    <activeProfiles>
+        <activeProfile>gpg</activeProfile>
+    </activeProfiles>
+</settings>

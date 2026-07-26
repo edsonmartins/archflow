@@ -9,9 +9,14 @@
     </parent>
 
     <artifactId>archflow-dsl</artifactId>
+    <name>archflow-dsl</name>
+    <url>https://github.com/edsonmartins/archflow/tree/main/archflow-dsl</url>
     <description>DSL Java para escrever workflows archflow em código, emitindo o documento canônico (JSON/YAML)</description>
 
     <properties>
+        <!-- Publicado no Maven Central. -->
+        <archflow.publish.skip>false</archflow.publish.skip>
+
         <!--
           Módulo novo e pequeno, escrito com teste junto. O piso começa alto
           porque a cobertura já nasce alta — ver o goal `check` no pom raiz.

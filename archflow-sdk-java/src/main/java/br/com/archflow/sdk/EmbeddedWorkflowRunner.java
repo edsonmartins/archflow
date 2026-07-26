@@ -169,11 +169,16 @@ public final class EmbeddedWorkflowRunner implements AutoCloseable {
             try {
                 return new EmbeddedWorkflowRunner(new ArchFlowAgent(config), timeout);
             } catch (NoClassDefFoundError e) {
-                // A dependência é optional: sem ela o erro cru não diz o que fazer.
+                // A dependência é optional E não está no Maven Central: sem esta
+                // mensagem o erro cru não diz nem o que falta nem por que não
+                // adianta acrescentar a dependência.
                 throw new IllegalStateException(
-                        "execução embarcada exige archflow-standalone no classpath — "
-                                + "a dependência é optional no archflow-sdk-java para não impor "
-                                + "o motor a quem só usa o cliente REST. Falta: " + e.getMessage(), e);
+                        "execução embarcada exige archflow-standalone no classpath. "
+                                + "A dependência é optional no archflow-sdk-java para não impor o "
+                                + "motor a quem só usa o cliente REST, e o archflow-standalone "
+                                + "ainda NÃO é publicado no Maven Central — hoje isto só funciona "
+                                + "construindo o archflow do fonte (mvn install). Falta: "
+                                + e.getMessage(), e);
             }
         }
     }
