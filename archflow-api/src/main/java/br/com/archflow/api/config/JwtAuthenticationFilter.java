@@ -75,7 +75,12 @@ public class JwtAuthenticationFilter implements Filter {
             "/ws/",
             // Assist (IA síncrona, ADR-0004): protegido por chave estática
             // opcional (X-ArchFlow-Key) no próprio controller, não por JWT.
-            "/archflow/assist/"
+            "/archflow/assist/",
+            // Acionamento de agente vindo do VendaX Core (RFC-007): chamada de
+            // máquina, que não tem sessão para renovar um JWT de usuário. O gate
+            // é a chave de serviço conferida no próprio controller, que recusa
+            // (503) enquanto ela não estiver configurada.
+            "/api/agents/invoke"
     );
 
     /**

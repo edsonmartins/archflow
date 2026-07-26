@@ -47,6 +47,10 @@ archflow:
     core:
       base-url: ${ARCHFLOW_VENDAX_CORE_URL:}
       result-secret: ${ARCHFLOW_VENDAX_RESULT_SECRET:}
+    # Chave que o Core apresenta em POST /api/agents/invoke. Vazio = endpoint recusa tudo (503):
+    # ele fica fora do filtro JWT, então abrir por omissão deixaria qualquer um mandando o agente
+    # rodar (e gastando LLM).
+    invoke-key: ${ARCHFLOW_VENDAX_INVOKE_KEY:}
     agent:
       # Cada execução segura um LLM e várias chamadas MCP: uma rajada de mensagens espera na fila
       # em vez de virar uma thread por mensagem.
