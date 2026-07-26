@@ -11,7 +11,7 @@ Commit auditado: `5231c4a7ffb5c7826c3b7cffc94598ec195e581e` (branch `feat/vendax
 > |----|----------------------|----------------|-------------|
 > | C1 | `PARCIAL` | `NATIVO` (com ressalva) | Caminho MCP: `ToolAccessPolicy` obrigatória, aplicada ao montar o catálogo **e** antes de cada `callTool`. Caminho de workflow: `ComponentAccessPolicy` + `ScopedComponentCatalog` filtram no ponto de resolução, e o `ORCHESTRATE` herda o escopo. **Ressalva:** o escopo é *opt-in* — allowlist ausente ⇒ irrestrito, para não quebrar workflows salvos. O isolamento é agora possível e verificado; não é imposto por default. |
 > | C2 | `AUSENTE` | `PARCIAL` | Resultado de tool carrega `ToolTrust`; conteúdo não-confiável volta ao modelo cercado (nonce por execução + regra no system prompt). Não atravessa `ComponentStep`/`ConversationalAgent`, que seguem devolvendo `Object`/`String` sem envelope. |
-> | C3 | `PARCIAL` | `PARCIAL` (gate alcançável) | `StepType.APPROVAL` + `HumanApprovalStep` são o produtor que faltava; `ApprovalQueueService` deriva a fila de `StateManager.findByStatus` e decide pelo motor; proposta e decisor passaram a ser persistidos. A durabilidade **no nível do turno do agente** continua ausente — o `McpAgentRunner` segue sem checkpoint. |
+> | C3 | `PARCIAL` | `NATIVO` | **Dois** gates, ambos duráveis. No grafo: `StepType.APPROVAL` + `HumanApprovalStep` são o produtor que faltava, e `ApprovalQueueService` deriva a fila de `StateManager.findByStatus`. **No laço do agente** (o que faltava): `ToolApprovalPolicy` faz o laço suspender antes de executar a tool, persistir `McpAgentState` e retomar por `resume` — verificado com um runner novo retomando do estado, ou seja sobrevive a restart. `MemoryRestorer` ligado. Aberto: `executionPaths` persiste, mas nada reidrata um fluxo automaticamente no boot — a retomada é sempre disparada de fora. |
 > | C4 | `AUSENTE` | `PARCIAL` | `ToolCatalogBudget` mede o custo do catálogo por execução, registra `tool_catalog_tokens` e avisa acima do limite nomeando os maiores contribuintes. **Seleção dinâmica continua ausente** — medir não é escolher, e nada é descartado. |
 > | C6 | `PARCIAL` | `NATIVO` | `HttpMcpClient` fala Streamable HTTP completo: SSE, `Mcp-Session-Id`, recuperação de sessão vencida (404/400 → reinicializa e repete), `DELETE` no close. Verificado contra um server local que implementa a spec. Não abre o stream GET servidor→cliente (não recebe notificações não solicitadas). |
 > | C5 | `PARCIAL` | `NATIVO` | `ToolInterceptorChain` ganhou chamador: `ComponentStep` invoca através dela e `beforeExecute` aborta de verdade. No laço MCP o veto é a `ToolAccessPolicy`. Fora: `ConversationalAgent` de `archflow-conversation` (inverteria dependência de módulo e é código sem chamador). |
@@ -53,9 +53,15 @@ Commit auditado: `5231c4a7ffb5c7826c3b7cffc94598ec195e581e` (branch `feat/vendax
 > retomada); (2) o registro de tools continua global **por default**, mas passou a ser
 > **escopável por fluxo e por agente, com a restrição aplicada na resolução** — nos dois caminhos.
 >
-> Incógnitas fechadas: interop MCP (server local que fala a spec) e concorrência multi-tenant do
-> `LLMProviderHub` (sem bug — o desenho se sustenta). Continua aberto: migrations nunca aplicadas
-> de ponta a ponta num ambiente limpo.
+> Incógnitas fechadas: interop MCP (server local que fala a spec), concorrência multi-tenant do
+> `LLMProviderHub` (sem bug — o desenho se sustenta) e as migrations, que agora têm um teste que
+> as aplica num Postgres limpo. **Ressalva:** esse teste e os demais de Postgres exigem Docker e
+> foram escritos, não executados aqui — rodam no CI.
+>
+> **Resposta que muda para o ADR:** o ArchFlow passou a ter interrupt/resume durável também no
+> nível do turno do agente. Um orquestrador externo deixa de ser requisito para esse caso; se
+> entrar, entra como terceira implementação de `McpAgentStateStore`, guardando o mesmo
+> `McpAgentState` — a troca é de custodiante, não de laço.
 
 > Escopo entregue: C1–C13. C1–C5 foram investigadas a fundo (leitura de implementação + rastreio
 > de chamadores em código de produção); C6–C13 foram verificadas com profundidade menor mas com
