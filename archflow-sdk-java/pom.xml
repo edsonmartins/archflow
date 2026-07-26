@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>br.com.archflow</groupId>
+        <artifactId>archflow</artifactId>
+        <version>1.0.0</version>
+    </parent>
+
+    <artifactId>archflow-sdk-java</artifactId>
+    <description>SDK Java: publica e executa no servidor archflow os workflows escritos na DSL</description>
+
+    <properties>
+        <jacoco.min.coverage>0.70</jacoco.min.coverage>
+    </properties>
+
+    <dependencies>
+        <!--
+          A DSL escreve o documento; o SDK o leva ao servidor. A separação é
+          deliberada: quem só quer gerar um arquivo YAML não precisa de cliente
+          HTTP, e a DSL continua sem nada de rede.
+        -->
+        <dependency>
+            <groupId>br.com.archflow</groupId>
+            <artifactId>archflow-dsl</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <version>2.17.0</version>
+        </dependency>
+        <!--
+          Nenhuma biblioteca HTTP de terceiro: o java.net.http.HttpClient do JDK
+          basta, e um SDK que arrasta OkHttp/Apache para dentro do classpath de
+          quem o usa colide com a versão que a aplicação já tem.
+        -->
+
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>

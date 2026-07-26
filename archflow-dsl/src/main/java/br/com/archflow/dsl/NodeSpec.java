@@ -24,18 +24,20 @@ public final class NodeSpec {
     private final String componentId;
     private final String operation;
     private final String label;
+    private final Map<String, Object> position;
     private final Map<String, Object> config;
 
     NodeSpec(String type, String componentId) {
-        this(type, componentId, null, null, Map.of());
+        this(type, componentId, null, null, null, Map.of());
     }
 
     private NodeSpec(String type, String componentId, String operation, String label,
-                     Map<String, Object> config) {
+                     Map<String, Object> position, Map<String, Object> config) {
         this.type = type;
         this.componentId = componentId;
         this.operation = operation;
         this.label = label;
+        this.position = position;
         this.config = config;
     }
 
@@ -47,7 +49,7 @@ public final class NodeSpec {
         Objects.requireNonNull(key, "key");
         Map<String, Object> merged = new LinkedHashMap<>(config);
         merged.put(key, value);
-        return new NodeSpec(type, componentId, operation, label,
+        return new NodeSpec(type, componentId, operation, label, position,
                 Collections.unmodifiableMap(merged));
     }
 
@@ -58,7 +60,7 @@ public final class NodeSpec {
         }
         Map<String, Object> merged = new LinkedHashMap<>(config);
         merged.putAll(values);
-        return new NodeSpec(type, componentId, operation, label,
+        return new NodeSpec(type, componentId, operation, label, position,
                 Collections.unmodifiableMap(merged));
     }
 
@@ -67,7 +69,23 @@ public final class NodeSpec {
      * default do motor, então omitir aqui e omitir no JSON dão no mesmo.
      */
     public NodeSpec operation(String operation) {
-        return new NodeSpec(type, componentId, operation, label, config);
+        return new NodeSpec(type, componentId, operation, label, position, config);
+    }
+
+    /**
+     * Coordenadas do nó no canvas do designer.
+     *
+     * <p>O motor nunca lê isto — é layout. Existe porque sem ele o caminho
+     * JSON → código → JSON perderia a disposição de um fluxo desenhado na tela,
+     * e um round-trip que devolve o grafo certo com todos os nós empilhados na
+     * origem é um round-trip que ninguém usa duas vezes.
+     */
+    public NodeSpec at(double x, double y) {
+        Map<String, Object> coords = new LinkedHashMap<>();
+        coords.put("x", x);
+        coords.put("y", y);
+        return new NodeSpec(type, componentId, operation, label,
+                Collections.unmodifiableMap(coords), config);
     }
 
     /**
@@ -76,7 +94,7 @@ public final class NodeSpec {
      * faz um fluxo escrito em código abrir legível na tela.
      */
     public NodeSpec labeled(String label) {
-        return new NodeSpec(type, componentId, operation, label, config);
+        return new NodeSpec(type, componentId, operation, label, position, config);
     }
 
     String type() {
@@ -93,6 +111,10 @@ public final class NodeSpec {
 
     String label() {
         return label;
+    }
+
+    Map<String, Object> position() {
+        return position;
     }
 
     Map<String, Object> config() {

@@ -228,6 +228,9 @@ public final class WorkflowBuilder {
             putIfPresent(node, "componentId", spec.componentId());
             putIfPresent(node, "label", spec.label());
             putIfPresent(node, "operation", spec.operation());
+            if (spec.position() != null) {
+                node.put("position", new LinkedHashMap<>(spec.position()));
+            }
             if (!spec.config().isEmpty()) {
                 node.put("config", new LinkedHashMap<>(spec.config()));
             }

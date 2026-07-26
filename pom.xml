@@ -54,6 +54,7 @@
         <module>archflow-events-proto</module>
         <module>archflow-standalone</module>
         <module>archflow-dsl</module>
+        <module>archflow-sdk-java</module>
     </modules>
 
     <dependencyManagement>
