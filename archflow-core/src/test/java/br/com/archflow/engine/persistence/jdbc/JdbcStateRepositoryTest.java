@@ -3,6 +3,7 @@ package br.com.archflow.engine.persistence.jdbc;
 import br.com.archflow.model.flow.AuditLog;
 import br.com.archflow.model.flow.FlowState;
 import br.com.archflow.model.flow.FlowStatus;
+import br.com.archflow.model.flow.PathStatus;
 import org.junit.jupiter.api.*;
 
 import java.sql.Connection;
@@ -88,6 +89,21 @@ class JdbcStateRepositoryTest {
         }
     }
 
+    /** Como {@link #insertState}, gravando o JSON dos ramos de execução. */
+    private void insertStateWithExecutionPaths(String tenantId, String flowId, String status,
+                                               String executionPathsJson) throws SQLException {
+        try (Connection conn = dataSource.getConnection()) {
+            var ps = conn.prepareStatement(
+                    "INSERT INTO flow_states (tenant_id, flow_id, status, execution_paths, updated_at)"
+                            + " VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)");
+            ps.setString(1, tenantId);
+            ps.setString(2, flowId);
+            ps.setString(3, status);
+            ps.setString(4, executionPathsJson);
+            ps.executeUpdate();
+        }
+    }
+
     /** Como {@link #insertState}, gravando também o JSON de variáveis. */
     private void insertStateWithVariables(String tenantId, String flowId, String status,
                                           String stepId, String variablesJson) throws SQLException {
@@ -102,6 +118,49 @@ class JdbcStateRepositoryTest {
             ps.setString(5, variablesJson);
             ps.executeUpdate();
         }
+    }
+
+    /**
+     * O caminho de LEITURA de {@code execution_paths}.
+     *
+     * <p>Vive aqui, no H2, e não só no teste de Postgres: o defeito que motivou
+     * este teste — {@code ExecutionPath} serializava e não voltava, porque
+     * {@code @Data @Builder} sem construtor sem-args deixa Jackson sem como
+     * instanciar — era invisível fora do CI, já que o único round-trip existente
+     * exigia Docker. A desserialização não depende de banco nenhum; só o INSERT
+     * com {@code ON CONFLICT} dependia.
+     */
+    @Test
+    @DisplayName("execution_paths desserializa de volta — não basta gravar")
+    void executionPathsDeserialize() throws SQLException {
+        insertStateWithExecutionPaths("acme", "f1", "PAUSED", """
+                [{"pathId":"p1","status":"COMPLETED","completedSteps":["s1","s2"],\
+                "parallelBranches":[{"pathId":"p1.1","status":"RUNNING",\
+                "completedSteps":[],"parallelBranches":null}]}]""");
+
+        FlowState loaded = repo.getState("acme", "f1");
+
+        assertThat(loaded.getExecutionPaths())
+                .as("gravava e lia de volta como null, em silencio")
+                .isNotNull()
+                .singleElement()
+                .satisfies(path -> {
+                    assertThat(path.getPathId()).isEqualTo("p1");
+                    assertThat(path.getStatus()).isEqualTo(PathStatus.COMPLETED);
+                    assertThat(path.getCompletedSteps()).containsExactly("s1", "s2");
+                    assertThat(path.getParallelBranches())
+                            .as("ramos aninhados tambem precisam voltar")
+                            .singleElement()
+                            .satisfies(branch -> assertThat(branch.getPathId()).isEqualTo("p1.1"));
+                });
+    }
+
+    @Test
+    @DisplayName("execution_paths ausente continua sendo null, sem erro")
+    void executionPathsAbsentIsNull() throws SQLException {
+        insertState("acme", "f2", "RUNNING", null);
+
+        assertThat(repo.getState("acme", "f2").getExecutionPaths()).isNull();
     }
 
     @Test
