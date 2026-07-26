@@ -28,5 +28,8 @@ public record VendaxInvoke(
         String traceId,
         String payload,
         String customerRef,
-        String vendorRef) {
+        String vendorRef,
+
+        /** Definição resolvida pelo Core (RFC-013); nula = usar o comportamento embutido. */
+        DefinicaoDeAgente definicao) {
 }

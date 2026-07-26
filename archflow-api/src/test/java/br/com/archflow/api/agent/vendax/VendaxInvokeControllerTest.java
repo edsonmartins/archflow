@@ -24,7 +24,7 @@ class VendaxInvokeControllerTest {
 
     private static VendaxInvoke valid() {
         return new VendaxInvoke("1.0", "tenant-1", "conv-1", "QP", "msg-1", "oi",
-                "STRONG", "intencao-pedido", "trace-1", null, "cliente-1", "vendedor-1");
+                "STRONG", "intencao-pedido", "trace-1", null, "cliente-1", "vendedor-1", null);
     }
 
     private void keyIs(String key) {
@@ -74,7 +74,7 @@ class VendaxInvokeControllerTest {
     void incompleteEnvelope() {
         keyIs("segredo");
         VendaxInvoke semConversa = new VendaxInvoke("1.0", "tenant-1", null, "QP", "msg-1", "oi",
-                "STRONG", "r", "t", null, null, null);
+                "STRONG", "r", "t", null, null, null, null);
 
         assertThat(controller.invoke(semConversa, "Bearer segredo").getStatusCode())
                 .isEqualTo(HttpStatus.BAD_REQUEST);
