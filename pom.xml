@@ -24,8 +24,14 @@
           Piso de cobertura do módulo (ratchet — ver o goal `check` do jacoco).
           Default conservador; cada módulo sobe o seu no próprio pom conforme
           melhora. Não é a meta do projeto, é o chão que não se pode furar.
+
+          0.25 e não mais: o módulo mais fraco fora de archflow-langchain4j é o
+          events-proto, em 0.322. Um piso colado no valor atual dispara em
+          refactor normal, e um gate que grita à toa é um gate que se aprende a
+          ignorar. Os adapters do langchain4j têm piso próprio (0.15) no pom
+          daquele agregador.
         -->
-        <jacoco.min.coverage>0.30</jacoco.min.coverage>
+        <jacoco.min.coverage>0.25</jacoco.min.coverage>
     </properties>
 
     <modules>

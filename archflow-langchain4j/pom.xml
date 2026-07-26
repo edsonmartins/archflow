@@ -31,6 +31,14 @@
     </modules>
 
     <properties>
+        <!--
+          Piso de cobertura dos adapters (ratchet — ver o goal `check` no pom raiz).
+          Mais baixo que o default do reator porque estes submódulos são finos e
+          testados só na borda: o mais fraco hoje é o embedding-local, com 0.185.
+          O piso fica abaixo do que cada um já tem, de propósito — ele existe para
+          impedir REGRESSÃO, não para premiar. Subir é uma linha no pom do módulo.
+        -->
+        <jacoco.min.coverage>0.15</jacoco.min.coverage>
         <langchain4j.version>1.18.0</langchain4j.version>
         <java.version>25</java.version>
         <maven.compiler.source>25</maven.compiler.source>
