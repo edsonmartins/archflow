@@ -19,7 +19,7 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <langchain4j.version>1.18.0</langchain4j.version>
         <camel.version>4.3.0</camel.version>
-        <spring-boot.version>4.0.0</spring-boot.version>
+        <spring-boot.version>4.0.6</spring-boot.version>
         <!--
           Piso de cobertura do módulo (ratchet — ver o goal `check` do jacoco).
           Default conservador; cada módulo sobe o seu no próprio pom conforme
