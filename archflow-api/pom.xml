@@ -28,6 +28,17 @@
             <version>${project.version}</version>
         </dependency>
 
+        <!--
+          Carregamento de plugins de um diretório. Estava fora do classpath do
+          servidor, então a descoberta em runtime não existia: o catálogo só
+          tinha a lista de built-ins hard-coded por nome de classe.
+        -->
+        <dependency>
+            <groupId>br.com.archflow</groupId>
+            <artifactId>archflow-plugin-loader</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
         <!-- Archflow Security -->
         <dependency>
             <groupId>br.com.archflow</groupId>

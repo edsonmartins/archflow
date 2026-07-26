@@ -603,9 +603,65 @@ public class ArchflowBeanConfiguration {
     // Catalog (agents/assistants/tools + langchain4j adapters)
     // =========================================================================
 
+    /**
+     * Carrega plugins de um diretório de fat-jars, quando
+     * {@code archflow.plugins.directory} aponta para um.
+     *
+     * <p><b>Opt-in de propósito, e não por acaso.</b> Carregar um jar executa
+     * {@code ComponentPlugin.onLoad} e os inicializadores estáticos das suas
+     * classes — <b>código arbitrário, sem sandbox, com os privilégios da JVM</b>
+     * (filesystem, rede, variáveis de ambiente, segredos). Ligar isso por
+     * default transformaria um diretório numa porta de execução remota. Só
+     * aponte para um diretório cujos jars você produziu ou audita.
+     *
+     * <p>Diretório ausente ou vazio não é erro — carrega nada. Um jar que falha
+     * ao carregar É erro, e falha alto: um plugin quebrado sumindo em silêncio
+     * faria o workflow que depende dele falhar depois, de forma misteriosa.
+     */
+    @Bean(destroyMethod = "close")
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(name = "archflow.plugins.directory")
+    public br.com.archflow.plugin.loader.ArchflowPluginManager archflowPluginManager(
+            @Value("${archflow.plugins.directory:}") String pluginsDirectory) {
+        var manager = new br.com.archflow.plugin.loader.ArchflowPluginManager();
+        if (pluginsDirectory == null || pluginsDirectory.isBlank()) {
+            log.info("archflow.plugins.directory vazio — nenhum plugin externo carregado");
+            return manager;
+        }
+        log.warn("Carregando plugins de {} — jars de plugin executam código SEM SANDBOX "
+                + "com os privilégios desta JVM; só use jars confiáveis", pluginsDirectory);
+        java.util.List<String> loaded =
+                manager.loadFromDirectory(java.nio.file.Path.of(pluginsDirectory));
+        log.info("{} plugin(s) externo(s) carregado(s): {}", loaded.size(), loaded);
+        return manager;
+    }
+
     @Bean
     @ConditionalOnMissingBean
-    public br.com.archflow.plugin.api.catalog.ComponentCatalog componentCatalog() {
+    public br.com.archflow.plugin.api.catalog.ComponentCatalog componentCatalog(
+            org.springframework.beans.factory.ObjectProvider<
+                    br.com.archflow.plugin.loader.ArchflowPluginManager> pluginManager) {
+        br.com.archflow.plugin.api.catalog.ComponentCatalog catalog = seedBuiltIns();
+        // O manager mantém catálogo próprio; os componentes dele são copiados
+        // para o do app, que é o que o ComponentStep resolve.
+        var manager = pluginManager.getIfAvailable();
+        if (manager != null) {
+            int copied = 0;
+            for (var meta : manager.getCatalog().listComponents()) {
+                var component = manager.getCatalog().getComponent(meta.id()).orElse(null);
+                if (component != null) {
+                    catalog.register(component);
+                    copied++;
+                }
+            }
+            if (copied > 0) {
+                log.info("Component catalog: {} componente(s) de plugin externo registrado(s)", copied);
+            }
+        }
+        return catalog;
+    }
+
+    private br.com.archflow.plugin.api.catalog.ComponentCatalog seedBuiltIns() {
         // Dev-friendly default so the catalog is never null. Seeds built-in
         // plugins via reflection so they show up in the UI without
         // forcing a hard dependency loop — if a plugin jar is missing
