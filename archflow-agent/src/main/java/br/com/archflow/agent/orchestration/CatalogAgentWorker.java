@@ -31,10 +31,28 @@ public final class CatalogAgentWorker implements Worker<String, Object> {
     private final ComponentCatalog catalog;
     private final ExecutionContext context;
 
+    /**
+     * O contexto recebido é <b>recortado</b> por {@link SubAgentContext}: antes,
+     * cada sub-agente recebia o contexto do fluxo inteiro — toda variável, a
+     * saída de todo step anterior, a proposta de aprovação pendente e a conversa
+     * acumulada. A restrição de catálogo impedia o sub-agente de <em>chamar</em>
+     * o que não devia, mas não de <em>ler</em> o que não devia.
+     */
     public CatalogAgentWorker(ComponentQueryRouter router, ComponentCatalog catalog, ExecutionContext context) {
+        this(router, catalog, context, null);
+    }
+
+    /**
+     * @param allowedVariables allowlist fechada de variáveis para os sub-agentes;
+     *                         {@code null} aplica o recorte default (sem o
+     *                         namespace interno do motor)
+     */
+    public CatalogAgentWorker(ComponentQueryRouter router, ComponentCatalog catalog,
+                              ExecutionContext context,
+                              java.util.Collection<String> allowedVariables) {
         this.router = router;
         this.catalog = catalog;
-        this.context = context;
+        this.context = SubAgentContext.of(context, allowedVariables);
     }
 
     @Override
