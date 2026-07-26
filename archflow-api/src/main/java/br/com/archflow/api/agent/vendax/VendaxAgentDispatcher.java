@@ -106,8 +106,7 @@ public class VendaxAgentDispatcher {
     private VendaxResult runCs(VendaxInvoke invoke) {
         var client = vendax.clientFor(invoke.tenantId());
         McpAgentRunner.Result result = runner.run(invoke.tenantId(), CS_SYSTEM_PROMPT,
-                "clienteRef=" + nullSafe(invoke.customerRef())
-                        + "\nmensagem=" + nullSafe(invoke.text()),
+                "clienteRef=" + nullSafe(invoke.customerRef()) + "\n" + conversaDe(invoke),
                 client, ToolAccessPolicy.allowOnly(CS_TOOLS));
 
         String json = extractJson(result.finalText());
@@ -118,8 +117,9 @@ public class VendaxAgentDispatcher {
     }
 
     private static final String CS_SYSTEM_PROMPT = """
-            Você é o agente CS (Customer Success) do VendaX. Avalie o sentimento do CLIENTE na
-            mensagem recebida, no contexto do relacionamento dele com o vendedor.
+            Você é o agente CS (Customer Success) do VendaX. Avalie o sentimento do CLIENTE no
+            TRECHO DE CONVERSA recebido, não em uma frase isolada — o que importa é para onde a
+            conversa está indo, no contexto do relacionamento dele com o vendedor.
 
             Se a mensagem sugerir insatisfação com entrega, corte de itens ou atraso, use
             `obter_eventos_operacionais` para confirmar se houve um evento real antes de concluir —
@@ -127,7 +127,10 @@ public class VendaxAgentDispatcher {
 
             Responda APENAS com um JSON, sem texto em volta e sem cercas de código:
             {"score": <int -10..10>, "trend": "SUBINDO|ESTAVEL|CAINDO",
-             "tone": "<tom sugerido ao vendedor, em uma frase>", "bigCustomer": <true|false>}
+             "tone": "<orientação ao vendedor, UMA frase de no máximo 140 caracteres>",
+             "bigCustomer": <true|false>}
+
+            O tom aparece num selo acima da conversa, ao lado do score: precisa ser lido de relance.
 
             score negativo = insatisfação. Na dúvida, use 0 e trend ESTAVEL: um sentimento inventado
             aciona tarefa de crise à toa.
@@ -137,6 +140,44 @@ public class VendaxAgentDispatcher {
     private String modoEntrada(VendaxInvoke invoke) {
         return "TEXTO_CLIENTE";
     }
+
+    /**
+     * O trecho recente da conversa, como o CS precisa lê-lo.
+     *
+     * <p>O Core manda a janela em {@code payload.messages} (direção + texto) porque sentimento sobre
+     * uma frase solta não entende o que está acontecendo: "chegou?" é neutro sozinho e é
+     * impaciência logo depois de uma reclamação. Sem a janela — acionamento antigo, ou payload
+     * ausente — cai no texto da mensagem, para não deixar de avaliar.</p>
+     */
+    String conversaDe(VendaxInvoke invoke) {
+        if (invoke.payload() == null || invoke.payload().isBlank()) {
+            return "mensagem=" + nullSafe(invoke.text());
+        }
+        try {
+            var mensagens = MAPPER.readTree(invoke.payload()).path("messages");
+            if (!mensagens.isArray() || mensagens.isEmpty()) {
+                return "mensagem=" + nullSafe(invoke.text());
+            }
+            StringBuilder sb = new StringBuilder("conversa (mais antiga primeiro):");
+            for (var m : mensagens) {
+                String texto = m.path("text").asText("");
+                if (texto.isBlank()) {
+                    continue;
+                }
+                String quem = "INBOUND".equalsIgnoreCase(m.path("direction").asText())
+                        ? "cliente" : "vendedor";
+                sb.append("\n").append(quem).append(": ").append(texto);
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            log.warn("Janela de conversa ilegível (conv={}): {}",
+                    invoke.conversationId(), e.getMessage());
+            return "mensagem=" + nullSafe(invoke.text());
+        }
+    }
+
+    private static final com.fasterxml.jackson.databind.ObjectMapper MAPPER =
+            new com.fasterxml.jackson.databind.ObjectMapper();
 
     /** Extrai o primeiro objeto JSON do texto — o modelo às vezes embrulha em cerca de código. */
     static String extractJson(String text) {
