@@ -35,7 +35,7 @@ class VendaxAgentDispatcherTest {
     private static VendaxInvoke invoke(String agent) {
         return new VendaxInvoke("1.0", "tenant-1", "conv-1", agent, "msg-1",
                 "quero 2 caixas de arroz", "STRONG", "intencao-pedido", "trace-1", null,
-                "cliente-1", "vendedor-1");
+                "cliente-1", "vendedor-1", null);
     }
 
     static class CapturingSender extends VendaxResultSender {
