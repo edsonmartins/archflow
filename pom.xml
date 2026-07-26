@@ -53,6 +53,7 @@
         <module>archflow-brainsentry</module>
         <module>archflow-events-proto</module>
         <module>archflow-standalone</module>
+        <module>archflow-dsl</module>
     </modules>
 
     <dependencyManagement>

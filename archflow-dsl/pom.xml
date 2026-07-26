@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>br.com.archflow</groupId>
+        <artifactId>archflow</artifactId>
+        <version>1.0.0</version>
+    </parent>
+
+    <artifactId>archflow-dsl</artifactId>
+    <description>DSL Java para escrever workflows archflow em código, emitindo o documento canônico (JSON/YAML)</description>
+
+    <properties>
+        <!--
+          Módulo novo e pequeno, escrito com teste junto. O piso começa alto
+          porque a cobertura já nasce alta — ver o goal `check` no pom raiz.
+        -->
+        <jacoco.min.coverage>0.80</jacoco.min.coverage>
+    </properties>
+
+    <dependencies>
+        <!--
+          Só o modelo de domínio: a DSL precisa de StepType, e de mais nada do
+          runtime. Depender do motor (archflow-core/agent) ou do Spring aqui
+          tornaria impossível usar a DSL para apenas gerar um arquivo.
+        -->
+        <dependency>
+            <groupId>br.com.archflow</groupId>
+            <artifactId>archflow-model</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <version>2.17.0</version>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.dataformat</groupId>
+            <artifactId>jackson-dataformat-yaml</artifactId>
+            <version>2.17.0</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>
