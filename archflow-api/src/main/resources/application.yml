@@ -41,6 +41,16 @@ archflow:
     mcp:
       base-url: ${ARCHFLOW_VENDAX_MCP_URL:}
       service-token: ${ARCHFLOW_VENDAX_MCP_TOKEN:}
+    # Caminho de volta: o Core aciona o agente em POST /api/agents/invoke e o resultado é devolvido
+    # ao Core, assinado (HMAC-SHA256 sobre timestamp + "." + body). Vazio = o resultado é descartado
+    # com aviso, e a cotação que o agente acabou de produzir não chega ao vendedor.
+    core:
+      base-url: ${ARCHFLOW_VENDAX_CORE_URL:}
+      result-secret: ${ARCHFLOW_VENDAX_RESULT_SECRET:}
+    agent:
+      # Cada execução segura um LLM e várias chamadas MCP: uma rajada de mensagens espera na fila
+      # em vez de virar uma thread por mensagem.
+      threads: ${ARCHFLOW_VENDAX_AGENT_THREADS:4}
 
 logging:
   level:
