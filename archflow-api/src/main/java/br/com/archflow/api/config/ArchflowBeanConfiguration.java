@@ -503,14 +503,15 @@ public class ArchflowBeanConfiguration {
             br.com.archflow.engine.core.StateManager stateManager,
             br.com.archflow.api.web.workflow.WorkflowRuntimeStore runtimeStore,
             br.com.archflow.agent.metrics.MetricsCollector metricsCollector,
-            br.com.archflow.api.admin.observability.impl.TraceStoreRecorder traceStoreRecorder) {
+            br.com.archflow.api.admin.observability.impl.TraceStoreRecorder traceStoreRecorder,
+            @Value("${archflow.flow.strict-conditions:false}") boolean strictConditions) {
         // Registered before create(): the factory snapshots process-wide
         // listeners into the engine's composite lifecycle listener.
         br.com.archflow.engine.lifecycle.FlowLifecycleListeners.register(
                 new br.com.archflow.api.flow.StepRecordingListener(runtimeStore));
         return br.com.archflow.api.flow.FlowEngineFactory.create(
                 flowRepository, eventStreamRegistry, runningFlowsRegistry, stateManager,
-                metricsCollector, traceStoreRecorder, 16, 3_600_000L, 8);
+                metricsCollector, traceStoreRecorder, 16, 3_600_000L, 8, strictConditions);
     }
 
     /**

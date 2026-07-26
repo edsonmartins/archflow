@@ -51,7 +51,7 @@ public class DefaultFlowExecutor implements FlowExecutor {
     private final long stepTimeoutMs;
     /** Retry por step (null = sem retry, 1 tentativa). */
     private final br.com.archflow.agent.config.RetryConfig retryConfig;
-    private final ConditionEvaluator conditionEvaluator = new ConditionEvaluator();
+    private final ConditionEvaluator conditionEvaluator;
 
     public DefaultFlowExecutor(ClassLoader pluginClassLoader, MetricsCollector metricsCollector) {
         this(pluginClassLoader, metricsCollector, FlowLifecycleListener.NO_OP, DEFAULT_STEP_TIMEOUT_MS, null);
@@ -70,6 +70,19 @@ public class DefaultFlowExecutor implements FlowExecutor {
     public DefaultFlowExecutor(ClassLoader pluginClassLoader, MetricsCollector metricsCollector,
                                FlowLifecycleListener lifecycleListener, long stepTimeoutMs,
                                br.com.archflow.agent.config.RetryConfig retryConfig) {
+        this(pluginClassLoader, metricsCollector, lifecycleListener, stepTimeoutMs, retryConfig, false);
+    }
+
+    /**
+     * @param strictConditions quando {@code true}, uma condição de transição não
+     *                         avaliável BLOQUEIA o caminho em vez de liberá-lo —
+     *                         ver {@link ConditionEvaluator}
+     */
+    public DefaultFlowExecutor(ClassLoader pluginClassLoader, MetricsCollector metricsCollector,
+                               FlowLifecycleListener lifecycleListener, long stepTimeoutMs,
+                               br.com.archflow.agent.config.RetryConfig retryConfig,
+                               boolean strictConditions) {
+        this.conditionEvaluator = new ConditionEvaluator(strictConditions);
         this.pluginClassLoader = pluginClassLoader;
         this.metricsCollector = metricsCollector;
         this.lifecycleListener = lifecycleListener != null ? lifecycleListener : FlowLifecycleListener.NO_OP;

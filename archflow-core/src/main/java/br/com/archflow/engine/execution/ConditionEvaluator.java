@@ -2,7 +2,9 @@ package br.com.archflow.engine.execution;
 
 import br.com.archflow.model.engine.ExecutionContext;
 
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.logging.Logger;
@@ -22,10 +24,18 @@ import java.util.regex.Pattern;
  * travessia de mapas aninhados ({@code agent.confidence} → {@code get("agent")}
  * seguido de {@code Map.get("confidence")}).
  *
- * <p>Condição em branco segue a transição. Condição não avaliável também segue,
- * com warning — preserva o comportamento permissivo de fluxos legados; a
- * validação estática (DefaultFlowValidator) é o lugar de rejeitar expressões
- * malformadas.
+ * <p>Suporta composição booleana com {@code &&} e {@code ||}, com a precedência
+ * usual ({@code &&} liga mais forte) e curto-circuito. A divisão ignora
+ * ocorrências dentro de aspas, então {@code ${msg} == 'a && b'} continua sendo
+ * uma expressão só. <b>Não</b> há parênteses: a gramática é deliberadamente
+ * pequena, e uma condição que precise deles provavelmente devia ser um step.
+ *
+ * <p>Condição em branco segue a transição. Condição não avaliável segue com
+ * warning no modo default — comportamento permissivo herdado de fluxos legados,
+ * e uma armadilha para quem expressa política como condição: uma expressão com
+ * erro de digitação libera o caminho em vez de barrá-lo. Ligue o modo estrito
+ * ({@code archflow.flow.strict-conditions=true}) para que o não avaliável
+ * BLOQUEIE a transição.
  */
 public final class ConditionEvaluator {
 
@@ -38,6 +48,25 @@ public final class ConditionEvaluator {
     private static final Pattern PLACEHOLDER = Pattern.compile("^\\$\\{(.+)}$");
 
     /**
+     * Quando ligado, uma condição não avaliável <b>bloqueia</b> a transição em
+     * vez de segui-la.
+     *
+     * <p>O default permissivo preserva fluxos legados, mas é uma armadilha para
+     * qualquer política expressa como condição: uma expressão com erro de
+     * digitação libera o caminho em vez de barrá-lo. Quem usa condição como
+     * controle liga o modo estrito.
+     */
+    private final boolean strict;
+
+    public ConditionEvaluator() {
+        this(false);
+    }
+
+    public ConditionEvaluator(boolean strict) {
+        this.strict = strict;
+    }
+
+    /**
      * Checagem estática de boa-formação, para validação de fluxos (sem
      * contexto). Uma condição é malformada quando contém um operador mas
      * não casa com a gramática {@code operando op operando} — ex.:
@@ -48,6 +77,18 @@ public final class ConditionEvaluator {
             return true;
         }
         String expr = condition.trim();
+        // Expressão composta: cada operando precisa ser bem-formado por si.
+        try {
+            List<String> parts = splitTopLevel(expr, "||");
+            if (parts.size() == 1) {
+                parts = splitTopLevel(expr, "&&");
+            }
+            if (parts.size() > 1) {
+                return parts.stream().allMatch(part -> isWellFormed(part.trim()));
+            }
+        } catch (IllegalArgumentException malformed) {
+            return false;
+        }
         Matcher contains = CONTAINS.matcher(expr);
         if (contains.matches()) {
             return !contains.group(1).isBlank() && !contains.group(2).isBlank();
@@ -71,6 +112,11 @@ public final class ConditionEvaluator {
         try {
             return doEvaluate(condition.trim(), context);
         } catch (Exception e) {
+            if (strict) {
+                logger.warning("Condição não avaliável, transição BLOQUEADA (modo estrito): \""
+                        + condition + "\" (" + e.getMessage() + ")");
+                return false;
+            }
             logger.warning("Condição não avaliável, seguindo a transição: \""
                     + condition + "\" (" + e.getMessage() + ")");
             return true;
@@ -78,6 +124,27 @@ public final class ConditionEvaluator {
     }
 
     private boolean doEvaluate(String expr, ExecutionContext context) {
+        // Composição booleana antes de tudo: `||` liga menos que `&&`, então a
+        // divisão por `||` acontece primeiro (o nível de cima da árvore).
+        List<String> alternatives = splitTopLevel(expr, "||");
+        if (alternatives.size() > 1) {
+            for (String alternative : alternatives) {
+                if (doEvaluate(alternative.trim(), context)) {
+                    return true;   // curto-circuito
+                }
+            }
+            return false;
+        }
+        List<String> conjuncts = splitTopLevel(expr, "&&");
+        if (conjuncts.size() > 1) {
+            for (String conjunct : conjuncts) {
+                if (!doEvaluate(conjunct.trim(), context)) {
+                    return false;  // curto-circuito
+                }
+            }
+            return true;
+        }
+
         Matcher contains = CONTAINS.matcher(expr);
         if (contains.matches()) {
             Object left = resolve(contains.group(1), context);
@@ -93,6 +160,44 @@ public final class ConditionEvaluator {
         }
 
         return truthy(resolve(expr, context));
+    }
+
+    /**
+     * Divide por um operador booleano, ignorando ocorrências dentro de aspas.
+     *
+     * <p>Sem isso, uma condição como {@code ${msg} == 'a && b'} se partiria no
+     * meio do literal e viraria duas expressões sem sentido.
+     */
+    private static List<String> splitTopLevel(String expr, String operator) {
+        List<String> parts = new ArrayList<>();
+        int start = 0;
+        char quote = 0;
+        for (int i = 0; i < expr.length(); i++) {
+            char c = expr.charAt(i);
+            if (quote != 0) {
+                if (c == quote) {
+                    quote = 0;
+                }
+                continue;
+            }
+            if (c == '\'' || c == '"') {
+                quote = c;
+                continue;
+            }
+            if (expr.startsWith(operator, i)) {
+                parts.add(expr.substring(start, i));
+                i += operator.length() - 1;
+                start = i + 1;
+            }
+        }
+        parts.add(expr.substring(start));
+        // Um operador solto no fim ("a &&") deixaria um pedaço vazio: é
+        // expressão malformada, e tratá-la como parte vazia a faria passar
+        // silenciosamente.
+        if (parts.size() > 1 && parts.stream().anyMatch(String::isBlank)) {
+            throw new IllegalArgumentException("Expressão malformada em torno de " + operator);
+        }
+        return parts;
     }
 
     private Object resolve(String token, ExecutionContext context) {

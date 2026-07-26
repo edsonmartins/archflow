@@ -37,6 +37,10 @@ import java.util.concurrent.Executors;
  */
 public final class FlowEngineFactory {
 
+    /** Mesmo default do {@link DefaultFlowExecutor}; explicitado aqui porque a
+     *  sobrecarga com {@code strictConditions} precisa passar a lista completa. */
+    private static final long DEFAULT_STEP_TIMEOUT_MS = 10 * 60 * 1000L;
+
     private FlowEngineFactory() {}
 
     public static FlowEngine create(FlowRepository flowRepository) {
@@ -80,6 +84,22 @@ public final class FlowEngineFactory {
                                     MetricsCollector metricsCollector,
                                     TraceRecorder traceRecorder,
                                     int maxConcurrentFlows, long flowTimeoutMs, int maxParallelSteps) {
+        return create(flowRepository, streamRegistry, runningFlows, stateManager, metricsCollector,
+                traceRecorder, maxConcurrentFlows, flowTimeoutMs, maxParallelSteps, false);
+    }
+
+    /**
+     * @param strictConditions quando {@code true}, uma condição de transição não
+     *                         avaliável BLOQUEIA o caminho em vez de liberá-lo
+     */
+    public static FlowEngine create(FlowRepository flowRepository,
+                                    EventStreamRegistry streamRegistry,
+                                    RunningFlowsRegistry runningFlows,
+                                    StateManager stateManager,
+                                    MetricsCollector metricsCollector,
+                                    TraceRecorder traceRecorder,
+                                    int maxConcurrentFlows, long flowTimeoutMs, int maxParallelSteps,
+                                    boolean strictConditions) {
         ExecutorService executorService = Executors.newVirtualThreadPerTaskExecutor();
         MetricsCollector metrics = metricsCollector != null
                 ? metricsCollector
@@ -102,7 +122,8 @@ public final class FlowEngineFactory {
         lifecycle.add(new CheckpointingLifecycleListener(effectiveStateManager));
 
         DefaultFlowExecutor flowExecutor = new DefaultFlowExecutor(
-                Thread.currentThread().getContextClassLoader(), metrics, lifecycle);
+                Thread.currentThread().getContextClassLoader(), metrics, lifecycle,
+                DEFAULT_STEP_TIMEOUT_MS, null, strictConditions);
         DefaultParallelExecutor parallelExecutor =
                 new DefaultParallelExecutor(executorService, maxParallelSteps);
         DefaultExecutionManager executionManager =
