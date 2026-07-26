@@ -12,9 +12,12 @@
 
     <artifactId>archflow-model</artifactId>
     <name>archflow-model</name>
+    <url>https://github.com/edsonmartins/archflow/tree/main/archflow-model</url>
     <description>Módulo de modelos de domínio e DTOs do archflow</description>
 
     <properties>
+        <!-- Publicado no Maven Central: é a única dependência do archflow-dsl. -->
+        <archflow.publish.skip>false</archflow.publish.skip>
         <jacoco.min.coverage>0.75</jacoco.min.coverage>
         <jakarta.validation.version>3.0.2</jakarta.validation.version>
         <slf4j.version>2.0.9</slf4j.version>

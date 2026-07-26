@@ -87,6 +87,18 @@
             <artifactId>archflow-standalone</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <!--
+          Escopo de teste, de propósito: o runtime não precisa da DSL para nada.
+          Ela entra aqui só para que os testes de conformidade rodem o documento
+          que a DSL emite contra o desserializador de verdade — é o que impede a
+          DSL de virar uma terceira cópia do schema que deriva em silêncio.
+        -->
+        <dependency>
+            <groupId>br.com.archflow</groupId>
+            <artifactId>archflow-dsl</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
         <!-- Built-in plugins so the CatalogController can surface them in the UI. -->
         <dependency>
             <groupId>br.com.archflow.plugins</groupId>

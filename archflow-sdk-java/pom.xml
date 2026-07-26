@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>br.com.archflow</groupId>
+        <artifactId>archflow</artifactId>
+        <version>1.0.0</version>
+    </parent>
+
+    <artifactId>archflow-sdk-java</artifactId>
+    <name>archflow-sdk-java</name>
+    <url>https://github.com/edsonmartins/archflow/tree/main/archflow-sdk-java</url>
+    <description>SDK Java: publica e executa no servidor archflow os workflows escritos na DSL</description>
+
+    <properties>
+        <!--
+          Publicado no Maven Central — com uma ressalva registrada aqui porque
+          ela é consequência de uma decisão de escopo, não um descuido:
+          archflow-standalone NÃO é publicado (ele vai ganhar um instalador
+          próprio). Como a dependência é optional, ela não quebra a resolução de
+          quem consome o SDK do Central, mas o EmbeddedWorkflowRunner não
+          funciona lá — só para quem constrói o projeto do fonte. O próprio
+          runner diz isso ao falhar, e o RELEASING.md repete.
+        -->
+        <archflow.publish.skip>false</archflow.publish.skip>
+        <jacoco.min.coverage>0.70</jacoco.min.coverage>
+    </properties>
+
+    <dependencies>
+        <!--
+          A DSL escreve o documento; o SDK o leva ao servidor. A separação é
+          deliberada: quem só quer gerar um arquivo YAML não precisa de cliente
+          HTTP, e a DSL continua sem nada de rede.
+        -->
+        <dependency>
+            <groupId>br.com.archflow</groupId>
+            <artifactId>archflow-dsl</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <version>2.17.0</version>
+        </dependency>
+        <!--
+          Nenhuma biblioteca HTTP de terceiro: o java.net.http.HttpClient do JDK
+          basta, e um SDK que arrasta OkHttp/Apache para dentro do classpath de
+          quem o usa colide com a versão que a aplicação já tem.
+        -->
+
+        <!--
+          OPCIONAL, e é o ponto: só o EmbeddedWorkflowRunner precisa disto, e
+          ele traz o motor inteiro junto (agent + core + events-proto). Quem usa
+          o SDK apenas para escrever um YAML ou falar com o servidor por REST
+          não deve herdar esse peso — optional=true impede a propagação
+          transitiva. Quem quiser executar embarcado declara archflow-standalone
+          explicitamente; sem ele, EmbeddedWorkflowRunner.create() falha com uma
+          mensagem dizendo exatamente isso, em vez de um NoClassDefFoundError.
+        -->
+        <dependency>
+            <groupId>br.com.archflow</groupId>
+            <artifactId>archflow-standalone</artifactId>
+            <version>${project.version}</version>
+            <optional>true</optional>
+        </dependency>
+
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>
