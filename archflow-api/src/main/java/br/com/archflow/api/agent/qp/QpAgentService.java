@@ -56,7 +56,25 @@ public class QpAgentService {
             String vendedorRef,
             String modoEntrada,   // DITADO | TEXTO_CLIENTE | IMAGEM | PDF | SELECAO
             String entrada,       // texto normalizado (multimodal → texto é do ArchFlow)
-            List<String> itensJaNoPedido) {
+            List<String> itensJaNoPedido,
+
+            /**
+             * Prompt vindo do Core (RFC-013), já composto com os slots do tenant e com a chave de
+             * idempotência dentro. Nulo = usa o prompt embutido.
+             */
+            String systemPromptDoCore,
+
+            /**
+             * Chave de idempotência decidida pelo Core. Gerar aqui significaria que reprocessar o
+             * mesmo invoke firma duas cotações distintas — idempotência é do domínio do Core.
+             */
+            String chaveIdempotenciaDoCore) {
+
+        /** Compat: chamadas anteriores à RFC-013, sem definição nem chave. */
+        public QpRequest(String tenantId, String clienteRef, String vendedorRef, String modoEntrada,
+                         String entrada, List<String> itensJaNoPedido) {
+            this(tenantId, clienteRef, vendedorRef, modoEntrada, entrada, itensJaNoPedido, null, null);
+        }
     }
 
     public record QpResult(
@@ -70,11 +88,19 @@ public class QpAgentService {
         String tenantId = request.tenantId() != null ? request.tenantId() : "__default__";
         McpClient client = vendax.clientFor(tenantId);
 
-        // chaveIdempotencia gerada UMA vez e reusada em firmar_cotacao/enviar_pedido
-        // (idempotência do Core sobre a tupla item/qtd/condição).
-        String chaveIdempotencia = "qp-" + UUID.randomUUID();
+        // chaveIdempotencia usada UMA vez e reusada em firmar_cotacao/enviar_pedido (idempotência do
+        // Core sobre a tupla item/qtd/condição). Vinda do Core quando ele a decidiu — gerar aqui faria
+        // um reprocessamento do mesmo invoke firmar duas cotações distintas.
+        String chaveIdempotencia = request.chaveIdempotenciaDoCore() != null
+                && !request.chaveIdempotenciaDoCore().isBlank()
+                ? request.chaveIdempotenciaDoCore()
+                : "qp-" + UUID.randomUUID();
 
-        String systemPrompt = buildSystemPrompt(request, chaveIdempotencia);
+        // O prompt do Core já vem com a chave dentro (RFC-013); o embutido a interpola aqui.
+        String systemPrompt = request.systemPromptDoCore() != null
+                && !request.systemPromptDoCore().isBlank()
+                ? request.systemPromptDoCore()
+                : buildSystemPrompt(request, chaveIdempotencia);
         String userMessage = buildUserMessage(request);
 
         McpAgentRunner.Result result =

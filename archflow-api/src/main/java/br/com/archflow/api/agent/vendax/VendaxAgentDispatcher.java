@@ -10,6 +10,8 @@ import org.slf4j.LoggerFactory;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Executa o agente que o VendaX Core pediu e devolve o resultado.
@@ -84,9 +86,13 @@ public class VendaxAgentDispatcher {
     }
 
     private VendaxResult runQp(VendaxInvoke invoke) {
+        var def = invoke.definicao();
         QpAgentService.QpResult qp = qpAgent.quote(new QpAgentService.QpRequest(
                 invoke.tenantId(), invoke.customerRef(), invoke.vendorRef(),
-                modoEntrada(invoke), invoke.text(), List.of()));
+                modoEntrada(invoke), invoke.text(), List.of(),
+                def != null && def.temPrompt() ? def.systemPrompt() : null,
+                // A chave que o Core embutiu no prompt tem de ser a mesma que o resultado carrega.
+                def != null ? chaveDe(def) : null));
 
         if (qp.quote() == null || qp.quote().isBlank()) {
             // O agente rodou mas não chegou a cotar (pediu confirmação, não achou o SKU). Não é
@@ -105,9 +111,10 @@ public class VendaxAgentDispatcher {
      */
     private VendaxResult runCs(VendaxInvoke invoke) {
         var client = vendax.clientFor(invoke.tenantId());
-        McpAgentRunner.Result result = runner.run(invoke.tenantId(), CS_SYSTEM_PROMPT,
+        McpAgentRunner.Result result = runner.run(invoke.tenantId(),
+                promptDe(invoke, CS_SYSTEM_PROMPT),
                 "clienteRef=" + nullSafe(invoke.customerRef()) + "\n" + conversaDe(invoke),
-                client, ToolAccessPolicy.allowOnly(CS_TOOLS));
+                client, politicaDe(invoke, CS_TOOLS));
 
         String json = extractJson(result.finalText());
         if (json == null) {
@@ -178,6 +185,48 @@ public class VendaxAgentDispatcher {
 
     private static final com.fasterxml.jackson.databind.ObjectMapper MAPPER =
             new com.fasterxml.jackson.databind.ObjectMapper();
+
+    /**
+     * O prompt que vai rodar: o do Core quando ele mandou (RFC-013), senão o embutido.
+     *
+     * <p>O fallback existe para a migração ser reversível: se a skill sair do ar ou a composição
+     * falhar, o agente continua rodando com o comportamento que já rodava — em vez de parar.</p>
+     */
+    private String promptDe(VendaxInvoke invoke, String embutido) {
+        var def = invoke.definicao();
+        if (def != null && def.temPrompt()) {
+            log.debug("Agente {} usando definição do Core ({})", invoke.agent(), def.versao());
+            return def.systemPrompt();
+        }
+        return embutido;
+    }
+
+    /**
+     * A chave de idempotência que o Core embutiu no prompt do QP.
+     *
+     * <p>Ela está dentro do texto (`chaveIdempotencia="qp-…"`), porque é o modelo que a repassa às
+     * tools. Extrair aqui garante que o resultado devolvido ao Core carregue a mesma chave — sem
+     * isso, o Core não consegue correlacionar a cotação firmada com o invoke que a pediu.</p>
+     */
+    static String chaveDe(DefinicaoDeAgente def) {
+        if (!def.temPrompt()) {
+            return null;
+        }
+        Matcher m = CHAVE_NO_PROMPT.matcher(def.systemPrompt());
+        return m.find() ? m.group(1) : null;
+    }
+
+    private static final Pattern CHAVE_NO_PROMPT =
+            Pattern.compile("chaveIdempotencia=\"([^\"]+)\"");
+
+    /** A allowlist do Core, quando veio. O tenant não amplia — quem declara é a skill. */
+    private ToolAccessPolicy politicaDe(VendaxInvoke invoke, Set<String> embutida) {
+        var def = invoke.definicao();
+        if (def != null && def.temTools()) {
+            return ToolAccessPolicy.allowOnly(Set.copyOf(def.tools()));
+        }
+        return ToolAccessPolicy.allowOnly(embutida);
+    }
 
     /** Extrai o primeiro objeto JSON do texto — o modelo às vezes embrulha em cerca de código. */
     static String extractJson(String text) {
