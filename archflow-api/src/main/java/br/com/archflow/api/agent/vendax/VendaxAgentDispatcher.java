@@ -127,7 +127,10 @@ public class VendaxAgentDispatcher {
 
             Responda APENAS com um JSON, sem texto em volta e sem cercas de código:
             {"score": <int -10..10>, "trend": "SUBINDO|ESTAVEL|CAINDO",
-             "tone": "<tom sugerido ao vendedor, em uma frase>", "bigCustomer": <true|false>}
+             "tone": "<orientação ao vendedor, UMA frase de no máximo 140 caracteres>",
+             "bigCustomer": <true|false>}
+
+            O tom aparece num selo acima da conversa, ao lado do score: precisa ser lido de relance.
 
             score negativo = insatisfação. Na dúvida, use 0 e trend ESTAVEL: um sentimento inventado
             aciona tarefa de crise à toa.
