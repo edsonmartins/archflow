@@ -51,7 +51,8 @@ class MigrationsApplyCleanlyTest {
             "chat_messages",     // V3_1
             "users",             // V5_1
             "agent_invocations", // V6_2
-            "global_config");    // V6_4
+            "global_config",     // V6_4
+            "mcp_agent_states"); // V6_5 — laços de agente suspensos
 
     private static DataSource dataSource() {
         PGSimpleDataSource ds = new PGSimpleDataSource();

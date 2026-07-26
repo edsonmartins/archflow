@@ -166,6 +166,20 @@ public class JdbcPersistenceConfiguration {
         };
     }
 
+    /**
+     * Laços de tool-calling suspensos, duráveis (migration V6_5).
+     *
+     * <p>O default em memória de {@code ArchflowBeanConfiguration} serve dev; em
+     * produção um laço suspenso num store volátil daria uma pausa que não
+     * sobrevive a restart — o oposto do motivo de suspender.
+     */
+    @Bean
+    public br.com.archflow.api.agent.mcp.McpAgentStateStore mcpAgentStateStore(DataSource dataSource) {
+        log.info("JDBC persistence ativo: McpAgentStateStore durável "
+                + "(laço de agente suspenso sobrevive a restart)");
+        return new br.com.archflow.api.agent.mcp.JdbcMcpAgentStateStore(dataSource);
+    }
+
     @Bean
     public br.com.archflow.conversation.state.SuspendedConversationStore suspendedConversationStore(
             DataSource dataSource) {

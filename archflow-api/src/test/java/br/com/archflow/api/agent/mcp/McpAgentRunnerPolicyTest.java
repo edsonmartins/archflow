@@ -465,8 +465,10 @@ class McpAgentRunnerPolicyTest {
     void policyIsRequired() {
         ScriptedChatModel model = new ScriptedChatModel(List.of(AiMessage.from("x")));
 
+        // Cast explícito: há duas sobrecargas de run com quinto parâmetro
+        // (ToolAccessPolicy e Options), então um null literal é ambíguo.
         assertThatThrownBy(() -> runnerFor(model)
-                .run("acme", "sys", "user", new RecordingMcpClient(), null))
+                .run("acme", "sys", "user", new RecordingMcpClient(), (ToolAccessPolicy) null))
                 .isInstanceOf(NullPointerException.class)
                 .hasMessageContaining("allowAll");
     }

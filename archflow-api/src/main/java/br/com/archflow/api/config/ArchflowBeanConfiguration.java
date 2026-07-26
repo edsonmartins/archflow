@@ -989,11 +989,28 @@ public class ArchflowBeanConfiguration {
             br.com.archflow.langchain4j.provider.LLMConfigResolver llmConfigResolver,
             br.com.archflow.model.config.ResolvedLLMConfig platformDefaultLLMConfig,
             br.com.archflow.agent.metrics.MetricsCollector metricsCollector,
+            br.com.archflow.api.agent.mcp.McpAgentStateStore mcpAgentStateStore,
             @Value("${archflow.agent.tool-catalog.warn-tokens:4000}") int catalogWarnTokens) {
         // Mesmo coletor do engine e do ObservabilityService: latência e taxa de
         // falha por tool aparecem junto das métricas de fluxo, não num silo.
         return new br.com.archflow.api.agent.mcp.McpAgentRunner(
-                llmConfigResolver, platformDefaultLLMConfig, metricsCollector, catalogWarnTokens);
+                llmConfigResolver, platformDefaultLLMConfig, metricsCollector, catalogWarnTokens,
+                mcpAgentStateStore);
+    }
+
+    /**
+     * Store dos laços de tool-calling suspensos aguardando decisão humana.
+     *
+     * <p>Em memória por default (dev). O durável vive em
+     * {@link JdbcPersistenceConfiguration} — e importa que seja o durável:
+     * suspender um laço num store volátil dá uma pausa que não sobrevive a
+     * restart, que é justamente o único motivo de suspender.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(name = JDBC_ENABLED, havingValue = "false", matchIfMissing = true)
+    public br.com.archflow.api.agent.mcp.McpAgentStateStore mcpAgentStateStore() {
+        return new br.com.archflow.api.agent.mcp.InMemoryMcpAgentStateStore();
     }
 
     /** Agente QP: orquestra as tools do VendaX Core sobre o loop nativo. */

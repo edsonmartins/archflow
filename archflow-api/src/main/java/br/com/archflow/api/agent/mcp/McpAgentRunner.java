@@ -2,6 +2,7 @@ package br.com.archflow.api.agent.mcp;
 
 import br.com.archflow.agent.metrics.MetricsCollector;
 import br.com.archflow.api.trust.UntrustedContentFence;
+import br.com.archflow.langchain4j.core.memory.ChatMessageCodec;
 import br.com.archflow.langchain4j.mcp.McpClient;
 import br.com.archflow.langchain4j.mcp.McpModel;
 import br.com.archflow.langchain4j.provider.LLMConfigResolver;
@@ -52,6 +53,22 @@ import java.util.Objects;
  * ganha a regra que diz ao modelo para tratar o que está cercado como dado.
  * Sem isso, uma linha de log com "ignore as instruções anteriores" chega ao
  * modelo com o mesmo status da instrução do operador.
+ *
+ * <h2>Gate humano dentro do raciocínio</h2>
+ * A {@link ToolApprovalPolicy} pode exigir decisão humana para uma tool. Quando
+ * exige, o laço <b>suspende antes de executá-la</b> — pedir aprovação depois de
+ * rodar a tool não é aprovação, é notificação — persiste o
+ * {@link McpAgentState} no {@link McpAgentStateStore} e devolve um
+ * {@link Result} suspenso. {@link #resume} continua de onde parou.
+ *
+ * <p>Isto era o limite estrutural do runtime: o gate humano existia apenas como
+ * <em>aresta do grafo</em>, então dava para aprovar entre passos, não no meio de
+ * uma conversa — que é onde uma remediação de fato é proposta. O transcript
+ * vivia em heap e um crash perdia o raciocínio inteiro.
+ *
+ * <p>O {@link McpAgentState} é a fronteira de durabilidade: é o que o store
+ * persiste, e é exatamente o que um orquestrador durável externo persistiria no
+ * lugar dele — adotar um depois troca quem guarda o estado, não o laço.
  */
 public class McpAgentRunner {
 
@@ -62,6 +79,7 @@ public class McpAgentRunner {
     private final ResolvedLLMConfig platformDefault;
     private final MetricsCollector metrics;
     private final int catalogWarnTokens;
+    private final McpAgentStateStore stateStore;
     private final ObjectMapper mapper = new ObjectMapper();
 
     public McpAgentRunner(LLMConfigResolver llmConfigResolver, ResolvedLLMConfig platformDefault) {
@@ -73,19 +91,31 @@ public class McpAgentRunner {
         this(llmConfigResolver, platformDefault, metrics, 0);
     }
 
+    public McpAgentRunner(LLMConfigResolver llmConfigResolver, ResolvedLLMConfig platformDefault,
+                          MetricsCollector metrics, int catalogWarnTokens) {
+        this(llmConfigResolver, platformDefault, metrics, catalogWarnTokens, null);
+    }
+
     /**
      * @param metrics           coletor compartilhado com o engine; {@code null}
      *                          desliga a instrumentação
      * @param catalogWarnTokens acima disto, o catálogo de tools gera aviso com os
      *                          maiores contribuintes; {@code 0} desliga o aviso
      *                          (a medição continua)
+     * @param stateStore        onde o laço suspenso é persistido. {@code null}
+     *                          desabilita a suspensão para aprovação — suspender
+     *                          sem store daria uma pausa que não sobrevive a
+     *                          restart, que é justamente o único motivo de
+     *                          suspender.
      */
     public McpAgentRunner(LLMConfigResolver llmConfigResolver, ResolvedLLMConfig platformDefault,
-                          MetricsCollector metrics, int catalogWarnTokens) {
+                          MetricsCollector metrics, int catalogWarnTokens,
+                          McpAgentStateStore stateStore) {
         this.llmConfigResolver = llmConfigResolver;
         this.platformDefault = platformDefault;
         this.metrics = metrics;
         this.catalogWarnTokens = Math.max(0, catalogWarnTokens);
+        this.stateStore = stateStore;
     }
 
     /**
@@ -100,8 +130,36 @@ public class McpAgentRunner {
                            boolean isError, ToolTrust trust) {
     }
 
-    /** Resultado do loop: texto final do assistente + as tools executadas na ordem. */
-    public record Result(String finalText, List<ToolCall> toolCalls) {
+    /**
+     * Resultado do loop: texto final do assistente + as tools executadas na ordem.
+     *
+     * <p>{@code pendingApproval} não-nulo significa que o laço <b>suspendeu</b>
+     * antes de executar uma tool e o estado foi persistido: o chamador precisa
+     * levar a decisão a um humano e depois chamar {@link #resume}. Tratar um
+     * resultado suspenso como final entregaria ao usuário uma resposta parcial
+     * como se fosse a conclusão.
+     */
+    public record Result(String finalText, List<ToolCall> toolCalls,
+                         McpAgentState.PendingApproval pendingApproval) {
+
+        public Result(String finalText, List<ToolCall> toolCalls) {
+            this(finalText, toolCalls, null);
+        }
+
+        static Result finished(String finalText, List<ToolCall> toolCalls) {
+            return new Result(finalText, List.copyOf(toolCalls), null);
+        }
+
+        static Result suspended(String finalText, List<ToolCall> toolCalls,
+                                McpAgentState.PendingApproval pending) {
+            return new Result(finalText, List.copyOf(toolCalls), pending);
+        }
+
+        /** {@code true} quando o laço parou esperando uma decisão humana. */
+        public boolean isSuspended() {
+            return pendingApproval != null;
+        }
+
         /** Última chamada (bem-sucedida) da tool de nome {@code name}, se houver. */
         public ToolCall lastSuccessfulCall(String name) {
             ToolCall found = null;
@@ -129,117 +187,369 @@ public class McpAgentRunner {
     public Result run(String tenantId, String systemPrompt, String userMessage,
                       McpClient client, ToolAccessPolicy policy, ToolTrustPolicy trustPolicy,
                       int maxIterations) {
-        Objects.requireNonNull(policy, "policy é obrigatória — use ToolAccessPolicy.allowAll() "
-                + "para declarar explicitamente que o agente pode usar todas as tools do server");
-        Objects.requireNonNull(trustPolicy, "trustPolicy é obrigatória");
+        return run(tenantId, systemPrompt, userMessage, client,
+                new Options(policy, trustPolicy, ToolApprovalPolicy.none(), maxIterations));
+    }
 
+    /** Executa o laço com as três políticas explícitas. */
+    public Result run(String tenantId, String systemPrompt, String userMessage,
+                      McpClient client, Options options) {
+        Objects.requireNonNull(options, "options é obrigatória").validate();
+
+        Session session = new Session(
+                java.util.UUID.randomUUID().toString(),
+                tenantId,
+                systemPrompt,
+                UntrustedContentFence.create());
+        // A regra sobre a cerca vai na mensagem de SISTEMA — o lado confiável da
+        // conversa. Anunciá-la de dentro do próprio conteúdo cercado seria pedir
+        // ao dado que se autodeclare inofensivo.
+        session.messages.add(SystemMessage.from(systemPrompt + "\n" + session.fence.preamble()));
+        session.messages.add(UserMessage.from(userMessage));
+
+        return drive(session, client, options);
+    }
+
+    /**
+     * Retoma um laço suspenso, aplicando a decisão humana.
+     *
+     * <p>É o outro lado do gate <em>dentro</em> do raciocínio: o laço parou antes
+     * de executar a tool, o estado foi persistido e este método continua de onde
+     * parou. O {@code client} vem do chamador porque é ele que sabe a qual MCP
+     * server esta execução pertence — o runner é agnóstico de server.
+     *
+     * @param requestId        id da solicitação que o decisor referencia
+     * @param approved         {@code false} devolve a recusa ao modelo em vez de
+     *                         executar; o modelo pode reagir (propor outra coisa)
+     * @param editedArguments  argumentos ajustados pelo humano, ou {@code null}
+     *                         para usar os que o modelo emitiu
+     * @throws java.util.NoSuchElementException se o id é desconhecido
+     */
+    public Result resume(String requestId, boolean approved,
+                         Map<String, Object> editedArguments,
+                         McpClient client, Options options) {
+        Objects.requireNonNull(options, "options é obrigatória").validate();
+        McpAgentState state = requireStore().findByRequestId(requestId)
+                .orElseThrow(() -> new java.util.NoSuchElementException(
+                        "Nenhum laço suspenso para a aprovação " + requestId));
+
+        Session session = Session.from(state);
+        McpAgentState.PendingApproval pending = state.pending();
+        Map<String, Object> args = editedArguments != null ? editedArguments : pending.arguments();
+
+        if (approved) {
+            // A política de acesso é reconferida na retomada: a autorização pode
+            // ter sido revogada entre a suspensão e a decisão.
+            executeAndAppend(session, client, options, pending.toolName(),
+                    pending.toolCallId(), args);
+        } else {
+            log.info("Aprovação {} recusada; devolvendo a recusa ao modelo (run={})",
+                    requestId, session.runId);
+            appendToolResult(session, pending.toolCallId(), pending.toolName(),
+                    "RECUSADO por decisão humana: a chamada de " + pending.toolName()
+                            + " não foi executada.",
+                    true, ToolTrust.TRUSTED);
+        }
+
+        // O estado suspenso deixa de existir: a decisão foi consumida. Se o laço
+        // suspender de novo, um estado novo é gravado com outro requestId.
+        requireStore().delete(session.runId);
+        return drive(session, client, options);
+    }
+
+    // ── Laço ─────────────────────────────────────────────────────────
+
+    /**
+     * Conduz o laço até uma resposta final, uma suspensão ou o teto de iterações.
+     * Compartilhado por {@link #run} e {@link #resume} — foi extraído justamente
+     * para que a retomada não fosse uma segunda implementação do mesmo laço, que
+     * divergiria com o tempo.
+     */
+    private Result drive(Session session, McpClient client, Options options) {
         ChatModel model = llmConfigResolver.resolveModel(
-                LLMResolutionRequest.builder(platformDefault).tenantId(tenantId).build());
+                LLMResolutionRequest.builder(platformDefault).tenantId(session.tenantId).build());
 
         List<ToolSpecification> tools;
         // Schemas guardados por nome: o mesmo contrato que descrevemos ao modelo
         // é o que conferimos na volta.
         Map<String, Map<String, Object>> schemas = new HashMap<>();
         try {
-            List<McpModel.Tool> allowed = allowedTools(client.listTools().get(), policy, tenantId);
+            List<McpModel.Tool> allowed =
+                    allowedTools(client.listTools().get(), options.access(), session.tenantId);
             allowed.forEach(t -> schemas.put(t.name(), t.inputSchema()));
-            accountForCatalog(allowed, tenantId);
+            accountForCatalog(allowed, session.tenantId);
             tools = McpToolSpecifications.from(allowed);
         } catch (Exception e) {
             throw new RuntimeException("Falha ao listar tools do MCP server: " + e.getMessage(), e);
         }
 
-        // Nonce por execução: o marcador de fechamento não pode ser previsto por
-        // quem escreveu o conteúdo que a tool vai devolver.
-        UntrustedContentFence fence = UntrustedContentFence.create();
-
-        List<ChatMessage> messages = new ArrayList<>();
-        // A regra sobre a cerca vai na mensagem de SISTEMA — o lado confiável da
-        // conversa. Anunciá-la de dentro do próprio conteúdo cercado seria pedir
-        // ao dado que se autodeclare inofensivo.
-        messages.add(SystemMessage.from(systemPrompt + "\n" + fence.preamble()));
-        messages.add(UserMessage.from(userMessage));
-        List<ToolCall> toolCalls = new ArrayList<>();
-        String lastText = "";
-
-        for (int i = 1; i <= maxIterations; i++) {
+        while (session.iteration < options.maxIterations()) {
+            session.iteration++;
             ChatResponse response = model.chat(ChatRequest.builder()
-                    .messages(messages)
+                    .messages(session.messages)
                     .toolSpecifications(tools)
                     .build());
             recordTurn(response);
             AiMessage ai = response.aiMessage();
-            messages.add(ai);
-            lastText = ai.text() != null ? ai.text() : lastText;
+            session.messages.add(ai);
+            if (ai.text() != null) {
+                session.lastText = ai.text();
+            }
 
             if (!ai.hasToolExecutionRequests()) {
-                return new Result(lastText, toolCalls);
+                return Result.finished(session.lastText, session.toolCalls);
             }
 
             for (ToolExecutionRequest req : ai.toolExecutionRequests()) {
-                long startedAt = System.nanoTime();
-                Map<String, Object> args = Map.of();
-                String resultText;
-                boolean isError = true;
-                // Texto de erro é nosso, não do server: não é conteúdo de
-                // terceiro e não entra na cerca. Só o payload de uma execução
-                // bem-sucedida é que carrega a marca da política.
-                ToolTrust trust = ToolTrust.TRUSTED;
-
-                if (!policy.isAllowed(req.name())) {
-                    // Segunda checagem da política: o catálogo enviado ao modelo já
-                    // estava filtrado, mas um modelo pode emitir um nome que não
-                    // estava lá. A tool NÃO é executada.
-                    resultText = "ERRO: a tool '" + req.name()
-                            + "' não está autorizada para este agente.";
-                    log.warn("Tool '{}' negada pela política de acesso (tenant={})",
-                            req.name(), tenantId);
-                } else {
-                    try {
-                        args = parseArguments(req.arguments());
-                        // JSON bem formado e errado (campo obrigatório ausente,
-                        // número como string, valor fora do enum) chegava à tool
-                        // e virava erro do server — ou execução com semântica
-                        // diferente da pretendida.
-                        List<String> violations =
-                                ToolArgumentValidator.validate(schemas.get(req.name()), args);
-                        if (!violations.isEmpty()) {
-                            throw new MalformedToolArgumentsException(String.join("; ", violations));
-                        }
-                        McpModel.ToolResult tr = client.callTool(
-                                new McpModel.ToolArguments(req.name(), args)).get();
-                        resultText = textOf(tr);
-                        isError = tr.isError();
-                        if (!isError) {
-                            trust = trustPolicy.trustOf(req.name());
-                        }
-                    } catch (MalformedToolArgumentsException e) {
-                        // Antes: argumentos ilegíveis viravam Map.of() e a tool era
-                        // executada assim mesmo. Agora a tool não roda e o modelo
-                        // recebe o erro — específico o bastante para ele corrigir
-                        // no turno seguinte.
-                        resultText = "ERRO: argumentos inválidos para a tool " + req.name()
-                                + " (" + e.getMessage() + "). Corrija e repita a chamada.";
-                        log.warn("Argumentos inválidos para a tool MCP {}: {}",
-                                req.name(), e.getMessage());
-                    } catch (Exception e) {
-                        resultText = "ERRO ao executar a tool " + req.name() + ": " + e.getMessage();
-                        log.warn("Falha na tool MCP {}: {}", req.name(), e.getMessage());
-                    }
+                // Gate humano: suspende ANTES de executar. Pedir aprovação depois
+                // de rodar a tool não é aprovação, é notificação.
+                if (options.approval().requiresApproval(req.name())
+                        && options.access().isAllowed(req.name())) {
+                    return suspend(session, req, schemas);
                 }
-
-                recordToolCall(req.name(), startedAt, !isError);
-                // O chamador recebe o payload cru; o modelo recebe o cercado.
-                toolCalls.add(new ToolCall(req.name(), args, resultText, isError, trust));
-                String forModel = trust == ToolTrust.UNTRUSTED
-                        ? fence.wrap(req.name(), resultText)
-                        : resultText;
-                messages.add(ToolExecutionResultMessage.from(req, forModel));
+                ParsedArguments parsed = parseAndValidate(req, schemas);
+                if (!parsed.valid()) {
+                    // A tool NÃO roda; o modelo recebe o motivo exato e pode
+                    // corrigir. Antes desta checagem, JSON bem formado e errado
+                    // chegava à tool e virava erro do server — ou execução com
+                    // semântica diferente da pretendida.
+                    rejectCall(session, req.id(), req.name(),
+                            invalidArgumentsMessage(req.name(), parsed.error()));
+                    continue;
+                }
+                executeAndAppend(session, client, options, req.name(), req.id(), parsed.args());
             }
         }
 
-        log.warn("Loop de tool-calling atingiu maxIterations={} sem resposta final", maxIterations);
-        return new Result(lastText, toolCalls);
+        log.warn("Loop de tool-calling atingiu maxIterations={} sem resposta final",
+                options.maxIterations());
+        return Result.finished(session.lastText, session.toolCalls);
+    }
+
+    /**
+     * Persiste o laço e devolve um resultado suspenso.
+     *
+     * <p>Os argumentos são validados <b>antes</b> de suspender: mandar um humano
+     * decidir sobre uma chamada que nem passaria na validação desperdiça o tempo
+     * dele e ensina o modelo errado.
+     */
+    private Result suspend(Session session, ToolExecutionRequest req,
+                           Map<String, Map<String, Object>> schemas) {
+        Map<String, Object> args;
+        try {
+            args = parseArguments(req.arguments());
+            List<String> violations = ToolArgumentValidator.validate(schemas.get(req.name()), args);
+            if (!violations.isEmpty()) {
+                throw new MalformedToolArgumentsException(String.join("; ", violations));
+            }
+        } catch (MalformedToolArgumentsException e) {
+            // Não suspende: devolve o erro e deixa o modelo corrigir.
+            rejectCall(session, req.id(), req.name(),
+                    invalidArgumentsMessage(req.name(), e.getMessage()));
+            return Result.finished(session.lastText, session.toolCalls);
+        }
+
+        String requestId = java.util.UUID.randomUUID().toString();
+        McpAgentState state = session.snapshot(new McpAgentState.PendingApproval(
+                requestId, req.name(), args, req.id()));
+        requireStore().save(state);
+        log.info("Laço {} suspenso aguardando aprovação de {} (requestId={})",
+                session.runId, req.name(), requestId);
+        return Result.suspended(session.lastText, session.toolCalls, state.pending());
+    }
+
+    private static String invalidArgumentsMessage(String toolName, String detail) {
+        return "ERRO: argumentos inválidos para a tool " + toolName
+                + " (" + detail + "). Corrija e repita a chamada.";
+    }
+
+    /**
+     * Registra uma chamada que <b>não</b> foi executada, do lado do chamador e do
+     * lado do modelo, com a mesma mensagem. Um erro visível só num dos dois lados
+     * deixa auditoria e modelo com histórias diferentes.
+     */
+    private void rejectCall(Session session, String toolCallId, String toolName, String message) {
+        session.toolCalls.add(new ToolCall(toolName, Map.of(), message, true, ToolTrust.TRUSTED));
+        appendToolResult(session, toolCallId, toolName, message, true, ToolTrust.TRUSTED);
+        recordToolCall(toolName, System.nanoTime(), false);
+    }
+
+    /** Executa a tool e acrescenta o resultado ao transcript. */
+    private void executeAndAppend(Session session, McpClient client, Options options,
+                                  String toolName, String toolCallId, Map<String, Object> args) {
+        long startedAt = System.nanoTime();
+        String resultText;
+        boolean isError = true;
+        // Texto de erro é nosso, não do server: não é conteúdo de terceiro e não
+        // entra na cerca. Só o payload de uma execução bem-sucedida é que
+        // carrega a marca da política.
+        ToolTrust trust = ToolTrust.TRUSTED;
+        Map<String, Object> effectiveArgs = args == null ? Map.of() : args;
+
+        if (!options.access().isAllowed(toolName)) {
+            // Segunda checagem da política: o catálogo enviado ao modelo já estava
+            // filtrado, mas um modelo pode emitir um nome que não estava lá — e na
+            // retomada a autorização pode ter sido revogada. A tool NÃO é executada.
+            resultText = "ERRO: a tool '" + toolName + "' não está autorizada para este agente.";
+            log.warn("Tool '{}' negada pela política de acesso (tenant={})",
+                    toolName, session.tenantId);
+        } else {
+            try {
+                McpModel.ToolResult tr = client.callTool(
+                        new McpModel.ToolArguments(toolName, effectiveArgs)).get();
+                resultText = textOf(tr);
+                isError = tr.isError();
+                if (!isError) {
+                    trust = options.trust().trustOf(toolName);
+                }
+            } catch (Exception e) {
+                resultText = "ERRO ao executar a tool " + toolName + ": " + e.getMessage();
+                log.warn("Falha na tool MCP {}: {}", toolName, e.getMessage());
+            }
+        }
+
+        recordToolCall(toolName, startedAt, !isError);
+        session.toolCalls.add(new ToolCall(toolName, effectiveArgs, resultText, isError, trust));
+        appendToolResult(session, toolCallId, toolName, resultText, isError, trust);
+    }
+
+    /**
+     * Argumentos parseados, ou o motivo pelo qual não servem.
+     *
+     * <p>Carrega o {@code error} em vez de uma sentinela porque a mensagem
+     * <b>específica</b> é o que permite ao modelo corrigir no turno seguinte —
+     * um "argumentos inválidos" genérico o deixa adivinhando.
+     */
+    private record ParsedArguments(Map<String, Object> args, String error) {
+        boolean valid() {
+            return error == null;
+        }
+
+        static ParsedArguments ok(Map<String, Object> args) {
+            return new ParsedArguments(args, null);
+        }
+
+        static ParsedArguments invalid(String error) {
+            return new ParsedArguments(Map.of(), error);
+        }
+    }
+
+    private ParsedArguments parseAndValidate(ToolExecutionRequest req,
+                                             Map<String, Map<String, Object>> schemas) {
+        try {
+            Map<String, Object> args = parseArguments(req.arguments());
+            List<String> violations = ToolArgumentValidator.validate(schemas.get(req.name()), args);
+            if (!violations.isEmpty()) {
+                String detail = String.join("; ", violations);
+                log.warn("Argumentos inválidos para a tool MCP {}: {}", req.name(), detail);
+                return ParsedArguments.invalid(detail);
+            }
+            return ParsedArguments.ok(args);
+        } catch (MalformedToolArgumentsException e) {
+            log.warn("Argumentos inválidos para a tool MCP {}: {}", req.name(), e.getMessage());
+            return ParsedArguments.invalid(e.getMessage());
+        }
+    }
+
+    /** O chamador recebe o payload cru; o modelo recebe o cercado. */
+    private void appendToolResult(Session session, String toolCallId, String toolName,
+                                  String resultText, boolean isError, ToolTrust trust) {
+        String forModel = trust == ToolTrust.UNTRUSTED
+                ? session.fence.wrap(toolName, resultText)
+                : resultText;
+        session.messages.add(ToolExecutionResultMessage.from(
+                ToolExecutionRequest.builder().id(toolCallId).name(toolName).arguments("{}").build(),
+                forModel));
+        if (isError) {
+            log.debug("Resultado de erro da tool {} devolvido ao modelo", toolName);
+        }
+    }
+
+    private McpAgentStateStore requireStore() {
+        if (stateStore == null) {
+            throw new IllegalStateException(
+                    "Suspensão para aprovação exige um McpAgentStateStore — "
+                            + "sem store o laço não sobreviveria a um restart, o que é o "
+                            + "único motivo de suspender");
+        }
+        return stateStore;
+    }
+
+    /**
+     * Estado vivo de um laço. Existe para que {@link #run} e {@link #resume}
+     * compartilhem o mesmo laço, e para converter de/para {@link McpAgentState}
+     * num só lugar.
+     */
+    private static final class Session {
+        private final String runId;
+        private final String tenantId;
+        private final String systemPrompt;
+        private final UntrustedContentFence fence;
+        private final List<ChatMessage> messages = new ArrayList<>();
+        private final List<ToolCall> toolCalls = new ArrayList<>();
+        private int iteration;
+        private String lastText = "";
+
+        Session(String runId, String tenantId, String systemPrompt, UntrustedContentFence fence) {
+            this.runId = runId;
+            this.tenantId = tenantId;
+            this.systemPrompt = systemPrompt;
+            this.fence = fence;
+        }
+
+        static Session from(McpAgentState state) {
+            // O nonce vem do estado: gerar um novo faria o conteúdo cercado depois
+            // não casar com a regra já persistida na mensagem de sistema.
+            Session session = new Session(state.runId(), state.tenantId(), state.systemPrompt(),
+                    UntrustedContentFence.withNonce(state.fenceNonce()));
+            for (String encoded : state.messages()) {
+                ChatMessage message = ChatMessageCodec.fromJson(encoded);
+                if (message != null) {
+                    session.messages.add(message);
+                }
+            }
+            state.toolCalls().forEach(c -> session.toolCalls.add(c.toToolCall()));
+            session.iteration = state.iteration();
+            session.lastText = state.lastText() == null ? "" : state.lastText();
+            return session;
+        }
+
+        McpAgentState snapshot(McpAgentState.PendingApproval pending) {
+            List<String> encoded = new ArrayList<>(messages.size());
+            for (ChatMessage message : messages) {
+                encoded.add(ChatMessageCodec.toJson(message));
+            }
+            return new McpAgentState(runId, tenantId, systemPrompt, fence.nonce(), encoded,
+                    toolCalls.stream().map(McpAgentState.SerializedToolCall::from).toList(),
+                    iteration, lastText, pending, java.time.Instant.now());
+        }
+    }
+
+    /**
+     * As três políticas do laço mais o teto de iterações.
+     *
+     * <p>Agrupadas num record porque passar quatro parâmetros posicionais em duas
+     * assinaturas (run e resume) convida a trocar a ordem — e trocar
+     * {@code access} por {@code approval} seria um erro silencioso e grave.
+     */
+    public record Options(ToolAccessPolicy access, ToolTrustPolicy trust,
+                          ToolApprovalPolicy approval, int maxIterations) {
+
+        public Options(ToolAccessPolicy access) {
+            this(access, ToolTrustPolicy.untrustedByDefault(), ToolApprovalPolicy.none(),
+                    DEFAULT_MAX_ITERATIONS);
+        }
+
+        void validate() {
+            Objects.requireNonNull(access, "access é obrigatória — use ToolAccessPolicy.allowAll() "
+                    + "para declarar explicitamente que o agente pode usar todas as tools do server");
+            Objects.requireNonNull(trust, "trust é obrigatória");
+            Objects.requireNonNull(approval, "approval é obrigatória — use ToolApprovalPolicy.none() "
+                    + "para declarar explicitamente que nenhuma tool exige aprovação");
+            if (maxIterations <= 0) {
+                throw new IllegalArgumentException("maxIterations deve ser positivo");
+            }
+        }
     }
 
     /**
