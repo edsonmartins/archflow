@@ -14,6 +14,9 @@ import java.time.Instant;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.logging.Logger;
 
 /**
  * Bi-directional mapper between {@link ArchflowEvent} and the generated
@@ -30,6 +33,8 @@ import java.util.Map;
  * </ul>
  */
 public final class ProtobufEventMapper {
+
+    private static final Logger log = Logger.getLogger(ProtobufEventMapper.class.getName());
 
     private ProtobufEventMapper() {}
 
@@ -192,8 +197,43 @@ public final class ProtobufEventMapper {
             // generic Number → long
             return ScalarValue.newBuilder().setIntValue(n.longValue()).build();
         }
-        // Fallback: toString
+        warnOnceAboutFlattening(value.getClass());
         return ScalarValue.newBuilder().setStringValue(value.toString()).build();
+    }
+
+    /**
+     * Tipos já reportados no aviso de achatamento — um por classe, para sempre.
+     *
+     * <p>O achatamento acontece por chave de {@code data}/{@code metadata}, em
+     * todo evento: avisar sempre inundaria o log justamente no caminho quente e
+     * o aviso viraria ruído a ser filtrado. Uma vez por tipo diz o que precisa
+     * ser dito — que <i>aquela</i> classe está virando texto — e não se repete.
+     *
+     * <p>Não tem limite de tamanho de propósito: o conjunto de classes que
+     * passam por aqui é o conjunto de tipos que o código coloca em {@code data},
+     * que é finito e pequeno. Um cache com expiração voltaria a avisar
+     * periodicamente, que é o que se quer evitar.
+     */
+    private static final Set<Class<?>> FLATTENED_TYPES_WARNED = ConcurrentHashMap.newKeySet();
+
+    /**
+     * Avisa que um valor não escalar foi convertido para texto.
+     *
+     * <p>Isto era <b>completamente silencioso</b>. Um {@code Map}, uma lista ou
+     * um objeto de domínio colocado em {@code data} chegava do outro lado como o
+     * {@code toString()} dele — sem erro, sem aviso, e com a estrutura perdida.
+     * Quem consome o evento recebe algo que parece um valor legítimo e não é.
+     *
+     * <p>O achatamento continua acontecendo: mudá-lo agora quebraria quem já
+     * depende do texto. O que muda é que ele deixa de ser invisível.
+     */
+    private static void warnOnceAboutFlattening(Class<?> type) {
+        if (FLATTENED_TYPES_WARNED.add(type)) {
+            log.warning(() -> "Valor do tipo " + type.getName() + " em data/metadata de evento "
+                    + "não é escalar e foi convertido com toString() — a estrutura se perde no "
+                    + "protobuf. Serialize explicitamente (por exemplo, JSON numa string) se o "
+                    + "consumidor precisar dela. Este aviso sai uma vez por tipo.");
+        }
     }
 
     static Object scalarToObject(ScalarValue scalar) {

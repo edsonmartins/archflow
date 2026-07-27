@@ -17,9 +17,12 @@ Fonte da verdade: `archflow-events-proto/src/main/proto/archflow/events/v1/flow_
 | `FlowEvent` | um evento: envelope + `data` + `metadata` |
 | `EventEnvelope` | metadados de roteamento (domínio, tipo, id, timestamp, correlação, execução, tenant) |
 | `ScalarValue` | variante tipada para os valores de `data`/`metadata` |
-| `IngestResponse` | resposta declarada… **e nunca usada** — ver a seção 7 |
 
 Mais os enums `Domain` (8 valores) e `EventType` (32 valores).
+
+> Havia uma quinta mensagem, `IngestResponse`, que **nenhuma linha de código
+> referenciava**. Foi removida: o endpoint responde JSON, e um schema que só o
+> gerador lê prometia um contrato que o servidor não cumpre. Ver a seção 7.
 
 ### Como eles se aninham
 
@@ -137,7 +140,8 @@ Três comportamentos que decidem o que você perde:
 
 - **Fila cheia descarta o mais antigo.** Sob rajada, você perde o começo da
   história, não o fim. Se a ordem importar mais que a recência, isto é o
-  contrário do que se quer — e não é configurável.
+  contrário do que se quer — e não é configurável. O descarte **avisa no log**
+  (no 1º e depois a cada potência de 10), além de incrementar `dropped()`.
 - **4xx não é repetido; 5xx e erro de rede são.** Um 401 por token vencido não
   melhora com retry, então o lote é perdido de imediato.
 - **A entrega é best-effort.** Não há persistência da fila: se o processo morre,
@@ -168,7 +172,11 @@ depender dos well-known types.
 `Integer`, `Double`, `Float` e `Number` nos campos certos — e **qualquer outra
 coisa cai num `toString()` e vira string**. Um `Map`, uma lista ou um objeto de
 domínio colocado em `data` chega do outro lado como o texto do `toString()`,
-sem erro e sem aviso.
+com a estrutura perdida.
+
+O achatamento continua acontecendo — mudá-lo quebraria quem já depende do texto
+—, mas ele **avisa no log**, uma vez por tipo. Se você vir
+`Valor do tipo ... não é escalar`, é isto.
 
 Se você precisa de estrutura no payload, serialize explicitamente (JSON numa
 `string_value`, por exemplo) em vez de confiar que o mapeador vai preservá-la.
@@ -192,9 +200,22 @@ O segundo só existe quando há tenant — o `X-Tenant-Id` da requisição. Sem 
 o evento chega apenas em quem estiver acompanhando a execução pelo id.
 
 A resposta conta os dois lados: `accepted` são os eventos republicados,
-`rejected` os que falharam individualmente. Um lote pode voltar
-`{"accepted": 8, "rejected": 2}` — **sucesso parcial não é erro HTTP**, então um
-cliente que só olhe o status code não percebe a perda.
+`rejected` os que falharam individualmente. **Sucesso parcial não é erro HTTP** —
+o status é 200 de propósito, porque rejeitar o lote inteiro por causa de um
+evento malformado perderia os que estavam bons.
+
+O `message` diz o que aconteceu:
+
+| situação | `message` |
+|---|---|
+| tudo aceito | `ok` |
+| lote vazio | `no events processed` |
+| parcial | `partial: 8 accepted, 2 rejected` |
+| tudo rejeitado | `all 10 event(s) rejected` |
+
+Antes, qualquer lote com ao menos um aceito respondia `ok` — inclusive um em que
+40 de 100 falharam. Um cliente que olhasse o status *ou* a mensagem concluía que
+estava tudo certo. **Olhe o `rejected`**, não só o status.
 
 Para consumir em Java fora do servidor, use as classes geradas do
 `archflow-events-proto`:
@@ -218,15 +239,17 @@ for (FlowEvent e : batch.getEventsList()) {
 
 ## 7. Declarado e não usado
 
-Duas coisas no protocolo que existem no papel e não no código. Registradas aqui
-para ninguém gastar tempo procurando quem as consome:
-
-- **`IngestResponse`.** O `.proto` a declara, e **nenhuma linha de Java a
-  referencia**. O endpoint devolve um `record IngestResultDto(int accepted, int
-  rejected, String message)` serializado em JSON — mesmos três campos, outro
-  formato. Se você estiver escrevendo um cliente, espere JSON na resposta,
-  apesar do que o `.proto` sugere.
-- **`PAYLOAD_CHUNK` / `PAYLOAD_COMPLETE`.** Ver a seção 2.
+- **`IngestResponse` — removida.** O `.proto` a declarava e nenhuma linha de
+  Java a referenciava. O endpoint devolve um
+  `record IngestResultDto(int accepted, int rejected, String message)`
+  serializado em **JSON** — mesmos três campos, outro formato. O schema morto
+  prometia um contrato que o servidor não cumpre: quem escrevesse um cliente
+  confiando nele tentaria desserializar protobuf de um corpo JSON. Se um dia a
+  resposta virar protobuf, a mensagem volta — e aí com alguém do outro lado.
+- **`PAYLOAD_CHUNK` / `PAYLOAD_COMPLETE` — mantidos, e anotados no `.proto`.**
+  Não são emitidos por nada em produção. Ficaram porque o número de um valor de
+  enum proto3 não se reaproveita, e removê-los sem necessidade só abriria um
+  buraco na numeração. Não escreva tratamento esperando recebê-los.
 
 ---
 

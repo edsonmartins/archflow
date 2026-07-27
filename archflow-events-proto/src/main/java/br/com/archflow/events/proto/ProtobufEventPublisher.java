@@ -110,15 +110,61 @@ public class ProtobufEventPublisher implements AutoCloseable {
     public void submit(ArchflowEvent event) {
         if (closed || event == null) return;
         if (!queue.offer(event)) {
-            // Queue full — drop oldest, retry
+            // Fila cheia — descarta o MAIS ANTIGO e insere o novo.
             queue.poll();
-            dropped.incrementAndGet();
+            warnAboutDrops(dropped.incrementAndGet());
             queue.offer(event);
         }
         // Trigger immediate flush if we're at the threshold
         if (queue.size() >= BATCH_FLUSH_THRESHOLD) {
             scheduler.execute(this::flushNow);
         }
+    }
+
+    /**
+     * Avisa que eventos estão sendo descartados, em escala logarítmica.
+     *
+     * <p>O contador {@link #dropped()} sempre existiu, e ninguém o lê — um
+     * número que exige alguém perguntar não avisa nada. Quando a fila enche, o
+     * publisher <b>perdia telemetria em silêncio absoluto</b>: nenhum log,
+     * nenhuma exceção, e um operador olhando o serviço não tinha como saber que
+     * faltavam eventos.
+     *
+     * <p>Avisar a cada descarte seria pior que o silêncio: a fila enche
+     * justamente sob rajada, então o log inundaria no pior momento e no caminho
+     * quente. Por isso o aviso sai no 1º descarte e depois em cada potência de
+     * 10 (10, 100, 1.000…): o primeiro chega cedo, e a frequência cai enquanto
+     * a ordem de grandeza — que é a informação útil — continua sendo reportada.
+     */
+    private void warnAboutDrops(long total) {
+        if (shouldWarnAboutDrops(total)) {
+            log.warning(() -> "Fila de eventos cheia (" + QUEUE_CAPACITY + "): "
+                    + total + " evento(s) descartado(s) desde o inicio. "
+                    + "O descarte remove o MAIS ANTIGO, entao o inicio da execucao e o "
+                    + "que se perde primeiro. Telemetria e best-effort — para trilha "
+                    + "auditavel use o estado duravel do motor.");
+        }
+    }
+
+    /**
+     * A decisão de avisar, isolada para ser testável.
+     *
+     * <p>Visível no pacote de propósito: forçar a fila a transbordar num teste
+     * não é confiável — o {@code flushNow} a drena em paralelo enquanto ela é
+     * preenchida, então o transbordo depende de quem ganha a corrida. Testar
+     * pela porta da frente daria um teste que passa às vezes, que é pior que
+     * não ter. A regra de frequência é a parte com lógica, e ela é determinística.
+     */
+    static boolean shouldWarnAboutDrops(long total) {
+        if (total == 1) {
+            return true;
+        }
+        for (long p = 10; p > 0 && p <= total; p *= 10) {
+            if (p == total) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
