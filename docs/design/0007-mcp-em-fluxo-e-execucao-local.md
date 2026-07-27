@@ -173,14 +173,8 @@ próprio cliente. Consequência: a plataforma **não pode** assumir que resolve
 `LLMConfig` centralmente. O resolvedor precisa aceitar "este agente resolve
 sozinho", e a plataforma precisa lidar com não saber qual modelo rodou.
 
-**6. Plugins não carregam por default no embedded — e isso é proposital.**
-Abrir um jar de plugin executa o `onLoad` dele: código arbitrário, sem sandbox,
-com os privilégios do processo. A varredura vem desligada e só liga com
-`pluginsPath` explícito. Consequência para o edge: **um fluxo que use componente
-de plugin não roda** numa instalação padrão. Ou a distribuição do fluxo declara
-os plugins de que ele depende (e a instalação os confia explicitamente), ou o
-fluxo falha no cliente com "component not found" — e o autor do fluxo, na nuvem,
-não tem como saber disso antes.
+**6. Plugins: o agente baixa os que o fluxo usa.** — ver §B.3, é o item com mais
+peça pronta e mais decisão pendente.
 
 **7. Telemetria de um ambiente que existe para não vazar dado.**
 Se o motivo de rodar local é privacidade, o evento não pode carregar o conteúdo.
@@ -195,7 +189,69 @@ qual tela? Ou a suspensão sobe para a plataforma (e aí o *que* está sendo
 aprovado precisa subir junto — ver item 7), ou o edge precisa de superfície
 própria de aprovação.
 
-### B.3 A pergunta que ordena o resto
+### B.3 Plugins: o agente baixa os que o fluxo usa
+
+É o modelo do Mentors iPaaS — o jar do agente recebe o fluxo e **baixa os plugins
+que aquele fluxo usa** antes de executar. Resolve de uma vez o problema de "o
+fluxo referencia um componente que não existe nesta instalação", e é o que torna
+o edge instalável sem provisionamento manual por cliente.
+
+A boa notícia: quase tudo já existe, espalhado por três módulos.
+
+| peça | onde | o que faz |
+|---|---|---|
+| `ExtensionManifest` | `archflow-marketplace` | `name`, `version`, `entryPoint`, `type`, `permissions`, `dependencies`, `signature`, `minArchflowVersion` |
+| `ExtensionInstaller` | `archflow-marketplace` | instala de arquivo local **ou URL**, com `verifySignatures` |
+| `ExtensionSignatureValidator` | `archflow-marketplace` | assinatura contra chaves confiáveis (X.509 RSA, Base64) |
+| `PermissionValidator`, `DependencyResolver` | `archflow-marketplace` | permissões declaradas e fecho de dependências |
+| `MarketplaceController` | `archflow-api` | superfície de instalação na plataforma |
+| `FlowPluginManager` | `archflow-agent` | carrega os jars do `pluginsPath`, uma vez, com isolamento de classloader e `onLoad`/`onUnload`; falha de carga **propaga** em vez de sumir |
+| `ArchflowPluginManager` | `archflow-plugin-loader` | descoberta por `META-INF/services` |
+
+O que falta é o **elo entre o fluxo e essa lista**, mais quatro decisões.
+
+**a) De onde sai a lista de extensões de um fluxo.**
+Cada passo tem `componentId`, mas não há mapa `componentId → extensão@versão`.
+Três caminhos:
+
+- *derivar no edge*, consultando um registry da plataforma em tempo de preparo —
+  automático, porém o resultado muda quando o registry muda, e o mesmo fluxo
+  passa a rodar diferente em dias diferentes;
+- *declarar no documento do fluxo* — reprodutível e revisável, mas quem escreve o
+  fluxo passa a manter a lista à mão;
+- *a plataforma calcular o fecho na publicação* e **fixar as versões** no
+  documento distribuído.
+
+A terceira é a que dá a propriedade que interessa no edge: *mesma versão de
+fluxo, mesmo conjunto de plugins*. Sem isso não há como reproduzir um incidente
+no cliente — e é justamente no cliente que não se tem acesso para investigar.
+
+**b) A assinatura deixa de ser opcional.**
+Baixar plugin é baixar código que roda com os privilégios do processo, no
+ambiente do cliente. `verifySignatures` existe e é parâmetro; no edge precisa ser
+**default ligado**, com a chave da plataforma embarcada no jar do agente. O
+problema do `onLoad` não desaparece — passa a ser governado: o agente só executa
+o que a plataforma assinou.
+
+**c) Cache e operação sem rede.**
+O agente roda dentro do cliente e não pode parar porque a plataforma ficou
+inacessível. Cache endereçado por conteúdo (`name@version` + hash), instalação
+idempotente, e execução com o que já está em disco quando o download falha — com
+telemetria dizendo que rodou com cache, não em silêncio.
+
+**d) Versão do runtime e permissões, verificadas **antes** de rodar.**
+O manifesto já traz `minArchflowVersion` e `permissions`. O agente no cliente
+pode estar mais velho que a plataforma, e a instalação pode não ter concedido uma
+permissão que o plugin pede. Os dois casos precisam falhar **no preparo**, com
+mensagem dizendo qual plugin e qual requisito — não no meio da execução, onde o
+sintoma vira um passo que não roda.
+
+Vale também a plataforma recusar a *distribuição* de um fluxo cujos plugins
+exigem runtime mais novo do que o agente informou no registro (§B.2 item 3) — o
+erro aparece para quem publica, que é quem pode corrigir, em vez de aparecer no
+cliente.
+
+### B.4 A pergunta que ordena o resto
 
 **O edge é um executor burro ou um agente autônomo?**
 
