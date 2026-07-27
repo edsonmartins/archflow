@@ -54,7 +54,10 @@ enum EventType {
     CONNECTED    = 21;
     DISCONNECTED = 22;
     HEARTBEAT    = 23;
-    // Payload
+    // Payload — declarados, e NENHUM código de produção os emite hoje: eles só
+    // aparecem em teste. Mantidos porque o número de um enum proto3 não se
+    // reaproveita, e removê-los sem necessidade só criaria um buraco. Não
+    // escreva tratamento esperando recebê-los.
     PAYLOAD_CHUNK    = 24;
     PAYLOAD_COMPLETE = 25;
     // Flow lifecycle
@@ -118,11 +121,18 @@ message FlowEventBatch {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// IngestResponse — returned by POST /api/events/ingest
+// A RESPOSTA DO INGEST NÃO É PROTOBUF.
+//
+// Havia aqui uma `message IngestResponse { accepted, rejected, message }`, e
+// nenhuma linha de código a referenciava. O endpoint
+// `POST /api/events/ingest` consome protobuf mas responde JSON, a partir do
+// record `EventIngestController.IngestResultDto` — os mesmos três campos, outro
+// formato.
+//
+// Removida em vez de mantida: um schema que só o gerador lê promete um contrato
+// que o servidor não cumpre, e quem escrevesse um cliente confiando nele iria
+// tentar desserializar protobuf de um corpo JSON.
+//
+// Se um dia a resposta virar protobuf, é aqui que a mensagem volta — e aí com
+// alguém do outro lado.
 // ──────────────────────────────────────────────────────────────────────────────
-
-message IngestResponse {
-    int32  accepted = 1;
-    int32  rejected = 2;
-    string message  = 3;
-}
