@@ -73,7 +73,8 @@ import java.util.Objects;
 public class McpAgentRunner {
 
     private static final Logger log = LoggerFactory.getLogger(McpAgentRunner.class);
-    private static final int DEFAULT_MAX_ITERATIONS = 8;
+    /** Visível ao pacote: o {@link McpAgentComponent} usa o mesmo default quando o nó não o declara. */
+    static final int DEFAULT_MAX_ITERATIONS = 8;
 
     private final LLMConfigResolver llmConfigResolver;
     private final ResolvedLLMConfig platformDefault;
