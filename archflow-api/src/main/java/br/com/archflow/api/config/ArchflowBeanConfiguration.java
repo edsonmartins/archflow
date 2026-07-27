@@ -674,7 +674,11 @@ public class ArchflowBeanConfiguration {
                 "br.com.archflow.plugins.agents.DataAnalysisAgent",
                 "br.com.archflow.plugins.agents.MonitoringAgent",
                 "br.com.archflow.plugins.assistants.TechSupportAssistant",
-                "br.com.archflow.plugins.tools.TextTransformTool"
+                "br.com.archflow.plugins.tools.TextTransformTool",
+                // Laço agente↔tools MCP como passo de fluxo. Mora aqui, e não num jar de plugin,
+                // porque o McpAgentRunner que ele embrulha é deste módulo — o que também significa
+                // que levá-lo ao agente local exige extrair os dois para um módulo compartilhado.
+                "br.com.archflow.api.agent.mcp.McpAgentComponent"
         };
         java.util.List<String> registered = new java.util.ArrayList<>();
         java.util.List<String> failed = new java.util.ArrayList<>();
