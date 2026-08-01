@@ -67,9 +67,11 @@ archflow:
       enabled: ${ARCHFLOW_PERSISTENCE_JDBC_ENABLED:true}
   storage:
     # Must point to a persistent mounted volume in production. S3-compatible
-    # deployments can override the ObjectStorage bean instead.
+    # deployments can override the ObjectStorage bean instead. The container
+    # image uses /app/data/storage as a safe default so a missing environment
+    # variable does not prevent the application from starting.
     local:
-      root: ${ARCHFLOW_STORAGE_LOCAL_ROOT}
+      root: ${ARCHFLOW_STORAGE_LOCAL_ROOT:/app/data/storage}
   knowledge:
     extraction:
       max-characters: ${ARCHFLOW_KNOWLEDGE_EXTRACTION_MAX_CHARACTERS:5000000}
@@ -78,7 +80,9 @@ archflow:
     embedding:
       provider: ${ARCHFLOW_KNOWLEDGE_EMBEDDING_PROVIDER:openai}
       openai:
-        api-key: ${OPENAI_API_KEY:}
+        # OpenAI-compatible gateways (for example OpenRouter) should provide
+        # the dedicated key. OPENAI_API_KEY remains a compatibility fallback.
+        api-key: ${ARCHFLOW_KNOWLEDGE_EMBEDDING_API_KEY:${OPENROUTER_API_KEY:${OPENAI_API_KEY:}}}
         model: ${ARCHFLOW_KNOWLEDGE_EMBEDDING_MODEL:text-embedding-3-small}
         base-url: ${ARCHFLOW_KNOWLEDGE_EMBEDDING_BASE_URL:}
         timeout: ${ARCHFLOW_KNOWLEDGE_EMBEDDING_TIMEOUT:PT30S}
