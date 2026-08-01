@@ -23,7 +23,7 @@ class JdbcGlobalConfigStorePostgresTest {
 
     @Container
     static final PostgreSQLContainer<?> postgres =
-            new PostgreSQLContainer<>("postgres:16-alpine");
+            new PostgreSQLContainer<>("pgvector/pgvector:pg16");
 
     static DataSource dataSource;
 

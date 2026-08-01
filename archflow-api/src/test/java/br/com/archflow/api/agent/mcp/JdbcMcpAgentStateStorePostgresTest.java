@@ -30,7 +30,7 @@ class JdbcMcpAgentStateStorePostgresTest {
 
     @Container
     static final PostgreSQLContainer<?> postgres =
-            new PostgreSQLContainer<>("postgres:16-alpine");
+            new PostgreSQLContainer<>("pgvector/pgvector:pg16");
 
     private static DataSource dataSource;
     private JdbcMcpAgentStateStore store;
