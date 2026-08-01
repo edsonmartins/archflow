@@ -14,6 +14,8 @@ public class InMemoryWorkflowRuntimeStore implements WorkflowRuntimeStore {
 
     private final Map<String, Map<String, Object>> workflows = new ConcurrentHashMap<>();
     private final Map<String, Map<String, Object>> executions = new ConcurrentHashMap<>();
+    private final Map<String, List<WorkflowVersionRecord>> versions = new ConcurrentHashMap<>();
+    private final Map<String, WorkflowDeploymentRecord> deployments = new ConcurrentHashMap<>();
     // Per-execution stepId → step-record index so lifecycle events patch in
     // O(1) instead of rescanning the growing steps list on every event.
     private final Map<String, Map<String, Map<String, Object>>> stepIndexes = new ConcurrentHashMap<>();
@@ -41,6 +43,8 @@ public class InMemoryWorkflowRuntimeStore implements WorkflowRuntimeStore {
 
     public void deleteWorkflow(String id) {
         workflows.remove(id);
+        versions.remove(id);
+        deployments.keySet().removeIf(key -> key.startsWith(id + ":"));
         executions.entrySet().removeIf(entry -> {
             if (id.equals(entry.getValue().get("workflowId"))) {
                 stepIndexes.remove(entry.getKey());
@@ -48,6 +52,54 @@ public class InMemoryWorkflowRuntimeStore implements WorkflowRuntimeStore {
             }
             return false;
         });
+    }
+
+    public List<WorkflowVersionRecord> workflowVersions(String workflowId) {
+        return versions.getOrDefault(workflowId, List.of()).stream()
+                .sorted(Comparator.comparingInt(WorkflowVersionRecord::number).reversed())
+                .toList();
+    }
+
+    public WorkflowVersionRecord getWorkflowVersion(String workflowId, String versionId) {
+        return versions.getOrDefault(workflowId, List.of()).stream()
+                .filter(version -> version.id().equals(versionId))
+                .findFirst().orElse(null);
+    }
+
+    public synchronized WorkflowVersionRecord publishWorkflow(String workflowId, String comment) {
+        Map<String, Object> draft = workflows.get(workflowId);
+        if (draft == null) {
+            return null;
+        }
+        List<WorkflowVersionRecord> workflowVersions =
+                versions.computeIfAbsent(workflowId, ignored -> new ArrayList<>());
+        int number = workflowVersions.stream()
+                .mapToInt(WorkflowVersionRecord::number).max().orElse(0) + 1;
+        var version = new WorkflowVersionRecord(
+                "wfv-" + UUID.randomUUID().toString().substring(0, 8),
+                workflowId,
+                number,
+                deepCopy(draft),
+                comment,
+                Instant.now());
+        workflowVersions.add(version);
+        return version;
+    }
+
+    public WorkflowDeploymentRecord getDeployment(String workflowId, String environment) {
+        return deployments.get(deploymentKey(workflowId, environment));
+    }
+
+    public WorkflowDeploymentRecord deployWorkflow(
+            String workflowId, String environment, String versionId) {
+        if (getWorkflowVersion(workflowId, versionId) == null) {
+            return null;
+        }
+        String normalized = normalizeEnvironment(environment);
+        var deployment = new WorkflowDeploymentRecord(
+                workflowId, normalized, versionId, Instant.now());
+        deployments.put(deploymentKey(workflowId, normalized), deployment);
+        return deployment;
     }
 
     public List<Map<String, Object>> executions() {
@@ -100,6 +152,34 @@ public class InMemoryWorkflowRuntimeStore implements WorkflowRuntimeStore {
             }
             return copy;
         }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> deepCopy(Map<String, Object> source) {
+        var copy = new LinkedHashMap<String, Object>();
+        source.forEach((key, value) -> {
+            if (value instanceof Map<?, ?> map) {
+                copy.put(key, deepCopy((Map<String, Object>) map));
+            } else if (value instanceof List<?> list) {
+                copy.put(key, list.stream().map(item -> {
+                    if (item instanceof Map<?, ?> map) {
+                        return deepCopy((Map<String, Object>) map);
+                    }
+                    return item;
+                }).toList());
+            } else {
+                copy.put(key, value);
+            }
+        });
+        return Collections.unmodifiableMap(copy);
+    }
+
+    private static String deploymentKey(String workflowId, String environment) {
+        return workflowId + ":" + normalizeEnvironment(environment);
+    }
+
+    private static String normalizeEnvironment(String environment) {
+        return environment == null ? "PRODUCTION" : environment.toUpperCase(Locale.ROOT);
     }
 
     /** Marks a resumed execution RUNNING again (locked counterpart of completeExecution). */

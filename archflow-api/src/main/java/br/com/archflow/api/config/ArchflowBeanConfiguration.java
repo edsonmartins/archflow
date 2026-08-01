@@ -77,6 +77,168 @@ public class ArchflowBeanConfiguration {
      */
     static final String JDBC_ENABLED = "archflow.persistence.jdbc.enabled";
 
+    @Bean
+    @ConditionalOnMissingBean
+    public br.com.archflow.api.storage.ObjectStorage objectStorage(
+            @Value("${archflow.storage.local.root:${java.io.tmpdir}/archflow-storage}") String root) {
+        return new br.com.archflow.api.storage.LocalFileObjectStorage(
+                java.nio.file.Path.of(root));
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(name = JDBC_ENABLED, havingValue = "false", matchIfMissing = true)
+    public br.com.archflow.api.storage.FileMetadataRepository fileMetadataRepository() {
+        return new br.com.archflow.api.storage.InMemoryFileMetadataRepository();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public br.com.archflow.api.storage.FileStorageService fileStorageService(
+            br.com.archflow.api.storage.ObjectStorage storage,
+            br.com.archflow.api.storage.FileMetadataRepository repository,
+            @Value("${archflow.storage.max-file-size:26214400}") long maxFileSize) {
+        return new br.com.archflow.api.storage.FileStorageService(
+                storage, repository, maxFileSize);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(name = JDBC_ENABLED, havingValue = "false", matchIfMissing = true)
+    public br.com.archflow.api.jobs.JobRepository jobRepository() {
+        return new br.com.archflow.api.jobs.InMemoryJobRepository();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public br.com.archflow.api.jobs.JobService jobService(
+            br.com.archflow.api.jobs.JobRepository repository) {
+        return new br.com.archflow.api.jobs.JobService(repository);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public br.com.archflow.api.jobs.JobHandlerRegistry jobHandlerRegistry(
+            java.util.List<br.com.archflow.api.jobs.JobHandler> handlers) {
+        return new br.com.archflow.api.jobs.JobHandlerRegistry(handlers);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(name = JDBC_ENABLED, havingValue = "false", matchIfMissing = true)
+    public br.com.archflow.api.knowledge.KnowledgeRepository knowledgeRepository() {
+        return new br.com.archflow.api.knowledge.InMemoryKnowledgeRepository();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public br.com.archflow.api.knowledge.KnowledgeService knowledgeService(
+            br.com.archflow.api.knowledge.KnowledgeRepository repository,
+            br.com.archflow.api.storage.FileStorageService files,
+            br.com.archflow.api.jobs.JobService jobs,
+            br.com.archflow.api.knowledge.KnowledgeEmbeddingModel embeddings,
+            br.com.archflow.api.knowledge.KnowledgeVectorIndex vectorIndex) {
+        return new br.com.archflow.api.knowledge.KnowledgeService(
+                repository, files, jobs, embeddings, vectorIndex);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(name = "archflow.knowledge.embedding.provider",
+            havingValue = "hash", matchIfMissing = true)
+    public br.com.archflow.api.knowledge.KnowledgeEmbeddingModel knowledgeEmbeddingModel() {
+        return new br.com.archflow.api.knowledge.HashEmbeddingModel(128);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(name = "archflow.knowledge.embedding.provider", havingValue = "openai")
+    public br.com.archflow.api.knowledge.KnowledgeEmbeddingModel openAiKnowledgeEmbeddingModel(
+            @Value("${archflow.knowledge.embedding.openai.api-key:${OPENAI_API_KEY:}}")
+            String apiKey,
+            @Value("${archflow.knowledge.embedding.openai.model:text-embedding-3-small}")
+            String model,
+            @Value("${archflow.knowledge.embedding.openai.base-url:}") String baseUrl,
+            @Value("${archflow.knowledge.embedding.openai.timeout:PT30S}")
+            java.time.Duration timeout,
+            @Value("${archflow.knowledge.embedding.openai.max-retries:3}") int maxRetries) {
+        if (apiKey == null || apiKey.isBlank()) {
+            throw new IllegalStateException(
+                    "OpenAI embedding provider requires "
+                            + "archflow.knowledge.embedding.openai.api-key or OPENAI_API_KEY");
+        }
+        if (model == null || model.isBlank()) {
+            throw new IllegalStateException("OpenAI embedding model cannot be blank");
+        }
+        if (timeout == null || timeout.isZero() || timeout.isNegative()) {
+            throw new IllegalStateException("OpenAI embedding timeout must be positive");
+        }
+        if (maxRetries < 0 || maxRetries > 10) {
+            throw new IllegalStateException(
+                    "OpenAI embedding max-retries must be between 0 and 10");
+        }
+        var builder = dev.langchain4j.model.openai.OpenAiEmbeddingModel.builder()
+                .apiKey(apiKey)
+                .modelName(model)
+                .dimensions(128)
+                .timeout(timeout)
+                .maxRetries(maxRetries);
+        if (baseUrl != null && !baseUrl.isBlank()) builder.baseUrl(baseUrl);
+        return new br.com.archflow.api.knowledge.LangChainKnowledgeEmbeddingModel(
+                builder.build(), 128);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(name = JDBC_ENABLED, havingValue = "false", matchIfMissing = true)
+    public br.com.archflow.api.knowledge.KnowledgeVectorIndex knowledgeVectorIndex() {
+        return new br.com.archflow.api.knowledge.InMemoryKnowledgeVectorIndex();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public br.com.archflow.api.knowledge.DocumentTextExtractorRegistry
+            documentTextExtractorRegistry(
+            @Value("${archflow.knowledge.extraction.max-characters:5000000}")
+            int maxCharacters,
+            @Value("${archflow.knowledge.extraction.pdf.max-pages:1000}") int maxPdfPages) {
+        return new br.com.archflow.api.knowledge.DocumentTextExtractorRegistry(
+                java.util.List.of(
+                        new br.com.archflow.api.knowledge.PlainTextDocumentExtractor(),
+                        new br.com.archflow.api.knowledge.PdfDocumentExtractor(maxPdfPages),
+                        new br.com.archflow.api.knowledge.DocxDocumentExtractor()),
+                maxCharacters);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public br.com.archflow.api.knowledge.DocumentIngestionHandler documentIngestionHandler(
+            br.com.archflow.api.knowledge.KnowledgeRepository repository,
+            br.com.archflow.api.storage.FileStorageService files,
+            br.com.archflow.api.knowledge.KnowledgeEmbeddingModel embeddings,
+            br.com.archflow.api.knowledge.KnowledgeVectorIndex vectorIndex,
+            br.com.archflow.api.knowledge.DocumentTextExtractorRegistry extractors,
+            @Value("${archflow.knowledge.chunk-size:1200}") int chunkSize,
+            @Value("${archflow.knowledge.chunk-overlap:200}") int overlap) {
+        return new br.com.archflow.api.knowledge.DocumentIngestionHandler(
+                repository, files, new br.com.archflow.api.knowledge.RecursiveTextChunker(),
+                chunkSize, overlap, embeddings, vectorIndex, extractors);
+    }
+
+    @Bean(destroyMethod = "close")
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(name = "archflow.jobs.worker.enabled", havingValue = "true")
+    public br.com.archflow.api.jobs.JobWorkerLoop jobWorkerLoop(
+            br.com.archflow.api.jobs.JobService service,
+            br.com.archflow.api.jobs.JobHandlerRegistry registry,
+            @Value("${archflow.jobs.worker.id:${HOSTNAME:local}}") String workerId,
+            @Value("${archflow.jobs.worker.lease:PT30S}") java.time.Duration lease,
+            @Value("${archflow.jobs.worker.poll-interval:PT1S}") java.time.Duration pollInterval) {
+        var worker = new br.com.archflow.api.jobs.JobWorker(
+                workerId, service, registry, lease);
+        return new br.com.archflow.api.jobs.JobWorkerLoop(worker, pollInterval);
+    }
+
     /**
      * Falha o startup fora de dev/test quando stores em memória estão ativos
      * (perda de dados no restart). Escape hatch: archflow.allow-in-memory=true.
@@ -1035,20 +1197,36 @@ public class ArchflowBeanConfiguration {
         return new br.com.archflow.api.agent.vendax.VendaxResultSender(coreBaseUrl, resultSecret);
     }
 
-    /**
-     * Executor dos agentes acionados pelo Core. Pool limitado de propósito: cada execução segura um
-     * LLM e várias chamadas MCP, então uma rajada de mensagens não pode virar uma thread por
-     * mensagem — a fila espera, o Core não fica bloqueado de todo modo (responde 202).
-     */
+    /** Executor I/O-bound com virtual threads e fila limitada: saturação é explícita, não vazamento. */
     @Bean(destroyMethod = "shutdown")
     @ConditionalOnMissingBean(name = "vendaxAgentExecutor")
-    public java.util.concurrent.ExecutorService vendaxAgentExecutor(
-            @Value("${archflow.vendax.agent.threads:4}") int threads) {
-        return java.util.concurrent.Executors.newFixedThreadPool(threads, r -> {
-            Thread t = new Thread(r, "vendax-agent");
-            t.setDaemon(true);
-            return t;
-        });
+    public java.util.concurrent.ThreadPoolExecutor vendaxAgentExecutor(
+            @Value("${archflow.vendax.agent.max-concurrency:32}") int maxConcurrency,
+            @Value("${archflow.vendax.agent.queue-capacity:256}") int queueCapacity) {
+        if (maxConcurrency <= 0 || queueCapacity <= 0) {
+            throw new IllegalArgumentException("max-concurrency e queue-capacity devem ser positivos");
+        }
+        return new java.util.concurrent.ThreadPoolExecutor(
+                maxConcurrency, maxConcurrency, 0L, java.util.concurrent.TimeUnit.MILLISECONDS,
+                new java.util.concurrent.ArrayBlockingQueue<>(queueCapacity),
+                Thread.ofVirtual().name("vendax-agent-", 0).factory(),
+                new java.util.concurrent.ThreadPoolExecutor.AbortPolicy());
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public br.com.archflow.api.agent.vendax.VendaxAgentMetrics vendaxAgentMetrics(
+            io.micrometer.core.instrument.MeterRegistry meterRegistry,
+            java.util.concurrent.ThreadPoolExecutor vendaxAgentExecutor) {
+        return new br.com.archflow.api.agent.vendax.VendaxAgentMetrics(
+                meterRegistry, vendaxAgentExecutor);
+    }
+
+    @Bean(name = "vendaxAgent")
+    @ConditionalOnMissingBean(name = "vendaxAgent")
+    public org.springframework.boot.health.contributor.HealthIndicator vendaxAgentHealthIndicator(
+            java.util.concurrent.ThreadPoolExecutor vendaxAgentExecutor) {
+        return new br.com.archflow.api.agent.vendax.VendaxAgentHealthIndicator(vendaxAgentExecutor);
     }
 
     /** Roteia o invoke do Core para o agente certo e devolve o resultado. */
@@ -1059,9 +1237,10 @@ public class ArchflowBeanConfiguration {
             br.com.archflow.api.agent.mcp.McpAgentRunner mcpAgentRunner,
             br.com.archflow.api.mcp.vendax.VendaxMcpClientProvider vendaxMcpClientProvider,
             br.com.archflow.api.agent.vendax.VendaxResultSender vendaxResultSender,
-            java.util.concurrent.ExecutorService vendaxAgentExecutor) {
+            java.util.concurrent.ExecutorService vendaxAgentExecutor,
+            br.com.archflow.api.agent.vendax.VendaxAgentMetrics vendaxAgentMetrics) {
         return new br.com.archflow.api.agent.vendax.VendaxAgentDispatcher(
                 qpAgentService, mcpAgentRunner, vendaxMcpClientProvider,
-                vendaxResultSender, vendaxAgentExecutor);
+                vendaxResultSender, vendaxAgentExecutor, vendaxAgentMetrics);
     }
 }

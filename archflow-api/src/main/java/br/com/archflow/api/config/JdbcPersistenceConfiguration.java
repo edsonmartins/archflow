@@ -213,4 +213,31 @@ public class JdbcPersistenceConfiguration {
         log.info("JDBC persistence ativo: GlobalConfigStore durável (JdbcGlobalConfigStore)");
         return new br.com.archflow.api.admin.store.JdbcGlobalConfigStore(dataSource);
     }
+
+    @Bean
+    public br.com.archflow.api.storage.FileMetadataRepository fileMetadataRepository(
+            DataSource dataSource) {
+        log.info("JDBC persistence ativo: metadados de arquivos duráveis");
+        return new br.com.archflow.api.storage.JdbcFileMetadataRepository(dataSource);
+    }
+
+    @Bean
+    public br.com.archflow.api.jobs.JobRepository jobRepository(DataSource dataSource) {
+        log.info("JDBC persistence ativo: jobs assíncronos duráveis");
+        return new br.com.archflow.api.jobs.JdbcJobRepository(dataSource);
+    }
+
+    @Bean
+    public br.com.archflow.api.knowledge.KnowledgeRepository knowledgeRepository(
+            DataSource dataSource) {
+        log.info("JDBC persistence ativo: knowledge bases, documentos e chunks duráveis");
+        return new br.com.archflow.api.knowledge.JdbcKnowledgeRepository(dataSource);
+    }
+
+    @Bean
+    public br.com.archflow.api.knowledge.KnowledgeVectorIndex knowledgeVectorIndex(
+            DataSource dataSource) {
+        log.info("JDBC persistence ativo: índice de knowledge em pgvector");
+        return new br.com.archflow.api.knowledge.PgVectorKnowledgeIndex(dataSource, 128);
+    }
 }

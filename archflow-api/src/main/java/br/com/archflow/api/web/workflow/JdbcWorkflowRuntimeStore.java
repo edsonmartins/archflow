@@ -115,6 +115,16 @@ public class JdbcWorkflowRuntimeStore implements WorkflowRuntimeStore {
     public void deleteWorkflow(String id) {
         try (Connection conn = dataSource.getConnection()) {
             try (PreparedStatement ps = conn.prepareStatement(
+                    "DELETE FROM workflow_deployments WHERE workflow_id = ?")) {
+                ps.setString(1, id);
+                ps.executeUpdate();
+            }
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "DELETE FROM workflow_versions WHERE workflow_id = ?")) {
+                ps.setString(1, id);
+                ps.executeUpdate();
+            }
+            try (PreparedStatement ps = conn.prepareStatement(
                     "DELETE FROM workflow_documents WHERE id = ?")) {
                 ps.setString(1, id);
                 ps.executeUpdate();
@@ -127,6 +137,145 @@ public class JdbcWorkflowRuntimeStore implements WorkflowRuntimeStore {
         } catch (SQLException e) {
             throw new RuntimeException("Failed to delete workflow " + id, e);
         }
+    }
+
+    @Override
+    public List<WorkflowVersionRecord> workflowVersions(String workflowId) {
+        String sql = """
+                SELECT id, version_no, document, comment, created_at
+                  FROM workflow_versions
+                 WHERE workflow_id = ?
+                 ORDER BY version_no DESC
+                """;
+        List<WorkflowVersionRecord> result = new ArrayList<>();
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, workflowId);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    result.add(readVersion(workflowId, rs));
+                }
+            }
+            return result;
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to list versions for workflow " + workflowId, e);
+        }
+    }
+
+    @Override
+    public WorkflowVersionRecord getWorkflowVersion(String workflowId, String versionId) {
+        String sql = """
+                SELECT id, version_no, document, comment, created_at
+                  FROM workflow_versions
+                 WHERE workflow_id = ? AND id = ?
+                """;
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, workflowId);
+            ps.setString(2, versionId);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? readVersion(workflowId, rs) : null;
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to load workflow version " + versionId, e);
+        }
+    }
+
+    @Override
+    public WorkflowVersionRecord publishWorkflow(String workflowId, String comment) {
+        Map<String, Object> draft = getWorkflow(workflowId);
+        if (draft == null) {
+            return null;
+        }
+        String versionId = "wfv-" + UUID.randomUUID().toString().substring(0, 8);
+        Instant createdAt = Instant.now();
+        String sql = """
+                INSERT INTO workflow_versions
+                    (id, workflow_id, version_no, document, comment, created_at)
+                SELECT ?, ?, COALESCE(MAX(version_no), 0) + 1, ?, ?, ?
+                  FROM workflow_versions
+                 WHERE workflow_id = ?
+                """;
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, versionId);
+            ps.setString(2, workflowId);
+            ps.setString(3, toJson(draft));
+            ps.setString(4, comment);
+            ps.setTimestamp(5, Timestamp.from(createdAt));
+            ps.setString(6, workflowId);
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to publish workflow " + workflowId, e);
+        }
+        return getWorkflowVersion(workflowId, versionId);
+    }
+
+    @Override
+    public WorkflowDeploymentRecord getDeployment(String workflowId, String environment) {
+        String normalized = normalizeEnvironment(environment);
+        String sql = """
+                SELECT version_id, deployed_at
+                  FROM workflow_deployments
+                 WHERE workflow_id = ? AND environment = ?
+                """;
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, workflowId);
+            ps.setString(2, normalized);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next()
+                        ? new WorkflowDeploymentRecord(workflowId, normalized,
+                                rs.getString("version_id"),
+                                rs.getTimestamp("deployed_at").toInstant())
+                        : null;
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to load workflow deployment", e);
+        }
+    }
+
+    @Override
+    public WorkflowDeploymentRecord deployWorkflow(
+            String workflowId, String environment, String versionId) {
+        if (getWorkflowVersion(workflowId, versionId) == null) {
+            return null;
+        }
+        String normalized = normalizeEnvironment(environment);
+        Instant deployedAt = Instant.now();
+        String update = """
+                UPDATE workflow_deployments
+                   SET version_id = ?, deployed_at = ?
+                 WHERE workflow_id = ? AND environment = ?
+                """;
+        String insert = """
+                INSERT INTO workflow_deployments
+                    (version_id, deployed_at, workflow_id, environment)
+                VALUES (?, ?, ?, ?)
+                """;
+        try (Connection conn = dataSource.getConnection()) {
+            int updated;
+            try (PreparedStatement ps = conn.prepareStatement(update)) {
+                ps.setString(1, versionId);
+                ps.setTimestamp(2, Timestamp.from(deployedAt));
+                ps.setString(3, workflowId);
+                ps.setString(4, normalized);
+                updated = ps.executeUpdate();
+            }
+            if (updated == 0) {
+                try (PreparedStatement ps = conn.prepareStatement(insert)) {
+                    ps.setString(1, versionId);
+                    ps.setTimestamp(2, Timestamp.from(deployedAt));
+                    ps.setString(3, workflowId);
+                    ps.setString(4, normalized);
+                    ps.executeUpdate();
+                }
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to deploy workflow version " + versionId, e);
+        }
+        return new WorkflowDeploymentRecord(
+                workflowId, normalized, versionId, deployedAt);
     }
 
     // ----------------------------------------------------------------- executions
@@ -336,5 +485,20 @@ public class JdbcWorkflowRuntimeStore implements WorkflowRuntimeStore {
         } catch (Exception e) {
             throw new RuntimeException("Failed to deserialize workflow runtime record", e);
         }
+    }
+
+    private WorkflowVersionRecord readVersion(String workflowId, ResultSet rs)
+            throws SQLException {
+        return new WorkflowVersionRecord(
+                rs.getString("id"),
+                workflowId,
+                rs.getInt("version_no"),
+                fromJson(rs.getString("document")),
+                rs.getString("comment"),
+                rs.getTimestamp("created_at").toInstant());
+    }
+
+    private static String normalizeEnvironment(String environment) {
+        return environment == null ? "PRODUCTION" : environment.toUpperCase(java.util.Locale.ROOT);
     }
 }

@@ -43,6 +43,20 @@ public interface WorkflowRuntimeStore {
     /** Removes the workflow and every execution recorded for it. */
     void deleteWorkflow(String id);
 
+    /** Immutable snapshots, newest version first. */
+    List<WorkflowVersionRecord> workflowVersions(String workflowId);
+
+    WorkflowVersionRecord getWorkflowVersion(String workflowId, String versionId);
+
+    /** Creates the next immutable version from the current draft. */
+    WorkflowVersionRecord publishWorkflow(String workflowId, String comment);
+
+    WorkflowDeploymentRecord getDeployment(String workflowId, String environment);
+
+    /** Selects an existing immutable version for the environment. */
+    WorkflowDeploymentRecord deployWorkflow(
+            String workflowId, String environment, String versionId);
+
     // ----------------------------------------------------------------- executions
 
     /** All execution records, most-recent first. */
@@ -64,6 +78,15 @@ public interface WorkflowRuntimeStore {
 
     /** Creates a new RUNNING execution record for the workflow and returns it. */
     Map<String, Object> createExecution(String workflowId, String workflowName);
+
+    /** Creates an execution pinned to the immutable workflow version used. */
+    default Map<String, Object> createExecution(
+            String workflowId, String workflowName, String workflowVersionId) {
+        Map<String, Object> execution = createExecution(workflowId, workflowName);
+        execution.put("workflowVersionId", workflowVersionId);
+        putExecution(String.valueOf(execution.get("id")), execution);
+        return execution;
+    }
 
     /** Marks a resumed execution RUNNING again (counterpart of completeExecution). */
     void markResumed(String id);

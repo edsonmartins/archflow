@@ -43,23 +43,38 @@ public class VendaxAgentDispatcher {
     private final VendaxMcpClientProvider vendax;
     private final VendaxResultSender resultSender;
     private final ExecutorService executor;
+    private final VendaxAgentMetrics metrics;
 
     public VendaxAgentDispatcher(QpAgentService qpAgent, McpAgentRunner runner,
                                  VendaxMcpClientProvider vendax, VendaxResultSender resultSender,
                                  ExecutorService executor) {
+        this(qpAgent, runner, vendax, resultSender, executor, null);
+    }
+
+    public VendaxAgentDispatcher(QpAgentService qpAgent, McpAgentRunner runner,
+                                 VendaxMcpClientProvider vendax, VendaxResultSender resultSender,
+                                 ExecutorService executor, VendaxAgentMetrics metrics) {
         this.qpAgent = qpAgent;
         this.runner = runner;
         this.vendax = vendax;
         this.resultSender = resultSender;
         this.executor = executor;
+        this.metrics = metrics;
     }
 
     /** Aceita a ordem e executa fora da requisição. */
     public void dispatch(VendaxInvoke invoke) {
-        executor.submit(() -> runAndReport(invoke));
+        if (metrics != null) metrics.received();
+        try {
+            executor.execute(() -> runAndReport(invoke));
+        } catch (java.util.concurrent.RejectedExecutionException e) {
+            if (metrics != null) metrics.failed(0, e);
+            throw e;
+        }
     }
 
     void runAndReport(VendaxInvoke invoke) {
+        long startedAt = metrics != null ? metrics.started() : 0;
         String agent = invoke.agent() == null ? "" : invoke.agent().toUpperCase();
         try {
             VendaxResult result = switch (agent) {
@@ -78,7 +93,9 @@ public class VendaxAgentDispatcher {
             if (result != null) {
                 resultSender.send(result);
             }
+            if (metrics != null) metrics.completed(startedAt);
         } catch (Exception e) {
+            if (metrics != null) metrics.failed(startedAt, e);
             log.error("Agente {} falhou (conv={}): {}",
                     invoke.agent(), invoke.conversationId(), e.getMessage(), e);
             resultSender.send(VendaxResult.error(invoke, causeOf(e)));
@@ -92,7 +109,8 @@ public class VendaxAgentDispatcher {
                 modoEntrada(invoke), invoke.text(), List.of(),
                 def != null && def.temPrompt() ? def.systemPrompt() : null,
                 // A chave que o Core embutiu no prompt tem de ser a mesma que o resultado carrega.
-                def != null ? chaveDe(def) : null));
+                def != null ? chaveDe(def) : null),
+                def != null ? def.versao() : null);
 
         if (qp.quote() == null || qp.quote().isBlank()) {
             // O agente rodou mas não chegou a cotar (pediu confirmação, não achou o SKU). Não é
@@ -110,7 +128,8 @@ public class VendaxAgentDispatcher {
      * texto final, e o Core recusa (com log) o que não desserializar.
      */
     private VendaxResult runCs(VendaxInvoke invoke) {
-        var client = vendax.clientFor(invoke.tenantId());
+        var client = vendax.clientFor(invoke.tenantId(),
+                invoke.definicao() != null ? invoke.definicao().versao() : null);
         McpAgentRunner.Result result = runner.run(invoke.tenantId(),
                 promptDe(invoke, CS_SYSTEM_PROMPT),
                 "clienteRef=" + nullSafe(invoke.customerRef()) + "\n" + conversaDe(invoke),

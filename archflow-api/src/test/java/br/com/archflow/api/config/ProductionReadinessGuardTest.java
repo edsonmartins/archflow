@@ -121,4 +121,22 @@ class ProductionReadinessGuardTest {
 
         assertThatCode(guard::afterSingletonsInstantiated).doesNotThrowAnyException();
     }
+
+    @Test
+    @DisplayName("hash embeddings vetam produção mesmo com escape hatch de stores")
+    void hashEmbeddingFailsProduction() {
+        StandardEnvironment env = environment();
+        env.getPropertySources().addFirst(new MapPropertySource("test",
+                Map.of(ProductionReadinessGuard.ALLOW_IN_MEMORY_PROPERTY, "true")));
+        DefaultListableBeanFactory factory = new DefaultListableBeanFactory();
+        factory.registerSingleton("knowledgeEmbeddingModel",
+                new br.com.archflow.api.knowledge.HashEmbeddingModel(128));
+
+        ProductionReadinessGuard guard = new ProductionReadinessGuard(env, factory);
+
+        assertThatThrownBy(guard::afterSingletonsInstantiated)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("HashEmbeddingModel")
+                .hasMessageContaining("OPENAI_API_KEY");
+    }
 }

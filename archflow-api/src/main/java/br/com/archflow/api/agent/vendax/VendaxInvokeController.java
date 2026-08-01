@@ -61,7 +61,12 @@ public class VendaxInvokeController {
             return ResponseEntity.badRequest()
                     .body(Map.of("error", "invoke exige tenantId, conversationId e agent"));
         }
-        dispatcher.dispatch(invoke);
+        try {
+            dispatcher.dispatch(invoke);
+        } catch (java.util.concurrent.RejectedExecutionException e) {
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                    .body(Map.of("error", "executor de agentes temporariamente saturado"));
+        }
         return ResponseEntity.status(HttpStatus.ACCEPTED)
                 .body(Map.of("status", "accepted", "agent", invoke.agent()));
     }

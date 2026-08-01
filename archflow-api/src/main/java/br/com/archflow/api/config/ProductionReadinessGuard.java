@@ -61,6 +61,16 @@ public class ProductionReadinessGuard implements SmartInitializingSingleton {
                     + "the dev profile.");
         }
 
+        Object embeddingModel = beanFactory.getBeanProvider(
+                br.com.archflow.api.knowledge.KnowledgeEmbeddingModel.class).getIfAvailable();
+        if (embeddingModel instanceof br.com.archflow.api.knowledge.HashEmbeddingModel) {
+            throw new IllegalStateException(
+                    "Refusing to start: HashEmbeddingModel is active outside the dev/test "
+                    + "profiles. It is deterministic test scaffolding, not a semantic embedding "
+                    + "model. Configure archflow.knowledge.embedding.provider=openai and provide "
+                    + "OPENAI_API_KEY, or supply a production KnowledgeEmbeddingModel bean.");
+        }
+
         List<String> violations = collectViolations();
         if (violations.isEmpty()) {
             log.info("Production readiness guard: no in-memory stores detected");
@@ -109,6 +119,15 @@ public class ProductionReadinessGuard implements SmartInitializingSingleton {
         checkBean(br.com.archflow.api.web.workflow.WorkflowRuntimeStore.class,
                 br.com.archflow.api.web.workflow.InMemoryWorkflowRuntimeStore.class,
                 "WorkflowRuntimeStore — workflows e execuções do designer", violations);
+        checkBean(br.com.archflow.api.storage.FileMetadataRepository.class,
+                br.com.archflow.api.storage.InMemoryFileMetadataRepository.class,
+                "FileMetadataRepository — metadados de arquivos", violations);
+        checkBean(br.com.archflow.api.jobs.JobRepository.class,
+                br.com.archflow.api.jobs.InMemoryJobRepository.class,
+                "JobRepository — jobs assíncronos", violations);
+        checkBean(br.com.archflow.api.knowledge.KnowledgeRepository.class,
+                br.com.archflow.api.knowledge.InMemoryKnowledgeRepository.class,
+                "KnowledgeRepository — bases e documentos", violations);
         checkQuartz(violations);
 
         // Stores de observabilidade/rascunho: a perda degrada visibilidade,

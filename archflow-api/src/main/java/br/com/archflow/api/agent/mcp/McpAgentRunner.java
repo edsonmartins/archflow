@@ -28,6 +28,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
  * Loop de tool-calling NATIVO server-side — o motor que faltava no ArchFlow
@@ -75,6 +79,8 @@ public class McpAgentRunner {
     private static final Logger log = LoggerFactory.getLogger(McpAgentRunner.class);
     /** Visível ao pacote: o {@link McpAgentComponent} usa o mesmo default quando o nó não o declara. */
     static final int DEFAULT_MAX_ITERATIONS = 8;
+    private static final long LIST_TOOLS_TIMEOUT_SECONDS = 15;
+    private static final long CALL_TOOL_TIMEOUT_SECONDS = 120;
 
     private final LLMConfigResolver llmConfigResolver;
     private final ResolvedLLMConfig platformDefault;
@@ -276,7 +282,9 @@ public class McpAgentRunner {
         Map<String, Map<String, Object>> schemas = new HashMap<>();
         try {
             List<McpModel.Tool> allowed =
-                    allowedTools(client.listTools().get(), options.access(), session.tenantId);
+                    allowedTools(await(client.listTools(), LIST_TOOLS_TIMEOUT_SECONDS,
+                                    "listar tools"),
+                            options.access(), session.tenantId);
             allowed.forEach(t -> schemas.put(t.name(), t.inputSchema()));
             accountForCatalog(allowed, session.tenantId);
             tools = McpToolSpecifications.from(allowed);
@@ -396,8 +404,9 @@ public class McpAgentRunner {
                     toolName, session.tenantId);
         } else {
             try {
-                McpModel.ToolResult tr = client.callTool(
-                        new McpModel.ToolArguments(toolName, effectiveArgs)).get();
+                McpModel.ToolResult tr = await(client.callTool(
+                                new McpModel.ToolArguments(toolName, effectiveArgs)),
+                        CALL_TOOL_TIMEOUT_SECONDS, "executar a tool " + toolName);
                 resultText = textOf(tr);
                 isError = tr.isError();
                 if (!isError) {
@@ -644,6 +653,33 @@ public class McpAgentRunner {
 
     private static String truncate(String value) {
         return value.length() <= 200 ? value : value.substring(0, 200) + "…";
+    }
+
+    /** Espera limitada que preserva interrupção e expõe timeout como causa operacional. */
+    private static <T> T await(CompletableFuture<T> future, long timeoutSeconds,
+                               String operation) {
+        try {
+            return future.get(timeoutSeconds, TimeUnit.SECONDS);
+        } catch (TimeoutException e) {
+            future.cancel(true);
+            throw new McpOperationTimeoutException(operation, timeoutSeconds, e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Execução interrompida ao " + operation, e);
+        } catch (ExecutionException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof RuntimeException runtime) {
+                throw runtime;
+            }
+            throw new IllegalStateException("Falha ao " + operation + ": " + cause.getMessage(), cause);
+        }
+    }
+
+    /** Timeout classificável por métricas, logs e políticas de reconexão. */
+    public static final class McpOperationTimeoutException extends RuntimeException {
+        McpOperationTimeoutException(String operation, long timeoutSeconds, Throwable cause) {
+            super("Timeout ao " + operation + " após " + timeoutSeconds + "s", cause);
+        }
     }
 
     /**

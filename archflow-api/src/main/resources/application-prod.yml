@@ -65,6 +65,27 @@ archflow:
   persistence:
     jdbc:
       enabled: ${ARCHFLOW_PERSISTENCE_JDBC_ENABLED:true}
+  storage:
+    # Must point to a persistent mounted volume in production. S3-compatible
+    # deployments can override the ObjectStorage bean instead.
+    local:
+      root: ${ARCHFLOW_STORAGE_LOCAL_ROOT}
+  knowledge:
+    extraction:
+      max-characters: ${ARCHFLOW_KNOWLEDGE_EXTRACTION_MAX_CHARACTERS:5000000}
+      pdf:
+        max-pages: ${ARCHFLOW_KNOWLEDGE_EXTRACTION_PDF_MAX_PAGES:1000}
+    embedding:
+      provider: ${ARCHFLOW_KNOWLEDGE_EMBEDDING_PROVIDER:openai}
+      openai:
+        api-key: ${OPENAI_API_KEY:}
+        model: ${ARCHFLOW_KNOWLEDGE_EMBEDDING_MODEL:text-embedding-3-small}
+        base-url: ${ARCHFLOW_KNOWLEDGE_EMBEDDING_BASE_URL:}
+        timeout: ${ARCHFLOW_KNOWLEDGE_EMBEDDING_TIMEOUT:PT30S}
+        max-retries: ${ARCHFLOW_KNOWLEDGE_EMBEDDING_MAX_RETRIES:3}
+  jobs:
+    worker:
+      enabled: ${ARCHFLOW_JOBS_WORKER_ENABLED:true}
   observability:
     metrics:
       enabled: true

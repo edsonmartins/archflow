@@ -49,6 +49,7 @@ const AgentPlaygroundPage     = lazy(() => import('./pages/AgentPlaygroundPage')
 const DynamicWorkflowPage     = lazy(() => import('./pages/DynamicWorkflowPage'));
 const AgUiRunnerPage          = lazy(() => import('./pages/AgUiRunnerPage'));
 const CopilotAssistantPage    = lazy(() => import('./pages/CopilotAssistantPage'));
+const KnowledgeBasesPage      = lazy(() => import('./pages/KnowledgeBasesPage'));
 
 // Admin pages — lazy loaded
 const AdminLayout       = lazy(() => import('./components/admin/AdminLayout'));
@@ -92,6 +93,7 @@ function App() {
                             <Route path="/conversations/:id" element={<ConversationPage />} />
                             <Route path="/templates" element={<TemplatesPage />} />
                             <Route path="/templates/:id" element={<TemplateDetailPage />} />
+                            <Route path="/knowledge" element={<KnowledgeBasesPage />} />
                             <Route path="/playground/voice" element={<VoicePlaygroundPage />} />
                             <Route path="/approvals" element={<ApprovalQueuePage />} />
                             <Route path="/approvals/:id" element={<ApprovalDetailPage />} />
