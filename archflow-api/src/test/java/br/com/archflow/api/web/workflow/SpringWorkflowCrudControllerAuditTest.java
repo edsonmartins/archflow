@@ -43,13 +43,15 @@ class SpringWorkflowCrudControllerAuditTest {
     private FlowRepository flowRepository;
 
     private InMemoryAuditRepository auditRepo;
+    private InMemoryWorkflowRuntimeStore store;
     private SpringWorkflowCrudController controller;
 
     @BeforeEach
     void setUp() {
         auditRepo = new InMemoryAuditRepository();
+        store = new InMemoryWorkflowRuntimeStore();
         controller = new SpringWorkflowCrudController(
-                new InMemoryWorkflowRuntimeStore(),
+                store,
                 deserializer,
                 flowEngine,
                 flowRepository,
@@ -106,5 +108,53 @@ class SpringWorkflowCrudControllerAuditTest {
         controller.execute("wf-missing", Map.of());
 
         assertThat(events()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("publish cria snapshot, deployment e auditoria")
+    void publishCreatesVersionDeploymentAndAudit() {
+        var created = controller.create(new java.util.HashMap<>(
+                Map.of("metadata", Map.of("name", "Flow A"))));
+        String id = String.valueOf(created.getBody().get("id"));
+
+        var response = controller.publish(id, Map.of(
+                "comment", "ready",
+                "environment", "PRODUCTION"));
+
+        assertThat(response.getStatusCode().value()).isEqualTo(201);
+        assertThat(store.workflowVersions(id)).singleElement().satisfies(version -> {
+            assertThat(version.number()).isEqualTo(1);
+            assertThat(version.comment()).isEqualTo("ready");
+            assertThat(store.getDeployment(id, "production").versionId())
+                    .isEqualTo(version.id());
+        });
+        assertThat(events())
+                .filteredOn(event -> event.getAction() == AuditAction.UPDATE)
+                .anySatisfy(event -> assertThat(event.getContext())
+                        .containsEntry("operation", "publish"));
+    }
+
+    @Test
+    @DisplayName("deploy de versão anterior funciona como rollback auditado")
+    void deployOlderVersionRollsBack() {
+        var created = controller.create(new java.util.HashMap<>(
+                Map.of("metadata", Map.of("name", "Flow A"))));
+        String id = String.valueOf(created.getBody().get("id"));
+        var first = store.publishWorkflow(id, "v1");
+        var second = store.publishWorkflow(id, "v2");
+        store.deployWorkflow(id, "PRODUCTION", second.id());
+
+        var response = controller.deploy(
+                id, "production", Map.of("versionId", first.id()));
+
+        assertThat(response.getStatusCode().is2xxSuccessful()).isTrue();
+        assertThat(store.getDeployment(id, "PRODUCTION").versionId())
+                .isEqualTo(first.id());
+        assertThat(events())
+                .filteredOn(event -> event.getAction() == AuditAction.UPDATE)
+                .singleElement()
+                .satisfies(event -> assertThat(event.getContext())
+                        .containsEntry("operation", "deploy")
+                        .containsEntry("versionId", first.id()));
     }
 }

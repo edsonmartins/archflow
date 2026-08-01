@@ -71,7 +71,8 @@ export async function authFetch(url: string, options: RequestInit = {}): Promise
     await ensureFreshToken();
     const token = sessionStorage.getItem('archflow_token');
     const headers = new Headers(options.headers);
-    if (!headers.has('Content-Type') && options.body) {
+    const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
+    if (!headers.has('Content-Type') && options.body && !isFormData) {
         headers.set('Content-Type', 'application/json');
     }
     if (token && !headers.has('Authorization')) {
@@ -162,6 +163,22 @@ export interface WorkflowDetail {
     configuration: unknown;
 }
 
+export interface WorkflowVersion {
+    id: string;
+    workflowId: string;
+    number: number;
+    document: WorkflowDetail;
+    comment: string | null;
+    createdAt: string;
+}
+
+export interface WorkflowDeployment {
+    workflowId: string;
+    environment: string;
+    versionId: string;
+    deployedAt: string;
+}
+
 export const workflowApi = {
     list: () => api.get<WorkflowSummary[]>('/workflows'),
     get: (id: string) => api.get<WorkflowDetail>(`/workflows/${id}`),
@@ -171,7 +188,18 @@ export const workflowApi = {
     setStatus: (id: string, status: 'draft' | 'active' | 'archived') =>
         api.patch<WorkflowDetail>(`/workflows/${id}/status`, { status }),
     execute: (id: string, input?: Record<string, unknown>) =>
-        api.post<{ executionId: string; status: string }>(`/workflows/${id}/execute`, input),
+        api.post<{ executionId: string; status: string; workflowVersionId: string | null }>(
+            `/workflows/${id}/execute`, input),
+    versions: (id: string) =>
+        api.get<WorkflowVersion[]>(`/workflows/${id}/versions`),
+    publish: (id: string, comment?: string, environment = 'PRODUCTION') =>
+        api.post<{ version: WorkflowVersion; deployment: WorkflowDeployment }>(
+            `/workflows/${id}/publish`, { comment, environment }),
+    deploy: (id: string, environment: string, versionId: string) =>
+        api.put<WorkflowDeployment>(
+            `/workflows/${id}/deployments/${environment}`, { versionId }),
+    deployment: (id: string, environment = 'PRODUCTION') =>
+        api.get<WorkflowDeployment>(`/workflows/${id}/deployments/${environment}`),
 };
 
 // Execution API

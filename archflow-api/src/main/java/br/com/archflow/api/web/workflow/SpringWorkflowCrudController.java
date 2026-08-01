@@ -99,6 +99,66 @@ public class SpringWorkflowCrudController {
         return ResponseEntity.noContent().build();
     }
 
+    @GetMapping("/{id}/versions")
+    public ResponseEntity<List<WorkflowVersionRecord>> versions(@PathVariable String id) {
+        if (!store.hasWorkflow(id)) return ResponseEntity.notFound().build();
+        return ResponseEntity.ok(store.workflowVersions(id));
+    }
+
+    @GetMapping("/{id}/versions/{versionId}")
+    public ResponseEntity<WorkflowVersionRecord> version(@PathVariable String id,
+                                                          @PathVariable String versionId) {
+        var version = store.getWorkflowVersion(id, versionId);
+        return version != null ? ResponseEntity.ok(version) : ResponseEntity.notFound().build();
+    }
+
+    /**
+     * Publishes the current draft as an immutable version and deploys it to the
+     * requested environment (PRODUCTION by default).
+     */
+    @PostMapping("/{id}/publish")
+    public ResponseEntity<Map<String, Object>> publish(
+            @PathVariable String id,
+            @RequestBody(required = false) Map<String, Object> body) {
+        String comment = body == null ? null : Objects.toString(body.get("comment"), null);
+        String environment = body == null
+                ? "PRODUCTION"
+                : Objects.toString(body.get("environment"), "PRODUCTION");
+        var version = store.publishWorkflow(id, comment);
+        if (version == null) return ResponseEntity.notFound().build();
+        var deployment = store.deployWorkflow(id, environment, version.id());
+        auditTrail.record(AuditAction.UPDATE, "workflow", id, true, null,
+                Map.of("operation", "publish", "versionId", version.id(),
+                        "environment", deployment.environment()));
+        return ResponseEntity.status(HttpStatus.CREATED).body(Map.of(
+                "version", version,
+                "deployment", deployment));
+    }
+
+    /** Deploys an older version too, making this endpoint the rollback primitive. */
+    @PutMapping("/{id}/deployments/{environment}")
+    public ResponseEntity<WorkflowDeploymentRecord> deploy(
+            @PathVariable String id,
+            @PathVariable String environment,
+            @RequestBody Map<String, Object> body) {
+        String versionId = Objects.toString(body.get("versionId"), "");
+        var deployment = store.deployWorkflow(id, environment, versionId);
+        if (deployment == null) return ResponseEntity.notFound().build();
+        auditTrail.record(AuditAction.UPDATE, "workflow", id, true, null,
+                Map.of("operation", "deploy", "versionId", versionId,
+                        "environment", deployment.environment()));
+        return ResponseEntity.ok(deployment);
+    }
+
+    @GetMapping("/{id}/deployments/{environment}")
+    public ResponseEntity<WorkflowDeploymentRecord> deployment(
+            @PathVariable String id, @PathVariable String environment) {
+        var deployment = store.getDeployment(id, environment);
+        return deployment != null
+                ? ResponseEntity.ok(deployment)
+                : ResponseEntity.notFound().build();
+    }
+
     /** Ciclo de vida do workflow (draft → active → archived). */
     private static final java.util.Set<String> VALID_STATUSES =
             java.util.Set.of("draft", "active", "archived");
@@ -125,10 +185,18 @@ public class SpringWorkflowCrudController {
     @PostMapping("/{id}/execute")
     public ResponseEntity<Map<String, Object>> execute(@PathVariable String id,
                                                         @RequestBody(required = false) Map<String, Object> input) {
-        var workflow = store.getWorkflow(id);
-        if (workflow == null) return ResponseEntity.notFound().build();
+        var draft = store.getWorkflow(id);
+        if (draft == null) return ResponseEntity.notFound().build();
+        var deployment = store.getDeployment(id, "PRODUCTION");
+        var version = deployment == null
+                ? null
+                : store.getWorkflowVersion(id, deployment.versionId());
+        // Compatibility window: legacy workflows without a deployment still run
+        // their draft. Every new publish pins subsequent executions to a snapshot.
+        var workflow = version == null ? draft : version.document();
+        String workflowVersionId = version == null ? null : version.id();
 
-        var execution = store.createExecution(id, workflowName(workflow));
+        var execution = store.createExecution(id, workflowName(workflow), workflowVersionId);
         String executionId = String.valueOf(execution.get("id"));
 
         // Deserialize the stored JSON into an executable Flow and submit it to the
@@ -158,6 +226,7 @@ public class SpringWorkflowCrudController {
         body.put("executionId", executionId);
         body.put("status", "RUNNING");
         body.put("workflowId", id);
+        body.put("workflowVersionId", workflowVersionId);
         body.put("startedAt", execution.get("startedAt"));
         return ResponseEntity.ok(body);
     }

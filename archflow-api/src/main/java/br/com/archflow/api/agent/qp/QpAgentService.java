@@ -85,8 +85,12 @@ public class QpAgentService {
     }
 
     public QpResult quote(QpRequest request) {
+        return quote(request, null);
+    }
+
+    public QpResult quote(QpRequest request, String definitionVersion) {
         String tenantId = request.tenantId() != null ? request.tenantId() : "__default__";
-        McpClient client = vendax.clientFor(tenantId);
+        McpClient client = vendax.clientFor(tenantId, definitionVersion);
 
         // chaveIdempotencia usada UMA vez e reusada em firmar_cotacao/enviar_pedido (idempotência do
         // Core sobre a tupla item/qtd/condição). Vinda do Core quando ele a decidiu — gerar aqui faria

@@ -12,6 +12,63 @@ import static org.assertj.core.api.Assertions.assertThat;
 class InMemoryWorkflowRuntimeStoreTest {
 
     @Test
+    @DisplayName("publish creates immutable sequential snapshots")
+    void publishCreatesImmutableSequentialSnapshots() {
+        var store = new InMemoryWorkflowRuntimeStore();
+        var draft = new java.util.LinkedHashMap<String, Object>();
+        draft.put("id", "wf-versioned");
+        draft.put("metadata", new java.util.LinkedHashMap<>(
+                java.util.Map.of("name", "Original")));
+        draft.put("steps", java.util.List.of());
+        store.putWorkflow("wf-versioned", draft);
+
+        var first = store.publishWorkflow("wf-versioned", "initial");
+        @SuppressWarnings("unchecked")
+        var metadata = (java.util.Map<String, Object>) draft.get("metadata");
+        metadata.put("name", "Changed");
+        var second = store.publishWorkflow("wf-versioned", "changed");
+
+        assertThat(first.number()).isEqualTo(1);
+        assertThat(second.number()).isEqualTo(2);
+        assertThat(store.workflowVersions("wf-versioned"))
+                .extracting(WorkflowVersionRecord::id)
+                .containsExactly(second.id(), first.id());
+        @SuppressWarnings("unchecked")
+        var firstMetadata =
+                (java.util.Map<String, Object>) first.document().get("metadata");
+        assertThat(firstMetadata.get("name")).isEqualTo("Original");
+    }
+
+    @Test
+    @DisplayName("deployment can move back to an older version")
+    void deploymentCanRollbackToOlderVersion() {
+        var store = new InMemoryWorkflowRuntimeStore();
+        store.putWorkflow("wf-versioned", new java.util.LinkedHashMap<>(
+                java.util.Map.of("id", "wf-versioned", "steps", java.util.List.of())));
+        var first = store.publishWorkflow("wf-versioned", "v1");
+        var second = store.publishWorkflow("wf-versioned", "v2");
+
+        store.deployWorkflow("wf-versioned", "production", second.id());
+        var rollback = store.deployWorkflow("wf-versioned", "production", first.id());
+
+        assertThat(rollback.versionId()).isEqualTo(first.id());
+        assertThat(store.getDeployment("wf-versioned", "PRODUCTION").versionId())
+                .isEqualTo(first.id());
+    }
+
+    @Test
+    @DisplayName("execution records the pinned workflow version")
+    void executionRecordsPinnedVersion() {
+        var store = new InMemoryWorkflowRuntimeStore();
+
+        var execution = store.createExecution("wf-1", "Flow", "wfv-1");
+
+        assertThat(execution.get("workflowVersionId")).isEqualTo("wfv-1");
+        assertThat(store.getExecution(String.valueOf(execution.get("id")))
+                .get("workflowVersionId")).isEqualTo("wfv-1");
+    }
+
+    @Test
     @DisplayName("createExecution persists a frontend-compatible running execution")
     void createExecutionPersistsRunningExecution() {
         var store = new InMemoryWorkflowRuntimeStore();

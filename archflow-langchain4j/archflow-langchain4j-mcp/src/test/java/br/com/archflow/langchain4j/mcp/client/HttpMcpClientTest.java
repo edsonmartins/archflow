@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Test;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -27,6 +28,7 @@ class HttpMcpClientTest {
     private final ObjectMapper mapper = new ObjectMapper();
     private final List<Map<String, String>> receivedHeaders = new CopyOnWriteArrayList<>();
     private final List<String> receivedMethods = new CopyOnWriteArrayList<>();
+    private volatile boolean delayToolList;
 
     @BeforeEach
     void startServer() throws IOException {
@@ -39,6 +41,13 @@ class HttpMcpClientTest {
             JsonNode req = mapper.readTree(reqBytes);
             String method = req.path("method").asText();
             receivedMethods.add(method);
+            if (delayToolList && "tools/list".equals(method)) {
+                try {
+                    Thread.sleep(500);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
             Object id = req.path("id").isMissingNode() ? null : req.path("id").asText();
 
             String response = switch (method) {
@@ -111,5 +120,17 @@ class HttpMcpClientTest {
                 .isInstanceOf(HttpMcpClient.McpRpcException.class)
                 .hasMessageContaining("-32000")
                 .hasMessageContaining("tool exploded");
+    }
+
+    @Test
+    @DisplayName("timeout recebido no construtor limita também a espera pela resposta HTTP")
+    void responseTimeout() throws Exception {
+        delayToolList = true;
+        HttpMcpClient client = new HttpMcpClient(baseUrl, "t", "acme", Duration.ofMillis(80));
+        client.connect();
+
+        assertThatThrownBy(() -> client.listTools().get())
+                .hasRootCauseInstanceOf(java.net.http.HttpTimeoutException.class);
+        client.close();
     }
 }

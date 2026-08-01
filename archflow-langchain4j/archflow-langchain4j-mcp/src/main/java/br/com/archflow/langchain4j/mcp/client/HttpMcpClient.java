@@ -19,6 +19,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -67,6 +69,8 @@ public final class HttpMcpClient implements McpClient {
     private final String serviceToken;
     private final String tenantId;
     private final HttpClient http;
+    private final Duration requestTimeout;
+    private final ExecutorService ioExecutor;
     private final ObjectMapper mapper = new ObjectMapper();
 
     private final AtomicBoolean connected = new AtomicBoolean(false);
@@ -86,6 +90,11 @@ public final class HttpMcpClient implements McpClient {
         this.endpoint = URI.create(baseUrl);
         this.serviceToken = serviceToken;
         this.tenantId = tenantId;
+        if (timeout == null || timeout.isZero() || timeout.isNegative()) {
+            throw new IllegalArgumentException("timeout deve ser positivo");
+        }
+        this.requestTimeout = timeout;
+        this.ioExecutor = Executors.newVirtualThreadPerTaskExecutor();
         this.http = HttpClient.newBuilder().connectTimeout(timeout).build();
     }
 
@@ -111,7 +120,7 @@ public final class HttpMcpClient implements McpClient {
             connected.set(true);
             String protocol = result.path("protocolVersion").asText(McpModel.ServerInfo.PROTOCOL_VERSION);
             return new McpModel.ServerInfo(protocol, caps, meta);
-        });
+        }, ioExecutor);
     }
 
     @Override
@@ -146,6 +155,7 @@ public final class HttpMcpClient implements McpClient {
         if (session != null && !session.isBlank()) {
             try {
                 HttpRequest.Builder req = HttpRequest.newBuilder(endpoint)
+                        .timeout(requestTimeout)
                         .header(SESSION_HEADER, session)
                         .DELETE();
                 if (serviceToken != null && !serviceToken.isBlank()) {
@@ -158,6 +168,7 @@ public final class HttpMcpClient implements McpClient {
         }
         sessionId = null;
         connected.set(false);
+        ioExecutor.shutdownNow();
     }
 
     @Override
@@ -190,7 +201,7 @@ public final class HttpMcpClient implements McpClient {
                 tools.add(new McpModel.Tool(name, description, schema));
             }
             return tools;
-        });
+        }, ioExecutor);
     }
 
     @Override
@@ -210,7 +221,7 @@ public final class HttpMcpClient implements McpClient {
             }
             boolean isError = result.path("isError").asBoolean(false);
             return new McpModel.ToolResult(content, isError);
-        });
+        }, ioExecutor);
     }
 
     // ── JSON-RPC over HTTP ──────────────────────────────────────────
@@ -247,6 +258,7 @@ public final class HttpMcpClient implements McpClient {
         try {
             String json = mapper.writeValueAsString(body);
             HttpRequest.Builder req = HttpRequest.newBuilder(endpoint)
+                    .timeout(requestTimeout)
                     .header("Content-Type", "application/json")
                     // A spec do Streamable HTTP permite ao server responder com um
                     // JSON único OU com um stream SSE; anunciamos os dois.

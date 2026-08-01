@@ -11,6 +11,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.doThrow;
 
 /**
  * O endpoint de invoke fica fora do filtro JWT (chamada de máquina), então quem protege é ele
@@ -93,5 +94,16 @@ class VendaxInvokeControllerTest {
         controller.invoke(invoke, "Bearer segredo");
 
         verify(dispatcher).dispatch(invoke);
+    }
+
+    @Test
+    @DisplayName("executor saturado → 503 para o Core tentar novamente, nunca 202 falso")
+    void saturated() {
+        keyIs("segredo");
+        doThrow(new java.util.concurrent.RejectedExecutionException()).when(dispatcher)
+                .dispatch(org.mockito.ArgumentMatchers.any());
+
+        assertThat(controller.invoke(valid(), "Bearer segredo").getStatusCode())
+                .isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
     }
 }
