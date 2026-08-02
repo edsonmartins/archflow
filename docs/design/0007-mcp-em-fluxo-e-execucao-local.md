@@ -5,17 +5,29 @@ independentes na implementação e acoplados no destino: quem roda perto do dado
 também precisa das ferramentas, e quem tem ferramentas precisa saber onde elas
 rodam.
 
-Este documento descreve o estado atual com precisão, as opções, e o que cada uma
-custa. Não decide — é para decidir junto.
+Este documento descreve o estado atual, as opções, e o que cada uma custa.
+
+**Estado em 02/08/2026: a Parte A está resolvida; a Parte B continua um levantamento
+para decidir junto.** A Parte A foi reescrita nessa data porque descrevia o nó de MCP
+como inexistente muito depois de ele ter sido construído — e documento de levantamento
+que envelhece sem aviso é lido como estado atual. Foi o que aconteceu: uma revisão de
+spec do VendaX listou como "o que construir" um trabalho que já estava pronto.
+
+Ao mexer aqui: se a Parte B for decidida, atualize-a do mesmo jeito, ou marque-a como
+histórica. O custo de um documento desatualizado não é ele estar errado — é ele ser
+convincente.
 
 ---
 
-## Parte A — um nó de fluxo não chama tools MCP
+## Parte A — RESOLVIDA: o nó de fluxo chama tools MCP
 
-### A.1 O estado, em código
+> **Atualizado em 02/08/2026.** Esta parte descrevia o nó de MCP como inexistente e discutia três
+> opções para construí-lo. A opção (2) **foi implementada**, e o texto abaixo passou a descrever um
+> estado que já não existia — a ponto de induzir uma revisão de spec do VendaX a listar como "o que
+> construir" um trabalho que estava pronto. O levantamento original está no histórico do git; aqui
+> fica o que vale.
 
-O runtime de agente com MCP existe e é maduro. Ele mora em
-`archflow-api/src/main/java/br/com/archflow/api/agent/mcp/`:
+### A.1 O que existe
 
 | classe | o que resolve |
 |---|---|
@@ -26,92 +38,64 @@ O runtime de agente com MCP existe e é maduro. Ele mora em
 | `ToolArgumentValidator` | valida argumentos antes da chamada |
 | `ToolCatalogBudget` | teto de tokens do catálogo por turno |
 | `McpAgentStateStore` (InMemory/Jdbc) | estado do agente entre turnos |
+| **`McpAgentComponent`** | **o laço acima como passo de fluxo** |
+| **`McpAgentHost`** / `ConfiguredMcpAgentHost` | **de onde vêm runner, cliente MCP e teto de tools** |
 
-O motor de fluxo **não o alcança**. Um passo de fluxo é construído em
-`DefaultFlowStepFactory.create(node, componentPolicy)` por dois caminhos:
+`McpAgentComponent` é **componente do catálogo**, não tipo de nó servido por adapter. A razão é a
+que o levantamento original já apontava: o valor do runner não é o laço, é a política em volta dele.
+Reimplementá-la na config de um adapter seria reescrever seis classes maduras num lugar onde o erro
+é silencioso — uma allowlist que não pega deixa o agente chamar tool destrutiva sem ninguém notar.
+Como componente, ele ainda herda o `ComponentAccessPolicy` do motor — o `allowing(...)` da DSL —
+que vale inclusive para sub-agentes de um nó de orquestração.
 
-1. **nó de adapter** — `AdapterNodeTypes` mapeia o tipo do nó para um tipo de
-   adapter, e `LangChainRegistry.getProvidersOfType(...)` resolve o provider:
+### A.2 Config do nó
 
-   ```
-   llm-chat, llm-streaming, chat → chat
-   embedding                     → embedding
-   memory                        → memory
-   vector-store, vector-search   → vectorstore
-   rag                           → chain
-   ```
+```
+systemPrompt   (obrigatório) instrução do agente
+tools          (lista)       allowlist; ausente = todas as do server, sujeitas ao teto do host
+server         (texto)       REFERÊNCIA ao servidor MCP; ausente = padrão do host
+maxIterations  (inteiro)     voltas do laço; ausente = padrão do runner
+```
 
-2. **nó de componente** — resolvido no `ComponentCatalog`, restrito por
-   `ComponentAccessPolicy` (é o que o `allowing(...)` da DSL faz valer).
+Saída: `text`, `toolCalls`, `suspended` e — quando suspenso — `approvalRequestId` e `pendingTool`.
+A suspensão é explícita de propósito: tratar um laço suspenso como conclusão entregaria ao passo
+seguinte uma resposta parcial como se fosse final, e a aprovação pendente sumiria sem ninguém a ver.
 
-Não há entrada para MCP em nenhum dos dois. O módulo
-`archflow-langchain4j-mcp` tem cliente, servidor e registry, mas o
-`WorkflowMcpServer` vai na direção **oposta**: expõe workflows *como* tools MCP.
+### A.3 As três decisões que o levantamento deixou em aberto
 
-**Consequência prática.** No VendaX, o agente CS lê o histórico operacional
-(`obter_eventos_operacionais`) antes de concluir que o cliente esfriou — um
-cliente que reclama de atraso comprovado é diferente de um mal-humorado. Migrar
-esse agente de prompt para fluxo hoje **perderia** essa checagem. Foi por isso
-que o fluxo gerado pela DSL no VendaX ficou versionado mas não semeado no
-catálogo: trocaria funcionalidade por arquitetura.
+**1. De onde vem o cliente MCP — resolvido: do contexto de execução.**
+`McpAgentHost` é injetado no `ExecutionContext` sob a chave `mcp.host`; o nó carrega `server` como
+*referência*, e o host resolve `clientFor(tenantId, serverRef)`. Endereço e credencial nunca entram
+no documento do fluxo, que é versionado e visível no designer. É também o que permite o mesmo
+documento rodar na nuvem e num agente local — cada lado fornece o seu host.
 
-### A.2 As três opções
+Os servidores vêm de `archflow.mcp.servers.<ref>.base-url|service-token`. A chave antiga
+`archflow.vendax.mcp.*` é semeada sob `ref = "vendax"`, para instalação existente não precisar
+editar configuração.
 
-**(1) Novo tipo de nó `mcp-agent`, servido por adapter.**
-Acrescenta `"mcp-agent" → "mcp"` em `AdapterNodeTypes` e um adapter novo no
-registry.
-*A favor:* idiomático no designer; o nó aparece ao lado de `llm-chat`.
-*Contra:* a política de tools (allowlist, aprovação, confiança, budget) teria de
-ser reimplementada ou exposta na config do adapter. É reescrever o que já está
-maduro, num lugar onde o erro é silencioso — uma allowlist que não pega deixa o
-agente chamar tool destrutiva sem ninguém notar.
+**2. Quem manda a allowlist — resolvido: interseção, nunca soma.**
+`McpAgentComponent.politicaDeAcesso` intersecciona a lista do nó com `host.toolCeiling(tenantId)`.
+Sem lista no nó vale o teto; sem os dois vale `allowAll()` **declarado**, não por omissão. É o que
+impede que, num produto onde o cliente edita o fluxo, ele conceda ao agente tools que a plataforma
+não lhe deu.
 
-**(2) `McpAgentRunner` vira componente do catálogo.**
-`Nodes.component("mcp-agent")`, construído pelo `DefaultFlowStepFactory` no
-caminho de componente.
-*A favor:* reaproveita as sete classes da tabela acima como estão; o
-`ComponentAccessPolicy` já dá o gate de `allowing(...)` **e vale para sub-agentes
-de nó de orquestração**, então a restrição não é contornável por delegação; o
-`McpAgentStateStore` já tem implementação JDBC durável.
-*Contra:* o componente precisa receber, por execução, o endpoint MCP e a
-credencial do tenant — hoje isso vem de um provider fora do motor
-(`VendaxMcpClientProvider`). Ver A.3.
+**3. Aprovação humana: nó `approval()` ou `ToolApprovalPolicy` — AINDA ABERTO.**
+Continuam existindo dois mecanismos para "parado esperando gente". O componente já devolve
+`suspended` e `approvalRequestId`, o que torna viável materializar a suspensão num nó de approval —
+mas a decisão não foi tomada, e enquanto não for, uma suspensão decidida dentro do runner não
+aparece no designer.
 
-**(3) Estender o adapter `chat` para aceitar `tools`.**
-*A favor:* menor superfície nova.
-*Contra:* espalha política de tools por um adapter que hoje não a tem, e perde
-aprovação e confiança. É a opção que parece barata e cobra depois.
+**4. Estado — AINDA ABERTO.** `McpAgentStateStore` e o `StateManager` do motor guardam coisas
+diferentes do mesmo agente. Falta decidir quem é a fonte da verdade num replay.
 
-**Inclinação:** (2). O valor do `McpAgentRunner` não é o laço — é a política em
-volta dele.
+### A.4 O que sobrou
 
-### A.3 O que (2) exige decidir
-
-1. **De onde vem o cliente MCP.** Hoje o `VendaxMcpClientProvider` resolve por
-   tenant, fora do motor. Como componente, precisa de um ponto de resolução:
-   config do nó (endpoint como string) ou um `McpClientProvider` injetado no
-   contexto de execução. A segunda evita credencial dentro do documento do fluxo
-   — e documento de fluxo é versionado e visível no designer.
-
-2. **Quem manda a allowlist, e quem é o teto.** No VendaX a allowlist é da
-   *skill* (plataforma), não do tenant, exatamente para que customizar o agente
-   não amplie o que ele pode fazer. Se a allowlist passar a vir do nó do fluxo, e
-   o fluxo for editável pelo cliente, a garantia inverte. Proposta: a allowlist
-   do nó é **interseccionada** com a que vem do chamador, nunca somada.
-
-3. **Aprovação humana: dois mecanismos para a mesma coisa.** O fluxo tem
-   `Nodes.approval()` (suspensão durável, sobrevive a restart); o runner tem
-   `ToolApprovalPolicy`. Se o componente decidir sozinho, a suspensão fica no
-   estado do runner e o designer não a enxerga. Alternativa: o componente
-   *devolve* "precisa de aprovação" e o fluxo materializa isso num nó de
-   approval — mais trabalho, mas uma só noção de "parado esperando gente".
-
-4. **Estado.** `McpAgentStateStore` (JDBC) e o `StateManager` do motor guardam
-   coisas diferentes do mesmo agente. Vale decidir se o componente é sem estado
-   entre passos (mais simples, o fluxo carrega o contexto) ou se os dois estados
-   coexistem — e nesse caso quem é a fonte da verdade num replay.
-
----
+- **`mcp-tool`** (chamada direta de tool, sem laço) está no catálogo da UI marcado
+  `runtimeStatus: design_only` e **não tem componente no backend**. Quem montar um fluxo com ele
+  descobre em execução. Ou ganha construtor, ou sai da paleta.
+- O caminho VendaX do `archflow-api` (`QpAgentService`, `switch` por nome de agente,
+  `CS_SYSTEM_PROMPT`) **não usa nada disto** — foi por ele que todo agente passou, e é por isso que
+  o componente ficou construído e sem ligação até 02/08. Ver `RFC-013` v2 do VendaX, §4.2.
 
 ## Parte B — execução local (o modelo do agente iPaaS)
 
