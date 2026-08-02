@@ -1302,7 +1302,25 @@ public class ArchflowBeanConfiguration {
         return new br.com.archflow.api.agent.vendax.VendaxAgentHealthIndicator(vendaxAgentExecutor);
     }
 
-    /** Roteia o invoke do Core para o agente certo e devolve o resultado. */
+    /**
+     * Executa o documento de fluxo que veio no invoke — o caminho genérico, sem nome de agente.
+     *
+     * <p>O {@code FlowEngine} entra por {@code ObjectProvider}: o grafo dele passa por
+     * {@code FlowRepository → WorkflowDeserializer → FlowStepFactory}, e a resolução tardia é o que
+     * mantém o ciclo aberto no perfil JDBC.</p>
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public br.com.archflow.api.agent.vendax.AgentFlowRunner agentFlowRunner(
+            br.com.archflow.api.flow.WorkflowDeserializer workflowDeserializer,
+            org.springframework.beans.factory.ObjectProvider<br.com.archflow.engine.api.FlowEngine> flowEngine,
+            br.com.archflow.engine.persistence.FlowRepository flowRepository,
+            br.com.archflow.api.agent.mcp.McpAgentHost mcpAgentHost) {
+        return new br.com.archflow.api.agent.vendax.AgentFlowRunner(
+                workflowDeserializer, flowEngine, flowRepository, mcpAgentHost);
+    }
+
+    /** Roteia o invoke do Core: fluxo quando a definição traz um, senão o caminho por nome. */
     @Bean
     @ConditionalOnMissingBean
     public br.com.archflow.api.agent.vendax.VendaxAgentDispatcher vendaxAgentDispatcher(
@@ -1311,9 +1329,10 @@ public class ArchflowBeanConfiguration {
             br.com.archflow.api.mcp.vendax.VendaxMcpClientProvider vendaxMcpClientProvider,
             br.com.archflow.api.agent.vendax.VendaxResultSender vendaxResultSender,
             java.util.concurrent.ExecutorService vendaxAgentExecutor,
-            br.com.archflow.api.agent.vendax.VendaxAgentMetrics vendaxAgentMetrics) {
+            br.com.archflow.api.agent.vendax.VendaxAgentMetrics vendaxAgentMetrics,
+            br.com.archflow.api.agent.vendax.AgentFlowRunner agentFlowRunner) {
         return new br.com.archflow.api.agent.vendax.VendaxAgentDispatcher(
                 qpAgentService, mcpAgentRunner, vendaxMcpClientProvider,
-                vendaxResultSender, vendaxAgentExecutor, vendaxAgentMetrics);
+                vendaxResultSender, vendaxAgentExecutor, vendaxAgentMetrics, agentFlowRunner);
     }
 }
