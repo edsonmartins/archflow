@@ -32,7 +32,7 @@ class SpringExecutionControllerTest {
         store = mock(InMemoryWorkflowRuntimeStore.class);
         engine = mock(FlowEngine.class);
         stateManager = mock(StateManager.class);
-        controller = new SpringExecutionController(store, engine, stateManager);
+        controller = new SpringExecutionController(store, engine, stateManager, null);
     }
 
     @Test
@@ -98,7 +98,7 @@ class SpringExecutionControllerTest {
         // correct order the record ends FAILED; if markResumed were wired AFTER the
         // callback it would clobber the failure back to RUNNING (the stuck-run bug).
         var realStore = new InMemoryWorkflowRuntimeStore();
-        var realController = new SpringExecutionController(realStore, engine, stateManager);
+        var realController = new SpringExecutionController(realStore, engine, stateManager, null);
         String id = realStore.createExecution("wf", "W").get("id").toString();
         realStore.completeExecution(id, "PAUSED", null); // non-terminal, resumable
         when(stateManager.loadState(id)).thenReturn(FlowState.builder().status(FlowStatus.PAUSED).build());

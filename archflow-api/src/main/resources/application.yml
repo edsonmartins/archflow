@@ -39,6 +39,17 @@ archflow:
   # Se api-key estiver definida, o controller exige o header X-ArchFlow-Key; vazio = libera (dev).
   assist:
     api-key: ${ARCHFLOW_ASSIST_API_KEY:}
+  # Servidores MCP conhecidos por esta instalação. Um nó 'mcp-agent' escolhe qual usar por
+  # REFERÊNCIA (server: "vendax"); endereço e credencial ficam fora do documento do fluxo, que é
+  # versionado e visível no designer — e é o que permite o mesmo fluxo rodar aqui e num agente local.
+  # Vazio = sem MCP: fluxos com o nó falham na execução, com log de aviso na subida.
+  mcp:
+    # servers:
+    #   vendax:
+    #     base-url: ${ARCHFLOW_VENDAX_MCP_URL:}
+    #     service-token: ${ARCHFLOW_VENDAX_MCP_TOKEN:}
+    # Usado quando o nó não declara 'server'. Com um único servidor, ele já é o default.
+    default-server: ${ARCHFLOW_MCP_DEFAULT_SERVER:}
   # VendaX Core como MCP server HTTP (POST /mcp). O agente QP consome as tools do
   # Core (resolver_sku, simular/firmar/enviar_cotacao, sugerir_itens, ...). O
   # HttpMcpClient envia Authorization: Bearer <service-token> + X-TENANT-ID a cada

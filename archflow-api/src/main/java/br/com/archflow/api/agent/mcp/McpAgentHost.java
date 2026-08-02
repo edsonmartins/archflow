@@ -47,6 +47,21 @@ public interface McpAgentHost {
         return Set.of();
     }
 
+    /**
+     * Anuncia este host no contexto, para os nós de MCP o encontrarem.
+     *
+     * <p>É o par de {@link #from}, e existe para que a chave não precise ser escrita fora daqui:
+     * quem monta um {@link ExecutionContext} chama isto, sem saber sob que nome o host mora. Host
+     * ausente é situação válida — uma instalação sem MCP configurado —, e nesse caso não injetar é
+     * melhor que injetar nulo: o componente falha dizendo que não há host, em vez de estourar
+     * ponteiro dentro do laço.</p>
+     */
+    static void inject(ExecutionContext context, McpAgentHost host) {
+        if (context != null && host != null) {
+            context.set(CONTEXT_KEY, host);
+        }
+    }
+
     /** O host desta execução, se algum foi injetado. */
     static Optional<McpAgentHost> from(ExecutionContext context) {
         if (context == null) {

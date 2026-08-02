@@ -1,5 +1,6 @@
 package br.com.archflow.api.web.workflow;
 
+import br.com.archflow.api.agent.mcp.McpAgentHost;
 import br.com.archflow.engine.api.FlowEngine;
 import br.com.archflow.engine.core.StateManager;
 import br.com.archflow.model.engine.DefaultExecutionContext;
@@ -24,12 +25,15 @@ public class SpringExecutionController {
     private final WorkflowRuntimeStore store;
     private final FlowEngine flowEngine;
     private final StateManager stateManager;
+    /** Nulo numa instalação sem MCP: o nó falha dizendo isso, e o resto do fluxo segue existindo. */
+    private final McpAgentHost mcpAgentHost;
 
     public SpringExecutionController(WorkflowRuntimeStore store, FlowEngine flowEngine,
-                                     StateManager stateManager) {
+                                     StateManager stateManager, McpAgentHost mcpAgentHost) {
         this.store = store;
         this.flowEngine = flowEngine;
         this.stateManager = stateManager;
+        this.mcpAgentHost = mcpAgentHost;
     }
 
     @GetMapping
@@ -105,6 +109,10 @@ public class SpringExecutionController {
         ExecutionContext ctx = new DefaultExecutionContext(
                 state.getTenantId(), "runner", id,
                 MessageWindowChatMemory.builder().maxMessages(20).build());
+        // Retomada monta um contexto novo. Sem o host aqui, um fluxo que parou para aprovação
+        // humana justamente num nó de MCP falharia ao continuar — e o sintoma apareceria só depois
+        // de alguém ter aprovado, que é o pior momento para descobrir.
+        McpAgentHost.inject(ctx, mcpAgentHost);
         // Mark RUNNING BEFORE wiring the completion callback. resumeFlow runs on a
         // virtual thread, so a fast-failing resume could complete the record
         // terminally first; if markResumed then ran, it would overwrite the status

@@ -1,5 +1,6 @@
 package br.com.archflow.api.web.workflow;
 
+import br.com.archflow.api.agent.mcp.McpAgentHost;
 import br.com.archflow.api.audit.AuditTrail;
 import br.com.archflow.api.flow.WorkflowDeserializer;
 import br.com.archflow.engine.api.FlowEngine;
@@ -33,17 +34,21 @@ public class SpringWorkflowCrudController {
     private final FlowEngine flowEngine;
     private final FlowRepository flowRepository;
     private final AuditTrail auditTrail;
+    /** Nulo numa instalação sem MCP: o nó falha dizendo isso, e o resto do fluxo segue existindo. */
+    private final McpAgentHost mcpAgentHost;
 
     public SpringWorkflowCrudController(WorkflowRuntimeStore store,
                                         WorkflowDeserializer deserializer,
                                         FlowEngine flowEngine,
                                         FlowRepository flowRepository,
-                                        AuditTrail auditTrail) {
+                                        AuditTrail auditTrail,
+                                        McpAgentHost mcpAgentHost) {
         this.store = store;
         this.deserializer = deserializer;
         this.flowEngine = flowEngine;
         this.flowRepository = flowRepository;
         this.auditTrail = auditTrail != null ? auditTrail : AuditTrail.noop();
+        this.mcpAgentHost = mcpAgentHost;
     }
 
     @GetMapping
@@ -214,6 +219,10 @@ public class SpringWorkflowCrudController {
         if (input != null) {
             input.forEach(ctx::set);
         }
+        // Depois do input, e não antes: quem escreve por último vence, e uma variável de entrada
+        // chamada "mcp.host" seria dado de quem chama a API sobrescrevendo infraestrutura — o nó
+        // passaria a falar com o servidor que ela apontasse.
+        McpAgentHost.inject(ctx, mcpAgentHost);
 
         auditTrail.record(AuditAction.WORKFLOW_EXECUTE, "workflow", id, true, null,
                 Map.of("executionId", executionId));

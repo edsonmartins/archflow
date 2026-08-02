@@ -55,7 +55,8 @@ class SpringWorkflowCrudControllerAuditTest {
                 deserializer,
                 flowEngine,
                 flowRepository,
-                new AuditTrail(() -> auditRepo));
+                new AuditTrail(() -> auditRepo),
+                null);
         lenient().when(deserializer.toFlow(any())).thenReturn(mock(Flow.class));
         lenient().when(flowEngine.execute(any(), any())).thenReturn(new CompletableFuture<>());
     }

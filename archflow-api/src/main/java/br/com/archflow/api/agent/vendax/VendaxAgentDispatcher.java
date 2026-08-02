@@ -44,22 +44,32 @@ public class VendaxAgentDispatcher {
     private final VendaxResultSender resultSender;
     private final ExecutorService executor;
     private final VendaxAgentMetrics metrics;
+    /** Nulo numa instalação sem motor de fluxo: só o caminho por nome de agente responde. */
+    private final AgentFlowRunner fluxo;
 
     public VendaxAgentDispatcher(QpAgentService qpAgent, McpAgentRunner runner,
                                  VendaxMcpClientProvider vendax, VendaxResultSender resultSender,
                                  ExecutorService executor) {
-        this(qpAgent, runner, vendax, resultSender, executor, null);
+        this(qpAgent, runner, vendax, resultSender, executor, null, null);
     }
 
     public VendaxAgentDispatcher(QpAgentService qpAgent, McpAgentRunner runner,
                                  VendaxMcpClientProvider vendax, VendaxResultSender resultSender,
                                  ExecutorService executor, VendaxAgentMetrics metrics) {
+        this(qpAgent, runner, vendax, resultSender, executor, metrics, null);
+    }
+
+    public VendaxAgentDispatcher(QpAgentService qpAgent, McpAgentRunner runner,
+                                 VendaxMcpClientProvider vendax, VendaxResultSender resultSender,
+                                 ExecutorService executor, VendaxAgentMetrics metrics,
+                                 AgentFlowRunner fluxo) {
         this.qpAgent = qpAgent;
         this.runner = runner;
         this.vendax = vendax;
         this.resultSender = resultSender;
         this.executor = executor;
         this.metrics = metrics;
+        this.fluxo = fluxo;
     }
 
     /** Aceita a ordem e executa fora da requisição. */
@@ -77,6 +87,19 @@ public class VendaxAgentDispatcher {
         long startedAt = metrics != null ? metrics.started() : 0;
         String agent = invoke.agent() == null ? "" : invoke.agent().toUpperCase();
         try {
+            // O caminho genérico vem ANTES do switch, e é o que o deve substituir: quando a
+            // definição traz um fluxo, este runtime não precisa saber que agente é. O switch
+            // continua abaixo só enquanto houver skill em PROMPT — cada agente que virar FLUXO
+            // apaga um `case`.
+            if (invoke.definicao() != null && invoke.definicao().eFluxo()) {
+                VendaxResult porFluxo = runFluxo(invoke);
+                if (porFluxo != null) {
+                    resultSender.send(porFluxo);
+                }
+                if (metrics != null) metrics.completed(startedAt);
+                return;
+            }
+
             VendaxResult result = switch (agent) {
                 case "QP" -> runQp(invoke);
                 case "CS" -> runCs(invoke);
@@ -100,6 +123,54 @@ public class VendaxAgentDispatcher {
                     invoke.agent(), invoke.conversationId(), e.getMessage(), e);
             resultSender.send(VendaxResult.error(invoke, causeOf(e)));
         }
+    }
+
+    /**
+     * O agente como documento: executa e devolve o que saiu, sem interpretar.
+     *
+     * <p>O tipo do rich object vem do {@code saidaSchema} da definição — {@code sentiment@1} vira
+     * {@code sentiment}. Quem declara é o Core, e é o que mantém a regra da {@code ADR-025} D-1: o
+     * executor não decide se produziu uma cotação ou um sentimento, porque não sabe o que são.</p>
+     */
+    private VendaxResult runFluxo(VendaxInvoke invoke) {
+        if (fluxo == null) {
+            return VendaxResult.error(invoke,
+                    "Definição veio como FLUXO e este runtime não tem motor de fluxo configurado");
+        }
+        String tipo = tipoDoRichObject(invoke.definicao().saidaSchema());
+        if (tipo == null) {
+            // Sem o tipo, o Core recebe um JSON que não sabe onde encaixar. Adivinhar aqui seria
+            // este runtime decidindo o que o resultado significa — exatamente o que ele não faz.
+            return VendaxResult.error(invoke,
+                    "Definição do tipo FLUXO sem saidaSchema: não há como tipar o rich object");
+        }
+
+        AgentFlowRunner.Saida saida = fluxo.executar(invoke, invoke.definicao().fluxo(),
+                conversaDe(invoke));
+
+        if (saida.suspenso()) {
+            log.info("Fluxo de {} suspenso aguardando decisão humana (conv={})",
+                    invoke.agent(), invoke.conversationId());
+            return null;
+        }
+        String conteudo = extractJson(saida.texto());
+        if (conteudo == null) {
+            // Mesmo tratamento do CS embutido: o Core recusa o que não desserializa, então mandar
+            // texto solto só empurra a falha para lá com menos contexto.
+            return VendaxResult.error(invoke,
+                    "O fluxo de " + invoke.agent() + " não devolveu um JSON");
+        }
+        return VendaxResult.ok(invoke, tipo, conteudo);
+    }
+
+    /** {@code sentiment@1} → {@code sentiment}. Sem schema não há tipo. */
+    static String tipoDoRichObject(String saidaSchema) {
+        if (saidaSchema == null || saidaSchema.isBlank()) {
+            return null;
+        }
+        int arroba = saidaSchema.indexOf('@');
+        String tipo = arroba < 0 ? saidaSchema : saidaSchema.substring(0, arroba);
+        return tipo.isBlank() ? null : tipo.trim();
     }
 
     private VendaxResult runQp(VendaxInvoke invoke) {

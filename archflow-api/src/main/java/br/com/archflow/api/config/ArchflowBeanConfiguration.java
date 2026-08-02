@@ -1164,6 +1164,79 @@ public class ArchflowBeanConfiguration {
                 mcpAgentStateStore);
     }
 
+    /** Referência sob a qual a configuração legada do VendaX é semeada. */
+    private static final String VENDAX_SERVER_REF = "vendax";
+
+    /**
+     * O host de MCP que os nós de fluxo encontram no contexto de execução.
+     *
+     * <p>Sem este bean o {@code McpAgentComponent} existe no catálogo, aparece no designer e
+     * <b>falha ao executar</b> dizendo que não há host — foi exatamente o estado em que ficou
+     * enquanto cada agente era construído por caminho próprio em vez de virar fluxo.</p>
+     *
+     * <p>Os servidores vêm de {@code archflow.mcp.servers.<ref>.base-url|service-token}, e o nó os
+     * escolhe por referência ({@code server: "vendax"}). Endereço e credencial ficam fora do
+     * documento do fluxo — que é versionado e visível no designer — e é o que permite o mesmo
+     * documento rodar aqui e num agente local: cada lado fornece o seu host.</p>
+     *
+     * <p>A chave antiga {@code archflow.vendax.mcp.*} continua valendo, semeada sob
+     * {@code ref = "vendax"}: instalação existente ganha o host sem editar configuração.</p>
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public br.com.archflow.api.agent.mcp.McpAgentHost mcpAgentHost(
+            br.com.archflow.api.agent.mcp.McpAgentRunner mcpAgentRunner,
+            org.springframework.core.env.Environment environment,
+            @Value("${archflow.mcp.default-server:}") String defaultServer,
+            @Value("${archflow.vendax.mcp.base-url:}") String legadoBaseUrl,
+            @Value("${archflow.vendax.mcp.service-token:}") String legadoToken) {
+
+        java.util.Map<String, br.com.archflow.api.agent.mcp.ConfiguredMcpAgentHost.Server> servers =
+                new java.util.LinkedHashMap<>();
+
+        org.springframework.boot.context.properties.bind.Bindable<
+                java.util.Map<String, java.util.Map<String, String>>> tipo =
+                org.springframework.boot.context.properties.bind.Bindable.of(
+                        org.springframework.core.ResolvableType.forClassWithGenerics(
+                                java.util.Map.class,
+                                org.springframework.core.ResolvableType.forClass(String.class),
+                                org.springframework.core.ResolvableType.forClassWithGenerics(
+                                        java.util.Map.class, String.class, String.class)));
+
+        java.util.Map<String, java.util.Map<String, String>> declarados =
+                org.springframework.boot.context.properties.bind.Binder.get(environment)
+                        .bind("archflow.mcp.servers", tipo)
+                        .orElseGet(java.util.Map::of);
+
+        declarados.forEach((ref, props) -> {
+            String baseUrl = props.get("base-url");
+            if (baseUrl != null && !baseUrl.isBlank()) {
+                servers.put(ref, new br.com.archflow.api.agent.mcp.ConfiguredMcpAgentHost.Server(
+                        baseUrl, props.get("service-token")));
+            }
+        });
+
+        if (!servers.containsKey(VENDAX_SERVER_REF)
+                && legadoBaseUrl != null && !legadoBaseUrl.isBlank()) {
+            servers.put(VENDAX_SERVER_REF,
+                    new br.com.archflow.api.agent.mcp.ConfiguredMcpAgentHost.Server(
+                            legadoBaseUrl, legadoToken));
+        }
+
+        if (servers.isEmpty()) {
+            // Não é erro de inicialização: uma instalação pode não usar MCP. Mas precisa ficar
+            // visível, porque o sintoma chega tarde — na execução do primeiro fluxo com o nó.
+            log.warn("MCP host: nenhum servidor configurado. Fluxos com nó 'mcp-agent' vão falhar "
+                    + "na execução. Configure archflow.mcp.servers.<ref>.base-url");
+        } else {
+            log.info("MCP host: {} servidor(es) configurado(s): {}", servers.size(), servers.keySet());
+        }
+
+        return new br.com.archflow.api.agent.mcp.ConfiguredMcpAgentHost(
+                mcpAgentRunner, servers,
+                defaultServer == null || defaultServer.isBlank() ? null : defaultServer);
+    }
+
     /**
      * Store dos laços de tool-calling suspensos aguardando decisão humana.
      *
@@ -1229,7 +1302,25 @@ public class ArchflowBeanConfiguration {
         return new br.com.archflow.api.agent.vendax.VendaxAgentHealthIndicator(vendaxAgentExecutor);
     }
 
-    /** Roteia o invoke do Core para o agente certo e devolve o resultado. */
+    /**
+     * Executa o documento de fluxo que veio no invoke — o caminho genérico, sem nome de agente.
+     *
+     * <p>O {@code FlowEngine} entra por {@code ObjectProvider}: o grafo dele passa por
+     * {@code FlowRepository → WorkflowDeserializer → FlowStepFactory}, e a resolução tardia é o que
+     * mantém o ciclo aberto no perfil JDBC.</p>
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public br.com.archflow.api.agent.vendax.AgentFlowRunner agentFlowRunner(
+            br.com.archflow.api.flow.WorkflowDeserializer workflowDeserializer,
+            org.springframework.beans.factory.ObjectProvider<br.com.archflow.engine.api.FlowEngine> flowEngine,
+            br.com.archflow.engine.persistence.FlowRepository flowRepository,
+            br.com.archflow.api.agent.mcp.McpAgentHost mcpAgentHost) {
+        return new br.com.archflow.api.agent.vendax.AgentFlowRunner(
+                workflowDeserializer, flowEngine, flowRepository, mcpAgentHost);
+    }
+
+    /** Roteia o invoke do Core: fluxo quando a definição traz um, senão o caminho por nome. */
     @Bean
     @ConditionalOnMissingBean
     public br.com.archflow.api.agent.vendax.VendaxAgentDispatcher vendaxAgentDispatcher(
@@ -1238,9 +1329,10 @@ public class ArchflowBeanConfiguration {
             br.com.archflow.api.mcp.vendax.VendaxMcpClientProvider vendaxMcpClientProvider,
             br.com.archflow.api.agent.vendax.VendaxResultSender vendaxResultSender,
             java.util.concurrent.ExecutorService vendaxAgentExecutor,
-            br.com.archflow.api.agent.vendax.VendaxAgentMetrics vendaxAgentMetrics) {
+            br.com.archflow.api.agent.vendax.VendaxAgentMetrics vendaxAgentMetrics,
+            br.com.archflow.api.agent.vendax.AgentFlowRunner agentFlowRunner) {
         return new br.com.archflow.api.agent.vendax.VendaxAgentDispatcher(
                 qpAgentService, mcpAgentRunner, vendaxMcpClientProvider,
-                vendaxResultSender, vendaxAgentExecutor, vendaxAgentMetrics);
+                vendaxResultSender, vendaxAgentExecutor, vendaxAgentMetrics, agentFlowRunner);
     }
 }
