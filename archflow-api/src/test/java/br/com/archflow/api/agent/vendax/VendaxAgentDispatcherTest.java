@@ -83,6 +83,24 @@ class VendaxAgentDispatcherTest {
     }
 
     @Test
+    @DisplayName("QP somente com pendências → entrega cotação ao Core")
+    void qpWithPendingOnlyQuote() {
+        String pendingQuote = """
+                {"pendentes":[{"texto":"palheta mexedor grande","candidatos":[]}],
+                 "flags":["ITENS_PENDENTES"]}
+                """;
+        when(qp.quote(any(), nullable(String.class))).thenReturn(new QpAgentService.QpResult(
+                "preciso confirmar o item", List.of(), pendingQuote, "qp-abc"));
+
+        dispatcher.runAndReport(invoke("QP"));
+
+        assertThat(sender.sent).hasSize(1);
+        assertThat(sender.sent.get(0).status()).isEqualTo(VendaxResult.OK);
+        assertThat(sender.sent.get(0).richObjectType()).isEqualTo("quote");
+        assertThat(sender.sent.get(0).richObject()).isEqualTo(pendingQuote);
+    }
+
+    @Test
     @DisplayName("agente não implementado → ERROR visível, não silêncio")
     void unknownAgent() {
         dispatcher.runAndReport(invoke("US"));

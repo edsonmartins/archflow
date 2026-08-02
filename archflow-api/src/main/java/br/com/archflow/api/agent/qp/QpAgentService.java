@@ -4,7 +4,13 @@ import br.com.archflow.api.agent.mcp.McpAgentRunner;
 import br.com.archflow.api.agent.mcp.ToolAccessPolicy;
 import br.com.archflow.api.mcp.vendax.VendaxMcpClientProvider;
 import br.com.archflow.langchain4j.mcp.McpClient;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -44,6 +50,7 @@ public class QpAgentService {
     private final McpAgentRunner runner;
     private final VendaxMcpClientProvider vendax;
     private final ToolAccessPolicy toolPolicy = ToolAccessPolicy.allowOnly(ALLOWED_TOOLS);
+    private final ObjectMapper mapper = new ObjectMapper();
 
     public QpAgentService(McpAgentRunner runner, VendaxMcpClientProvider vendax) {
         this.runner = runner;
@@ -110,7 +117,7 @@ public class QpAgentService {
         McpAgentRunner.Result result =
                 runner.run(tenantId, systemPrompt, userMessage, client, toolPolicy);
 
-        String quote = extractQuote(result);
+        String quote = includePendingItems(extractQuote(result), result.toolCalls(), request.entrada());
         return new QpResult(result.finalText(), result.toolCalls(), quote, chaveIdempotencia);
     }
 
@@ -122,6 +129,125 @@ public class QpAgentService {
         }
         McpAgentRunner.ToolCall simulada = result.lastSuccessfulCall("simular_cotacao");
         return simulada != null ? simulada.resultText() : null;
+    }
+
+    /**
+     * Materializa no payload da cotação os itens que o gate determinístico não resolveu.
+     *
+     * <p>Os candidatos pertencem ao resultado bruto de {@code resolver_sku}; pedir ao LLM para
+     * repeti-los no texto final perderia exatamente o ranque e a proveniência que o Core calculou.
+     * Por isso esta transformação acontece programaticamente, depois do loop. Uma cotação composta
+     * apenas por pendências é válida; sem nenhuma pendência e sem simulação, {@code null} continua
+     * distinguindo uma mensagem que não era pedido.</p>
+     */
+    String includePendingItems(String quote, List<McpAgentRunner.ToolCall> toolCalls,
+                               String requestText) {
+        List<ObjectNode> pending = new ArrayList<>();
+        List<McpAgentRunner.ToolCall> resolverCalls = toolCalls == null ? List.of() : toolCalls.stream()
+                .filter(call -> "resolver_sku".equals(call.name()) && !call.isError())
+                .toList();
+
+        for (McpAgentRunner.ToolCall call : resolverCalls) {
+            JsonNode result = parseObject(call.resultText());
+            if (result != null && "RESOLVE".equalsIgnoreCase(result.path("gate").asText())) {
+                continue;
+            }
+
+            ObjectNode item = mapper.createObjectNode();
+            JsonNode arguments = mapper.valueToTree(call.arguments() == null ? Map.of() : call.arguments());
+            String text = firstText(arguments, "entrada", "texto", "item", "descricao");
+            if ((text == null || text.isBlank()) && resolverCalls.size() == 1) {
+                text = requestText;
+            }
+            if (text == null || text.isBlank()) {
+                // Sem o trecho original a pendência não fecha o léxico e confunde o vendedor.
+                // Não emita um objeto estruturalmente válido porém semanticamente inútil.
+                continue;
+            }
+            item.put("texto", text);
+            copyFirst(arguments, item, "qty", "qty", "qtd", "quantidade");
+            copyFirst(arguments, item, "unidade", "unidade", "unit");
+
+            ArrayNode candidates = item.putArray("candidatos");
+            if (result != null && result.path("candidatos").isArray()) {
+                for (JsonNode candidate : result.path("candidatos")) {
+                    ObjectNode mapped = candidates.addObject();
+                    copyFirst(candidate, mapped, "sku", "skuRef", "sku");
+                    copyFirst(candidate, mapped, "descricao", "descricao");
+                    copyFirst(candidate, mapped, "confianca", "score", "confianca");
+                    copyFirst(candidate, mapped, "motivo", "motivo");
+                }
+            }
+            pending.add(item);
+        }
+
+        if (pending.isEmpty()) {
+            return quote;
+        }
+
+        ObjectNode payload = quotePayload(quote);
+        ArrayNode pendingArray = payload.withArray("pendentes");
+        pending.forEach(pendingArray::add);
+        ArrayNode flags = payload.withArray("flags");
+        boolean alreadyFlagged = false;
+        for (JsonNode flag : flags) {
+            if ("ITENS_PENDENTES".equals(flag.asText())) {
+                alreadyFlagged = true;
+                break;
+            }
+        }
+        if (!alreadyFlagged) {
+            flags.add("ITENS_PENDENTES");
+        }
+        try {
+            return mapper.writeValueAsString(payload);
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("Não foi possível serializar as pendências da cotação", e);
+        }
+    }
+
+    private ObjectNode quotePayload(String quote) {
+        if (quote == null || quote.isBlank()) {
+            return mapper.createObjectNode();
+        }
+        JsonNode parsed = parseObject(quote);
+        if (parsed instanceof ObjectNode object) {
+            return object;
+        }
+        throw new IllegalStateException("Cotação devolvida pelo Core não é um objeto JSON");
+    }
+
+    private JsonNode parseObject(String json) {
+        if (json == null || json.isBlank()) {
+            return null;
+        }
+        try {
+            JsonNode parsed = mapper.readTree(json);
+            return parsed != null && parsed.isObject() ? parsed : null;
+        } catch (JsonProcessingException e) {
+            return null;
+        }
+    }
+
+    private static String firstText(JsonNode source, String... fields) {
+        for (String field : fields) {
+            JsonNode value = source.path(field);
+            if (value.isTextual() && !value.asText().isBlank()) {
+                return value.asText();
+            }
+        }
+        return null;
+    }
+
+    private static void copyFirst(JsonNode source, ObjectNode target, String targetField,
+                                  String... sourceFields) {
+        for (String sourceField : sourceFields) {
+            JsonNode value = source.path(sourceField);
+            if (!value.isMissingNode() && !value.isNull()) {
+                target.set(targetField, value);
+                return;
+            }
+        }
     }
 
     private String buildUserMessage(QpRequest r) {
@@ -146,11 +272,13 @@ public class QpAgentService {
             domínio: SKU, preço, pedido e ERP são dele — nunca invente nada disso).
 
             FLUXO:
-            1. Chame `resolver_sku` com {clienteRef, vendedorRef, modoEntrada, entrada, itensJaNoPedido}.
+            1. Separe cada item mencionado e chame `resolver_sku` uma vez por item. Em `entrada`,
+               mande exatamente o trecho como o cliente escreveu ou falou, nunca a mensagem inteira.
+               Preserve quantidade e unidade nos argumentos da chamada quando estiverem presentes.
             2. Respeite o GATE devolvido:
                - RESOLVE: há 1 SKU confiável — prossiga com ele (o frontend pede a confirmação por toque).
-               - MOSTRA: há 2-3 candidatos — devolva-os para o cliente escolher; NÃO adivinhe.
-               - LISTA: devolva a lista para navegação; NÃO adivinhe.
+               - MOSTRA: há 2-3 candidatos — mantenha o item como pendência; NÃO adivinhe.
+               - LISTA: mantenha o item como pendência, mesmo sem candidatos; NÃO adivinhe.
             3. Após o SKU escolhido/confirmado, chame `registrar_resolucao` (fecha o loop do léxico).
             4. Enquanto o cliente monta, chame `simular_cotacao` (preço não vinculante).
             5. No compromisso do cliente, chame `firmar_cotacao` usando SEMPRE
