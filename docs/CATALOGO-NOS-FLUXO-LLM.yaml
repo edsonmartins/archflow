@@ -1,0 +1,324 @@
+schemaVersion: "1.0"
+title: "Catálogo de nós de fluxo do ArchFlow para LLM"
+language: "pt-BR"
+generatedAt: "2026-08-02"
+purpose: >-
+  Fonte estruturada para uma LLM selecionar componentes e gerar passos de workflow
+  compatíveis com o catálogo e com o designer do ArchFlow.
+
+sources:
+  palette: "archflow-ui/src/components/FlowCanvas/constants.ts"
+  propertyPanel: "archflow-ui/src/components/PropertyPanel.tsx"
+  runtimeFactory: "archflow-api/src/main/java/br/com/archflow/api/flow/DefaultFlowStepFactory.java"
+  componentCatalog: "archflow-api/src/main/java/br/com/archflow/api/config/ArchflowBeanConfiguration.java"
+  adapterCatalog: "archflow-api/src/main/java/br/com/archflow/api/catalog/impl/CatalogControllerImpl.java"
+
+llmInstructions:
+  - "Use apenas componentId e operation existentes neste arquivo."
+  - "Para runtimeStatus=conditional, satisfaça a condição indicada antes de gerar o nó."
+  - "Não trate nós design_only ou annotation_only como executáveis."
+  - "Segredos devem ser referenciados por configuração segura; nunca escreva chaves em claro."
+  - "Em nós de adapter, config.provider é o identificador que o runtime usa para resolver o provider."
+  - "config prevalece sobre configuration; prefira config em novos workflows."
+
+workflowStepShape:
+  required: [id, type, componentId, label]
+  properties:
+    id: { type: string, description: "Identificador único do passo no fluxo" }
+    type: { type: string, description: "Tipo do nó; use nodeTypes[].type" }
+    componentId: { type: string, description: "Componente/provider resolvido pelo runtime" }
+    label: { type: string, description: "Nome legível exibido no designer" }
+    category: { type: string, description: "Categoria visual do nó" }
+    position: { type: object, properties: { x: number, y: number }, description: "Posição no canvas" }
+    operation: { type: string, default: execute, description: "Operação; config.operation tem precedência" }
+    config: { type: object, default: {}, description: "Configuração específica do nó" }
+    connections:
+      type: array
+      items:
+        required: [targetId]
+        properties:
+          sourceId: { type: string, description: "Opcional; assume o id do passo" }
+          targetId: { type: string }
+          condition: { type: string, description: "Expressão/condição opcional" }
+          isErrorPath: { type: boolean, default: false }
+
+runtimeStatuses:
+  executable: "Há implementação dedicada ou componente built-in diretamente resolvível."
+  conditional: "Executa somente se componentId/config.provider resolver um provider ou plugin registrado."
+  design_only: "Existe na paleta e tem propriedades no editor, mas não possui implementação built-in com esse id."
+  annotation_only: "Elemento visual; não deve ser incluído como passo executável."
+
+propertySchemas:
+  agentModel:
+    provider: { type: string, required: true, examples: [openai, anthropic, openrouter] }
+    model: { type: string, required: true }
+    systemPrompt: { type: string, default: "" }
+    temperature: { type: number, default: 0.7, minimum: 0, maximum: 2 }
+    maxTokens: { type: integer, default: 4096 }
+    maxIterations: { type: integer, default: 10 }
+    timeout: { type: integer, default: 120, description: "Segundos" }
+    memoryBackend: { type: string, default: in-memory, enum: [in-memory, redis, jdbc] }
+    redisUrl: { type: string, default: "redis://localhost:6379", when: "memoryBackend=redis" }
+    jdbcDatasource: { type: string, when: "memoryBackend=jdbc" }
+    enabledTools: { type: array, items: string, default: [] }
+    disabledTools: { type: array, items: string, default: [] }
+    escalationThreshold: { type: number, default: 0.5 }
+    maxToolExecutions: { type: integer, default: 10 }
+    humanEscalation: { type: boolean, default: false }
+    customInstructions: { type: string, default: "" }
+    mcpServers: { type: array, items: string, default: [] }
+    mcpTransport: { type: string, default: stdio, enum: [stdio, sse] }
+    mcpCommand: { type: string, when: "mcpTransport=stdio" }
+    mcpUrl: { type: string, when: "mcpTransport=sse" }
+  tool:
+    operation: { type: string, default: execute }
+    onError: { type: string, default: stop, enum: [stop, continue, retry] }
+    retryMaxAttempts: { type: integer, default: 3, when: "onError=retry" }
+    retryDelay: { type: integer, default: 1000, description: "Milissegundos", when: "onError=retry" }
+    retryMultiplier: { type: number, default: 2.0, when: "onError=retry" }
+    timeout: { type: integer, default: 30, description: "Segundos" }
+  vector:
+    provider: { type: string, requiredForRuntime: true, enum: [pgvector, redis, pinecone] }
+    vectorBackend: { type: string, description: "Campo do editor; copie também para provider", enum: [pgvector, redis, pinecone, in-memory] }
+    topK: { type: integer, default: 5, when: "type=vector-search" }
+    pineconeApiKey: { type: string, secret: true, when: "provider=pinecone" }
+    pineconeEnvironment: { type: string, when: "provider=pinecone" }
+    pineconeIndex: { type: string, when: "provider=pinecone" }
+    pgDatasource: { type: string, when: "provider=pgvector" }
+    pgTableName: { type: string, default: embeddings, when: "provider=pgvector" }
+    pgDimensions: { type: integer, default: 1536, when: "provider=pgvector" }
+    vectorRedisUrl: { type: string, default: "redis://localhost:6379", when: "provider=redis" }
+    vectorRedisPrefix: { type: string, default: "vec:", when: "provider=redis" }
+  embedding:
+    provider: { type: string, requiredForRuntime: true, enum: [openai, local] }
+    embeddingProvider: { type: string, description: "Campo do editor; copie também para provider", enum: [openai, local] }
+    embeddingModel: { type: string, default: text-embedding-3-small }
+    embeddingDimensions: { type: integer, default: 1536 }
+  memory:
+    provider: { type: string, requiredForRuntime: true, enum: [jdbc, redis] }
+    memoryBackend: { type: string, description: "Campo do editor; copie também para provider", enum: [jdbc, redis] }
+    memoryMaxMessages: { type: integer, default: 100 }
+  rag:
+    provider: { type: string, const: rag, requiredForRuntime: true }
+    embeddingProvider: { type: string, default: openai }
+    vectorBackend: { type: string, default: pgvector }
+    llmProvider: { type: string, default: openai }
+    retrieverMaxResults: { type: integer, default: 5 }
+    retrieverMinScore: { type: number, default: 0.7, minimum: 0, maximum: 1 }
+  orchestrate:
+    goal: { type: string, required: true }
+    decomposePrompt: { type: string }
+    maxSubtasks: { type: integer, default: 8 }
+    voters: { type: integer, default: 1 }
+    minAgree: { type: integer, description: "Aceito pelo runtime, ainda não exposto no painel" }
+    maxRounds: { type: integer, default: 5 }
+    concurrency: { type: integer, default: 4 }
+    budgetTokens: { type: integer }
+  approvalRuntime:
+    proposal: { type: any, description: "Proposta a aprovar; se ausente usa a entrada do passo" }
+    description: { type: string }
+  approvalEditor:
+    approvalTitle: { type: string, default: "Please review", note: "Não consumido pelo HumanApprovalStep atual" }
+    approvalDescription: { type: string, default: "", note: "Runtime espera description" }
+    approvalProposal: { type: string, default: "{}", note: "Runtime espera proposal" }
+    approvalTimeoutMinutes: { type: integer, default: 30, note: "Não consumido pelo runtime atual" }
+    approvalOnTimeout: { type: string, default: reject, enum: [reject, approve, fail], note: "Não consumido pelo runtime atual" }
+  mcpToolEditor:
+    mcpServer: { type: string, required: true }
+    mcpTool: { type: string, required: true }
+    mcpArguments: { type: string, format: json, default: "{}" }
+    mcpOutputVar: { type: string, default: toolResult }
+  subflow:
+    subflowId: { type: string, required: true }
+    subflowInput: { type: string, format: json, default: "{}" }
+    subflowOutputVar: { type: string, default: subflowResult }
+    subflowTimeoutSeconds: { type: integer, default: 120 }
+    subflowAsync: { type: boolean, default: false }
+  skills:
+    skillsOperation: { type: string, default: activate, enum: [list, activate, deactivate, read, active] }
+    skillName: { type: string, when: "skillsOperation in [activate,deactivate,read]" }
+    skillResource: { type: string, when: "skillsOperation=read" }
+    skillsOutputVar: { type: string, default: skillsResult }
+  condition:
+    conditionExpression: { type: string, default: "${agent.confidence} > 0.8" }
+  switch:
+    switchExpression: { type: string, default: "${agent.intent}" }
+    switchCases: { type: string, description: "Um caso por linha, incluindo default quando necessário" }
+  loop:
+    loopCollection: { type: string, default: "${input.items}" }
+    loopItemVar: { type: string, default: item }
+    loopMaxIterations: { type: integer, default: 100 }
+    loopParallel: { type: boolean, default: false }
+  parallel:
+    parallelStrategy: { type: string, default: all, enum: [all, any, race] }
+    parallelTimeoutSeconds: { type: integer, default: 60 }
+    parallelFailFast: { type: boolean, default: true }
+  merge:
+    mergeStrategy: { type: string, default: concat, enum: [concat, object, first, last] }
+    mergeOutputVar: { type: string, default: merged }
+  transform:
+    transformInput: { type: string, default: "${input}" }
+    transformExpression: { type: string, required: true }
+    reduceInitial: { type: string, default: "0", when: "type=reduce" }
+    transformOutputVar: { type: string, default: output }
+  prompt:
+    promptText: { type: string, required: true }
+    promptVariables: { type: array, items: string, default: [] }
+    promptChunkOrder: { type: integer, default: 0, when: "type=prompt-chunk" }
+    promptOutputVar: { type: string, default: prompt }
+  io:
+    ioFields: { type: array, items: string, default: [] }
+    ioSchema: { type: string, format: json }
+    inputRequired: { type: boolean, default: true, when: "type=input" }
+  linktorSend:
+    linktorConversationExpr: { type: string, default: "${context.conversationId}" }
+    linktorMessageText: { type: string, required: true }
+    linktorSendOnError: { type: string, default: warn, enum: [warn, fail, ignore] }
+  linktorEscalate:
+    linktorConversationExpr: { type: string, default: "${context.conversationId}" }
+    linktorTargetUser: { type: string }
+    linktorReason: { type: string, default: "Agent escalated" }
+
+nodeTypes:
+  - { type: agent, name: "Agente de IA", category: agent, propertySchema: agentModel, runtimeStatus: conditional, runtimeCondition: "componentId deve ser o id de um agente registrado; componentId=agent não é built-in" }
+  - { type: assistant, name: "Assistente interativo", category: agent, propertySchema: agentModel, runtimeStatus: conditional, runtimeCondition: "componentId deve ser o id de um assistente registrado" }
+  - { type: llm-chat, name: "Chat com LLM", category: agent, propertySchema: agentModel, runtimeStatus: conditional, runtimeCondition: "config.provider deve existir como provider chat SPI" }
+  - { type: llm-streaming, name: "Resposta LLM em streaming", category: agent, propertySchema: agentModel, runtimeStatus: conditional, runtimeCondition: "config.provider deve existir como provider chat SPI" }
+  - { type: orchestrate, name: "Orquestração multiagente dinâmica", category: agent, propertySchema: orchestrate, runtimeStatus: executable, implementation: OrchestrateStep }
+  - { type: condition, name: "Condição binária", category: control, propertySchema: condition, runtimeStatus: design_only }
+  - { type: parallel, name: "Execução paralela", category: control, propertySchema: parallel, runtimeStatus: design_only }
+  - { type: loop, name: "Laço sobre coleção", category: control, propertySchema: loop, runtimeStatus: design_only }
+  - { type: switch, name: "Seleção entre múltiplos ramos", category: control, propertySchema: switch, runtimeStatus: design_only }
+  - { type: transform, name: "Transformação de dados", category: data, propertySchema: transform, runtimeStatus: design_only }
+  - { type: map, name: "Mapeamento de coleção", category: data, propertySchema: transform, runtimeStatus: design_only }
+  - { type: filter, name: "Filtro de coleção", category: data, propertySchema: transform, runtimeStatus: design_only }
+  - { type: reduce, name: "Redução de coleção", category: data, propertySchema: transform, runtimeStatus: design_only }
+  - { type: merge, name: "Combinação de entradas", category: data, propertySchema: merge, runtimeStatus: design_only }
+  - { type: tool, name: "Ferramenta registrada", category: tool, propertySchema: tool, runtimeStatus: conditional, runtimeCondition: "componentId deve ser o id de uma ferramenta registrada" }
+  - { type: function, name: "Função customizada", category: tool, propertySchema: tool, runtimeStatus: conditional, runtimeCondition: "requer plugin registrado com o componentId informado" }
+  - { type: custom, name: "Componente customizado", category: tool, propertySchema: tool, runtimeStatus: conditional, runtimeCondition: "requer plugin registrado com o componentId informado" }
+  - { type: vector-search, name: "Busca semântica vetorial", category: vector, propertySchema: vector, runtimeStatus: conditional, runtimeCondition: "config.provider deve existir como provider vectorstore SPI" }
+  - { type: vector-store, name: "Armazenamento vetorial", category: vector, propertySchema: vector, runtimeStatus: conditional, runtimeCondition: "config.provider deve existir como provider vectorstore SPI" }
+  - { type: embedding, name: "Geração de embeddings", category: vector, propertySchema: embedding, runtimeStatus: conditional, runtimeCondition: "config.provider deve existir como provider embedding SPI" }
+  - { type: rag, name: "Cadeia RAG", category: vector, propertySchema: rag, runtimeStatus: conditional, runtimeCondition: "config.provider=rag e provider chain rag disponível" }
+  - { type: memory, name: "Memória conversacional", category: vector, propertySchema: memory, runtimeStatus: conditional, runtimeCondition: "config.provider deve existir como provider memory SPI" }
+  - { type: prompt-template, name: "Template de prompt", category: io, propertySchema: prompt, runtimeStatus: design_only }
+  - { type: prompt-chunk, name: "Bloco parcial de prompt", category: io, propertySchema: prompt, runtimeStatus: design_only }
+  - { type: input, name: "Entrada do workflow", category: io, propertySchema: io, runtimeStatus: design_only }
+  - { type: output, name: "Saída do workflow", category: io, propertySchema: io, runtimeStatus: design_only }
+  - { type: skills, name: "Operação sobre skills", category: knowledge, propertySchema: skills, runtimeStatus: design_only }
+  - { type: approval, name: "Aprovação humana", category: control, propertySchema: approvalRuntime, editorPropertySchema: approvalEditor, runtimeStatus: executable, implementation: HumanApprovalStep }
+  - { type: subflow, name: "Invocação de subfluxo", category: control, propertySchema: subflow, runtimeStatus: design_only }
+  - { type: mcp-tool, name: "Chamada direta de ferramenta MCP", category: tool, propertySchema: mcpToolEditor, runtimeStatus: design_only }
+  - { type: linktor-send, name: "Envio de mensagem pelo Linktor", category: integration, propertySchema: linktorSend, runtimeStatus: design_only }
+  - { type: linktor-escalate, name: "Escalonamento humano pelo Linktor", category: integration, propertySchema: linktorEscalate, runtimeStatus: design_only }
+  - { type: sticky-note, name: "Nota adesiva", category: annotation, propertySchema: null, runtimeStatus: annotation_only }
+  - { type: group-frame, name: "Moldura de agrupamento", category: annotation, propertySchema: null, runtimeStatus: annotation_only }
+  - { type: section-divider, name: "Divisor de seção", category: annotation, propertySchema: null, runtimeStatus: annotation_only }
+
+builtInComponents:
+  - id: conversational-agent
+    name: "Agente conversacional heurístico"
+    type: agent
+    runtimeStatus: executable
+    description: "Demonstração sem LLM para intenção, atendimento e escalonamento."
+    properties:
+      escalationThreshold: { type: number, default: 0.5 }
+      maxContextMessages: { type: integer, default: 10 }
+    operations:
+      - { id: analyzeRequest, input: { request: string }, output: { analysis: object } }
+      - { id: generateResponse, input: { request: string }, output: { response: object } }
+      - { id: executeTask, input: { task: object }, output: { result: object } }
+  - id: research-agent
+    name: "Agente de pesquisa heurístico"
+    type: agent
+    runtimeStatus: executable
+    properties: {}
+    operations:
+      - { id: executeTask, input: { task: object }, output: { result: object } }
+      - { id: planActions, input: { goal: object }, output: { actions: array } }
+  - id: data-analysis-agent
+    name: "Agente heurístico de análise de dados"
+    type: agent
+    runtimeStatus: executable
+    properties: {}
+    operations:
+      - { id: executeTask, input: { task: object }, output: { result: object } }
+      - { id: analyzeRequest, input: { request: string }, output: { analysis: object } }
+      - { id: generateResponse, input: { data: object }, output: { response: string } }
+  - id: monitoring-agent
+    name: "Agente de monitoramento e anomalias"
+    type: agent
+    runtimeStatus: executable
+    properties: {}
+    operations:
+      - { id: executeTask, input: { task: object }, output: { result: object } }
+      - { id: analyzeRequest, input: { query: string }, output: { result: object } }
+  - id: tech-support-assistant
+    name: "Assistente de suporte técnico por padrões"
+    type: assistant
+    runtimeStatus: executable
+    properties: {}
+    operations:
+      - { id: analyze, input: { input: string }, output: { analysis: object } }
+      - { id: respond, input: { analysis: object }, output: { response: object } }
+  - id: text-transform-tool
+    name: "Ferramenta de transformação de texto"
+    type: tool
+    runtimeStatus: executable
+    properties: {}
+    operations:
+      - { id: uppercase, input: { text: string }, output: { result: string } }
+      - { id: lowercase, input: { text: string }, output: { result: string } }
+      - { id: reverse, input: { text: string }, output: { result: string } }
+      - { id: wordcount, input: { text: string }, output: { result: integer } }
+  - id: mcp-agent
+    name: "Agente com laço de ferramentas MCP"
+    type: agent
+    runtimeStatus: executable
+    properties:
+      systemPrompt: { type: string, required: true }
+      server: { type: string, required: true }
+      tools: { type: array, items: string, description: "Allowlist; vazio usa política do host" }
+      maxIterations: { type: integer, default: 10, minimum: 1 }
+    operations:
+      - id: execute
+        input: { input: string }
+        output: { text: string, toolCalls: array, suspended: boolean, approvalRequestId: string }
+
+adapterProviders:
+  chat:
+    nodeTypes: [llm-chat, llm-streaming]
+    providers:
+      openai: { properties: { api.key: { type: string, required: true, secret: true }, model.name: { type: string }, temperature: { type: number, default: 0.7 }, maxTokens: { type: integer, default: 2048 } } }
+      anthropic: { properties: { api.key: { type: string, required: true, secret: true }, model.name: { type: string }, temperature: { type: number, default: 0.7 }, maxTokens: { type: integer, default: 2048 } } }
+      openrouter: { properties: { api.key: { type: string, required: true, secret: true }, model.name: { type: string }, temperature: { type: number, default: 0.7 }, base.url: { type: string, default: "https://openrouter.ai/api/v1" }, fallback.base.url: { type: string }, fallback.model.name: { type: string }, fallback.api.key: { type: string, default: ollama, secret: true } } }
+  embedding:
+    nodeTypes: [embedding]
+    providers:
+      openai: { required: [openai.api.key], optional: [openai.model, openai.timeout, openai.maxRetries] }
+      local: { required: [local.model.path, local.vocab.path, local.dimension], optional: [local.maxLength, local.batchSize, local.useGpu, local.gpuDeviceId, local.useCache, local.tokenCacheMax] }
+  memory:
+    nodeTypes: [memory]
+    providers:
+      jdbc: { required: [datasource], optional: [memory.maxMessages] }
+      redis: { required: [redis.host], optional: [redis.port, redis.prefix, memory.maxMessages] }
+  vectorstore:
+    nodeTypes: [vector-store, vector-search]
+    providers:
+      pgvector: { required: [pgvector.jdbcUrl, pgvector.username, pgvector.password, pgvector.dimension], optional: [pgvector.table] }
+      redis: { required: [redis.host, redis.dimension], optional: [redis.port, redis.prefix] }
+      pinecone: { required: [pinecone.apiKey, pinecone.apiUrl, pinecone.dimension], optional: [pinecone.indexName] }
+  chain:
+    nodeTypes: [rag]
+    providers:
+      rag: { required: [embedding.provider, vectorstore.provider, languagemodel.provider], optional: [retriever.maxResults, retriever.minScore] }
+
+knownGaps:
+  - "O designer expõe 35 tipos, embora comentários antigos no código ainda mencionem 23."
+  - "Nós genéricos caem em ComponentStep; sem componentId registrado, falham como component not found."
+  - "Os campos toolId e agentId do painel não substituem componentId no DefaultFlowStepFactory."
+  - "embeddingProvider, vectorBackend e memoryBackend são campos do editor, mas o runtime seleciona adapters por config.provider."
+  - "Aprovação usa approvalDescription/approvalProposal no editor, enquanto o runtime lê description/proposal."
+  - "Skills, subflow, mcp-tool, Linktor e nós estruturais têm UI, mas não possuem FlowStep dedicado na factory atual."
+  - "Plugins externos podem acrescentar agentes, assistentes e ferramentas em tempo de execução; consulte /api/catalog para a lista efetiva da instalação."
