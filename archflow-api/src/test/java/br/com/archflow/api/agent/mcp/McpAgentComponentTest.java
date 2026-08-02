@@ -3,6 +3,7 @@ package br.com.archflow.api.agent.mcp;
 import br.com.archflow.langchain4j.mcp.McpClient;
 import br.com.archflow.model.ai.type.ComponentType;
 import br.com.archflow.model.engine.ExecutionContext;
+import br.com.archflow.model.config.LLMConfigPatch;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -248,5 +249,22 @@ class McpAgentComponentTest {
         assertThat(meta.id()).isEqualTo(McpAgentComponent.COMPONENT_ID);
         assertThat(meta.type()).isEqualTo(ComponentType.AGENT);
         assertThat(meta.operations()).extracting(o -> o.id()).contains("execute");
+    }
+
+    @Test
+    @DisplayName("encaminha patches distintos de fluxo e passo ao runner")
+    void llmPatchesReachRunner() {
+        HostFalso host = new HostFalso(Set.of(), concluido());
+        McpAgentComponent component = new McpAgentComponent(
+                LLMConfigPatch.builder().provider("openrouter").model("flow-model").build());
+        component.initialize(Map.of(
+                "systemPrompt", "p", "model", "step-model", "temperature", 0.2));
+
+        component.execute("execute", "oi", contextoCom(host));
+
+        assertThat(host.options.get().flowPatch().provider()).contains("openrouter");
+        assertThat(host.options.get().flowPatch().model()).contains("flow-model");
+        assertThat(host.options.get().stepPatch().model()).contains("step-model");
+        assertThat(host.options.get().stepPatch().temperature().getAsDouble()).isEqualTo(0.2);
     }
 }

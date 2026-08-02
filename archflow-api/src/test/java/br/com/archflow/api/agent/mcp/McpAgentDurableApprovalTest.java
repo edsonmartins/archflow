@@ -337,7 +337,14 @@ class McpAgentDurableApprovalTest {
     @DisplayName("McpAgentState faz round-trip em JSON")
     void stateSerializesRoundTrip() throws Exception {
         var model = new ScriptedChatModel(List.of(calls(WRITE, "{\"servico\":\"x\"}")));
-        runnerWith(model).run("acme", "sys", "u", client, gating(WRITE));
+        var policies = gating(WRITE);
+        var options = new McpAgentRunner.Options(
+                policies.access(), policies.trust(), policies.approval(), policies.maxIterations(),
+                br.com.archflow.model.config.LLMConfigPatch.builder()
+                        .provider("openrouter").model("flow-model").build(),
+                br.com.archflow.model.config.LLMConfigPatch.builder()
+                        .model("step-model").temperature(0.2).build());
+        runnerWith(model).run("acme", "sys", "u", client, options);
         McpAgentState original = store.findPendingByTenant("acme").get(0);
 
         ObjectMapper json = new ObjectMapper().findAndRegisterModules();
@@ -348,5 +355,9 @@ class McpAgentDurableApprovalTest {
         assertThat(back.messages()).isEqualTo(original.messages());
         assertThat(back.pending().toolName()).isEqualTo(WRITE);
         assertThat(back.pending().arguments()).containsEntry("servico", "x");
+        assertThat(back.flowLLMConfig()).containsEntry("provider", "openrouter")
+                .containsEntry("model", "flow-model");
+        assertThat(back.stepLLMConfig()).containsEntry("model", "step-model")
+                .containsEntry("temperature", 0.2);
     }
 }

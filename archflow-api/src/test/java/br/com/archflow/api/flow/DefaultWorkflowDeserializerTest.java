@@ -46,4 +46,20 @@ class DefaultWorkflowDeserializerTest {
         assertThat(flow.getMetadata().version()).isEqualTo("1.0.0");
         assertThat(flow.getSteps()).isEmpty();
     }
+
+    @Test
+    void preservesFlowAndStepLLMPatches() {
+        Flow flow = deserializer.toFlow(Map.of(
+                "id", "wf-llm",
+                "configuration", Map.of("llmConfig", Map.of(
+                        "provider", "openrouter", "model", "flow-model", "maxTokens", 1024)),
+                "steps", List.of(Map.of(
+                        "id", "agent", "type", "TOOL", "componentId", "x",
+                        "config", Map.of("model", "step-model", "temperature", 0.1)))));
+
+        assertThat(flow.getConfiguration().getLLMPatch().provider()).contains("openrouter");
+        assertThat(flow.getConfiguration().getLLMPatch().model()).contains("flow-model");
+        assertThat(flow.getSteps().get(0).getLLMPatch().model()).contains("step-model");
+        assertThat(flow.getSteps().get(0).getLLMPatch().temperature().getAsDouble()).isEqualTo(0.1);
+    }
 }

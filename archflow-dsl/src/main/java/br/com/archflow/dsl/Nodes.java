@@ -110,6 +110,11 @@ public final class Nodes {
         return adapter(RAG, provider);
     }
 
+    /** Agente nativo que conduz um laço de tool-calling contra um servidor MCP. */
+    public static NodeSpec mcpAgent() {
+        return new NodeSpec("agent", "mcp-agent").operation("execute");
+    }
+
     /**
      * Nó de adapter com o tipo escrito à mão — para um tipo novo que esta
      * versão da DSL ainda não tenha método próprio.
@@ -131,5 +136,13 @@ public final class Nodes {
      */
     public static NodeSpec component(String componentId) {
         return new NodeSpec(componentId, componentId);
+    }
+
+    /**
+     * Componente aberto com tipo visual distinto do id de runtime. Necessário
+     * para round-trips como {@code type=agent, componentId=mcp-agent}.
+     */
+    public static NodeSpec component(String nodeType, String componentId) {
+        return new NodeSpec(nodeType, componentId);
     }
 }

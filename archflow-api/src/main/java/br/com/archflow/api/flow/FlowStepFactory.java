@@ -1,6 +1,7 @@
 package br.com.archflow.api.flow;
 
 import br.com.archflow.model.flow.FlowStep;
+import br.com.archflow.model.config.LLMConfigPatch;
 import br.com.archflow.plugin.api.catalog.ComponentAccessPolicy;
 
 import java.util.Map;
@@ -10,7 +11,11 @@ public interface FlowStepFactory {
 
     /** Materializa o nó sem restrição de catálogo (comportamento histórico). */
     default FlowStep create(Map<String, Object> node) {
-        return create(node, ComponentAccessPolicy.allowAll());
+        return create(node, ComponentAccessPolicy.allowAll(), LLMConfigPatch.empty());
+    }
+
+    default FlowStep create(Map<String, Object> node, ComponentAccessPolicy componentPolicy) {
+        return create(node, componentPolicy, LLMConfigPatch.empty());
     }
 
     /**
@@ -20,5 +25,6 @@ public interface FlowStepFactory {
      * componentes que pode tocar. Um nó já nomeia um componente — restringir por
      * nó não protegeria de nada.
      */
-    FlowStep create(Map<String, Object> node, ComponentAccessPolicy componentPolicy);
+    FlowStep create(Map<String, Object> node, ComponentAccessPolicy componentPolicy,
+                    LLMConfigPatch flowPatch);
 }

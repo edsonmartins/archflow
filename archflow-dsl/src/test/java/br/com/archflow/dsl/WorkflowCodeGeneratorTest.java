@@ -1,5 +1,6 @@
 package br.com.archflow.dsl;
 
+import br.com.archflow.model.config.LLMConfigPatch;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -92,6 +93,12 @@ class WorkflowCodeGeneratorTest {
                     .author("edson")
                     .category("rag")
                     .allowing("input", "pgvector", "openai", "notify")
+                    .llm(LLMConfigPatch.builder()
+                            .provider("openrouter")
+                            .model("openai/gpt-4.1-mini")
+                            .temperature(0.3)
+                            .maxTokens(2048)
+                            .build())
                     .step("pergunta", Nodes.component("input").at(60, 200))
                     .step("busca", Nodes.vectorSearch("pgvector")
                             .with("topK", 6)
@@ -119,6 +126,25 @@ class WorkflowCodeGeneratorTest {
             WorkflowDocument reconstruido = compileAndRun(code, dir);
 
             assertThat(reconstruido.toMap()).isEqualTo(original.toMap());
+        }
+
+        @Test
+        @DisplayName("mcp-agent preserva tipo, componentId e override de LLM")
+        void mcpAgentRoundTrip(@TempDir Path dir) throws Exception {
+            WorkflowDocument original = Workflows.define("mcp")
+                    .llm(LLMConfigPatch.builder().provider("openrouter").model("flow-model").build())
+                    .allowing("mcp-agent")
+                    .step("agent", Nodes.mcpAgent()
+                            .with("systemPrompt", "Use as ferramentas")
+                            .with("model", "step-model")
+                            .with("temperature", 0.1))
+                    .build();
+
+            GeneratedCode code = WorkflowCodeGenerator.from(original.toMap()).generate();
+
+            assertThat(code.isLossless()).as("perdas: %s", code.unrepresented()).isTrue();
+            assertThat(code.source()).contains("Nodes.component(\"agent\", \"mcp-agent\")");
+            assertThat(compileAndRun(code, dir).toMap()).isEqualTo(original.toMap());
         }
 
         @Test

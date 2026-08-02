@@ -10,6 +10,7 @@ import br.com.archflow.model.flow.FlowStep;
 import br.com.archflow.model.flow.StepConnection;
 import br.com.archflow.model.flow.StepType;
 import br.com.archflow.plugin.api.catalog.ComponentCatalog;
+import br.com.archflow.plugin.api.catalog.ComponentAccessPolicy;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -43,6 +44,24 @@ class DefaultFlowStepFactoryTest {
         FlowStep step = factory.create(Map.of("id", "s1", "componentId", "llm-chat"));
 
         assertThat(step).isInstanceOf(ComponentStep.class);
+    }
+
+    @Test
+    void isolatedMcpAgentStillRespectsComponentAllowlist() {
+        ExecutionContext ctx = mock(ExecutionContext.class);
+        when(ctx.get("input")).thenReturn(Optional.empty());
+
+        FlowStep step = factory.create(Map.of(
+                        "id", "agent",
+                        "type", "agent",
+                        "componentId", "mcp-agent",
+                        "configuration", Map.of("systemPrompt", "Use as ferramentas")),
+                ComponentAccessPolicy.allowOnly(List.of("other")));
+
+        var result = step.execute(ctx).join();
+
+        assertThat(result.getStatus()).isEqualTo(br.com.archflow.model.enums.StepStatus.FAILED);
+        assertThat(result.getOutput()).contains("component not found: mcp-agent");
     }
 
     @Test

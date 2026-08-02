@@ -1,5 +1,7 @@
 package br.com.archflow.dsl;
 
+import br.com.archflow.model.config.LLMConfigPatch;
+
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -184,6 +186,31 @@ class WorkflowBuilderTest {
                     .containsEntry("type", "APPROVAL");
             assertThat(stepsOf(Workflows.define("f").step("orq", Nodes.orchestrate()).build()).get(0))
                     .containsEntry("type", "ORCHESTRATE");
+        }
+    }
+
+    @Nested
+    @DisplayName("configuração LLM e MCP")
+    class LlmAndMcp {
+        @Test
+        void writesFlowPatchAndMcpStepPatchSeparately() {
+            WorkflowDocument doc = Workflows.define("mcp")
+                    .llm(LLMConfigPatch.builder()
+                            .provider("openrouter").model("flow-model").maxTokens(1024).build())
+                    .step("agent", Nodes.mcpAgent()
+                            .with("systemPrompt", "Ajude o usuário")
+                            .with("model", "step-model"))
+                    .build();
+
+            Map<String, Object> flowConfig = mapOf(doc.toMap().get("configuration"));
+            assertThat(mapOf(flowConfig.get("llmConfig")))
+                    .containsEntry("provider", "openrouter")
+                    .containsEntry("model", "flow-model");
+            Map<String, Object> step = stepsOf(doc).get(0);
+            assertThat(step).containsEntry("type", "agent")
+                    .containsEntry("componentId", "mcp-agent")
+                    .containsEntry("operation", "execute");
+            assertThat(mapOf(step.get("config"))).containsEntry("model", "step-model");
         }
     }
 

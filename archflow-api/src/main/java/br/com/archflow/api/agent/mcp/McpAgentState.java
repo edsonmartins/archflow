@@ -40,6 +40,8 @@ import java.util.Map;
  * @param iteration   turnos já consumidos
  * @param lastText    último texto do assistente
  * @param pending     chamada aguardando decisão humana
+ * @param flowLLMConfig patch de LLM do fluxo, para retomada sem mudar de modelo
+ * @param stepLLMConfig patch de LLM do passo, para retomada sem mudar de modelo
  * @param suspendedAt quando o laço suspendeu
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
@@ -53,11 +55,23 @@ public record McpAgentState(
         int iteration,
         String lastText,
         PendingApproval pending,
+        Map<String, Object> flowLLMConfig,
+        Map<String, Object> stepLLMConfig,
         Instant suspendedAt) {
 
     public McpAgentState {
         messages = messages == null ? List.of() : List.copyOf(messages);
         toolCalls = toolCalls == null ? List.of() : List.copyOf(toolCalls);
+        flowLLMConfig = flowLLMConfig == null ? Map.of() : Map.copyOf(flowLLMConfig);
+        stepLLMConfig = stepLLMConfig == null ? Map.of() : Map.copyOf(stepLLMConfig);
+    }
+
+    /** Compatibilidade com estados e chamadores anteriores aos patches de LLM duráveis. */
+    public McpAgentState(String runId, String tenantId, String systemPrompt, String fenceNonce,
+                         List<String> messages, List<SerializedToolCall> toolCalls, int iteration,
+                         String lastText, PendingApproval pending, Instant suspendedAt) {
+        this(runId, tenantId, systemPrompt, fenceNonce, messages, toolCalls, iteration, lastText,
+                pending, Map.of(), Map.of(), suspendedAt);
     }
 
     /**

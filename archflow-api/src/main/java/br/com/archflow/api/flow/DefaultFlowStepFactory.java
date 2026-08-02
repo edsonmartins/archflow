@@ -9,6 +9,7 @@ import br.com.archflow.api.flow.adapter.LangChainAdapterComponent;
 import br.com.archflow.langchain4j.provider.TenantKeyResolver;
 import br.com.archflow.engine.core.StateManager;
 import br.com.archflow.model.flow.FlowStep;
+import br.com.archflow.model.config.LLMConfigPatch;
 import br.com.archflow.model.flow.StepConnection;
 import br.com.archflow.model.flow.StepType;
 import br.com.archflow.plugin.api.catalog.ComponentAccessPolicy;
@@ -75,7 +76,8 @@ public class DefaultFlowStepFactory implements FlowStepFactory {
     }
 
     @Override
-    public FlowStep create(Map<String, Object> node, ComponentAccessPolicy componentPolicy) {
+    public FlowStep create(Map<String, Object> node, ComponentAccessPolicy componentPolicy,
+                           LLMConfigPatch flowPatch) {
         String id = str(node.get("id"), "step");
         String type = str(node.get("type"), "");
         Map<String, Object> config = config(node);
@@ -118,17 +120,37 @@ public class DefaultFlowStepFactory implements FlowStepFactory {
                 // resolve e falha com "component not found" — mesmo tratamento
                 // dos demais componentes negados.
                 return new ComponentStep(id, StepType.TOOL, providerId, operationOf(config, node),
-                        connections, scopedCatalog, interceptors);
+                        connections, scopedCatalog, interceptors, null, config);
             }
             LangChainAdapterComponent adapter = new LangChainAdapterComponent(
                     providerId, AdapterNodeTypes.adapterTypeFor(type), config, tenantKeyResolver);
             return new ComponentStep(id, StepType.TOOL, adapter.componentId(),
-                    operationOf(config, node), connections, scopedCatalog, interceptors, adapter);
+                    operationOf(config, node), connections, scopedCatalog, interceptors, adapter,
+                    config);
+        }
+
+        // Componentes do catálogo são singletons. O mcp-agent carrega config
+        // específica do nó, portanto precisa de uma instância isolada por
+        // passo; inicializar o singleton vazaria modelo/prompt entre fluxos e
+        // tenants concorrentes.
+        if (br.com.archflow.api.agent.mcp.McpAgentComponent.COMPONENT_ID
+                .equals(componentId == null ? null : componentId.toString())) {
+            if (!policy.isAllowed(br.com.archflow.api.agent.mcp.McpAgentComponent.COMPONENT_ID)) {
+                return new ComponentStep(id, StepType.TOOL,
+                        br.com.archflow.api.agent.mcp.McpAgentComponent.COMPONENT_ID,
+                        operationOf(config, node), connections, scopedCatalog, interceptors, null,
+                        config);
+            }
+            var mcpAgent = new br.com.archflow.api.agent.mcp.McpAgentComponent(flowPatch);
+            mcpAgent.initialize(config);
+            return new ComponentStep(id, StepType.TOOL, mcpAgent.getMetadata().id(),
+                    operationOf(config, node), connections, scopedCatalog, interceptors, mcpAgent,
+                    config);
         }
         return new ComponentStep(
                 id, StepType.TOOL,
                 componentId == null ? "" : componentId.toString(),
-                operationOf(config, node), connections, scopedCatalog, interceptors);
+                operationOf(config, node), connections, scopedCatalog, interceptors, null, config);
     }
 
     /**
