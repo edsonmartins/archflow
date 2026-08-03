@@ -234,7 +234,12 @@ public class VendaxAgentDispatcher {
             """;
 
     /**
-     * A mensagem de usuário do agente — <b>a mesma</b> pelos dois caminhos.
+     * A mensagem de usuário do agente: <b>o envelope renderizado por inteiro</b>, igual pelos dois
+     * caminhos.
+     *
+     * <p>Renderizar tudo é protocolo, não negócio — "eis o que recebi" —, e é o que dispensa o
+     * executor de saber que o QP precisa de {@code entrada} e o CS de uma janela. Cada agente diz
+     * no próprio prompt o que fazer com os campos; nenhum deles precisa de um {@code case} aqui.</p>
      *
      * <p>Existia duplicada: o caminho por nome mandava {@code clienteRef} + conversa, e o
      * caminho de fluxo só a conversa. A divergência não aparece como erro — aparece como
@@ -246,7 +251,18 @@ public class VendaxAgentDispatcher {
      * seja a que se quer medir.</p>
      */
     String entradaDoAgente(VendaxInvoke invoke) {
-        return "clienteRef=" + nullSafe(invoke.customerRef()) + "\n" + conversaDe(invoke);
+        StringBuilder sb = new StringBuilder();
+        sb.append("clienteRef=").append(nullSafe(invoke.customerRef()))
+          .append("\nvendedorRef=").append(nullSafe(invoke.vendorRef()))
+          .append("\nmodoEntrada=").append(modoEntrada(invoke));
+        if (invoke.text() != null && !invoke.text().isBlank()) {
+            sb.append("\nentrada=").append(invoke.text());
+        }
+        String conversa = conversaDe(invoke);
+        if (conversa != null && !conversa.isBlank()) {
+            sb.append("\n").append(conversa);
+        }
+        return sb.toString();
     }
 
     /** Modo de entrada: o Core manda texto de canal; ditado/imagem/PDF entram quando o multimodal for fiado. */
@@ -264,12 +280,12 @@ public class VendaxAgentDispatcher {
      */
     String conversaDe(VendaxInvoke invoke) {
         if (invoke.payload() == null || invoke.payload().isBlank()) {
-            return "mensagem=" + nullSafe(invoke.text());
+            return "";                    // sem janela; `entrada` já carrega o texto
         }
         try {
             var mensagens = MAPPER.readTree(invoke.payload()).path("messages");
             if (!mensagens.isArray() || mensagens.isEmpty()) {
-                return "mensagem=" + nullSafe(invoke.text());
+                return "";
             }
             StringBuilder sb = new StringBuilder("conversa (mais antiga primeiro):");
             for (var m : mensagens) {
@@ -285,7 +301,7 @@ public class VendaxAgentDispatcher {
         } catch (Exception e) {
             log.warn("Janela de conversa ilegível (conv={}): {}",
                     invoke.conversationId(), e.getMessage());
-            return "mensagem=" + nullSafe(invoke.text());
+            return "";
         }
     }
 
