@@ -150,7 +150,36 @@ class InvokeComoFluxoTest {
         assertThat(entrada)
                 .as("sem o identificador, obter_cliente_360 fica sem o que consultar")
                 .startsWith("clienteRef=cliente")
-                .contains("chegou?");
+                .contains("vendedorRef=vendedor")
+                .contains("modoEntrada=")
+                .contains("entrada=chegou?");
+    }
+
+    /**
+     * O envelope é renderizado por inteiro, e é isso que dispensa o executor de saber que o QP
+     * precisa de {@code entrada} e o CS de uma janela.
+     *
+     * <p>O caminho por nome do QP montava {@code clienteRef/vendedorRef/modoEntrada/entrada}, e o de
+     * fluxo mandava {@code clienteRef} + {@code mensagem=} — campos a menos e com outro nome. Não
+     * falha: dá outra resposta, e uma comparação entre os dois mediria a diferença errada. Foi a
+     * terceira vez que essa mesma classe de defeito quase corrompeu uma medição.</p>
+     */
+    @Test
+    @DisplayName("a janela de conversa não some quando há texto, nem duplica quando não há")
+    void envelopeCompletoSemDuplicar() {
+        VendaxInvoke comJanela = new VendaxInvoke("1.0", "t1", "c1", "CS", "m1", "chegou?",
+                "LIGHT", "teste", "trace",
+                "{\"messages\":[{\"direction\":\"INBOUND\",\"text\":\"faltou item\"}]}",
+                "cliente", "vendedor", null);
+
+        String entrada = dispatcher.entradaDoAgente(comJanela);
+
+        assertThat(entrada)
+                .contains("entrada=chegou?")
+                .contains("cliente: faltou item");
+        assertThat(entrada)
+                .as("sem janela, o texto aparece uma vez só — não como `mensagem=` também")
+                .doesNotContain("mensagem=");
     }
 
     @Test
