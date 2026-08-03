@@ -146,7 +146,7 @@ public class VendaxAgentDispatcher {
         }
 
         AgentFlowRunner.Saida saida = fluxo.executar(invoke, invoke.definicao().fluxo(),
-                conversaDe(invoke));
+                entradaDoAgente(invoke));
 
         if (saida.suspenso()) {
             log.info("Fluxo de {} suspenso aguardando decisão humana (conv={})",
@@ -203,7 +203,7 @@ public class VendaxAgentDispatcher {
                 invoke.definicao() != null ? invoke.definicao().versao() : null);
         McpAgentRunner.Result result = runner.run(invoke.tenantId(),
                 promptDe(invoke, CS_SYSTEM_PROMPT),
-                "clienteRef=" + nullSafe(invoke.customerRef()) + "\n" + conversaDe(invoke),
+                entradaDoAgente(invoke),
                 client, politicaDe(invoke, CS_TOOLS));
 
         String json = extractJson(result.finalText());
@@ -232,6 +232,22 @@ public class VendaxAgentDispatcher {
             score negativo = insatisfação. Na dúvida, use 0 e trend ESTAVEL: um sentimento inventado
             aciona tarefa de crise à toa.
             """;
+
+    /**
+     * A mensagem de usuário do agente — <b>a mesma</b> pelos dois caminhos.
+     *
+     * <p>Existia duplicada: o caminho por nome mandava {@code clienteRef} + conversa, e o
+     * caminho de fluxo só a conversa. A divergência não aparece como erro — aparece como
+     * <b>outra resposta</b>. Medindo a mesma conversa nos dois, o sentimento caiu de
+     * {@code -7/CAINDO} para {@code 0/ESTAVEL}: sem o identificador, o {@code obter_cliente_360}
+     * fica sem o que consultar e o modelo segue a instrução de prudência do próprio prompt.</p>
+     *
+     * <p>Uma função só, porque comparar dois caminhos exige que a única diferença entre eles
+     * seja a que se quer medir.</p>
+     */
+    String entradaDoAgente(VendaxInvoke invoke) {
+        return "clienteRef=" + nullSafe(invoke.customerRef()) + "\n" + conversaDe(invoke);
+    }
 
     /** Modo de entrada: o Core manda texto de canal; ditado/imagem/PDF entram quando o multimodal for fiado. */
     private String modoEntrada(VendaxInvoke invoke) {

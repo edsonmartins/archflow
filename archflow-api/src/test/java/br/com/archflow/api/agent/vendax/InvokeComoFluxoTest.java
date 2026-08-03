@@ -131,6 +131,42 @@ class InvokeComoFluxoTest {
         assertThat(semFluxo.definicao().eFluxo()).isFalse();
     }
 
+
+    /**
+     * A entrada é a mesma pelos dois caminhos.
+     *
+     * <p>Não era: o caminho por nome mandava {@code clienteRef} + conversa e o de fluxo só a
+     * conversa. Isso não falha — dá <b>outra resposta</b>. Medindo a mesma conversa nos dois,
+     * o sentimento caiu de {@code -7/CAINDO} para {@code 0/ESTAVEL}, e a medição que deveria
+     * comparar PROMPT com FLUXO acabou comparando duas entradas diferentes.</p>
+     */
+    @Test
+    @DisplayName("a mensagem de usuário carrega o clienteRef")
+    void entradaCarregaClienteRef() {
+        VendaxInvoke invoke = invoke("CS", "sentiment@1", DOCUMENTO);
+
+        String entrada = dispatcher.entradaDoAgente(invoke);
+
+        assertThat(entrada)
+                .as("sem o identificador, obter_cliente_360 fica sem o que consultar")
+                .startsWith("clienteRef=cliente")
+                .contains("chegou?");
+    }
+
+    @Test
+    @DisplayName("o fluxo recebe exatamente essa mensagem")
+    void fluxoRecebeAMesmaEntrada() {
+        when(fluxo.executar(any(), any(), any()))
+                .thenReturn(new AgentFlowRunner.Saida("{\"score\":0}", false));
+        VendaxInvoke invoke = invoke("CS", "sentiment@1", DOCUMENTO);
+
+        dispatcher.runAndReport(invoke);
+
+        ArgumentCaptor<String> entrada = ArgumentCaptor.forClass(String.class);
+        verify(fluxo).executar(any(), any(), entrada.capture());
+        assertThat(entrada.getValue()).isEqualTo(dispatcher.entradaDoAgente(invoke));
+    }
+
     @Nested
     @DisplayName("tipo do rich object a partir do saidaSchema")
     class TipoDoRichObject {
