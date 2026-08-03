@@ -16,6 +16,41 @@ public final class ExecutionKeys {
     }
 
     /**
+     * Prefixo das chaves cujo valor é <b>infraestrutura da execução</b>, não estado: cliente
+     * MCP, provider, conexão. Elas viajam no contexto para o passo alcançá-las, e
+     * <b>nunca</b> entram no {@link br.com.archflow.model.flow.FlowState}.
+     *
+     * <p>Não é higiene: um bean vivo no estado durável quebra o checkpoint na serialização
+     * — o fluxo roda e a retomada some, com um WARN no lugar de um erro. E se fosse
+     * serializado, seria pior: a retomada restauraria um mapa onde o passo espera o objeto,
+     * e o sintoma apareceria como "não configurado" muito longe da causa.</p>
+     *
+     * <p>Estado que PRECISA sobreviver ao restart — memória de conversa, passos concluídos —
+     * não usa este prefixo, de propósito.</p>
+     */
+    public static final String TRANSIENT_PREFIX = "__archflow.transient.";
+
+    /**
+     * As variáveis que podem ser persistidas: tudo menos as de {@link #TRANSIENT_PREFIX}.
+     *
+     * <p>Existe como função, e não como filtro repetido em cada chamador, porque há mais de
+     * um ponto que copia o contexto para o estado (checkpoint por passo e estado terminal) —
+     * e um deles esquecer o filtro reintroduz a falha só no caminho menos exercitado.</p>
+     */
+    public static java.util.Map<String, Object> persistiveis(java.util.Map<String, Object> variaveis) {
+        if (variaveis == null || variaveis.isEmpty()) {
+            return new java.util.HashMap<>();
+        }
+        java.util.Map<String, Object> copia = new java.util.HashMap<>(variaveis.size());
+        variaveis.forEach((chave, valor) -> {
+            if (chave == null || !chave.startsWith(TRANSIENT_PREFIX)) {
+                copia.put(chave, valor);
+            }
+        });
+        return copia;
+    }
+
+    /**
      * Config de LLM já resolvida para o passo atual — valor do tipo
      * {@code br.com.archflow.model.config.ResolvedLLMConfig}. Quando presente,
      * adapters devem usá-la (model/temperature/maxTokens/…) em vez do default

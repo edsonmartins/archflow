@@ -2,6 +2,7 @@ package br.com.archflow.api.agent.mcp;
 
 import br.com.archflow.langchain4j.mcp.McpClient;
 import br.com.archflow.model.engine.ExecutionContext;
+import br.com.archflow.model.engine.ExecutionKeys;
 
 import java.util.Optional;
 import java.util.Set;
@@ -21,8 +22,15 @@ import java.util.Set;
  */
 public interface McpAgentHost {
 
-    /** Chave sob a qual o host se anuncia no {@link ExecutionContext}. */
-    String CONTEXT_KEY = "mcp.host";
+    /**
+     * Chave sob a qual o host se anuncia no {@link ExecutionContext}.
+     *
+     * <p>Prefixo {@code transient} porque o host é <b>infraestrutura, não estado</b>: ele
+     * carrega cliente HTTP e credencial, e o checkpoint do motor copia as variáveis do
+     * contexto para o estado durável. Com a chave anterior o Jackson estourava ao serializar
+     * o host, o checkpoint falhava com WARN e a retomada sumia sem ninguém notar.</p>
+     */
+    String CONTEXT_KEY = ExecutionKeys.TRANSIENT_PREFIX + "mcpHost";
 
     /** O runner já construído com o resolvedor de LLM, as métricas e o store de estado do host. */
     McpAgentRunner runner();
