@@ -73,7 +73,12 @@ public class AgentFlowRunner {
     public Saida executar(VendaxInvoke invoke, Map<String, Object> fluxo, String entrada) {
         // Id único por execução: o motor indexa fluxos ativos por id, e duas execuções do mesmo
         // documento (reentrega do Core, retentativa) colidiriam se compartilhassem o dele.
-        String execucaoId = "vendax-" + invoke.agent() + "-" + UUID.randomUUID();
+        //
+        // UUID puro, sem prefixo legível: a coluna de estado do motor é varchar(36), do tamanho
+        // exato de um UUID. Um prefixo como "vendax-CS-" estourava o limite e o INSERT do
+        // checkpoint falhava com "value too long" — o fluxo concluía, o resultado saía, e só a
+        // retomada durável ficava quebrada, o que ninguém percebe até precisar dela.
+        String execucaoId = UUID.randomUUID().toString();
 
         Map<String, Object> documento = new HashMap<>(fluxo);
         documento.put("id", execucaoId);
@@ -106,8 +111,8 @@ public class AgentFlowRunner {
         }
 
         Object saida = resultado.getOutput().orElse(null);
-        log.debug("Fluxo {} concluiu com status {} (conv={})",
-                execucaoId, resultado.getStatus(), invoke.conversationId());
+        log.debug("Fluxo {} do agente {} concluiu com status {} (conv={})",
+                execucaoId, invoke.agent(), resultado.getStatus(), invoke.conversationId());
         return reduzir(saida);
     }
 
