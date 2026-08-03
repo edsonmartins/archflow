@@ -36,7 +36,18 @@ import java.util.Set;
  * tools          (lista)       allowlist; ausente = todas as do server, sujeitas ao teto do host
  * server         (texto)       referência ao servidor MCP; ausente = padrão do host
  * maxIterations  (inteiro)     voltas do laço; ausente = padrão do runner
+ * saidaDaTool    (lista)       de onde sai a resposta do passo — ver abaixo
  * </pre>
+ *
+ * <p><b>{@code saidaDaTool} existe porque nem todo agente responde pelo texto.</b> Uns produzem um
+ * veredito e o texto final É a resposta; outros orquestram, e o artefato é construído por uma tool —
+ * o texto do modelo é só a narração. Assumir a primeira forma faz o segundo tipo de agente parecer
+ * que não produziu nada.</p>
+ *
+ * <p>Quando declarada, a saída do passo passa a ser o resultado da <b>última chamada bem-sucedida</b>
+ * à primeira tool da lista que tiver sido chamada — a ordem é a preferência de quem escreveu o fluxo.
+ * O componente não sabe o que aquele resultado significa: lê nomes de uma lista de config e devolve
+ * o texto, do mesmo jeito que repassa {@code temperature} sem saber o que ela faz no modelo.</p>
  *
  * <p>As dependências vêm do {@link McpAgentHost} injetado no contexto — ver a razão lá.</p>
  */
@@ -84,6 +95,10 @@ public class McpAgentComponent implements AIComponent, ComponentPlugin {
         Object tools = config.get("tools");
         if (tools != null && !(tools instanceof List<?>)) {
             throw new IllegalArgumentException(COMPONENT_ID + ": 'tools' deve ser uma lista");
+        }
+        Object saidaDaTool = config.get("saidaDaTool");
+        if (saidaDaTool != null && !(saidaDaTool instanceof List<?>)) {
+            throw new IllegalArgumentException(COMPONENT_ID + ": 'saidaDaTool' deve ser uma lista");
         }
         Object max = config.get("maxIterations");
         if (max != null && inteiro(max) <= 0) {
@@ -139,7 +154,7 @@ public class McpAgentComponent implements AIComponent, ComponentPlugin {
         McpAgentRunner.Result result = host.runner().run(
                 tenantId, texto(config.get("systemPrompt")), mensagemDe(input), client, options);
 
-        return saida(result);
+        return saida(result, listaDeTexto(config.get("saidaDaTool")));
     }
 
     /**
@@ -171,7 +186,7 @@ public class McpAgentComponent implements AIComponent, ComponentPlugin {
      * <p>Tratar um laço suspenso como conclusão entregaria ao passo seguinte uma resposta parcial
      * como se fosse final — e a aprovação pendente sumiria sem que ninguém a visse.</p>
      */
-    private Map<String, Object> saida(McpAgentRunner.Result result) {
+    private Map<String, Object> saida(McpAgentRunner.Result result, Set<String> saidaDaTool) {
         List<Map<String, Object>> tools = new ArrayList<>();
         for (McpAgentRunner.ToolCall call : result.toolCalls()) {
             Map<String, Object> t = new LinkedHashMap<>();
@@ -183,7 +198,7 @@ public class McpAgentComponent implements AIComponent, ComponentPlugin {
         }
 
         Map<String, Object> saida = new LinkedHashMap<>();
-        saida.put(SAIDA_TEXTO, result.finalText());
+        saida.put(SAIDA_TEXTO, textoDaSaida(result, saidaDaTool));
         saida.put(SAIDA_TOOLS, tools);
         saida.put(SAIDA_SUSPENSO, result.isSuspended());
         if (result.isSuspended()) {
@@ -191,6 +206,27 @@ public class McpAgentComponent implements AIComponent, ComponentPlugin {
             saida.put("pendingTool", result.pendingApproval().toolName());
         }
         return saida;
+    }
+
+    /**
+     * O texto que o passo devolve: o do modelo, ou o resultado de uma tool quando o fluxo o declara.
+     *
+     * <p>A lista é ordenada por preferência: um fluxo de cotação declara
+     * {@code [firmar_cotacao, simular_cotacao]} porque a firmada vale mais que a simulada. Nenhuma
+     * das duas chamada — o agente conversou sem cotar — devolve o texto do modelo, que é o que
+     * distingue "não produziu" de "produziu e eu não achei".</p>
+     */
+    private String textoDaSaida(McpAgentRunner.Result result, Set<String> saidaDaTool) {
+        if (saidaDaTool.isEmpty()) {
+            return result.finalText();
+        }
+        for (String tool : saidaDaTool) {
+            McpAgentRunner.ToolCall chamada = result.lastSuccessfulCall(tool);
+            if (chamada != null && chamada.resultText() != null && !chamada.resultText().isBlank()) {
+                return chamada.resultText();
+            }
+        }
+        return result.finalText();
     }
 
     /** A entrada do passo: texto direto, ou a chave {@code input}/{@code message} de um mapa. */
