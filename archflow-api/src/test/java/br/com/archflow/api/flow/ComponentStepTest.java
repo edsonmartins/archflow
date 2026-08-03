@@ -2,6 +2,7 @@ package br.com.archflow.api.flow;
 
 import br.com.archflow.model.ai.AIComponent;
 import br.com.archflow.model.engine.ExecutionContext;
+import br.com.archflow.model.config.LLMConfigPatch;
 import br.com.archflow.model.enums.StepStatus;
 import br.com.archflow.model.flow.StepResult;
 import br.com.archflow.model.flow.StepType;
@@ -11,6 +12,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -69,5 +71,19 @@ class ComponentStepTest {
 
         assertThat(result.getStatus()).isEqualTo(StepStatus.FAILED);
         assertThat(result.getOutput()).contains("boom");
+    }
+
+    @Test
+    void exposesTheNodeLLMPatch() {
+        ComponentStep step = new ComponentStep("s1", StepType.TOOL, "mcp-agent", "execute",
+                List.of(), catalog, null, null,
+                Map.of("provider", "openrouter", "model", "openai/gpt-4o-mini",
+                        "temperature", 0.2));
+
+        LLMConfigPatch patch = step.getLLMPatch();
+
+        assertThat(patch.provider()).contains("openrouter");
+        assertThat(patch.model()).contains("openai/gpt-4o-mini");
+        assertThat(patch.temperature().getAsDouble()).isEqualTo(0.2);
     }
 }

@@ -4,6 +4,7 @@ import br.com.archflow.langchain4j.mcp.McpClient;
 import br.com.archflow.model.ai.AIComponent;
 import br.com.archflow.model.ai.metadata.ComponentMetadata;
 import br.com.archflow.model.ai.type.ComponentType;
+import br.com.archflow.model.config.LLMConfigPatch;
 import br.com.archflow.model.engine.ExecutionContext;
 import br.com.archflow.plugin.api.spi.ComponentPlugin;
 
@@ -51,7 +52,16 @@ public class McpAgentComponent implements AIComponent, ComponentPlugin {
     public static final String SAIDA_APROVACAO = "approvalRequestId";
 
     private Map<String, Object> config = Map.of();
+    private final LLMConfigPatch flowPatch;
     private boolean initialized;
+
+    public McpAgentComponent() {
+        this(LLMConfigPatch.empty());
+    }
+
+    public McpAgentComponent(LLMConfigPatch flowPatch) {
+        this.flowPatch = flowPatch == null ? LLMConfigPatch.empty() : flowPatch;
+    }
 
     @Override
     public void initialize(Map<String, Object> config) {
@@ -124,7 +134,7 @@ public class McpAgentComponent implements AIComponent, ComponentPlugin {
                 politicaDeAcesso(host, tenantId),
                 ToolTrustPolicy.untrustedByDefault(),
                 ToolApprovalPolicy.none(),
-                iteracoes());
+                iteracoes(), flowPatch, LLMConfigPatch.fromMap(config));
 
         McpAgentRunner.Result result = host.runner().run(
                 tenantId, texto(config.get("systemPrompt")), mensagemDe(input), client, options);

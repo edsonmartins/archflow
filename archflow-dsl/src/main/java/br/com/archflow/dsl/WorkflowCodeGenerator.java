@@ -139,7 +139,8 @@ public final class WorkflowCodeGenerator {
         }
         out.append("import br.com.archflow.dsl.Nodes;\n")
                 .append("import br.com.archflow.dsl.WorkflowDocument;\n")
-                .append("import br.com.archflow.dsl.Workflows;\n\n")
+                .append("import br.com.archflow.dsl.Workflows;\n")
+                .append("import br.com.archflow.model.config.LLMConfigPatch;\n\n")
                 .append("/** Gerado a partir do workflow \"").append(escape(id)).append("\". */\n")
                 .append("public final class ").append(type).append(" {\n\n")
                 .append("    private ").append(type).append("() {\n    }\n\n")
@@ -148,6 +149,7 @@ public final class WorkflowCodeGenerator {
 
         appendMetadata(out, metadata);
         appendAllowedComponents(out, unrepresented);
+        appendLLMConfig(out);
         appendSteps(out, steps, unrepresented);
         appendEdges(out, steps, unrepresented);
 
@@ -180,9 +182,17 @@ public final class WorkflowCodeGenerator {
             out.append(")\n");
         }
         configuration.keySet().stream()
-                .filter(key -> !"allowedComponents".equals(key))
+                .filter(key -> !"allowedComponents".equals(key) && !"llmConfig".equals(key))
                 .forEach(key -> unrepresented.add(
                         "configuration." + key + " — a DSL só modela allowedComponents"));
+    }
+
+    private void appendLLMConfig(StringBuilder out) {
+        Map<String, Object> llm = asMap(asMap(document.get("configuration")).get("llmConfig"));
+        if (!llm.isEmpty()) {
+            out.append("                .llm(LLMConfigPatch.fromMap(")
+                    .append(literal(llm)).append("))\n");
+        }
     }
 
     private void appendSteps(StringBuilder out, List<Object> steps, List<String> unrepresented) {
@@ -218,7 +228,8 @@ public final class WorkflowCodeGenerator {
         } else if (shortcut != null) {
             expr.append(shortcut).append("(\"").append(escape(componentId)).append("\")");
         } else {
-            expr.append("component(\"").append(escape(componentId)).append("\")");
+            expr.append("component(\"").append(escape(type)).append("\", \"")
+                    .append(escape(componentId)).append("\")");
         }
 
         config.forEach((key, value) -> {

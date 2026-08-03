@@ -69,4 +69,19 @@ class LLMConfigPatchFromMapTest {
                 "additionalConfig", Map.of("baseUrl", "https://x/v1")));
         assertThat(p.additionalConfig()).containsEntry("baseUrl", "https://x/v1");
     }
+
+    @Test
+    @DisplayName("toMap preserva somente os overrides declarados")
+    void canonicalMap() {
+        LLMConfigPatch patch = LLMConfigPatch.builder()
+                .provider("openrouter").model("anthropic/claude-sonnet-4")
+                .maxTokens(2048).build();
+
+        assertThat(patch.toMap())
+                .containsEntry("provider", "openrouter")
+                .containsEntry("model", "anthropic/claude-sonnet-4")
+                .containsEntry("maxTokens", 2048)
+                .doesNotContainKeys("temperature", "timeout", "additionalConfig");
+        assertThat(LLMConfigPatch.fromMap(patch.toMap())).isEqualTo(patch);
+    }
 }

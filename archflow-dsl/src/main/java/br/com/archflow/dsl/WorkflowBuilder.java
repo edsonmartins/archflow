@@ -1,5 +1,7 @@
 package br.com.archflow.dsl;
 
+import br.com.archflow.model.config.LLMConfigPatch;
+
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -26,6 +28,7 @@ public final class WorkflowBuilder {
     private String author;
     private String category;
     private List<String> allowedComponents;
+    private LLMConfigPatch llmPatch = LLMConfigPatch.empty();
 
     /** Ordem de inserção preservada: é a ordem em que os passos aparecem no JSON. */
     private final Map<String, NodeSpec> steps = new LinkedHashMap<>();
@@ -79,6 +82,12 @@ public final class WorkflowBuilder {
      */
     public WorkflowBuilder allowing(String... componentIds) {
         this.allowedComponents = componentIds == null ? List.of() : List.of(componentIds);
+        return this;
+    }
+
+    /** Override de LLM do fluxo; passos podem sobrescrever campos individuais. */
+    public WorkflowBuilder llm(LLMConfigPatch patch) {
+        this.llmPatch = patch == null ? LLMConfigPatch.empty() : patch;
         return this;
     }
 
@@ -241,9 +250,15 @@ public final class WorkflowBuilder {
         Map<String, Object> document = new LinkedHashMap<>();
         document.put("id", id);
         document.put("metadata", metadata);
-        if (allowedComponents != null) {
-            document.put("configuration",
-                    new LinkedHashMap<>(Map.of("allowedComponents", List.copyOf(allowedComponents))));
+        if (allowedComponents != null || !llmPatch.isEmpty()) {
+            Map<String, Object> configuration = new LinkedHashMap<>();
+            if (allowedComponents != null) {
+                configuration.put("allowedComponents", List.copyOf(allowedComponents));
+            }
+            if (!llmPatch.isEmpty()) {
+                configuration.put("llmConfig", llmPatch.toMap());
+            }
+            document.put("configuration", configuration);
         }
         document.put("steps", renderedSteps);
         return document;

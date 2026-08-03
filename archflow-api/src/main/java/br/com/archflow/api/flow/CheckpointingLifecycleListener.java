@@ -3,11 +3,11 @@ package br.com.archflow.api.flow;
 import br.com.archflow.engine.core.StateManager;
 import br.com.archflow.engine.lifecycle.FlowLifecycleListener;
 import br.com.archflow.model.engine.ExecutionContext;
+import br.com.archflow.model.engine.ExecutionKeys;
 import br.com.archflow.model.flow.Flow;
 import br.com.archflow.model.flow.FlowState;
 import br.com.archflow.model.flow.FlowStep;
 
-import java.util.HashMap;
 import java.util.logging.Logger;
 
 /**
@@ -56,9 +56,10 @@ public final class CheckpointingLifecycleListener implements FlowLifecycleListen
             // A conversa vive no heap da ChatMemory; sem copiá-la para as
             // variáveis antes de persistir, o resume devolve o agente amnésico.
             FlowStateChatMemory.capture(context);
-            if (context.getVariables() != null) {
-                state.setVariables(new HashMap<>(context.getVariables()));
-            }
+            // Sem o filtro, infraestrutura injetada no contexto (o host de MCP, por exemplo)
+            // entra no estado durável e a serialização estoura — o fluxo roda e a retomada
+            // some, com um WARN no lugar de um erro.
+            state.setVariables(ExecutionKeys.persistiveis(context.getVariables()));
             stateManager.saveState(flow.getId(), state);
         } catch (Exception e) {
             logger.warning("Falha ao persistir checkpoint do fluxo " + flow.getId()

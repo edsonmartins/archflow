@@ -3,6 +3,7 @@ package br.com.archflow.api.flow;
 import br.com.archflow.model.flow.Flow;
 import br.com.archflow.model.flow.FlowMetadata;
 import br.com.archflow.model.flow.FlowStep;
+import br.com.archflow.model.config.LLMConfigPatch;
 import br.com.archflow.plugin.api.catalog.ComponentAccessPolicy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -56,13 +57,17 @@ public class DefaultWorkflowDeserializer implements WorkflowDeserializer {
                 List.of());
 
         ComponentAccessPolicy componentPolicy = componentPolicyOf(json);
+        Map<String, Object> configuration = asMap(json.get("configuration"));
+        LLMConfigPatch flowPatch = LLMConfigPatch.fromMap(
+                asMap(configuration.get("llmConfig")));
 
         List<FlowStep> steps = asList(json.get("steps")).stream()
                 .map(DefaultWorkflowDeserializer::asMap)
-                .map(node -> stepFactory.create(node, componentPolicy))
+                .map(node -> stepFactory.create(node, componentPolicy, flowPatch))
                 .toList();
 
-        return new SimpleFlow(str(json.get("id"), ""), metadata, steps, json);
+        return new SimpleFlow(str(json.get("id"), ""), metadata, steps, json,
+                new SimpleFlowConfiguration(flowPatch));
     }
 
     /**

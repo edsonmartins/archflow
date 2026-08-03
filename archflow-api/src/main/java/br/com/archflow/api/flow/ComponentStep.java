@@ -4,6 +4,7 @@ import br.com.archflow.agent.tool.ToolContext;
 import br.com.archflow.agent.tool.ToolInterceptorChain;
 import br.com.archflow.agent.tool.ToolResult;
 import br.com.archflow.model.ai.AIComponent;
+import br.com.archflow.model.config.LLMConfigPatch;
 import br.com.archflow.model.engine.ExecutionContext;
 import br.com.archflow.model.flow.FlowStep;
 import br.com.archflow.model.flow.StepConnection;
@@ -12,6 +13,7 @@ import br.com.archflow.model.flow.StepType;
 import br.com.archflow.plugin.api.catalog.ComponentCatalog;
 
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 /**
@@ -35,6 +37,7 @@ public final class ComponentStep implements FlowStep {
     private final ComponentCatalog catalog;
     private final ToolInterceptorChain interceptors;
     private final AIComponent resolved;
+    private final Map<String, Object> configuration;
 
     public ComponentStep(String id, StepType type, String componentId, String operation,
                          List<StepConnection> connections, ComponentCatalog catalog) {
@@ -57,6 +60,14 @@ public final class ComponentStep implements FlowStep {
     public ComponentStep(String id, StepType type, String componentId, String operation,
                          List<StepConnection> connections, ComponentCatalog catalog,
                          ToolInterceptorChain interceptors, AIComponent resolved) {
+        this(id, type, componentId, operation, connections, catalog, interceptors, resolved,
+                Map.of());
+    }
+
+    public ComponentStep(String id, StepType type, String componentId, String operation,
+                         List<StepConnection> connections, ComponentCatalog catalog,
+                         ToolInterceptorChain interceptors, AIComponent resolved,
+                         Map<String, Object> configuration) {
         this.id = id;
         this.type = type;
         this.componentId = componentId;
@@ -65,11 +76,15 @@ public final class ComponentStep implements FlowStep {
         this.catalog = catalog;
         this.interceptors = interceptors;
         this.resolved = resolved;
+        this.configuration = configuration == null ? Map.of() : Map.copyOf(configuration);
     }
 
     @Override public String getId() { return id; }
     @Override public StepType getType() { return type; }
     @Override public List<StepConnection> getConnections() { return connections; }
+    @Override public LLMConfigPatch getLLMPatch() { return LLMConfigPatch.fromMap(configuration); }
+
+    Map<String, Object> getConfiguration() { return configuration; }
 
     @Override
     public CompletableFuture<StepResult> execute(ExecutionContext context) {

@@ -784,8 +784,11 @@ public class DefaultFlowEngine implements FlowEngine {
      */
     private void syncVariablesToState(ExecutionContext context) {
         FlowState state = context.getState();
-        if (state != null && context.getVariables() != null) {
-            state.setVariables(new HashMap<>(context.getVariables()));
+        if (state != null) {
+            // Mesma regra do checkpoint por passo: infraestrutura da execução nao vai para o
+            // estado durável. Os dois caminhos filtram pelo mesmo lugar de propósito — foi um
+            // deles sozinho que deixou o bean passar.
+            state.setVariables(ExecutionKeys.persistiveis(context.getVariables()));
         }
     }
 

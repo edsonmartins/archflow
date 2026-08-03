@@ -8,6 +8,7 @@ import br.com.archflow.langchain4j.mcp.McpModel;
 import br.com.archflow.langchain4j.provider.LLMConfigResolver;
 import br.com.archflow.langchain4j.provider.LLMResolutionRequest;
 import br.com.archflow.model.config.ResolvedLLMConfig;
+import br.com.archflow.model.config.LLMConfigPatch;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.agent.tool.ToolSpecification;
@@ -207,7 +208,8 @@ public class McpAgentRunner {
                 java.util.UUID.randomUUID().toString(),
                 tenantId,
                 systemPrompt,
-                UntrustedContentFence.create());
+                UntrustedContentFence.create(),
+                options.flowPatch(), options.stepPatch());
         // A regra sobre a cerca vai na mensagem de SISTEMA — o lado confiável da
         // conversa. Anunciá-la de dentro do próprio conteúdo cercado seria pedir
         // ao dado que se autodeclare inofensivo.
@@ -274,7 +276,11 @@ public class McpAgentRunner {
      */
     private Result drive(Session session, McpClient client, Options options) {
         ChatModel model = llmConfigResolver.resolveModel(
-                LLMResolutionRequest.builder(platformDefault).tenantId(session.tenantId).build());
+                LLMResolutionRequest.builder(platformDefault)
+                        .tenantId(session.tenantId)
+                        .flowPatch(session.flowPatch)
+                        .stepPatch(session.stepPatch)
+                        .build());
 
         List<ToolSpecification> tools;
         // Schemas guardados por nome: o mesmo contrato que descrevemos ao modelo
@@ -495,23 +501,30 @@ public class McpAgentRunner {
         private final String tenantId;
         private final String systemPrompt;
         private final UntrustedContentFence fence;
+        private final LLMConfigPatch flowPatch;
+        private final LLMConfigPatch stepPatch;
         private final List<ChatMessage> messages = new ArrayList<>();
         private final List<ToolCall> toolCalls = new ArrayList<>();
         private int iteration;
         private String lastText = "";
 
-        Session(String runId, String tenantId, String systemPrompt, UntrustedContentFence fence) {
+        Session(String runId, String tenantId, String systemPrompt, UntrustedContentFence fence,
+                LLMConfigPatch flowPatch, LLMConfigPatch stepPatch) {
             this.runId = runId;
             this.tenantId = tenantId;
             this.systemPrompt = systemPrompt;
             this.fence = fence;
+            this.flowPatch = flowPatch == null ? LLMConfigPatch.empty() : flowPatch;
+            this.stepPatch = stepPatch == null ? LLMConfigPatch.empty() : stepPatch;
         }
 
         static Session from(McpAgentState state) {
             // O nonce vem do estado: gerar um novo faria o conteúdo cercado depois
             // não casar com a regra já persistida na mensagem de sistema.
             Session session = new Session(state.runId(), state.tenantId(), state.systemPrompt(),
-                    UntrustedContentFence.withNonce(state.fenceNonce()));
+                    UntrustedContentFence.withNonce(state.fenceNonce()),
+                    LLMConfigPatch.fromMap(state.flowLLMConfig()),
+                    LLMConfigPatch.fromMap(state.stepLLMConfig()));
             for (String encoded : state.messages()) {
                 ChatMessage message = ChatMessageCodec.fromJson(encoded);
                 if (message != null) {
@@ -531,23 +544,36 @@ public class McpAgentRunner {
             }
             return new McpAgentState(runId, tenantId, systemPrompt, fence.nonce(), encoded,
                     toolCalls.stream().map(McpAgentState.SerializedToolCall::from).toList(),
-                    iteration, lastText, pending, java.time.Instant.now());
+                    iteration, lastText, pending, flowPatch.toMap(), stepPatch.toMap(),
+                    java.time.Instant.now());
         }
     }
 
     /**
-     * As três políticas do laço mais o teto de iterações.
+     * As três políticas do laço, o teto de iterações e os patches de LLM.
      *
-     * <p>Agrupadas num record porque passar quatro parâmetros posicionais em duas
+     * <p>Agrupadas num record porque passar parâmetros posicionais em duas
      * assinaturas (run e resume) convida a trocar a ordem — e trocar
      * {@code access} por {@code approval} seria um erro silencioso e grave.
      */
     public record Options(ToolAccessPolicy access, ToolTrustPolicy trust,
-                          ToolApprovalPolicy approval, int maxIterations) {
+                          ToolApprovalPolicy approval, int maxIterations,
+                          LLMConfigPatch flowPatch, LLMConfigPatch stepPatch) {
+
+        public Options(ToolAccessPolicy access, ToolTrustPolicy trust,
+                       ToolApprovalPolicy approval, int maxIterations) {
+            this(access, trust, approval, maxIterations,
+                    LLMConfigPatch.empty(), LLMConfigPatch.empty());
+        }
 
         public Options(ToolAccessPolicy access) {
             this(access, ToolTrustPolicy.untrustedByDefault(), ToolApprovalPolicy.none(),
-                    DEFAULT_MAX_ITERATIONS);
+                    DEFAULT_MAX_ITERATIONS, LLMConfigPatch.empty(), LLMConfigPatch.empty());
+        }
+
+        public Options {
+            flowPatch = flowPatch == null ? LLMConfigPatch.empty() : flowPatch;
+            stepPatch = stepPatch == null ? LLMConfigPatch.empty() : stepPatch;
         }
 
         void validate() {

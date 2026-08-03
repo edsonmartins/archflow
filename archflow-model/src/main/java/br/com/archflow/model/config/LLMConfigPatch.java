@@ -1,6 +1,7 @@
 package br.com.archflow.model.config;
 
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalDouble;
@@ -109,6 +110,26 @@ public record LLMConfigPatch(
     public boolean isEmpty() {
         return provider.isEmpty() && model.isEmpty() && temperature.isEmpty()
                 && maxTokens.isEmpty() && timeout.isEmpty() && additionalConfig.isEmpty();
+    }
+
+    /**
+     * Forma canônica serializável do patch. Omite campos ausentes para que o
+     * documento continue representando herança, e não defaults acidentais.
+     * Credenciais de provider devem continuar no resolver do tenant; portanto,
+     * chamadores não devem colocá-las em {@code additionalConfig}.
+     */
+    public Map<String, Object> toMap() {
+        if (isEmpty()) {
+            return Map.of();
+        }
+        Map<String, Object> out = new LinkedHashMap<>();
+        provider.ifPresent(value -> out.put("provider", value));
+        model.ifPresent(value -> out.put("model", value));
+        if (temperature.isPresent()) out.put("temperature", temperature.getAsDouble());
+        if (maxTokens.isPresent()) out.put("maxTokens", maxTokens.getAsInt());
+        if (timeout.isPresent()) out.put("timeout", timeout.getAsLong());
+        if (!additionalConfig.isEmpty()) out.put("additionalConfig", additionalConfig);
+        return Map.copyOf(out);
     }
 
     /**
