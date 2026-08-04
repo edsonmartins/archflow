@@ -37,6 +37,7 @@ import java.util.Set;
  * server         (texto)       referência ao servidor MCP; ausente = padrão do host
  * maxIterations  (inteiro)     voltas do laço; ausente = padrão do runner
  * saidaDaTool    (lista)       de onde sai a resposta do passo — ver abaixo
+ * exigirSaidaDaTool (bool)     falha o passo se nenhuma delas for chamada
  * </pre>
  *
  * <p><b>{@code saidaDaTool} existe porque nem todo agente responde pelo texto.</b> Uns produzem um
@@ -145,16 +146,35 @@ public class McpAgentComponent implements AIComponent, ComponentPlugin {
         String tenantId = context.getTenantId();
         McpClient client = host.clientFor(tenantId, texto(config.get("server")));
 
+        Set<String> saidaDaTool = listaDeTexto(config.get("saidaDaTool"));
+        boolean exigir = booleano(config.get("exigirSaidaDaTool"));
+
         McpAgentRunner.Options options = new McpAgentRunner.Options(
                 politicaDeAcesso(host, tenantId),
                 ToolTrustPolicy.untrustedByDefault(),
                 ToolApprovalPolicy.none(),
-                iteracoes(), flowPatch, LLMConfigPatch.fromMap(config));
+                iteracoes(), flowPatch, LLMConfigPatch.fromMap(config),
+                exigir ? saidaDaTool : Set.of());
 
         McpAgentRunner.Result result = host.runner().run(
                 tenantId, texto(config.get("systemPrompt")), mensagemDe(input), client, options);
 
-        return saida(result, listaDeTexto(config.get("saidaDaTool")));
+        // EXIGIR É FALHAR, e não devolver texto no lugar do artefato.
+        //
+        // Com `exigirSaidaDaTool`, o runner já cobrou uma vez. Se ainda assim nenhuma das tools
+        // declaradas foi chamada, o passo NÃO produziu o que o fluxo diz que ele produz. Devolver o
+        // texto do modelo aqui empurraria a falha para quem chamou, que a receberia como "resposta
+        // em forma errada" — mais longe da causa e sem o rastro das tools.
+        //
+        // Falhar deixa o motor decidir (retentar, rotear, abortar) e mantém a execução visível.
+        if (exigir && !saidaDaTool.isEmpty() && !result.isSuspended()
+                && !chamouAlgumaDe(result, saidaDaTool)) {
+            throw new IllegalStateException(COMPONENT_ID + ": o passo exige saída por tool "
+                    + saidaDaTool + " e nenhuma foi chamada com sucesso. O modelo respondeu: \""
+                    + resumo(result.finalText()) + "\"");
+        }
+
+        return saida(result, saidaDaTool);
     }
 
     /**
@@ -227,6 +247,28 @@ public class McpAgentComponent implements AIComponent, ComponentPlugin {
             }
         }
         return result.finalText();
+    }
+
+    private boolean chamouAlgumaDe(McpAgentRunner.Result result, Set<String> tools) {
+        for (String t : tools) {
+            if (result.lastSuccessfulCall(t) != null) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** O texto do modelo entra na mensagem de erro, cortado: é a pista de por que ele não chamou. */
+    private static String resumo(String texto) {
+        if (texto == null || texto.isBlank()) {
+            return "(nada)";
+        }
+        String limpo = texto.strip().replaceAll("\\s+", " ");
+        return limpo.length() <= 160 ? limpo : limpo.substring(0, 160) + "…";
+    }
+
+    private static boolean booleano(Object v) {
+        return v instanceof Boolean b ? b : Boolean.parseBoolean(String.valueOf(v));
     }
 
     /** A entrada do passo: texto direto, ou a chave {@code input}/{@code message} de um mapa. */

@@ -29,6 +29,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -312,6 +313,27 @@ public class McpAgentRunner {
             }
 
             if (!ai.hasToolExecutionRequests()) {
+                // O MODELO CONCLUIU SEM PRODUZIR O ARTEFATO — cobra uma vez antes de desistir.
+                //
+                // Um nó pode declarar que a resposta do passo sai de uma tool específica
+                // (`requiredOutputTools`). Quando o modelo termina falando em vez de chamá-la, o
+                // trabalho todo — que pode ter sido muitas tool calls corretas — é jogado fora, e
+                // quem chamou recebe um texto onde esperava um artefato.
+                //
+                // Medido no VendaX em 03-04/08: de sete execuções de um agente de cotação, TRÊS
+                // terminaram assim. Ele resolvia os cinco produtos certos e não chamava a tool que
+                // monta a cotação. O prompt já mandava, em maiúsculas, e não bastava.
+                //
+                // Cobrar é barato: o histórico já está montado, e um turno a mais custa muito
+                // menos que a execução inteira perdida. UMA vez só — se o modelo insistir, quem
+                // decide o que fazer é o chamador, que conhece o significado da tool.
+                if (deveCobrarSaida(session, options)) {
+                    session.cobrouSaida = true;
+                    log.info("Modelo concluiu sem chamar nenhuma tool de saída {} — cobrando uma vez",
+                            options.requiredOutputTools());
+                    session.messages.add(UserMessage.from(cobrancaDeSaida(options.requiredOutputTools())));
+                    continue;
+                }
                 return Result.finished(session.lastText, session.toolCalls);
             }
 
@@ -339,6 +361,32 @@ public class McpAgentRunner {
         log.warn("Loop de tool-calling atingiu maxIterations={} sem resposta final",
                 options.maxIterations());
         return Result.finished(session.lastText, session.toolCalls);
+    }
+
+    /** Exige saída por tool, ainda não cobrou, e nenhuma das exigidas foi chamada com sucesso. */
+    private static boolean deveCobrarSaida(Session session, Options options) {
+        if (options.requiredOutputTools().isEmpty() || session.cobrouSaida) {
+            return false;
+        }
+        for (ToolCall c : session.toolCalls) {
+            if (!c.isError() && options.requiredOutputTools().contains(c.name())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * A cobrança vai como mensagem de USUÁRIO, não de sistema.
+     *
+     * <p>O system prompt já foi entregue no início e o modelo o desobedeceu; repeti-lo no mesmo
+     * canal seria dizer mais alto a mesma coisa. Como turno de usuário, ela entra no fim da
+     * conversa, referindo-se ao que acabou de acontecer — que é onde a instrução tem mais peso.</p>
+     */
+    private static String cobrancaDeSaida(Set<String> exigidas) {
+        return "Você terminou sem chamar nenhuma destas tools: " + String.join(", ", exigidas)
+                + ". A resposta deste passo sai do resultado de uma delas — texto não serve. "
+                + "Chame a apropriada agora, com o que você já apurou.";
     }
 
     /**
@@ -506,6 +554,8 @@ public class McpAgentRunner {
         private final List<ChatMessage> messages = new ArrayList<>();
         private final List<ToolCall> toolCalls = new ArrayList<>();
         private int iteration;
+        /** Só se cobra a saída uma vez — insistir viraria laço com o modelo. */
+        private boolean cobrouSaida;
         private String lastText = "";
 
         Session(String runId, String tenantId, String systemPrompt, UntrustedContentFence fence,
@@ -558,22 +608,32 @@ public class McpAgentRunner {
      */
     public record Options(ToolAccessPolicy access, ToolTrustPolicy trust,
                           ToolApprovalPolicy approval, int maxIterations,
-                          LLMConfigPatch flowPatch, LLMConfigPatch stepPatch) {
+                          LLMConfigPatch flowPatch, LLMConfigPatch stepPatch,
+                          Set<String> requiredOutputTools) {
 
         public Options(ToolAccessPolicy access, ToolTrustPolicy trust,
                        ToolApprovalPolicy approval, int maxIterations) {
             this(access, trust, approval, maxIterations,
-                    LLMConfigPatch.empty(), LLMConfigPatch.empty());
+                    LLMConfigPatch.empty(), LLMConfigPatch.empty(), Set.of());
+        }
+
+        public Options(ToolAccessPolicy access, ToolTrustPolicy trust,
+                       ToolApprovalPolicy approval, int maxIterations,
+                       LLMConfigPatch flowPatch, LLMConfigPatch stepPatch) {
+            this(access, trust, approval, maxIterations, flowPatch, stepPatch, Set.of());
         }
 
         public Options(ToolAccessPolicy access) {
             this(access, ToolTrustPolicy.untrustedByDefault(), ToolApprovalPolicy.none(),
-                    DEFAULT_MAX_ITERATIONS, LLMConfigPatch.empty(), LLMConfigPatch.empty());
+                    DEFAULT_MAX_ITERATIONS, LLMConfigPatch.empty(), LLMConfigPatch.empty(),
+                    Set.of());
         }
 
         public Options {
             flowPatch = flowPatch == null ? LLMConfigPatch.empty() : flowPatch;
             stepPatch = stepPatch == null ? LLMConfigPatch.empty() : stepPatch;
+            requiredOutputTools = requiredOutputTools == null
+                    ? Set.of() : Set.copyOf(requiredOutputTools);
         }
 
         void validate() {
