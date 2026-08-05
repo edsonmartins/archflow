@@ -38,6 +38,12 @@ public record VendaxResult(
      * mensagem produzem resultados distintos, e o mesmo agente reprocessado produz o mesmo.
      */
     private static String idempotencyKeyOf(VendaxInvoke invoke) {
+        // A do Core vence, quando ela vem: só ele sabe que cinco mensagens de uma rajada são o
+        // MESMO pedido. Aqui se enxerga um invoke isolado, e derivar da mensagem transformaria
+        // cada item pedido numa cotação separada.
+        if (invoke.idempotencyKey() != null && !invoke.idempotencyKey().isBlank()) {
+            return invoke.idempotencyKey();
+        }
         String source = invoke.sourceMessageId() != null ? invoke.sourceMessageId()
                 : invoke.traceId() != null ? invoke.traceId() : invoke.conversationId();
         return invoke.agent() + ":" + source;
