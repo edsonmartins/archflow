@@ -107,7 +107,7 @@ public class AgentFlowRunner {
         }
 
         if (resultado.getStatus() == ExecutionStatus.FAILED) {
-            throw new IllegalStateException("Fluxo falhou: " + errosDe(resultado));
+            throw new IllegalStateException("Fluxo falhou: " + errosDe(resultado, contexto));
         }
 
         Object saida = resultado.getOutput().orElse(null);
@@ -149,13 +149,74 @@ public class AgentFlowRunner {
         return TIMEOUT_PADRAO_MS;
     }
 
-    private String errosDe(FlowResult resultado) {
-        if (resultado.getErrors() == null || resultado.getErrors().isEmpty()) {
-            return "sem erro registrado";
+    /**
+     * O motivo da falha, procurado onde ele de fato está.
+     *
+     * <p>Medido em 04/08: um passo falhou com {@code IllegalStateException} carregando o
+     * diagnóstico exato — qual tool de saída faltou e o que o modelo respondeu — e o Core recebeu
+     * <b>"Fluxo falhou: sem erro registrado"</b>. A informação existia e era descartada em dois
+     * saltos.</p>
+     *
+     * <p>A causa é que os erros ficam em dois lugares diferentes. O {@code FlowResult} carrega os
+     * erros do FLUXO; o erro de um PASSO é gravado por {@code handleFailure} no contexto, sob
+     * {@code step.<id>.error}. Quem só olha o primeiro não encontra o segundo — e o segundo é
+     * justamente o que diz por que falhou.</p>
+     *
+     * <p>Sem isto, toda investigação começa por SSH no log do runtime. Uma falha que não se explica
+     * ao chamador é meia falha: acontece, e ninguém sabe do quê.</p>
+     */
+    private String errosDe(FlowResult resultado, ExecutionContext contexto) {
+        if (resultado.getErrors() != null && !resultado.getErrors().isEmpty()) {
+            return resultado.getErrors().stream()
+                    .map(ExecutionError::message)
+                    .filter(m -> m != null && !m.isBlank())
+                    .collect(Collectors.joining("; "));
         }
-        return resultado.getErrors().stream()
-                .map(ExecutionError::message)
-                .collect(Collectors.joining("; "));
+        String doPasso = erroDePasso(contexto);
+        return doPasso != null ? doPasso : "sem erro registrado";
+    }
+
+    /**
+     * O erro que {@code handleFailure} deixou no contexto, sob {@code step.<id>.error}.
+     *
+     * <p>Varre as variáveis porque o id do passo não é conhecido aqui: o fluxo é um documento do
+     * cliente, e amarrar este runtime a um nome de passo específico o tornaria menos genérico do
+     * que ele é.</p>
+     */
+    private String erroDePasso(ExecutionContext contexto) {
+        if (contexto == null || contexto.getVariables() == null) {
+            return null;
+        }
+        for (var e : contexto.getVariables().entrySet()) {
+            if (!e.getKey().startsWith("step.") || !e.getKey().endsWith(".error")) {
+                continue;
+            }
+            String msg = mensagemDe(e.getValue());
+            if (msg != null && !msg.isBlank()) {
+                return msg;
+            }
+        }
+        return null;
+    }
+
+    /** O valor é a lista de {@code StepError}; interessa a primeira mensagem não vazia. */
+    private String mensagemDe(Object valor) {
+        if (valor instanceof java.util.Collection<?> c) {
+            for (Object o : c) {
+                if (o instanceof br.com.archflow.model.flow.StepError se
+                        && se.message() != null && !se.message().isBlank()) {
+                    return se.message();
+                }
+                // Depois de um checkpoint o valor volta desserializado, não mais tipado.
+                if (o != null && !(o instanceof br.com.archflow.model.flow.StepError)) {
+                    String t = String.valueOf(o);
+                    if (!t.isBlank()) {
+                        return t;
+                    }
+                }
+            }
+        }
+        return null;
     }
 
     private static String causaDe(Exception e) {
