@@ -209,8 +209,12 @@ public final class HttpMcpClient implements McpClient {
         Map<String, Object> params = new LinkedHashMap<>();
         params.put("name", arguments.name());
         params.put("arguments", arguments.arguments());
+        // CAPTURA AQUI, na thread do chamador. O corpo abaixo roda numa thread virtual do
+        // ioExecutor, onde o ThreadLocal do dispatcher não existe — ler lá dentro compilaria e
+        // devolveria nulo SEMPRE, sem erro nenhum, e a correlação simplesmente não apareceria.
+        CorrelacaoMcp.Dados correlacao = CorrelacaoMcp.atual();
         return CompletableFuture.supplyAsync(() -> {
-            JsonNode result = rpc("tools/call", params);
+            JsonNode result = rpc("tools/call", params, correlacao);
             List<McpModel.ToolContent> content = new ArrayList<>();
             for (JsonNode c : result.path("content")) {
                 content.add(new McpModel.ToolContent(
@@ -228,13 +232,18 @@ public final class HttpMcpClient implements McpClient {
 
     /** Executa um método JSON-RPC e devolve o nó {@code result}, ou lança em {@code error}. */
     private JsonNode rpc(String method, Map<String, Object> params) {
+        return rpc(method, params, new CorrelacaoMcp.Dados(null, null));
+    }
+
+    /** Idem, carregando a correlação da execução — só {@code tools/call} a tem. */
+    private JsonNode rpc(String method, Map<String, Object> params, CorrelacaoMcp.Dados correlacao) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("jsonrpc", "2.0");
         body.put("id", UUID.randomUUID().toString());
         body.put("method", method);
         body.put("params", params);
 
-        JsonNode response = postRaw(body);
+        JsonNode response = postRaw(body, true, correlacao);
         JsonNode error = response.path("error");
         if (!error.isMissingNode() && !error.isNull()) {
             throw new McpRpcException(
@@ -245,7 +254,7 @@ public final class HttpMcpClient implements McpClient {
     }
 
     private JsonNode postRaw(Map<String, Object> body) {
-        return postRaw(body, true);
+        return postRaw(body, true, new CorrelacaoMcp.Dados(null, null));
     }
 
     /**
@@ -255,6 +264,11 @@ public final class HttpMcpClient implements McpClient {
      *                 até alguém reconfigurá-lo à mão.
      */
     private JsonNode postRaw(Map<String, Object> body, boolean mayRetry) {
+        return postRaw(body, mayRetry, new CorrelacaoMcp.Dados(null, null));
+    }
+
+    private JsonNode postRaw(Map<String, Object> body, boolean mayRetry,
+                             CorrelacaoMcp.Dados correlacao) {
         try {
             String json = mapper.writeValueAsString(body);
             HttpRequest.Builder req = HttpRequest.newBuilder(endpoint)
@@ -271,6 +285,16 @@ public final class HttpMcpClient implements McpClient {
             if (tenantId != null && !tenantId.isBlank()) {
                 req.header(TENANT_HEADER, tenantId);
             }
+            // A correlação da execução. Ausente em initialize/tools-list e em qualquer chamada
+            // fora de um invoke — o server trata a ausência como o caso normal.
+            if (correlacao != null && correlacao.janelaChave() != null
+                    && !correlacao.janelaChave().isBlank()) {
+                req.header(CorrelacaoMcp.HEADER_JANELA, correlacao.janelaChave());
+            }
+            if (correlacao != null && correlacao.traceId() != null
+                    && !correlacao.traceId().isBlank()) {
+                req.header(CorrelacaoMcp.HEADER_TRACE, correlacao.traceId());
+            }
             String session = sessionId;
             if (session != null && !session.isBlank()) {
                 req.header(SESSION_HEADER, session);
@@ -286,7 +310,7 @@ public final class HttpMcpClient implements McpClient {
                 log.info("Sessão MCP {} expirada no server; reinicializando", session);
                 sessionId = null;
                 reinitialize();
-                return postRaw(body, false);
+                return postRaw(body, false, correlacao);
             }
             if (res.statusCode() / 100 != 2) {
                 throw new McpRpcException(res.statusCode(),
