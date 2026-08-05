@@ -86,6 +86,16 @@ public class VendaxAgentDispatcher {
     void runAndReport(VendaxInvoke invoke) {
         long startedAt = metrics != null ? metrics.started() : 0;
         String agent = invoke.agent() == null ? "" : invoke.agent().toUpperCase();
+        // A CORRELAÇÃO ACOMPANHA A EXECUÇÃO INTEIRA, e sai por header em cada chamada de tool.
+        //
+        // Sem ela o Core grava o evento da cotação sem saber a que conversa pertence — medido em
+        // 05/08, quando a fronteira MCP carregava só o tenant. A chave da janela já contém a
+        // conversa, então um header basta.
+        //
+        // Definida AQUI e não no client porque o client é cacheado POR TENANT e compartilhado
+        // entre execuções: pôr correlação nele misturaria conversas.
+        br.com.archflow.langchain4j.mcp.client.CorrelacaoMcp.definir(
+                invoke.idempotencyKey(), invoke.traceId());
         try {
             // O caminho genérico vem ANTES do switch, e é o que o deve substituir: quando a
             // definição traz um fluxo, este runtime não precisa saber que agente é. O switch
@@ -122,6 +132,11 @@ public class VendaxAgentDispatcher {
             log.error("Agente {} falhou (conv={}): {}",
                     invoke.agent(), invoke.conversationId(), e.getMessage(), e);
             resultSender.send(VendaxResult.error(invoke, causeOf(e)));
+        } finally {
+            // A thread é reusada entre invokes. Sem limpar, o PRÓXIMO agente a rodar aqui mandaria
+            // a correlação deste — e o evento da cotação sairia amarrado à conversa errada. Um
+            // evento errado com confiança é pior que um evento sem correlação nenhuma.
+            br.com.archflow.langchain4j.mcp.client.CorrelacaoMcp.limpar();
         }
     }
 

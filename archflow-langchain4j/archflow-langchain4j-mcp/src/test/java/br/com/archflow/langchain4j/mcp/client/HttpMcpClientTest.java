@@ -36,7 +36,11 @@ class HttpMcpClientTest {
         server.createContext("/mcp", exchange -> {
             receivedHeaders.add(Map.of(
                     "Authorization", String.valueOf(exchange.getRequestHeaders().getFirst("Authorization")),
-                    "X-TENANT-ID", String.valueOf(exchange.getRequestHeaders().getFirst("X-TENANT-ID"))));
+                    "X-TENANT-ID", String.valueOf(exchange.getRequestHeaders().getFirst("X-TENANT-ID")),
+                    CorrelacaoMcp.HEADER_JANELA,
+                    String.valueOf(exchange.getRequestHeaders().getFirst(CorrelacaoMcp.HEADER_JANELA)),
+                    CorrelacaoMcp.HEADER_TRACE,
+                    String.valueOf(exchange.getRequestHeaders().getFirst(CorrelacaoMcp.HEADER_TRACE))));
             byte[] reqBytes = exchange.getRequestBody().readAllBytes();
             JsonNode req = mapper.readTree(reqBytes);
             String method = req.path("method").asText();
@@ -131,6 +135,52 @@ class HttpMcpClientTest {
 
         assertThatThrownBy(() -> client.listTools().get())
                 .hasRootCauseInstanceOf(java.net.http.HttpTimeoutException.class);
+        client.close();
+    }
+
+    /**
+     * A correlação sai no header da chamada de tool — e o teste existe por causa da armadilha.
+     *
+     * <p>{@code callTool} executa numa <b>thread virtual do ioExecutor</b>. Ler o ThreadLocal lá
+     * dentro compilaria e devolveria nulo SEMPRE, sem erro nenhum: o header simplesmente não
+     * apareceria, e ninguém notaria até alguém procurar a correlação num evento e não achar. Por
+     * isso o valor é capturado na thread do chamador — e é isso que este teste verifica, indo até
+     * o servidor de verdade.</p>
+     */
+    @Test
+    @DisplayName("a correlação da execução vai nos headers da chamada de tool")
+    void correlacaoVaiNoHeader() throws Exception {
+        HttpMcpClient client = new HttpMcpClient(baseUrl, "t", "acme");
+        client.connect();
+        receivedHeaders.clear();
+
+        CorrelacaoMcp.definir("QP:conversa-abc:42", "trace-xyz");
+        try {
+            client.callToolSync("resolver_sku", Map.of());
+        } finally {
+            CorrelacaoMcp.limpar();
+        }
+
+        assertThat(receivedHeaders).isNotEmpty();
+        Map<String, String> ultima = receivedHeaders.get(receivedHeaders.size() - 1);
+        assertThat(ultima.get(CorrelacaoMcp.HEADER_JANELA)).isEqualTo("QP:conversa-abc:42");
+        assertThat(ultima.get(CorrelacaoMcp.HEADER_TRACE)).isEqualTo("trace-xyz");
+        client.close();
+    }
+
+    /** Sem correlação definida, nenhum header é inventado — ausência é o caso normal. */
+    @Test
+    @DisplayName("sem correlação, o header não é enviado")
+    void semCorrelacaoNaoMandaHeader() throws Exception {
+        HttpMcpClient client = new HttpMcpClient(baseUrl, "t", "acme");
+        client.connect();
+        CorrelacaoMcp.limpar();
+        receivedHeaders.clear();
+
+        client.callToolSync("resolver_sku", Map.of());
+
+        Map<String, String> ultima = receivedHeaders.get(receivedHeaders.size() - 1);
+        assertThat(ultima.get(CorrelacaoMcp.HEADER_JANELA)).isEqualTo("null");
         client.close();
     }
 }
