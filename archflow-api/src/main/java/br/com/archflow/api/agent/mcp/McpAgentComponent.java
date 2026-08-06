@@ -5,6 +5,7 @@ import br.com.archflow.model.ai.AIComponent;
 import br.com.archflow.model.ai.metadata.ComponentMetadata;
 import br.com.archflow.model.ai.type.ComponentType;
 import br.com.archflow.model.config.LLMConfigPatch;
+import br.com.archflow.langchain4j.mcp.client.CorrelacaoMcp;
 import br.com.archflow.model.engine.ExecutionContext;
 import br.com.archflow.plugin.api.spi.ComponentPlugin;
 
@@ -156,8 +157,24 @@ public class McpAgentComponent implements AIComponent, ComponentPlugin {
                 iteracoes(), flowPatch, LLMConfigPatch.fromMap(config),
                 exigir ? saidaDaTool : Set.of());
 
-        McpAgentRunner.Result result = host.runner().run(
-                tenantId, texto(config.get("systemPrompt")), mensagemDe(input), client, options);
+        // A CORRELAÇÃO VOLTA AO ThreadLocal AQUI — nesta thread, que é a que chama as tools.
+        //
+        // Ela veio no contexto porque o contexto atravessa threads e o ThreadLocal não: medido em
+        // 06/08, o dispatcher roda em [vendax-agent-N] e este passo em [virtual-N]. A primeira
+        // versão definia no dispatcher, e o header nunca era enviado — sem erro, sem log, sem
+        // nada. Uma correlação que falha em silêncio é pior que não ter correlação, porque quem
+        // for procurá-la vai concluir que o evento não tinha origem.
+        CorrelacaoMcp.definir(textoDoContexto(context, CorrelacaoMcp.CTX_JANELA),
+                textoDoContexto(context, CorrelacaoMcp.CTX_TRACE));
+        McpAgentRunner.Result result;
+        try {
+            result = host.runner().run(
+                    tenantId, texto(config.get("systemPrompt")), mensagemDe(input), client, options);
+        } finally {
+            // A thread é do pool do motor de fluxo e será reusada por outro passo, de outra
+            // execução, possivelmente de outro tenant.
+            CorrelacaoMcp.limpar();
+        }
 
         // EXIGIR É FALHAR, e não devolver texto no lugar do artefato.
         //
@@ -175,6 +192,12 @@ public class McpAgentComponent implements AIComponent, ComponentPlugin {
         }
 
         return saida(result, saidaDaTool);
+    }
+
+    /** Um valor de texto do contexto, ou {@code null} — ausência é o caso normal. */
+    private static String textoDoContexto(ExecutionContext context, String chave) {
+        Object v = context.get(chave).orElse(null);
+        return v == null || String.valueOf(v).isBlank() ? null : String.valueOf(v);
     }
 
     /**

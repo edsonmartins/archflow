@@ -92,6 +92,13 @@ public class AgentFlowRunner {
                 invoke.tenantId(), "vendax", execucaoId,
                 MessageWindowChatMemory.builder().maxMessages(20).build());
         contexto.set(ENTRADA, entrada == null ? "" : entrada);
+        // A CORRELAÇÃO ATRAVESSA POR AQUI, e não por ThreadLocal: o passo executa noutra thread
+        // (medido: dispatcher em [vendax-agent-N], passo em [virtual-N]). Quem a repõe do outro
+        // lado é o McpAgentComponent, já na thread que chama as tools.
+        contexto.set(br.com.archflow.langchain4j.mcp.client.CorrelacaoMcp.CTX_JANELA,
+                invoke.idempotencyKey());
+        contexto.set(br.com.archflow.langchain4j.mcp.client.CorrelacaoMcp.CTX_TRACE,
+                invoke.traceId());
         McpAgentHost.inject(contexto, mcpAgentHost);
 
         FlowResult resultado;
