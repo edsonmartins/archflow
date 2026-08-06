@@ -1,6 +1,7 @@
 package br.com.archflow.api.agent.mcp;
 
 import br.com.archflow.langchain4j.mcp.McpClient;
+import br.com.archflow.langchain4j.mcp.client.CorrelacaoMcp;
 import br.com.archflow.model.ai.type.ComponentType;
 import br.com.archflow.model.engine.ExecutionContext;
 import br.com.archflow.model.config.LLMConfigPatch;
@@ -266,5 +267,65 @@ class McpAgentComponentTest {
         assertThat(host.options.get().flowPatch().model()).contains("flow-model");
         assertThat(host.options.get().stepPatch().model()).contains("step-model");
         assertThat(host.options.get().stepPatch().temperature().getAsDouble()).isEqualTo(0.2);
+    }
+
+    /**
+     * A correlação chega ao runner — e é o teste que faltava na primeira versão.
+     *
+     * <p>Ela era definida no dispatcher, que roda em outra thread: medido em produção,
+     * {@code [vendax-agent-4]} contra {@code [virtual-129]}. O ThreadLocal não atravessava, o
+     * header nunca era enviado, e <b>nada falhava</b> — nenhum erro, nenhum log. Só a correlação
+     * não aparecia, e quem fosse procurá-la concluiria que o evento não tinha origem.</p>
+     *
+     * <p>Por isso ela viaja no contexto (que atravessa threads) e é reposta no ThreadLocal AQUI,
+     * na thread que chama as tools. E por isso este teste verifica o valor <b>durante</b> o
+     * {@code run}, não depois.</p>
+     */
+    @Test
+    @DisplayName("a correlação do contexto chega ao runner, na thread dele")
+    void correlacaoChegaAoRunner() {
+        java.util.concurrent.atomic.AtomicReference<CorrelacaoMcp.Dados> durante =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        McpAgentHost espiao = new McpAgentHost() {
+            @Override
+            public McpAgentRunner runner() {
+                return new McpAgentRunner(null, null) {
+                    @Override
+                    public Result run(String tenantId, String systemPrompt, String userMessage,
+                                      McpClient client, Options opts) {
+                        durante.set(CorrelacaoMcp.atual());
+                        return concluido();
+                    }
+                };
+            }
+
+            @Override
+            public McpClient clientFor(String tenantId, String ref) {
+                return mock(McpClient.class);
+            }
+
+            @Override
+            public Set<String> toolCeiling(String tenantId) {
+                return Set.of("resolver_sku");
+            }
+        };
+
+        ExecutionContext ctx = mock(ExecutionContext.class);
+        when(ctx.getTenantId()).thenReturn(TENANT);
+        when(ctx.get(McpAgentHost.CONTEXT_KEY)).thenReturn(Optional.of(espiao));
+        when(ctx.get(CorrelacaoMcp.CTX_JANELA)).thenReturn(Optional.of("QP:conversa-abc:42"));
+        when(ctx.get(CorrelacaoMcp.CTX_TRACE)).thenReturn(Optional.of("trace-xyz"));
+
+        componente(Map.of("systemPrompt", "você é um agente",
+                "tools", List.of("resolver_sku"))).execute("execute", "oi", ctx);
+
+        assertThat(durante.get()).isNotNull();
+        assertThat(durante.get().janelaChave())
+                .as("sem isto o header não sai, e nada falha para avisar")
+                .isEqualTo("QP:conversa-abc:42");
+        assertThat(durante.get().traceId()).isEqualTo("trace-xyz");
+        assertThat(CorrelacaoMcp.atual().janelaChave())
+                .as("a thread é do pool do motor e será reusada por outro passo, de outro tenant")
+                .isNull();
     }
 }

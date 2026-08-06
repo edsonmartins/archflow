@@ -33,6 +33,20 @@ public final class CorrelacaoMcp {
     /** A execução específica, para cruzar o log do ArchFlow com o evento do server. */
     public static final String HEADER_TRACE = "X-Vendax-Trace";
 
+    /**
+     * As chaves pelas quais a correlação atravessa a fronteira de THREAD.
+     *
+     * <p>Medido em 06/08, no log de produção: o dispatcher roda em {@code [vendax-agent-4]} e a
+     * execução do passo em {@code [virtual-129]}. Definir o ThreadLocal no dispatcher, como a
+     * primeira versão fazia, não alcançava o {@code callTool} — o header nunca era enviado, e
+     * <b>nada falhava</b>: a correlação simplesmente não aparecia.</p>
+     *
+     * <p>Por isso ela viaja no contexto do fluxo, que atravessa threads, e é reposta no ThreadLocal
+     * pelo componente que executa o agente — já na thread certa.</p>
+     */
+    public static final String CTX_JANELA = "vendax.correlacao.janela";
+    public static final String CTX_TRACE = "vendax.correlacao.trace";
+
     private static final ThreadLocal<Dados> ATUAL = new ThreadLocal<>();
 
     public record Dados(String janelaChave, String traceId) {
@@ -45,8 +59,21 @@ public final class CorrelacaoMcp {
     private CorrelacaoMcp() {
     }
 
+    /**
+     * Define a correlação da thread atual. <b>Sem correlação, LIMPA</b> — não deixa o valor
+     * anterior.
+     *
+     * <p>Retornar sem tocar no ThreadLocal quando não há o que definir deixaria a execução seguinte
+     * herdando a correlação da anterior em qualquer caminho que esquecesse o {@code finally}. A
+     * ausência é um valor, e escrevê-la é mais barato que confiar em disciplina.</p>
+     */
     public static void definir(String janelaChave, String traceId) {
-        ATUAL.set(new Dados(janelaChave, traceId));
+        Dados d = new Dados(janelaChave, traceId);
+        if (d.vazio()) {
+            ATUAL.remove();
+            return;
+        }
+        ATUAL.set(d);
     }
 
     /** Nunca nulo: ausência é o caso normal (initialize, tools/list, testes). */
