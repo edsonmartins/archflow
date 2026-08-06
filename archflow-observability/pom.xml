@@ -7,7 +7,7 @@
     <parent>
         <groupId>br.com.archflow</groupId>
         <artifactId>archflow</artifactId>
-        <version>1.2.0</version>
+        <version>1.3.0</version>
     </parent>
 
     <artifactId>archflow-observability</artifactId>
