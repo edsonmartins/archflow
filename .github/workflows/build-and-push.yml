@@ -78,44 +78,18 @@ jobs:
           # A VPS é amd64; buildar arm64 aqui só dobraria o tempo do build Maven.
           platforms: linux/amd64
           tags: ${{ steps.tags.outputs.tags }}
+          # A VPS faz CD por PULL (watch-deploy.sh no repo archflow-devops): puxa
+          # :latest e lê esta label para derivar a tag imutável sha-<7> a aplicar.
+          # Sem a label o watcher não sabe qual tag fixar e não implanta.
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
           cache-from: type=gha,scope=archflow
           cache-to: type=gha,scope=archflow,mode=max
           provenance: false
 
-  # CD por webhook: dispara o receiver adnanh/webhook na VPS
-  # (deploy.archflow.com.br), que puxa a tag publicada e recria o serviço.
-  # Requer o secret DEPLOY_TOKEN (mesmo valor de /opt/archflow-devops/.env).
-  deploy:
-    needs: build
-    # Só a main vai a produção. Um workflow_dispatch a partir de outra branch
-    # publica a imagem no GHCR mas não implanta.
-    if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    environment:
-      name: production
-      url: https://archflow.com.br
-    steps:
-      - name: Trigger CD webhook
-        run: |
-          code=$(curl -sS -o /tmp/resp.txt -w "%{http_code}" \
-            -X POST "https://deploy.archflow.com.br/hooks/deploy" \
-            -H "X-Deploy-Token: ${{ secrets.DEPLOY_TOKEN }}" \
-            -H "Content-Type: application/json" \
-            -d "{\"env\":\"production\",\"component\":\"archflow\",\"tag\":\"${{ needs.build.outputs.tag }}\"}")
-          echo "webhook HTTP $code"; cat /tmp/resp.txt || true
-          # 200 = deploy despachado; 403 = token inválido; outros = falha.
-          [ "$code" = "200" ] || { echo "::error::CD webhook falhou (HTTP $code)"; exit 1; }
-
-      - name: Smoke test (aguarda o rollout)
-        run: |
-          # O webhook responde 200 imediatamente e roda o deploy em background;
-          # o boot da JVM + Spring leva ~1min, daí a janela generosa.
-          for i in $(seq 1 20); do
-            if curl -fsS https://archflow.com.br/actuator/health >/dev/null 2>&1; then
-              echo "archflow healthy"; exit 0
-            fi
-            echo "aguardando archflow ($i/20)…"; sleep 15
-          done
-          echo "::error::archflow não respondeu ao health após o deploy"
-          echo "Verifique na VPS: tail -50 /tmp/archflow-deploy.log"
-          exit 1
+  # Não há job de deploy aqui de propósito. O CD é por PULL: a VPS roda um timer
+  # (archflow-watch.timer) que verifica o GHCR e aplica a imagem nova. Trocamos o
+  # push (webhook em deploy.archflow.com.br) por pull porque a rota dos runners do
+  # GitHub (Azure) até a VPS (Hostinger) na porta 443 se mostrou instável — o
+  # webhook dava timeout de conexão. Com pull, nada precisa alcançar a VPS de
+  # fora. Ver archflow-devops: scripts/watch-deploy.sh e docs/runbook.md.
