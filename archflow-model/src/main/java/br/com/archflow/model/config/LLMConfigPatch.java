@@ -26,7 +26,8 @@ public record LLMConfigPatch(
         OptionalDouble temperature,
         OptionalInt maxTokens,
         OptionalLong timeout,
-        Map<String, Object> additionalConfig
+        Map<String, Object> additionalConfig,
+        Optional<Map<String, Object>> reasoning
 ) {
     public LLMConfigPatch {
         provider = provider == null ? Optional.empty() : provider;
@@ -35,11 +36,25 @@ public record LLMConfigPatch(
         maxTokens = maxTokens == null ? OptionalInt.empty() : maxTokens;
         timeout = timeout == null ? OptionalLong.empty() : timeout;
         additionalConfig = additionalConfig == null ? Map.of() : Map.copyOf(additionalConfig);
+        reasoning = reasoning == null ? Optional.empty() : reasoning.map(Map::copyOf);
+    }
+
+    /**
+     * Compat: patch sem {@code reasoning} — a forma que existia antes.
+     *
+     * <p>Um record de configuração que ganha campo sem construtor de
+     * compatibilidade quebra todo chamador que não tem nada a ver com a mudança,
+     * e este é construído em muitos lugares.
+     */
+    public LLMConfigPatch(Optional<String> provider, Optional<String> model,
+                          OptionalDouble temperature, OptionalInt maxTokens,
+                          OptionalLong timeout, Map<String, Object> additionalConfig) {
+        this(provider, model, temperature, maxTokens, timeout, additionalConfig, Optional.empty());
     }
 
     private static final LLMConfigPatch EMPTY = new LLMConfigPatch(
             Optional.empty(), Optional.empty(), OptionalDouble.empty(),
-            OptionalInt.empty(), OptionalLong.empty(), Map.of());
+            OptionalInt.empty(), OptionalLong.empty(), Map.of(), Optional.empty());
 
     /** Patch vazio — não sobrescreve nada (herança transparente). */
     public static LLMConfigPatch empty() {
@@ -80,7 +95,87 @@ public record LLMConfigPatch(
             Map<String, Object> am = (Map<String, Object>) m;
             b.additionalConfig(am);
         }
+        Map<String, Object> reasoning = lerReasoning(config.get("reasoning"));
+        if (reasoning != null) {
+            b.reasoning(reasoning);
+        }
         return b.build();
+    }
+
+    /**
+     * Lê e valida o {@code reasoning} do nó.
+     *
+     * <p><b>Falha em vez de ignorar.</b> As demais chaves deste parser são
+     * tolerantes — um {@code maxTokens} ilegível simplesmente não entra no patch,
+     * e o default vale. Para {@code reasoning} isso seria péssimo: quem o declara
+     * está tentando cortar tempo e teto de tokens, e um valor mal escrito
+     * silenciosamente ignorado devolveria exatamente o comportamento que se quis
+     * evitar — com o operador convencido de que resolveu.
+     *
+     * <p><b>A forma não é interpretada.</b> O OpenRouter aceita
+     * {@code {"effort": "..."} }, {@code {"max_tokens": N} } e
+     * {@code {"exclude": true} }, e a documentação é ambígua sobre qual deles o
+     * Gemini 2.5 honra. Validar a semântica aqui seria fixar um palpite: o objeto
+     * declarado viaja como veio, e o provedor é a autoridade sobre o conteúdo.
+     * O que se valida é a <i>estrutura</i> — que é objeto, que não é vazio, e que
+     * as chaves conhecidas têm o tipo certo.
+     *
+     * <p>Uma armadilha que vale registrar: {@code exclude: true} apenas esconde o
+     * raciocínio da resposta, <b>não o evita</b>. Não economiza tempo nem token.
+     * É a opção que mais parece resolver e a que menos resolve.
+     *
+     * @return o mapa validado, ou {@code null} quando a chave não foi declarada
+     * @throws IllegalArgumentException quando declarada e malformada
+     */
+    private static Map<String, Object> lerReasoning(Object valor) {
+        if (valor == null) {
+            return null;
+        }
+        if (!(valor instanceof Map<?, ?> mapa)) {
+            throw new IllegalArgumentException(
+                    "reasoning deve ser um objeto (ex.: {\"effort\": \"none\"}), e veio "
+                            + valor.getClass().getSimpleName() + ": " + valor);
+        }
+        if (mapa.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "reasoning veio vazio — declare {\"effort\": ...}, {\"max_tokens\": N} ou "
+                            + "{\"exclude\": true}, ou remova a chave");
+        }
+        Map<String, Object> resultado = new java.util.LinkedHashMap<>();
+        for (Map.Entry<?, ?> e : mapa.entrySet()) {
+            String chave = String.valueOf(e.getKey());
+            Object v = e.getValue();
+            switch (chave) {
+                case "effort" -> {
+                    if (!(v instanceof String s) || s.isBlank()) {
+                        throw new IllegalArgumentException(
+                                "reasoning.effort deve ser texto não vazio (ex.: \"none\", "
+                                        + "\"minimal\", \"low\"), e veio: " + v);
+                    }
+                    resultado.put(chave, s.trim());
+                }
+                case "max_tokens" -> {
+                    Integer n = asInt(v);
+                    if (n == null || n < 0) {
+                        throw new IllegalArgumentException(
+                                "reasoning.max_tokens deve ser inteiro não negativo, e veio: " + v);
+                    }
+                    resultado.put(chave, n);
+                }
+                case "exclude" -> {
+                    if (!(v instanceof Boolean b)) {
+                        throw new IllegalArgumentException(
+                                "reasoning.exclude deve ser booleano, e veio: " + v);
+                    }
+                    resultado.put(chave, b);
+                }
+                // Chave desconhecida passa. O provedor evolui mais rápido que este
+                // parser, e recusar o que ele talvez já aceite trocaria um erro
+                // silencioso por um bloqueio arbitrário.
+                default -> resultado.put(chave, v);
+            }
+        }
+        return resultado;
     }
 
     private static Double asDouble(Object v) {
@@ -109,7 +204,8 @@ public record LLMConfigPatch(
 
     public boolean isEmpty() {
         return provider.isEmpty() && model.isEmpty() && temperature.isEmpty()
-                && maxTokens.isEmpty() && timeout.isEmpty() && additionalConfig.isEmpty();
+                && maxTokens.isEmpty() && timeout.isEmpty() && additionalConfig.isEmpty()
+                && reasoning.isEmpty();
     }
 
     /**
@@ -129,6 +225,7 @@ public record LLMConfigPatch(
         if (maxTokens.isPresent()) out.put("maxTokens", maxTokens.getAsInt());
         if (timeout.isPresent()) out.put("timeout", timeout.getAsLong());
         if (!additionalConfig.isEmpty()) out.put("additionalConfig", additionalConfig);
+        reasoning.ifPresent(value -> out.put("reasoning", value));
         return Map.copyOf(out);
     }
 
@@ -146,7 +243,12 @@ public record LLMConfigPatch(
                 temperature.orElse(parent.temperature()),
                 maxTokens.orElse(parent.maxTokens()),
                 timeout.orElse(parent.timeout()),
-                merged
+                merged,
+                // Substitui, e nao mescla: as formas do reasoning sao ALTERNATIVAS
+                // ({effort} vs {max_tokens} vs {exclude}). Mesclar produziria um
+                // objeto com duas intencoes ao mesmo tempo, e quem declarou a mais
+                // especifica nao saberia que herdou a outra junto.
+                reasoning.or(parent::reasoning)
         );
     }
 
@@ -161,6 +263,13 @@ public record LLMConfigPatch(
         private OptionalInt maxTokens = OptionalInt.empty();
         private OptionalLong timeout = OptionalLong.empty();
         private final Map<String, Object> additionalConfig = new HashMap<>();
+        private Optional<Map<String, Object>> reasoning = Optional.empty();
+
+        /** Objeto {@code reasoning} enviado ao provedor; a forma nao e interpretada. */
+        public Builder reasoning(Map<String, Object> reasoning) {
+            this.reasoning = Optional.ofNullable(reasoning);
+            return this;
+        }
 
         public Builder provider(String provider) {
             this.provider = Optional.ofNullable(provider);
@@ -200,7 +309,8 @@ public record LLMConfigPatch(
         }
 
         public LLMConfigPatch build() {
-            return new LLMConfigPatch(provider, model, temperature, maxTokens, timeout, additionalConfig);
+            return new LLMConfigPatch(provider, model, temperature, maxTokens, timeout,
+                    additionalConfig, reasoning);
         }
     }
 }

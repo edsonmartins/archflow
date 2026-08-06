@@ -383,6 +383,28 @@ public class LLMProviderHub {
 
     // ========== Provider-Specific Model Creation ==========
 
+
+    /**
+     * Injeta o {@code reasoning} no corpo da requisicao.
+     *
+     * <p>Via {@code customParameters} do adapter OpenAI, que e o unico caminho
+     * para um campo de topo que o langchain4j nao modela. O objeto vai como foi
+     * declarado no no — a forma ({@code effort} / {@code max_tokens} /
+     * {@code exclude}) e decidida pelo provedor, nao aqui.
+     *
+     * <p>Sem {@code reasoning} declarado o builder NAO e tocado: o corpo enviado
+     * fica byte a byte o que era antes desta funcionalidade existir. Um agente
+     * que nao pediu controle de raciocinio nao pode pagar por ele.
+     */
+    private static void aplicarReasoning(
+            dev.langchain4j.model.openai.OpenAiChatModel.OpenAiChatModelBuilder builder,
+            LLMProviderConfig config) {
+        Map<String, Object> reasoning = config.getReasoning();
+        if (reasoning != null && !reasoning.isEmpty()) {
+            builder.customParameters(Map.of("reasoning", reasoning));
+        }
+    }
+
     private ChatModel createOpenAiModel(LLMProviderConfig config) {
         var builder = OpenAiChatModel.builder()
                 .apiKey(config.getApiKey())
@@ -399,6 +421,7 @@ public class LLMProviderHub {
         if (config.getBaseUrl() != null) {
             builder.baseUrl(config.getBaseUrl());
         }
+        aplicarReasoning(builder, config);
 
         return builder.build();
     }
@@ -421,6 +444,7 @@ public class LLMProviderHub {
         if (config.getMaxTokens() != null) {
             builder.maxTokens(config.getMaxTokens());
         }
+        aplicarReasoning(builder, config);
 
         return builder.build();
     }

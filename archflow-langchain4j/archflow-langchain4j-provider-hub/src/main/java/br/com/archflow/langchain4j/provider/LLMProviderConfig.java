@@ -33,6 +33,7 @@ public class LLMProviderConfig {
     private final Integer maxTokens;
     private final Integer timeoutSeconds;
     private final Map<String, Object> extraParams;
+    private final Map<String, Object> reasoning;
 
     private LLMProviderConfig(Builder builder) {
         this.provider = builder.provider;
@@ -44,6 +45,7 @@ public class LLMProviderConfig {
         this.maxTokens = builder.maxTokens;
         this.timeoutSeconds = builder.timeoutSeconds;
         this.extraParams = Map.copyOf(builder.extraParams);
+        this.reasoning = builder.reasoning == null ? null : Map.copyOf(builder.reasoning);
     }
 
     /**
@@ -99,6 +101,18 @@ public class LLMProviderConfig {
 
     public Map<String, Object> getExtraParams() {
         return extraParams;
+    }
+
+    /**
+     * Objeto {@code reasoning} a enviar no corpo da requisicao, ou {@code null}.
+     *
+     * <p>Separado de {@code extraParams} de proposito: extraParams nunca chegou
+     * ao builder do modelo — fica guardado e e lido so por quem o consulta por
+     * chave. Misturar aqui daria a impressao de que qualquer chave de
+     * extraParams vai para o corpo, e nao vai.
+     */
+    public Map<String, Object> getReasoning() {
+        return reasoning;
     }
 
     /**
@@ -207,6 +221,7 @@ public class LLMProviderConfig {
         private Integer maxTokens;
         private Integer timeoutSeconds;
         private Map<String, Object> extraParams = new HashMap<>();
+        private Map<String, Object> reasoning;
 
         private Builder() {
         }
@@ -221,6 +236,7 @@ public class LLMProviderConfig {
             this.maxTokens = existing.maxTokens;
             this.timeoutSeconds = existing.timeoutSeconds;
             this.extraParams = new HashMap<>(existing.extraParams);
+            this.reasoning = existing.reasoning;
         }
 
         public Builder provider(LLMProvider provider) {
@@ -275,6 +291,12 @@ public class LLMProviderConfig {
 
         public Builder extraParam(String key, Object value) {
             this.extraParams.put(key, value);
+            return this;
+        }
+
+        /** Objeto {@code reasoning} enviado no corpo; {@code null} = nenhum. */
+        public Builder reasoning(Map<String, Object> reasoning) {
+            this.reasoning = reasoning;
             return this;
         }
 

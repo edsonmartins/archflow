@@ -185,6 +185,10 @@ public class DefaultLLMConfigResolver implements LLMConfigResolver {
         if (resolved.maxTokens() > 0) {
             builder.maxTokens(resolved.maxTokens());
         }
+        // O reasoning e o UNICO campo que atravessa daqui ate o corpo da
+        // requisicao. O extraParams nao atravessa — ele fica no LLMProviderConfig
+        // e so e lido por quem o consulta por chave, nunca pelo builder do modelo.
+        resolved.reasoning().ifPresent(builder::reasoning);
         if (resolved.timeout() > 0) {
             // timeout efetivo é em SEGUNDos (convenção do UI/gestor/integrall).
             builder.timeout(Duration.ofSeconds(resolved.timeout()));
