@@ -99,6 +99,12 @@ public class AgentFlowRunner {
                 invoke.idempotencyKey());
         contexto.set(br.com.archflow.langchain4j.mcp.client.CorrelacaoMcp.CTX_TRACE,
                 invoke.traceId());
+        // O TIER TAMBÉM ATRAVESSA POR AQUI. Ele vinha no invoke desde sempre — decidido pelo
+        // Playbook do Core — e era DESCARTADO: nada no archflow chamava invoke.tier(), e o
+        // resolvedor de LLM sequer conhecia o conceito. A política de roteamento não tinha
+        // efeito, e o contorno foi declarar o modelo direto no nó do fluxo, o que obriga quem
+        // decide política a conhecer nome de modelo de provedor.
+        contexto.set(br.com.archflow.api.agent.mcp.McpAgentComponent.CTX_TIER, invoke.tier());
         McpAgentHost.inject(contexto, mcpAgentHost);
 
         FlowResult resultado;

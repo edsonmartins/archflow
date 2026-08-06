@@ -1,5 +1,6 @@
 package br.com.archflow.langchain4j.provider;
 
+import br.com.archflow.model.config.LLMConfigPatch;
 import br.com.archflow.model.config.ResolvedLLMConfig;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
@@ -25,25 +26,99 @@ public class DefaultLLMConfigResolver implements LLMConfigResolver {
 
     private final LLMProviderHub hub;
     private final TenantKeyResolver tenantKeyResolver;
+    private final TierModelResolver tierModelResolver;
 
     public DefaultLLMConfigResolver(LLMProviderHub hub) {
         this(hub, TenantKeyResolver.NOOP);
     }
 
     public DefaultLLMConfigResolver(LLMProviderHub hub, TenantKeyResolver tenantKeyResolver) {
+        this(hub, tenantKeyResolver, TierModelResolver.NOOP);
+    }
+
+    public DefaultLLMConfigResolver(LLMProviderHub hub, TenantKeyResolver tenantKeyResolver,
+                                    TierModelResolver tierModelResolver) {
         this.hub = hub;
         this.tenantKeyResolver = tenantKeyResolver != null ? tenantKeyResolver : TenantKeyResolver.NOOP;
+        this.tierModelResolver = tierModelResolver != null ? tierModelResolver : TierModelResolver.NOOP;
     }
 
     @Override
     public ResolvedLLMConfig resolve(LLMResolutionRequest request) {
-        // Precedência: platform < tenant < flow < agent < step (último aplicado vence).
+        // Precedência: platform < TIER < tenant < flow < agent < step (último aplicado vence).
+        //
+        // O tier entra logo acima do default da plataforma, e não no topo, porque
+        // ele é a política GENÉRICA ("esta tarefa é difícil") e os patches são
+        // decisões específicas sobre aquele fluxo, agente ou passo. Um modelo
+        // declarado num nó foi escolhido por alguém que sabia o que estava
+        // fazendo; deixá-lo perder para um tier surpreenderia — e romperia a
+        // precedência documentada no LLMResolutionRequest.
         ResolvedLLMConfig acc = request.platformDefault();
+        String modeloDoTier = aplicarTier(request, acc);
+        if (modeloDoTier != null) {
+            // Como patch, e não construindo outra config: reusa a mesma máquina de
+            // precedência do resto da cadeia, então o tier se comporta como
+            // qualquer outro nível em vez de ser um caso especial.
+            acc = LLMConfigPatch.builder().model(modeloDoTier).build().applyOver(acc);
+        }
         acc = request.tenantDefault().applyOver(acc);
         acc = request.flowPatch().applyOver(acc);
         acc = request.agentPatch().applyOver(acc);
         acc = request.stepPatch().applyOver(acc);
+        avisarSeTierNaoFoiHonrado(request, modeloDoTier, acc);
         return acc;
+    }
+
+    /** O modelo mapeado para o tier pedido, ou {@code null} quando não há tier ou mapa. */
+    private String aplicarTier(LLMResolutionRequest request, ResolvedLLMConfig platformDefault) {
+        if (request.tier() == null) {
+            return null;
+        }
+        try {
+            return tierModelResolver.resolveModel(request.tenantId(), request.tier()).orElse(null);
+        } catch (RuntimeException e) {
+            // Um resolvedor de produto que estoura não pode derrubar a execução:
+            // o pior caso aqui é cair no comportamento anterior, que funcionava.
+            log.warn("[LLM-TIER] resolvedor de tier falhou para tenant={} tier={}: {} "
+                    + "— seguindo com a cadeia de patches", request.tenantId(), request.tier(),
+                    e.toString());
+            return null;
+        }
+    }
+
+    /**
+     * O tier foi pedido e o modelo final não é o dele — diga isso.
+     *
+     * <p>Este log é metade da correção, não um extra. O {@code tier} do invoke
+     * era <b>descartado sem deixar rastro</b>: o Playbook decidia
+     * {@code STRONG}, o resolvedor entregava o modelo do tenant, e nada no
+     * sistema registrava a discordância. Ficou assim dois dias, e o contorno foi
+     * declarar o modelo direto no nó do fluxo — o que faz a política virar
+     * decoração e obriga quem decide política a conhecer nome de modelo de
+     * provedor.
+     *
+     * <p>Duas causas distintas, mensagens distintas: não existe mapa para o
+     * tier, ou existe e algo mais específico venceu. A primeira se resolve
+     * cadastrando o mapa; a segunda é legítima e só precisa ser visível.
+     */
+    private void avisarSeTierNaoFoiHonrado(LLMResolutionRequest request, String modeloDoTier,
+                                           ResolvedLLMConfig resolvido) {
+        if (request.tier() == null) {
+            return;
+        }
+        if (modeloDoTier == null) {
+            log.warn("[LLM-TIER] tier={} pedido para tenant={} e NAO honrado: nenhum mapa "
+                            + "tier->modelo para este tenant. Modelo em uso: {} (da cadeia de patches). "
+                            + "Cadastre o mapa num TierModelResolver para a politica ter efeito.",
+                    request.tier(), request.tenantId(), resolvido.model());
+            return;
+        }
+        if (!modeloDoTier.equals(resolvido.model())) {
+            log.warn("[LLM-TIER] tier={} mapeia para {} no tenant={}, mas o modelo final e {} "
+                            + "— um patch mais especifico (tenant/flow/agent/step) venceu. "
+                            + "Se a intencao era decidir por tier, remova o modelo declarado.",
+                    request.tier(), modeloDoTier, request.tenantId(), resolvido.model());
+        }
     }
 
     @Override

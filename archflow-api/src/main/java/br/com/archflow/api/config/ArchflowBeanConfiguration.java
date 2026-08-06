@@ -1076,16 +1076,45 @@ public class ArchflowBeanConfiguration {
     }
 
     /**
+     * Mapa {@code tier → modelo}, configurável por propriedade.
+     *
+     * <p>{@code archflow.llm.tier.STRONG=anthropic/claude-sonnet-4},
+     * {@code archflow.llm.tier.LIGHT=google/gemini-2.5-flash-lite}. Sem
+     * propriedade nenhuma o mapa fica vazio e o comportamento é o anterior — a
+     * cadeia de patches decide o modelo.
+     *
+     * <p>Deliberadamente <b>não</b> é por tenant: este bean é o default de
+     * deployment. Um produto multi-tenant sobrepõe o bean com uma implementação
+     * sobre o próprio storage, que é para isso que a interface tem
+     * {@code tenantId}.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public br.com.archflow.langchain4j.provider.TierModelResolver tierModelResolver(
+            org.springframework.core.env.Environment env) {
+        java.util.Map<String, String> mapa = new java.util.HashMap<>();
+        for (String tier : java.util.List.of("LIGHT", "STRONG")) {
+            String modelo = env.getProperty("archflow.llm.tier." + tier);
+            if (modelo != null && !modelo.isBlank()) {
+                mapa.put(tier, modelo.trim());
+            }
+        }
+        return br.com.archflow.langchain4j.provider.TierModelResolver.fixed(mapa);
+    }
+
+    /**
      * Resolver de config de LLM com herança step {@literal >} agent {@literal >}
-     * flow {@literal >} tenant {@literal >} platform e chave por tenant.
+     * flow {@literal >} tenant {@literal >} tier {@literal >} platform, chave por
+     * tenant e tradução de tier em modelo.
      */
     @Bean
     @ConditionalOnMissingBean
     public br.com.archflow.langchain4j.provider.LLMConfigResolver llmConfigResolver(
-            br.com.archflow.langchain4j.provider.TenantKeyResolver tenantKeyResolver) {
+            br.com.archflow.langchain4j.provider.TenantKeyResolver tenantKeyResolver,
+            br.com.archflow.langchain4j.provider.TierModelResolver tierModelResolver) {
         return new br.com.archflow.langchain4j.provider.DefaultLLMConfigResolver(
                 br.com.archflow.langchain4j.provider.LLMProviderHub.getInstance(),
-                tenantKeyResolver);
+                tenantKeyResolver, tierModelResolver);
     }
 
     // =========================================================================
