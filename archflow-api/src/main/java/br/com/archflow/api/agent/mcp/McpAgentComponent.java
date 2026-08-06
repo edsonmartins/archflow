@@ -58,6 +58,20 @@ public class McpAgentComponent implements AIComponent, ComponentPlugin {
     public static final String COMPONENT_ID = "mcp-agent";
     private static final String VERSION = "1.0.0";
 
+    /**
+     * Tier de LLM pedido por quem acionou, no {@link ExecutionContext}.
+     *
+     * <p>Viaja pelo contexto — e não por ThreadLocal — pelo mesmo motivo da
+     * correlação: o passo executa noutra thread. Quem escreve é quem aciona (no
+     * VendaX, o {@code AgentFlowRunner}, a partir do {@code invoke.tier()}); quem
+     * lê é este componente, que o repassa ao runner e daí ao resolvedor de LLM.
+     *
+     * <p>Chave neutra de propósito: tier é roteamento de LLM, não conceito de um
+     * produto. Se amanhã outro chamador quiser decidir por tier, ele escreve a
+     * mesma chave e nada mais muda.
+     */
+    public static final String CTX_TIER = "archflow.llm.tier";
+
     /** Entrada e saída do passo, para quem encadeia. */
     public static final String SAIDA_TEXTO = "text";
     public static final String SAIDA_TOOLS = "toolCalls";
@@ -155,7 +169,8 @@ public class McpAgentComponent implements AIComponent, ComponentPlugin {
                 ToolTrustPolicy.untrustedByDefault(),
                 ToolApprovalPolicy.none(),
                 iteracoes(), flowPatch, LLMConfigPatch.fromMap(config),
-                exigir ? saidaDaTool : Set.of());
+                exigir ? saidaDaTool : Set.of(),
+                textoDoContexto(context, CTX_TIER));
 
         // A CORRELAÇÃO VOLTA AO ThreadLocal AQUI — nesta thread, que é a que chama as tools.
         //

@@ -276,12 +276,16 @@ public class McpAgentRunner {
      * divergiria com o tempo.
      */
     private Result drive(Session session, McpClient client, Options options) {
-        ChatModel model = llmConfigResolver.resolveModel(
-                LLMResolutionRequest.builder(platformDefault)
-                        .tenantId(session.tenantId)
-                        .flowPatch(session.flowPatch)
-                        .stepPatch(session.stepPatch)
-                        .build());
+        LLMResolutionRequest llmRequest = LLMResolutionRequest.builder(platformDefault)
+                .tenantId(session.tenantId)
+                .flowPatch(session.flowPatch)
+                .stepPatch(session.stepPatch)
+                // O tier chega de quem acionou (no VendaX, decidido pelo Playbook).
+                // Era descartado antes de chegar aqui — o resolvedor sequer o
+                // conhecia — e a política de roteamento não tinha efeito nenhum.
+                .tier(options.tier())
+                .build();
+        ChatModel model = llmConfigResolver.resolveModel(llmRequest);
 
         List<ToolSpecification> tools;
         // Schemas guardados por nome: o mesmo contrato que descrevemos ao modelo
@@ -313,6 +317,28 @@ public class McpAgentRunner {
             }
 
             if (!ai.hasToolExecutionRequests()) {
+                // O PROVEDOR ENGASGOU NA CHAMADA — tenta de novo, uma vez, antes de qualquer
+                // outra coisa.
+                //
+                // Vem antes da cobrança de saída porque as duas situações são diferentes: aqui o
+                // modelo TENTOU chamar a tool e o provedor recusou a serialização, devolvendo a
+                // pseudo-chamada como texto. Cobrar seria repreender o modelo por algo que ele
+                // fez certo.
+                //
+                // Medido no OpenRouter em 06/08, duas ocorrências com
+                // finish_reason_raw=MALFORMED_FUNCTION_CALL, chegando a este laço como
+                // `call:montar_cotacao{clienteRef:<ctrl46>64336<ctrl46…` — `<ctrl46>` é escape de
+                // ponto, a chamada saiu corrompida na origem. É falha TRANSITÓRIA: a mesma
+                // entrada funciona na tentativa seguinte, e hoje ela derruba a execução inteira.
+                if (deveRepetirPorChamadaMalformada(session, ai.text(), response)) {
+                    session.repetiuMalformada = true;
+                    log.warn("Provedor devolveu chamada de tool malformada (finishReason={}); "
+                                    + "repetindo UMA vez. Texto recebido: \"{}\"",
+                            response.finishReason(), resumo(ai.text()));
+                    session.messages.add(UserMessage.from(AVISO_CHAMADA_MALFORMADA));
+                    continue;
+                }
+
                 // O MODELO CONCLUIU SEM PRODUZIR O ARTEFATO — cobra uma vez antes de desistir.
                 //
                 // Um nó pode declarar que a resposta do passo sai de uma tool específica
@@ -334,6 +360,7 @@ public class McpAgentRunner {
                     session.messages.add(UserMessage.from(cobrancaDeSaida(options.requiredOutputTools())));
                     continue;
                 }
+                diagnosticarConclusaoSemArtefato(response, llmRequest, options, ai.text());
                 return Result.finished(session.lastText, session.toolCalls);
             }
 
@@ -361,6 +388,62 @@ public class McpAgentRunner {
         log.warn("Loop de tool-calling atingiu maxIterations={} sem resposta final",
                 options.maxIterations());
         return Result.finished(session.lastText, session.toolCalls);
+    }
+
+    /**
+     * Assinatura de uma chamada de tool que o provedor não conseguiu serializar.
+     *
+     * <p>O modelo emite o nome da tool e a abertura do objeto de argumentos como
+     * <b>texto</b>: {@code call:montar_cotacao{clienteRef:…}. Nenhuma resposta
+     * legítima de um agente começa assim — e, se começar, o custo é um turno a
+     * mais, contra uma execução inteira perdida.
+     */
+    private static final java.util.regex.Pattern PSEUDO_CHAMADA =
+            java.util.regex.Pattern.compile("^\\s*call:\\w+\\s*\\{");
+
+    /**
+     * Texto do modelo cortado para caber num log.
+     *
+     * <p>Duplica o helper homônimo do {@code McpAgentComponent} de propósito:
+     * são camadas diferentes, e expor um do outro só para não repetir seis
+     * linhas acoplaria o runner ao componente que o hospeda.
+     */
+    private static String resumo(String texto) {
+        if (texto == null || texto.isBlank()) {
+            return "(nada)";
+        }
+        String limpo = texto.strip().replaceAll("\\s+", " ");
+        return limpo.length() <= 160 ? limpo : limpo.substring(0, 160) + "…";
+    }
+
+    /** O que se diz ao modelo para ele reemitir a chamada. */
+    private static final String AVISO_CHAMADA_MALFORMADA =
+            "A chamada de tool anterior não chegou: o provedor não conseguiu serializá-la e ela "
+                    + "veio como texto. Emita a mesma chamada de novo, como tool call de verdade, "
+                    + "com os argumentos em JSON simples — sem caracteres de escape no meio dos "
+                    + "valores.";
+
+    /**
+     * O provedor devolveu pseudo-chamada e ainda não repetimos.
+     *
+     * <p><b>Sobre o {@code finishReason}.</b> A ordem de preferência pedida era
+     * usá-lo primeiro e a heurística de texto só como plano B. Não dá: o enum do
+     * langchain4j 1.18 tem apenas {@code STOP}, {@code LENGTH},
+     * {@code TOOL_EXECUTION}, {@code CONTENT_FILTER} e {@code OTHER} — o
+     * {@code MALFORMED_FUNCTION_CALL} do provedor colapsa em {@code OTHER} (ou
+     * vem nulo), e {@code OTHER} não distingue este caso de vários outros.
+     * Disparar por ele repetiria turnos legítimos.
+     *
+     * <p>Então quem decide é o texto, e o {@code finishReason} vai para o log —
+     * onde serve para confirmar o diagnóstico sem custar falso positivo. Se uma
+     * versão futura do langchain4j expuser o motivo cru, é aqui que ele entra.
+     */
+    private static boolean deveRepetirPorChamadaMalformada(Session session, String texto,
+                                                           ChatResponse response) {
+        if (session.repetiuMalformada || texto == null || texto.isBlank()) {
+            return false;
+        }
+        return PSEUDO_CHAMADA.matcher(texto).find();
     }
 
     /** Exige saída por tool, ainda não cobrou, e nenhuma das exigidas foi chamada com sucesso. */
@@ -556,6 +639,15 @@ public class McpAgentRunner {
         private int iteration;
         /** Só se cobra a saída uma vez — insistir viraria laço com o modelo. */
         private boolean cobrouSaida;
+        /**
+         * Só se repete uma vez por chamada malformada.
+         *
+         * <p>Como o {@code cobrouSaida}, não é persistido no {@link McpAgentState}:
+         * uma retomada depois de aprovação humana é outro trecho de conversa, e
+         * herdar "já repeti" de antes da suspensão negaria a repetição a um trecho
+         * que ainda não a usou.
+         */
+        private boolean repetiuMalformada;
         private String lastText = "";
 
         Session(String runId, String tenantId, String systemPrompt, UntrustedContentFence fence,
@@ -609,24 +701,33 @@ public class McpAgentRunner {
     public record Options(ToolAccessPolicy access, ToolTrustPolicy trust,
                           ToolApprovalPolicy approval, int maxIterations,
                           LLMConfigPatch flowPatch, LLMConfigPatch stepPatch,
-                          Set<String> requiredOutputTools) {
+                          Set<String> requiredOutputTools, String tier) {
 
         public Options(ToolAccessPolicy access, ToolTrustPolicy trust,
                        ToolApprovalPolicy approval, int maxIterations) {
             this(access, trust, approval, maxIterations,
-                    LLMConfigPatch.empty(), LLMConfigPatch.empty(), Set.of());
+                    LLMConfigPatch.empty(), LLMConfigPatch.empty(), Set.of(), null);
         }
 
         public Options(ToolAccessPolicy access, ToolTrustPolicy trust,
                        ToolApprovalPolicy approval, int maxIterations,
                        LLMConfigPatch flowPatch, LLMConfigPatch stepPatch) {
-            this(access, trust, approval, maxIterations, flowPatch, stepPatch, Set.of());
+            this(access, trust, approval, maxIterations, flowPatch, stepPatch, Set.of(), null);
+        }
+
+        /** Compat: sem tier — a esmagadora maioria dos chamadores não o tem. */
+        public Options(ToolAccessPolicy access, ToolTrustPolicy trust,
+                       ToolApprovalPolicy approval, int maxIterations,
+                       LLMConfigPatch flowPatch, LLMConfigPatch stepPatch,
+                       Set<String> requiredOutputTools) {
+            this(access, trust, approval, maxIterations, flowPatch, stepPatch,
+                    requiredOutputTools, null);
         }
 
         public Options(ToolAccessPolicy access) {
             this(access, ToolTrustPolicy.untrustedByDefault(), ToolApprovalPolicy.none(),
                     DEFAULT_MAX_ITERATIONS, LLMConfigPatch.empty(), LLMConfigPatch.empty(),
-                    Set.of());
+                    Set.of(), null);
         }
 
         public Options {
@@ -634,6 +735,7 @@ public class McpAgentRunner {
             stepPatch = stepPatch == null ? LLMConfigPatch.empty() : stepPatch;
             requiredOutputTools = requiredOutputTools == null
                     ? Set.of() : Set.copyOf(requiredOutputTools);
+            tier = tier == null || tier.isBlank() ? null : tier.trim();
         }
 
         void validate() {
@@ -692,6 +794,132 @@ public class McpAgentRunner {
                     (System.nanoTime() - startedAtNanos) / 1_000_000, success);
         } catch (RuntimeException e) {
             log.debug("Falha ao registrar métrica da tool {}: {}", toolName, e.getMessage());
+        }
+    }
+
+    /**
+     * O modelo concluiu sem o artefato — registre <b>o que o provedor disse</b>.
+     *
+     * <p>Esta é a correção que teria economizado três dias. O runner reportava
+     * apenas {@code o modelo respondeu: "(nada)"} e nada sobre o porquê. Com
+     * isso, quatro causas distintas ficam idênticas no log:
+     *
+     * <ul>
+     *   <li>teto de tokens estourado antes de o modelo emitir a chamada;</li>
+     *   <li>filtro de conteúdo do provedor;</li>
+     *   <li>erro do provedor;</li>
+     *   <li>o modelo realmente concluindo sem nada a dizer.</li>
+     * </ul>
+     *
+     * <p>A causa real, medida no CSV do OpenRouter em 06/08, era a primeira e é
+     * banal: {@code MAX_TOKENS} com {@code completion≈4038} de um teto de 4096,
+     * dos quais {@code raciocínio≈3930}. O raciocínio consumia o orçamento e o
+     * modelo era cortado <i>antes</i> de emitir a chamada. Três de 98 chamadas —
+     * a ~7 por execução, exatamente os ~20% de execuções que falhavam.
+     *
+     * <p>Investigar isso custou hipóteses erradas sobre tamanho de contexto,
+     * volume de candidatos e escolha de modelo. Uma linha de log responde o que
+     * dez rodadas de bancada só sugerem.
+     *
+     * <p>Sai em WARN mesmo quando o modelo simplesmente não tinha o que dizer:
+     * um agente que conclui sem produzir artefato é anomalia em qualquer leitura,
+     * e rebaixar para INFO devolveria o problema ao lugar de onde ele veio.
+     */
+    private void diagnosticarConclusaoSemArtefato(ChatResponse response,
+                                                  LLMResolutionRequest llmRequest,
+                                                  Options options, String texto) {
+        boolean textoVazio = texto == null || texto.isBlank();
+        if (!textoVazio && options.requiredOutputTools().isEmpty()) {
+            // Concluiu falando, e ninguém exigiu artefato: é o caminho normal.
+            return;
+        }
+        // A config é resolvida AQUI, e não no início do laço, por dois motivos.
+        // O caminho quente não deve pagar por um diagnóstico que quase nunca
+        // dispara; e resolver por resolver acrescenta uma chamada a uma
+        // interface de produto, que pode ter custo ou efeito. A primeira versão
+        // resolvia no topo do `drive` e quebrou um teste existente cujo resolver
+        // falso só implementava `resolveModel` — o teste estava certo.
+        ResolvedLLMConfig config = configParaDiagnostico(llmRequest);
+        TokenUsage usage = response.tokenUsage();
+        Integer completion = usage == null ? null : usage.outputTokenCount();
+        Integer raciocinio = reasoningTokens(usage);
+
+        log.warn("Agente concluiu sem artefato (textoVazio={}, toolsExigidas={}): "
+                        + "finishReason={}, tokensCompletion={}, tokensRaciocinio={}, "
+                        + "maxTokensEfetivo={}, modelo={}{}",
+                textoVazio, options.requiredOutputTools(),
+                response.finishReason(),
+                completion == null ? "(nao reportado)" : completion,
+                raciocinio == null ? "(nao reportado pelo provedor)" : raciocinio,
+                config.maxTokens(), config.model(),
+                dicaDeTeto(response, completion, raciocinio, config));
+    }
+
+    /**
+     * A config efetiva, para o diagnóstico — e nunca uma exceção.
+     *
+     * <p>Telemetria não pode derrubar execução: se o resolver falhar aqui, o
+     * diagnóstico sai com o que houver e o passo segue. O contrário seria uma
+     * linha de log transformando uma conclusão bem-sucedida em falha.
+     */
+    private ResolvedLLMConfig configParaDiagnostico(LLMResolutionRequest llmRequest) {
+        try {
+            return llmConfigResolver.resolve(llmRequest);
+        } catch (RuntimeException naoResolveu) {
+            return platformDefault;
+        }
+    }
+
+    /**
+     * Aponta o teto quando os números o denunciam.
+     *
+     * <p>Não é adivinhação: quando o provedor diz {@code LENGTH}, ou quando o
+     * completion encosta no teto, a conclusão é a mesma que levamos três dias
+     * para tirar do CSV. Dizer isso na hora é o ponto.
+     */
+    private static String dicaDeTeto(ChatResponse response, Integer completion,
+                                     Integer raciocinio, ResolvedLLMConfig config) {
+        boolean cortado = response.finishReason() == dev.langchain4j.model.output.FinishReason.LENGTH
+                || (completion != null && config.maxTokens() > 0
+                        && completion >= config.maxTokens() * 0.95);
+        if (!cortado) {
+            return "";
+        }
+        String porRaciocinio = raciocinio != null && completion != null && completion > 0
+                        && raciocinio >= completion * 0.8
+                ? " O RACIOCINIO consumiu a maior parte do orcamento — considere limita-lo ou "
+                        + "desliga-lo para este agente, cuja saida util e uma chamada de tool."
+                : "";
+        return " — CORTADO NO TETO DE TOKENS: suba maxTokens ou reduza o prompt." + porRaciocinio;
+    }
+
+    /**
+     * Tokens de raciocínio, quando o provedor os reporta.
+     *
+     * <p>Por <b>reflexão</b>, e não com {@code instanceof OpenAiTokenUsage}:
+     * isso é detalhe específico de um adapter de provedor, e o
+     * {@code langchain4j-open-ai} só está no classpath deste módulo por
+     * transitividade. Um {@code instanceof} transformaria uma exclusão de
+     * dependência — legítima para quem não usa OpenAI — num
+     * {@code NoClassDefFoundError} no meio do laço do agente.
+     *
+     * <p>Telemetria melhor-esforço: qualquer falha vira {@code null}, que o
+     * chamador reporta como "não reportado pelo provedor". O diagnóstico
+     * degrada, a execução não.
+     */
+    private static Integer reasoningTokens(TokenUsage usage) {
+        if (usage == null) {
+            return null;
+        }
+        try {
+            Object detalhes = usage.getClass().getMethod("outputTokensDetails").invoke(usage);
+            if (detalhes == null) {
+                return null;
+            }
+            Object valor = detalhes.getClass().getMethod("reasoningTokens").invoke(detalhes);
+            return valor instanceof Integer i ? i : null;
+        } catch (ReflectiveOperationException | RuntimeException naoExpoe) {
+            return null;
         }
     }
 

@@ -328,4 +328,39 @@ class McpAgentComponentTest {
                 .as("a thread é do pool do motor e será reusada por outro passo, de outro tenant")
                 .isNull();
     }
+
+    /**
+     * O tier atravessa do contexto até as opções do runner.
+     *
+     * <p>Sem estes testes a correção ficaria pela metade: o resolvedor passaria
+     * a saber usar o tier e continuaria não recebendo nenhum — que é
+     * exatamente o defeito original, um mecanismo correto sem quem o alimente.
+     * O tier viaja pelo {@link ExecutionContext} e não por ThreadLocal porque o
+     * passo executa noutra thread, pelo mesmo motivo da correlação acima.
+     */
+    @Test
+    @DisplayName("o tier do contexto chega às options do runner")
+    void tierAtravessaOContexto() {
+        HostFalso host = new HostFalso(Set.of(), concluido());
+        ExecutionContext ctx = contextoCom(host);
+        when(ctx.get(McpAgentComponent.CTX_TIER)).thenReturn(Optional.of("STRONG"));
+
+        componente(Map.of("systemPrompt", "p")).execute("execute", "oi", ctx);
+
+        assertThat(host.options.get().tier())
+                .as("invoke.tier() era descartado antes de chegar ao resolvedor")
+                .isEqualTo("STRONG");
+    }
+
+    @Test
+    @DisplayName("sem tier no contexto, as options ficam sem tier — nada muda")
+    void semTierNoContexto() {
+        HostFalso host = new HostFalso(Set.of(), concluido());
+
+        componente(Map.of("systemPrompt", "p")).execute("execute", "oi", contextoCom(host));
+
+        assertThat(host.options.get().tier())
+                .as("quem nao usa tier nao pode ganhar um por engano")
+                .isNull();
+    }
 }

@@ -13,12 +13,20 @@ import br.com.archflow.model.flow.FlowStep;
  * <p>Precedência (mais específico vence):
  * {@code step > agent > flow > tenant > platform}.
  *
+ * <p>O {@code tier} entra <b>abaixo</b> dessa cadeia: ele é política de quem
+ * aciona ("esta tarefa é difícil"), e qualquer patch mais específico continua
+ * vencendo. Quando isso acontece — ou quando não há mapa para o tier —
+ * {@link DefaultLLMConfigResolver} <b>loga</b>, porque um tier pedido e não
+ * honrado em silêncio é o defeito que ele existe para eliminar.
+ *
  * @param tenantId        tenant atual (para resolução de chave); pode ser {@code null}
  * @param platformDefault config base totalmente preenchida (obrigatória)
  * @param tenantDefault   patch vindo da governança do tenant
  * @param flowPatch       patch no nível do fluxo
  * @param agentPatch      patch no nível do agente
  * @param stepPatch       patch no nível do passo (mais específico)
+ * @param tier            tier de LLM pedido por quem acionou ({@code LIGHT}/{@code STRONG});
+ *                        {@code null} mantém o comportamento anterior
  * @since 1.0.0
  */
 public record LLMResolutionRequest(
@@ -27,7 +35,8 @@ public record LLMResolutionRequest(
         LLMConfigPatch tenantDefault,
         LLMConfigPatch flowPatch,
         LLMConfigPatch agentPatch,
-        LLMConfigPatch stepPatch
+        LLMConfigPatch stepPatch,
+        String tier
 ) {
     public LLMResolutionRequest {
         if (platformDefault == null) {
@@ -37,6 +46,20 @@ public record LLMResolutionRequest(
         flowPatch = flowPatch == null ? LLMConfigPatch.empty() : flowPatch;
         agentPatch = agentPatch == null ? LLMConfigPatch.empty() : agentPatch;
         stepPatch = stepPatch == null ? LLMConfigPatch.empty() : stepPatch;
+        tier = tier == null || tier.isBlank() ? null : tier.trim();
+    }
+
+    /**
+     * Compat: requisição sem tier — o comportamento de sempre.
+     *
+     * <p>Existe para não obrigar todo chamador e todo teste a conhecer um campo
+     * que só o caminho de agente usa. Um record de contrato que ganha campo sem
+     * construtor de compatibilidade quebra quem não tem nada a ver com a mudança.
+     */
+    public LLMResolutionRequest(String tenantId, ResolvedLLMConfig platformDefault,
+                                LLMConfigPatch tenantDefault, LLMConfigPatch flowPatch,
+                                LLMConfigPatch agentPatch, LLMConfigPatch stepPatch) {
+        this(tenantId, platformDefault, tenantDefault, flowPatch, agentPatch, stepPatch, null);
     }
 
     public static Builder builder(ResolvedLLMConfig platformDefault) {
@@ -101,6 +124,7 @@ public record LLMResolutionRequest(
         private LLMConfigPatch flowPatch = LLMConfigPatch.empty();
         private LLMConfigPatch agentPatch = LLMConfigPatch.empty();
         private LLMConfigPatch stepPatch = LLMConfigPatch.empty();
+        private String tier;
 
         private Builder(ResolvedLLMConfig platformDefault) {
             this.platformDefault = platformDefault;
@@ -131,8 +155,15 @@ public record LLMResolutionRequest(
             return this;
         }
 
+        /** Tier pedido por quem acionou ({@code LIGHT}/{@code STRONG}); {@code null} = nenhum. */
+        public Builder tier(String tier) {
+            this.tier = tier;
+            return this;
+        }
+
         public LLMResolutionRequest build() {
-            return new LLMResolutionRequest(tenantId, platformDefault, tenantDefault, flowPatch, agentPatch, stepPatch);
+            return new LLMResolutionRequest(tenantId, platformDefault, tenantDefault, flowPatch,
+                    agentPatch, stepPatch, tier);
         }
     }
 }
