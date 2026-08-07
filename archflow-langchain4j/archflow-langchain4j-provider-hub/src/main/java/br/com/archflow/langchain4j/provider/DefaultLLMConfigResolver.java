@@ -177,6 +177,7 @@ public class DefaultLLMConfigResolver implements LLMConfigResolver {
                 .provider(providerEnum)
                 .modelId(resolved.model())
                 .temperature(resolved.temperature())
+                .cachePrompt(resolved.cachePrompt())
                 .extraParams(extra);
 
         if (apiKey != null && !apiKey.isBlank()) {
@@ -211,6 +212,9 @@ public class DefaultLLMConfigResolver implements LLMConfigResolver {
                 + ":" + resolved.provider()
                 + ":" + resolved.model()
                 + ":" + resolved.maxTokens()
+                // O modelo e construido de forma diferente com e sem a marcacao de
+                // cache; slots separados evitam que os dois usos disputem um so.
+                + ":" + (resolved.cachePrompt() ? "cache" : "nocache")
                 + ":" + keyHash;
     }
 }

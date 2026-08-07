@@ -1054,7 +1054,8 @@ public class ArchflowBeanConfiguration {
             @Value("${archflow.llm.max-tokens:1024}") int maxTokens,
             @Value("${archflow.llm.timeout-ms:30000}") long timeoutMs,
             @Value("${archflow.llm.api-key:}") String apiKey,
-            @Value("${archflow.llm.base-url:}") String baseUrl) {
+            @Value("${archflow.llm.base-url:}") String baseUrl,
+            @Value("${archflow.llm.cache-prompt:false}") boolean cachePrompt) {
         // Inline key/baseUrl go into additionalConfig — the resolver reads the key
         // from additionalConfig.apiKey (tenant key takes precedence). Keep secrets
         // out of source: set via ARCHFLOW_LLM_API_KEY / ARCHFLOW_LLM_BASE_URL.
@@ -1072,6 +1073,13 @@ public class ArchflowBeanConfiguration {
                 .maxTokens(maxTokens)
                 .timeout(timeoutMs)
                 .additionalConfig(additional)
+                // Desligado por padrao. Marcar o prefixo estavel so compensa em
+                // laco: a gravacao no cache custa ~1,25x a entrada e a leitura
+                // ~0,1x, entao com uma unica chamada por prefixo sai 25% MAIS caro.
+                // Um fluxo ou agente que chama varias vezes sobre o mesmo prompt
+                // de sistema liga por no (chave `cachePrompt`); aqui e o default
+                // do deployment.
+                .cachePrompt(cachePrompt)
                 .build();
     }
 

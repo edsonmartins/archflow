@@ -20,6 +20,9 @@ import java.util.Optional;
  * @param additionalConfig parâmetros extras (ex.: {@code baseUrl}); imutável
  * @param reasoning        objeto {@code reasoning} do provedor, quando declarado;
  *                         a forma não é interpretada aqui — ver {@link LLMConfigPatch}
+ * @param cachePrompt      marcar o fim do prefixo estável (sistema + tools) com o
+ *                         breakpoint de cache, nos provedores que o exigem.
+ *                         {@code false} por padrão — ver {@link LLMConfigPatch}
  * @since 1.0.0
  */
 public record ResolvedLLMConfig(
@@ -29,17 +32,25 @@ public record ResolvedLLMConfig(
         int maxTokens,
         long timeout,
         Map<String, Object> additionalConfig,
-        Optional<Map<String, Object>> reasoning
+        Optional<Map<String, Object>> reasoning,
+        boolean cachePrompt
 ) {
     public ResolvedLLMConfig {
         additionalConfig = additionalConfig == null ? Map.of() : Map.copyOf(additionalConfig);
         reasoning = reasoning == null ? Optional.empty() : reasoning.map(Map::copyOf);
     }
 
+    /** Compat: config sem {@code cachePrompt} — a forma que existia antes. */
+    public ResolvedLLMConfig(String provider, String model, double temperature, int maxTokens,
+                             long timeout, Map<String, Object> additionalConfig,
+                             Optional<Map<String, Object>> reasoning) {
+        this(provider, model, temperature, maxTokens, timeout, additionalConfig, reasoning, false);
+    }
+
     /** Compat: config sem {@code reasoning} — a forma que existia antes. */
     public ResolvedLLMConfig(String provider, String model, double temperature, int maxTokens,
                              long timeout, Map<String, Object> additionalConfig) {
-        this(provider, model, temperature, maxTokens, timeout, additionalConfig, Optional.empty());
+        this(provider, model, temperature, maxTokens, timeout, additionalConfig, Optional.empty(), false);
     }
 
     public static Builder builder() {
@@ -54,10 +65,17 @@ public record ResolvedLLMConfig(
         private long timeout = 0L;
         private Map<String, Object> additionalConfig = Map.of();
         private Optional<Map<String, Object>> reasoning = Optional.empty();
+        private boolean cachePrompt;
 
         /** Objeto {@code reasoning} do provedor; {@code null} = nenhum. */
         public Builder reasoning(Map<String, Object> reasoning) {
             this.reasoning = Optional.ofNullable(reasoning);
+            return this;
+        }
+
+        /** Marcação explícita do prefixo estável para cache; {@code false} por padrão. */
+        public Builder cachePrompt(boolean cachePrompt) {
+            this.cachePrompt = cachePrompt;
             return this;
         }
 
@@ -95,7 +113,7 @@ public record ResolvedLLMConfig(
 
         public ResolvedLLMConfig build() {
             return new ResolvedLLMConfig(provider, model, temperature, maxTokens, timeout,
-                    additionalConfig, reasoning);
+                    additionalConfig, reasoning, cachePrompt);
         }
     }
 }
