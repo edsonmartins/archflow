@@ -27,7 +27,8 @@ public record LLMConfigPatch(
         OptionalInt maxTokens,
         OptionalLong timeout,
         Map<String, Object> additionalConfig,
-        Optional<Map<String, Object>> reasoning
+        Optional<Map<String, Object>> reasoning,
+        Optional<Boolean> cachePrompt
 ) {
     public LLMConfigPatch {
         provider = provider == null ? Optional.empty() : provider;
@@ -37,10 +38,11 @@ public record LLMConfigPatch(
         timeout = timeout == null ? OptionalLong.empty() : timeout;
         additionalConfig = additionalConfig == null ? Map.of() : Map.copyOf(additionalConfig);
         reasoning = reasoning == null ? Optional.empty() : reasoning.map(Map::copyOf);
+        cachePrompt = cachePrompt == null ? Optional.empty() : cachePrompt;
     }
 
     /**
-     * Compat: patch sem {@code reasoning} — a forma que existia antes.
+     * Compat: patch sem {@code cachePrompt} — a forma que existia antes.
      *
      * <p>Um record de configuração que ganha campo sem construtor de
      * compatibilidade quebra todo chamador que não tem nada a ver com a mudança,
@@ -48,13 +50,24 @@ public record LLMConfigPatch(
      */
     public LLMConfigPatch(Optional<String> provider, Optional<String> model,
                           OptionalDouble temperature, OptionalInt maxTokens,
+                          OptionalLong timeout, Map<String, Object> additionalConfig,
+                          Optional<Map<String, Object>> reasoning) {
+        this(provider, model, temperature, maxTokens, timeout, additionalConfig, reasoning,
+                Optional.empty());
+    }
+
+    /** Compat: patch sem {@code reasoning} — a forma que existia antes. */
+    public LLMConfigPatch(Optional<String> provider, Optional<String> model,
+                          OptionalDouble temperature, OptionalInt maxTokens,
                           OptionalLong timeout, Map<String, Object> additionalConfig) {
-        this(provider, model, temperature, maxTokens, timeout, additionalConfig, Optional.empty());
+        this(provider, model, temperature, maxTokens, timeout, additionalConfig, Optional.empty(),
+                Optional.empty());
     }
 
     private static final LLMConfigPatch EMPTY = new LLMConfigPatch(
             Optional.empty(), Optional.empty(), OptionalDouble.empty(),
-            OptionalInt.empty(), OptionalLong.empty(), Map.of(), Optional.empty());
+            OptionalInt.empty(), OptionalLong.empty(), Map.of(), Optional.empty(),
+            Optional.empty());
 
     /** Patch vazio — não sobrescreve nada (herança transparente). */
     public static LLMConfigPatch empty() {
@@ -64,8 +77,9 @@ public record LLMConfigPatch(
     /**
      * Constrói um patch a partir de um mapa de configuração (config de step salva
      * pela UI, {@code ComponentMetadata.properties}, etc.). Lê as chaves
-     * {@code provider, model, temperature, maxTokens, timeout, additionalConfig};
-     * ignora as demais. Numéricos aceitam {@link Number} ou String parseável.
+     * {@code provider, model, temperature, maxTokens, timeout, additionalConfig,
+     * reasoning, cachePrompt}; ignora as demais. Numéricos aceitam {@link Number}
+     * ou String parseável.
      */
     public static LLMConfigPatch fromMap(Map<String, Object> config) {
         if (config == null || config.isEmpty()) {
@@ -99,7 +113,50 @@ public record LLMConfigPatch(
         if (reasoning != null) {
             b.reasoning(reasoning);
         }
+        Boolean cachePrompt = lerCachePrompt(config.get("cachePrompt"));
+        if (cachePrompt != null) {
+            b.cachePrompt(cachePrompt);
+        }
         return b.build();
+    }
+
+    /**
+     * Lê e valida o {@code cachePrompt} do nó.
+     *
+     * <p>Marca o fim do prefixo estável (prompt de sistema + definições de tools)
+     * com o breakpoint de cache do provedor. Só tem efeito onde o provedor
+     * <i>exige</i> a marcação: Gemini, xAI e OpenAI reconhecem o prefixo repetido
+     * sozinhos e não recebem campo novo. A Anthropic não cacheia nada sem a marca
+     * — medido em 07/08, {@code claude-3-haiku} com 0% de cache e 7 chamadas por
+     * cotação pagando o prompt inteiro a preço cheio em todas elas.
+     *
+     * <p><b>Não é padrão, e não deve ser.</b> Gravar no cache custa ~1,25× a
+     * entrada e ler custa ~0,1×. Com N chamadas sobre o mesmo prefixo o custo sai
+     * de {@code N×P} para {@code 1,25×P + (N-1)×0,1×P} — com N=7 isso é 26% do
+     * que se pagava, mas com <b>N=1 é 25% mais caro</b>. Um fluxo de passo único
+     * fica pior ligando isto. Por isso a decisão é de quem conhece o laço.
+     *
+     * <p><b>Falha em vez de ignorar</b>, pelo mesmo motivo do {@code reasoning}:
+     * quem declara está tentando cortar a maior linha da conta, e um valor mal
+     * escrito silenciosamente descartado devolveria o custo antigo com o operador
+     * convencido de que resolveu.
+     *
+     * @return o valor lido, ou {@code null} quando a chave não foi declarada
+     * @throws IllegalArgumentException quando declarada e malformada
+     */
+    private static Boolean lerCachePrompt(Object valor) {
+        if (valor == null) {
+            return null;
+        }
+        if (valor instanceof Boolean b) {
+            return b;
+        }
+        if (valor instanceof String s
+                && ("true".equalsIgnoreCase(s.trim()) || "false".equalsIgnoreCase(s.trim()))) {
+            return Boolean.parseBoolean(s.trim());
+        }
+        throw new IllegalArgumentException(
+                "cachePrompt deve ser booleano (true/false), e veio: " + valor);
     }
 
     /**
@@ -205,7 +262,7 @@ public record LLMConfigPatch(
     public boolean isEmpty() {
         return provider.isEmpty() && model.isEmpty() && temperature.isEmpty()
                 && maxTokens.isEmpty() && timeout.isEmpty() && additionalConfig.isEmpty()
-                && reasoning.isEmpty();
+                && reasoning.isEmpty() && cachePrompt.isEmpty();
     }
 
     /**
@@ -226,6 +283,7 @@ public record LLMConfigPatch(
         if (timeout.isPresent()) out.put("timeout", timeout.getAsLong());
         if (!additionalConfig.isEmpty()) out.put("additionalConfig", additionalConfig);
         reasoning.ifPresent(value -> out.put("reasoning", value));
+        cachePrompt.ifPresent(value -> out.put("cachePrompt", value));
         return Map.copyOf(out);
     }
 
@@ -248,7 +306,8 @@ public record LLMConfigPatch(
                 // ({effort} vs {max_tokens} vs {exclude}). Mesclar produziria um
                 // objeto com duas intencoes ao mesmo tempo, e quem declarou a mais
                 // especifica nao saberia que herdou a outra junto.
-                reasoning.or(parent::reasoning)
+                reasoning.or(parent::reasoning),
+                cachePrompt.orElseGet(parent::cachePrompt)
         );
     }
 
@@ -264,10 +323,17 @@ public record LLMConfigPatch(
         private OptionalLong timeout = OptionalLong.empty();
         private final Map<String, Object> additionalConfig = new HashMap<>();
         private Optional<Map<String, Object>> reasoning = Optional.empty();
+        private Optional<Boolean> cachePrompt = Optional.empty();
 
         /** Objeto {@code reasoning} enviado ao provedor; a forma nao e interpretada. */
         public Builder reasoning(Map<String, Object> reasoning) {
             this.reasoning = Optional.ofNullable(reasoning);
+            return this;
+        }
+
+        /** Marcação explícita do prefixo estável para cache; ausente = herda do pai. */
+        public Builder cachePrompt(boolean cachePrompt) {
+            this.cachePrompt = Optional.of(cachePrompt);
             return this;
         }
 
@@ -310,7 +376,7 @@ public record LLMConfigPatch(
 
         public LLMConfigPatch build() {
             return new LLMConfigPatch(provider, model, temperature, maxTokens, timeout,
-                    additionalConfig, reasoning);
+                    additionalConfig, reasoning, cachePrompt);
         }
     }
 }

@@ -34,6 +34,7 @@ public class LLMProviderConfig {
     private final Integer timeoutSeconds;
     private final Map<String, Object> extraParams;
     private final Map<String, Object> reasoning;
+    private final boolean cachePrompt;
 
     private LLMProviderConfig(Builder builder) {
         this.provider = builder.provider;
@@ -46,6 +47,7 @@ public class LLMProviderConfig {
         this.timeoutSeconds = builder.timeoutSeconds;
         this.extraParams = Map.copyOf(builder.extraParams);
         this.reasoning = builder.reasoning == null ? null : Map.copyOf(builder.reasoning);
+        this.cachePrompt = builder.cachePrompt;
     }
 
     /**
@@ -116,6 +118,18 @@ public class LLMProviderConfig {
     }
 
     /**
+     * Marcar explicitamente o fim do prefixo estável (sistema + tools) com o
+     * breakpoint de cache, nos provedores que exigem a marca.
+     *
+     * <p>Desligado por padrão, e de propósito: gravar no cache custa mais que não
+     * cachear, e só se paga a partir da segunda chamada sobre o mesmo prefixo.
+     * Ver {@link PromptCacheBreakpoint}.
+     */
+    public boolean isCachePrompt() {
+        return cachePrompt;
+    }
+
+    /**
      * Gets an extra parameter by key.
      */
     @SuppressWarnings("unchecked")
@@ -177,6 +191,14 @@ public class LLMProviderConfig {
         return new Builder(this);
     }
 
+    /**
+     * Igualdade inclui {@code reasoning} e {@code cachePrompt} porque é ela que o
+     * {@link LLMProviderHub} consulta para decidir se reaproveita o modelo em
+     * cache. O id do slot não carrega esses campos, então duas configs que só
+     * diferem neles disputam o mesmo slot: sem compará-los, ligar
+     * {@code cachePrompt} devolveria silenciosamente o modelo antigo, construído
+     * sem a marcação.
+     */
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
@@ -188,12 +210,15 @@ public class LLMProviderConfig {
                 Objects.equals(baseUrl, that.baseUrl) &&
                 Objects.equals(temperature, that.temperature) &&
                 Objects.equals(topP, that.topP) &&
-                Objects.equals(maxTokens, that.maxTokens);
+                Objects.equals(maxTokens, that.maxTokens) &&
+                Objects.equals(reasoning, that.reasoning) &&
+                cachePrompt == that.cachePrompt;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(provider, modelId, apiKey, baseUrl, temperature, topP, maxTokens);
+        return Objects.hash(provider, modelId, apiKey, baseUrl, temperature, topP, maxTokens,
+                reasoning, cachePrompt);
     }
 
     @Override
@@ -222,6 +247,7 @@ public class LLMProviderConfig {
         private Integer timeoutSeconds;
         private Map<String, Object> extraParams = new HashMap<>();
         private Map<String, Object> reasoning;
+        private boolean cachePrompt;
 
         private Builder() {
         }
@@ -237,6 +263,7 @@ public class LLMProviderConfig {
             this.timeoutSeconds = existing.timeoutSeconds;
             this.extraParams = new HashMap<>(existing.extraParams);
             this.reasoning = existing.reasoning;
+            this.cachePrompt = existing.cachePrompt;
         }
 
         public Builder provider(LLMProvider provider) {
@@ -297,6 +324,12 @@ public class LLMProviderConfig {
         /** Objeto {@code reasoning} enviado no corpo; {@code null} = nenhum. */
         public Builder reasoning(Map<String, Object> reasoning) {
             this.reasoning = reasoning;
+            return this;
+        }
+
+        /** Breakpoint de cache no fim do prefixo estável; {@code false} = nenhum. */
+        public Builder cachePrompt(boolean cachePrompt) {
+            this.cachePrompt = cachePrompt;
             return this;
         }
 

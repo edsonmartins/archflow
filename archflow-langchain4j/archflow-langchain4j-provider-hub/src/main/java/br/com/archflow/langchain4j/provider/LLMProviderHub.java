@@ -280,6 +280,7 @@ public class LLMProviderHub {
      * Creates a new ChatModel from the given configuration.
      */
     ChatModel createModel(LLMProviderConfig config) {
+        avisarSeCacheNaoHonrado(config);
         return switch (config.getProvider()) {
             case OPENAI -> createOpenAiModel(config);
             case ANTHROPIC -> createAnthropicModel(config);
@@ -305,6 +306,7 @@ public class LLMProviderHub {
      * implementation must declare {@code supportsStreaming = false}.
      */
     StreamingChatModel createStreamingModel(LLMProviderConfig config) {
+        avisarSeCacheNaoHonrado(config);
         return switch (config.getProvider()) {
             case OPENAI -> openAiStreaming(config, config.getBaseUrl());
             case ANTHROPIC -> anthropicStreaming(config);
@@ -363,6 +365,7 @@ public class LLMProviderHub {
         if (config.getMaxTokens() != null) {
             builder.maxTokens(config.getMaxTokens());
         }
+        aplicarCacheDePrompt(builder, config);
         return builder.build();
     }
 
@@ -377,6 +380,9 @@ public class LLMProviderHub {
         }
         if (config.getMaxTokens() != null) {
             builder.maxTokens(config.getMaxTokens());
+        }
+        if (config.isCachePrompt()) {
+            builder.cacheSystemMessages(true);
         }
         return builder.build();
     }
@@ -405,6 +411,90 @@ public class LLMProviderHub {
         }
     }
 
+    /**
+     * Instala o breakpoint de cache no fim do prefixo estável, no caminho
+     * OpenAI-compatível (é por ele que o OpenRouter serve os modelos Anthropic).
+     *
+     * <p>Duas condições, e as duas importam. Sem {@code cachePrompt} ligado nada
+     * acontece — gravar no cache só se paga a partir da segunda chamada sobre o
+     * mesmo prefixo, e um fluxo de passo único fica mais caro. Com ele ligado mas
+     * num provedor que cacheia sozinho (Gemini, xAI, OpenAI) também nada
+     * acontece: o campo novo não traria ganho e um campo desconhecido pode virar
+     * 400. Nos dois casos o builder <b>não é tocado</b> e o corpo enviado fica
+     * byte a byte o que era.
+     *
+     * @see PromptCacheBreakpoint
+     */
+    private static void aplicarCacheDePrompt(
+            dev.langchain4j.model.openai.OpenAiChatModel.OpenAiChatModelBuilder builder,
+            LLMProviderConfig config) {
+        if (marcacaoDeCacheAtiva(config)) {
+            builder.httpClientBuilder(PromptCacheHttpClient.builderPara(config.getModelId()));
+        }
+    }
+
+    private static void aplicarCacheDePrompt(
+            dev.langchain4j.model.openai.OpenAiStreamingChatModel.OpenAiStreamingChatModelBuilder builder,
+            LLMProviderConfig config) {
+        if (marcacaoDeCacheAtiva(config)) {
+            builder.httpClientBuilder(PromptCacheHttpClient.builderPara(config.getModelId()));
+        }
+    }
+
+    /**
+     * Ligado <i>e</i> num provedor que exige a marca.
+     *
+     * <p>Ligado num provedor que este caminho não sabe marcar (Bedrock, Vertex —
+     * cujos adaptadores não expõem o corpo) é avisado, e não ignorado: silêncio
+     * aqui é exatamente o modo de falha desta funcionalidade — parecer entregue
+     * sem estar.
+     */
+    private static boolean marcacaoDeCacheAtiva(LLMProviderConfig config) {
+        if (!config.isCachePrompt()) {
+            return false;
+        }
+        boolean exige = PromptCacheBreakpoint.exigeMarcacaoExplicita(
+                config.getProvider(), config.getModelId());
+        if (!exige) {
+            log.debug("[LLM-CACHE] cachePrompt ligado para {}/{}, que cacheia o prefixo "
+                            + "sozinho — nenhum campo novo sera enviado",
+                    config.getProvider().getId(), config.getModelId());
+        }
+        return exige;
+    }
+
+    /**
+     * Provedores cujo caminho de criação sabe marcar o prefixo: o nativo da
+     * Anthropic (via {@code cacheSystemMessages}) e os OpenAI-compatíveis (via
+     * {@link PromptCacheHttpClient}).
+     */
+    private static final Set<LLMProvider> CACHE_SUPORTADO = EnumSet.of(
+            LLMProvider.ANTHROPIC, LLMProvider.OPENAI, LLMProvider.DEEPSEEK, LLMProvider.TONGYI,
+            LLMProvider.MISTRAL, LLMProvider.COHERE, LLMProvider.QIANFAN, LLMProvider.HUNYUAN,
+            LLMProvider.OPENROUTER);
+
+    /**
+     * Aviso para os provedores em que {@code cachePrompt} foi pedido e este hub
+     * não tem como honrar — Bedrock e Vertex, por exemplo, cujos adaptadores não
+     * expõem nem o corpo da requisição nem uma opção de cache.
+     *
+     * <p>Dizer isso é parte da correção. O modo de falha desta funcionalidade é
+     * parecer entregue sem estar: um operador que liga a chave, não vê erro
+     * nenhum e não vê o cache subir gasta o dia procurando no lugar errado.
+     */
+    private static void avisarSeCacheNaoHonrado(LLMProviderConfig config) {
+        if (config.isCachePrompt()
+                && !CACHE_SUPORTADO.contains(config.getProvider())
+                && PromptCacheBreakpoint.exigeMarcacaoExplicita(
+                        config.getProvider(), config.getModelId())) {
+            log.warn("[LLM-CACHE] cachePrompt ligado para {}/{}, mas este caminho de provedor "
+                            + "nao suporta a marcacao (o adaptador nao expoe o corpo da "
+                            + "requisicao). NENHUM breakpoint sera enviado — use o provedor "
+                            + "'anthropic' ou 'openrouter' para este modelo.",
+                    config.getProvider().getId(), config.getModelId());
+        }
+    }
+
     private ChatModel createOpenAiModel(LLMProviderConfig config) {
         var builder = OpenAiChatModel.builder()
                 .apiKey(config.getApiKey())
@@ -422,6 +512,7 @@ public class LLMProviderHub {
             builder.baseUrl(config.getBaseUrl());
         }
         aplicarReasoning(builder, config);
+        aplicarCacheDePrompt(builder, config);
 
         return builder.build();
     }
@@ -445,6 +536,7 @@ public class LLMProviderHub {
             builder.maxTokens(config.getMaxTokens());
         }
         aplicarReasoning(builder, config);
+        aplicarCacheDePrompt(builder, config);
 
         return builder.build();
     }
@@ -464,6 +556,13 @@ public class LLMProviderHub {
         }
         if (config.getBaseUrl() != null) {
             builder.baseUrl(config.getBaseUrl());
+        }
+        // Caminho nativo: o proprio langchain4j marca o fim do bloco de sistema.
+        // Um breakpoint so — a ordem de renderizacao e tools -> system -> messages,
+        // entao a marca no fim do sistema ja cobre as definicoes de tools. NAO usar
+        // cacheTools() junto: seriam dois breakpoints para o mesmo prefixo.
+        if (config.isCachePrompt()) {
+            builder.cacheSystemMessages(true);
         }
 
         return builder.build();
