@@ -180,7 +180,9 @@ public class McpAgentComponent implements AIComponent, ComponentPlugin {
         // nada. Uma correlação que falha em silêncio é pior que não ter correlação, porque quem
         // for procurá-la vai concluir que o evento não tinha origem.
         CorrelacaoMcp.definir(textoDoContexto(context, CorrelacaoMcp.CTX_JANELA),
-                textoDoContexto(context, CorrelacaoMcp.CTX_TRACE));
+                textoDoContexto(context, CorrelacaoMcp.CTX_TRACE),
+                textoDoContexto(context, CorrelacaoMcp.CTX_CLIENTE),
+                textoDoContexto(context, CorrelacaoMcp.CTX_VENDEDOR));
         McpAgentRunner.Result result;
         try {
             result = host.runner().run(

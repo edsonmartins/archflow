@@ -99,6 +99,14 @@ public class AgentFlowRunner {
                 invoke.idempotencyKey());
         contexto.set(br.com.archflow.langchain4j.mcp.client.CorrelacaoMcp.CTX_TRACE,
                 invoke.traceId());
+        // A IDENTIDADE ATRAVESSA PELA MESMA PORTA. Se ela ficasse só no ThreadLocal do
+        // dispatcher, o header não sairia — é a armadilha que a correlação já pagou uma vez, e
+        // aqui ela seria pior: a ausência do header faz o server voltar a confiar no argumento
+        // que o modelo escreveu, sem nada indicando que a proteção não estava ativa.
+        contexto.set(br.com.archflow.langchain4j.mcp.client.CorrelacaoMcp.CTX_CLIENTE,
+                invoke.customerRef());
+        contexto.set(br.com.archflow.langchain4j.mcp.client.CorrelacaoMcp.CTX_VENDEDOR,
+                invoke.vendorRef());
         // O TIER TAMBÉM ATRAVESSA POR AQUI. Ele vinha no invoke desde sempre — decidido pelo
         // Playbook do Core — e era DESCARTADO: nada no archflow chamava invoke.tier(), e o
         // resolvedor de LLM sequer conhecia o conceito. A política de roteamento não tinha
