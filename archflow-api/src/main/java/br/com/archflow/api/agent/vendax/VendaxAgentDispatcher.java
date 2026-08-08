@@ -94,8 +94,13 @@ public class VendaxAgentDispatcher {
         //
         // Definida AQUI e não no client porque o client é cacheado POR TENANT e compartilhado
         // entre execuções: pôr correlação nele misturaria conversas.
+        // A IDENTIDADE VAI JUNTO, e pelo mesmo caminho. Ela já estava no invoke desde que
+        // customerRef/vendorRef entraram, e chegava ao server apenas como argumento que o MODELO
+        // preenchia — ver CorrelacaoMcp.HEADER_CLIENTE para o que isso permite quando o modelo
+        // copia o ref errado.
         br.com.archflow.langchain4j.mcp.client.CorrelacaoMcp.definir(
-                invoke.idempotencyKey(), invoke.traceId());
+                invoke.idempotencyKey(), invoke.traceId(),
+                invoke.customerRef(), invoke.vendorRef());
         try {
             // O caminho genérico vem ANTES do switch, e é o que o deve substituir: quando a
             // definição traz um fluxo, este runtime não precisa saber que agente é. O switch

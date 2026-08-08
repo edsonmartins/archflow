@@ -232,7 +232,7 @@ public final class HttpMcpClient implements McpClient {
 
     /** Executa um método JSON-RPC e devolve o nó {@code result}, ou lança em {@code error}. */
     private JsonNode rpc(String method, Map<String, Object> params) {
-        return rpc(method, params, new CorrelacaoMcp.Dados(null, null));
+        return rpc(method, params, CorrelacaoMcp.Dados.NENHUMA);
     }
 
     /** Idem, carregando a correlação da execução — só {@code tools/call} a tem. */
@@ -254,7 +254,7 @@ public final class HttpMcpClient implements McpClient {
     }
 
     private JsonNode postRaw(Map<String, Object> body) {
-        return postRaw(body, true, new CorrelacaoMcp.Dados(null, null));
+        return postRaw(body, true, CorrelacaoMcp.Dados.NENHUMA);
     }
 
     /**
@@ -264,7 +264,7 @@ public final class HttpMcpClient implements McpClient {
      *                 até alguém reconfigurá-lo à mão.
      */
     private JsonNode postRaw(Map<String, Object> body, boolean mayRetry) {
-        return postRaw(body, mayRetry, new CorrelacaoMcp.Dados(null, null));
+        return postRaw(body, mayRetry, CorrelacaoMcp.Dados.NENHUMA);
     }
 
     private JsonNode postRaw(Map<String, Object> body, boolean mayRetry,
@@ -294,6 +294,18 @@ public final class HttpMcpClient implements McpClient {
             if (correlacao != null && correlacao.traceId() != null
                     && !correlacao.traceId().isBlank()) {
                 req.header(CorrelacaoMcp.HEADER_TRACE, correlacao.traceId());
+            }
+            // A IDENTIDADE DA CONVERSA, pelo transporte. O server passa a ter uma fonte que o
+            // modelo não escreve: até aqui o clienteRef só chegava como argumento de tool, e um
+            // ref trocado pelo modelo produzia um resultado internamente coerente para o cliente
+            // errado — sem nada que pudesse notar. Ver CorrelacaoMcp.HEADER_CLIENTE.
+            if (correlacao != null && correlacao.clienteRef() != null
+                    && !correlacao.clienteRef().isBlank()) {
+                req.header(CorrelacaoMcp.HEADER_CLIENTE, correlacao.clienteRef());
+            }
+            if (correlacao != null && correlacao.vendedorRef() != null
+                    && !correlacao.vendedorRef().isBlank()) {
+                req.header(CorrelacaoMcp.HEADER_VENDEDOR, correlacao.vendedorRef());
             }
             String session = sessionId;
             if (session != null && !session.isBlank()) {

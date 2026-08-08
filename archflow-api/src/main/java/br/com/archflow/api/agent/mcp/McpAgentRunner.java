@@ -305,7 +305,7 @@ public class McpAgentRunner {
 
         while (session.iteration < options.maxIterations()) {
             session.iteration++;
-            ChatResponse response = model.chat(ChatRequest.builder()
+            ChatResponse response = chatComRepeticaoDeTransporte(model, session, ChatRequest.builder()
                     .messages(session.messages)
                     .toolSpecifications(tools)
                     .build());
@@ -422,6 +422,93 @@ public class McpAgentRunner {
                     + "veio como texto. Emita a mesma chamada de novo, como tool call de verdade, "
                     + "com os argumentos em JSON simples — sem caracteres de escape no meio dos "
                     + "valores.";
+
+    /**
+     * Chama o modelo, repetindo <b>uma vez</b> quando a chamada nem chegou a
+     * produzir resposta por falha de transporte.
+     *
+     * <h2>O que motivou</h2>
+     *
+     * <p>Medido em 07/08: o {@code gemma-4-31b} perdeu a primeira das oito
+     * execuções com {@code TimeoutException} em rota fria e acertou as sete
+     * seguintes — 1/8 de perda por uma causa que uma repetição resolve. As outras
+     * duas assinaturas do mesmo grupo, vistas na mesma semana, são
+     * {@code ConnectException} e
+     * {@code IOException: HTTP/1.1 header parser received no bytes}.
+     *
+     * <p>É o vizinho da repetição por chamada malformada: lá o provedor respondeu
+     * e a serialização saiu corrompida; aqui não houve resposta nenhuma. Nos dois
+     * casos a mesma entrada funciona na tentativa seguinte, e hoje derruba a
+     * execução inteira — do lado do produto, uma cotação que o vendedor não
+     * recebe.
+     *
+     * <h2>O que NÃO é repetido, e por quê</h2>
+     *
+     * <p><b>Erro de aplicação nunca.</b> Um {@code 4xx} é o provedor dizendo que
+     * a requisição está errada: repetir a mesma requisição dá o mesmo erro, mais
+     * tarde. Isso inclui o {@code 400} do Bedrock por prompt caching visto em
+     * 08/08 — repetir teria escondido um defeito de configuração atrás de uma
+     * latência dobrada.
+     *
+     * <p><b>{@code 5xx} e {@code 429} também não</b>, e isto é decisão, não
+     * esquecimento: são retentáveis, mas exigem espera antes de tentar de novo, e
+     * uma repetição imediata contra um provedor sobrecarregado piora o que já está
+     * ruim. Quem quiser cobri-los precisa de backoff — que é outra demanda, com
+     * outro desenho.
+     *
+     * <p>Uma repetição, uma só, pelo mesmo motivo do {@code repetiuMalformada}:
+     * se a segunda também falha, a causa não é transitória e insistir só atrasa a
+     * notícia.
+     */
+    private static ChatResponse chatComRepeticaoDeTransporte(ChatModel model, Session session,
+                                                             ChatRequest request) {
+        try {
+            return model.chat(request);
+        } catch (RuntimeException e) {
+            if (session.repetiuTransporte || !ehFalhaDeTransporte(e)) {
+                throw e;
+            }
+            session.repetiuTransporte = true;
+            // WARN, e não debug: sem este registro a taxa de falha real fica
+            // escondida atrás das repetições bem-sucedidas — que é como 1/8 de
+            // perda por rota fria viraria "o modelo é estável".
+            log.warn("Falha de TRANSPORTE ao chamar o modelo ({}); repetindo UMA vez",
+                    e.toString());
+            return model.chat(request);
+        }
+    }
+
+    /**
+     * A falha aconteceu antes de existir resposta?
+     *
+     * <p>A ordem das duas checagens é o cuidado que importa. {@code HttpException}
+     * carrega um status: o provedor respondeu, e a resposta é a recusa. Ela é
+     * descartada <b>primeiro</b>, sobre a cadeia inteira de causas, para que um
+     * {@code 4xx} embrulhado em algo mais genérico não seja confundido com queda
+     * de conexão.
+     */
+    private static boolean ehFalhaDeTransporte(Throwable e) {
+        for (Throwable t = e; t != null; t = t.getCause()) {
+            if (t instanceof dev.langchain4j.exception.HttpException
+                    || t instanceof dev.langchain4j.exception.NonRetriableException) {
+                return false;
+            }
+            if (t.getCause() == t) {
+                break;
+            }
+        }
+        for (Throwable t = e; t != null; t = t.getCause()) {
+            if (t instanceof java.io.IOException                       // inclui Connect/SocketTimeout
+                    || t instanceof TimeoutException
+                    || t instanceof dev.langchain4j.exception.TimeoutException) {
+                return true;
+            }
+            if (t.getCause() == t) {
+                break;
+            }
+        }
+        return false;
+    }
 
     /**
      * O provedor devolveu pseudo-chamada e ainda não repetimos.
@@ -648,6 +735,22 @@ public class McpAgentRunner {
          * que ainda não a usou.
          */
         private boolean repetiuMalformada;
+        /**
+         * Só se repete uma vez por falha de transporte, <b>no laço inteiro</b>.
+         *
+         * <p>Contador próprio, e não compartilhado com o {@code repetiuMalformada}:
+         * são causas independentes, e um laço que já gastou a repetição por
+         * chamada malformada não pode ficar sem a de transporte.
+         *
+         * <p>Uma vez por laço, e não por chamada, porque é o que corresponde à
+         * falha medida: a perda de 07/08 foi em <b>rota fria</b> — o custo está em
+         * abrir a conexão, e as chamadas seguintes reaproveitam a que já está de
+         * pé. Se a medição futura mostrar timeouts espalhados pelo meio do laço, a
+         * conclusão muda e este campo vira contador por chamada; hoje isso
+         * dobraria o pior caso de latência para proteger um caso que não foi
+         * observado.
+         */
+        private boolean repetiuTransporte;
         private String lastText = "";
 
         Session(String runId, String tenantId, String systemPrompt, UntrustedContentFence fence,

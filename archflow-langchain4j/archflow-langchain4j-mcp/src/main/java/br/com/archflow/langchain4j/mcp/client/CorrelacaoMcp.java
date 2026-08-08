@@ -34,6 +34,30 @@ public final class CorrelacaoMcp {
     public static final String HEADER_TRACE = "X-Vendax-Trace";
 
     /**
+     * O cliente da conversa — <b>identidade</b>, não correlação.
+     *
+     * <h2>Por que precisa vir por aqui</h2>
+     *
+     * <p>O invoke carrega {@code customerRef}: o ArchFlow <b>sabe</b> de quem é a conversa. Mas a
+     * fronteira MCP transportava só o tenant, a janela e o trace, e o {@code clienteRef} chegava ao
+     * server como <b>argumento que o modelo preenche</b>, em toda tool.
+     *
+     * <p>Auditoria de 07/08: se o modelo copiar o cliente errado, tudo fica internamente coerente
+     * <i>para o cliente errado</i> — léxico, prior, fator e prova usam o mesmo ref trocado, e
+     * nenhuma guarda do server tem como notar, porque a única fonte da identidade é a afirmação do
+     * modelo. Era a última identidade que ainda atravessava o contexto de um LLM neste sistema.
+     *
+     * <p>A diferença para a janela e o trace, que estão logo acima, é de consequência: correlação
+     * errada estraga um relatório, identidade errada escreve no cadastro de outra pessoa. O
+     * mecanismo é o mesmo — o valor sai do invoke e nada entre o dispatcher e o server pode
+     * alterá-lo — mas o motivo de ele existir não é rastreabilidade, é integridade.
+     */
+    public static final String HEADER_CLIENTE = "X-Vendax-Cliente";
+
+    /** O vendedor da conversa; mesma origem e mesmas razões do {@link #HEADER_CLIENTE}. */
+    public static final String HEADER_VENDEDOR = "X-Vendax-Vendedor";
+
+    /**
      * As chaves pelas quais a correlação atravessa a fronteira de THREAD.
      *
      * <p>Medido em 06/08, no log de produção: o dispatcher roda em {@code [vendax-agent-4]} e a
@@ -46,13 +70,32 @@ public final class CorrelacaoMcp {
      */
     public static final String CTX_JANELA = "vendax.correlacao.janela";
     public static final String CTX_TRACE = "vendax.correlacao.trace";
+    public static final String CTX_CLIENTE = "vendax.identidade.cliente";
+    public static final String CTX_VENDEDOR = "vendax.identidade.vendedor";
 
     private static final ThreadLocal<Dados> ATUAL = new ThreadLocal<>();
 
-    public record Dados(String janelaChave, String traceId) {
+    /**
+     * O que acompanha a execução: correlação (janela, trace) e identidade
+     * (cliente, vendedor). Ver {@link #HEADER_CLIENTE} para por que a segunda
+     * não podia continuar viajando como argumento de tool.
+     */
+    public record Dados(String janelaChave, String traceId, String clienteRef, String vendedorRef) {
+
+        /** Nenhuma correlação nem identidade — o caso normal de initialize e tools/list. */
+        public static final Dados NENHUMA = new Dados(null, null, null, null);
+
+        /** Compat: a forma que existia antes de a identidade entrar. */
+        public Dados(String janelaChave, String traceId) {
+            this(janelaChave, traceId, null, null);
+        }
+
         public boolean vazio() {
-            return (janelaChave == null || janelaChave.isBlank())
-                    && (traceId == null || traceId.isBlank());
+            return branco(janelaChave) && branco(traceId) && branco(clienteRef) && branco(vendedorRef);
+        }
+
+        private static boolean branco(String s) {
+            return s == null || s.isBlank();
         }
     }
 
@@ -68,7 +111,13 @@ public final class CorrelacaoMcp {
      * ausência é um valor, e escrevê-la é mais barato que confiar em disciplina.</p>
      */
     public static void definir(String janelaChave, String traceId) {
-        Dados d = new Dados(janelaChave, traceId);
+        definir(janelaChave, traceId, null, null);
+    }
+
+    /** Idem, carregando também a identidade da conversa. */
+    public static void definir(String janelaChave, String traceId,
+                               String clienteRef, String vendedorRef) {
+        Dados d = new Dados(janelaChave, traceId, clienteRef, vendedorRef);
         if (d.vazio()) {
             ATUAL.remove();
             return;
@@ -79,7 +128,7 @@ public final class CorrelacaoMcp {
     /** Nunca nulo: ausência é o caso normal (initialize, tools/list, testes). */
     public static Dados atual() {
         Dados d = ATUAL.get();
-        return d == null ? new Dados(null, null) : d;
+        return d == null ? Dados.NENHUMA : d;
     }
 
     public static void limpar() {

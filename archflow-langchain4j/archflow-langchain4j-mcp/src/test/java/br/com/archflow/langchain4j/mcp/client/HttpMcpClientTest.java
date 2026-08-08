@@ -40,7 +40,11 @@ class HttpMcpClientTest {
                     CorrelacaoMcp.HEADER_JANELA,
                     String.valueOf(exchange.getRequestHeaders().getFirst(CorrelacaoMcp.HEADER_JANELA)),
                     CorrelacaoMcp.HEADER_TRACE,
-                    String.valueOf(exchange.getRequestHeaders().getFirst(CorrelacaoMcp.HEADER_TRACE))));
+                    String.valueOf(exchange.getRequestHeaders().getFirst(CorrelacaoMcp.HEADER_TRACE)),
+                    CorrelacaoMcp.HEADER_CLIENTE,
+                    String.valueOf(exchange.getRequestHeaders().getFirst(CorrelacaoMcp.HEADER_CLIENTE)),
+                    CorrelacaoMcp.HEADER_VENDEDOR,
+                    String.valueOf(exchange.getRequestHeaders().getFirst(CorrelacaoMcp.HEADER_VENDEDOR))));
             byte[] reqBytes = exchange.getRequestBody().readAllBytes();
             JsonNode req = mapper.readTree(reqBytes);
             String method = req.path("method").asText();
@@ -181,6 +185,68 @@ class HttpMcpClientTest {
 
         Map<String, String> ultima = receivedHeaders.get(receivedHeaders.size() - 1);
         assertThat(ultima.get(CorrelacaoMcp.HEADER_JANELA)).isEqualTo("null");
+        client.close();
+    }
+
+    /**
+     * A identidade da conversa sai pelo <b>transporte</b>, e não como argumento que o modelo
+     * preenche.
+     *
+     * <p>Auditoria de 07/08: o {@code clienteRef} chegava ao server só como argumento de tool. Um
+     * ref trocado pelo modelo produz um resultado internamente coerente <i>para o cliente
+     * errado</i> — léxico, prior, fator e prova todos com o mesmo ref trocado — e nenhuma guarda
+     * do server tem como notar, porque a única fonte da identidade é a afirmação do modelo.</p>
+     *
+     * <p>Vale a mesma armadilha de thread da correlação: {@code callTool} roda numa thread virtual
+     * do ioExecutor, e ler o ThreadLocal lá dentro devolveria nulo sempre, em silêncio. Aqui isso
+     * seria pior — a ausência do header faz o server voltar a confiar no argumento do modelo, sem
+     * nada indicando que a proteção não estava ativa.</p>
+     */
+    @Test
+    @DisplayName("a identidade da conversa vai nos headers da chamada de tool")
+    void identidadeVaiNoHeader() throws Exception {
+        HttpMcpClient client = new HttpMcpClient(baseUrl, "t", "acme");
+        client.connect();
+        receivedHeaders.clear();
+
+        CorrelacaoMcp.definir("QP:conversa-abc:42", "trace-xyz", "cli-64336", "vend-7");
+        try {
+            client.callToolSync("resolver_sku", Map.of());
+        } finally {
+            CorrelacaoMcp.limpar();
+        }
+
+        Map<String, String> ultima = receivedHeaders.get(receivedHeaders.size() - 1);
+        assertThat(ultima.get(CorrelacaoMcp.HEADER_CLIENTE))
+                .as("e esta a fonte que o modelo nao escreve")
+                .isEqualTo("cli-64336");
+        assertThat(ultima.get(CorrelacaoMcp.HEADER_VENDEDOR)).isEqualTo("vend-7");
+        client.close();
+    }
+
+    /**
+     * Fluxos não-cliente (sem {@code customerRef}) seguem como hoje: sem header, e o server
+     * mantém o comportamento atual. Ausência é um caso legítimo, não uma falha.
+     */
+    @Test
+    @DisplayName("sem identidade, o header não é enviado")
+    void semIdentidadeNaoMandaHeader() throws Exception {
+        HttpMcpClient client = new HttpMcpClient(baseUrl, "t", "acme");
+        client.connect();
+        receivedHeaders.clear();
+
+        CorrelacaoMcp.definir("QP:conversa-abc:42", "trace-xyz");
+        try {
+            client.callToolSync("resolver_sku", Map.of());
+        } finally {
+            CorrelacaoMcp.limpar();
+        }
+
+        Map<String, String> ultima = receivedHeaders.get(receivedHeaders.size() - 1);
+        assertThat(ultima.get(CorrelacaoMcp.HEADER_CLIENTE)).isEqualTo("null");
+        assertThat(ultima.get(CorrelacaoMcp.HEADER_JANELA))
+                .as("a correlacao continua saindo — sao coisas independentes")
+                .isEqualTo("QP:conversa-abc:42");
         client.close();
     }
 }

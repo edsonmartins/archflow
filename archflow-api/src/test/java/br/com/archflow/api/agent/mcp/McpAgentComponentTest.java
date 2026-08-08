@@ -315,6 +315,8 @@ class McpAgentComponentTest {
         when(ctx.get(McpAgentHost.CONTEXT_KEY)).thenReturn(Optional.of(espiao));
         when(ctx.get(CorrelacaoMcp.CTX_JANELA)).thenReturn(Optional.of("QP:conversa-abc:42"));
         when(ctx.get(CorrelacaoMcp.CTX_TRACE)).thenReturn(Optional.of("trace-xyz"));
+        when(ctx.get(CorrelacaoMcp.CTX_CLIENTE)).thenReturn(Optional.of("cli-64336"));
+        when(ctx.get(CorrelacaoMcp.CTX_VENDEDOR)).thenReturn(Optional.of("vend-7"));
 
         componente(Map.of("systemPrompt", "você é um agente",
                 "tools", List.of("resolver_sku"))).execute("execute", "oi", ctx);
@@ -324,8 +326,16 @@ class McpAgentComponentTest {
                 .as("sem isto o header não sai, e nada falha para avisar")
                 .isEqualTo("QP:conversa-abc:42");
         assertThat(durante.get().traceId()).isEqualTo("trace-xyz");
+        assertThat(durante.get().clienteRef())
+                .as("a identidade paga a MESMA armadilha de thread, e cala do mesmo jeito — "
+                        + "so que aqui o silencio devolve a identidade ao modelo")
+                .isEqualTo("cli-64336");
+        assertThat(durante.get().vendedorRef()).isEqualTo("vend-7");
         assertThat(CorrelacaoMcp.atual().janelaChave())
                 .as("a thread é do pool do motor e será reusada por outro passo, de outro tenant")
+                .isNull();
+        assertThat(CorrelacaoMcp.atual().clienteRef())
+                .as("identidade vazada para o passo seguinte seria pior que ausente")
                 .isNull();
     }
 

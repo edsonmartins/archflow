@@ -89,6 +89,31 @@ class RespostaDoProvedorTest {
         }
     }
 
+    /**
+     * Modelo que estoura nas primeiras {@code falhas} chamadas e depois responde.
+     * Diferente do {@link ModeloRoteirizado}, aqui não há resposta nenhuma — que é
+     * exatamente a diferença entre a demanda 9 e a 2.
+     */
+    private static final class ModeloQueEstoura implements ChatModel {
+        private final int falhas;
+        private final RuntimeException erro;
+        private final ChatResponse depois;
+        int turnos;
+
+        ModeloQueEstoura(int falhas, RuntimeException erro, ChatResponse depois) {
+            this.falhas = falhas;
+            this.erro = erro;
+            this.depois = depois;
+        }
+
+        @Override public ChatResponse chat(ChatRequest request) {
+            if (turnos++ < falhas) {
+                throw erro;
+            }
+            return depois;
+        }
+    }
+
     private static final ResolvedLLMConfig CONFIG = ResolvedLLMConfig.builder()
             .provider("openrouter").model("google/gemini-2.5-flash-lite").maxTokens(4096).build();
 
@@ -215,6 +240,135 @@ class RespostaDoProvedorTest {
             assertThat(modelo.turnos)
                     .as("a assinatura e `call:nome{`, nao a palavra call em prosa")
                     .isEqualTo(1);
+        }
+    }
+
+    // ── Demanda 9 ────────────────────────────────────────────────────
+
+    /**
+     * O vizinho da demanda 2: lá o provedor respondeu e a serialização saiu
+     * corrompida; aqui não houve resposta nenhuma.
+     *
+     * <p>Medido em 07/08: o {@code gemma-4-31b} perdeu a primeira das oito
+     * execuções com {@code TimeoutException} em rota fria e acertou as sete
+     * seguintes. As outras duas assinaturas da mesma semana são
+     * {@code ConnectException} e
+     * {@code IOException: HTTP/1.1 header parser received no bytes}.
+     */
+    @Nested
+    @DisplayName("falha de transporte")
+    class Transporte {
+
+        private static RuntimeException embrulhado(Exception causa) {
+            return new RuntimeException("falha ao chamar o provedor", causa);
+        }
+
+        /** O caso medido: rota fria na 1ª chamada, tudo certo na 2ª. */
+        @Test
+        @DisplayName("timeout na 1ª e resposta na 2ª: o passo conclui")
+        void repeteEConclui() {
+            ModeloQueEstoura modelo = new ModeloQueEstoura(
+                    1, embrulhado(new java.util.concurrent.TimeoutException("rota fria")),
+                    texto("pronto"));
+
+            McpAgentRunner.Result r = runner(modelo)
+                    .run("acme", "sys", "monte a cotação", new ClienteFalso(), opcoes());
+
+            assertThat(r.finalText()).isEqualTo("pronto");
+            assertThat(modelo.turnos).as("1a chamada + 1 repeticao").isEqualTo(2);
+            assertThat(avisos())
+                    .as("sem este registro, 1/8 de perda por rota fria vira 'o modelo e estavel'")
+                    .anySatisfy(m -> assertThat(m).contains("TRANSPORTE").contains("repetindo"));
+        }
+
+        @Test
+        @DisplayName("conexão recusada também repete")
+        void connectException() {
+            ModeloQueEstoura modelo = new ModeloQueEstoura(
+                    1, embrulhado(new java.net.ConnectException("recusada")), texto("pronto"));
+
+            assertThat(runner(modelo).run("acme", "sys", "x", new ClienteFalso(), opcoes())
+                    .finalText()).isEqualTo("pronto");
+        }
+
+        @Test
+        @DisplayName("resposta sem cabeçalho também repete")
+        void semCabecalho() {
+            ModeloQueEstoura modelo = new ModeloQueEstoura(
+                    1, embrulhado(new java.io.IOException(
+                            "HTTP/1.1 header parser received no bytes")),
+                    texto("pronto"));
+
+            assertThat(runner(modelo).run("acme", "sys", "x", new ClienteFalso(), opcoes())
+                    .finalText()).isEqualTo("pronto");
+        }
+
+        @Test
+        @DisplayName("falhando nas duas, propaga — sem laço infinito")
+        void naoRepeteParaSempre() {
+            ModeloQueEstoura modelo = new ModeloQueEstoura(
+                    99, embrulhado(new java.net.ConnectException("recusada")), texto("nunca"));
+
+            org.assertj.core.api.Assertions
+                    .assertThatThrownBy(() -> runner(modelo)
+                            .run("acme", "sys", "x", new ClienteFalso(), opcoes()))
+                    .isInstanceOf(RuntimeException.class);
+            assertThat(modelo.turnos)
+                    .as("uma repeticao, nao um laco: 1a chamada + 1 repeticao")
+                    .isEqualTo(2);
+        }
+
+        /**
+         * O {@code 400} do Bedrock por prompt caching, de 08/08. Repetir teria
+         * escondido um defeito de configuração atrás de uma latência dobrada.
+         */
+        @Test
+        @DisplayName("erro de APLICAÇÃO (4xx) não repete")
+        void erroDeAplicacaoNaoRepete() {
+            ModeloQueEstoura modelo = new ModeloQueEstoura(
+                    99, embrulhado(new dev.langchain4j.exception.HttpException(
+                            400, "Provider returned error: did not allow prompt caching")),
+                    texto("nunca"));
+
+            org.assertj.core.api.Assertions
+                    .assertThatThrownBy(() -> runner(modelo)
+                            .run("acme", "sys", "x", new ClienteFalso(), opcoes()))
+                    .isInstanceOf(RuntimeException.class);
+            assertThat(modelo.turnos)
+                    .as("repetir a mesma requisicao invalida da o mesmo erro, mais tarde")
+                    .isEqualTo(1);
+            assertThat(avisos()).noneSatisfy(m -> assertThat(m).contains("TRANSPORTE"));
+        }
+
+        /**
+         * Um {@code 4xx} embrulhado em algo genérico não pode ser confundido com
+         * queda de conexão — é por isso que a checagem de {@code HttpException}
+         * varre a cadeia de causas <b>antes</b> da de transporte.
+         */
+        @Test
+        @DisplayName("4xx embrulhado fundo na cadeia continua sem repetir")
+        void quatroXxEmbrulhado() {
+            RuntimeException fundo = new RuntimeException("camada 1",
+                    new IllegalStateException("camada 2",
+                            new dev.langchain4j.exception.HttpException(422, "nao processavel")));
+            ModeloQueEstoura modelo = new ModeloQueEstoura(99, fundo, texto("nunca"));
+
+            org.assertj.core.api.Assertions
+                    .assertThatThrownBy(() -> runner(modelo)
+                            .run("acme", "sys", "x", new ClienteFalso(), opcoes()))
+                    .isInstanceOf(RuntimeException.class);
+            assertThat(modelo.turnos).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("resposta normal não paga por isto")
+        void caminhoComumIntacto() {
+            ModeloRoteirizado modelo = new ModeloRoteirizado(List.of(texto("respondi normalmente")));
+
+            runner(modelo).run("acme", "sys", "x", new ClienteFalso(), opcoes());
+
+            assertThat(modelo.turnos).isEqualTo(1);
+            assertThat(avisos()).noneSatisfy(m -> assertThat(m).contains("TRANSPORTE"));
         }
     }
 
