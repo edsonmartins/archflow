@@ -179,10 +179,13 @@ public class McpAgentComponent implements AIComponent, ComponentPlugin {
         // versão definia no dispatcher, e o header nunca era enviado — sem erro, sem log, sem
         // nada. Uma correlação que falha em silêncio é pior que não ter correlação, porque quem
         // for procurá-la vai concluir que o evento não tinha origem.
+        // A ORIGEM (task) volta pelo mesmo caminho. Ler do contexto e não de um campo do passo é o
+        // que a mantém opaca: nada aqui interpreta a task, e o modelo nunca a vê.
         CorrelacaoMcp.definir(textoDoContexto(context, CorrelacaoMcp.CTX_JANELA),
                 textoDoContexto(context, CorrelacaoMcp.CTX_TRACE),
                 textoDoContexto(context, CorrelacaoMcp.CTX_CLIENTE),
-                textoDoContexto(context, CorrelacaoMcp.CTX_VENDEDOR));
+                textoDoContexto(context, CorrelacaoMcp.CTX_VENDEDOR),
+                textoDoContexto(context, CorrelacaoMcp.CTX_TASK));
         McpAgentRunner.Result result;
         try {
             result = host.runner().run(

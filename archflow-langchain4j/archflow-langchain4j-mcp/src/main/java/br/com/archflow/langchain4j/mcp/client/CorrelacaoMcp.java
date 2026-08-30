@@ -58,6 +58,35 @@ public final class CorrelacaoMcp {
     public static final String HEADER_VENDEDOR = "X-Vendax-Vendedor";
 
     /**
+     * A task do VendaX que originou esta execução — <b>origem</b>, quando houve uma.
+     *
+     * <h2>O que ele decide do outro lado</h2>
+     *
+     * <p>O server grava o vínculo no evento de cotação e passa a derivar o impacto da task das
+     * cotações que de fato saíram dela. Ou seja: este valor decide <b>a quem creditar uma venda</b>.
+     *
+     * <p>Isso o coloca na mesma família do {@link #HEADER_CLIENTE}, e por um agravante próprio. Um
+     * id de task trocado não produz erro nem log: a cotação existe, o valor está certo, o cliente é
+     * real — só o dono do crédito é outro. E ninguém confere um número de comissão até questioná-lo.
+     * Campo que o modelo preenche é campo que o modelo erra, e erra de forma plausível; por isso
+     * isto entra pelo transporte, onde o modelo não vê, não escolhe e não pode alterar.
+     *
+     * <h2>Opaco</h2>
+     *
+     * <p>Este runtime não interpreta a task, não valida o formato e não decide nada com ela. Só
+     * repassa o que recebeu no invoke.
+     *
+     * <h2>Ausente é o caso comum</h2>
+     *
+     * <p>A maioria das conversas não vem de task, e nesses casos o header não vai. <b>Vazado entre
+     * execuções é pior que ausente</b>: ausência vira "sem atribuição", que é uma resposta honesta
+     * e visível; presença errada vira um número que ninguém contesta. Por isso {@link #definir}
+     * escreve a ausência em vez de deixar o valor anterior, e todo caminho que define limpa no
+     * {@code finally}.
+     */
+    public static final String HEADER_TASK = "X-Vendax-Task";
+
+    /**
      * As chaves pelas quais a correlação atravessa a fronteira de THREAD.
      *
      * <p>Medido em 06/08, no log de produção: o dispatcher roda em {@code [vendax-agent-4]} e a
@@ -72,26 +101,34 @@ public final class CorrelacaoMcp {
     public static final String CTX_TRACE = "vendax.correlacao.trace";
     public static final String CTX_CLIENTE = "vendax.identidade.cliente";
     public static final String CTX_VENDEDOR = "vendax.identidade.vendedor";
+    public static final String CTX_TASK = "vendax.origem.task";
 
     private static final ThreadLocal<Dados> ATUAL = new ThreadLocal<>();
 
     /**
-     * O que acompanha a execução: correlação (janela, trace) e identidade
-     * (cliente, vendedor). Ver {@link #HEADER_CLIENTE} para por que a segunda
-     * não podia continuar viajando como argumento de tool.
+     * O que acompanha a execução: correlação (janela, trace), identidade
+     * (cliente, vendedor) e origem (task). Ver {@link #HEADER_CLIENTE} para por que a segunda
+     * não podia continuar viajando como argumento de tool, e {@link #HEADER_TASK} para a terceira.
      */
-    public record Dados(String janelaChave, String traceId, String clienteRef, String vendedorRef) {
+    public record Dados(String janelaChave, String traceId, String clienteRef, String vendedorRef,
+                        String taskId) {
 
-        /** Nenhuma correlação nem identidade — o caso normal de initialize e tools/list. */
-        public static final Dados NENHUMA = new Dados(null, null, null, null);
+        /** Nenhuma correlação, identidade nem origem — o caso normal de initialize e tools/list. */
+        public static final Dados NENHUMA = new Dados(null, null, null, null, null);
 
         /** Compat: a forma que existia antes de a identidade entrar. */
         public Dados(String janelaChave, String traceId) {
-            this(janelaChave, traceId, null, null);
+            this(janelaChave, traceId, null, null, null);
+        }
+
+        /** Compat: a forma que existia antes de a origem entrar. */
+        public Dados(String janelaChave, String traceId, String clienteRef, String vendedorRef) {
+            this(janelaChave, traceId, clienteRef, vendedorRef, null);
         }
 
         public boolean vazio() {
-            return branco(janelaChave) && branco(traceId) && branco(clienteRef) && branco(vendedorRef);
+            return branco(janelaChave) && branco(traceId) && branco(clienteRef)
+                    && branco(vendedorRef) && branco(taskId);
         }
 
         private static boolean branco(String s) {
@@ -117,7 +154,18 @@ public final class CorrelacaoMcp {
     /** Idem, carregando também a identidade da conversa. */
     public static void definir(String janelaChave, String traceId,
                                String clienteRef, String vendedorRef) {
-        Dados d = new Dados(janelaChave, traceId, clienteRef, vendedorRef);
+        definir(janelaChave, traceId, clienteRef, vendedorRef, null);
+    }
+
+    /**
+     * Idem, carregando também a task que originou a execução.
+     *
+     * <p>Um {@code taskId} nulo aqui é a <b>afirmação</b> de que esta execução não veio de task —
+     * não uma omissão a ser preenchida com o que sobrou da anterior. Ver {@link #HEADER_TASK}.
+     */
+    public static void definir(String janelaChave, String traceId,
+                               String clienteRef, String vendedorRef, String taskId) {
+        Dados d = new Dados(janelaChave, traceId, clienteRef, vendedorRef, taskId);
         if (d.vazio()) {
             ATUAL.remove();
             return;

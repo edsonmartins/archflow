@@ -317,6 +317,7 @@ class McpAgentComponentTest {
         when(ctx.get(CorrelacaoMcp.CTX_TRACE)).thenReturn(Optional.of("trace-xyz"));
         when(ctx.get(CorrelacaoMcp.CTX_CLIENTE)).thenReturn(Optional.of("cli-64336"));
         when(ctx.get(CorrelacaoMcp.CTX_VENDEDOR)).thenReturn(Optional.of("vend-7"));
+        when(ctx.get(CorrelacaoMcp.CTX_TASK)).thenReturn(Optional.of("task-77"));
 
         componente(Map.of("systemPrompt", "você é um agente",
                 "tools", List.of("resolver_sku"))).execute("execute", "oi", ctx);
@@ -331,11 +332,18 @@ class McpAgentComponentTest {
                         + "so que aqui o silencio devolve a identidade ao modelo")
                 .isEqualTo("cli-64336");
         assertThat(durante.get().vendedorRef()).isEqualTo("vend-7");
+        assertThat(durante.get().taskId())
+                .as("a origem paga a mesma armadilha de thread; sem ela o Core fica sem "
+                        + "a quem creditar a cotação que este passo produzir")
+                .isEqualTo("task-77");
         assertThat(CorrelacaoMcp.atual().janelaChave())
                 .as("a thread é do pool do motor e será reusada por outro passo, de outro tenant")
                 .isNull();
         assertThat(CorrelacaoMcp.atual().clienteRef())
                 .as("identidade vazada para o passo seguinte seria pior que ausente")
+                .isNull();
+        assertThat(CorrelacaoMcp.atual().taskId())
+                .as("origem vazada credita a venda de outra conversa a esta task, e não aparece")
                 .isNull();
     }
 

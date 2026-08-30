@@ -95,24 +95,30 @@ public class AgentFlowRunner {
         // A CORRELAÇÃO ATRAVESSA POR AQUI, e não por ThreadLocal: o passo executa noutra thread
         // (medido: dispatcher em [vendax-agent-N], passo em [virtual-N]). Quem a repõe do outro
         // lado é o McpAgentComponent, já na thread que chama as tools.
-        contexto.set(br.com.archflow.langchain4j.mcp.client.CorrelacaoMcp.CTX_JANELA,
+        definirSeHouver(contexto, br.com.archflow.langchain4j.mcp.client.CorrelacaoMcp.CTX_JANELA,
                 invoke.idempotencyKey());
-        contexto.set(br.com.archflow.langchain4j.mcp.client.CorrelacaoMcp.CTX_TRACE,
+        definirSeHouver(contexto, br.com.archflow.langchain4j.mcp.client.CorrelacaoMcp.CTX_TRACE,
                 invoke.traceId());
         // A IDENTIDADE ATRAVESSA PELA MESMA PORTA. Se ela ficasse só no ThreadLocal do
         // dispatcher, o header não sairia — é a armadilha que a correlação já pagou uma vez, e
         // aqui ela seria pior: a ausência do header faz o server voltar a confiar no argumento
         // que o modelo escreveu, sem nada indicando que a proteção não estava ativa.
-        contexto.set(br.com.archflow.langchain4j.mcp.client.CorrelacaoMcp.CTX_CLIENTE,
+        definirSeHouver(contexto, br.com.archflow.langchain4j.mcp.client.CorrelacaoMcp.CTX_CLIENTE,
                 invoke.customerRef());
-        contexto.set(br.com.archflow.langchain4j.mcp.client.CorrelacaoMcp.CTX_VENDEDOR,
+        definirSeHouver(contexto, br.com.archflow.langchain4j.mcp.client.CorrelacaoMcp.CTX_VENDEDOR,
                 invoke.vendorRef());
+        // A ORIGEM ATRAVESSA PELA MESMA PORTA, e a ausência dela é o caso comum: a maioria das
+        // conversas não vem de task. Não há nada a repor quando não veio — e é justamente por não
+        // haver que este valor NUNCA pode ser o da execução anterior. Ver CorrelacaoMcp.HEADER_TASK.
+        definirSeHouver(contexto, br.com.archflow.langchain4j.mcp.client.CorrelacaoMcp.CTX_TASK,
+                invoke.taskId());
         // O TIER TAMBÉM ATRAVESSA POR AQUI. Ele vinha no invoke desde sempre — decidido pelo
         // Playbook do Core — e era DESCARTADO: nada no archflow chamava invoke.tier(), e o
         // resolvedor de LLM sequer conhecia o conceito. A política de roteamento não tinha
         // efeito, e o contorno foi declarar o modelo direto no nó do fluxo, o que obriga quem
         // decide política a conhecer nome de modelo de provedor.
-        contexto.set(br.com.archflow.api.agent.mcp.McpAgentComponent.CTX_TIER, invoke.tier());
+        definirSeHouver(contexto, br.com.archflow.api.agent.mcp.McpAgentComponent.CTX_TIER,
+                invoke.tier());
         McpAgentHost.inject(contexto, mcpAgentHost);
 
         FlowResult resultado;
@@ -135,6 +141,24 @@ public class AgentFlowRunner {
         log.debug("Fluxo {} do agente {} concluiu com status {} (conv={})",
                 execucaoId, invoke.agent(), resultado.getStatus(), invoke.conversationId());
         return reduzir(saida);
+    }
+
+    /**
+     * Põe o valor no contexto <b>só quando ele existe</b>.
+     *
+     * <p>Não é preferência de estilo: as variáveis do {@code DefaultExecutionContext} vivem num
+     * {@code ConcurrentHashMap}, que lança {@code NullPointerException} em {@code put(k, null)}.
+     * Um {@code set} direto derrubava a execução inteira sempre que o campo viesse ausente — e
+     * ausente é o caso normal de {@code idempotencyKey}, de {@code customerRef} numa conversa sem
+     * vínculo e, agora, de {@code taskId} na maioria das conversas.</p>
+     *
+     * <p>Ausência é um valor legítimo aqui, e quem lê do outro lado já a trata: sem a chave, o
+     * header correspondente não sai.</p>
+     */
+    private static void definirSeHouver(ExecutionContext contexto, String chave, String valor) {
+        if (valor != null && !valor.isBlank()) {
+            contexto.set(chave, valor);
+        }
     }
 
     /**

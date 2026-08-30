@@ -307,6 +307,17 @@ public final class HttpMcpClient implements McpClient {
                     && !correlacao.vendedorRef().isBlank()) {
                 req.header(CorrelacaoMcp.HEADER_VENDEDOR, correlacao.vendedorRef());
             }
+            // A ORIGEM, quando houve uma. O server amarra a cotação à task e passa a derivar dela o
+            // impacto — isto é, a quem creditar a venda. Vai em TODA chamada da execução, não só na
+            // que firma a cotação, porque quem decide o que a chamada significa é o server.
+            //
+            // O `if` aqui não é só economia de bytes: mandar o header vazio ou com "null" seria
+            // afirmar uma origem que não existe. Ver CorrelacaoMcp.HEADER_TASK — ausência vira
+            // "sem atribuição", que é visível; presença errada vira um número que ninguém contesta.
+            if (correlacao != null && correlacao.taskId() != null
+                    && !correlacao.taskId().isBlank()) {
+                req.header(CorrelacaoMcp.HEADER_TASK, correlacao.taskId());
+            }
             String session = sessionId;
             if (session != null && !session.isBlank()) {
                 req.header(SESSION_HEADER, session);
