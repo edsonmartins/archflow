@@ -98,9 +98,12 @@ public class VendaxAgentDispatcher {
         // customerRef/vendorRef entraram, e chegava ao server apenas como argumento que o MODELO
         // preenchia — ver CorrelacaoMcp.HEADER_CLIENTE para o que isso permite quando o modelo
         // copia o ref errado.
+        // A ORIGEM VAI JUNTO, quando houve uma. Ela decide a quem o Core credita a venda, e por isso
+        // nunca é inferida nem reaproveitada: o que sai daqui é o que veio neste invoke, e o
+        // `finally` abaixo garante que a próxima execução nesta mesma thread não herde nada.
         br.com.archflow.langchain4j.mcp.client.CorrelacaoMcp.definir(
                 invoke.idempotencyKey(), invoke.traceId(),
-                invoke.customerRef(), invoke.vendorRef());
+                invoke.customerRef(), invoke.vendorRef(), invoke.taskId());
         try {
             // O caminho genérico vem ANTES do switch, e é o que o deve substituir: quando a
             // definição traz um fluxo, este runtime não precisa saber que agente é. O switch
@@ -141,6 +144,10 @@ public class VendaxAgentDispatcher {
             // A thread é reusada entre invokes. Sem limpar, o PRÓXIMO agente a rodar aqui mandaria
             // a correlação deste — e o evento da cotação sairia amarrado à conversa errada. Um
             // evento errado com confiança é pior que um evento sem correlação nenhuma.
+            //
+            // Com a task no pacote isso deixa de ser só um relatório torto: uma execução que não
+            // veio de task herdaria a task da anterior, e uma venda que nada tem a ver com ela
+            // seria creditada à task — sem erro, sem log, e sem nada que destoe na conferência.
             br.com.archflow.langchain4j.mcp.client.CorrelacaoMcp.limpar();
         }
     }

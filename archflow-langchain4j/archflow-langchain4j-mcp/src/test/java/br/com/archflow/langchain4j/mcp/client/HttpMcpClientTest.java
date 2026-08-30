@@ -23,6 +23,16 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @DisplayName("HttpMcpClient")
 class HttpMcpClientTest {
 
+    /**
+     * Marca um header que o client <b>não enviou</b>.
+     *
+     * <p>O resto deste teste registra {@code String.valueOf(getFirst(...))}, o que confunde header
+     * ausente com header cujo valor é o texto {@code "null"}. Para a task isso não serve: o pedido
+     * é que a ausência seja ausência — não vazio, não {@code "null"} como string —, porque do outro
+     * lado recebido é recebido.</p>
+     */
+    private static final String AUSENTE = "<header não enviado>";
+
     private HttpServer server;
     private String baseUrl;
     private final ObjectMapper mapper = new ObjectMapper();
@@ -44,7 +54,11 @@ class HttpMcpClientTest {
                     CorrelacaoMcp.HEADER_CLIENTE,
                     String.valueOf(exchange.getRequestHeaders().getFirst(CorrelacaoMcp.HEADER_CLIENTE)),
                     CorrelacaoMcp.HEADER_VENDEDOR,
-                    String.valueOf(exchange.getRequestHeaders().getFirst(CorrelacaoMcp.HEADER_VENDEDOR))));
+                    String.valueOf(exchange.getRequestHeaders().getFirst(CorrelacaoMcp.HEADER_VENDEDOR)),
+                    CorrelacaoMcp.HEADER_TASK,
+                    exchange.getRequestHeaders().getFirst(CorrelacaoMcp.HEADER_TASK) == null
+                            ? AUSENTE
+                            : exchange.getRequestHeaders().getFirst(CorrelacaoMcp.HEADER_TASK)));
             byte[] reqBytes = exchange.getRequestBody().readAllBytes();
             JsonNode req = mapper.readTree(reqBytes);
             String method = req.path("method").asText();
@@ -247,6 +261,131 @@ class HttpMcpClientTest {
         assertThat(ultima.get(CorrelacaoMcp.HEADER_JANELA))
                 .as("a correlacao continua saindo — sao coisas independentes")
                 .isEqualTo("QP:conversa-abc:42");
+        client.close();
+    }
+
+    /**
+     * A task de origem sai em <b>todas</b> as chamadas da execução, não só na que firma a cotação.
+     *
+     * <p>Quem decide o que uma chamada significa é o server: uma execução que resolve SKU três
+     * vezes e firma no fim precisa do header nas quatro. Filtrar aqui seria este client decidindo
+     * quais chamadas contam para a atribuição — e ele não sabe.</p>
+     */
+    @Test
+    @DisplayName("a task de origem vai no header de toda chamada de tool da execução")
+    void taskVaiEmTodaChamada() throws Exception {
+        HttpMcpClient client = new HttpMcpClient(baseUrl, "t", "acme");
+        client.connect();
+        receivedHeaders.clear();
+
+        CorrelacaoMcp.definir("QP:conversa-abc:42", "trace-xyz", "cli-1", "vend-7", "task-77");
+        try {
+            client.callToolSync("resolver_sku", Map.of());
+            client.callToolSync("resolver_sku", Map.of());
+            client.callToolSync("montar_cotacao", Map.of());
+        } finally {
+            CorrelacaoMcp.limpar();
+        }
+
+        assertThat(receivedHeaders).hasSize(3);
+        assertThat(receivedHeaders).allSatisfy(h ->
+                assertThat(h.get(CorrelacaoMcp.HEADER_TASK))
+                        .as("a que resolve SKU também pertence à task que originou a execução")
+                        .isEqualTo("task-77"));
+        client.close();
+    }
+
+    /**
+     * Execução que não veio de task: o header não é enviado. Não vazio, não {@code "null"} como
+     * texto — <b>ausente</b>, que do outro lado significa "sem atribuição".
+     */
+    @Test
+    @DisplayName("sem task, o header não é enviado — nem vazio, nem \"null\"")
+    void semTaskNaoMandaHeader() throws Exception {
+        HttpMcpClient client = new HttpMcpClient(baseUrl, "t", "acme");
+        client.connect();
+        receivedHeaders.clear();
+
+        CorrelacaoMcp.definir("QP:conversa-abc:42", "trace-xyz", "cli-1", "vend-7");
+        try {
+            client.callToolSync("resolver_sku", Map.of());
+        } finally {
+            CorrelacaoMcp.limpar();
+        }
+
+        Map<String, String> ultima = receivedHeaders.get(receivedHeaders.size() - 1);
+        assertThat(ultima.get(CorrelacaoMcp.HEADER_TASK)).isEqualTo(AUSENTE);
+        assertThat(ultima.get(CorrelacaoMcp.HEADER_CLIENTE))
+                .as("a identidade continua saindo — origem e identidade são independentes")
+                .isEqualTo("cli-1");
+        client.close();
+    }
+
+    /**
+     * O caso que reprova uma implementação que passa nos dois anteriores.
+     *
+     * <p>Duas execuções em sequência no mesmo worker e no mesmo client — a primeira vinda de uma
+     * task, a segunda não. Um estado reaproveitado (ThreadLocal não limpo, ausência não escrita)
+     * mandaria a task da primeira junto da segunda, e uma venda sem relação nenhuma com ela seria
+     * creditada à task. Não falha, não loga, não destoa: a cotação existe, o valor está certo, o
+     * cliente é real. Só o dono do crédito é outro, e ninguém confere isso até questionar uma
+     * comissão.</p>
+     */
+    @Test
+    @DisplayName("execução seguinte sem task não herda a task da anterior")
+    void taskNaoVazaParaAExecucaoSeguinte() throws Exception {
+        HttpMcpClient client = new HttpMcpClient(baseUrl, "t", "acme");
+        client.connect();
+        receivedHeaders.clear();
+
+        // Primeira execução: veio do cockpit de tasks.
+        CorrelacaoMcp.definir("QP:conversa-abc:42", "trace-1", "cli-1", "vend-7", "task-77");
+        try {
+            client.callToolSync("montar_cotacao", Map.of());
+        } finally {
+            CorrelacaoMcp.limpar();
+        }
+
+        // Segunda execução, mesma thread e mesmo client: uma conversa qualquer.
+        CorrelacaoMcp.definir("QP:conversa-zzz:1", "trace-2", "cli-2", "vend-7");
+        try {
+            client.callToolSync("montar_cotacao", Map.of());
+        } finally {
+            CorrelacaoMcp.limpar();
+        }
+
+        assertThat(receivedHeaders).hasSize(2);
+        assertThat(receivedHeaders.get(0).get(CorrelacaoMcp.HEADER_TASK)).isEqualTo("task-77");
+        assertThat(receivedHeaders.get(1).get(CorrelacaoMcp.HEADER_TASK))
+                .as("header vazado entre execuções é pior que header ausente")
+                .isEqualTo(AUSENTE);
+    }
+
+    /**
+     * Sem {@code limpar()} entre as duas — o vazamento tem de morrer no {@code definir}, e não
+     * depender de disciplina de quem chama.
+     *
+     * <p>Todo caminho de produção limpa no {@code finally}, mas "todo caminho" é uma afirmação que
+     * envelhece: basta um caminho novo esquecer. Escrever a ausência custa o mesmo que não
+     * escrevê-la.</p>
+     */
+    @Test
+    @DisplayName("definir sem task apaga a task anterior, mesmo sem limpar")
+    void definirSemTaskApagaAAnterior() throws Exception {
+        HttpMcpClient client = new HttpMcpClient(baseUrl, "t", "acme");
+        client.connect();
+        receivedHeaders.clear();
+
+        CorrelacaoMcp.definir("QP:conversa-abc:42", "trace-1", "cli-1", "vend-7", "task-77");
+        CorrelacaoMcp.definir("QP:conversa-zzz:1", "trace-2", "cli-2", "vend-7");
+        try {
+            client.callToolSync("montar_cotacao", Map.of());
+        } finally {
+            CorrelacaoMcp.limpar();
+        }
+
+        assertThat(receivedHeaders.get(receivedHeaders.size() - 1).get(CorrelacaoMcp.HEADER_TASK))
+                .isEqualTo(AUSENTE);
         client.close();
     }
 }
