@@ -72,6 +72,18 @@ archflow:
       # Virtual threads isolam o I/O; os limites impedem crescimento invisível sob rajadas.
       max-concurrency: ${ARCHFLOW_VENDAX_AGENT_MAX_CONCURRENCY:32}
       queue-capacity: ${ARCHFLOW_VENDAX_AGENT_QUEUE_CAPACITY:256}
+      # Classe interativa (ADR-025 D-2) — hoje, a consulta do vendedor ao NS. A tela espera 30 s;
+      # passado este prazo o resultado sai como ERROR, com a mesma chave, e não é reenfileirado.
+      prazo-interativo: ${ARCHFLOW_VENDAX_AGENT_PRAZO_INTERATIVO:PT20S}
+
+  # Preço por modelo, em centavos por milhão de tokens, para o `uso` que acompanha cada result.
+  # A chave é o provider/modelo da configuração resolvida, ENTRE COLCHETES (tem barras e pontos).
+  # Modelo sem preço declarado sai com tokens e costCents nulo — nulo não é "de graça".
+  # llm:
+  #   precos:
+  #     "[openrouter/google/gemini-2.5-flash-lite]":
+  #       entrada: 10
+  #       saida: 40
 
 logging:
   level:

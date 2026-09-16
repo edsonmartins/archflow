@@ -381,4 +381,36 @@ class McpAgentComponentTest {
                 .as("quem nao usa tier nao pode ganhar um por engano")
                 .isNull();
     }
+
+    /**
+     * O contador de uso chega ao runner pelo contexto.
+     *
+     * <p>No caminho de fluxo, o passo não conhece quem montará o resultado. Sem o contador nas
+     * opções, os tokens gastos aqui não apareceriam em result nenhum — e o teto de custo do tenant
+     * contaria menos exatamente no caminho que vai substituir os outros.</p>
+     */
+    @Test
+    @DisplayName("o contador de uso do contexto vai nas opções do runner")
+    void contadorDeUsoChegaAoRunner() {
+        HostFalso host = new HostFalso(Set.of("ler"), concluido());
+        ContadorDeUso contador = new ContadorDeUso();
+        ExecutionContext ctx = contextoCom(host);
+        when(ctx.get(ContadorDeUso.CONTEXT_KEY)).thenReturn(Optional.of(contador));
+
+        componente(Map.of("systemPrompt", "p", "tools", List.of("ler")))
+                .execute("execute", "oi", ctx);
+
+        assertThat(host.options.get().uso()).isSameAs(contador);
+    }
+
+    @Test
+    @DisplayName("sem contador no contexto, o passo roda igual")
+    void semContador() {
+        HostFalso host = new HostFalso(Set.of("ler"), concluido());
+
+        componente(Map.of("systemPrompt", "p", "tools", List.of("ler")))
+                .execute("execute", "oi", contextoCom(host));
+
+        assertThat(host.options.get().uso()).isNull();
+    }
 }

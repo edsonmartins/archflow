@@ -1357,6 +1357,29 @@ public class ArchflowBeanConfiguration {
                 workflowDeserializer, flowEngine, flowRepository, mcpAgentHost);
     }
 
+    /**
+     * Preço por modelo, em centavos por milhão de tokens — ver {@code TabelaDePrecos}.
+     *
+     * <p>Vazia por padrão: sem preço declarado, o result leva tokens e custo nulo. Inventar um
+     * preço padrão faria o teto do tenant contar um número que ninguém decidiu.</p>
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public br.com.archflow.api.agent.mcp.TabelaDePrecos tabelaDePrecos(
+            org.springframework.core.env.Environment environment) {
+        var tipo = org.springframework.core.ResolvableType.forClassWithGenerics(java.util.Map.class,
+                org.springframework.core.ResolvableType.forClass(String.class),
+                org.springframework.core.ResolvableType.forClassWithGenerics(
+                        java.util.Map.class, String.class, String.class));
+        java.util.Map<String, java.util.Map<String, String>> config =
+                org.springframework.boot.context.properties.bind.Binder.get(environment)
+                        .bind("archflow.llm.precos",
+                                org.springframework.boot.context.properties.bind.Bindable
+                                        .<java.util.Map<String, java.util.Map<String, String>>>of(tipo))
+                        .orElse(java.util.Map.of());
+        return br.com.archflow.api.agent.mcp.TabelaDePrecos.daConfiguracao(config);
+    }
+
     /** Roteia o invoke do Core: fluxo quando a definição traz um, senão o caminho por nome. */
     @Bean
     @ConditionalOnMissingBean
@@ -1367,9 +1390,14 @@ public class ArchflowBeanConfiguration {
             br.com.archflow.api.agent.vendax.VendaxResultSender vendaxResultSender,
             java.util.concurrent.ExecutorService vendaxAgentExecutor,
             br.com.archflow.api.agent.vendax.VendaxAgentMetrics vendaxAgentMetrics,
-            br.com.archflow.api.agent.vendax.AgentFlowRunner agentFlowRunner) {
-        return new br.com.archflow.api.agent.vendax.VendaxAgentDispatcher(
+            br.com.archflow.api.agent.vendax.AgentFlowRunner agentFlowRunner,
+            br.com.archflow.api.agent.mcp.TabelaDePrecos tabelaDePrecos,
+            @Value("${archflow.vendax.agent.prazo-interativo:PT20S}") java.time.Duration prazoInterativo) {
+        var dispatcher = new br.com.archflow.api.agent.vendax.VendaxAgentDispatcher(
                 qpAgentService, mcpAgentRunner, vendaxMcpClientProvider,
                 vendaxResultSender, vendaxAgentExecutor, vendaxAgentMetrics, agentFlowRunner);
+        dispatcher.setPrecos(tabelaDePrecos);
+        dispatcher.setPrazoInterativo(prazoInterativo);
+        return dispatcher;
     }
 }

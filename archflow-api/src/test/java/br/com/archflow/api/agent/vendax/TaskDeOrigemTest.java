@@ -74,7 +74,7 @@ class TaskDeOrigemTest {
      * esta, e {@code HttpMcpClient.callTool} captura o ThreadLocal aqui, não lá dentro.
      */
     private void espionarAExecucao() {
-        when(qp.quote(any(), nullable(String.class))).thenAnswer(chamada -> {
+        when(qp.quote(any(), nullable(String.class), any())).thenAnswer(chamada -> {
             tasksDurante.add(CorrelacaoMcp.atual().taskId());
             return new QpAgentService.QpResult("cotação pronta", List.of(), "{\"total\":10}", "qp-1");
         });

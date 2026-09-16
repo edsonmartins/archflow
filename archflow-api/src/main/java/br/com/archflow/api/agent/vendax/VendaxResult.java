@@ -1,5 +1,7 @@
 package br.com.archflow.api.agent.vendax;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+
 /**
  * Resultado devolvido ao VendaX Core (contrato CC-05). Em {@code OK}, {@code richObject} traz o
  * objeto tipado em JSON — uma cotação, um sentimento; em {@code ERROR}, {@code error} descreve a
@@ -17,7 +19,46 @@ public record VendaxResult(
         String richObjectType,
         String richObject,
         String error,
-        String idempotencyKey) {
+        String idempotencyKey,
+
+        /**
+         * O que a execução gastou de modelo — aditivo e opcional, em <b>todo</b> result.
+         *
+         * <p>Medido em 16/09: a tabela {@code llm_usage} do Core estava vazia, porque o uso só
+         * chegaria por um assunto que nada publicava, e o teto de custo por tenant (ADR-025
+         * D-6/D-7) contava perguntas no lugar de dinheiro. Vindo no result, o custo chega junto da
+         * execução que o produziu, inclusive quando ela falhou.</p>
+         *
+         * <p>Omitido quando nenhum modelo foi chamado: ausente é "nada a relatar", não "custo zero".</p>
+         */
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        Uso uso) {
+
+    /**
+     * Consumo de modelo da execução.
+     *
+     * @param model     {@code provider/modelo}; vários, separados por vírgula, se os passos de um
+     *                  fluxo usaram modelos diferentes
+     * @param tokens    entrada + saída; {@code null} se o provedor não informou
+     * @param costCents custo arredondado para cima; {@code null} quando não há preço declarado para
+     *                  o modelo — nulo não é "de graça", é "ninguém disse quanto custa"
+     */
+    public record Uso(String model, Long tokens, Long costCents) {
+    }
+
+    /** Compat: result sem uso — a forma do contrato antes do campo aditivo. */
+    public VendaxResult(String schemaVersion, String tenantId, String conversationId, String agent,
+                        String status, String richObjectType, String richObject, String error,
+                        String idempotencyKey) {
+        this(schemaVersion, tenantId, conversationId, agent, status, richObjectType, richObject,
+                error, idempotencyKey, null);
+    }
+
+    /** O mesmo result, carregando o consumo. */
+    public VendaxResult comUso(Uso uso) {
+        return new VendaxResult(schemaVersion, tenantId, conversationId, agent, status,
+                richObjectType, richObject, error, idempotencyKey, uso);
+    }
 
     public static final String SCHEMA_VERSION = "1.0";
     public static final String OK = "OK";
