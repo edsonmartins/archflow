@@ -65,7 +65,7 @@ class InvokeComoFluxoTest {
     @Test
     @DisplayName("executa o documento e devolve o rich object tipado pelo saidaSchema")
     void executaODocumento() {
-        when(fluxo.executar(any(), eq(DOCUMENTO), any()))
+        when(fluxo.executar(any(), eq(DOCUMENTO), any(), any()))
                 .thenReturn(new AgentFlowRunner.Saida("{\"score\":-3,\"trend\":\"CAINDO\"}", false));
 
         dispatcher.runAndReport(invoke("CS", "sentiment@1", DOCUMENTO));
@@ -76,7 +76,7 @@ class InvokeComoFluxoTest {
                 .as("o tipo vem da definição; adivinhar aqui seria o executor decidir o que o resultado significa")
                 .isEqualTo("sentiment");
         assertThat(r.richObject()).contains("CAINDO");
-        verify(qp, never()).quote(any(), any());
+        verify(qp, never()).quote(any(), any(), any());
     }
 
     /**
@@ -86,7 +86,7 @@ class InvokeComoFluxoTest {
     @Test
     @DisplayName("um agente sem `case` no switch roda igual")
     void agenteDesconhecidoRoda() {
-        when(fluxo.executar(any(), any(), any()))
+        when(fluxo.executar(any(), any(), any(), any()))
                 .thenReturn(new AgentFlowRunner.Saida("{\"ok\":true}", false));
 
         dispatcher.runAndReport(invoke("NS", "concessao@1", DOCUMENTO));
@@ -105,7 +105,7 @@ class InvokeComoFluxoTest {
     @Test
     @DisplayName("fluxo suspenso em aprovação não manda resultado")
     void suspensoNaoEnvia() {
-        when(fluxo.executar(any(), any(), any()))
+        when(fluxo.executar(any(), any(), any(), any()))
                 .thenReturn(new AgentFlowRunner.Saida("proposta parcial", true));
 
         dispatcher.runAndReport(invoke("CS", "sentiment@1", DOCUMENTO));
@@ -185,14 +185,14 @@ class InvokeComoFluxoTest {
     @Test
     @DisplayName("o fluxo recebe exatamente essa mensagem")
     void fluxoRecebeAMesmaEntrada() {
-        when(fluxo.executar(any(), any(), any()))
+        when(fluxo.executar(any(), any(), any(), any()))
                 .thenReturn(new AgentFlowRunner.Saida("{\"score\":0}", false));
         VendaxInvoke invoke = invoke("CS", "sentiment@1", DOCUMENTO);
 
         dispatcher.runAndReport(invoke);
 
         ArgumentCaptor<String> entrada = ArgumentCaptor.forClass(String.class);
-        verify(fluxo).executar(any(), any(), entrada.capture());
+        verify(fluxo).executar(any(), any(), entrada.capture(), any());
         assertThat(entrada.getValue()).isEqualTo(dispatcher.entradaDoAgente(invoke));
     }
 

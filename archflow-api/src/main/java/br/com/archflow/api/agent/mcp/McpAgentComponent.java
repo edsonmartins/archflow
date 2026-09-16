@@ -170,7 +170,11 @@ public class McpAgentComponent implements AIComponent, ComponentPlugin {
                 ToolApprovalPolicy.none(),
                 iteracoes(), flowPatch, LLMConfigPatch.fromMap(config),
                 exigir ? saidaDaTool : Set.of(),
-                textoDoContexto(context, CTX_TIER));
+                textoDoContexto(context, CTX_TIER))
+                // O CONSUMO VAI PARA QUEM HOSPEDA A EXECUÇÃO. Sem isto, um agente em fluxo gastaria
+                // tokens que nenhum resultado relata — e o teto de custo do tenant contaria menos
+                // do que foi gasto, justamente no caminho que vai substituir os outros.
+                .comUso(ContadorDeUso.de(context).orElse(null));
 
         // A CORRELAÇÃO VOLTA AO ThreadLocal AQUI — nesta thread, que é a que chama as tools.
         //

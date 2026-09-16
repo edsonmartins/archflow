@@ -71,6 +71,17 @@ public class AgentFlowRunner {
     }
 
     public Saida executar(VendaxInvoke invoke, Map<String, Object> fluxo, String entrada) {
+        return executar(invoke, fluxo, entrada, null);
+    }
+
+    /**
+     * Idem, somando em {@code uso} o que os passos gastarem de modelo.
+     *
+     * <p>O contador vem de fora porque quem relata o custo é quem monta o resultado — e ele tem de
+     * poder lê-lo mesmo quando esta execução termina em exceção.</p>
+     */
+    public Saida executar(VendaxInvoke invoke, Map<String, Object> fluxo, String entrada,
+                          br.com.archflow.api.agent.mcp.ContadorDeUso uso) {
         // Id único por execução: o motor indexa fluxos ativos por id, e duas execuções do mesmo
         // documento (reentrega do Core, retentativa) colidiriam se compartilhassem o dele.
         //
@@ -120,6 +131,7 @@ public class AgentFlowRunner {
         definirSeHouver(contexto, br.com.archflow.api.agent.mcp.McpAgentComponent.CTX_TIER,
                 invoke.tier());
         McpAgentHost.inject(contexto, mcpAgentHost);
+        br.com.archflow.api.agent.mcp.ContadorDeUso.injetar(contexto, uso);
 
         FlowResult resultado;
         try {

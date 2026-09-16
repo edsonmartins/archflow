@@ -136,7 +136,13 @@ public class McpAgentRunner {
      * {@code trust} registra como o conteúdo foi tratado.
      */
     public record ToolCall(String name, Map<String, Object> arguments, String resultText,
-                           boolean isError, ToolTrust trust) {
+                           boolean isError, ToolTrust trust, Integer errorCode) {
+
+        /** Compat: chamada sem código de erro — sucesso, ou erro que não veio do protocolo. */
+        public ToolCall(String name, Map<String, Object> arguments, String resultText,
+                        boolean isError, ToolTrust trust) {
+            this(name, arguments, resultText, isError, trust, null);
+        }
     }
 
     /**
@@ -149,24 +155,44 @@ public class McpAgentRunner {
      * como se fosse a conclusão.
      */
     public record Result(String finalText, List<ToolCall> toolCalls,
-                         McpAgentState.PendingApproval pendingApproval) {
+                         McpAgentState.PendingApproval pendingApproval,
+                         ToolCall encerradoPor) {
 
         public Result(String finalText, List<ToolCall> toolCalls) {
-            this(finalText, toolCalls, null);
+            this(finalText, toolCalls, null, null);
+        }
+
+        /** Compat: a forma que existia antes do encerramento por código de erro. */
+        public Result(String finalText, List<ToolCall> toolCalls,
+                      McpAgentState.PendingApproval pendingApproval) {
+            this(finalText, toolCalls, pendingApproval, null);
         }
 
         static Result finished(String finalText, List<ToolCall> toolCalls) {
-            return new Result(finalText, List.copyOf(toolCalls), null);
+            return new Result(finalText, List.copyOf(toolCalls), null, null);
         }
 
         static Result suspended(String finalText, List<ToolCall> toolCalls,
                                 McpAgentState.PendingApproval pending) {
-            return new Result(finalText, List.copyOf(toolCalls), pending);
+            return new Result(finalText, List.copyOf(toolCalls), pending, null);
+        }
+
+        static Result encerrado(String finalText, List<ToolCall> toolCalls, ToolCall causa) {
+            return new Result(finalText, List.copyOf(toolCalls), null, causa);
         }
 
         /** {@code true} quando o laço parou esperando uma decisão humana. */
         public boolean isSuspended() {
             return pendingApproval != null;
+        }
+
+        /**
+         * {@code true} quando uma tool respondeu com um código que o chamador declarou terminal
+         * ({@link Options#codigosQueEncerram}). O texto final, nesse caso, <b>não</b> é resposta:
+         * o modelo não teve a volta seguinte.
+         */
+        public boolean isEncerrado() {
+            return encerradoPor != null;
         }
 
         /** Última chamada (bem-sucedida) da tool de nome {@code name}, se houver. */
@@ -250,8 +276,12 @@ public class McpAgentRunner {
         if (approved) {
             // A política de acesso é reconferida na retomada: a autorização pode
             // ter sido revogada entre a suspensão e a decisão.
-            executeAndAppend(session, client, options, pending.toolName(),
+            ToolCall feita = executeAndAppend(session, client, options, pending.toolName(),
                     pending.toolCallId(), args);
+            if (encerra(feita, options)) {
+                requireStore().delete(session.runId);
+                return Result.encerrado(session.lastText, session.toolCalls, feita);
+            }
         } else {
             log.info("Aprovação {} recusada; devolvendo a recusa ao modelo (run={})",
                     requestId, session.runId);
@@ -286,6 +316,7 @@ public class McpAgentRunner {
                 .tier(options.tier())
                 .build();
         ChatModel model = llmConfigResolver.resolveModel(llmRequest);
+        String rotuloDoModelo = rotuloDoModelo(llmRequest);
 
         List<ToolSpecification> tools;
         // Schemas guardados por nome: o mesmo contrato que descrevemos ao modelo
@@ -310,6 +341,7 @@ public class McpAgentRunner {
                     .toolSpecifications(tools)
                     .build());
             recordTurn(response);
+            somarUso(options, rotuloDoModelo, response);
             AiMessage ai = response.aiMessage();
             session.messages.add(ai);
             if (ai.text() != null) {
@@ -381,7 +413,11 @@ public class McpAgentRunner {
                             invalidArgumentsMessage(req.name(), parsed.error()));
                     continue;
                 }
-                executeAndAppend(session, client, options, req.name(), req.id(), parsed.args());
+                ToolCall feita = executeAndAppend(session, client, options, req.name(), req.id(),
+                        parsed.args());
+                if (encerra(feita, options)) {
+                    return Result.encerrado(session.lastText, session.toolCalls, feita);
+                }
             }
         }
 
@@ -607,12 +643,13 @@ public class McpAgentRunner {
         recordToolCall(toolName, System.nanoTime(), false);
     }
 
-    /** Executa a tool e acrescenta o resultado ao transcript. */
-    private void executeAndAppend(Session session, McpClient client, Options options,
-                                  String toolName, String toolCallId, Map<String, Object> args) {
+    /** Executa a tool, acrescenta o resultado ao transcript e devolve a chamada registrada. */
+    private ToolCall executeAndAppend(Session session, McpClient client, Options options,
+                                      String toolName, String toolCallId, Map<String, Object> args) {
         long startedAt = System.nanoTime();
         String resultText;
         boolean isError = true;
+        Integer errorCode = null;
         // Texto de erro é nosso, não do server: não é conteúdo de terceiro e não
         // entra na cerca. Só o payload de uma execução bem-sucedida é que
         // carrega a marca da política.
@@ -638,13 +675,85 @@ public class McpAgentRunner {
                 }
             } catch (Exception e) {
                 resultText = "ERRO ao executar a tool " + toolName + ": " + e.getMessage();
+                errorCode = codigoDoProtocolo(e);
                 log.warn("Falha na tool MCP {}: {}", toolName, e.getMessage());
             }
         }
 
         recordToolCall(toolName, startedAt, !isError);
-        session.toolCalls.add(new ToolCall(toolName, effectiveArgs, resultText, isError, trust));
+        ToolCall call = new ToolCall(toolName, effectiveArgs, resultText, isError, trust, errorCode);
+        session.toolCalls.add(call);
         appendToolResult(session, toolCallId, toolName, resultText, isError, trust);
+        return call;
+    }
+
+    /**
+     * O código JSON-RPC do erro, quando a falha veio do server — e não do transporte.
+     *
+     * <p>Procura na cadeia de causas porque o erro atravessa o futuro do client antes de chegar
+     * aqui, e o embrulho muda conforme o caminho.</p>
+     */
+    private static Integer codigoDoProtocolo(Throwable e) {
+        for (Throwable t = e; t != null; t = t.getCause()) {
+            if (t instanceof br.com.archflow.langchain4j.mcp.client.HttpMcpClient.McpRpcException rpc) {
+                return rpc.code();
+            }
+            if (t.getCause() == t) {
+                break;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * A chamada respondeu com um código que o chamador declarou terminal.
+     *
+     * <p>Existe porque "devolver o erro ao modelo" é a resposta certa para quase tudo — argumento
+     * errado, SKU desconhecido — e a errada para o resto. Medido no contrato do VendaX: o
+     * {@code -32001} diz que o agente não foi contratado pelo tenant. Nenhuma volta a mais muda
+     * isso, e cada uma custa um turno de modelo e segundos de um vendedor que está esperando.
+     * Quem sabe o que o código significa é quem hospeda o laço; o runner só obedece.</p>
+     */
+    private static boolean encerra(ToolCall call, Options options) {
+        return call.isError() && call.errorCode() != null
+                && options.codigosQueEncerram().contains(call.errorCode());
+    }
+
+    /**
+     * {@code provider/modelo} da execução, para quem vai contar o custo.
+     *
+     * <p>Sai da configuração resolvida, não do nome que o provedor devolve: é a chave com que o
+     * operador declara preço. Falhar aqui não pode derrubar o laço — sem rótulo, o uso sai sem
+     * modelo e sem custo, que é honesto.</p>
+     */
+    private String rotuloDoModelo(LLMResolutionRequest llmRequest) {
+        try {
+            ResolvedLLMConfig resolved = llmConfigResolver.resolve(llmRequest);
+            if (resolved == null || resolved.model() == null || resolved.model().isBlank()) {
+                return null;
+            }
+            return resolved.provider() == null || resolved.provider().isBlank()
+                    ? resolved.model()
+                    : resolved.provider() + "/" + resolved.model();
+        } catch (RuntimeException e) {
+            log.debug("Sem rótulo de modelo para o uso: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /** Soma o turno no contador da execução, quando há um. Observação, nunca requisito. */
+    private static void somarUso(Options options, String rotulo, ChatResponse response) {
+        if (options.uso() == null) {
+            return;
+        }
+        try {
+            TokenUsage usage = response.tokenUsage();
+            options.uso().somar(rotulo,
+                    usage == null ? null : usage.inputTokenCount(),
+                    usage == null ? null : usage.outputTokenCount());
+        } catch (RuntimeException e) {
+            log.debug("Falha ao somar o uso do turno: {}", e.getMessage());
+        }
     }
 
     /**
@@ -804,7 +913,29 @@ public class McpAgentRunner {
     public record Options(ToolAccessPolicy access, ToolTrustPolicy trust,
                           ToolApprovalPolicy approval, int maxIterations,
                           LLMConfigPatch flowPatch, LLMConfigPatch stepPatch,
-                          Set<String> requiredOutputTools, String tier) {
+                          Set<String> requiredOutputTools, String tier,
+                          Set<Integer> codigosQueEncerram, ContadorDeUso uso) {
+
+        /** Compat: sem códigos terminais nem contador — a forma de antes. */
+        public Options(ToolAccessPolicy access, ToolTrustPolicy trust,
+                       ToolApprovalPolicy approval, int maxIterations,
+                       LLMConfigPatch flowPatch, LLMConfigPatch stepPatch,
+                       Set<String> requiredOutputTools, String tier) {
+            this(access, trust, approval, maxIterations, flowPatch, stepPatch,
+                    requiredOutputTools, tier, Set.of(), null);
+        }
+
+        /** As mesmas opções, somando o consumo de modelo em {@code contador}. */
+        public Options comUso(ContadorDeUso contador) {
+            return new Options(access, trust, approval, maxIterations, flowPatch, stepPatch,
+                    requiredOutputTools, tier, codigosQueEncerram, contador);
+        }
+
+        /** As mesmas opções, encerrando o laço quando uma tool responder um destes códigos. */
+        public Options encerrandoEm(Set<Integer> codigos) {
+            return new Options(access, trust, approval, maxIterations, flowPatch, stepPatch,
+                    requiredOutputTools, tier, codigos, uso);
+        }
 
         public Options(ToolAccessPolicy access, ToolTrustPolicy trust,
                        ToolApprovalPolicy approval, int maxIterations) {
@@ -839,6 +970,8 @@ public class McpAgentRunner {
             requiredOutputTools = requiredOutputTools == null
                     ? Set.of() : Set.copyOf(requiredOutputTools);
             tier = tier == null || tier.isBlank() ? null : tier.trim();
+            codigosQueEncerram = codigosQueEncerram == null
+                    ? Set.of() : Set.copyOf(codigosQueEncerram);
         }
 
         void validate() {

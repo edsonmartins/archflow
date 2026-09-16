@@ -55,7 +55,7 @@ class VendaxAgentDispatcherTest {
     @Test
     @DisplayName("QP com cotação → devolve o quote")
     void qpWithQuote() {
-        when(qp.quote(any(), nullable(String.class))).thenReturn(new QpAgentService.QpResult(
+        when(qp.quote(any(), nullable(String.class), any())).thenReturn(new QpAgentService.QpResult(
                 "cotação pronta", List.of(), "{\"total\":1234}", "qp-abc"));
 
         dispatcher.runAndReport(invoke("QP"));
@@ -74,7 +74,7 @@ class VendaxAgentDispatcherTest {
     @Test
     @DisplayName("QP sem cotação → não devolve nada (não é erro)")
     void qpWithoutQuote() {
-        when(qp.quote(any(), nullable(String.class))).thenReturn(new QpAgentService.QpResult(
+        when(qp.quote(any(), nullable(String.class), any())).thenReturn(new QpAgentService.QpResult(
                 "qual embalagem?", List.of(), null, "qp-abc"));
 
         dispatcher.runAndReport(invoke("QP"));
@@ -95,7 +95,7 @@ class VendaxAgentDispatcherTest {
     @Test
     @DisplayName("agente que estoura → ERROR com a causa, e o dispatcher sobrevive")
     void agentThrows() {
-        when(qp.quote(any(), nullable(String.class)))
+        when(qp.quote(any(), nullable(String.class), any()))
                 .thenThrow(new IllegalStateException("VendaX Core fora do ar"));
 
         dispatcher.runAndReport(invoke("QP"));
@@ -108,7 +108,7 @@ class VendaxAgentDispatcherTest {
     @Test
     @DisplayName("idempotencyKey deriva do agente + mensagem de origem (reprocesso não duplica)")
     void idempotencyKey() {
-        when(qp.quote(any(), nullable(String.class))).thenReturn(new QpAgentService.QpResult(
+        when(qp.quote(any(), nullable(String.class), any())).thenReturn(new QpAgentService.QpResult(
                 "ok", List.of(), "{}", "qp-abc"));
 
         dispatcher.runAndReport(invoke("QP"));

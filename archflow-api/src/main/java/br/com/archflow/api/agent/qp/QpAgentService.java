@@ -89,6 +89,12 @@ public class QpAgentService {
     }
 
     public QpResult quote(QpRequest request, String definitionVersion) {
+        return quote(request, definitionVersion, null);
+    }
+
+    /** Idem, somando em {@code uso} o consumo de modelo — quem monta o resultado relata o custo. */
+    public QpResult quote(QpRequest request, String definitionVersion,
+                          br.com.archflow.api.agent.mcp.ContadorDeUso uso) {
         String tenantId = request.tenantId() != null ? request.tenantId() : "__default__";
         McpClient client = vendax.clientFor(tenantId, definitionVersion);
 
@@ -107,8 +113,10 @@ public class QpAgentService {
                 : buildSystemPrompt(request, chaveIdempotencia);
         String userMessage = buildUserMessage(request);
 
-        McpAgentRunner.Result result =
-                runner.run(tenantId, systemPrompt, userMessage, client, toolPolicy);
+        McpAgentRunner.Result result = uso == null
+                ? runner.run(tenantId, systemPrompt, userMessage, client, toolPolicy)
+                : runner.run(tenantId, systemPrompt, userMessage, client,
+                        new McpAgentRunner.Options(toolPolicy).comUso(uso));
 
         String quote = extractQuote(result);
         return new QpResult(result.finalText(), result.toolCalls(), quote, chaveIdempotencia);

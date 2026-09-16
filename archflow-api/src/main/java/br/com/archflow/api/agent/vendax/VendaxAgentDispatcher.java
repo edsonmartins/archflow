@@ -1,15 +1,25 @@
 package br.com.archflow.api.agent.vendax;
 
+import br.com.archflow.api.agent.mcp.ContadorDeUso;
 import br.com.archflow.api.agent.mcp.McpAgentRunner;
+import br.com.archflow.api.agent.mcp.TabelaDePrecos;
 import br.com.archflow.api.agent.mcp.ToolAccessPolicy;
+import br.com.archflow.api.agent.mcp.ToolApprovalPolicy;
+import br.com.archflow.api.agent.mcp.ToolTrustPolicy;
 import br.com.archflow.api.agent.qp.QpAgentService;
 import br.com.archflow.api.mcp.vendax.VendaxMcpClientProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -38,6 +48,27 @@ public class VendaxAgentDispatcher {
      */
     private static final Set<String> CS_TOOLS = Set.of("obter_eventos_operacionais", "obter_cliente_360");
 
+    /** O NS só é executado aqui para a consulta do vendedor (ADR-038 D-3); é o que o reason diz. */
+    static final String NS_CONSULTA = "ns:consulta";
+
+    /** A consulta lê o plano de negociação, e nada mais: ela não grava nem promete. */
+    private static final Set<String> NS_TOOLS = Set.of(ConsultaAoNegociador.TOOL);
+
+    /**
+     * Entender → chamar a tool → redigir, com folga para UMA correção de argumento. Mais que isso
+     * não cabe no prazo de quem está esperando, e um laço longo só adiaria o mesmo erro.
+     */
+    private static final int NS_MAX_ITERACOES = 4;
+
+    /**
+     * {@code -32001}: o agente NS não foi contratado pelo tenant. Nenhuma volta a mais muda isso,
+     * então o laço para na hora em vez de devolver o erro ao modelo para ele tentar de novo.
+     */
+    static final int NS_NAO_CONTRATADO = -32001;
+
+    /** Prazo padrão da classe interativa (ADR-025 D-2): a tela espera 30 s; aqui sobra margem. */
+    static final Duration PRAZO_INTERATIVO_PADRAO = Duration.ofSeconds(20);
+
     private final QpAgentService qpAgent;
     private final McpAgentRunner runner;
     private final VendaxMcpClientProvider vendax;
@@ -46,6 +77,8 @@ public class VendaxAgentDispatcher {
     private final VendaxAgentMetrics metrics;
     /** Nulo numa instalação sem motor de fluxo: só o caminho por nome de agente responde. */
     private final AgentFlowRunner fluxo;
+    private volatile Duration prazoInterativo = PRAZO_INTERATIVO_PADRAO;
+    private volatile TabelaDePrecos precos = TabelaDePrecos.vazia();
 
     public VendaxAgentDispatcher(QpAgentService qpAgent, McpAgentRunner runner,
                                  VendaxMcpClientProvider vendax, VendaxResultSender resultSender,
@@ -70,6 +103,19 @@ public class VendaxAgentDispatcher {
         this.executor = executor;
         this.metrics = metrics;
         this.fluxo = fluxo;
+    }
+
+    /** Quanto a classe interativa espera antes de devolver {@code ERROR}. */
+    public void setPrazoInterativo(Duration prazo) {
+        if (prazo == null || prazo.isNegative() || prazo.isZero()) {
+            throw new IllegalArgumentException("prazo interativo deve ser positivo: " + prazo);
+        }
+        this.prazoInterativo = prazo;
+    }
+
+    /** Preços por modelo, para o custo que acompanha cada result; sem tabela, custo nulo. */
+    public void setPrecos(TabelaDePrecos precos) {
+        this.precos = precos == null ? TabelaDePrecos.vazia() : precos;
     }
 
     /** Aceita a ordem e executa fora da requisição. */
@@ -101,45 +147,44 @@ public class VendaxAgentDispatcher {
         // A ORIGEM VAI JUNTO, quando houve uma. Ela decide a quem o Core credita a venda, e por isso
         // nunca é inferida nem reaproveitada: o que sai daqui é o que veio neste invoke, e o
         // `finally` abaixo garante que a próxima execução nesta mesma thread não herde nada.
-        br.com.archflow.langchain4j.mcp.client.CorrelacaoMcp.definir(
-                invoke.idempotencyKey(), invoke.traceId(),
-                invoke.customerRef(), invoke.vendorRef(), invoke.taskId());
+        definirCorrelacao(invoke);
+        // O CONSUMO É CONTADO DESDE O PRIMEIRO TURNO, e lido no fim aconteça o que acontecer: uma
+        // execução que estoura o prazo ou cai por erro também gastou, e é essa que um teto de custo
+        // mais precisa ver.
+        ContadorDeUso uso = new ContadorDeUso();
         try {
             // O caminho genérico vem ANTES do switch, e é o que o deve substituir: quando a
             // definição traz um fluxo, este runtime não precisa saber que agente é. O switch
             // continua abaixo só enquanto houver skill em PROMPT — cada agente que virar FLUXO
             // apaga um `case`.
             if (invoke.definicao() != null && invoke.definicao().eFluxo()) {
-                VendaxResult porFluxo = runFluxo(invoke);
+                VendaxResult porFluxo = runFluxo(invoke, uso);
                 if (porFluxo != null) {
-                    resultSender.send(porFluxo);
+                    enviar(porFluxo, uso);
                 }
                 if (metrics != null) metrics.completed(startedAt);
                 return;
             }
 
             VendaxResult result = switch (agent) {
-                case "QP" -> runQp(invoke);
-                case "CS" -> runCs(invoke);
-                default -> {
-                    // Agente que o Core aciona e o ArchFlow ainda não implementa (US, ASSISTANT,
-                    // TRANSCRIBER). Devolver ERROR é deliberado: o vendedor vê que algo não rodou,
-                    // em vez de esperar por uma resposta que nunca vem.
-                    log.warn("Agente '{}' não implementado no ArchFlow (conv={})",
-                            invoke.agent(), invoke.conversationId());
-                    yield VendaxResult.error(invoke,
-                            "Agente " + invoke.agent() + " ainda não é executado pelo ArchFlow");
-                }
+                case "QP" -> runQp(invoke, uso);
+                case "CS" -> runCs(invoke, uso);
+                // O NS de negociação autônoma não roda aqui; só a consulta do vendedor, que o Core
+                // distingue pelo reason.
+                case "NS" -> NS_CONSULTA.equals(invoke.reason())
+                        ? runNsConsulta(invoke, uso)
+                        : naoImplementado(invoke);
+                default -> naoImplementado(invoke);
             };
             if (result != null) {
-                resultSender.send(result);
+                enviar(result, uso);
             }
             if (metrics != null) metrics.completed(startedAt);
         } catch (Exception e) {
             if (metrics != null) metrics.failed(startedAt, e);
             log.error("Agente {} falhou (conv={}): {}",
                     invoke.agent(), invoke.conversationId(), e.getMessage(), e);
-            resultSender.send(VendaxResult.error(invoke, causeOf(e)));
+            enviar(VendaxResult.error(invoke, causeOf(e)), uso);
         } finally {
             // A thread é reusada entre invokes. Sem limpar, o PRÓXIMO agente a rodar aqui mandaria
             // a correlação deste — e o evento da cotação sairia amarrado à conversa errada. Um
@@ -153,13 +198,150 @@ public class VendaxAgentDispatcher {
     }
 
     /**
+     * Agente que o Core aciona e o ArchFlow ainda não implementa (US, ASSISTANT, TRANSCRIBER).
+     * Devolver ERROR é deliberado: o vendedor vê que algo não rodou, em vez de esperar por uma
+     * resposta que nunca vem.
+     */
+    private VendaxResult naoImplementado(VendaxInvoke invoke) {
+        log.warn("Agente '{}' (reason={}) não implementado no ArchFlow (conv={})",
+                invoke.agent(), invoke.reason(), invoke.conversationId());
+        return VendaxResult.error(invoke,
+                "Agente " + invoke.agent() + " ainda não é executado pelo ArchFlow");
+    }
+
+    /**
+     * A correlação e a identidade desta execução, na thread atual.
+     *
+     * <p>Um método só porque são dois lugares que precisam dela: a thread do executor e a da
+     * consulta interativa. Repetir a lista de campos em cada um é como um deles acaba esquecendo
+     * um — e o header que falta não produz erro, só some.</p>
+     */
+    private static void definirCorrelacao(VendaxInvoke invoke) {
+        br.com.archflow.langchain4j.mcp.client.CorrelacaoMcp.definir(
+                invoke.idempotencyKey(), invoke.traceId(),
+                invoke.customerRef(), invoke.vendorRef(), invoke.taskId());
+    }
+
+    /** Envia carregando o consumo — em todo result, OK ou ERROR. */
+    private void enviar(VendaxResult result, ContadorDeUso uso) {
+        resultSender.send(comUso(result, uso));
+    }
+
+    VendaxResult comUso(VendaxResult result, ContadorDeUso uso) {
+        return uso.resumo()
+                .map(r -> result.comUso(new VendaxResult.Uso(
+                        r.modelo(), r.tokens(), precos.custoEmCentavos(r))))
+                .orElse(result);
+    }
+
+    /**
+     * NS, consulta do vendedor: uma pergunta em linguagem vira um parâmetro, uma chamada ao plano
+     * de negociação e uma frase curta.
+     *
+     * <h2>Classe interativa</h2>
+     *
+     * <p>O vendedor está olhando para a tela, que espera até 30 s. Por isso há prazo, e por isso
+     * estourá-lo devolve {@code ERROR} na hora — com a mesma chave de idempotência, que é o que faz
+     * a tela parar de esperar — em vez de reenfileirar.</p>
+     *
+     * <h2>O parâmetro vem da chamada, não da afirmação</h2>
+     *
+     * <p>O Core refaz a conta com o {@code parametro} devolvido e recusa a frase que citar número
+     * fora dela. Ver {@link ConsultaAoNegociador} para por que o parâmetro é lido dos argumentos que
+     * de fato foram à tool.</p>
+     */
+    private VendaxResult runNsConsulta(VendaxInvoke invoke, ContadorDeUso uso) {
+        var client = vendax.clientFor(invoke.tenantId(),
+                invoke.definicao() != null ? invoke.definicao().versao() : null);
+        McpAgentRunner.Options opcoes = new McpAgentRunner.Options(
+                politicaDe(invoke, NS_TOOLS),
+                ToolTrustPolicy.untrustedByDefault(),
+                ToolApprovalPolicy.none(),
+                NS_MAX_ITERACOES,
+                null, null, Set.of(),
+                invoke.tier())
+                .encerrandoEm(Set.of(NS_NAO_CONTRATADO))
+                .comUso(uso);
+        String systemPrompt = promptDe(invoke, ConsultaAoNegociador.SYSTEM_PROMPT);
+        String entrada = entradaDoAgente(invoke);
+
+        McpAgentRunner.Result result;
+        try {
+            result = comPrazo(invoke, () ->
+                    runner.run(invoke.tenantId(), systemPrompt, entrada, client, opcoes));
+        } catch (TimeoutException e) {
+            log.warn("Consulta ao NS passou do prazo de {} ms (trace={})",
+                    prazoInterativo.toMillis(), invoke.traceId());
+            return VendaxResult.error(invoke, "O negociador não respondeu em "
+                    + prazoInterativo.toSeconds() + " s");
+        }
+
+        if (result.isEncerrado()) {
+            McpAgentRunner.ToolCall causa = result.encerradoPor();
+            log.info("Consulta ao NS encerrada pela tool {} (código {}, trace={})",
+                    causa.name(), causa.errorCode(), invoke.traceId());
+            return VendaxResult.error(invoke, NS_NAO_CONTRATADO == causa.errorCode()
+                    ? "O agente NS não foi contratado por este tenant"
+                    : causa.resultText());
+        }
+        return ConsultaAoNegociador.resultado(invoke, result);
+    }
+
+    /**
+     * Executa com prazo, <b>repondo a correlação na thread que trabalha</b>.
+     *
+     * <p>O trabalho roda noutra thread para que o prazo valha mesmo com uma chamada de modelo
+     * pendurada. E é exatamente aí que mora a armadilha já medida duas vezes neste runtime: o
+     * ThreadLocal da correlação não atravessa threads, e o {@code callTool} lê o valor na thread do
+     * chamador. Sem repor aqui, os headers {@code X-Vendax-Cliente} e {@code X-Vendax-Vendedor}
+     * simplesmente não sairiam — sem erro, sem log.</p>
+     *
+     * <p>Estourado o prazo, a thread é interrompida e o que ela ainda produzir é descartado: o Core
+     * já recebeu o {@code ERROR}, e um {@code OK} atrasado com a mesma chave seria uma segunda
+     * resposta para uma pergunta já encerrada.</p>
+     */
+    private <T> T comPrazo(VendaxInvoke invoke, Supplier<T> trabalho) throws TimeoutException {
+        CompletableFuture<T> futuro = new CompletableFuture<>();
+        Thread thread = Thread.ofVirtual().name("vendax-interativo-", 0).unstarted(() -> {
+            definirCorrelacao(invoke);
+            try {
+                futuro.complete(trabalho.get());
+            } catch (Throwable t) {
+                futuro.completeExceptionally(t);
+            } finally {
+                br.com.archflow.langchain4j.mcp.client.CorrelacaoMcp.limpar();
+            }
+        });
+        thread.start();
+        try {
+            return futuro.get(prazoInterativo.toMillis(), TimeUnit.MILLISECONDS);
+        } catch (TimeoutException e) {
+            thread.interrupt();
+            throw e;
+        } catch (InterruptedException e) {
+            thread.interrupt();
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Execução interativa interrompida", e);
+        } catch (ExecutionException e) {
+            Throwable causa = e.getCause();
+            if (causa instanceof RuntimeException runtime) {
+                throw runtime;
+            }
+            if (causa instanceof Error error) {
+                throw error;
+            }
+            throw new IllegalStateException(causa);
+        }
+    }
+
+    /**
      * O agente como documento: executa e devolve o que saiu, sem interpretar.
      *
      * <p>O tipo do rich object vem do {@code saidaSchema} da definição — {@code sentiment@1} vira
      * {@code sentiment}. Quem declara é o Core, e é o que mantém a regra da {@code ADR-025} D-1: o
      * executor não decide se produziu uma cotação ou um sentimento, porque não sabe o que são.</p>
      */
-    private VendaxResult runFluxo(VendaxInvoke invoke) {
+    private VendaxResult runFluxo(VendaxInvoke invoke, ContadorDeUso uso) {
         if (fluxo == null) {
             return VendaxResult.error(invoke,
                     "Definição veio como FLUXO e este runtime não tem motor de fluxo configurado");
@@ -173,7 +355,7 @@ public class VendaxAgentDispatcher {
         }
 
         AgentFlowRunner.Saida saida = fluxo.executar(invoke, invoke.definicao().fluxo(),
-                entradaDoAgente(invoke));
+                entradaDoAgente(invoke), uso);
 
         if (saida.suspenso()) {
             log.info("Fluxo de {} suspenso aguardando decisão humana (conv={})",
@@ -200,7 +382,7 @@ public class VendaxAgentDispatcher {
         return tipo.isBlank() ? null : tipo.trim();
     }
 
-    private VendaxResult runQp(VendaxInvoke invoke) {
+    private VendaxResult runQp(VendaxInvoke invoke, ContadorDeUso uso) {
         var def = invoke.definicao();
         QpAgentService.QpResult qp = qpAgent.quote(new QpAgentService.QpRequest(
                 invoke.tenantId(), invoke.customerRef(), invoke.vendorRef(),
@@ -208,7 +390,7 @@ public class VendaxAgentDispatcher {
                 def != null && def.temPrompt() ? def.systemPrompt() : null,
                 // A chave que o Core embutiu no prompt tem de ser a mesma que o resultado carrega.
                 def != null ? chaveDe(def) : null),
-                def != null ? def.versao() : null);
+                def != null ? def.versao() : null, uso);
 
         if (qp.quote() == null || qp.quote().isBlank()) {
             // O agente rodou mas não chegou a cotar (pediu confirmação, não achou o SKU). Não é
@@ -225,13 +407,13 @@ public class VendaxAgentDispatcher {
      * {@code {score:-10..10, trend, tone, bigCustomer}} — o modelo devolve exatamente isso como
      * texto final, e o Core recusa (com log) o que não desserializar.
      */
-    private VendaxResult runCs(VendaxInvoke invoke) {
+    private VendaxResult runCs(VendaxInvoke invoke, ContadorDeUso uso) {
         var client = vendax.clientFor(invoke.tenantId(),
                 invoke.definicao() != null ? invoke.definicao().versao() : null);
         McpAgentRunner.Result result = runner.run(invoke.tenantId(),
                 promptDe(invoke, CS_SYSTEM_PROMPT),
                 entradaDoAgente(invoke),
-                client, politicaDe(invoke, CS_TOOLS));
+                client, new McpAgentRunner.Options(politicaDe(invoke, CS_TOOLS)).comUso(uso));
 
         String json = extractJson(result.finalText());
         if (json == null) {
@@ -289,7 +471,39 @@ public class VendaxAgentDispatcher {
         if (conversa != null && !conversa.isBlank()) {
             sb.append("\n").append(conversa);
         }
+        String dados = dadosDoPayload(invoke);
+        if (dados != null) {
+            sb.append("\npayload=").append(dados);
+        }
         return sb.toString();
+    }
+
+    /**
+     * O resto do payload — tudo menos a janela de conversa, que já foi renderizada acima.
+     *
+     * <p>Até a consulta ao NS, o único payload era a janela do CS, e o que viesse além dela era
+     * descartado aqui sem aviso. A consulta carrega no payload o SKU, o preço e a quantidade que o
+     * agente precisa passar à tool; sem esta linha o modelo teria de inventá-los. Vai inteiro, como
+     * JSON, pelo mesmo motivo do resto do envelope: dizer "eis o que recebi" é protocolo, e cada
+     * agente diz no próprio prompt o que fazer com os campos.</p>
+     *
+     * @return {@code null} quando não há nada além da janela — a entrada do CS fica como era
+     */
+    String dadosDoPayload(VendaxInvoke invoke) {
+        if (invoke.payload() == null || invoke.payload().isBlank()) {
+            return null;
+        }
+        try {
+            var no = MAPPER.readTree(invoke.payload());
+            if (!(no instanceof com.fasterxml.jackson.databind.node.ObjectNode objeto)) {
+                return null;
+            }
+            var resto = objeto.deepCopy();
+            resto.remove("messages");
+            return resto.isEmpty() ? null : MAPPER.writeValueAsString(resto);
+        } catch (Exception e) {
+            return null;                  // ilegível: conversaDe já registrou
+        }
     }
 
     /** Modo de entrada: o Core manda texto de canal; ditado/imagem/PDF entram quando o multimodal for fiado. */
