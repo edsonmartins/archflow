@@ -82,6 +82,34 @@ class VendaxInvokeControllerTest {
         verify(dispatcher, never()).dispatch(org.mockito.ArgumentMatchers.any());
     }
 
+    /**
+     * A narração do dia e a consulta ao NS não são de conversa nenhuma, mas trazem a chave que casa
+     * o resultado. Até 17/09 eram recusadas com 400 antes de rodar.
+     */
+    @Test
+    @DisplayName("sem conversa, mas com idempotencyKey → aceito")
+    void semConversaComChave() {
+        keyIs("segredo");
+        VendaxInvoke narracao = new VendaxInvoke("1.0", "tenant-1", null, "AP", null, null,
+                "LIGHT", "ap:narracao", "dia-1", "{}", null, "vend-1", "ap-narracao:dia-1", null);
+
+        assertThat(controller.invoke(narracao, "Bearer segredo").getStatusCode())
+                .isEqualTo(HttpStatus.ACCEPTED);
+        verify(dispatcher).dispatch(narracao);
+    }
+
+    @Test
+    @DisplayName("sem conversa e sem chave → 400: o resultado não teria como ser casado")
+    void semConversaSemChave() {
+        keyIs("segredo");
+        VendaxInvoke semNada = new VendaxInvoke("1.0", "tenant-1", null, "AP", null, null,
+                "LIGHT", "ap:narracao", "dia-1", "{}", null, "vend-1", "  ", null);
+
+        assertThat(controller.invoke(semNada, "Bearer segredo").getStatusCode())
+                .isEqualTo(HttpStatus.BAD_REQUEST);
+        verify(dispatcher, never()).dispatch(org.mockito.ArgumentMatchers.any());
+    }
+
     /** Sanidade do mock não usado: o executor não é exercitado aqui. */
     @Test
     @DisplayName("dispatcher recebe o invoke tal como veio")
