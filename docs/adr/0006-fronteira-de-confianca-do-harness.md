@@ -82,19 +82,30 @@ ele afirme foi inventado, e o resultado sai com o parâmetro vazio.
 
 PR #51. Classe: `ConsultaAoNegociador`.
 
-### D19 — Consumo por execução, em todo resultado
+### D19 — Todo consumo chega ao consumidor, e chega uma vez
 
 - O runner soma os tokens **a cada turno** num `ContadorDeUso` criado por quem hospeda a execução.
   Somar só no fim deixaria sem custo justamente as execuções que falham ou estouram o prazo.
-- O consumo vai em **todo** resultado ao VendaX (`VendaxResult.uso`), inclusive `ERROR`, e é
-  omitido quando nenhum modelo foi chamado.
-- O custo só existe com **preço declarado** (`TabelaDePrecos`, `archflow.llm.precos[...]`). Sem
-  preço, o custo é **nulo, nunca zero**: zero diria a um teto que a execução foi de graça. O valor
-  é arredondado para cima, porque alimenta um teto.
+- **Uma execução, um `execucaoId`**, gerado com o contador e presente em todo relato dela. O Core
+  conta cada `(execucaoId, motivo)` uma vez — é o que torna a reentrega segura. **Não** é a chave de
+  idempotência do result: execuções diferentes reusam a mesma chave, e cada uma gastou.
+- O consumo vai em **todo** result ao VendaX (`VendaxResult.uso`), inclusive `ERROR`, e é omitido
+  quando nenhum modelo foi chamado.
+- **O que não tem result é relatado à parte** (`POST /api/v1/public/archflow/uso`, mesma assinatura):
+  `SEM_RESULT` (QP sem cotação), `SUSPENSO` (fluxo esperando aprovação, com o gasto até ali) e
+  `APOS_PRAZO` (o que o laço gastou **depois** do `ERROR` por prazo — só a diferença, para não contar
+  o trecho anterior duas vezes). Reentrega em rede e 5xx; não em 4xx.
+- **Detalhamento aditivo**, quando se sabe: provedor, tokens de entrada e saída, turnos, chamadas de
+  tool que foram ao servidor, duração.
+- O custo só existe com **preço declarado**, em **centavos de real por milhão de tokens**
+  (`TabelaDePrecos`; `archflow.llm.precos[...]` ou `ARCHFLOW_LLM_PRECOS`). Sem preço, o custo é
+  **nulo, nunca zero**: zero diria a um teto que a execução foi de graça. O valor é arredondado para
+  cima, porque alimenta um teto.
 - No fluxo, o contador viaja no contexto sob chave `transient`: é infraestrutura, não estado, e não
   vai para o checkpoint.
 
-PR #51. Classes: `ContadorDeUso`, `TabelaDePrecos`, `McpAgentRunner`, `VendaxResult`.
+PRs #51 e #55. Classes: `ContadorDeUso`, `TabelaDePrecos`, `McpAgentRunner`, `VendaxResult`,
+`VendaxUsoRelato`, `VendaxResultSender`.
 
 ### D20 — Erros terminais são declarados por quem hospeda o laço
 
@@ -153,8 +164,10 @@ PRs #39 (cobrança), #45 (malformada) e #49 (transporte). Classe: `McpAgentRunne
   precisa de teste que leia o valor **dentro** dela.
 - **O server precisa conferir.** Headers só protegem se o server os usar no lugar do argumento; o
   lado do VendaX está no outro repositório.
-- **Consumo incompleto.** Execuções que não mandam resultado (QP sem cotação, fluxo suspenso) não
-  relatam o que gastaram, e tokens gastos depois de um prazo estourado não entram no `ERROR`.
+- **Consumo depois de uma retomada não é relatado.** Um fluxo retomado depois de aprovação não
+  manda result ao Core, e o contador da execução não sobrevive à suspensão — o que a retomada
+  gastar fica fora do teto. (Os outros buracos — execução sem result e gasto depois do prazo —
+  foram fechados no PR #55.)
 
 ### Neutras
 
