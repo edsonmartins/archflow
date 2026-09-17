@@ -125,10 +125,27 @@ public class BrainSentryClient {
         body.put("sourceType", "archflow");
         if (config.tenantId() != null) body.put("tenantId", config.tenantId());
 
-        HttpResponse<String> response = post("/v1/memories", body);
+        // Pelo circuit breaker, como a busca. Sem isto, com o Brain Sentry fora do ar cada gravação
+        // esperava o timeout inteiro — e o circuito aberto pela busca não poupava a escrita.
+        if (!circuitBreaker.allowRequest()) {
+            throw new IOException("Brain Sentry circuit breaker is OPEN — create rejected locally");
+        }
+        HttpResponse<String> response;
+        try {
+            response = post("/v1/memories", body);
+        } catch (IOException | InterruptedException e) {
+            circuitBreaker.recordFailure();
+            throw e;
+        }
         if (response.statusCode() != 200 && response.statusCode() != 201) {
+            // 4xx é o servidor recusando ESTA requisição, não o servidor fora do ar: não conta
+            // para abrir o circuito.
+            if (response.statusCode() >= 500) {
+                circuitBreaker.recordFailure();
+            }
             throw new IOException("Failed to create memory: " + response.statusCode() + " " + response.body());
         }
+        circuitBreaker.recordSuccess();
 
         return parseMemory(mapper.readValue(response.body(), new TypeReference<>() {}));
     }
@@ -144,11 +161,31 @@ public class BrainSentryClient {
      * @throws IOException quando o Brain Sentry responde erro ou o circuito está aberto
      */
     public List<Memory> searchMemories(String query, int limit) throws IOException, InterruptedException {
+        return searchMemories(query, limit, List.of());
+    }
+
+    /**
+     * Busca restrita às memórias que carregam <b>todas</b> as {@code tags}.
+     *
+     * <p>No Brain Sentry, tags são recorte do conjunto (WHERE, antes do LIMIT), não peso de
+     * relevância — desde o PR #22 de lá, que corrigiu um recall atravessando clientes. É o que
+     * permite escopar por tenant e por contexto <b>no servidor</b>: filtrar depois da busca
+     * devolveria menos do que existe, e "menos" é indistinguível de "não há".</p>
+     *
+     * @param tags vazio = sem recorte
+     */
+    public List<Memory> searchMemories(String query, int limit, List<String> tags)
+            throws IOException, InterruptedException {
         if (!circuitBreaker.allowRequest()) {
             throw new IOException("Brain Sentry circuit breaker is OPEN — search rejected locally");
         }
 
-        Map<String, Object> body = Map.of("query", query, "limit", limit);
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("query", query);
+        body.put("limit", limit);
+        if (tags != null && !tags.isEmpty()) {
+            body.put("tags", List.copyOf(tags));
+        }
 
         HttpResponse<String> response;
         try {
@@ -164,8 +201,35 @@ public class BrainSentryClient {
         }
         circuitBreaker.recordSuccess();
 
-        List<Map<String, Object>> results = mapper.readValue(response.body(), new TypeReference<>() {});
-        return results.stream().map(this::parseMemory).toList();
+        return resultadosDaBusca(response.body());
+    }
+
+    /**
+     * Lê a resposta da busca: {@code {"results": [...], "total", "searchTimeMs"}}.
+     *
+     * <p>Até 17/09/2026 este client lia a resposta como uma <b>lista</b>. O servidor responde um
+     * objeto, então a leitura falhava sempre, o adaptador engolia a exceção e o recall devolvia
+     * vazio — contra o servidor real, a memória nunca voltava. Nenhum teste passava pela busca via
+     * HTTP, e por isso ninguém viu.</p>
+     *
+     * <p>Uma lista na raiz continua aceita, para servidores antigos. Qualquer outra forma é erro,
+     * não lista vazia: "vazio" já significa "nenhum resultado".</p>
+     */
+    private List<Memory> resultadosDaBusca(String body) throws IOException {
+        var raiz = mapper.readTree(body);
+        var resultados = raiz.isArray() ? raiz : raiz.path("results");
+        if (!resultados.isArray()) {
+            throw new IOException("Brain Sentry search: resposta sem 'results' — " + truncate(body));
+        }
+        List<Map<String, Object>> itens = mapper.convertValue(resultados, new TypeReference<>() {});
+        return itens.stream().map(this::parseMemory).toList();
+    }
+
+    private static String truncate(String value) {
+        if (value == null) {
+            return "(vazio)";
+        }
+        return value.length() <= 200 ? value : value.substring(0, 200) + "…";
     }
 
     /**

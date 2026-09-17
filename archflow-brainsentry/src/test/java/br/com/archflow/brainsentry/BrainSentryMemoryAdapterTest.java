@@ -50,8 +50,10 @@ class BrainSentryMemoryAdapterTest {
     @Test @DisplayName("should recall via search with tenant filtering")
     void shouldRecall() throws Exception {
         var memory = new Memory("m1", "Found content", "summary", "KNOWLEDGE",
-                "CRITICAL", "SEMANTIC", List.of("tenant:SYSTEM", "archflow"), Map.of(), Instant.now());
-        when(client.searchMemories("tenant:SYSTEM order status", 5)).thenReturn(List.of(memory));
+                "CRITICAL", "SEMANTIC", List.of("tenant:SYSTEM", "context:user-1", "archflow"), Map.of(),
+                Instant.now());
+        when(client.searchMemories("order status", 5, List.of("tenant:SYSTEM", "context:user-1")))
+                .thenReturn(List.of(memory));
 
         List<ScoredEpisode> results = adapter.recall("order status", "user-1", 5);
 
@@ -62,7 +64,7 @@ class BrainSentryMemoryAdapterTest {
     @Test @DisplayName("should get by ID")
     void shouldGetById() throws Exception {
         var memory = new Memory("m1", "Content", null, "KNOWLEDGE",
-                "IMPORTANT", "SEMANTIC", List.of(), Map.of(), Instant.now());
+                "IMPORTANT", "SEMANTIC", List.of("tenant:SYSTEM"), Map.of(), Instant.now());
         when(client.getMemory("m1")).thenReturn(Optional.of(memory));
 
         var result = adapter.getById("m1");
@@ -80,7 +82,7 @@ class BrainSentryMemoryAdapterTest {
 
     @Test @DisplayName("should handle client errors gracefully")
     void shouldHandleErrors() throws Exception {
-        when(client.searchMemories(anyString(), anyInt())).thenThrow(new RuntimeException("Network"));
+        when(client.searchMemories(anyString(), anyInt(), anyList())).thenThrow(new RuntimeException("Network"));
 
         List<ScoredEpisode> results = adapter.recall("query", "ctx", 5);
 

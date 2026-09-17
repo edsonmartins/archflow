@@ -80,6 +80,16 @@ public interface EpisodicMemory {
     }
 
     /**
+     * Gets a specific episode by ID, only if it belongs to the tenant.
+     *
+     * <p>An id is not a credential: whoever learns one must not read another tenant's episode
+     * with it. Implementations that store more than one tenant must override this.
+     */
+    default Optional<Episode> getById(String tenantId, String episodeId) {
+        return getById(episodeId);
+    }
+
+    /**
      * Retrieves all episodes for a tenant and context.
      */
     default List<Episode> getByContext(String tenantId, String contextId) {
