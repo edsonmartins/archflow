@@ -131,6 +131,15 @@ Reuses `WorkflowDeserializer` (flow id = executionId), `flowEngine.execute`, the
 
 ## 9. Status
 
-**PROPOSED.** Nothing implemented. P0 is small because the hub, engine wiring,
-lifecycle listener and state materialization already exist (design-0005); this
-adds a mapper + one endpoint + a POC sidebar.
+**P0 IMPLEMENTED** (reviewed 2026-09-17; this section used to say "PROPOSED. Nothing
+implemented").
+
+- **Done:** `AgUiEventMapper`/`DefaultAgUiEventMapper` (own serializer, the §7 fallback — no AG-UI
+  SDK dependency); `POST /ag-ui/workflows/{id}` and `POST /ag-ui/agent`; `STATE_SNAPSHOT` at start
+  and end; CopilotKit sidebar with `useAgentContext` and `useFrontendTool`; untrusted browser input
+  fenced.
+- **Missing:** `STATE_DELTA` of `executionPaths` (the execution page still polls); reasoning as
+  `REASONING_*` instead of `CUSTOM`; HITL over AG-UI; generative UI; retiring `LiveEventsPage`;
+  `AgUiController` builds its context with a null tenant.
+
+Per-decision state: [ADR-0003, "Estado da implementação"](../adr/0003-ag-ui-protocol.md).

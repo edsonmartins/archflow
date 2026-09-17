@@ -1,6 +1,6 @@
 # ADR-0002 — Dynamic Orchestration: orquestração dinâmica multi-agente sobre o substrato
 
-- **Status:** Proposto
+- **Status:** Aceito (parcialmente implementado) — revisado em 2026-09-17
 - **Data:** 2026-06-06
 - **Decisores:** Edson Martins
 - **Contexto de origem:** análise do conceito *dynamic workflows* do Claude Code
@@ -8,6 +8,18 @@
   com o mapeamento do motor de execução atual do archflow.
 - **Empilha sobre:** [ADR-0001 — Agent Runtime Substrate](0001-agent-runtime-substrate.md)
   (D1 agente como primitivo, D2 `LLMConfigResolver`, D3 governança versionada).
+
+## Estado da implementação (revisado em 17/09/2026)
+
+| Decisão | Estado | O que existe | O que falta |
+|---|---|---|---|
+| **D4** | implementada | `Orchestrator`/`DefaultOrchestrator` (plan, fanOut, verify, loopUntil) em `archflow-core`; `DynamicSupervisor`, `LlmPlanner`, `CatalogAgentWorker`, `ConfidenceVoter` em `archflow-agent`; `DynamicWorkflowService` + `POST /api/orchestration/run` | `AgentSupervisorTemplate` não foi refeito sobre os primitivos; o trace usa `OrchestrationListener`, não `ArchflowTracer` |
+| **D5** | parcial | `Budget` e `BudgetLedger` (para de despachar ao estourar), usados pelo serviço e pelo `OrchestrateStep` | orçamento só **por execução**, não por tenant; não está no `ExecutionContext` nem no resolver; tokens do planner não são cobrados; o worker só cobra se o agente reportar `tokensUsed` |
+| **D6** | parcial | `StepType.ORCHESTRATE`, `OrchestrateStep`, materialização em `MaterializingOrchestrationListener`, nó no designer | os nós `FAN_OUT`/`MAP`, `VERIFY` e `LOOP_UNTIL` não existem |
+| **D7** | parcial | streaming ao vivo via `StreamingOrchestrationListener` + `EventStreamRegistry` | políticas de verificação/convergência e orçamento não estão na governança; vêm da configuração do nó ou da requisição |
+
+O consumo por execução do laço de agente (D19, ADR-0006) é um mecanismo separado do `BudgetLedger`
+e ainda não o alimenta.
 
 ## Sumário
 

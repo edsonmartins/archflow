@@ -1,9 +1,20 @@
 # ADR-0001 — Agent Runtime Substrate: agente como primitivo, resolução de modelo escopável e governança versionada
 
-- **Status:** Proposto
+- **Status:** Aceito (parcialmente implementado) — revisado em 2026-09-17
 - **Data:** 2026-06-01
 - **Decisores:** Edson Martins
 - **Contexto de origem:** análise comparativa dos produtos `gestor-rq` e `integrall-commerce-api` (ambos construídos sobre LangChain4j), tratados como "laboratórios" do archflow.
+
+## Estado da implementação (revisado em 17/09/2026)
+
+| Decisão | Estado | O que existe | O que falta |
+|---|---|---|---|
+| **D1** | implementada, no escopo do design 0001 §3 | `ComponentMetadata.keywords`, `ComponentQueryRouter` (bean + `GET /api/catalog/route`), invocação direta em `POST /archflow/agents/{id}/invoke`; usado por `DynamicWorkflowService` e `CatalogAgentWorker` | não foram criados `Agent`/`AgentRegistry` (o design optou por estender `AIComponent`); a UI não usa `keywords` nem `/catalog/route` |
+| **D2** | parcial | `LLMConfigPatch`, `ResolvedLLMConfig`, `LLMConfigResolver` com a cadeia, `TenantKeyResolver`; consumido por `McpAgentRunner` (flow, step, tier), assist, AG-UI, orquestração e `LangChainAdapterComponent` | o nível **tenant** nunca é preenchido em runtime; o nível **agente** (`LLMResolutionRequest.forStep`) não tem chamador fora de testes; `ExecutionKeys.LLM_RESOLVED_CONFIG` é lido pelo `OpenRouterChatAdapter` e ninguém o escreve; `TenantKeyResolver` é NOOP por padrão |
+| **D3** | só biblioteca | `GovernanceSettings`, `GovernanceSnapshot`, `DefaultGovernanceResolver`, `GovernanceProfileStore`, `GovernanceGuardrails` em `archflow-conversation` | nada fora do módulo usa essas classes; nenhum bean; `GovernanceSnapshot.llmPatch()` não chega ao resolver; sem rate-limit por tenant |
+
+Itens abertos do plano de adoção: 1 (níveis tenant/agente do D2), 3 (governança ligada ao runtime e
+adapters nos produtos) e 4 (`GuardrailChain` na governança; rate-limit por tenant).
 
 ## Sumário
 

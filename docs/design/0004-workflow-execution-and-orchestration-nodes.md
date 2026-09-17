@@ -147,6 +147,14 @@ are the substrate.
 
 ## 9. Status
 
-**PROPOSED.** Nothing implemented. Note the prerequisite in step 1 is a general
-gap (no JSON→Flow execution exists in the API today) — worth landing on its own
-merits, with the orchestration nodes (steps 2–4) layered after.
+**PARTIALLY IMPLEMENTED** (reviewed 2026-09-17; this section used to say "PROPOSED. Nothing
+implemented", which stopped being true).
+
+- **Done:** JSON→`Flow` execution through `FlowStepFactory` (`DefaultFlowStepFactory`,
+  `DefaultWorkflowDeserializer`); `POST /api/workflows/{id}/execute` runs the engine; the
+  `ORCHESTRATE` step (`OrchestrateStep`) with FlowState materialization
+  (`MaterializingOrchestrationListener`); live streaming; the node in the designer.
+- **Missing:** the granular `FAN_OUT`/`MAP`, `VERIFY` and `LOOP_UNTIL` node types
+  (`DefaultFlowStepFactory` marks them as a follow-up).
+
+Per-decision state: [ADR-0002, "Estado da implementação"](../adr/0002-dynamic-orchestration.md).

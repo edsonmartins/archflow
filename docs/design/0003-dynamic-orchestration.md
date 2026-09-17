@@ -172,6 +172,15 @@ de runs de horas/dias, sem polling.
 
 ## 8. Status de implementação
 
-**PROPOSTO** — nada implementado ainda. Este design define o contrato; a próxima
-etapa é o P0 (Orchestrator + primitivos + budget) atrás de testes unitários,
-reusando virtual-threads/`StateManager`/`ComponentQueryRouter` existentes.
+**IMPLEMENTADO EM PARTE** (revisado em 17/09/2026; o texto original dizia "PROPOSTO — nada
+implementado", o que deixou de ser verdade).
+
+- **Pronto:** `Orchestrator`/`DefaultOrchestrator` com os quatro primitivos; `DynamicSupervisor`,
+  `LlmPlanner`, `CatalogAgentWorker`, `ConfidenceVoter`; `DynamicWorkflowService` e
+  `POST /api/orchestration/run`; `Budget`/`BudgetLedger` por execução; nó `ORCHESTRATE`; streaming
+  ao vivo.
+- **Falta:** orçamento por tenant e no `ExecutionContext`; cobrança dos tokens do planner; nós
+  `FAN_OUT`/`MAP`, `VERIFY` e `LOOP_UNTIL`; políticas de verificação e orçamento na governança;
+  `AgentSupervisorTemplate` sobre os primitivos.
+
+Estado por decisão: [ADR-0002, "Estado da implementação"](../adr/0002-dynamic-orchestration.md).
