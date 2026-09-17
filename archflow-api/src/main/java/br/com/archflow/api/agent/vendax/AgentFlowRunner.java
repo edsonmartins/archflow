@@ -132,6 +132,13 @@ public class AgentFlowRunner {
                 invoke.tier());
         McpAgentHost.inject(contexto, mcpAgentHost);
         br.com.archflow.api.agent.mcp.ContadorDeUso.injetar(contexto, uso);
+        // A MEMÓRIA DO CLIENTE vai sob chave transient: é entrada deste invoke, e são dados pessoais.
+        // Persistida, iria para o estado durável do fluxo a cada checkpoint. O custo é que um passo
+        // executado depois de uma retomada roda sem ela.
+        if (!invoke.memoria().isEmpty()) {
+            contexto.set(br.com.archflow.api.agent.mcp.McpAgentComponent.CTX_MEMORIA,
+                    invoke.memoria());
+        }
 
         FlowResult resultado;
         try {
