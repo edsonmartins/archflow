@@ -21,8 +21,13 @@ import java.util.Map;
  * webhook do Core, não nesta resposta.</p>
  *
  * <p>Um 202 aqui significa "vou executar", e o Core marca o evento como publicado. Por isso a
- * validação do envelope vem <b>antes</b> de aceitar: aceitar um invoke sem {@code conversationId}
- * seria o mesmo que perdê-lo — o Core não tentaria de novo.</p>
+ * validação do envelope vem <b>antes</b> de aceitar: aceitar um invoke cujo resultado o Core não
+ * consegue casar seria o mesmo que perdê-lo — o Core não tentaria de novo.</p>
+ *
+ * <p>O que casa o resultado é a {@code conversationId} ou a {@code idempotencyKey}; basta uma.
+ * Até 17/09/2026 a conversa era obrigatória, e isso recusava com 400 os acionamentos que não são de
+ * conversa nenhuma — a narração do dia (AP) e a consulta ao NS sem cotação aberta —, embora ambos
+ * tragam a chave.</p>
  *
  * <p><b>Autenticação:</b> chave estática de serviço, no padrão do {@code /archflow/assist/} — uma
  * chamada de máquina não tem sessão para renovar um JWT de usuário. Sem chave configurada o
@@ -55,11 +60,10 @@ public class VendaxInvokeController {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(Map.of("error", "chave de serviço inválida"));
         }
-        if (invoke == null || invoke.tenantId() == null || invoke.tenantId().isBlank()
-                || invoke.conversationId() == null || invoke.conversationId().isBlank()
-                || invoke.agent() == null || invoke.agent().isBlank()) {
-            return ResponseEntity.badRequest()
-                    .body(Map.of("error", "invoke exige tenantId, conversationId e agent"));
+        if (invoke == null || branco(invoke.tenantId()) || branco(invoke.agent())
+                || (branco(invoke.conversationId()) && branco(invoke.idempotencyKey()))) {
+            return ResponseEntity.badRequest().body(Map.of("error",
+                    "invoke exige tenantId, agent e conversationId ou idempotencyKey"));
         }
         try {
             dispatcher.dispatch(invoke);
@@ -69,6 +73,10 @@ public class VendaxInvokeController {
         }
         return ResponseEntity.status(HttpStatus.ACCEPTED)
                 .body(Map.of("status", "accepted", "agent", invoke.agent()));
+    }
+
+    private static boolean branco(String valor) {
+        return valor == null || valor.isBlank();
     }
 
     /** Comparação em tempo constante: um equals comum vaza o prefixo correto pelo tempo de resposta. */

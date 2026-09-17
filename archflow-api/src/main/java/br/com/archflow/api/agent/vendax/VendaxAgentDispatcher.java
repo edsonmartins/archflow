@@ -174,6 +174,10 @@ public class VendaxAgentDispatcher {
                 case "NS" -> NS_CONSULTA.equals(invoke.reason())
                         ? runNsConsulta(invoke, uso)
                         : naoImplementado(invoke);
+                // O AP aqui só narra o dia; o reason distingue, como no NS.
+                case "AP" -> NarracaoDoDia.REASON.equals(invoke.reason())
+                        ? runApNarracao(invoke, uso)
+                        : naoImplementado(invoke);
                 default -> naoImplementado(invoke);
             };
             if (result != null) {
@@ -315,6 +319,29 @@ public class VendaxAgentDispatcher {
                     : causa.resultText());
         }
         return ConsultaAoNegociador.resultado(invoke, result);
+    }
+
+    /**
+     * AP, narração do dia: a contagem que o Core calculou vira uma a três frases.
+     *
+     * <p>Sem ferramenta e numa volta só — ver {@link NarracaoDoDia}. O laço recebe um cliente
+     * {@link br.com.archflow.api.agent.mcp.SemFerramentas}: nenhuma ida ao servidor MCP, nenhum
+     * catálogo no prompt, e a narração não depende de o servidor estar no ar. A política vazia é a
+     * segunda barreira.</p>
+     *
+     * <p>Classe de lote: sem prazo interativo. Um {@code OK} atrasado é aproveitado pelo Core.</p>
+     */
+    private VendaxResult runApNarracao(VendaxInvoke invoke, ContadorDeUso uso) {
+        McpAgentRunner.Options opcoes = daExecucao(new McpAgentRunner.Options(
+                ToolAccessPolicy.allowOnly(Set.of()),
+                ToolTrustPolicy.untrustedByDefault(),
+                ToolApprovalPolicy.none(),
+                NarracaoDoDia.MAX_ITERACOES), invoke, uso);
+        McpAgentRunner.Result result = runner.run(invoke.tenantId(),
+                promptDe(invoke, NarracaoDoDia.SYSTEM_PROMPT),
+                entradaDoAgente(invoke),
+                br.com.archflow.api.agent.mcp.SemFerramentas.INSTANCIA, opcoes);
+        return NarracaoDoDia.resultado(invoke, result);
     }
 
     /**
