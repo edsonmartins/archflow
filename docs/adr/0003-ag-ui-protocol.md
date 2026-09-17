@@ -1,6 +1,6 @@
 # ADR-0003 — Adotar AG-UI como protocolo agente↔UI (e CopilotKit como camada de UI)
 
-- **Status:** Proposto
+- **Status:** Aceito (parcialmente implementado) — revisado em 2026-09-17
 - **Data:** 2026-06-07
 - **Decisores:** Edson Martins
 - **Contexto de origem:** análise do CopilotKit (https://docs.copilotkit.ai/) e do
@@ -9,6 +9,19 @@
 - **Empilha sobre:** [ADR-0001 — Agent Runtime Substrate](0001-agent-runtime-substrate.md),
   [ADR-0002 — Dynamic Orchestration](0002-dynamic-orchestration.md) (streaming D7,
   LiveEvents, execução async / design-0005).
+
+## Estado da implementação (revisado em 17/09/2026)
+
+| Decisão | Estado | O que existe | O que falta |
+|---|---|---|---|
+| **D8** | implementada, sem o SDK Java (serializador próprio, fallback aceito no design 0006 §7) | `AgUiEventMapper`/`DefaultAgUiEventMapper`, `POST /ag-ui/workflows/{id}` (`AgUiController`) e `POST /ag-ui/agent` (`AgUiAgentController`); o stream nativo continua | raciocínio sai como `CUSTOM`, não `REASONING_*`; `AgUiController` cria o contexto com `tenantId` nulo |
+| **D9** | parcial | `STATE_SNAPSHOT` inicial e final com os `executionPaths` | sem `STATE_DELTA`; a página de execução ainda faz polling a cada 2 s |
+| **D10** | implementada (P0 e parte do P2) | `CopilotKitProvider` + `CopilotSidebar` + `HttpAgent('/ag-ui/agent')`; `useAgentContext` e `useFrontendTool` (navegar, rodar fluxo, criar fluxo, nós, conexões) | generative UI (cards de aprovação no chat) não existe; as ações não chamam os endpoints do assistente |
+| **D11** | implementada | motor, orquestração e LLM seguem no backend Java | expor governança/orçamento como tools ou estado AG-UI (opcional) não foi feito |
+
+Itens abertos do plano de adoção: P1 — `STATE_DELTA`, suspensão/retomada sobre AG-UI (hoje só como
+`CUSTOM`), canvas atualizado por estado; P2 — generative UI e aposentar o stream próprio
+(`LiveEventsPage`).
 
 ## Sumário
 

@@ -129,7 +129,10 @@ streaming bridge and materialization are the substrate.
 
 ## 9. Status
 
-**PROPOSED.** Nothing implemented. Step 1 (engine bean graph, incl. the two
-in-memory gap impls) is the prerequisite and is worth landing on its own — it
-turns the existing-but-dormant `FlowEngine` into a usable async executor for
-every workflow, not just orchestration.
+**IMPLEMENTED** (reviewed 2026-09-17; this section used to say "PROPOSED. Nothing implemented").
+
+`FlowEngine` bean graph (`FlowEngineFactory`, durable state via JDBC in prod); async
+`POST /api/workflows/{id}/execute` that registers the flow for resume and submits it to the engine;
+live streaming through `EventStreamRegistry`; FlowState materialization; and
+`GET /api/executions/{id}`, `POST /api/executions/{id}/cancel`, `POST /api/executions/{id}/resume`
+(`SpringExecutionController`). Chat memory survives a suspension (`FlowStateChatMemory`).

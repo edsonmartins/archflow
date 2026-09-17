@@ -115,12 +115,18 @@ the two interfaces are nearly identical, so it is thin. Things to keep in mind w
   known at execute time; one shared configured adapter would hand one tenant's key to another.
 - **Secrets do not live in the workflow JSON.** The resolver wins over an inline `apiKey` left in a
   node — governance must not be overridable by a forgotten field.
-- **`MemoryRestorer` is still `null` on purpose.** Chat memory is read by the chat adapters, but
-  nothing *writes* it during a flow yet. A restorer would repopulate a store nobody fills.
+- **Chat memory lives only inside one execution.** The chat adapters read and write
+  `ExecutionContext.getChatMemory()` (a 20-message window). `FlowStateChatMemory` is the
+  `MemoryRestorer` wired in `FlowEngineFactory`: `CheckpointingLifecycleListener` captures the window
+  into the `FlowState` after each step, and `DefaultFlowEngine` restores it **on resume only** — a new
+  execution of the same flow starts empty. Long-term memory (Brain Sentry) is proposed, not wired:
+  see `docs/design/0008-memoria-de-longo-prazo-brain-sentry.md`.
 
 ### Experimental / not wired to the runtime (honest state — see docs/PLANO_HOMOLOGACAO.md)
-- **archflow-brainsentry** - Brain Sentry client library; not on the archflow-api runtime classpath
-- **archflow-observability** - OTel/Micrometer classes exist but nothing instruments the runtime; only the audit trail (`AuditRepository`) is consumed. Real observability today: flow/step metrics from `MetricsCollector` (shared with `ObservabilityService`), the API trace store fed by `TraceStoreRecorder`, and Actuator health. There are no OTel spans and no per-tool-call latency/token accounting
+- **archflow-brainsentry** - Brain Sentry client library; not on the archflow-api runtime classpath. Intended
+  as the agents' long-term memory (design 0008). `BrainSentryMemoryAdapter` has tenant/context isolation
+  defects that must be fixed before it is wired — see section 4 of that design
+- **archflow-observability** - OTel/Micrometer classes exist but nothing instruments the runtime; only the audit trail (`AuditRepository`) is consumed. Real observability today: flow/step metrics from `MetricsCollector` (shared with `ObservabilityService`), the API trace store fed by `TraceStoreRecorder`, and Actuator health. There are no OTel spans. Token usage is counted per agent execution (`ContadorDeUso`, fed turn by turn by `McpAgentRunner`) and priced by `TabelaDePrecos` (`archflow.llm.precos[...]`; no price → null cost, never zero); it reaches VendaX in `VendaxResult.uso`, not an observability backend
 - **archflow-performance** - Two-level cache library; orphan module, no pom depends on it
 - **archflow-marketplace** - Extension manifest catalog; "install" registers a manifest only, RSA signature verification has no trusted keys (checksum in practice)
 
