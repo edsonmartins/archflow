@@ -352,7 +352,9 @@ public class McpAgentRunner {
                 .tier(options.tier())
                 .build();
         ChatModel model = llmConfigResolver.resolveModel(llmRequest);
-        String rotuloDoModelo = rotuloDoModelo(llmRequest);
+        ResolvedLLMConfig configDoUso = configParaUso(llmRequest);
+        String rotuloDoModelo = rotuloDoModelo(configDoUso);
+        String provedorDoUso = configDoUso == null ? null : configDoUso.provider();
 
         List<ToolSpecification> tools;
         // Schemas guardados por nome: o mesmo contrato que descrevemos ao modelo
@@ -377,7 +379,7 @@ public class McpAgentRunner {
                     .toolSpecifications(tools)
                     .build());
             recordTurn(response);
-            somarUso(options, rotuloDoModelo, response);
+            somarUso(options, provedorDoUso, rotuloDoModelo, response);
             AiMessage ai = response.aiMessage();
             session.messages.add(ai);
             if (ai.text() != null) {
@@ -700,6 +702,10 @@ public class McpAgentRunner {
             log.warn("Tool '{}' negada pela política de acesso (tenant={})",
                     toolName, session.tenantId);
         } else {
+            if (options.uso() != null) {
+                // Só conta o que foi ao servidor: argumento inválido e tool negada não saem daqui.
+                options.uso().somarChamadaDeTool();
+            }
             try {
                 McpModel.ToolResult tr = await(client.callTool(
                                 new McpModel.ToolArguments(toolName, effectiveArgs)),
@@ -762,29 +768,33 @@ public class McpAgentRunner {
      * operador declara preço. Falhar aqui não pode derrubar o laço — sem rótulo, o uso sai sem
      * modelo e sem custo, que é honesto.</p>
      */
-    private String rotuloDoModelo(LLMResolutionRequest llmRequest) {
+    private ResolvedLLMConfig configParaUso(LLMResolutionRequest llmRequest) {
         try {
-            ResolvedLLMConfig resolved = llmConfigResolver.resolve(llmRequest);
-            if (resolved == null || resolved.model() == null || resolved.model().isBlank()) {
-                return null;
-            }
-            return resolved.provider() == null || resolved.provider().isBlank()
-                    ? resolved.model()
-                    : resolved.provider() + "/" + resolved.model();
+            return llmConfigResolver.resolve(llmRequest);
         } catch (RuntimeException e) {
-            log.debug("Sem rótulo de modelo para o uso: {}", e.getMessage());
+            log.debug("Sem configuração resolvida para o uso: {}", e.getMessage());
             return null;
         }
     }
 
+    private static String rotuloDoModelo(ResolvedLLMConfig resolved) {
+        if (resolved == null || resolved.model() == null || resolved.model().isBlank()) {
+            return null;
+        }
+        return resolved.provider() == null || resolved.provider().isBlank()
+                ? resolved.model()
+                : resolved.provider() + "/" + resolved.model();
+    }
+
     /** Soma o turno no contador da execução, quando há um. Observação, nunca requisito. */
-    private static void somarUso(Options options, String rotulo, ChatResponse response) {
+    private static void somarUso(Options options, String provedor, String rotulo,
+                                 ChatResponse response) {
         if (options.uso() == null) {
             return;
         }
         try {
             TokenUsage usage = response.tokenUsage();
-            options.uso().somar(rotulo,
+            options.uso().somar(provedor, rotulo,
                     usage == null ? null : usage.inputTokenCount(),
                     usage == null ? null : usage.outputTokenCount());
         } catch (RuntimeException e) {
@@ -976,6 +986,15 @@ public class McpAgentRunner {
         public Options comUso(ContadorDeUso contador) {
             return new Options(access, trust, approval, maxIterations, flowPatch, stepPatch,
                     requiredOutputTools, tier, codigosQueEncerram, contador, contextoRecuperado);
+        }
+
+        /** As mesmas opções, com o tier pedido por quem acionou; vazio mantém o atual. */
+        public Options comTier(String novoTier) {
+            if (novoTier == null || novoTier.isBlank()) {
+                return this;
+            }
+            return new Options(access, trust, approval, maxIterations, flowPatch, stepPatch,
+                    requiredOutputTools, novoTier, codigosQueEncerram, uso, contextoRecuperado);
         }
 
         /** As mesmas opções, encerrando o laço quando uma tool responder um destes códigos. */

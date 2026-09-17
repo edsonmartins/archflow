@@ -209,6 +209,28 @@ class EncerramentoEUsoTest {
             assertThat(resumo.tokensEntrada()).isEqualTo(750);
             assertThat(resumo.tokensSaida()).isEqualTo(62);
             assertThat(resumo.tokens()).isEqualTo(812);
+            assertThat(resumo.provedor()).isEqualTo("openrouter");
+            assertThat(resumo.turnos()).isEqualTo(2);
+            assertThat(resumo.chamadasDeTool())
+                    .as("a chamada foi ao servidor, mesmo tendo voltado erro")
+                    .isEqualTo(1);
+            assertThat(resumo.execucaoId()).isEqualTo(contador.execucaoId());
+        }
+
+        /** Só conta o que foi ao servidor: tool negada não sai do runner. */
+        @Test
+        @DisplayName("tool negada pela política não conta como chamada")
+        void negadaNaoConta() {
+            Modelo modelo = new Modelo(List.of(chamaPlano(null), texto("ok", null)));
+            ClienteQueRecusa cliente = new ClienteQueRecusa(-32602);
+            ContadorDeUso contador = new ContadorDeUso();
+
+            runner(modelo).run("acme", "sys", "faz 8?", cliente,
+                    new McpAgentRunner.Options(ToolAccessPolicy.allowOnly(Set.of("outra")))
+                            .comUso(contador));
+
+            assertThat(cliente.chamadas).isZero();
+            assertThat(contador.resumo().orElseThrow().chamadasDeTool()).isZero();
         }
 
         /**

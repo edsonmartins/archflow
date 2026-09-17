@@ -174,6 +174,10 @@ public class VendaxAgentDispatcher {
                 case "NS" -> NS_CONSULTA.equals(invoke.reason())
                         ? runNsConsulta(invoke, uso)
                         : naoImplementado(invoke);
+                // O AP aqui só narra o dia; o reason distingue, como no NS.
+                case "AP" -> NarracaoDoDia.REASON.equals(invoke.reason())
+                        ? runApNarracao(invoke, uso)
+                        : naoImplementado(invoke);
                 default -> naoImplementado(invoke);
             };
             if (result != null) {
@@ -223,12 +227,16 @@ public class VendaxAgentDispatcher {
     }
 
     /**
-     * O que toda execução leva ao laço, qualquer que seja o agente: o contador de consumo e a
-     * memória do cliente que o Core mandou. Um lugar só, para nenhum caminho esquecer um dos dois.
+     * O que toda execução leva ao laço, qualquer que seja o agente: o contador de consumo, a
+     * memória do cliente que o Core mandou e o tier. Um lugar só, para nenhum caminho esquecer um.
+     *
+     * <p>O tier estava aqui só para o NS. QP e CS, pelo caminho por nome, rodavam sem ele — e é
+     * pelo tier que o Core degrada o modelo sob pressão de custo (ADR-025 do VendaX). A política
+     * não tinha efeito justamente nos dois agentes que mais gastam.</p>
      */
     static McpAgentRunner.Options daExecucao(McpAgentRunner.Options opcoes, VendaxInvoke invoke,
                                              ContadorDeUso uso) {
-        return opcoes.comUso(uso).comContextoRecuperado(invoke.memoria());
+        return opcoes.comUso(uso).comContextoRecuperado(invoke.memoria()).comTier(invoke.tier());
     }
 
     /** Envia carregando o consumo — em todo result, OK ou ERROR. */
@@ -237,10 +245,24 @@ public class VendaxAgentDispatcher {
     }
 
     VendaxResult comUso(VendaxResult result, ContadorDeUso uso) {
-        return uso.resumo()
-                .map(r -> result.comUso(new VendaxResult.Uso(
-                        r.modelo(), r.tokens(), precos.custoEmCentavos(r))))
-                .orElse(result);
+        if (result.uso() != null) {
+            // Já veio com o recorte certo — o ERROR por prazo leva só o gasto até o prazo.
+            return result;
+        }
+        return uso.resumo().map(r -> result.comUso(usoDe(r))).orElse(result);
+    }
+
+    private VendaxResult.Uso usoDe(ContadorDeUso.Resumo r) {
+        return VendaxResult.Uso.de(r, precos.custoEmCentavos(r));
+    }
+
+    /** Relata o consumo de uma execução que não vai num result; nada gasto, nada relatado. */
+    private void relatar(VendaxInvoke invoke, VendaxUsoRelato.Motivo motivo,
+                         ContadorDeUso.Resumo resumo) {
+        if (resumo == null || resumo.semTurnos()) {
+            return;
+        }
+        resultSender.relatarUso(VendaxUsoRelato.de(invoke, motivo, usoDe(resumo)));
     }
 
     /**
@@ -278,11 +300,14 @@ public class VendaxAgentDispatcher {
         try {
             result = comPrazo(invoke, () ->
                     runner.run(invoke.tenantId(), systemPrompt, entrada, client, opcoesDaExecucao));
-        } catch (TimeoutException e) {
+        } catch (PrazoEstourado e) {
             log.warn("Consulta ao NS passou do prazo de {} ms (trace={})",
                     prazoInterativo.toMillis(), invoke.traceId());
-            return VendaxResult.error(invoke, "O negociador não respondeu em "
+            ContadorDeUso.Resumo ate = uso.resumo().orElse(null);
+            relatarDepoisDoPrazo(invoke, uso, ate, e.execucao());
+            VendaxResult erro = VendaxResult.error(invoke, "O negociador não respondeu em "
                     + prazoInterativo.toSeconds() + " s");
+            return ate == null ? erro : erro.comUso(usoDe(ate));
         }
 
         if (result.isEncerrado()) {
@@ -294,6 +319,58 @@ public class VendaxAgentDispatcher {
                     : causa.resultText());
         }
         return ConsultaAoNegociador.resultado(invoke, result);
+    }
+
+    /**
+     * AP, narração do dia: a contagem que o Core calculou vira uma a três frases.
+     *
+     * <p>Sem ferramenta e numa volta só — ver {@link NarracaoDoDia}. O laço recebe um cliente
+     * {@link br.com.archflow.api.agent.mcp.SemFerramentas}: nenhuma ida ao servidor MCP, nenhum
+     * catálogo no prompt, e a narração não depende de o servidor estar no ar. A política vazia é a
+     * segunda barreira.</p>
+     *
+     * <p>Classe de lote: sem prazo interativo. Um {@code OK} atrasado é aproveitado pelo Core.</p>
+     */
+    private VendaxResult runApNarracao(VendaxInvoke invoke, ContadorDeUso uso) {
+        McpAgentRunner.Options opcoes = daExecucao(new McpAgentRunner.Options(
+                ToolAccessPolicy.allowOnly(Set.of()),
+                ToolTrustPolicy.untrustedByDefault(),
+                ToolApprovalPolicy.none(),
+                NarracaoDoDia.MAX_ITERACOES), invoke, uso);
+        McpAgentRunner.Result result = runner.run(invoke.tenantId(),
+                promptDe(invoke, NarracaoDoDia.SYSTEM_PROMPT),
+                entradaDoAgente(invoke),
+                br.com.archflow.api.agent.mcp.SemFerramentas.INSTANCIA, opcoes);
+        return NarracaoDoDia.resultado(invoke, result);
+    }
+
+    /**
+     * O laço não para no prazo: a chamada de modelo em voo termina e é cobrada. Quando ele acabar,
+     * relata <b>só</b> o que gastou depois do {@code ERROR}, com o mesmo {@code execucaoId}.
+     *
+     * <p>Numa thread nova, e não na do laço: aquela foi interrompida pelo prazo e o runner restaura
+     * a flag ao sair — um HTTP feito nela falharia na hora, e o relato se perderia.</p>
+     */
+    private void relatarDepoisDoPrazo(VendaxInvoke invoke, ContadorDeUso uso,
+                                      ContadorDeUso.Resumo ate, CompletableFuture<?> execucao) {
+        execucao.whenCompleteAsync((ignorado, erro) -> uso.resumo()
+                        .map(depois -> depois.menos(ate))
+                        .ifPresent(resto -> relatar(invoke, VendaxUsoRelato.Motivo.APOS_PRAZO, resto)),
+                tarefa -> Thread.ofVirtual().name("vendax-uso-apos-prazo").start(tarefa));
+    }
+
+    /** O prazo acabou; {@link #execucao()} é o laço, que ainda pode estar rodando. */
+    static final class PrazoEstourado extends TimeoutException {
+        private final transient CompletableFuture<?> execucao;
+
+        PrazoEstourado(CompletableFuture<?> execucao) {
+            super("prazo interativo estourado");
+            this.execucao = execucao;
+        }
+
+        CompletableFuture<?> execucao() {
+            return execucao;
+        }
     }
 
     /**
@@ -309,7 +386,7 @@ public class VendaxAgentDispatcher {
      * já recebeu o {@code ERROR}, e um {@code OK} atrasado com a mesma chave seria uma segunda
      * resposta para uma pergunta já encerrada.</p>
      */
-    private <T> T comPrazo(VendaxInvoke invoke, Supplier<T> trabalho) throws TimeoutException {
+    private <T> T comPrazo(VendaxInvoke invoke, Supplier<T> trabalho) throws PrazoEstourado {
         CompletableFuture<T> futuro = new CompletableFuture<>();
         Thread thread = Thread.ofVirtual().name("vendax-interativo-", 0).unstarted(() -> {
             definirCorrelacao(invoke);
@@ -326,7 +403,7 @@ public class VendaxAgentDispatcher {
             return futuro.get(prazoInterativo.toMillis(), TimeUnit.MILLISECONDS);
         } catch (TimeoutException e) {
             thread.interrupt();
-            throw e;
+            throw new PrazoEstourado(futuro);
         } catch (InterruptedException e) {
             thread.interrupt();
             Thread.currentThread().interrupt();
@@ -369,6 +446,9 @@ public class VendaxAgentDispatcher {
         if (saida.suspenso()) {
             log.info("Fluxo de {} suspenso aguardando decisão humana (conv={})",
                     invoke.agent(), invoke.conversationId());
+            // O gasto até aqui. Hoje uma retomada não manda result ao Core, e o que ela gastar não
+            // é relatado — o contador desta execução não sobrevive à suspensão.
+            relatar(invoke, VendaxUsoRelato.Motivo.SUSPENSO, uso.resumo().orElse(null));
             return null;
         }
         String conteudo = extractJson(saida.texto());
@@ -407,6 +487,8 @@ public class VendaxAgentDispatcher {
             // erro: virar agent.error poluiria a conversa a cada mensagem sem intenção de pedido.
             log.info("QP concluiu sem cotação (conv={}): {}",
                     invoke.conversationId(), qp.finalText());
+            // Sem result, o uso não teria onde ir — e é o caso mais comum do QP.
+            relatar(invoke, VendaxUsoRelato.Motivo.SEM_RESULT, uso.resumo().orElse(null));
             return null;
         }
         return VendaxResult.ok(invoke, TYPE_QUOTE, qp.quote());
