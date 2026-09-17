@@ -92,9 +92,16 @@ public class QpAgentService {
         return quote(request, definitionVersion, null);
     }
 
-    /** Idem, somando em {@code uso} o consumo de modelo — quem monta o resultado relata o custo. */
+    /**
+     * Idem, deixando quem aciona ajustar as opções do laço — contador de uso, memória do cliente.
+     *
+     * <p>Um ajuste, e não um parâmetro por campo: cada coisa nova que o dispatcher precisa passar
+     * ao laço mudaria esta assinatura, e com ela todo teste que a dubla.</p>
+     *
+     * @param ajuste {@code null} mantém as opções padrão
+     */
     public QpResult quote(QpRequest request, String definitionVersion,
-                          br.com.archflow.api.agent.mcp.ContadorDeUso uso) {
+                          java.util.function.UnaryOperator<McpAgentRunner.Options> ajuste) {
         String tenantId = request.tenantId() != null ? request.tenantId() : "__default__";
         McpClient client = vendax.clientFor(tenantId, definitionVersion);
 
@@ -113,10 +120,10 @@ public class QpAgentService {
                 : buildSystemPrompt(request, chaveIdempotencia);
         String userMessage = buildUserMessage(request);
 
-        McpAgentRunner.Result result = uso == null
+        McpAgentRunner.Result result = ajuste == null
                 ? runner.run(tenantId, systemPrompt, userMessage, client, toolPolicy)
                 : runner.run(tenantId, systemPrompt, userMessage, client,
-                        new McpAgentRunner.Options(toolPolicy).comUso(uso));
+                        ajuste.apply(new McpAgentRunner.Options(toolPolicy)));
 
         String quote = extractQuote(result);
         return new QpResult(result.finalText(), result.toolCalls(), quote, chaveIdempotencia);

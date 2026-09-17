@@ -72,6 +72,17 @@ public class McpAgentComponent implements AIComponent, ComponentPlugin {
      */
     public static final String CTX_TIER = "archflow.llm.tier";
 
+    /**
+     * Contexto recuperado por quem acionou — a memória do cliente, no VendaX —, como lista de
+     * textos no {@link ExecutionContext}.
+     *
+     * <p>Chave {@code transient}: é entrada da execução e pode conter dados pessoais, então não vai
+     * para o estado durável do fluxo. Chave neutra pelo mesmo motivo do {@link #CTX_TIER}: qualquer
+     * chamador que recupere contexto escreve aqui, e o laço o cerca como conteúdo não confiável.</p>
+     */
+    public static final String CTX_MEMORIA =
+            br.com.archflow.model.engine.ExecutionKeys.TRANSIENT_PREFIX + "contextoRecuperado";
+
     /** Entrada e saída do passo, para quem encadeia. */
     public static final String SAIDA_TEXTO = "text";
     public static final String SAIDA_TOOLS = "toolCalls";
@@ -174,7 +185,8 @@ public class McpAgentComponent implements AIComponent, ComponentPlugin {
                 // O CONSUMO VAI PARA QUEM HOSPEDA A EXECUÇÃO. Sem isto, um agente em fluxo gastaria
                 // tokens que nenhum resultado relata — e o teto de custo do tenant contaria menos
                 // do que foi gasto, justamente no caminho que vai substituir os outros.
-                .comUso(ContadorDeUso.de(context).orElse(null));
+                .comUso(ContadorDeUso.de(context).orElse(null))
+                .comContextoRecuperado(memoriaDoContexto(context));
 
         // A CORRELAÇÃO VOLTA AO ThreadLocal AQUI — nesta thread, que é a que chama as tools.
         //
@@ -216,6 +228,21 @@ public class McpAgentComponent implements AIComponent, ComponentPlugin {
         }
 
         return saida(result, saidaDaTool);
+    }
+
+    /** A memória que quem acionou pôs no contexto; vazia é o caso normal. */
+    private static List<String> memoriaDoContexto(ExecutionContext context) {
+        Object valor = context.get(CTX_MEMORIA).orElse(null);
+        if (!(valor instanceof List<?> lista)) {
+            return List.of();
+        }
+        List<String> textos = new ArrayList<>();
+        for (Object item : lista) {
+            if (item != null && !String.valueOf(item).isBlank()) {
+                textos.add(String.valueOf(item));
+            }
+        }
+        return textos;
     }
 
     /** Um valor de texto do contexto, ou {@code null} — ausência é o caso normal. */

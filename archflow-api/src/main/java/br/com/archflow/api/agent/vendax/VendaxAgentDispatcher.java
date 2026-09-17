@@ -222,6 +222,15 @@ public class VendaxAgentDispatcher {
                 invoke.customerRef(), invoke.vendorRef(), invoke.taskId());
     }
 
+    /**
+     * O que toda execução leva ao laço, qualquer que seja o agente: o contador de consumo e a
+     * memória do cliente que o Core mandou. Um lugar só, para nenhum caminho esquecer um dos dois.
+     */
+    static McpAgentRunner.Options daExecucao(McpAgentRunner.Options opcoes, VendaxInvoke invoke,
+                                             ContadorDeUso uso) {
+        return opcoes.comUso(uso).comContextoRecuperado(invoke.memoria());
+    }
+
     /** Envia carregando o consumo — em todo result, OK ou ERROR. */
     private void enviar(VendaxResult result, ContadorDeUso uso) {
         resultSender.send(comUso(result, uso));
@@ -260,15 +269,15 @@ public class VendaxAgentDispatcher {
                 NS_MAX_ITERACOES,
                 null, null, Set.of(),
                 invoke.tier())
-                .encerrandoEm(Set.of(NS_NAO_CONTRATADO))
-                .comUso(uso);
+                .encerrandoEm(Set.of(NS_NAO_CONTRATADO));
+        McpAgentRunner.Options opcoesDaExecucao = daExecucao(opcoes, invoke, uso);
         String systemPrompt = promptDe(invoke, ConsultaAoNegociador.SYSTEM_PROMPT);
         String entrada = entradaDoAgente(invoke);
 
         McpAgentRunner.Result result;
         try {
             result = comPrazo(invoke, () ->
-                    runner.run(invoke.tenantId(), systemPrompt, entrada, client, opcoes));
+                    runner.run(invoke.tenantId(), systemPrompt, entrada, client, opcoesDaExecucao));
         } catch (TimeoutException e) {
             log.warn("Consulta ao NS passou do prazo de {} ms (trace={})",
                     prazoInterativo.toMillis(), invoke.traceId());
@@ -390,7 +399,8 @@ public class VendaxAgentDispatcher {
                 def != null && def.temPrompt() ? def.systemPrompt() : null,
                 // A chave que o Core embutiu no prompt tem de ser a mesma que o resultado carrega.
                 def != null ? chaveDe(def) : null),
-                def != null ? def.versao() : null, uso);
+                def != null ? def.versao() : null,
+                opcoes -> daExecucao(opcoes, invoke, uso));
 
         if (qp.quote() == null || qp.quote().isBlank()) {
             // O agente rodou mas não chegou a cotar (pediu confirmação, não achou o SKU). Não é
@@ -413,7 +423,7 @@ public class VendaxAgentDispatcher {
         McpAgentRunner.Result result = runner.run(invoke.tenantId(),
                 promptDe(invoke, CS_SYSTEM_PROMPT),
                 entradaDoAgente(invoke),
-                client, new McpAgentRunner.Options(politicaDe(invoke, CS_TOOLS)).comUso(uso));
+                client, daExecucao(new McpAgentRunner.Options(politicaDe(invoke, CS_TOOLS)), invoke, uso));
 
         String json = extractJson(result.finalText());
         if (json == null) {

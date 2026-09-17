@@ -15,6 +15,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
  * @param payload     JSON específico do agente (ex.: intent do ASSISTANT), opcional
  * @param customerRef cliente da conversa; nulo enquanto não há vínculo
  * @param taskId      task do VendaX que originou o acionamento; nulo é o caso comum
+ * @param memoria     fatos sobre o cliente que o Core decidiu mandar; vazio é o caso comum
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record VendaxInvoke(
@@ -61,8 +62,30 @@ public record VendaxInvoke(
          */
         String taskId,
 
+        /**
+         * O que se sabe sobre o cliente, <b>escolhido pelo Core</b> — um fato por item.
+         *
+         * <p>A memória do cliente é do Core (RFC-014 do VendaX): ele grava os fatos no Brain Sentry,
+         * busca com o escopo do cliente e decide quais cabem no orçamento da skill. Este runtime não
+         * fala com o Brain Sentry para isso; recebe o resultado aqui.</p>
+         *
+         * <p>Vem num campo próprio, e não dentro do {@code systemPrompt}, por dois motivos. Os fatos
+         * foram derivados de conversas com terceiros, então entram <b>cercados</b> como conteúdo não
+         * confiável — no system prompt falariam com a voz da plataforma. E mudam a cada cliente, então
+         * entram no turno do usuário — no system prompt quebrariam o cache do prefixo estável.
+         * Ver ADR-0005.</p>
+         *
+         * <p>Nulo ou vazio: o agente roda sem memória, como hoje.</p>
+         */
+        java.util.List<String> memoria,
+
         /** Definição resolvida pelo Core (RFC-013); nula = usar o comportamento embutido. */
         DefinicaoDeAgente definicao) {
+
+    public VendaxInvoke {
+        memoria = memoria == null ? java.util.List.of()
+                : memoria.stream().filter(java.util.Objects::nonNull).toList();
+    }
 
     /**
      * Compat: invoke sem chave de agrupamento — a chave é derivada da mensagem, como sempre foi.
@@ -76,7 +99,7 @@ public record VendaxInvoke(
                         String traceId, String payload, String customerRef, String vendorRef,
                         DefinicaoDeAgente definicao) {
         this(schemaVersion, tenantId, conversationId, agent, sourceMessageId, text, tier, reason,
-                traceId, payload, customerRef, vendorRef, null, null, definicao);
+                traceId, payload, customerRef, vendorRef, null, null, null, definicao);
     }
 
     /**
@@ -90,6 +113,15 @@ public record VendaxInvoke(
                         String traceId, String payload, String customerRef, String vendorRef,
                         String idempotencyKey, DefinicaoDeAgente definicao) {
         this(schemaVersion, tenantId, conversationId, agent, sourceMessageId, text, tier, reason,
-                traceId, payload, customerRef, vendorRef, idempotencyKey, null, definicao);
+                traceId, payload, customerRef, vendorRef, idempotencyKey, null, null, definicao);
+    }
+
+    /** Compat: invoke anterior à memória enviada pelo Core. */
+    public VendaxInvoke(String schemaVersion, String tenantId, String conversationId, String agent,
+                        String sourceMessageId, String text, String tier, String reason,
+                        String traceId, String payload, String customerRef, String vendorRef,
+                        String idempotencyKey, String taskId, DefinicaoDeAgente definicao) {
+        this(schemaVersion, tenantId, conversationId, agent, sourceMessageId, text, tier, reason,
+                traceId, payload, customerRef, vendorRef, idempotencyKey, taskId, null, definicao);
     }
 }

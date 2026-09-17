@@ -413,4 +413,36 @@ class McpAgentComponentTest {
 
         assertThat(host.options.get().uso()).isNull();
     }
+
+    /**
+     * A memória que quem acionou pôs no contexto chega ao laço — e é o laço que a cerca.
+     */
+    @Test
+    @DisplayName("a memória do contexto vai nas opções do runner")
+    void memoriaChegaAoRunner() {
+        HostFalso host = new HostFalso(Set.of("ler"), concluido());
+        ExecutionContext ctx = contextoCom(host);
+        when(ctx.get(McpAgentComponent.CTX_MEMORIA))
+                .thenReturn(Optional.of(List.of("prefere caixa fechada", " ")));
+
+        componente(Map.of("systemPrompt", "p", "tools", List.of("ler")))
+                .execute("execute", "oi", ctx);
+
+        assertThat(host.options.get().contextoRecuperado())
+                .as("itens em branco não viram fato")
+                .containsExactly("prefere caixa fechada");
+    }
+
+    @Test
+    @DisplayName("valor que não é lista é ignorado, sem quebrar o passo")
+    void memoriaEmFormaInesperada() {
+        HostFalso host = new HostFalso(Set.of("ler"), concluido());
+        ExecutionContext ctx = contextoCom(host);
+        when(ctx.get(McpAgentComponent.CTX_MEMORIA)).thenReturn(Optional.of("não é lista"));
+
+        componente(Map.of("systemPrompt", "p", "tools", List.of("ler")))
+                .execute("execute", "oi", ctx);
+
+        assertThat(host.options.get().contextoRecuperado()).isEmpty();
+    }
 }
