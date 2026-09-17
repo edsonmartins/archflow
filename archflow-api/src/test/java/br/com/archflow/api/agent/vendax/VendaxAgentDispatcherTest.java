@@ -46,9 +46,20 @@ class VendaxAgentDispatcherTest {
             super("http://core.test", "segredo");
         }
 
+        final List<VendaxUsoRelato> relatos = new CopyOnWriteArrayList<>();
+
         @Override
         public void send(VendaxResult result) {
             sent.add(result);
+        }
+
+        /** Um relato feito numa thread interrompida falharia no HTTP de verdade. */
+        final List<Boolean> relatoEmThreadInterrompida = new CopyOnWriteArrayList<>();
+
+        @Override
+        public void relatarUso(VendaxUsoRelato relato) {
+            relatoEmThreadInterrompida.add(Thread.currentThread().isInterrupted());
+            relatos.add(relato);
         }
     }
 

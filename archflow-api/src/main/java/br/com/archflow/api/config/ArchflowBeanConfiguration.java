@@ -1366,7 +1366,8 @@ public class ArchflowBeanConfiguration {
     @Bean
     @ConditionalOnMissingBean
     public br.com.archflow.api.agent.mcp.TabelaDePrecos tabelaDePrecos(
-            org.springframework.core.env.Environment environment) {
+            org.springframework.core.env.Environment environment,
+            @Value("${archflow.llm.precos-texto:}") String precosEmTexto) {
         var tipo = org.springframework.core.ResolvableType.forClassWithGenerics(java.util.Map.class,
                 org.springframework.core.ResolvableType.forClass(String.class),
                 org.springframework.core.ResolvableType.forClassWithGenerics(
@@ -1377,7 +1378,20 @@ public class ArchflowBeanConfiguration {
                                 org.springframework.boot.context.properties.bind.Bindable
                                         .<java.util.Map<String, java.util.Map<String, String>>>of(tipo))
                         .orElse(java.util.Map.of());
-        return br.com.archflow.api.agent.mcp.TabelaDePrecos.daConfiguracao(config);
+        var leitura = br.com.archflow.api.agent.mcp.TabelaDePrecos.doTexto(precosEmTexto);
+        if (!leitura.ignorados().isEmpty()) {
+            // Um erro de digitação aqui apagaria o preço, e o custo sairia nulo sem aviso — fora do
+            // teto do tenant. Melhor gritar na subida.
+            org.slf4j.LoggerFactory.getLogger(ArchflowBeanConfiguration.class).warn(
+                    "archflow.llm.precos-texto: entradas ignoradas (formato modelo=entrada,saida): {}",
+                    leitura.ignorados());
+        }
+        var tabela = br.com.archflow.api.agent.mcp.TabelaDePrecos.daConfiguracao(config)
+                .com(leitura.tabela());
+        org.slf4j.LoggerFactory.getLogger(ArchflowBeanConfiguration.class).info(
+                "Preços de modelo (centavos de real por milhão de tokens) declarados para: {}",
+                tabela.modelos().isEmpty() ? "nenhum — o custo sairá nulo" : tabela.modelos());
+        return tabela;
     }
 
     /** Roteia o invoke do Core: fluxo quando a definição traz um, senão o caminho por nome. */

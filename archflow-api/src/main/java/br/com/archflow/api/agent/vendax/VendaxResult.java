@@ -37,13 +37,47 @@ public record VendaxResult(
     /**
      * Consumo de modelo da execução.
      *
-     * @param model     {@code provider/modelo}; vários, separados por vírgula, se os passos de um
-     *                  fluxo usaram modelos diferentes
-     * @param tokens    entrada + saída; {@code null} se o provedor não informou
-     * @param costCents custo arredondado para cima; {@code null} quando não há preço declarado para
-     *                  o modelo — nulo não é "de graça", é "ninguém disse quanto custa"
+     * <p>{@code model}, {@code tokens} e {@code costCents} são a forma do PR #51 e saem sempre
+     * ({@code costCents} com nulo explícito). O resto é aditivo e sai só quando se sabe.</p>
+     *
+     * @param model        {@code provider/modelo}; vários, separados por vírgula, se os passos de
+     *                     um fluxo usaram modelos diferentes
+     * @param tokens       entrada + saída; {@code null} se o provedor não informou
+     * @param costCents    custo em <b>centavos de real</b>, arredondado para cima; {@code null}
+     *                     quando não há preço declarado para o modelo — nulo não é "de graça"
+     * @param execucaoId   a execução do agente; o Core conta cada (execução, motivo) uma vez, e é
+     *                     o que torna a reentrega segura. Não é a chave de idempotência do result
+     * @param provider     o provedor ({@code openrouter})
+     * @param inputTokens  tokens de entrada
+     * @param outputTokens tokens de saída
+     * @param llmTurns     chamadas ao modelo
+     * @param toolCalls    idas ao servidor de tools
+     * @param durationMs   duração da execução — ou, num relato {@code APOS_PRAZO}, do trecho depois
+     *                     do prazo
      */
-    public record Uso(String model, Long tokens, Long costCents) {
+    public record Uso(
+            String model,
+            Long tokens,
+            Long costCents,
+            @JsonInclude(JsonInclude.Include.NON_NULL) String execucaoId,
+            @JsonInclude(JsonInclude.Include.NON_NULL) String provider,
+            @JsonInclude(JsonInclude.Include.NON_NULL) Long inputTokens,
+            @JsonInclude(JsonInclude.Include.NON_NULL) Long outputTokens,
+            @JsonInclude(JsonInclude.Include.NON_NULL) Integer llmTurns,
+            @JsonInclude(JsonInclude.Include.NON_NULL) Integer toolCalls,
+            @JsonInclude(JsonInclude.Include.NON_NULL) Long durationMs) {
+
+        /** Compat: a forma do PR #51. */
+        public Uso(String model, Long tokens, Long costCents) {
+            this(model, tokens, costCents, null, null, null, null, null, null, null);
+        }
+
+        /** O consumo contado, com o custo calculado por quem tem a tabela de preços. */
+        public static Uso de(br.com.archflow.api.agent.mcp.ContadorDeUso.Resumo r, Long costCents) {
+            return new Uso(r.modelo(), r.tokens(), costCents, r.execucaoId(), r.provedor(),
+                    r.tokensEntrada(), r.tokensSaida(), r.turnos(), r.chamadasDeTool(),
+                    r.duracaoMs());
+        }
     }
 
     /** Compat: result sem uso — a forma do contrato antes do campo aditivo. */
@@ -78,7 +112,7 @@ public record VendaxResult(
      * Deriva da mensagem que originou o acionamento e do agente: dois agentes sobre a mesma
      * mensagem produzem resultados distintos, e o mesmo agente reprocessado produz o mesmo.
      */
-    private static String idempotencyKeyOf(VendaxInvoke invoke) {
+    static String idempotencyKeyOf(VendaxInvoke invoke) {
         // A do Core vence, quando ela vem: só ele sabe que cinco mensagens de uma rajada são o
         // MESMO pedido. Aqui se enxerga um invoke isolado, e derivar da mensagem transformaria
         // cada item pedido numa cotação separada.
