@@ -24,13 +24,20 @@ import java.util.Objects;
  *
  * <h2>Configuração</h2>
  *
- * <p>Em centavos por milhão de tokens, na moeda em que o consumidor conta. A chave é o
- * {@code provider/modelo} da configuração resolvida; como ela tem barras e pontos, vai entre
- * colchetes:</p>
+ * <p>Em <b>centavos de real por milhão de tokens</b> — a moeda em que o VendaX soma o teto mensal
+ * do tenant. A chave é o {@code provider/modelo} da configuração resolvida; como ela tem barras e
+ * pontos, vai entre colchetes:</p>
  *
  * <pre>
  * archflow.llm.precos[openrouter/google/gemini-2.5-flash-lite].entrada=10
  * archflow.llm.precos[openrouter/google/gemini-2.5-flash-lite].saida=40
+ * </pre>
+ *
+ * <p>Nome de variável de ambiente não carrega barra nem ponto, então há também a forma em texto,
+ * para {@code ARCHFLOW_LLM_PRECOS} (ver {@link #doTexto}):</p>
+ *
+ * <pre>
+ * openrouter/google/gemini-2.5-flash-lite=10,40;anthropic/claude-sonnet-5=1650,8250
  * </pre>
  */
 public final class TabelaDePrecos {
@@ -91,6 +98,59 @@ public final class TabelaDePrecos {
             });
         }
         return new TabelaDePrecos(precos);
+    }
+
+    /**
+     * A forma em texto: {@code modelo=entrada,saida}, separados por {@code ;}.
+     *
+     * <p>{@code =} e {@code ;} não aparecem em id de modelo (que pode ter {@code /}, {@code .},
+     * {@code -} e {@code :}). Entrada malformada fica fora, como na outra forma — e é
+     * <b>informada</b>, porque aqui um erro de digitação apagaria o preço em silêncio.</p>
+     *
+     * @return os pares lidos; {@link #ignorados} diz o que ficou de fora
+     */
+    public static Leitura doTexto(String texto) {
+        Map<String, Map<String, String>> config = new HashMap<>();
+        java.util.List<String> ignorados = new java.util.ArrayList<>();
+        if (texto != null) {
+            for (String item : texto.split(";")) {
+                String par = item.trim();
+                if (par.isEmpty()) {
+                    continue;
+                }
+                int igual = par.lastIndexOf('=');
+                String[] valores = igual < 0 ? new String[0] : par.substring(igual + 1).split(",");
+                if (igual <= 0 || valores.length != 2) {
+                    ignorados.add(par);
+                    continue;
+                }
+                config.put(par.substring(0, igual).trim(),
+                        Map.of("entrada", valores[0].trim(), "saida", valores[1].trim()));
+            }
+        }
+        TabelaDePrecos tabela = daConfiguracao(config);
+        config.keySet().stream()
+                .filter(modelo -> !tabela.precos.containsKey(chave(modelo)))
+                .forEach(ignorados::add);
+        return new Leitura(tabela, java.util.List.copyOf(ignorados));
+    }
+
+    /** Resultado da forma em texto: a tabela e as entradas que não entraram nela. */
+    public record Leitura(TabelaDePrecos tabela, java.util.List<String> ignorados) {
+    }
+
+    /** As duas tabelas juntas; em conflito, vale {@code outra}. */
+    public TabelaDePrecos com(TabelaDePrecos outra) {
+        Map<String, Preco> juntos = new HashMap<>(precos);
+        if (outra != null) {
+            juntos.putAll(outra.precos);
+        }
+        return new TabelaDePrecos(juntos);
+    }
+
+    /** Modelos com preço declarado. */
+    public java.util.Set<String> modelos() {
+        return precos.keySet();
     }
 
     /**

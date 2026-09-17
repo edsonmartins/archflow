@@ -155,6 +155,18 @@ public class AgentFlowRunner {
         if (resultado.getStatus() == ExecutionStatus.FAILED) {
             throw new IllegalStateException("Fluxo falhou: " + errosDe(resultado, contexto));
         }
+        // PAUSADO É SUSPENSÃO, NÃO SAÍDA VAZIA. Um nó APPROVAL faz o motor devolver PAUSED, sem
+        // saída. Tratado como conclusão, virava Saida(null, false) e o Core recebia um ERROR dizendo
+        // que o fluxo "não devolveu um JSON" — um erro que não aconteceu, no lugar de uma espera.
+        if (resultado.getStatus() == ExecutionStatus.PAUSED) {
+            log.info("Fluxo {} do agente {} pausado aguardando decisão (conv={})",
+                    execucaoId, invoke.agent(), invoke.conversationId());
+            return new Saida(null, true);
+        }
+        // Cancelado também não é "saída vazia": o motivo certo é o cancelamento.
+        if (resultado.getStatus() == ExecutionStatus.CANCELLED) {
+            throw new IllegalStateException("Fluxo cancelado antes de concluir");
+        }
 
         Object saida = resultado.getOutput().orElse(null);
         log.debug("Fluxo {} do agente {} concluiu com status {} (conv={})",

@@ -76,14 +76,20 @@ archflow:
       # passado este prazo o resultado sai como ERROR, com a mesma chave, e não é reenfileirado.
       prazo-interativo: ${ARCHFLOW_VENDAX_AGENT_PRAZO_INTERATIVO:PT20S}
 
-  # Preço por modelo, em centavos por milhão de tokens, para o `uso` que acompanha cada result.
-  # A chave é o provider/modelo da configuração resolvida, ENTRE COLCHETES (tem barras e pontos).
-  # Modelo sem preço declarado sai com tokens e costCents nulo — nulo não é "de graça".
-  # llm:
-  #   precos:
-  #     "[openrouter/google/gemini-2.5-flash-lite]":
-  #       entrada: 10
-  #       saida: 40
+  # Preço por modelo, em CENTAVOS DE REAL por milhão de tokens, para o `uso` de cada result e relato
+  # (o VendaX soma no teto mensal do tenant). A chave é o provider/modelo da configuração resolvida.
+  # Modelo sem preço sai com tokens e costCents nulo — nulo não é "de graça", e fica fora do teto.
+  #
+  # Em variável de ambiente (nome de variável não carrega barra nem ponto):
+  #   ARCHFLOW_LLM_PRECOS="openrouter/google/gemini-2.5-flash-lite=10,40;outro/modelo=100,400"
+  # Em YAML, a chave vai ENTRE COLCHETES:
+  #   llm:
+  #     precos:
+  #       "[openrouter/google/gemini-2.5-flash-lite]":
+  #         entrada: 10
+  #         saida: 40
+  llm:
+    precos-texto: ${ARCHFLOW_LLM_PRECOS:}
 
 logging:
   level:
