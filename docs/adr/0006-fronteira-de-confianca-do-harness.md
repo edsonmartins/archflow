@@ -164,10 +164,24 @@ PRs #39 (cobrança), #45 (malformada) e #49 (transporte). Classe: `McpAgentRunne
   precisa de teste que leia o valor **dentro** dela.
 - **O server precisa conferir.** Headers só protegem se o server os usar no lugar do argumento; o
   lado do VendaX está no outro repositório.
-- **Consumo depois de uma retomada não é relatado.** Um fluxo retomado depois de aprovação não
-  manda result ao Core, e o contador da execução não sobrevive à suspensão — o que a retomada
-  gastar fica fora do teto. (Os outros buracos — execução sem result e gasto depois do prazo —
-  foram fechados no PR #55.)
+- **A retomada não tem ponte para o VendaX.** Levantado dos dois lados em 17/09:
+  - só o `runAndReport` do dispatcher envia result; nenhum caminho de retomada passa por ele;
+  - `McpAgentRunner.resume` não tem chamador — um `mcp_agent_states` suspenso fica órfão;
+  - a aprovação (`ApprovalQueueService.submitDecision`) retoma sem `McpAgentHost` no contexto, então
+    um passo `mcp-agent` depois dela falharia;
+  - execuções do VendaX não são registradas no `WorkflowRuntimeStore`, então `/resume` não as acha;
+  - `conversationId`, `agent` e `saidaSchema` não são persistidos, então não há como montar o
+    result depois.
+
+  **Decisão:** a suspensão relata o gasto até ali (`SUSPENSO`) e não envia result; o Core trata esse
+  relato como final. A ponte não é desenhada agora, porque **nenhum agente do VendaX suspende** —
+  todas as políticas são `ToolApprovalPolicy.none()`, nenhum fluxo tem nó `APPROVAL` e o Core não
+  chama `/api/approvals` nem `/resume`. Quando houver aprovação humana num agente do VendaX, a
+  retomada precisará: guardar o vínculo execução↔invoke (`conversationId`, `agent`, `saidaSchema`,
+  `idempotencyKey`); injetar o `McpAgentHost` no caminho da aprovação; e chamar
+  `VendaxResultSender.send` ao terminar, com o uso gasto depois da retomada no próprio result.
+  (Os outros buracos de consumo — execução sem result e gasto depois do prazo — foram fechados no
+  PR #55, que também passou a tratar `PAUSED` como suspensão, e não como saída vazia.)
 
 ### Neutras
 
