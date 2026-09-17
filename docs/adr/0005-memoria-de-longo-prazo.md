@@ -1,6 +1,6 @@
-# ADR-0005 — Memória de longo prazo dos agentes: Brain Sentry atrás de um contrato só
+# ADR-0005 — Memória de longo prazo dos agentes: quem é dono guarda, o harness cerca
 
-- **Status:** Proposto
+- **Status:** Aceito (parcialmente implementado: D23; D12–D16 aguardam consumidor)
 - **Data:** 2026-09-17
 - **Decisores:** Edson Martins
 - **Contexto de origem:** discussão sobre o archflow como harness de agente, em que a falta de
@@ -14,6 +14,14 @@
 
 ## Sumário
 
+> **Revisada em 17/09/2026, depois de ler a RFC-014 do VendaX** (`vendax-spec/RFC-014-memoria-de-conversa-brainsentry.md`).
+> A primeira versão desta ADR propunha que o archflow lesse o Brain Sentry dentro do laço de
+> agente, começando pelo VendaX. A RFC-014 já tinha decidido o contrário, com bons motivos: a
+> memória **do cliente** é do Core, que grava e lê o Brain Sentry com a própria chave e a tag
+> `cliente:{ref}`; os agentes não falam direto com o Brain Sentry (§5.3 de lá). Esta revisão
+> acrescenta a **D23** — o harness recebe a memória de quem é dono dela e a cerca — e rebaixa a
+> ligação direta ao Brain Sentry a memória **episódica da plataforma**, sem consumidor ainda.
+
 Hoje um agente do archflow não lembra nada de uma execução para a outra. A conversa de um fluxo
 sobrevive a uma suspensão (`FlowStateChatMemory`), mas uma execução nova começa vazia, e o laço de
 agente (`McpAgentRunner`) monta as mensagens do zero a cada vez.
@@ -26,6 +34,11 @@ Esta ADR decide que a **memória de longo prazo** do archflow é o **Brain Sentr
 - **D14.** O escopo vem do transporte; o tenant é isolado no servidor.
 - **D15.** Registra-se fato resumido, não transcrição.
 - **D16.** Opcional e degradável: sem Brain Sentry, nada muda; com ele fora do ar, o agente segue.
+- **D23.** Memória que tem dono fora do archflow chega **pronta**, num campo próprio, e o harness
+  a cerca no turno do usuário.
+
+D12–D16 valem para a memória **episódica da plataforma** (o que um agente aprendeu nas próprias
+execuções). A D23 vale para a memória que outro sistema detém — hoje, a do cliente no VendaX.
 
 ## Contexto
 
@@ -104,6 +117,28 @@ custo do resumo, quando feito por modelo, é somado ao consumo da execução (D1
 - **Observável:** por execução, quantas memórias vieram, quanto tempo levou e se o circuito estava
   aberto. Sem isso, "o agente não lembrou" é indistinguível de "o Brain Sentry estava fora".
 
+### D23 — Quem é dono guarda; o harness cerca
+
+Quando a memória pertence a outro sistema — a do cliente pertence ao Core do VendaX —, o archflow
+**não** a busca. Quem é dono escolhe os fatos (escopo, validade, orçamento de tokens) e os manda
+**num campo próprio** do acionamento (`VendaxInvoke.memoria`, uma lista de fatos). O harness:
+
+1. **cerca** os fatos com a `UntrustedContentFence` da execução, rotulados como contexto
+   recuperado — foram derivados de conversas com terceiros (D13);
+2. os coloca no **turno do usuário**, antes do pedido, e **não** no system prompt. O system prompt
+   e o catálogo de tools formam o prefixo que o provedor guarda em cache (PR #48); um bloco que
+   muda por cliente ali faria cada chamada pagar o prefixo inteiro. O teste afirma que o system
+   prompt é idêntico com e sem memória;
+3. leva os fatos por **todos** os caminhos (QP, CS, NS e agentes em fluxo), e no fluxo sob chave
+   `transient`: são dados pessoais e não vão para o estado durável. Um passo executado depois de
+   uma retomada roda sem eles;
+4. não interpreta, não filtra por relevância e não trunca: o orçamento é de quem escolheu.
+
+O mecanismo é genérico (`Options.comContextoRecuperado`): qualquer chamador que recupere contexto
+fora do archflow o usa do mesmo jeito.
+
+Implementado em PR #54.
+
 ## Consequências
 
 ### Positivas
@@ -131,15 +166,19 @@ custo do resumo, quando feito por modelo, é somado ao consumo da execução (D1
 
 ## Alternativas consideradas
 
-1. **Ligar só no `McpAgentRunner`.** Rejeitada como solução final: cobre só a família A. Aceita
-   como primeira fase, por ser o uso real de hoje (VendaX).
+1. **Ligar só no `McpAgentRunner`.** Rejeitada como solução final: cobre só a família A. Chegou a
+   ser a primeira fase planejada, pelo VendaX — até a RFC-014 mostrar que a memória do cliente é do
+   Core (D23).
 2. **Usar o `intercept` do Brain Sentry.** Rejeitada no caminho dos agentes: o archflow perderia o
    controle da cerca e do lugar da memória no prompt.
 3. **Persistir a janela de chat entre execuções** (estender o `FlowStateChatMemory`). Rejeitada:
    janela crescente não é memória, e mensagens antigas no prompt são o que a D13 proíbe.
-4. **Cada produto guarda a própria memória e manda no invoke.** É o que o VendaX faz hoje com a
-   janela da conversa. Não é rejeitada: continua valendo como contexto de curto prazo, e a relação
-   entre as duas fontes é uma decisão em aberto.
+4. **Cada produto guarda a própria memória e manda no invoke.** **Adotada** para a memória que tem
+   dono fora do archflow (D23).
+5. **O Core injeta a memória no `systemPrompt`** (`{{ctx.memoriaDoCliente}}`, fatia C da RFC-014).
+   Rejeitada do lado do archflow: sem cerca, os fatos falam com a voz da plataforma; e o bloco
+   variável quebra o cache do prefixo estável que o próprio VendaX pediu. O campo da D23 é a
+   alternativa proposta ao VendaX.
 
 ## Plano de adoção (ordem)
 
@@ -147,19 +186,24 @@ custo do resumo, quando feito por modelo, é somado ao consumo da execução (D1
    memória sem tag não volta; `recall` respeita o contexto e devolve tenant/contexto reais;
    `getById` confere o tenant; `createMemory` passa pelo circuit breaker; chave por tenant.
    Pré-requisito de tudo. **Em revisão no PR #53.**
-1. Componente de memória + família A (runner, `mcp-agent`, dispatcher do VendaX).
-2. Família B, com os ganchos de início e fim no motor.
-3. Família C, uma entrada por vez.
+1. **D23 — memória recebida no invoke, cercada no turno do usuário.** Implementado em
+   PR #54. Falta o Core do VendaX passar a usar o campo em vez do `systemPrompt`.
+2. Memória episódica da plataforma (D12) — componente sobre o `BrainSentryMemoryAdapter` e
+   família A. **Aguarda um consumidor real**: construir memória que ninguém lê nem escreve é o erro
+   que o `MemoryRestorer` já ensinou.
+3. Família B, com os ganchos de início e fim no motor.
+4. Família C, uma entrada por vez.
 
 ## Em aberto
 
-1. ~~Isolamento de tenant no servidor~~ — decidido na D14 (chave por tenant). Resta: onde a chave
-   de cada tenant fica guardada no `archflow-api`.
-2. Escopo padrão dos agentes do VendaX: por cliente, por conversa, ou ambos.
-3. Quem decide o que registrar: o agente (tool de "lembrar"), o fluxo (nó explícito) ou o harness
-   (sempre, ao fim).
+1. ~~Isolamento de tenant no servidor~~ — decidido na D14 (chave por tenant). Resta, **quando houver
+   consumidor da memória episódica**: onde a chave de cada tenant fica guardada no `archflow-api`.
+2. ~~Escopo padrão dos agentes do VendaX~~ — é do Core (`cliente:{ref}`, RFC-014).
+3. Quem decide o que registrar na memória episódica: o agente (tool de "lembrar"), o fluxo (nó
+   explícito) ou o harness (sempre, ao fim). No VendaX, é o Core.
 4. Família B: incluir o bloco em cada adapter, ou decorator de `ChatMemory`.
-5. A memória do archflow complementa ou substitui a janela que o Core do VendaX manda no invoke.
+5. ~~Complementar ou substituir a janela do invoke~~ — a memória do cliente chega pelo campo da D23,
+   separada da janela de conversa; as duas fontes ficam distintas no prompt.
 
 ## Referências
 
@@ -168,3 +212,5 @@ custo do resumo, quando feito por modelo, é somado ao consumo da execução (D1
 - `archflow-conversation/src/main/java/br/com/archflow/conversation/memory/EpisodicMemory.java`
 - `archflow-api/src/main/java/br/com/archflow/api/flow/FlowStateChatMemory.java`
 - `archflow-api/src/main/java/br/com/archflow/api/trust/UntrustedContentFence.java`
+- `archflow-api/src/main/java/br/com/archflow/api/agent/mcp/McpAgentRunner.java` (`comContextoRecuperado`)
+- VendaX: `vendax-spec/RFC-014-memoria-de-conversa-brainsentry.md` (§5.2, §5.3, fatia C)

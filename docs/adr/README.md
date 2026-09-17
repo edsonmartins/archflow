@@ -19,7 +19,7 @@ diverge do archflow, a resposta é uma ADR (exemplo: ADR-0004).
 - **Numeração** com quatro dígitos, sem reaproveitar número.
 - **Decisões numeradas em sequência entre todas as ADRs** (`D1`, `D2`, …). Uma decisão é citada
   pelo número em qualquer lugar do código ou da documentação, sem precisar dizer de qual ADR.
-  Próximo número livre: **D23**.
+  Próximo número livre: **D24**.
 - **Status:** `Proposto` → `Aceito` → `Aceito (implementado)`; ou `Substituído por ADR-NNNN`,
   ou `Rejeitado`. Uma ADR aceita e só em parte implementada diz quais decisões faltam.
 - **O status é atualizado quando o código muda**, no mesmo PR. Status parado em "Proposto" com a
@@ -39,7 +39,7 @@ diverge do archflow, a resposta é uma ADR (exemplo: ADR-0004).
 | [0002](0002-dynamic-orchestration.md) | Orquestração dinâmica multi-agente | Aceito (parcial: D5–D7 parciais) | D4–D7 | [0003](../design/0003-dynamic-orchestration.md), [0004](../design/0004-workflow-execution-and-orchestration-nodes.md), [0005](../design/0005-async-flow-execution.md) |
 | [0003](0003-ag-ui-protocol.md) | AG-UI como protocolo agente↔UI | Aceito (parcial: D9 parcial) | D8–D11 | [0006](../design/0006-ag-ui-bridge.md) |
 | [0004](0004-execution-context-mutability.md) | `ExecutionContext`: mutação deprecated | Aceito | — | — |
-| [0005](0005-memoria-de-longo-prazo.md) | Memória de longo prazo com Brain Sentry | Proposto | D12–D16 | [0008](../design/0008-memoria-de-longo-prazo-brain-sentry.md) |
+| [0005](0005-memoria-de-longo-prazo.md) | Memória de longo prazo: quem é dono guarda, o harness cerca | Aceito (parcial: D23 implementada; D12–D16 aguardam consumidor) | D12–D16, D23 | [0008](../design/0008-memoria-de-longo-prazo-brain-sentry.md) |
 | [0006](0006-fronteira-de-confianca-do-harness.md) | Fronteira de confiança do harness de agente | Aceito (implementado) | D17–D22 | — |
 
 Design sem ADR própria: [0007 — MCP em fluxo e execução local](../design/0007-mcp-em-fluxo-e-execucao-local.md)

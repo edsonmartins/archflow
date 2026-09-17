@@ -1,6 +1,7 @@
 # Design 0008 — Memória de longo prazo com o Brain Sentry
 
-> Detalha **D12–D16** da [ADR-0005](../adr/0005-memoria-de-longo-prazo.md). As regras de
+> Detalha **D12–D16** da [ADR-0005](../adr/0005-memoria-de-longo-prazo.md). A **D23** (memória
+> recebida no invoke) está descrita na própria ADR. As regras de
 > confiança que ela aplica vêm da [ADR-0006](../adr/0006-fronteira-de-confianca-do-harness.md).
 
 **Estado em 17/09/2026: PROPOSTO, fase 0 em revisão** (PR #53). A ligação ao runtime não
@@ -171,6 +172,11 @@ relevância", que é o que se quer recuperar. `MemoryProvider` carrega variávei
 O que não fazer: cada família ligar o Brain Sentry do seu jeito. Foi essa divergência entre
 produtos que a ADR-0001 veio eliminar, e ela se repetiria dentro do próprio archflow.
 
+> **Revisão de 17/09/2026.** A RFC-014 do VendaX decidiu que a memória do cliente é do Core, e
+> que os agentes não falam direto com o Brain Sentry. Para o VendaX, a família A passou a receber
+> a memória pronta no invoke (D23, PR #54), e o componente abaixo ficou reservado à memória
+> **episódica da plataforma**, que ainda não tem consumidor.
+
 ### 5.2 Um ponto de entrada por família
 
 **Um componente novo, `MemoriaDeLongoPrazo`**, no `archflow-api`, envolvendo a `EpisodicMemory`.
@@ -258,12 +264,13 @@ aberto. Sem isso, "o agente não lembrou" é indistinguível de "o Brain Sentry 
 | Fase | Entrega | Critério de pronto |
 |---|---|---|
 | **0** | correções da seção 4 no `archflow-brainsentry` | testes de isolamento: memória sem tag não volta; outro tenant não volta; outro contexto não volta; `getById` de outro tenant é vazio |
-| **1** | `MemoriaDeLongoPrazo` + família A (runner, `mcp-agent`, VendaX) | recuperação cercada no prompt; execução segue com o Brain Sentry fora; escopo vindo do transporte |
+| **1** | ~~`MemoriaDeLongoPrazo` + família A pelo VendaX~~ → **D23**: memória recebida no invoke, cercada no turno do usuário (PR #54) | fatos cercados; system prompt idêntico com e sem memória; todos os caminhos (QP, CS, NS, fluxo) |
+| **1b** | `MemoriaDeLongoPrazo` + família A para a memória episódica da plataforma | aguarda consumidor real |
 | **2** | família B (nós de chat), com o gancho de início no motor | `llm-chat` e `mcp-agent` no mesmo fluxo enxergam a mesma memória |
 | **3** | família C, uma entrada por vez | — |
 
-A fase 1 vem antes da 2 por dois motivos: o VendaX é o uso real que existe hoje, e o runner já
-tem o padrão de extensão pronto (`Options`, contexto transitório).
+A fase 1 vem antes da 2 porque o VendaX é o uso real que existe hoje — e, para ele, o caminho
+certo acabou sendo receber a memória, não buscá-la.
 
 ---
 
@@ -272,9 +279,8 @@ tem o padrão de extensão pronto (`Options`, contexto transitório).
 1. ~~**Isolamento no servidor**~~ — **decidido:** chave de serviço por tenant, com tags como
    recorte (4.2). Resta decidir **onde** a chave de cada tenant fica guardada no `archflow-api`
    (fase 1).
-2. **Escopo padrão** para os agentes do VendaX: por cliente, por conversa, ou os dois?
+2. ~~**Escopo padrão** para os agentes do VendaX~~ — é do Core (`cliente:{ref}`, RFC-014).
 3. **Quem decide o que registrar:** agente, fluxo ou harness.
 4. **Família B:** incluir o bloco em cada adapter, ou decorator de `ChatMemory`.
-5. **O Core do VendaX já manda a janela da conversa no invoke.** A memória do archflow
-   complementa essa janela ou a substitui com o tempo? Se complementar, o prompt precisa separar
-   as duas fontes para o modelo não misturá-las.
+5. ~~Complementar ou substituir a janela do invoke~~ — a memória do cliente chega no campo
+   `memoria`, separada da janela; no prompt, ela vem cercada e rotulada como contexto recuperado.
