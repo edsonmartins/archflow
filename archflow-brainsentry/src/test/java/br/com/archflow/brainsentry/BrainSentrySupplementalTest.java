@@ -214,8 +214,8 @@ class BrainSentrySupplementalTest {
         @Test
         @DisplayName("getByContext(contextId) delegates with SYSTEM tenant")
         void getByContextSingleArgDelegatesToSystem() throws Exception {
-            var memory = memoryWithTags("m1", "SYSTEM");
-            when(client.searchMemories("tenant:SYSTEM context:ctx-1", 50))
+            var memory = memoryWithTags("m1", "SYSTEM", "ctx-1");
+            when(client.searchMemories("ctx-1", 50, List.of("tenant:SYSTEM", "context:ctx-1")))
                     .thenReturn(List.of(memory));
 
             List<Episode> episodes = adapter.getByContext("ctx-1");
@@ -227,9 +227,9 @@ class BrainSentrySupplementalTest {
         @Test
         @DisplayName("getByContext(tenantId, contextId) filters out memories for other tenants")
         void getByContextFiltersOtherTenants() throws Exception {
-            var mine = memoryWithTags("m1", "tenant-a");
-            var other = memoryWithTags("m2", "tenant-b");
-            when(client.searchMemories(contains("tenant:tenant-a"), anyInt()))
+            var mine = memoryWithTags("m1", "tenant-a", "ctx-1");
+            var other = memoryWithTags("m2", "tenant-b", "ctx-1");
+            when(client.searchMemories(anyString(), anyInt(), eq(List.of("tenant:tenant-a", "context:ctx-1"))))
                     .thenReturn(List.of(mine, other));
 
             List<Episode> episodes = adapter.getByContext("tenant-a", "ctx-1");
@@ -242,7 +242,7 @@ class BrainSentrySupplementalTest {
         @Test
         @DisplayName("getByContext returns empty list on client error")
         void getByContextHandlesError() throws Exception {
-            when(client.searchMemories(anyString(), anyInt())).thenThrow(new RuntimeException("Oops"));
+            when(client.searchMemories(anyString(), anyInt(), anyList())).thenThrow(new RuntimeException("Oops"));
 
             List<Episode> episodes = adapter.getByContext("ctx");
 
@@ -253,13 +253,13 @@ class BrainSentrySupplementalTest {
         @DisplayName("getByContext results are sorted by timestamp descending")
         void getByContextSortedByTimestamp() throws Exception {
             var older = new Memory("m-old", "Older", null, "KNOWLEDGE", "MINOR", "EPISODIC",
-                    List.of("tenant:SYSTEM"), Map.of(),
+                    List.of("tenant:SYSTEM", "context:ctx"), Map.of(),
                     Instant.parse("2024-01-01T00:00:00Z"));
             var newer = new Memory("m-new", "Newer", null, "KNOWLEDGE", "MINOR", "EPISODIC",
-                    List.of("tenant:SYSTEM"), Map.of(),
+                    List.of("tenant:SYSTEM", "context:ctx"), Map.of(),
                     Instant.parse("2025-01-01T00:00:00Z"));
 
-            when(client.searchMemories(anyString(), anyInt())).thenReturn(List.of(older, newer));
+            when(client.searchMemories(anyString(), anyInt(), anyList())).thenReturn(List.of(older, newer));
 
             List<Episode> episodes = adapter.getByContext("ctx");
 
@@ -273,8 +273,9 @@ class BrainSentrySupplementalTest {
         @Test
         @DisplayName("recall(query, contextId, maxResults) delegates to SYSTEM tenant")
         void recallSingleTenantDelegatesToSystem() throws Exception {
-            var memory = memoryWithTags("m1", "SYSTEM");
-            when(client.searchMemories("tenant:SYSTEM auth query", 3)).thenReturn(List.of(memory));
+            var memory = memoryWithTags("m1", "SYSTEM", "ctx");
+            when(client.searchMemories("auth query", 3, List.of("tenant:SYSTEM", "context:ctx")))
+                    .thenReturn(List.of(memory));
 
             List<ScoredEpisode> results = adapter.recall("auth query", "ctx", 3);
 
@@ -282,10 +283,11 @@ class BrainSentrySupplementalTest {
         }
 
         @Test
-        @DisplayName("recall(tenantId, query, contextId, maxResults) prefixes query with tenant")
-        void recallWithTenantPrefixesQuery() throws Exception {
-            var memory = memoryWithTags("m1", "tenant-x");
-            when(client.searchMemories("tenant:tenant-x search term", 5)).thenReturn(List.of(memory));
+        @DisplayName("recall(tenantId, query, contextId, maxResults) scopes by tags, not by query text")
+        void recallWithTenantScopesByTags() throws Exception {
+            var memory = memoryWithTags("m1", "tenant-x", "ctx");
+            when(client.searchMemories("search term", 5, List.of("tenant:tenant-x", "context:ctx")))
+                    .thenReturn(List.of(memory));
 
             List<ScoredEpisode> results = adapter.recall("tenant-x", "search term", "ctx", 5);
 
@@ -296,9 +298,9 @@ class BrainSentrySupplementalTest {
         @Test
         @DisplayName("recall filters out memories that lack the expected tenant tag")
         void recallFiltersWrongTenantMemories() throws Exception {
-            var correctTenant = memoryWithTags("m1", "t1");
-            var wrongTenant = memoryWithTags("m2", "t2");
-            when(client.searchMemories(anyString(), anyInt())).thenReturn(List.of(correctTenant, wrongTenant));
+            var correctTenant = memoryWithTags("m1", "t1", "ctx");
+            var wrongTenant = memoryWithTags("m2", "t2", "ctx");
+            when(client.searchMemories(anyString(), anyInt(), anyList())).thenReturn(List.of(correctTenant, wrongTenant));
 
             List<ScoredEpisode> results = adapter.recall("t1", "query", "ctx", 10);
 
@@ -309,7 +311,7 @@ class BrainSentrySupplementalTest {
         @Test
         @DisplayName("recall returns empty list on client error")
         void recallHandlesError() throws Exception {
-            when(client.searchMemories(anyString(), anyInt())).thenThrow(new RuntimeException("err"));
+            when(client.searchMemories(anyString(), anyInt(), anyList())).thenThrow(new RuntimeException("err"));
 
             List<ScoredEpisode> results = adapter.recall("tenant-x", "query", "ctx", 5);
 
@@ -322,8 +324,8 @@ class BrainSentrySupplementalTest {
         @DisplayName("CRITICAL importance maps to score 0.9")
         void criticalImportanceMapsToHighScore() throws Exception {
             var memory = new Memory("m1", "Content", null, "KNOWLEDGE", "CRITICAL", "SEMANTIC",
-                    List.of("tenant:SYSTEM"), Map.of(), Instant.now());
-            when(client.searchMemories(anyString(), anyInt())).thenReturn(List.of(memory));
+                    List.of("tenant:SYSTEM", "context:ctx"), Map.of(), Instant.now());
+            when(client.searchMemories(anyString(), anyInt(), anyList())).thenReturn(List.of(memory));
 
             List<ScoredEpisode> results = adapter.recall("q", "ctx", 5);
 
@@ -334,8 +336,8 @@ class BrainSentrySupplementalTest {
         @DisplayName("IMPORTANT importance maps to score 0.6")
         void importantImportanceMapsToMediumScore() throws Exception {
             var memory = new Memory("m1", "Content", null, "KNOWLEDGE", "IMPORTANT", "SEMANTIC",
-                    List.of("tenant:SYSTEM"), Map.of(), Instant.now());
-            when(client.searchMemories(anyString(), anyInt())).thenReturn(List.of(memory));
+                    List.of("tenant:SYSTEM", "context:ctx"), Map.of(), Instant.now());
+            when(client.searchMemories(anyString(), anyInt(), anyList())).thenReturn(List.of(memory));
 
             List<ScoredEpisode> results = adapter.recall("q", "ctx", 5);
 
@@ -346,8 +348,8 @@ class BrainSentrySupplementalTest {
         @DisplayName("MINOR importance maps to score 0.3")
         void minorImportanceMapsToLowScore() throws Exception {
             var memory = new Memory("m1", "Content", null, "KNOWLEDGE", "MINOR", "SEMANTIC",
-                    List.of("tenant:SYSTEM"), Map.of(), Instant.now());
-            when(client.searchMemories(anyString(), anyInt())).thenReturn(List.of(memory));
+                    List.of("tenant:SYSTEM", "context:ctx"), Map.of(), Instant.now());
+            when(client.searchMemories(anyString(), anyInt(), anyList())).thenReturn(List.of(memory));
 
             List<ScoredEpisode> results = adapter.recall("q", "ctx", 5);
 
@@ -358,8 +360,8 @@ class BrainSentrySupplementalTest {
         @DisplayName("null importance maps to score 0.5")
         void nullImportanceMapsToDefaultScore() throws Exception {
             var memory = new Memory("m1", "Content", null, "KNOWLEDGE", null, "SEMANTIC",
-                    List.of("tenant:SYSTEM"), Map.of(), Instant.now());
-            when(client.searchMemories(anyString(), anyInt())).thenReturn(List.of(memory));
+                    List.of("tenant:SYSTEM", "context:ctx"), Map.of(), Instant.now());
+            when(client.searchMemories(anyString(), anyInt(), anyList())).thenReturn(List.of(memory));
 
             List<ScoredEpisode> results = adapter.recall("q", "ctx", 5);
 
@@ -478,23 +480,27 @@ class BrainSentrySupplementalTest {
                     List.of("tenant:acme", "archflow"), Map.of(), Instant.now());
             when(client.getMemory("ep-1")).thenReturn(Optional.of(memory));
 
-            Optional<Episode> result = adapter.getById("ep-1");
+            Optional<Episode> result = adapter.getById("acme", "ep-1");
 
             assertThat(result).isPresent();
             assertThat(result.get().tenantId()).isEqualTo("acme");
+            assertThat(adapter.getById("other", "ep-1"))
+                    .as("um id não é credencial: outro tenant não lê esta memória")
+                    .isEmpty();
         }
 
         @Test
-        @DisplayName("getById falls back to SYSTEM tenant when no tenant tag present")
-        void getByIdFallsBackToSystem() throws Exception {
+        @DisplayName("getById without a tenant tag returns empty — it belongs to no tenant")
+        void getByIdWithoutTenantTagIsEmpty() throws Exception {
             var memory = new Memory("ep-1", "Content", null, null, null, null,
                     List.of("archflow"), Map.of(), Instant.now());
             when(client.getMemory("ep-1")).thenReturn(Optional.of(memory));
 
             Optional<Episode> result = adapter.getById("ep-1");
 
-            assertThat(result).isPresent();
-            assertThat(result.get().tenantId()).isEqualTo("SYSTEM");
+            assertThat(result)
+                    .as("a versão anterior devolvia esta memória como se fosse do tenant SYSTEM")
+                    .isEmpty();
         }
 
         // --- clear / evict / size ---
@@ -521,9 +527,9 @@ class BrainSentrySupplementalTest {
         // Helper
         // ---------------------------------------------------------------------------
 
-        private Memory memoryWithTags(String id, String tenantId) {
+        private Memory memoryWithTags(String id, String tenantId, String contextId) {
             return new Memory(id, "Memory content", null, "KNOWLEDGE", "IMPORTANT", "SEMANTIC",
-                    List.of("tenant:" + tenantId, "archflow"), Map.of(), Instant.now());
+                    List.of("tenant:" + tenantId, "context:" + contextId, "archflow"), Map.of(), Instant.now());
         }
     }
 }
