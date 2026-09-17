@@ -79,9 +79,11 @@ caminho dos agentes: a cerca e o lugar da memória no prompt são decididos do l
 
 ### D14 — Escopo pelo transporte, tenant isolado no servidor
 
-- **Tenant:** isolado **no Brain Sentry**, não por prefixo de consulta e filtro no cliente, como o
-  adaptador faz hoje. A forma (tenant do Brain Sentry por tenant do archflow, ou filtro estruturado)
-  depende da API e fica em aberto.
+- **Tenant:** isolado **no Brain Sentry**, não por prefixo de consulta e filtro no cliente. Cada
+  tenant do archflow usa a **própria chave de serviço** (`bs_…`), que o Brain Sentry prende a um
+  tenant e não deixa trocar por header. Tenant sem chave **não tem memória**. As tags `tenant:` e
+  `context:` vão em toda busca como recorte do servidor, que é o que isola no modo de chave única.
+  (Decidido em 17/09 após ler o código do Brain Sentry; implementado no PR #53.)
 - **Escopo** (cliente, vendedor, conversa): declarado por quem aciona o agente e lido do invoke ou
   do contexto. **Nunca** de um argumento que o modelo preenche — a mesma regra da D17.
 - Memória sem escopo verificável **não** é devolvida. "Não dá para filtrar" significa "não
@@ -141,16 +143,18 @@ custo do resumo, quando feito por modelo, é somado ao consumo da execução (D1
 
 ## Plano de adoção (ordem)
 
-0. **Corrigir o adaptador** (design 0008, seção 4): memória sem tag não volta; `recall` respeita o
-   contexto e devolve tenant/contexto reais; `getById` confere o tenant; `createMemory` passa pelo
-   circuit breaker. Pré-requisito de tudo.
+0. **Corrigir o adaptador** (design 0008, seção 4): a busca lê o formato real da resposta;
+   memória sem tag não volta; `recall` respeita o contexto e devolve tenant/contexto reais;
+   `getById` confere o tenant; `createMemory` passa pelo circuit breaker; chave por tenant.
+   Pré-requisito de tudo. **Em revisão no PR #53.**
 1. Componente de memória + família A (runner, `mcp-agent`, dispatcher do VendaX).
 2. Família B, com os ganchos de início e fim no motor.
 3. Família C, uma entrada por vez.
 
 ## Em aberto
 
-1. Isolamento de tenant no servidor: qual mecanismo a API do Brain Sentry oferece.
+1. ~~Isolamento de tenant no servidor~~ — decidido na D14 (chave por tenant). Resta: onde a chave
+   de cada tenant fica guardada no `archflow-api`.
 2. Escopo padrão dos agentes do VendaX: por cliente, por conversa, ou ambos.
 3. Quem decide o que registrar: o agente (tool de "lembrar"), o fluxo (nó explícito) ou o harness
    (sempre, ao fim).

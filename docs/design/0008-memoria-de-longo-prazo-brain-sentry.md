@@ -3,8 +3,8 @@
 > Detalha **D12–D16** da [ADR-0005](../adr/0005-memoria-de-longo-prazo.md). As regras de
 > confiança que ela aplica vêm da [ADR-0006](../adr/0006-fronteira-de-confianca-do-harness.md).
 
-**Estado em 17/09/2026: PROPOSTO.** Nada deste documento está implementado. As peças citadas
-em "O que existe" existem; a ligação entre elas, não.
+**Estado em 17/09/2026: PROPOSTO, fase 0 em revisão** (PR #53). A ligação ao runtime não
+está implementada; as peças citadas em "O que existe" existem.
 
 A intenção do archflow é usar o **Brain Sentry** (brainsentry.io) como memória de contexto dos
 agentes: o que um agente aprendeu numa execução fica disponível nas seguintes. Este documento
@@ -92,6 +92,17 @@ Lendo o `BrainSentryMemoryAdapter` e o `BrainSentryClient` para esta proposta, a
 defeitos que hoje não têm efeito — porque nada os chama — e passariam a ter no dia em que a
 memória for ligada. **Nenhuma fase abaixo deve começar antes destes itens.**
 
+> **Fase 0 implementada no PR #53** (17/09/2026), depois de ler o código do Brain Sentry
+> (`brain-sentry-go`). Ela corrige todos os itens desta seção e o 4.0, que só apareceu nessa
+> leitura. O texto abaixo descreve o estado **anterior** ao PR, e fica como registro do porquê.
+
+### 4.0 A busca nunca funcionou contra o servidor real
+
+O Brain Sentry responde a busca como objeto — `{"results": [...], "total", "searchTimeMs"}`
+(`dto.SearchResponse`) — e o client lia uma **lista**. A leitura falhava sempre, o adaptador
+engolia a exceção e o `recall` devolvia vazio. Nenhum teste passava pela busca via HTTP: todos
+dublavam o client.
+
 ### 4.1 Memória sem tags atravessa o filtro de tenant — vazamento entre tenants
 
 ```java
@@ -120,9 +131,14 @@ Dois efeitos:
 - **Resultados faltando.** Se os `limit` primeiros resultados forem de outros tenants, o filtro
   devolve menos — ou nada — mesmo havendo memória do tenant certo.
 
-**Correção:** isolar no servidor. Um tenant do Brain Sentry por tenant do archflow, ou filtro
-estruturado de tag na busca, se a API oferecer. A decisão depende da API do Brain Sentry e fica
-em aberto (seção 8).
+**Correção (decidida após ler o Brain Sentry):** o servidor oferece as duas coisas.
+
+- **Chave de serviço por tenant.** No Brain Sentry, uma chave `bs_…` é presa a um tenant, e um
+  header pedindo outro leva 403 (`TenantExtractor`). Com uma chave por tenant do archflow, o
+  isolamento é do servidor. Tenant sem chave não tem memória.
+- **Tags como filtro.** Desde o PR #22 de lá, tags são recorte do conjunto (`WHERE`, semântica
+  AND, antes do `LIMIT`), não peso. O adaptador passa a mandar `tenant:` e `context:` como tags,
+  o que também resolve o 4.3. No modo de chave única, é isso que isola.
 
 ### 4.3 O `recall` não filtra por contexto
 
@@ -253,8 +269,9 @@ tem o padrão de extensão pronto (`Options`, contexto transitório).
 
 ## 8. Decisões em aberto
 
-1. **Isolamento no servidor:** um tenant do Brain Sentry por tenant do archflow, ou filtro de tag
-   na busca? Depende do que a API do Brain Sentry oferece.
+1. ~~**Isolamento no servidor**~~ — **decidido:** chave de serviço por tenant, com tags como
+   recorte (4.2). Resta decidir **onde** a chave de cada tenant fica guardada no `archflow-api`
+   (fase 1).
 2. **Escopo padrão** para os agentes do VendaX: por cliente, por conversa, ou os dois?
 3. **Quem decide o que registrar:** agente, fluxo ou harness.
 4. **Família B:** incluir o bloco em cada adapter, ou decorator de `ChatMemory`.
