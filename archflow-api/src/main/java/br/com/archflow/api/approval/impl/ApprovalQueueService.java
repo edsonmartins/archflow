@@ -50,6 +50,15 @@ public class ApprovalQueueService {
     private final FlowEngine flowEngine;
     private final Duration timeout;
     private final Clock clock;
+    /**
+     * O outro gate humano: o que suspende <b>dentro</b> do laço de agente, antes de executar uma
+     * tool. Nulo numa instalação sem laço MCP.
+     *
+     * <p>São dois mecanismos — nó do grafo e gate no laço —, e uma fila só. Para quem decide, a
+     * diferença não existe: é sempre "isto vai acontecer, pode?". Duas filas exigiriam que o
+     * operador soubesse de qual mecanismo veio cada pedido para saber onde respondê-lo.</p>
+     */
+    private final br.com.archflow.api.agent.mcp.RetomadaDoLaco retomadaDoLaco;
 
     /** Sem prazo — as aprovações esperam indefinidamente. */
     public ApprovalQueueService(StateManager stateManager, FlowEngine flowEngine) {
@@ -67,10 +76,18 @@ public class ApprovalQueueService {
     /** Relógio injetável — o teste não precisa esperar o prazo passar de verdade. */
     public ApprovalQueueService(StateManager stateManager, FlowEngine flowEngine,
                                 Duration timeout, Clock clock) {
+        this(stateManager, flowEngine, timeout, clock, null);
+    }
+
+    /** Com o gate do laço de agente na mesma fila. */
+    public ApprovalQueueService(StateManager stateManager, FlowEngine flowEngine,
+                                Duration timeout, Clock clock,
+                                br.com.archflow.api.agent.mcp.RetomadaDoLaco retomadaDoLaco) {
         this.stateManager = Objects.requireNonNull(stateManager, "stateManager");
         this.flowEngine = Objects.requireNonNull(flowEngine, "flowEngine");
         this.timeout = timeout == null || timeout.isNegative() ? Duration.ZERO : timeout;
         this.clock = Objects.requireNonNull(clock, "clock");
+        this.retomadaDoLaco = retomadaDoLaco;
     }
 
     /** {@code true} quando há prazo configurado. */
@@ -84,17 +101,53 @@ public class ApprovalQueueService {
      * atravessa todos os tenants — é o que o admin envia ao não personificar.
      */
     public List<ApprovalResponse> listPending(String tenantId) {
-        return pendingStates().stream()
+        return java.util.stream.Stream.concat(
+                        pendingStates().stream()
                 .filter(state -> matchesTenant(state, tenantId))
                 // Expirada não é acionável: não deve ser oferecida a decisão.
                 // O sweeper a resolve; enquanto não roda, ela some da fila.
                 .filter(state -> !isExpired(state))
-                .map(state -> toResponse(state, "PENDING"))
-                .filter(Objects::nonNull)
+                                .map(state -> toResponse(state, "PENDING"))
+                                .filter(Objects::nonNull),
+                        pendenciasDoLaco(tenantId))
                 .sorted(Comparator.comparing(
                         ApprovalResponse::createdAt,
                         Comparator.nullsLast(Comparator.naturalOrder())))
                 .toList();
+    }
+
+    /** As do gate do laço de agente, na mesma forma das do nó de fluxo. */
+    private java.util.stream.Stream<ApprovalResponse> pendenciasDoLaco(String tenantId) {
+        if (retomadaDoLaco == null) {
+            return java.util.stream.Stream.empty();
+        }
+        // O store lista por tenant; "todos os tenants" não é uma pergunta que ele responde, e
+        // varrer tenant a tenant exigiria conhecer a lista deles.
+        if (todosOsTenants(tenantId)) {
+            return java.util.stream.Stream.empty();
+        }
+        try {
+            return retomadaDoLaco.pendentes(tenantId).stream().map(ApprovalQueueService::doLaco);
+        } catch (RuntimeException e) {
+            log.warn("Falha ao listar aprovações do laço de agente (tenant={}): {}",
+                    tenantId, e.getMessage());
+            return java.util.stream.Stream.empty();
+        }
+    }
+
+    private static boolean todosOsTenants(String tenantId) {
+        return tenantId == null || tenantId.isBlank() || ALL_TENANTS.equalsIgnoreCase(tenantId);
+    }
+
+    /**
+     * A pendência do laço na forma do DTO da fila: {@code flowId} é a execução do laço e
+     * {@code stepId}, a tool que espera. A proposta é o argumento que o modelo emitiu — é sobre ele
+     * que a pessoa decide, e é ele que um {@code EDITED} substitui.
+     */
+    private static ApprovalResponse doLaco(br.com.archflow.api.agent.mcp.RetomadaDoLaco.Pendencia p) {
+        return new ApprovalResponse(p.requestId(), p.tenantId(), p.runId(), p.toolName(),
+                "PENDING", "Execução da tool " + p.toolName() + " aguardando aprovação",
+                p.argumentos(), p.suspensoEm(), null);
     }
 
     /**
@@ -107,8 +160,14 @@ public class ApprovalQueueService {
         Objects.requireNonNull(requestId, "requestId");
         return findPendingByRequestId(requestId)
                 .map(state -> toResponse(state, "PENDING"))
+                .or(() -> pendenciaDoLaco(requestId).map(ApprovalQueueService::doLaco))
                 .orElseThrow(() -> new NoSuchElementException(
                         "Approval not found or already decided: " + requestId));
+    }
+
+    private Optional<br.com.archflow.api.agent.mcp.RetomadaDoLaco.Pendencia> pendenciaDoLaco(
+            String requestId) {
+        return retomadaDoLaco == null ? Optional.empty() : retomadaDoLaco.detalhe(requestId);
     }
 
     /**
@@ -123,6 +182,14 @@ public class ApprovalQueueService {
         if (!List.of("APPROVED", "REJECTED", "EDITED").contains(decision)) {
             throw new IllegalArgumentException(
                     "Unknown decision '" + request.decision() + "' — expected APPROVED|REJECTED|EDITED");
+        }
+
+        // O id diz qual mecanismo responde: o gate do laço grava no store do agente, o nó de fluxo
+        // no estado do motor. Um id não existe nos dois.
+        Optional<br.com.archflow.api.agent.mcp.RetomadaDoLaco.Pendencia> noLaco =
+                pendenciaDoLaco(requestId);
+        if (noLaco.isPresent()) {
+            return decidirNoLaco(noLaco.get(), decision, request);
         }
 
         FlowState state = findPendingByRequestId(requestId)
@@ -155,6 +222,38 @@ public class ApprovalQueueService {
         // O decisor e a justificativa ficam no estado durável, gravados pelo
         // motor sob o mesmo lock da decisão — não só aqui no log.
         return snapshot;
+    }
+
+    /**
+     * Aplica a decisão ao laço de agente: aprovado executa a tool e o laço segue; recusado devolve
+     * a recusa ao modelo, que pode propor outra coisa.
+     *
+     * <p>{@code EDITED} substitui os argumentos — e só vale como mapa: o que entra aqui vai direto
+     * para a chamada da tool, e um payload de outra forma seria executado como se fosse o que a
+     * pessoa quis.</p>
+     */
+    private ApprovalResponse decidirNoLaco(
+            br.com.archflow.api.agent.mcp.RetomadaDoLaco.Pendencia pendencia, String decision,
+            ApprovalSubmitRequest request) {
+        Map<String, Object> argumentos = null;
+        if ("EDITED".equals(decision)) {
+            if (!(request.editedPayload() instanceof Map<?, ?> mapa)) {
+                throw new IllegalArgumentException("EDITED numa aprovação de tool exige "
+                        + "editedPayload como objeto de argumentos");
+            }
+            @SuppressWarnings("unchecked")
+            Map<String, Object> convertido = (Map<String, Object>) mapa;
+            argumentos = convertido;
+        }
+        boolean aprovado = !"REJECTED".equals(decision);
+        retomadaDoLaco.decidir(pendencia.requestId(), aprovado, argumentos);
+
+        log.info("Aprovação {} de tool decidida como {} por {} (run={}, tool={})",
+                pendencia.requestId(), decision, request.responderId(), pendencia.runId(),
+                pendencia.toolName());
+        return new ApprovalResponse(pendencia.requestId(), pendencia.tenantId(), pendencia.runId(),
+                pendencia.toolName(), decision, "Execução da tool " + pendencia.toolName(),
+                pendencia.argumentos(), pendencia.suspensoEm(), null);
     }
 
     /** Número de aprovações pendentes — usado pelo badge da navbar. */

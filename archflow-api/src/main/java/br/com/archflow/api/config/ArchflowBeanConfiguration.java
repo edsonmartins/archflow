@@ -479,8 +479,30 @@ public class ArchflowBeanConfiguration {
     public ApprovalQueueService approvalQueueService(
             br.com.archflow.engine.core.StateManager stateManager,
             br.com.archflow.engine.api.FlowEngine flowEngine,
-            @Value("${archflow.approval.timeout:PT24H}") java.time.Duration approvalTimeout) {
-        return new ApprovalQueueService(stateManager, flowEngine, approvalTimeout);
+            @Value("${archflow.approval.timeout:PT24H}") java.time.Duration approvalTimeout,
+            org.springframework.beans.factory.ObjectProvider<
+                    br.com.archflow.api.agent.mcp.RetomadaDoLaco> retomadaDoLaco) {
+        // Os dois gates humanos — o nó de fluxo e o do laço de agente — numa fila só. O
+        // ObjectProvider mantém a resolução tardia: a retomada depende do host de MCP, cujo grafo
+        // passa pelo catálogo de componentes.
+        return new ApprovalQueueService(stateManager, flowEngine, approvalTimeout,
+                java.time.Clock.systemUTC(), retomadaDoLaco.getIfAvailable());
+    }
+
+    /**
+     * Quem traz de volta um laço de agente suspenso por decisão humana.
+     *
+     * <p>Sem este bean, {@code McpAgentRunner.resume} continua sem chamador e todo laço suspenso
+     * fica órfão — foi assim até 18/09/2026.</p>
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public br.com.archflow.api.agent.mcp.RetomadaDoLaco retomadaDoLaco(
+            br.com.archflow.api.agent.mcp.McpAgentStateStore mcpAgentStateStore,
+            br.com.archflow.api.agent.mcp.McpAgentHost mcpAgentHost,
+            java.util.List<br.com.archflow.api.agent.mcp.RetomadaDoLaco.OuvinteDaRetomada> ouvintes) {
+        return new br.com.archflow.api.agent.mcp.RetomadaDoLaco(
+                mcpAgentStateStore, mcpAgentHost, ouvintes);
     }
 
     /**

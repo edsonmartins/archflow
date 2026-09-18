@@ -439,7 +439,7 @@ public class McpAgentRunner {
                 // de rodar a tool não é aprovação, é notificação.
                 if (options.approval().requiresApproval(req.name())
                         && options.access().isAllowed(req.name())) {
-                    return suspend(session, req, schemas);
+                    return suspend(session, req, schemas, options);
                 }
                 ParsedArguments parsed = parseAndValidate(req, schemas);
                 if (!parsed.valid()) {
@@ -641,7 +641,7 @@ public class McpAgentRunner {
      * dele e ensina o modelo errado.
      */
     private Result suspend(Session session, ToolExecutionRequest req,
-                           Map<String, Map<String, Object>> schemas) {
+                           Map<String, Map<String, Object>> schemas, Options options) {
         Map<String, Object> args;
         try {
             args = parseArguments(req.arguments());
@@ -656,9 +656,19 @@ public class McpAgentRunner {
             return Result.finished(session.lastText, session.toolCalls);
         }
 
+        // SUSPENDER SEM PODER RETOMAR É CRIAR LIXO DURÁVEL. Quem declara um gate humano precisa
+        // dizer, em dados, como o laço volta: qual servidor, qual allowlist, quais tools seguem sob
+        // gate. Até 18/09/2026 isso não existia — e `resume` não tinha um único chamador, então todo
+        // laço suspenso ficava órfão. Falhar aqui é melhor que gravar um estado sem saída.
+        McpAgentState.Retomada retomada = options.retomada();
+        if (retomada == null) {
+            throw new IllegalStateException("O gate humano exige dados de retomada nas Options "
+                    + "(Options.comRetomada): sem eles, o laço suspenso não teria como voltar — "
+                    + "a allowlist e o servidor MCP se perderiam no restart");
+        }
         String requestId = java.util.UUID.randomUUID().toString();
         McpAgentState state = session.snapshot(new McpAgentState.PendingApproval(
-                requestId, req.name(), args, req.id()));
+                requestId, req.name(), args, req.id()), retomada);
         requireStore().save(state);
         log.info("Laço {} suspenso aguardando aprovação de {} (requestId={})",
                 session.runId, req.name(), requestId);
@@ -937,7 +947,8 @@ public class McpAgentRunner {
             return session;
         }
 
-        McpAgentState snapshot(McpAgentState.PendingApproval pending) {
+        McpAgentState snapshot(McpAgentState.PendingApproval pending,
+                               McpAgentState.Retomada retomada) {
             List<String> encoded = new ArrayList<>(messages.size());
             for (ChatMessage message : messages) {
                 encoded.add(ChatMessageCodec.toJson(message));
@@ -945,7 +956,7 @@ public class McpAgentRunner {
             return new McpAgentState(runId, tenantId, systemPrompt, fence.nonce(), encoded,
                     toolCalls.stream().map(McpAgentState.SerializedToolCall::from).toList(),
                     iteration, lastText, pending, flowPatch.toMap(), stepPatch.toMap(),
-                    java.time.Instant.now());
+                    retomada, java.time.Instant.now());
         }
     }
 
@@ -961,7 +972,18 @@ public class McpAgentRunner {
                           LLMConfigPatch flowPatch, LLMConfigPatch stepPatch,
                           Set<String> requiredOutputTools, String tier,
                           Set<Integer> codigosQueEncerram, ContadorDeUso uso,
-                          List<String> contextoRecuperado) {
+                          List<String> contextoRecuperado, McpAgentState.Retomada retomada) {
+
+        /** Compat: sem dados de retomada — só serve a laço que não suspende. */
+        public Options(ToolAccessPolicy access, ToolTrustPolicy trust,
+                       ToolApprovalPolicy approval, int maxIterations,
+                       LLMConfigPatch flowPatch, LLMConfigPatch stepPatch,
+                       Set<String> requiredOutputTools, String tier,
+                       Set<Integer> codigosQueEncerram, ContadorDeUso uso,
+                       List<String> contextoRecuperado) {
+            this(access, trust, approval, maxIterations, flowPatch, stepPatch, requiredOutputTools,
+                    tier, codigosQueEncerram, uso, contextoRecuperado, null);
+        }
 
         /** Compat: sem contexto recuperado — a forma do PR #51. */
         public Options(ToolAccessPolicy access, ToolTrustPolicy trust,
@@ -970,7 +992,7 @@ public class McpAgentRunner {
                        Set<String> requiredOutputTools, String tier,
                        Set<Integer> codigosQueEncerram, ContadorDeUso uso) {
             this(access, trust, approval, maxIterations, flowPatch, stepPatch,
-                    requiredOutputTools, tier, codigosQueEncerram, uso, List.of());
+                    requiredOutputTools, tier, codigosQueEncerram, uso, List.of(), null);
         }
 
         /** Compat: sem códigos terminais nem contador — a forma de antes. */
@@ -979,13 +1001,14 @@ public class McpAgentRunner {
                        LLMConfigPatch flowPatch, LLMConfigPatch stepPatch,
                        Set<String> requiredOutputTools, String tier) {
             this(access, trust, approval, maxIterations, flowPatch, stepPatch,
-                    requiredOutputTools, tier, Set.of(), null, List.of());
+                    requiredOutputTools, tier, Set.of(), null, List.of(), null);
         }
 
         /** As mesmas opções, somando o consumo de modelo em {@code contador}. */
         public Options comUso(ContadorDeUso contador) {
             return new Options(access, trust, approval, maxIterations, flowPatch, stepPatch,
-                    requiredOutputTools, tier, codigosQueEncerram, contador, contextoRecuperado);
+                    requiredOutputTools, tier, codigosQueEncerram, contador, contextoRecuperado,
+                    retomada);
         }
 
         /** As mesmas opções, com o tier pedido por quem acionou; vazio mantém o atual. */
@@ -994,13 +1017,14 @@ public class McpAgentRunner {
                 return this;
             }
             return new Options(access, trust, approval, maxIterations, flowPatch, stepPatch,
-                    requiredOutputTools, novoTier, codigosQueEncerram, uso, contextoRecuperado);
+                    requiredOutputTools, novoTier, codigosQueEncerram, uso, contextoRecuperado,
+                    retomada);
         }
 
         /** As mesmas opções, encerrando o laço quando uma tool responder um destes códigos. */
         public Options encerrandoEm(Set<Integer> codigos) {
             return new Options(access, trust, approval, maxIterations, flowPatch, stepPatch,
-                    requiredOutputTools, tier, codigos, uso, contextoRecuperado);
+                    requiredOutputTools, tier, codigos, uso, contextoRecuperado, retomada);
         }
 
         /**
@@ -1009,7 +1033,16 @@ public class McpAgentRunner {
          */
         public Options comContextoRecuperado(List<String> contexto) {
             return new Options(access, trust, approval, maxIterations, flowPatch, stepPatch,
-                    requiredOutputTools, tier, codigosQueEncerram, uso, contexto);
+                    requiredOutputTools, tier, codigosQueEncerram, uso, contexto, retomada);
+        }
+
+        /**
+         * As mesmas opções, dizendo como o laço volta se suspender — obrigatório para quem declara
+         * um gate humano. Ver {@link McpAgentState.Retomada}.
+         */
+        public Options comRetomada(McpAgentState.Retomada dados) {
+            return new Options(access, trust, approval, maxIterations, flowPatch, stepPatch,
+                    requiredOutputTools, tier, codigosQueEncerram, uso, contextoRecuperado, dados);
         }
 
         public Options(ToolAccessPolicy access, ToolTrustPolicy trust,

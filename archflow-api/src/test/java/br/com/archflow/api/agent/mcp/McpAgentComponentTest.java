@@ -445,4 +445,57 @@ class McpAgentComponentTest {
 
         assertThat(host.options.get().contextoRecuperado()).isEmpty();
     }
+
+    /**
+     * O nó declara quais tools exigem decisão humana — e, com isso, como o laço volta.
+     *
+     * <p>Sem os dados de retomada, o laço recusa suspender: um estado que ninguém consegue retomar
+     * é lixo durável, e foi o que existiu enquanto {@code resume} não teve chamador.</p>
+     */
+    @Test
+    @DisplayName("aprovacaoHumana do nó vira gate e dados de retomada")
+    void gateDeclaradoNoNo() {
+        HostFalso host = new HostFalso(Set.of("ler", "reiniciar"), concluido());
+
+        componente(Map.of("systemPrompt", "p",
+                "server", "vendax",
+                "tools", List.of("ler", "reiniciar"),
+                "aprovacaoHumana", List.of("reiniciar")))
+                .execute("execute", "oi", contextoCom(host));
+
+        McpAgentRunner.Options o = host.options.get();
+        assertThat(o.approval().requiresApproval("reiniciar")).isTrue();
+        assertThat(o.approval().requiresApproval("ler")).isFalse();
+        McpAgentState.Retomada retomada = o.retomada();
+        assertThat(retomada).isNotNull();
+        assertThat(retomada.serverRef()).isEqualTo("vendax");
+        assertThat(retomada.toolsPermitidas()).containsExactlyInAnyOrder("ler", "reiniciar");
+        assertThat(retomada.toolsComAprovacao()).containsExactly("reiniciar");
+    }
+
+    /** Pedir decisão humana sobre uma tool que a allowlist já nega é uma pergunta sem consequência. */
+    @Test
+    @DisplayName("gate sobre tool fora da allowlist é descartado")
+    void gateForaDaAllowlist() {
+        HostFalso host = new HostFalso(Set.of("ler"), concluido());
+
+        componente(Map.of("systemPrompt", "p",
+                "tools", List.of("ler"),
+                "aprovacaoHumana", List.of("apagar")))
+                .execute("execute", "oi", contextoCom(host));
+
+        assertThat(host.options.get().approval().requiresApproval("apagar")).isFalse();
+        assertThat(host.options.get().retomada().toolsComAprovacao()).isEmpty();
+    }
+
+    /** Nó sem allowlist e host sem teto: "todas" — que é diferente de "nenhuma". */
+    @Test
+    @DisplayName("sem allowlist declarada, a retomada grava 'todas' (nulo), não conjunto vazio")
+    void semAllowlist() {
+        HostFalso host = new HostFalso(Set.of(), concluido());
+
+        componente(Map.of("systemPrompt", "p")).execute("execute", "oi", contextoCom(host));
+
+        assertThat(host.options.get().retomada().toolsPermitidas()).isNull();
+    }
 }

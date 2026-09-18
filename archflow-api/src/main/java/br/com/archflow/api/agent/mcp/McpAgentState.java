@@ -5,6 +5,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Retrato serializável de um laço de tool-calling suspenso.
@@ -42,6 +43,8 @@ import java.util.Map;
  * @param pending     chamada aguardando decisão humana
  * @param flowLLMConfig patch de LLM do fluxo, para retomada sem mudar de modelo
  * @param stepLLMConfig patch de LLM do passo, para retomada sem mudar de modelo
+ * @param retomada    o que a retomada precisa reconstruir: servidor, allowlist, gate, teto de
+ *                    voltas. Sem isto, o estado é um beco sem saída — ver {@link Retomada}
  * @param suspendedAt quando o laço suspendeu
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
@@ -57,7 +60,45 @@ public record McpAgentState(
         PendingApproval pending,
         Map<String, Object> flowLLMConfig,
         Map<String, Object> stepLLMConfig,
+        Retomada retomada,
         Instant suspendedAt) {
+
+    /**
+     * O que a retomada precisa saber, em <b>dados</b> — as políticas do laço são funções, e função
+     * não sobrevive a um restart.
+     *
+     * <p>Sem isto, quem retoma teria de adivinhar a allowlist. Adivinhar para mais devolve ao agente
+     * tools que ele não tinha quando suspendeu (o gate viraria uma porta de entrada); adivinhar para
+     * menos quebra a execução no meio. Por isso o laço <b>recusa suspender</b> sem estes dados: um
+     * estado que ninguém consegue retomar é lixo durável, e foi o que aconteceu até 18/09/2026 —
+     * {@code McpAgentRunner.resume} não tinha um único chamador.</p>
+     *
+     * @param serverRef            referência do servidor MCP, como o host a resolve ({@code null} =
+     *                             o default do host)
+     * @param toolsPermitidas      a allowlist; {@code null} significa "todas", que é diferente de
+     *                             conjunto vazio ("nenhuma")
+     * @param toolsComAprovacao     as tools sob gate humano — na retomada o gate continua valendo,
+     *                             senão a segunda chamada passaria direto
+     * @param saidaPorTool         tools que o passo exige como saída
+     * @param tier                 tier de LLM pedido por quem acionou
+     * @param maxIteracoes         teto de voltas do laço
+     * @param codigosQueEncerram   códigos de erro que encerram o laço
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record Retomada(String serverRef, Set<String> toolsPermitidas,
+                           Set<String> toolsComAprovacao, Set<String> saidaPorTool,
+                           String tier, int maxIteracoes, Set<Integer> codigosQueEncerram) {
+
+        public Retomada {
+            toolsPermitidas = toolsPermitidas == null ? null : Set.copyOf(toolsPermitidas);
+            toolsComAprovacao = toolsComAprovacao == null ? Set.of() : Set.copyOf(toolsComAprovacao);
+            saidaPorTool = saidaPorTool == null ? Set.of() : Set.copyOf(saidaPorTool);
+            codigosQueEncerram = codigosQueEncerram == null ? Set.of() : Set.copyOf(codigosQueEncerram);
+            if (maxIteracoes <= 0) {
+                throw new IllegalArgumentException("maxIteracoes deve ser positivo");
+            }
+        }
+    }
 
     public McpAgentState {
         messages = messages == null ? List.of() : List.copyOf(messages);
@@ -71,7 +112,17 @@ public record McpAgentState(
                          List<String> messages, List<SerializedToolCall> toolCalls, int iteration,
                          String lastText, PendingApproval pending, Instant suspendedAt) {
         this(runId, tenantId, systemPrompt, fenceNonce, messages, toolCalls, iteration, lastText,
-                pending, Map.of(), Map.of(), suspendedAt);
+                pending, Map.of(), Map.of(), null, suspendedAt);
+    }
+
+    /** Compatibilidade com estados gravados antes de a retomada ser possível. */
+    public McpAgentState(String runId, String tenantId, String systemPrompt, String fenceNonce,
+                         List<String> messages, List<SerializedToolCall> toolCalls, int iteration,
+                         String lastText, PendingApproval pending,
+                         Map<String, Object> flowLLMConfig, Map<String, Object> stepLLMConfig,
+                         Instant suspendedAt) {
+        this(runId, tenantId, systemPrompt, fenceNonce, messages, toolCalls, iteration, lastText,
+                pending, flowLLMConfig, stepLLMConfig, null, suspendedAt);
     }
 
     /**
