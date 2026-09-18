@@ -165,7 +165,7 @@ PRs #39 (cobrança), #45 (malformada) e #49 (transporte). Classe: `McpAgentRunne
 - **O server precisa conferir.** Headers só protegem se o server os usar no lugar do argumento; o
   lado do VendaX está no outro repositório.
 - **A retomada não tem ponte para o VendaX.** Levantado dos dois lados em 17/09, e resolvido pela
-  metade em 18/09 (PR-RETOMADA: `RetomadaDoLaco` chama `resume`, e os dois gates humanos passam a
+  metade em 18/09 (PR #58: `RetomadaDoLaco` chama `resume`, e os dois gates humanos passam a
   dividir a fila de aprovações). O que era:
   - só o `runAndReport` do dispatcher envia result; nenhum caminho de retomada passa por ele;
   - ~~`McpAgentRunner.resume` não tem chamador~~ — **resolvido**: a fila de aprovações decide, e a
