@@ -21,6 +21,7 @@ import org.junit.jupiter.api.Test;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 
@@ -139,7 +140,32 @@ class McpAgentDurableApprovalTest {
                 ToolAccessPolicy.allowAll(),
                 ToolTrustPolicy.untrustedByDefault(),
                 ToolApprovalPolicy.requiringFor(List.of(gatedTools)),
+                8)
+                .comRetomada(new McpAgentState.Retomada(null, null, Set.of(gatedTools),
+                        Set.of(), null, 8, Set.of()));
+    }
+
+    /**
+     * Suspender sem dizer como voltar cria lixo durável: foi o que existiu até 18/09/2026, quando
+     * {@code resume} não tinha chamador e todo laço suspenso ficava órfão.
+     */
+    @Test
+    @DisplayName("sem dados de retomada, o laço recusa suspender")
+    void semRetomadaNaoSuspende() {
+        var model = new ScriptedChatModel(List.of(calls(WRITE, "{\"servico\":\"traefik\"}")));
+        var semRetomada = new McpAgentRunner.Options(
+                ToolAccessPolicy.allowAll(),
+                ToolTrustPolicy.untrustedByDefault(),
+                ToolApprovalPolicy.requiringFor(List.of(WRITE)),
                 8);
+
+        assertThatThrownBy(() -> runnerWith(model).run("acme", "sys", "u", client, semRetomada))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("comRetomada");
+        assertThat(store.findPendingByTenant("acme"))
+                .as("nada gravado: melhor falhar que deixar um estado sem saída")
+                .isEmpty();
+        assertThat(client.invoked).as("e a tool sob gate não foi executada").isEmpty();
     }
 
     // ── Suspensão ────────────────────────────────────────────────────
@@ -343,7 +369,9 @@ class McpAgentDurableApprovalTest {
                 br.com.archflow.model.config.LLMConfigPatch.builder()
                         .provider("openrouter").model("flow-model").build(),
                 br.com.archflow.model.config.LLMConfigPatch.builder()
-                        .model("step-model").temperature(0.2).build());
+                        .model("step-model").temperature(0.2).build())
+                .comRetomada(new McpAgentState.Retomada("vendax", Set.of(READ, WRITE),
+                        Set.of(WRITE), Set.of(), "LIGHT", 8, Set.of(-32001)));
         runnerWith(model).run("acme", "sys", "u", client, options);
         McpAgentState original = store.findPendingByTenant("acme").get(0);
 
@@ -359,5 +387,13 @@ class McpAgentDurableApprovalTest {
                 .containsEntry("model", "flow-model");
         assertThat(back.stepLLMConfig()).containsEntry("model", "step-model")
                 .containsEntry("temperature", 0.2);
+        // Sem isto a retomada teria de adivinhar a allowlist — e adivinhar para mais devolveria ao
+        // agente tools que ele não tinha quando suspendeu.
+        assertThat(back.retomada().serverRef()).isEqualTo("vendax");
+        assertThat(back.retomada().toolsPermitidas()).containsExactlyInAnyOrder(READ, WRITE);
+        assertThat(back.retomada().toolsComAprovacao()).containsExactly(WRITE);
+        assertThat(back.retomada().tier()).isEqualTo("LIGHT");
+        assertThat(back.retomada().maxIteracoes()).isEqualTo(8);
+        assertThat(back.retomada().codigosQueEncerram()).containsExactly(-32001);
     }
 }

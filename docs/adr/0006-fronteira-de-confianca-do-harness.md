@@ -164,9 +164,13 @@ PRs #39 (cobrança), #45 (malformada) e #49 (transporte). Classe: `McpAgentRunne
   precisa de teste que leia o valor **dentro** dela.
 - **O server precisa conferir.** Headers só protegem se o server os usar no lugar do argumento; o
   lado do VendaX está no outro repositório.
-- **A retomada não tem ponte para o VendaX.** Levantado dos dois lados em 17/09:
+- **A retomada não tem ponte para o VendaX.** Levantado dos dois lados em 17/09, e resolvido pela
+  metade em 18/09 (PR #58: `RetomadaDoLaco` chama `resume`, e os dois gates humanos passam a
+  dividir a fila de aprovações). O que era:
   - só o `runAndReport` do dispatcher envia result; nenhum caminho de retomada passa por ele;
-  - `McpAgentRunner.resume` não tem chamador — um `mcp_agent_states` suspenso fica órfão;
+  - ~~`McpAgentRunner.resume` não tem chamador~~ — **resolvido**: a fila de aprovações decide, e a
+    retomada reconstrói as políticas dos dados gravados (`McpAgentState.Retomada`). O laço passou a
+    **recusar suspender** sem esses dados, em vez de gravar um estado sem saída;
   - a aprovação (`ApprovalQueueService.submitDecision`) retoma sem `McpAgentHost` no contexto, então
     um passo `mcp-agent` depois dela falharia;
   - execuções do VendaX não são registradas no `WorkflowRuntimeStore`, então `/resume` não as acha;
@@ -174,7 +178,9 @@ PRs #39 (cobrança), #45 (malformada) e #49 (transporte). Classe: `McpAgentRunne
     result depois.
 
   **Decisão:** a suspensão relata o gasto até ali (`SUSPENSO`) e não envia result; o Core trata esse
-  relato como final. A ponte não é desenhada agora, porque **nenhum agente do VendaX suspende** —
+  relato como final. Com a retomada genérica pronta, o que falta para o VendaX é o vínculo
+  execução↔invoke e um `RetomadaDoLaco.OuvinteDaRetomada` que mande o result ao Core — o gancho já
+  existe. A ponte não é desenhada agora, porque **nenhum agente do VendaX suspende** —
   todas as políticas são `ToolApprovalPolicy.none()`, nenhum fluxo tem nó `APPROVAL` e o Core não
   chama `/api/approvals` nem `/resume`. Quando houver aprovação humana num agente do VendaX, a
   retomada precisará: guardar o vínculo execução↔invoke (`conversationId`, `agent`, `saidaSchema`,

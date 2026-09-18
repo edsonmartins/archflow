@@ -170,18 +170,29 @@ public class McpAgentComponent implements AIComponent, ComponentPlugin {
                         + "— é de lá que vêm o runner e o cliente MCP."));
 
         String tenantId = context.getTenantId();
-        McpClient client = host.clientFor(tenantId, texto(config.get("server")));
+        String servidor = texto(config.get("server"));
+        McpClient client = host.clientFor(tenantId, servidor);
 
         Set<String> saidaDaTool = listaDeTexto(config.get("saidaDaTool"));
         boolean exigir = booleano(config.get("exigirSaidaDaTool"));
+        // As tools que o nó põe sob decisão humana. O laço suspende ANTES de executá-las, e volta
+        // pela fila de aprovações (RetomadaDoLaco). Vazio é o caso comum: nada sob gate.
+        Set<String> sobAprovacao = interseccao(listaDeTexto(config.get("aprovacaoHumana")),
+                politicaDeAcesso(host, tenantId));
 
         McpAgentRunner.Options options = new McpAgentRunner.Options(
                 politicaDeAcesso(host, tenantId),
                 ToolTrustPolicy.untrustedByDefault(),
-                ToolApprovalPolicy.none(),
+                ToolApprovalPolicy.requiringFor(sobAprovacao),
                 iteracoes(), flowPatch, LLMConfigPatch.fromMap(config),
                 exigir ? saidaDaTool : Set.of(),
                 textoDoContexto(context, CTX_TIER))
+                // COMO O LAÇO VOLTA, em dados. Sem isto ele recusa suspender — e recusar é melhor
+                // que gravar um estado que ninguém consegue retomar.
+                .comRetomada(new McpAgentState.Retomada(servidor,
+                        toolsPermitidas(host, tenantId), sobAprovacao,
+                        exigir ? saidaDaTool : Set.of(),
+                        textoDoContexto(context, CTX_TIER), iteracoes(), Set.of()))
                 // O CONSUMO VAI PARA QUEM HOSPEDA A EXECUÇÃO. Sem isto, um agente em fluxo gastaria
                 // tokens que nenhum resultado relata — e o teto de custo do tenant contaria menos
                 // do que foi gasto, justamente no caminho que vai substituir os outros.
@@ -228,6 +239,43 @@ public class McpAgentComponent implements AIComponent, ComponentPlugin {
         }
 
         return saida(result, saidaDaTool);
+    }
+
+    /**
+     * Só põe sob gate o que o agente pode chamar: pedir decisão humana sobre uma tool que a
+     * allowlist já nega seria uma pergunta sem consequência.
+     */
+    private static Set<String> interseccao(Set<String> declaradas, ToolAccessPolicy acesso) {
+        Set<String> resultado = new LinkedHashSet<>();
+        for (String tool : declaradas) {
+            if (acesso.isAllowed(tool)) {
+                resultado.add(tool);
+            }
+        }
+        return resultado;
+    }
+
+    /**
+     * A allowlist do passo como <b>dados</b>, para a retomada reconstruí-la.
+     *
+     * <p>{@code null} quando o nó não declara tools e o host não tem teto: é "todas", e é diferente
+     * de conjunto vazio, que é "nenhuma".</p>
+     */
+    private Set<String> toolsPermitidas(McpAgentHost host, String tenantId) {
+        Set<String> doNo = listaDeTexto(config.get("tools"));
+        Set<String> teto = host.toolCeiling(tenantId);
+        if (doNo.isEmpty() && (teto == null || teto.isEmpty())) {
+            return null;
+        }
+        if (doNo.isEmpty()) {
+            return Set.copyOf(teto);
+        }
+        if (teto == null || teto.isEmpty()) {
+            return doNo;
+        }
+        Set<String> interseccao = new LinkedHashSet<>(doNo);
+        interseccao.retainAll(teto);
+        return interseccao;
     }
 
     /** A memória que quem acionou pôs no contexto; vazia é o caso normal. */
