@@ -178,6 +178,10 @@ public class VendaxAgentDispatcher {
                 case "AP" -> NarracaoDoDia.REASON.equals(invoke.reason())
                         ? runApNarracao(invoke, uso)
                         : naoImplementado(invoke);
+                // O US sugere o item que costuma vir junto, antes do fechamento.
+                case "US" -> SugestaoDeUpsell.REASON.equals(invoke.reason())
+                        ? runUsSugestao(invoke, uso)
+                        : naoImplementado(invoke);
                 default -> naoImplementado(invoke);
             };
             if (result != null) {
@@ -319,6 +323,45 @@ public class VendaxAgentDispatcher {
                     : causa.resultText());
         }
         return ConsultaAoNegociador.resultado(invoke, result);
+    }
+
+    /**
+     * US, upsell pré-fechamento: a tool devolve as candidatas que o Core filtrou, e o modelo escolhe
+     * uma e escreve a frase.
+     *
+     * <p>Interativo (ADR-025 D-2): o vendedor está olhando a cotação que acabou de sair, então vale
+     * o mesmo prazo da consulta ao NS — passou, sai {@code ERROR} e o que o laço gastar depois é
+     * relatado à parte.</p>
+     *
+     * <p>Medido em 18/09, no homolog do VendaX: <b>544 acionamentos de US</b> entre 03 e 24/08
+     * caíram no ramo "agente não implementado" deste switch, e nenhuma sugestão chegou ao vendedor.
+     * Nada do lado do Core acusou — por isso este caminho existe agora.</p>
+     */
+    private VendaxResult runUsSugestao(VendaxInvoke invoke, ContadorDeUso uso) {
+        var client = vendax.clientFor(invoke.tenantId(),
+                invoke.definicao() != null ? invoke.definicao().versao() : null);
+        McpAgentRunner.Options opcoes = daExecucao(new McpAgentRunner.Options(
+                politicaDe(invoke, Set.of(SugestaoDeUpsell.TOOL)),
+                ToolTrustPolicy.untrustedByDefault(),
+                ToolApprovalPolicy.none(),
+                SugestaoDeUpsell.MAX_ITERACOES), invoke, uso);
+        String systemPrompt = promptDe(invoke, SugestaoDeUpsell.SYSTEM_PROMPT);
+        String entrada = entradaDoAgente(invoke);
+
+        McpAgentRunner.Result result;
+        try {
+            result = comPrazo(invoke, () ->
+                    runner.run(invoke.tenantId(), systemPrompt, entrada, client, opcoes));
+        } catch (PrazoEstourado e) {
+            log.warn("Sugestão do US passou do prazo de {} ms (trace={})",
+                    prazoInterativo.toMillis(), invoke.traceId());
+            ContadorDeUso.Resumo ate = uso.resumo().orElse(null);
+            relatarDepoisDoPrazo(invoke, uso, ate, e.execucao());
+            VendaxResult erro = VendaxResult.error(invoke, "O US não respondeu em "
+                    + prazoInterativo.toSeconds() + " s").comChave(SugestaoDeUpsell.chave(invoke));
+            return ate == null ? erro : erro.comUso(usoDe(ate));
+        }
+        return SugestaoDeUpsell.resultado(invoke, result);
     }
 
     /**
