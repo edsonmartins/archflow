@@ -88,6 +88,18 @@ public record VendaxResult(
                 error, idempotencyKey, null);
     }
 
+    /**
+     * O mesmo result com outra chave de idempotência.
+     *
+     * <p>A derivação padrão (agente + mensagem de origem) serve a quem responde a uma mensagem. Um
+     * agente cujo acionamento o Core indexa de outro jeito — o US, por {@code us:<traceId>} — diz
+     * qual é a sua. Chave errada não falha: o Core simplesmente não casa o resultado com o pedido.</p>
+     */
+    public VendaxResult comChave(String idempotencyKey) {
+        return new VendaxResult(schemaVersion, tenantId, conversationId, agent, status,
+                richObjectType, richObject, error, idempotencyKey, uso);
+    }
+
     /** O mesmo result, carregando o consumo. */
     public VendaxResult comUso(Uso uso) {
         return new VendaxResult(schemaVersion, tenantId, conversationId, agent, status,
