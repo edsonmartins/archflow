@@ -1428,12 +1428,16 @@ public class ArchflowBeanConfiguration {
             br.com.archflow.api.agent.vendax.VendaxAgentMetrics vendaxAgentMetrics,
             br.com.archflow.api.agent.vendax.AgentFlowRunner agentFlowRunner,
             br.com.archflow.api.agent.mcp.TabelaDePrecos tabelaDePrecos,
-            @Value("${archflow.vendax.agent.prazo-interativo:PT20S}") java.time.Duration prazoInterativo) {
+            @Value("${archflow.vendax.agent.prazo-interativo:PT20S}") java.time.Duration prazoInterativo,
+            @Value("${archflow.vendax.agent.prazo-roteiro-cpa:}") String prazoDoRoteiroCpa) {
         var dispatcher = new br.com.archflow.api.agent.vendax.VendaxAgentDispatcher(
                 qpAgentService, mcpAgentRunner, vendaxMcpClientProvider,
                 vendaxResultSender, vendaxAgentExecutor, vendaxAgentMetrics, agentFlowRunner);
         dispatcher.setPrecos(tabelaDePrecos);
         dispatcher.setPrazoInterativo(prazoInterativo);
+        if (prazoDoRoteiroCpa != null && !prazoDoRoteiroCpa.isBlank()) {
+            dispatcher.setPrazoDoRoteiro(java.time.Duration.parse(prazoDoRoteiroCpa.trim()));
+        }
         return dispatcher;
     }
 }

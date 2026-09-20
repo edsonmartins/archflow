@@ -78,6 +78,8 @@ public class VendaxAgentDispatcher {
     /** Nulo numa instalação sem motor de fluxo: só o caminho por nome de agente responde. */
     private final AgentFlowRunner fluxo;
     private volatile Duration prazoInterativo = PRAZO_INTERATIVO_PADRAO;
+    /** Nulo: o roteiro do CPA espera o mesmo que o resto da classe interativa. */
+    private volatile Duration prazoDoRoteiro;
     private volatile TabelaDePrecos precos = TabelaDePrecos.vazia();
 
     public VendaxAgentDispatcher(QpAgentService qpAgent, McpAgentRunner runner,
@@ -111,6 +113,20 @@ public class VendaxAgentDispatcher {
             throw new IllegalArgumentException("prazo interativo deve ser positivo: " + prazo);
         }
         this.prazoInterativo = prazo;
+    }
+
+    /**
+     * Prazo próprio do roteiro do CPA; nulo volta ao da classe interativa.
+     *
+     * <p>É uma volta sem ferramenta, e quem espera é um botão com "pensando…": o que para a consulta
+     * do NS é folga, aqui é o vendedor que já ligou. Separado do prazo da classe para poder ser
+     * apertado depois de medido, sem apertar junto quem chama tool.</p>
+     */
+    public void setPrazoDoRoteiro(Duration prazo) {
+        if (prazo != null && (prazo.isNegative() || prazo.isZero())) {
+            throw new IllegalArgumentException("prazo do roteiro deve ser positivo: " + prazo);
+        }
+        this.prazoDoRoteiro = prazo;
     }
 
     /** Preços por modelo, para o custo que acompanha cada result; sem tabela, custo nulo. */
@@ -181,6 +197,10 @@ public class VendaxAgentDispatcher {
                 // O US sugere o item que costuma vir junto, antes do fechamento.
                 case "US" -> SugestaoDeUpsell.REASON.equals(invoke.reason())
                         ? runUsSugestao(invoke, uso)
+                        : naoImplementado(invoke);
+                // O CPA aqui só roteiriza a abordagem de uma tarefa aberta.
+                case "CPA" -> RoteiroDeAbordagem.REASON.equals(invoke.reason())
+                        ? runCpaRoteiro(invoke, uso)
                         : naoImplementado(invoke);
                 default -> naoImplementado(invoke);
             };
@@ -302,7 +322,7 @@ public class VendaxAgentDispatcher {
 
         McpAgentRunner.Result result;
         try {
-            result = comPrazo(invoke, () ->
+            result = comPrazo(invoke, prazoInterativo, () ->
                     runner.run(invoke.tenantId(), systemPrompt, entrada, client, opcoesDaExecucao));
         } catch (PrazoEstourado e) {
             log.warn("Consulta ao NS passou do prazo de {} ms (trace={})",
@@ -350,7 +370,7 @@ public class VendaxAgentDispatcher {
 
         McpAgentRunner.Result result;
         try {
-            result = comPrazo(invoke, () ->
+            result = comPrazo(invoke, prazoInterativo, () ->
                     runner.run(invoke.tenantId(), systemPrompt, entrada, client, opcoes));
         } catch (PrazoEstourado e) {
             log.warn("Sugestão do US passou do prazo de {} ms (trace={})",
@@ -385,6 +405,50 @@ public class VendaxAgentDispatcher {
                 entradaDoAgente(invoke),
                 br.com.archflow.api.agent.mcp.SemFerramentas.INSTANCIA, opcoes);
         return NarracaoDoDia.resultado(invoke, result);
+    }
+
+    /**
+     * CPA, roteiro de abordagem: o dossiê que o Core montou vira duas a quatro frases sobre como
+     * chegar no cliente.
+     *
+     * <p>Sem ferramenta e numa volta só, como a narração do AP — mesmo cliente
+     * {@link br.com.archflow.api.agent.mcp.SemFerramentas}, mesma política vazia como segunda
+     * barreira. Duas diferenças: é interativo (passou do prazo, sai {@code ERROR} e o {@code OK}
+     * atrasado é descartado), e as notas dos vendedores saem do payload e entram cercadas, junto da
+     * memória do cliente — ver {@link RoteiroDeAbordagem}.</p>
+     */
+    private VendaxResult runCpaRoteiro(VendaxInvoke invoke, ContadorDeUso uso) {
+        RoteiroDeAbordagem.Preparado preparado = RoteiroDeAbordagem.preparar(invoke.payload());
+        if (preparado == null) {
+            // Sem dossiê o modelo só teria o prompt — e escreveria um roteiro convincente sobre nada.
+            return VendaxResult.error(invoke, "O dossiê do roteiro não veio ou não é um JSON");
+        }
+        List<String> cercado = new java.util.ArrayList<>(invoke.memoria());
+        cercado.addAll(preparado.notas());
+        McpAgentRunner.Options opcoes = daExecucao(new McpAgentRunner.Options(
+                ToolAccessPolicy.allowOnly(Set.of()),
+                ToolTrustPolicy.untrustedByDefault(),
+                ToolApprovalPolicy.none(),
+                RoteiroDeAbordagem.MAX_ITERACOES), invoke, uso)
+                .comContextoRecuperado(cercado);
+        String systemPrompt = promptDe(invoke, RoteiroDeAbordagem.SYSTEM_PROMPT);
+        String entrada = entradaDoAgente(invoke.comPayload(preparado.payload()));
+        Duration prazo = prazoDoRoteiro != null ? prazoDoRoteiro : prazoInterativo;
+
+        McpAgentRunner.Result result;
+        try {
+            result = comPrazo(invoke, prazo, () -> runner.run(invoke.tenantId(), systemPrompt, entrada,
+                    br.com.archflow.api.agent.mcp.SemFerramentas.INSTANCIA, opcoes));
+        } catch (PrazoEstourado e) {
+            log.warn("Roteiro do CPA passou do prazo de {} ms (trace={})",
+                    prazo.toMillis(), invoke.traceId());
+            ContadorDeUso.Resumo ate = uso.resumo().orElse(null);
+            relatarDepoisDoPrazo(invoke, uso, ate, e.execucao());
+            VendaxResult erro = VendaxResult.error(invoke, "O CPA não respondeu em "
+                    + prazo.toMillis() + " ms");
+            return ate == null ? erro : erro.comUso(usoDe(ate));
+        }
+        return RoteiroDeAbordagem.resultado(invoke, result);
     }
 
     /**
@@ -429,7 +493,8 @@ public class VendaxAgentDispatcher {
      * já recebeu o {@code ERROR}, e um {@code OK} atrasado com a mesma chave seria uma segunda
      * resposta para uma pergunta já encerrada.</p>
      */
-    private <T> T comPrazo(VendaxInvoke invoke, Supplier<T> trabalho) throws PrazoEstourado {
+    private <T> T comPrazo(VendaxInvoke invoke, Duration prazo, Supplier<T> trabalho)
+            throws PrazoEstourado {
         CompletableFuture<T> futuro = new CompletableFuture<>();
         Thread thread = Thread.ofVirtual().name("vendax-interativo-", 0).unstarted(() -> {
             definirCorrelacao(invoke);
@@ -443,7 +508,7 @@ public class VendaxAgentDispatcher {
         });
         thread.start();
         try {
-            return futuro.get(prazoInterativo.toMillis(), TimeUnit.MILLISECONDS);
+            return futuro.get(prazo.toMillis(), TimeUnit.MILLISECONDS);
         } catch (TimeoutException e) {
             thread.interrupt();
             throw new PrazoEstourado(futuro);

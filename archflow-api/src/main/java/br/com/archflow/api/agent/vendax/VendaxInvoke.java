@@ -88,6 +88,16 @@ public record VendaxInvoke(
     }
 
     /**
+     * O mesmo invoke, com outro payload — para o agente que tira do payload o que não pode ir ao
+     * modelo como veio (ver {@link RoteiroDeAbordagem}). Todo o resto, a chave inclusive, é o do Core.
+     */
+    VendaxInvoke comPayload(String novoPayload) {
+        return new VendaxInvoke(schemaVersion, tenantId, conversationId, agent, sourceMessageId, text,
+                tier, reason, traceId, novoPayload, customerRef, vendorRef, idempotencyKey, taskId,
+                memoria, definicao);
+    }
+
+    /**
      * Compat: invoke sem chave de agrupamento — a chave é derivada da mensagem, como sempre foi.
      *
      * <p>Existe para não obrigar todo produtor e todo teste a conhecer um campo que só a cotação
