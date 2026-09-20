@@ -75,6 +75,9 @@ archflow:
       # Classe interativa (ADR-025 D-2) — hoje, a consulta do vendedor ao NS. A tela espera 30 s;
       # passado este prazo o resultado sai como ERROR, com a mesma chave, e não é reenfileirado.
       prazo-interativo: ${ARCHFLOW_VENDAX_AGENT_PRAZO_INTERATIVO:PT20S}
+      # Roteiro do CPA: uma volta sem ferramenta, atrás de um botão. Vazio = o prazo interativo acima;
+      # aperte (ex.: PT8S) só depois de medir a latência do modelo em uso.
+      prazo-roteiro-cpa: ${ARCHFLOW_VENDAX_AGENT_PRAZO_ROTEIRO_CPA:}
 
   # Preço por modelo, em CENTAVOS DE REAL por milhão de tokens, para o `uso` de cada result e relato
   # (o VendaX soma no teto mensal do tenant). A chave é o provider/modelo da configuração resolvida.
