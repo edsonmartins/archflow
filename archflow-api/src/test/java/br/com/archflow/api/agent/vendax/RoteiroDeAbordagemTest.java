@@ -376,5 +376,31 @@ class RoteiroDeAbordagemTest {
             assertThat(dossie).as("e o dossiê vem depois da cerca").isGreaterThan(fecha);
             assertThat(usuario.substring(dossie)).contains("\"notaRef\":\"nota-1\"");
         }
+
+        /**
+         * A forma que o Core propôs na revisão do pedido: as notas já vêm em {@code memoria}, como
+         * fatos, e o payload só tem número e enumeração. Nada a separar — e a mesma cerca.
+         */
+        @Test
+        @DisplayName("nota hostil vinda em `memoria`: cercada, e o payload segue como veio")
+        void notaNaMemoria() {
+            String semNota = PAYLOAD.replace(",\"nota\":\"não atendeu\"", "")
+                    .replace(",\"nota\":null", "");
+            String fato = "em 15/09, numa ligação, o vendedor anotou: " + INJECAO;
+            dispatcher(ChatResponse.builder().aiMessage(AiMessage.from("Vale ir até lá.")).build())
+                    .runAndReport(roteiro(RoteiroDeAbordagem.REASON, semNota, List.of(fato)));
+
+            String sistema = ((SystemMessage) pedidos.get(0).messages().get(0)).text();
+            String usuario = ((UserMessage) pedidos.get(0).messages().get(1)).singleText();
+            assertThat(sistema).doesNotContain(INJECAO).contains("CONTEXTO CERCADO");
+
+            int nota = usuario.indexOf(INJECAO);
+            assertThat(usuario.indexOf("[archflow:untrusted")).isBetween(0, nota);
+            assertThat(usuario.indexOf("[/archflow:untrusted")).isGreaterThan(nota);
+            assertThat(usuario.substring(usuario.indexOf("payload=")))
+                    .doesNotContain("notaRef")
+                    .doesNotContain(INJECAO)
+                    .contains("\"desfecho\":\"SEM_RESULTADO\"");
+        }
     }
 }
