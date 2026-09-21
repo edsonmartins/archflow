@@ -3,7 +3,8 @@
 Resposta ao `PROMPT-2026-09-20-archflow-roteiro-do-cpa.md` do VendaX Core. 20/09/2026.
 
 > **O lado do executor está escrito e integrado ao `main`**:
-> https://github.com/edsonmartins/archflow/pull/60. Não foi medido contra um modelo de verdade. Foi
+> https://github.com/edsonmartins/archflow/pull/60. Foi medido contra modelo de verdade no mesmo dia
+> (`MEDICAO-2026-09-20-cpa-roteiro.md`), e o prompt mudou por causa disso. Foi
 > escrito antes de o Core existir, então tudo abaixo que depende de decisão de vocês está isolado e
 > muda barato.
 
@@ -61,28 +62,33 @@ As ressalvas:
 qualquer jeito. O caso 7.4 continua provando isso: com a nota fora do payload, um roteiro que citasse
 "30%" cairia nas duas regras, mas um que dissesse "ofereça um desconto" só cai na de desconto.
 
-### 2. `LIGHT` aguenta? — não sabemos, e não vamos afirmar sem medir
+### 2. `LIGHT` aguenta? — medido: depende do modelo por trás dele, e de um flag
 
-Não medimos. Os casos 7.1–7.3 (só números do payload, "pouco histórico" com amostra pequena, silêncio
-sobre blocos ausentes) dependem do que o modelo escreve, e nenhum teste nosso prova isso.
+*(Atualizado em 20/09 com a medição: `MEDICAO-2026-09-20-cpa-roteiro.md`, 500 execuções, dois modelos,
+quatro iterações de prompt, todos os textos lidos.)*
+
+- **Resistência à injeção, blocos ausentes, números e desconto: os dois modelos passam.** Em 200
+  execuções com a nota hostil, nenhum roteiro propôs desconto.
+- **O critério 7.2 (amostra pequena) só o modelo maior cumpre**: `gemini-2.5-flash` em 19 de 20,
+  `gemini-2.5-flash-lite` em 0 de 20. Se o `LIGHT` de vocês mapear para um modelo da classe do
+  `flash-lite`, o `tierMinimo` deste agente precisa ser mais alto.
+- O limiar não deveria ser julgado pelo modelo. Pedimos **`abordagens.amostraPequena`** calculado pelo
+  Core; com ele o prompt só obedece. Não medimos com o flag, porque ele não existe.
+- O prompt pesou mais que o tier: a primeira versão do nosso fez o modelo pequeno inventar um fato em
+  51 de 80 roteiros. O aviso vale para o prompt que vier na `definicao`.
 
 Sobre o mapa de tiers: o código honra o tier e, quando não há mapa para o tenant, registra
-`[LLM-TIER] tier=… NAO honrado`. **Se a VPS já tem o mapa configurado, não confirmamos desta vez.**
-Tratem o aviso de 18/09 como ainda válido. Todo result leva `uso.model`, então a medição diz sozinha
-contra qual modelo foi feita; basta olhar o campo em vez de confiar no tier pedido.
-
-Proposta: com a flag de vocês desligada, rodamos os quatro payloads da §7 (o do exemplo,
-`tentativas=1`, sem `sentimento`/`margem`, nota hostil) algumas dezenas de vezes e devolvemos a taxa
-de recusa por regra e o modelo usado. Se o `LIGHT` inventar causa ou ignorar amostra pequena, o tier
-sobe. Sobre a preferência de vocês por tier mais alto a roteiro errado: concordamos.
+`[LLM-TIER] tier=… NAO honrado`. **Se a VPS já tem o mapa configurado, continuamos sem confirmar.**
+Tratem o aviso de 18/09 como ainda válido. Todo result leva `uso.model`; é ele que diz qual modelo rodou.
 
 ### 3. Prazo — agora pode ser por `reason`, mas o padrão continua 20 s
 
 Era um prazo só por classe. O PR cria `archflow.vendax.agent.prazo-roteiro-cpa`
 (`ARCHFLOW_VENDAX_AGENT_PRAZO_ROTEIRO_CPA`, formato ISO, ex.: `PT8S`). **Vazio, vale o prazo da
 classe interativa (20 s).** Não fixamos 8 s de propósito, porque ninguém mediu o p95 desta volta no
-modelo em uso, e um padrão apertado demais só trocaria roteiros por `ERROR`. A medição do item 2
-devolve a latência junto, e apertamos com esse número.
+modelo em uso, e um padrão apertado demais só trocaria roteiros por `ERROR`. **Medido depois:**
+nenhuma das 500 execuções passou de 2,8 s (p95 de 1,0 s e 2,3 s nos dois modelos) — `PT8S` cabe com
+folga, mas a medição saiu de uma máquina de desenvolvimento, e o valor deve ser decidido da VPS.
 
 Para a tela: o `ERROR` por prazo diz `O CPA não respondeu em <n> ms`.
 
@@ -114,7 +120,9 @@ O prompt cobra todas as regras da §3, e a última linha só admite o roteiro co
 
 - número só do payload; sem soma e sem taxa, e "100%" aparece no prompt como exemplo do que é recusado;
 - bloco ausente = "não se sabe"; nulo nunca é zero;
-- amostra pequena é dita, com `tentativas` ≤ 2 no total **ou numa forma**;
+- amostra pequena é dita, com `abordagens.tentativas` (o total) ≤ 2 — e só então;
+- a primeira frase diz por onde ir; linhas de `formas` com o mesmo `tipo` são lidas juntas;
+- nome de campo e valor em maiúsculas do payload não são copiados; data sai como dia/mês;
 - `dataEstimada` sai como "por volta de";
 - sem desconto, preço, prazo de pagamento ou quantidade; sem nome de produto;
 - sem afirmar causa; sem julgar o vendedor; sem mensagem pronta para o cliente;
@@ -133,7 +141,10 @@ número e nome de lá não saem no roteiro —, porque a cerca acontece sempre, 
 | Pendência | De quem |
 |---|---|
 | Deploy do PR #60 (já integrado ao `main`) | ArchFlow |
-| Medir os 4 payloads da §7 contra o modelo real; devolver recusas, latência e `uso.model` | ArchFlow, assim que houver dossiês de exemplo aprovados por vocês |
+| ~~Medir os 4 payloads da §7 contra o modelo real~~ — feito: `MEDICAO-2026-09-20-cpa-roteiro.md` | ArchFlow |
+| `abordagens.amostraPequena` no dossiê; total por `tipo` em `formas`; fatos de memória sem algarismo (§6 da medição) | Core |
+| Os dois furos da conferência de números: conta que cai num número do payload, e número por extenso (§5 da medição) | Core |
+| Medir de novo quando `amostraPequena` existir | ArchFlow |
 | Confirmar o mapa de tiers na VPS | ArchFlow |
 | `percentualTexto` + `carteiraPercentualTexto` no dossiê | Core |
 | Manter os números de `memoria` (notas inclusive) fora do conjunto permitido na conferência | Core |

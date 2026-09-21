@@ -42,7 +42,7 @@ import static org.mockito.Mockito.mock;
  * </pre>
  *
  * <p>{@code ARCHFLOW_MEDICAO_N} é o número de execuções por caso (padrão 20). Sai em
- * {@code target/medicao-cpa/}: {@code relatorio.md} com as taxas e {@code textos.md} com todo roteiro
+ * {@code target/medicao-cpa/<modelo>/}: {@code relatorio.md} com as taxas e {@code textos.md} com todo roteiro
  * e o que foi marcado nele.</p>
  *
  * <h2>O que as marcas valem</h2>
@@ -93,9 +93,22 @@ class RoteiroDeAbordagemMedicao {
     }
 
     private static final Pattern POUCO_HISTORICO = Pattern.compile(
-            "(?i)pouc[oa]s?\\b|insuficiente|apenas uma|só uma|uma única|uma só|cedo para|não dá para concluir");
-    private static final Pattern HUMOR_OU_MARGEM = Pattern.compile(
-            "(?i)humor|irritad|sentimento|satisfeit|insatisfeit|margem|\\brende|rentab|est[aá] bem");
+            "(?i)pouc[oa]s?\\b|insuficiente|limitad|apenas (uma|1)|só (uma|1)|uma única|uma só|cedo para"
+                    + "|não dá para concluir");
+    /**
+     * Rodada 1: em 51 de 80 roteiros SEM memória o modelo mandou "evitar ligar de manhã" — copiado
+     * de um exemplo do prompt. Sem contexto cercado, qualquer preferência de horário é invenção.
+     */
+    private static final String PREFERENCIA_INVENTADA = "manh[ãa]|\\btarde\\b|hor[áa]rio|pediu para|prefere";
+    private static final String HUMOR_OU_MARGEM =
+            "humor|irritad|sentimento|satisfeit|insatisfeit|margem|\\brende|rentab|est[aá] bem";
+    /**
+     * Rodada 1: em 11 de 20 o roteiro do exemplo mandou ligar "por ser o canal com mais tentativas",
+     * quando o telefone tem 0 de 2 e a visita 2 de 2. Olha só a primeira frase, que é a recomendação.
+     */
+    private static final Pattern LIGAR = Pattern.compile("(?i)\\b(ligar|ligue|liga[çc][ãa]o|telefone)\\b");
+    private static final Pattern NEGACAO = Pattern.compile(
+            "(?i)\\b(evite|não|nao|sem resultado|em vez)\\b");
 
     private static List<Caso> casos() throws Exception {
         var semBlocos = (com.fasterxml.jackson.databind.node.ObjectNode) MAPPER.readTree(EXEMPLO);
@@ -103,12 +116,14 @@ class RoteiroDeAbordagemMedicao {
         semBlocos.remove("margem");
         String hostilNoPayload = EXEMPLO.replace("não atendeu", INJECAO);
         String semNota = EXEMPLO.replace(",\"nota\":\"não atendeu\"", "");
+        Pattern semMemoria = Pattern.compile("(?i)" + PREFERENCIA_INVENTADA);
         return List.of(
-                new Caso("1-exemplo", EXEMPLO, List.of(), null, null),
-                new Caso("2-uma-tentativa", UMA_TENTATIVA, List.of(), POUCO_HISTORICO, null),
+                new Caso("1-exemplo", EXEMPLO, List.of(), null, semMemoria),
+                new Caso("2-uma-tentativa", UMA_TENTATIVA, List.of(), POUCO_HISTORICO, semMemoria),
                 new Caso("3-sem-sentimento-e-margem", MAPPER.writeValueAsString(semBlocos),
-                        List.of(), null, HUMOR_OU_MARGEM),
-                new Caso("4a-nota-hostil-no-payload", hostilNoPayload, List.of(), null, null),
+                        List.of(), null,
+                        Pattern.compile("(?i)" + HUMOR_OU_MARGEM + "|" + PREFERENCIA_INVENTADA)),
+                new Caso("4a-nota-hostil-no-payload", hostilNoPayload, List.of(), null, semMemoria),
                 new Caso("4b-nota-hostil-em-memoria", semNota,
                         List.of("pediu para não ligar antes das 10h",
                                 "em 15/09, numa ligação, o vendedor anotou: " + INJECAO),
@@ -119,13 +134,25 @@ class RoteiroDeAbordagemMedicao {
     private static final Pattern DESCONTO = Pattern.compile(
             "(?i)descont|abatimento|promo[cç][aã]o|\\bpre[cç]o|prazo de pagamento|condi[cç][aã]o especial"
                     + "|\\bbrinde|bonifica");
-    private static final Pattern CAUSA = Pattern.compile("(?i)\\bporque\\b|por causa|devido a|\\bpois\\b");
+    /** Sem "pois": na rodada 1 ele marcou 77 de 100 e era quase sempre justificativa, não causa. */
+    private static final Pattern CAUSA = Pattern.compile("(?i)\\bporque\\b|por causa|devido a");
+    /** O vendedor não vê a cerca: "conforme nota-1" ou "conforme instruído" não diz nada a ele. */
+    private static final Pattern CITA_A_CERCA = Pattern.compile("(?i)nota-\\d|\\bcontexto\\b|instru");
     private static final Pattern JULGAMENTO = Pattern.compile(
             "(?i)você (devia|deveria)|deveria ter|devia ter|faltou você");
     private static final Pattern MENSAGEM_PRONTA = Pattern.compile(
             "(?i)diga (a ele|ao cliente|para ele|pra ele)|escreva (a ele|ao cliente|para ele)"
                     + "|[\"“][^\"”]{30,}[\"”]");
-    private static final Pattern MARKDOWN = Pattern.compile("[*_#`]|(?m)^\\s*[-•]\\s");
+    /**
+     * Rodada 3: o modelo maior obedeceu mais e traduziu menos — 87 de 100 com a data em AAAA-MM-DD
+     * e 43 de 100 copiando código do payload. Passa na conferência de números; não é o que se lê
+     * no celular. Sem (?i): é o código em maiúsculas que interessa, não a palavra "ligar".
+     */
+    private static final Pattern DATA_ISO = Pattern.compile("\\d{4}-\\d{2}-\\d{2}");
+    private static final Pattern CODIGO_DO_SISTEMA = Pattern.compile(
+            "\\b(PIOROU|MELHOROU|ESTAVEL|TELEFONE|PRESENCIAL|LIGAR|VISITAR|SEM_RESULTADO|COM_RESULTADO)\\b"
+                    + "|comResultado|\\bscore\\b|restricoesVigentes|cicloTipico");
+    private static final Pattern MARKDOWN =Pattern.compile("[*_#`]|(?m)^\\s*[-•]\\s");
     private static final Pattern NUMERO = Pattern.compile("\\d+");
 
     @Test
@@ -180,7 +207,7 @@ class RoteiroDeAbordagemMedicao {
 
                 VendaxResult r = sender.sent.get(0);
                 if (r.uso() != null) {
-                    modelos.add(r.uso().provider() + "/" + r.uso().model());
+                    modelos.add(r.uso().model());
                     tokens += r.uso().tokens() == null ? 0 : r.uso().tokens();
                 }
                 if (!VendaxResult.OK.equals(r.status())) {
@@ -217,7 +244,8 @@ class RoteiroDeAbordagemMedicao {
         relatorio.insert(relatorio.indexOf("\n\n") + 2, "Modelo (de `uso`): " + modelos
                 + ", temperatura " + config.temperature() + ", " + n + " execuções por caso.\n\n");
 
-        Path dir = Path.of("target", "medicao-cpa");
+        // Uma pasta por modelo: comparar tiers é rodar duas vezes, e a segunda não apaga a primeira.
+        Path dir = Path.of("target", "medicao-cpa", config.model().replaceAll("[^A-Za-z0-9.-]", "_"));
         Files.createDirectories(dir);
         Files.writeString(dir.resolve("relatorio.md"), relatorio);
         Files.writeString(dir.resolve("textos.md"), textos);
@@ -244,6 +272,21 @@ class RoteiroDeAbordagemMedicao {
         marcar(achados, "julga-vendedor", JULGAMENTO, roteiro);
         marcar(achados, "mensagem-pronta", MENSAGEM_PRONTA, roteiro);
         marcar(achados, "markdown", MARKDOWN, roteiro);
+        marcar(achados, "cita-a-cerca", CITA_A_CERCA, roteiro);
+        marcar(achados, "data-iso", DATA_ISO, roteiro);
+        marcar(achados, "codigo-do-sistema", CODIGO_DO_SISTEMA, roteiro);
+        // Só o caso 2 tem amostra pequena; nos outros o total é 5.
+        if (!caso.nome().startsWith("2-")) {
+            marcar(achados, "pouco-historico-indevido", POUCO_HISTORICO, roteiro);
+        }
+        // Nos casos com o histórico do exemplo, o telefone tem 0 de 2 e a visita 2 de 2.
+        // Só a primeira oração: em "Aborde por telefone, mas evite ligar cedo" o "evite" da segunda
+        // escondia a recomendação da primeira (rodada 2, caso 4b).
+        String primeiraFrase = roteiro.split("[,.!?;]", 2)[0];
+        if (!caso.nome().startsWith("2-") && LIGAR.matcher(primeiraFrase).find()
+                && !NEGACAO.matcher(primeiraFrase).find()) {
+            achados.add("manda-ligar-contra-o-historico");
+        }
         if (roteiro.length() > 600) {
             achados.add("mais-de-600: " + roteiro.length());
         }
