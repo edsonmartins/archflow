@@ -92,6 +92,9 @@ archflow:
   #         entrada: 10
   #         saida: 40
   llm:
+    # ARCHFLOW_LLM_PRECOS é, pelo relaxed binding, também archflow.llm.precos (o mapa acima). O
+    # bean tolera a colisão desde 21/09/2026; antes dela, qualquer valor — inclusive vazio —
+    # derrubava a subida. Ver TabelaDePrecosBeanTest.
     precos-texto: ${ARCHFLOW_LLM_PRECOS:}
 
 logging:

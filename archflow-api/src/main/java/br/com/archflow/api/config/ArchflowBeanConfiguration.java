@@ -1394,11 +1394,18 @@ public class ArchflowBeanConfiguration {
                 org.springframework.core.ResolvableType.forClass(String.class),
                 org.springframework.core.ResolvableType.forClassWithGenerics(
                         java.util.Map.class, String.class, String.class));
+        // A variável ARCHFLOW_LLM_PRECOS — a forma em texto, lida por precos-texto — é, pelo relaxed
+        // binding, TAMBÉM a propriedade archflow.llm.precos. Sem tolerar o erro de conversão, o
+        // binder tentava fazer um mapa do texto e derrubava a subida para qualquer valor: foi o que
+        // tirou o archflow do ar em produção de 17 a 21/09/2026. O único erro possível aqui é esse
+        // (texto onde se espera mapa); o texto em si não se perde, porque é lido por precos-texto.
         java.util.Map<String, java.util.Map<String, String>> config =
                 org.springframework.boot.context.properties.bind.Binder.get(environment)
                         .bind("archflow.llm.precos",
                                 org.springframework.boot.context.properties.bind.Bindable
-                                        .<java.util.Map<String, java.util.Map<String, String>>>of(tipo))
+                                        .<java.util.Map<String, java.util.Map<String, String>>>of(tipo),
+                                new org.springframework.boot.context.properties.bind.handler
+                                        .IgnoreErrorsBindHandler())
                         .orElse(java.util.Map.of());
         var leitura = br.com.archflow.api.agent.mcp.TabelaDePrecos.doTexto(precosEmTexto);
         if (!leitura.ignorados().isEmpty()) {
