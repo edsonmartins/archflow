@@ -610,18 +610,80 @@ public class VendaxAgentDispatcher {
     private VendaxResult runCs(VendaxInvoke invoke, ContadorDeUso uso) {
         var client = vendax.clientFor(invoke.tenantId(),
                 invoke.definicao() != null ? invoke.definicao().versao() : null);
-        McpAgentRunner.Result result = runner.run(invoke.tenantId(),
-                promptDe(invoke, CS_SYSTEM_PROMPT),
-                entradaDoAgente(invoke),
-                client, daExecucao(new McpAgentRunner.Options(politicaDe(invoke, CS_TOOLS)), invoke, uso));
+        McpAgentRunner.Options opcoes =
+                daExecucao(new McpAgentRunner.Options(politicaDe(invoke, CS_TOOLS)), invoke, uso);
+        String systemPrompt = promptDe(invoke, CS_SYSTEM_PROMPT);
+        String entrada = entradaDoAgente(invoke);
 
-        String json = extractJson(result.finalText());
-        if (json == null) {
-            return VendaxResult.error(invoke, "CS não devolveu um sentimento em JSON");
+        // UMA nova tentativa quando a resposta não traz o sentimento.
+        //
+        // Medido em 21/09 na bancada do VendaX: 21 de 48 leituras falharam aqui, e a falha não
+        // seguia a janela — a mesma janela deu certo numa versão do prompt e errado na outra. Das
+        // que deixaram rastro, a resposta veio VAZIA: sem texto, sem finishReason e sem uso
+        // reportado, ou com o teto de tokens gasto inteiro em raciocínio. É falha do provedor, não
+        // da conversa, e a segunda chamada costuma acertar. O mesmo contador soma as duas: o custo
+        // da tentativa extra aparece no uso, e não fica escondido.
+        String resposta = null;
+        for (int tentativa = 1; tentativa <= CS_TENTATIVAS; tentativa++) {
+            resposta = runner.run(invoke.tenantId(), systemPrompt, entrada, client, opcoes).finalText();
+            String json = sentimentoEm(resposta);
+            if (json != null) {
+                // Vale também para o prompt que o Core manda na definição: a trava do vocabulário
+                // não pode depender de qual prompt rodou.
+                return VendaxResult.ok(invoke, TYPE_SENTIMENT, MotivoDaLeitura.normalizar(json));
+            }
+            log.warn("CS sem sentimento em JSON (tentativa {}/{}, trace={}): {}",
+                    tentativa, CS_TENTATIVAS, invoke.traceId(), trechoDaResposta(resposta));
         }
-        // Vale também para o prompt que o Core manda na definição: a trava do vocabulário não pode
-        // depender de qual prompt rodou.
-        return VendaxResult.ok(invoke, TYPE_SENTIMENT, MotivoDaLeitura.normalizar(json));
+        // O trecho vai no erro: sem ele, o próximo diagnóstico depende de alguém ler este log.
+        return VendaxResult.error(invoke, "CS não devolveu um sentimento em JSON ("
+                + CS_TENTATIVAS + " tentativas); última resposta: " + trechoDaResposta(resposta));
+    }
+
+    /** O prefixo do erro tem ~75 caracteres; com o trecho, fica abaixo de 255. */
+    static final int TRECHO = 170;
+
+    /** Uma tentativa e uma repetição. Mais que isso seria insistir num provedor que está falhando. */
+    static final int CS_TENTATIVAS = 2;
+
+    /**
+     * O objeto JSON da resposta, ou {@code null} se não há um que se leia.
+     *
+     * <p>Antes, qualquer texto com chaves passava — prosa com "{" e "}" chegava ao Core como
+     * sentimento e era recusada lá, sem contexto. Agora o que não desserializa como objeto é falha
+     * aqui, onde ainda dá para tentar de novo.</p>
+     */
+    static String sentimentoEm(String resposta) {
+        String json = extractJson(resposta);
+        if (json == null) {
+            return null;
+        }
+        try {
+            // Sem FAIL_ON_TRAILING_TOKENS o Jackson lê o PRIMEIRO objeto e ignora o resto — e
+            // "{…} ou talvez {…}" passaria por um sentimento só.
+            return MAPPER.reader()
+                    .with(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+                    .readTree(json) instanceof com.fasterxml.jackson.databind.node.ObjectNode ? json : null;
+        } catch (Exception naoLe) {
+            return null;
+        }
+    }
+
+    /**
+     * O começo do que o modelo devolveu, numa linha, para o erro e o log.
+     *
+     * <p>Cabe, com o prefixo da mensagem, nos 255 caracteres de {@code resultado_bancada.erro} do
+     * Core — um trecho cortado lá perderia justamente o fim, que é onde um JSON truncado se
+     * denuncia. A resposta foi escrita a partir de uma conversa com o cliente e vai para o Core,
+     * que já é dono dessa conversa. Quebras de linha viram espaço, para o trecho não se passar por
+     * outra linha do log.</p>
+     */
+    static String trechoDaResposta(String resposta) {
+        if (resposta == null || resposta.isBlank()) {
+            return "(vazia)";
+        }
+        String limpo = resposta.strip().replaceAll("\\s+", " ");
+        return "\"" + (limpo.length() <= TRECHO ? limpo : limpo.substring(0, TRECHO) + "…") + "\"";
     }
 
     static final String CS_SYSTEM_PROMPT = """
