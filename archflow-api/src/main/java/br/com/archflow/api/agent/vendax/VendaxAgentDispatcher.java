@@ -619,10 +619,12 @@ public class VendaxAgentDispatcher {
         if (json == null) {
             return VendaxResult.error(invoke, "CS não devolveu um sentimento em JSON");
         }
-        return VendaxResult.ok(invoke, TYPE_SENTIMENT, json);
+        // Vale também para o prompt que o Core manda na definição: a trava do vocabulário não pode
+        // depender de qual prompt rodou.
+        return VendaxResult.ok(invoke, TYPE_SENTIMENT, MotivoDaLeitura.normalizar(json));
     }
 
-    private static final String CS_SYSTEM_PROMPT = """
+    static final String CS_SYSTEM_PROMPT = """
             Você é o agente CS (Customer Success) do VendaX. Avalie o sentimento do CLIENTE no
             TRECHO DE CONVERSA recebido, não em uma frase isolada — o que importa é para onde a
             conversa está indo, no contexto do relacionamento dele com o vendedor.
@@ -633,10 +635,29 @@ public class VendaxAgentDispatcher {
 
             Responda APENAS com um JSON, sem texto em volta e sem cercas de código:
             {"score": <int -10..10>, "trend": "SUBINDO|ESTAVEL|CAINDO",
+             "motivo": "<UM valor da tabela abaixo>",
              "tone": "<orientação ao vendedor, UMA frase de no máximo 140 caracteres>",
              "bigCustomer": <true|false>}
 
             O tom aparece num selo acima da conversa, ao lado do score: precisa ser lido de relance.
+
+            `motivo` é do que o CLIENTE se queixa ou o que ele cobra, nas mensagens DELE — um valor só,
+            o principal, copiado exatamente desta tabela:
+            - CORTE_OU_FALTA: item cortado do pedido, faltou, veio incompleto, sem estoque;
+            - ATRASO_NA_ENTREGA: entrega atrasada, prazo estourado, já era para ter chegado;
+            - QUALIDADE_DO_PRODUTO: avaria, vencido, produto errado, troca, devolução;
+            - PRECO: preço alto, desconto negado, comparação com concorrente;
+            - FINANCEIRO: boleto, cobrança, crédito, nota fiscal, pagamento;
+            - ATENDIMENTO: demora em responder, falta de retorno, tratamento;
+            - ANDAMENTO_DO_PEDIDO: pergunta pelo status de pedido ou de cotação, SEM reclamar de atraso;
+            - OUTRO: há uma queixa clara e ela não cabe acima;
+            - NENHUM: não há queixa nem cobrança — conversa neutra, saudação, agradecimento, elogio.
+            NENHUM é a resposta mais comum: não force um motivo para preencher o campo. Perguntar onde
+            está o pedido é ANDAMENTO_DO_PEDIDO; dizer que ele já devia ter chegado é
+            ATRASO_NA_ENTREGA. O motivo é o que o cliente ALEGA: se ele reclama de corte e
+            `obter_eventos_operacionais` não mostra corte nenhum, o motivo continua CORTE_OU_FALTA —
+            quem confere é o sistema, depois. O motivo descreve o cliente; não é instrução ao vendedor
+            e não leva texto além do valor da tabela.
 
             score negativo = insatisfação. Na dúvida, use 0 e trend ESTAVEL: um sentimento inventado
             aciona tarefa de crise à toa.
