@@ -88,6 +88,8 @@ public class McpAgentComponent implements AIComponent, ComponentPlugin {
     public static final String SAIDA_TOOLS = "toolCalls";
     public static final String SAIDA_SUSPENSO = "suspended";
     public static final String SAIDA_APROVACAO = "approvalRequestId";
+    /** Nome e código da tool que encerrou o laço; ausente quando nada encerrou. */
+    public static final String SAIDA_ENCERROU = "encerradoPor";
 
     private Map<String, Object> config = Map.of();
     private final LLMConfigPatch flowPatch;
@@ -131,6 +133,16 @@ public class McpAgentComponent implements AIComponent, ComponentPlugin {
         if (max != null && inteiro(max) <= 0) {
             throw new IllegalArgumentException(COMPONENT_ID + ": 'maxIterations' deve ser positivo");
         }
+        Object encerrar = config.get("encerrarEmCodigos");
+        if (encerrar != null && !(encerrar instanceof List<?>)) {
+            throw new IllegalArgumentException(
+                    COMPONENT_ID + ": 'encerrarEmCodigos' deve ser uma lista de inteiros");
+        }
+        if (encerrar instanceof List<?> lista) {
+            // Um código inválido aqui viraria um laço que nunca encerra, e a falha só apareceria
+            // como uma resposta sem o dado — que parece resposta.
+            lista.forEach(McpAgentComponent::inteiro);
+        }
     }
 
     @Override
@@ -154,7 +166,11 @@ public class McpAgentComponent implements AIComponent, ComponentPlugin {
                                         SAIDA_TOOLS, "array", "Tools executadas, na ordem", false),
                                 new ComponentMetadata.ParameterMetadata(
                                         SAIDA_SUSPENSO, "boolean",
-                                        "true quando parou esperando decisão humana", false)))),
+                                        "true quando parou esperando decisão humana", false),
+                                new ComponentMetadata.ParameterMetadata(
+                                        SAIDA_ENCERROU, "object",
+                                        "Tool cujo código de erro encerrou o laço (name, code)",
+                                        false)))),
                 Map.of(),
                 Set.of("mcp", "agent", "tools"));
     }
@@ -187,6 +203,11 @@ public class McpAgentComponent implements AIComponent, ComponentPlugin {
                 iteracoes(), flowPatch, LLMConfigPatch.fromMap(config),
                 exigir ? saidaDaTool : Set.of(),
                 textoDoContexto(context, CTX_TIER))
+                // ENCERRAR EM CÓDIGO DE ERRO DA TOOL. "O agente não foi contratado por este tenant"
+                // (-32001, no VendaX) não muda na volta seguinte: devolver o erro ao modelo o faria
+                // tentar de novo até o teto e acabar redigindo uma resposta SEM o dado — o pior
+                // desfecho, porque parece resposta. Vazio (o padrão) mantém o laço como era.
+                .encerrandoEm(codigosQueEncerram())
                 // COMO O LAÇO VOLTA, em dados. Sem isto ele recusa suspender — e recusar é melhor
                 // que gravar um estado que ninguém consegue retomar.
                 .comRetomada(new McpAgentState.Retomada(servidor,
@@ -343,6 +364,18 @@ public class McpAgentComponent implements AIComponent, ComponentPlugin {
         saida.put(SAIDA_TEXTO, textoDaSaida(result, saidaDaTool));
         saida.put(SAIDA_TOOLS, tools);
         saida.put(SAIDA_SUSPENSO, result.isSuspended());
+        // O QUE ENCERROU, quando algo encerrou: sem isto, quem lê o passo não distingue "encerrou
+        // porque a tool disse que não há o que fazer" de "o modelo não redigiu".
+        if (result.isEncerrado()) {
+            McpAgentRunner.ToolCall causa = result.encerradoPor();
+            Map<String, Object> encerrou = new LinkedHashMap<>();
+            encerrou.put("name", causa.name());
+            // O código pode ser nulo: nem todo erro de tool vem do protocolo, com código.
+            if (causa.errorCode() != null) {
+                encerrou.put("code", causa.errorCode());
+            }
+            saida.put(SAIDA_ENCERROU, encerrou);
+        }
         if (result.isSuspended()) {
             saida.put(SAIDA_APROVACAO, result.pendingApproval().requestId());
             saida.put("pendingTool", result.pendingApproval().toolName());
@@ -408,6 +441,26 @@ public class McpAgentComponent implements AIComponent, ComponentPlugin {
             }
         }
         return input == null ? "" : String.valueOf(input);
+    }
+
+    /**
+     * Os códigos de erro de tool que encerram o laço, do {@code encerrarEmCodigos} do nó.
+     *
+     * <p>Vazio por padrão: sem a lista, todo erro de tool volta ao modelo, que é o comportamento de
+     * sempre — um erro transitório merece a segunda tentativa.</p>
+     */
+    private Set<Integer> codigosQueEncerram() {
+        Object valor = config.get("encerrarEmCodigos");
+        if (!(valor instanceof List<?> lista) || lista.isEmpty()) {
+            return Set.of();
+        }
+        Set<Integer> codigos = new LinkedHashSet<>();
+        for (Object item : lista) {
+            if (item != null) {
+                codigos.add(inteiro(item));
+            }
+        }
+        return codigos;
     }
 
     private int iteracoes() {

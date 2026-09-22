@@ -6,6 +6,7 @@ import br.com.archflow.model.ai.type.ComponentType;
 import br.com.archflow.model.engine.ExecutionContext;
 import br.com.archflow.model.config.LLMConfigPatch;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -497,5 +498,81 @@ class McpAgentComponentTest {
         componente(Map.of("systemPrompt", "p")).execute("execute", "oi", contextoCom(host));
 
         assertThat(host.options.get().retomada().toolsPermitidas()).isNull();
+    }
+
+    /**
+     * Encerrar em código de erro da tool (pedido do VendaX de 22/09/2026).
+     *
+     * <p>"O agente não foi contratado por este tenant" não muda na volta seguinte: sem encerrar, o
+     * erro volta ao modelo, que tenta até o teto e acaba redigindo uma resposta SEM o dado — o pior
+     * desfecho, porque parece resposta.</p>
+     */
+    @Nested
+    @DisplayName("encerrarEmCodigos")
+    class EncerrarEmCodigos {
+
+        @Test
+        @DisplayName("os códigos do nó chegam ao laço")
+        void chegamAoLaco() {
+            HostFalso host = new HostFalso(Set.of(), concluido());
+            McpAgentComponent c = componente(Map.of("systemPrompt", "p",
+                    "encerrarEmCodigos", List.of(-32001, -32002)));
+
+            c.execute("execute", "oi", contextoCom(host));
+
+            assertThat(host.options.get().codigosQueEncerram()).containsExactlyInAnyOrder(-32001, -32002);
+        }
+
+        /** Sem a lista, todo erro de tool volta ao modelo — um erro transitório merece a segunda volta. */
+        @Test
+        @DisplayName("sem a lista, nada encerra")
+        void semLista() {
+            HostFalso host = new HostFalso(Set.of(), concluido());
+
+            componente(Map.of("systemPrompt", "p")).execute("execute", "oi", contextoCom(host));
+
+            assertThat(host.options.get().codigosQueEncerram()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("lista malformada é recusada na inicialização, não no meio da execução")
+        void malformada() {
+            assertThatThrownBy(() -> componente(Map.of("systemPrompt", "p",
+                    "encerrarEmCodigos", "-32001")))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("encerrarEmCodigos");
+            assertThatThrownBy(() -> componente(Map.of("systemPrompt", "p",
+                    "encerrarEmCodigos", List.of("nao-e-numero"))))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+
+        @Test
+        @DisplayName("o passo diz o que encerrou: nome e código")
+        void oQueEncerrou() {
+            McpAgentRunner.ToolCall causa = new McpAgentRunner.ToolCall("plano_negociacao",
+                    Map.of(), "sem contrato", true, ToolTrust.UNTRUSTED, -32001);
+            HostFalso host = new HostFalso(Set.of(),
+                    new McpAgentRunner.Result("", List.of(causa), null, causa));
+            McpAgentComponent c = componente(Map.of("systemPrompt", "p",
+                    "encerrarEmCodigos", List.of(-32001)));
+
+            Object saida = c.execute("execute", "oi", contextoCom(host));
+
+            assertThat(saida).isInstanceOf(Map.class);
+            Object encerrou = ((Map<?, ?>) saida).get(McpAgentComponent.SAIDA_ENCERROU);
+            assertThat(encerrou).isEqualTo(Map.of("name", "plano_negociacao", "code", -32001));
+        }
+
+        /** Nada encerrou: o campo não aparece, e quem lê não precisa distinguir nulo de ausente. */
+        @Test
+        @DisplayName("sem encerramento, o campo não vai na saída")
+        void semEncerramento() {
+            HostFalso host = new HostFalso(Set.of(), concluido());
+
+            Object saida = componente(Map.of("systemPrompt", "p"))
+                    .execute("execute", "oi", contextoCom(host));
+
+            assertThat(((Map<?, ?>) saida).containsKey(McpAgentComponent.SAIDA_ENCERROU)).isFalse();
+        }
     }
 }

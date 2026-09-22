@@ -32,7 +32,42 @@ public record VendaxResult(
          * <p>Omitido quando nenhum modelo foi chamado: ausente é "nada a relatar", não "custo zero".</p>
          */
         @JsonInclude(JsonInclude.Include.NON_NULL)
-        Uso uso) {
+        Uso uso,
+
+        /**
+         * As chamadas de tool do passo, na ordem — aditivo e opcional.
+         *
+         * <p>Pedido do VendaX em 22/09/2026, e é o que falta para um agente sair do {@code switch}
+         * por nome: o Core monta o parâmetro da resposta a partir dos ARGUMENTOS que foram à tool,
+         * não do que o modelo declara — "chama com 850 e relata 800". O caminho por {@code case} já
+         * fazia isso dentro do ArchFlow; o caminho de fluxo descartava as chamadas, e com elas a
+         * garantia.</p>
+         *
+         * <p>Vazia é "não chamou nada"; ausente, "quem produziu este result não informa" — por isso
+         * o caminho de fluxo manda sempre, mesmo vazia.</p>
+         */
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        java.util.List<ToolCall> toolCalls,
+
+        /** A tool cujo código de erro encerrou o laço; ausente quando nada encerrou. */
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        Encerramento encerradoPor) {
+
+    /**
+     * Uma chamada de tool como o Core precisa vê-la.
+     *
+     * <p>Sem o resultado da chamada: ele pode ser grande, e o Core é dono das tools — tem o dado. O
+     * que ele não tem são os argumentos que o modelo passou, que é o que a conferência compara.</p>
+     */
+    public record ToolCall(String name, java.util.Map<String, Object> arguments, boolean isError) {
+        public ToolCall {
+            arguments = arguments == null ? java.util.Map.of() : java.util.Map.copyOf(arguments);
+        }
+    }
+
+    /** Por que o laço parou antes do fim: a tool e o código que ela devolveu. */
+    public record Encerramento(String name, @JsonInclude(JsonInclude.Include.NON_NULL) Integer code) {
+    }
 
     /**
      * Consumo de modelo da execução.
@@ -85,7 +120,15 @@ public record VendaxResult(
                         String status, String richObjectType, String richObject, String error,
                         String idempotencyKey) {
         this(schemaVersion, tenantId, conversationId, agent, status, richObjectType, richObject,
-                error, idempotencyKey, null);
+                error, idempotencyKey, null, null, null);
+    }
+
+    /** Compat: result sem as chamadas de tool — a forma anterior ao campo aditivo de 22/09. */
+    public VendaxResult(String schemaVersion, String tenantId, String conversationId, String agent,
+                        String status, String richObjectType, String richObject, String error,
+                        String idempotencyKey, Uso uso) {
+        this(schemaVersion, tenantId, conversationId, agent, status, richObjectType, richObject,
+                error, idempotencyKey, uso, null, null);
     }
 
     /**
@@ -97,13 +140,27 @@ public record VendaxResult(
      */
     public VendaxResult comChave(String idempotencyKey) {
         return new VendaxResult(schemaVersion, tenantId, conversationId, agent, status,
-                richObjectType, richObject, error, idempotencyKey, uso);
+                richObjectType, richObject, error, idempotencyKey, uso, toolCalls, encerradoPor);
     }
 
     /** O mesmo result, carregando o consumo. */
     public VendaxResult comUso(Uso uso) {
         return new VendaxResult(schemaVersion, tenantId, conversationId, agent, status,
-                richObjectType, richObject, error, idempotencyKey, uso);
+                richObjectType, richObject, error, idempotencyKey, uso, toolCalls, encerradoPor);
+    }
+
+    /**
+     * O mesmo result, carregando as chamadas de tool do passo e o que encerrou o laço.
+     *
+     * <p>Quem o chama é o caminho de fluxo, que é onde as chamadas existem sem um {@code case} para
+     * interpretá-las. Lista vazia é informação — "não chamou nada" —, e por isso ela vai mesmo
+     * vazia; ausente continua significando "não informado".</p>
+     */
+    public VendaxResult comChamadas(java.util.List<ToolCall> chamadas, Encerramento encerradoPor) {
+        return new VendaxResult(schemaVersion, tenantId, conversationId, agent, status,
+                richObjectType, richObject, error, idempotencyKey, uso,
+                chamadas == null ? java.util.List.of() : java.util.List.copyOf(chamadas),
+                encerradoPor);
     }
 
     public static final String SCHEMA_VERSION = "1.0";
@@ -112,12 +169,12 @@ public record VendaxResult(
 
     public static VendaxResult ok(VendaxInvoke invoke, String type, String richObject) {
         return new VendaxResult(SCHEMA_VERSION, invoke.tenantId(), invoke.conversationId(),
-                invoke.agent(), OK, type, richObject, null, idempotencyKeyOf(invoke));
+                invoke.agent(), OK, type, richObject, null, idempotencyKeyOf(invoke), null, null, null);
     }
 
     public static VendaxResult error(VendaxInvoke invoke, String message) {
         return new VendaxResult(SCHEMA_VERSION, invoke.tenantId(), invoke.conversationId(),
-                invoke.agent(), ERROR, null, null, message, idempotencyKeyOf(invoke));
+                invoke.agent(), ERROR, null, null, message, idempotencyKeyOf(invoke), null, null, null);
     }
 
     /**

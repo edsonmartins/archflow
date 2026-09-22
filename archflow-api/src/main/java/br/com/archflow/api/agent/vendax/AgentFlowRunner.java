@@ -16,6 +16,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -50,7 +51,30 @@ public class AgentFlowRunner {
      * @param suspenso o fluxo parou esperando decisão humana — não é conclusão, e o chamador não
      *                 pode tratar {@code texto} como resposta final
      */
-    public record Saida(String texto, boolean suspenso) {}
+    /**
+     * O que o fluxo produziu.
+     *
+     * <p>As {@code toolCalls} sobem junto com o texto porque o Core confere a frase contra os
+     * ARGUMENTOS que de fato foram à tool — "o modelo chama com 850 e relata 800" é o caso que o
+     * caminho por {@code case} já tratava (ver {@link ConsultaAoNegociador}) e que o caminho
+     * genérico descartava aqui, antes mesmo do dispatcher. Sem elas, um agente só sai do
+     * {@code switch} perdendo a garantia.</p>
+     *
+     * @param toolCalls as chamadas do último passo, na ordem; vazia = nenhuma, nunca nula
+     * @param encerradoPor a tool cujo código de erro encerrou o laço, ou nulo
+     */
+    public record Saida(String texto, boolean suspenso, List<VendaxResult.ToolCall> toolCalls,
+                        VendaxResult.Encerramento encerradoPor) {
+
+        public Saida {
+            toolCalls = toolCalls == null ? List.of() : List.copyOf(toolCalls);
+        }
+
+        /** Compat: saída sem chamadas de tool — a forma que existia antes. */
+        public Saida(String texto, boolean suspenso) {
+            this(texto, suspenso, List.of(), null);
+        }
+    }
 
     private final WorkflowDeserializer deserializer;
     private final ObjectProvider<FlowEngine> flowEngine;
@@ -208,9 +232,50 @@ public class AgentFlowRunner {
             if (texto == null) {
                 texto = m.get(ENTRADA);
             }
-            return new Saida(texto == null ? null : String.valueOf(texto), suspenso);
+            return new Saida(texto == null ? null : String.valueOf(texto), suspenso,
+                    chamadasDe(m.get(br.com.archflow.api.agent.mcp.McpAgentComponent.SAIDA_TOOLS)),
+                    encerramentoDe(m.get(br.com.archflow.api.agent.mcp.McpAgentComponent.SAIDA_ENCERROU)));
         }
         return new Saida(saida == null ? null : String.valueOf(saida), false);
+    }
+
+    /**
+     * As chamadas do passo, na forma que vai ao Core: nome, argumentos como o modelo os mandou, e
+     * se deu erro.
+     *
+     * <p>O {@code result} de cada chamada fica de fora de propósito: pode ser grande, e o Core já
+     * tem o dado — ele é dono das tools. O que ele não tem é o que o modelo passou.</p>
+     */
+    @SuppressWarnings("unchecked")
+    private static List<VendaxResult.ToolCall> chamadasDe(Object valor) {
+        if (!(valor instanceof List<?> lista) || lista.isEmpty()) {
+            return List.of();
+        }
+        List<VendaxResult.ToolCall> chamadas = new java.util.ArrayList<>();
+        for (Object item : lista) {
+            if (item instanceof Map<?, ?> mapa) {
+                Map<String, Object> m = (Map<String, Object>) mapa;
+                Object argumentos = m.get("arguments");
+                chamadas.add(new VendaxResult.ToolCall(
+                        m.get("name") == null ? null : String.valueOf(m.get("name")),
+                        argumentos instanceof Map<?, ?> a ? (Map<String, Object>) a : Map.of(),
+                        Boolean.TRUE.equals(m.get("error"))));
+            }
+        }
+        return chamadas;
+    }
+
+    /** O que encerrou o laço, quando algo encerrou. */
+    @SuppressWarnings("unchecked")
+    private static VendaxResult.Encerramento encerramentoDe(Object valor) {
+        if (!(valor instanceof Map<?, ?> mapa) || mapa.isEmpty()) {
+            return null;
+        }
+        Map<String, Object> m = (Map<String, Object>) mapa;
+        Object codigo = m.get("code");
+        return new VendaxResult.Encerramento(
+                m.get("name") == null ? null : String.valueOf(m.get("name")),
+                codigo instanceof Number n ? n.intValue() : null);
     }
 
     private long timeoutDe(VendaxInvoke invoke) {
