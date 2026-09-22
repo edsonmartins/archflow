@@ -122,6 +122,71 @@ class SentimentoDoCsTest {
         }
     }
 
+    /** Pedido do VendaX de 21/09; medido: só effort=minimal é aceito pelo gemini-2.5-flash-lite. */
+    @Nested
+    @DisplayName("raciocínio mínimo")
+    class RaciocinioMinimo {
+
+        @Test
+        @DisplayName("o passo do CS leva reasoning.effort=minimal, e mantém o resto como era")
+        void patchDoPasso() {
+            modeloResponde(SENTIMENTO);
+
+            dispatcher.runAndReport(cs());
+
+            var opcoes = org.mockito.ArgumentCaptor.forClass(McpAgentRunner.Options.class);
+            verify(runner).run(anyString(), anyString(), anyString(), any(), opcoes.capture());
+            McpAgentRunner.Options o = opcoes.getValue();
+            assertThat(o.stepPatch().reasoning()).contains(java.util.Map.of("effort", "minimal"));
+            assertThat(o.maxIterations()).isEqualTo(McpAgentRunner.DEFAULT_MAX_ITERATIONS);
+            assertThat(o.access().isAllowed("obter_eventos_operacionais")).isTrue();
+            assertThat(o.access().isAllowed("firmar_cotacao")).isFalse();
+            assertThat(o.tier()).isEqualTo("LIGHT");
+        }
+
+        /** Com o laço de verdade: o patch chega ao resolvedor, que é quem monta o corpo da requisição. */
+        @Test
+        @DisplayName("o reasoning chega ao resolvedor do modelo")
+        void chegaAoResolvedor() {
+            var config = br.com.archflow.model.config.ResolvedLLMConfig.builder()
+                    .provider("openrouter").model("google/gemini-2.5-flash-lite").build();
+            var pedidos = new java.util.ArrayList<br.com.archflow.langchain4j.provider.LLMResolutionRequest>();
+            dev.langchain4j.model.chat.ChatModel modelo = new dev.langchain4j.model.chat.ChatModel() {
+                @Override
+                public dev.langchain4j.model.chat.response.ChatResponse chat(
+                        dev.langchain4j.model.chat.request.ChatRequest request) {
+                    return dev.langchain4j.model.chat.response.ChatResponse.builder()
+                            .aiMessage(dev.langchain4j.data.message.AiMessage.from(SENTIMENTO)).build();
+                }
+            };
+            var resolver = new br.com.archflow.langchain4j.provider.LLMConfigResolver() {
+                @Override
+                public br.com.archflow.model.config.ResolvedLLMConfig resolve(
+                        br.com.archflow.langchain4j.provider.LLMResolutionRequest r) {
+                    return config;
+                }
+
+                @Override
+                public dev.langchain4j.model.chat.ChatModel resolveModel(
+                        br.com.archflow.langchain4j.provider.LLMResolutionRequest r) {
+                    pedidos.add(r);
+                    return modelo;
+                }
+            };
+            var vendax = mock(VendaxMcpClientProvider.class);
+            var semTools = mock(br.com.archflow.langchain4j.mcp.McpClient.class);
+            when(semTools.listTools()).thenReturn(java.util.concurrent.CompletableFuture.completedFuture(List.of()));
+            when(vendax.clientFor(anyString(), org.mockito.ArgumentMatchers.nullable(String.class))).thenReturn(semTools);
+            new VendaxAgentDispatcher(mock(QpAgentService.class), new McpAgentRunner(resolver, config),
+                    vendax, sender, mock(ExecutorService.class)).runAndReport(cs());
+
+            assertThat(sender.sent.get(0).status()).isEqualTo(VendaxResult.OK);
+            assertThat(pedidos).isNotEmpty()
+                    .allSatisfy(r -> assertThat(r.stepPatch().reasoning())
+                            .contains(java.util.Map.of("effort", "minimal")));
+        }
+    }
+
     @Nested
     @DisplayName("o que o Core recebe no ERROR")
     class NoErro {

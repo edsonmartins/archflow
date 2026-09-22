@@ -610,8 +610,13 @@ public class VendaxAgentDispatcher {
     private VendaxResult runCs(VendaxInvoke invoke, ContadorDeUso uso) {
         var client = vendax.clientFor(invoke.tenantId(),
                 invoke.definicao() != null ? invoke.definicao().versao() : null);
-        McpAgentRunner.Options opcoes =
-                daExecucao(new McpAgentRunner.Options(politicaDe(invoke, CS_TOOLS)), invoke, uso);
+        McpAgentRunner.Options opcoes = daExecucao(new McpAgentRunner.Options(
+                politicaDe(invoke, CS_TOOLS),
+                ToolTrustPolicy.untrustedByDefault(),
+                ToolApprovalPolicy.none(),
+                McpAgentRunner.DEFAULT_MAX_ITERATIONS,
+                br.com.archflow.model.config.LLMConfigPatch.empty(),
+                CS_RACIOCINIO_MINIMO), invoke, uso);
         String systemPrompt = promptDe(invoke, CS_SYSTEM_PROMPT);
         String entrada = entradaDoAgente(invoke);
 
@@ -642,6 +647,25 @@ public class VendaxAgentDispatcher {
 
     /** O prefixo do erro tem ~75 caracteres; com o trecho, fica abaixo de 255. */
     static final int TRECHO = 170;
+
+    /**
+     * O CS pensa o mínimo antes de responder: devolve quatro campos (cinco com o motivo).
+     *
+     * <p>Medido em 21/09/2026 contra {@code google/gemini-2.5-flash-lite} no OpenRouter, no formato
+     * do CS (system + tools + janela). Sem parâmetro, o modelo gasta ~980 dos 1.024 tokens pensando,
+     * e metade das chamadas falha: {@code MALFORMED_FUNCTION_CALL} (a "resposta vazia" que o VendaX
+     * via), JSON cortado no teto, ou nada escrito. Os três jeitos documentados de DESLIGAR —
+     * {@code effort: none}, {@code max_tokens: 0}, {@code enabled: false} — são ignorados por este
+     * modelo: o raciocínio continua em ~980. {@code effort: minimal} é o que funciona: ~350 tokens
+     * de raciocínio e o JSON inteiro. Subir o teto piora — o raciocínio cresce junto.</p>
+     *
+     * <p>Vale só aqui, no passo do CS; os outros agentes seguem como estão. Vai como patch do passo,
+     * então um patch de fluxo ou de tenant não o desfaz. Trocar de modelo pede medir de novo:
+     * {@code minimal} é o que ESTE aceita.</p>
+     */
+    static final br.com.archflow.model.config.LLMConfigPatch CS_RACIOCINIO_MINIMO =
+            br.com.archflow.model.config.LLMConfigPatch.fromMap(
+                    java.util.Map.of("reasoning", java.util.Map.of("effort", "minimal")));
 
     /** Uma tentativa e uma repetição. Mais que isso seria insistir num provedor que está falhando. */
     static final int CS_TENTATIVAS = 2;
