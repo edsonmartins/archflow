@@ -80,7 +80,7 @@ public class McpAgentRunner {
 
     private static final Logger log = LoggerFactory.getLogger(McpAgentRunner.class);
     /** Visível ao pacote: o {@link McpAgentComponent} usa o mesmo default quando o nó não o declara. */
-    static final int DEFAULT_MAX_ITERATIONS = 8;
+    public static final int DEFAULT_MAX_ITERATIONS = 8;
     private static final long LIST_TOOLS_TIMEOUT_SECONDS = 15;
     private static final long CALL_TOOL_TIMEOUT_SECONDS = 120;
 
