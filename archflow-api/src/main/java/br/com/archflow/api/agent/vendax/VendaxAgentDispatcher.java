@@ -176,7 +176,7 @@ public class VendaxAgentDispatcher {
             if (invoke.definicao() != null && invoke.definicao().eFluxo()) {
                 VendaxResult porFluxo = runFluxo(invoke, uso);
                 if (porFluxo != null) {
-                    enviar(porFluxo, uso);
+                    enviar(porFluxo, uso, invoke);
                 }
                 if (metrics != null) metrics.completed(startedAt);
                 return;
@@ -205,14 +205,14 @@ public class VendaxAgentDispatcher {
                 default -> naoImplementado(invoke);
             };
             if (result != null) {
-                enviar(result, uso);
+                enviar(result, uso, invoke);
             }
             if (metrics != null) metrics.completed(startedAt);
         } catch (Exception e) {
             if (metrics != null) metrics.failed(startedAt, e);
             log.error("Agente {} falhou (conv={}): {}",
                     invoke.agent(), invoke.conversationId(), e.getMessage(), e);
-            enviar(VendaxResult.error(invoke, causeOf(e)), uso);
+            enviar(VendaxResult.error(invoke, causeOf(e)), uso, invoke);
         } finally {
             // A thread é reusada entre invokes. Sem limpar, o PRÓXIMO agente a rodar aqui mandaria
             // a correlação deste — e o evento da cotação sairia amarrado à conversa errada. Um
@@ -264,8 +264,9 @@ public class VendaxAgentDispatcher {
     }
 
     /** Envia carregando o consumo — em todo result, OK ou ERROR. */
-    private void enviar(VendaxResult result, ContadorDeUso uso) {
-        resultSender.send(comUso(result, uso));
+    private void enviar(VendaxResult result, ContadorDeUso uso, VendaxInvoke invoke) {
+        // O traceId não está no result; vai junto para a desistência, se houver, dizer qual foi.
+        resultSender.send(comUso(result, uso), invoke.traceId());
     }
 
     VendaxResult comUso(VendaxResult result, ContadorDeUso uso) {
