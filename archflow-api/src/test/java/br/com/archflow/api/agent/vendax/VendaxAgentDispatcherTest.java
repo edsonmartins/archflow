@@ -53,6 +53,12 @@ class VendaxAgentDispatcherTest {
             sent.add(result);
         }
 
+        /** O dispatcher manda o traceId junto; aqui só o result importa. */
+        @Override
+        public void send(VendaxResult result, String traceId) {
+            sent.add(result);
+        }
+
         /** Um relato feito numa thread interrompida falharia no HTTP de verdade. */
         final List<Boolean> relatoEmThreadInterrompida = new CopyOnWriteArrayList<>();
 

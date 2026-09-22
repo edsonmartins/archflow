@@ -58,7 +58,7 @@ class InvokeComoFluxoTest {
 
     private VendaxResult enviado() {
         ArgumentCaptor<VendaxResult> captor = ArgumentCaptor.forClass(VendaxResult.class);
-        verify(sender).send(captor.capture());
+        verify(sender).send(captor.capture(), org.mockito.ArgumentMatchers.nullable(String.class));
         return captor.getValue();
     }
 
@@ -110,7 +110,7 @@ class InvokeComoFluxoTest {
 
         dispatcher.runAndReport(invoke("CS", "sentiment@1", DOCUMENTO));
 
-        verify(sender, never()).send(any());
+        verify(sender, never()).send(any(), org.mockito.ArgumentMatchers.nullable(String.class));
     }
 
     @Test
