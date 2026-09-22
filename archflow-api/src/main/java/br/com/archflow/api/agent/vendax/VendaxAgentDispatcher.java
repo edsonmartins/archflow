@@ -564,10 +564,23 @@ public class VendaxAgentDispatcher {
         if (conteudo == null) {
             // Mesmo tratamento do CS embutido: o Core recusa o que não desserializa, então mandar
             // texto solto só empurra a falha para lá com menos contexto.
+            //
+            // O ERROR também leva as chamadas e o encerramento: um laço que parou porque a tool
+            // disse "não contratado" não produz JSON nenhum, e sem isso o Core não distingue esse
+            // caso de "o modelo não redigiu" — que é a diferença que ele pediu para ver.
+            String motivo = saida.encerradoPor() == null ? ""
+                    : " (encerrado por " + saida.encerradoPor().name()
+                            + ", código " + saida.encerradoPor().code() + ")";
             return VendaxResult.error(invoke,
-                    "O fluxo de " + invoke.agent() + " não devolveu um JSON");
+                            "O fluxo de " + invoke.agent() + " não devolveu um JSON" + motivo)
+                    .comChamadas(saida.toolCalls(), saida.encerradoPor());
         }
-        return VendaxResult.ok(invoke, tipo, conteudo);
+        // AS CHAMADAS DE TOOL SOBEM COM O RESULT, e a lista vai mesmo vazia: o Core monta o
+        // parâmetro da resposta a partir dos ARGUMENTOS que foram à tool, e não do que o modelo
+        // declara — é a garantia que o `case` do NS tem dentro daqui e que o fluxo não tinha.
+        // Ausente significaria "não informado"; vazia significa "não chamou nada".
+        return VendaxResult.ok(invoke, tipo, conteudo)
+                .comChamadas(saida.toolCalls(), saida.encerradoPor());
     }
 
     /** {@code sentiment@1} → {@code sentiment}. Sem schema não há tipo. */
