@@ -113,6 +113,16 @@ public final class WorkflowBuilder {
         return this;
     }
 
+    /**
+     * O mesmo passo, a partir do construtor de agente MCP — evita o {@code .spec()}
+     * no fim de cada nó.
+     *
+     * @since 1.4.0
+     */
+    public WorkflowBuilder step(String stepId, McpAgent agent) {
+        return step(stepId, Objects.requireNonNull(agent, "agent").spec());
+    }
+
     /** Aresta normal: quando {@code from} termina bem, segue para {@code to}. */
     public WorkflowBuilder edge(String from, String to) {
         return edge(from, to, null, false);

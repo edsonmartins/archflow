@@ -83,6 +83,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.4.0] - 2026-09-24
+
+> As versões 1.1.0 a 1.3.0 foram publicadas sem entrada aqui; esta seção cobre apenas o que mudou
+> na superfície publicada no Maven Central (`archflow-model`, `archflow-dsl`, `archflow-sdk-java`)
+> desde a 1.3.0.
+
+### Added
+- **`McpAgent`, na DSL** — a configuração do nó `mcp-agent` escrita por método em vez de por chave
+  de texto: `systemPrompt`, `server`, `tools`/`noTools`, `maxIterations`, `outputFromTool`,
+  `requireOutputFromTool`, `humanApproval`, `stopOnToolErrorCodes`, `model`, `maxTokens`,
+  `reasoningEffort`/`reasoning`. `NodeSpec.with(...)` continua aceitando qualquer chave, que é o
+  que mantém a DSL utilizável com um runtime mais novo que ela.
+  - **`noTools()` existe porque o valor decide o comportamento, não a presença da chave:** `tools`
+    ausente é "todas as ferramentas do servidor" e `tools: []` é "nenhuma" — o passo roda sem
+    catálogo e sem abrir o servidor MCP. Quem digitava `.with("tools", List.of())` não via a
+    diferença.
+- **`WorkflowBuilder.step(String, McpAgent)`** — dispensa o `.spec()` no fim do nó.
+- **`LLMConfigPatch.reasoning`** (`archflow-model`) — o objeto `reasoning` do provedor declarado no
+  fluxo ou no passo, que atravessa até o corpo da requisição. É o único campo do patch que faz isso.
+- **`LLMConfigPatch.cachePrompt`** (`archflow-model`) — marca o prefixo estável para cache onde o
+  provedor exige a marca.
+
+### Changed
+- `docs/CATALOGO-NOS-FLUXO-LLM.yaml` descreve `tools` com os três casos (ausente, lista, lista
+  vazia) e ganhou `encerrarEmCodigos` e a saída `encerradoPor` do nó `mcp-agent`.
+
+### Notes
+- O runtime (`archflow-api`) mudou bastante no período — `toolCalls` e encerramento no result do
+  caminho de fluxo, reentrega do result, raciocínio mínimo no CS —, mas **não é publicado no
+  Central**: quem consome os artefatos vê essas mudanças apenas pelo contrato que a DSL escreve.
+
 ## [Unreleased]
 
 ### Added
