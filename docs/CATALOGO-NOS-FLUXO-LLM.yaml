@@ -279,12 +279,13 @@ builtInComponents:
     properties:
       systemPrompt: { type: string, required: true }
       server: { type: string, required: true }
-      tools: { type: array, items: string, description: "Allowlist; vazio usa política do host" }
+      tools: { type: array, items: string, description: "Allowlist ∩ teto do host; AUSENTE = todas as do server; LISTA VAZIA = nenhuma (sem catálogo e sem abrir o server)" }
       maxIterations: { type: integer, default: 10, minimum: 1 }
+      encerrarEmCodigos: { type: array, items: integer, description: "Códigos de erro de tool que encerram o laço em vez de voltar ao modelo" }
     operations:
       - id: execute
         input: { input: string }
-        output: { text: string, toolCalls: array, suspended: boolean, approvalRequestId: string }
+        output: { text: string, toolCalls: array, suspended: boolean, approvalRequestId: string, encerradoPor: object }
 
 adapterProviders:
   chat:

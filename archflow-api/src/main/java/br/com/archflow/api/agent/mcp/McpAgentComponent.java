@@ -34,7 +34,8 @@ import java.util.Set;
  * <p>Config do nó:</p>
  * <pre>
  * systemPrompt   (obrigatório) instrução do agente
- * tools          (lista)       allowlist; ausente = todas as do server, sujeitas ao teto do host
+ * tools          (lista)       allowlist; ausente = todas as do server, sujeitas ao teto do host;
+ *                              LISTA VAZIA = nenhuma — o passo roda sem catálogo e sem ir ao server
  * server         (texto)       referência ao servidor MCP; ausente = padrão do host
  * maxIterations  (inteiro)     voltas do laço; ausente = padrão do runner
  * saidaDaTool    (lista)       de onde sai a resposta do passo — ver abaixo
@@ -187,7 +188,12 @@ public class McpAgentComponent implements AIComponent, ComponentPlugin {
 
         String tenantId = context.getTenantId();
         String servidor = texto(config.get("server"));
-        McpClient client = host.clientFor(tenantId, servidor);
+        // SEM FERRAMENTA, SEM SERVIDOR. Filtrar as tools do server real até o conjunto vazio daria o
+        // mesmo catálogo ao modelo, mas ainda faria a ida ao server para listá-las — e o passo
+        // passaria a depender de um servidor que ele não usa. Ver SemFerramentas.
+        McpClient client = semFerramentas()
+                ? SemFerramentas.INSTANCIA
+                : host.clientFor(tenantId, servidor);
 
         Set<String> saidaDaTool = listaDeTexto(config.get("saidaDaTool"));
         boolean exigir = booleano(config.get("exigirSaidaDaTool"));
@@ -283,6 +289,10 @@ public class McpAgentComponent implements AIComponent, ComponentPlugin {
      * de conjunto vazio, que é "nenhuma".</p>
      */
     private Set<String> toolsPermitidas(McpAgentHost host, String tenantId) {
+        if (semFerramentas()) {
+            // Conjunto VAZIO, e não null: a retomada tem de voltar sem tool nenhuma, como foi.
+            return Set.of();
+        }
         Set<String> doNo = listaDeTexto(config.get("tools"));
         Set<String> teto = host.toolCeiling(tenantId);
         if (doNo.isEmpty() && (teto == null || teto.isEmpty())) {
@@ -321,6 +331,24 @@ public class McpAgentComponent implements AIComponent, ComponentPlugin {
     }
 
     /**
+     * O nó declarou <b>nenhuma</b> ferramenta: a chave {@code tools} veio, e veio vazia.
+     *
+     * <p>Ausente e vazia significavam a mesma coisa — "sem lista" — e por isso um fluxo que
+     * declarasse {@code "tools": []} rodava com TODAS as tools do server (ou o teto do tenant). Para
+     * um agente que só verbaliza uma contagem que o Core calculou, isso é o contrato quebrado em
+     * silêncio: com uma tool à mão o modelo "enriquece" a frase com dado que não veio na contagem, a
+     * conferência do Core recusa a frase inteira, e o sintoma — "o agente parou de narrar" — aparece
+     * a quatro repositórios da causa. Com {@code maxIterations: 1}, pior: a chamada consome a única
+     * volta e o passo termina sem texto.</p>
+     *
+     * <p>Uma lista só de espaços cai aqui também: é declaração malformada, e "nenhuma" é o lado
+     * seguro do erro — o outro é dar ao agente o server inteiro.</p>
+     */
+    private boolean semFerramentas() {
+        return config.get("tools") instanceof List<?> lista && listaDeTexto(lista).isEmpty();
+    }
+
+    /**
      * A allowlist efetiva: a do nó, interseccionada com o teto do host.
      *
      * <p>Intersecção e não soma: onde o cliente edita o fluxo, uma allowlist que viesse só do nó
@@ -329,6 +357,9 @@ public class McpAgentComponent implements AIComponent, ComponentPlugin {
      * {@code allowAll()}, não por omissão.</p>
      */
     private ToolAccessPolicy politicaDeAcesso(McpAgentHost host, String tenantId) {
+        if (semFerramentas()) {
+            return ToolAccessPolicy.allowOnly(Set.of());
+        }
         Set<String> doNo = listaDeTexto(config.get("tools"));
         Set<String> teto = host.toolCeiling(tenantId);
 
