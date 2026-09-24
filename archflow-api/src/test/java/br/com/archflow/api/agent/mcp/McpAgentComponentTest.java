@@ -36,6 +36,8 @@ class McpAgentComponentTest {
     private static class HostFalso implements McpAgentHost {
         final AtomicReference<McpAgentRunner.Options> options = new AtomicReference<>();
         final AtomicReference<String> serverRef = new AtomicReference<>();
+        /** O cliente MCP que chegou ao laço: é como se vê que o passo não abriu servidor nenhum. */
+        final AtomicReference<McpClient> clienteDoLaco = new AtomicReference<>();
         private final Set<String> teto;
         private final McpAgentRunner runner;
 
@@ -46,6 +48,7 @@ class McpAgentComponentTest {
                 public Result run(String tenantId, String systemPrompt, String userMessage,
                                   McpClient client, Options opts) {
                     options.set(opts);
+                    clienteDoLaco.set(client);
                     return resultado;
                 }
             };
@@ -573,6 +576,162 @@ class McpAgentComponentTest {
                     .execute("execute", "oi", contextoCom(host));
 
             assertThat(((Map<?, ?>) saida).containsKey(McpAgentComponent.SAIDA_ENCERROU)).isFalse();
+        }
+    }
+
+    /**
+     * "Nenhuma ferramenta" precisa ser declarável (pedido do VendaX de 22/09/2026).
+     *
+     * <p>Ausente e vazia significavam o mesmo — "sem lista" —, então um fluxo escrito com
+     * {@code "tools": []} rodava com o server inteiro. Para o agente que só verbaliza o que o Core
+     * calculou, isso é o contrato quebrado em silêncio.</p>
+     */
+    @Nested
+    @DisplayName("tools: [] é nenhuma, e ausente continua sendo todas")
+    class SemFerramentaNenhuma {
+
+        @Test
+        @DisplayName("lista vazia: nenhuma tool passa, e nem o server é aberto")
+        void listaVazia() {
+            HostFalso host = new HostFalso(Set.of(), concluido());
+
+            componente(Map.of("systemPrompt", "p", "server", "vendax", "tools", List.of()))
+                    .execute("execute", "oi", contextoCom(host));
+
+            ToolAccessPolicy politica = host.options.get().access();
+            assertThat(politica.isAllowed("obter_cliente_360")).isFalse();
+            assertThat(politica.isAllowed("qualquer_outra")).isFalse();
+            assertThat(host.clienteDoLaco.get()).isSameAs(SemFerramentas.INSTANCIA);
+            assertThat(host.serverRef.get()).as("nada a listar: não se abre o server").isNull();
+        }
+
+        /** O par do pedido: sem a chave, o passo continua oferecendo o server inteiro. */
+        @Test
+        @DisplayName("chave ausente: o server inteiro, e o cliente do host")
+        void chaveAusente() {
+            HostFalso host = new HostFalso(Set.of(), concluido());
+
+            componente(Map.of("systemPrompt", "p", "server", "vendax"))
+                    .execute("execute", "oi", contextoCom(host));
+
+            assertThat(host.options.get().access().isAllowed("obter_cliente_360")).isTrue();
+            assertThat(host.clienteDoLaco.get()).isNotSameAs(SemFerramentas.INSTANCIA);
+            assertThat(host.serverRef.get()).isEqualTo("vendax");
+        }
+
+        /** O teto do host é limite, não fonte: ele não devolve tools a quem declarou nenhuma. */
+        @Test
+        @DisplayName("lista vazia com teto do host: continua nenhuma")
+        void listaVaziaComTeto() {
+            HostFalso host = new HostFalso(Set.of("ler", "escrever"), concluido());
+
+            componente(Map.of("systemPrompt", "p", "tools", List.of()))
+                    .execute("execute", "oi", contextoCom(host));
+
+            assertThat(host.options.get().access().isAllowed("ler")).isFalse();
+        }
+
+        /** Vazia é "nenhuma" e null é "todas": a retomada tem de voltar sem tool, como foi. */
+        @Test
+        @DisplayName("a retomada volta com o conjunto vazio, não com null")
+        void retomada() {
+            HostFalso host = new HostFalso(Set.of("ler"), concluido());
+
+            componente(Map.of("systemPrompt", "p", "tools", List.of()))
+                    .execute("execute", "oi", contextoCom(host));
+
+            assertThat(host.options.get().retomada().toolsPermitidas()).isNotNull().isEmpty();
+        }
+
+        /**
+         * O par que o pedido pede provado até o fim: com {@code []}, o modelo pode pedir a tool —
+         * ela não roda, e nada vai ao servidor. Com o laço de verdade, não com o dublê.
+         */
+        @Test
+        @DisplayName("lista vazia: o modelo pede a tool e ela não roda")
+        void modeloPedeAToolEElaNaoRoda() {
+            var config = br.com.archflow.model.config.ResolvedLLMConfig.builder()
+                    .provider("openrouter").model("modelo-de-teste").build();
+            var pedidos = new java.util.ArrayList<dev.langchain4j.model.chat.request.ChatRequest>();
+            dev.langchain4j.model.chat.ChatModel modelo = new dev.langchain4j.model.chat.ChatModel() {
+                @Override
+                public dev.langchain4j.model.chat.response.ChatResponse chat(
+                        dev.langchain4j.model.chat.request.ChatRequest request) {
+                pedidos.add(request);
+                // Primeiro turno: o modelo tenta a tool. Segundo: desiste e escreve.
+                return dev.langchain4j.model.chat.response.ChatResponse.builder()
+                        .aiMessage(pedidos.size() == 1
+                                ? dev.langchain4j.data.message.AiMessage.from(
+                                        dev.langchain4j.agent.tool.ToolExecutionRequest.builder()
+                                                .id("c1").name("obter_cliente_360")
+                                                .arguments("{\"clienteRef\":\"20572\"}").build())
+                                : dev.langchain4j.data.message.AiMessage.from("3 de 4 cumpridas."))
+                        .build();
+                }
+            };
+            var resolver = new br.com.archflow.langchain4j.provider.LLMConfigResolver() {
+                @Override
+                public br.com.archflow.model.config.ResolvedLLMConfig resolve(
+                        br.com.archflow.langchain4j.provider.LLMResolutionRequest r) {
+                    return config;
+                }
+
+                @Override
+                public dev.langchain4j.model.chat.ChatModel resolveModel(
+                        br.com.archflow.langchain4j.provider.LLMResolutionRequest r) {
+                    return modelo;
+                }
+            };
+            AtomicReference<String> servidorAberto = new AtomicReference<>();
+            McpAgentHost host = new McpAgentHost() {
+                private final McpAgentRunner runner = new McpAgentRunner(resolver, config);
+
+                @Override
+                public McpAgentRunner runner() {
+                    return runner;
+                }
+
+                @Override
+                public McpClient clientFor(String tenantId, String ref) {
+                    servidorAberto.set(ref == null ? "(padrão)" : ref);
+                    return mock(McpClient.class);
+                }
+
+                @Override
+                public Set<String> toolCeiling(String tenantId) {
+                    return Set.of();
+                }
+            };
+
+            Object saida = componente(Map.of("systemPrompt", "p", "server", "vendax",
+                    "tools", List.of())).execute("execute", "oi", contextoCom(host));
+
+            assertThat(servidorAberto.get()).as("nenhuma ida ao servidor MCP").isNull();
+            assertThat(pedidos.get(0).toolSpecifications()).as("catálogo vazio no prompt").isEmpty();
+            // A TENTATIVA NEGADA FICA REGISTRADA, com error=true e o motivo. Ela não rodou — não
+            // houve servidor —, mas some-la esconderia do Core que o modelo tentou.
+            List<?> chamadas = (List<?>) ((Map<?, ?>) saida).get(McpAgentComponent.SAIDA_TOOLS);
+            assertThat(chamadas).singleElement().satisfies(c -> {
+                Map<?, ?> chamada = (Map<?, ?>) c;
+                assertThat(chamada.get("name")).isEqualTo("obter_cliente_360");
+                assertThat(chamada.get("error")).isEqualTo(true);
+                assertThat(String.valueOf(chamada.get("result"))).contains("não está autorizada");
+            });
+            assertThat(((Map<?, ?>) saida).get(McpAgentComponent.SAIDA_TEXTO))
+                    .isEqualTo("3 de 4 cumpridas.");
+        }
+
+        /** Declaração malformada cai no lado seguro: "nenhuma", e não o server inteiro. */
+        @Test
+        @DisplayName("lista só de espaços também é nenhuma")
+        void listaDeEspacos() {
+            HostFalso host = new HostFalso(Set.of(), concluido());
+
+            componente(Map.of("systemPrompt", "p", "tools", List.of("  ")))
+                    .execute("execute", "oi", contextoCom(host));
+
+            assertThat(host.options.get().access().isAllowed("ler")).isFalse();
+            assertThat(host.clienteDoLaco.get()).isSameAs(SemFerramentas.INSTANCIA);
         }
     }
 }
