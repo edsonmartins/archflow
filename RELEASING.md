@@ -110,6 +110,45 @@ Docker se sobrescreve, uma versão no Central não.
 
 Acompanhe em https://central.sonatype.com/publishing/deployments.
 
+### A tag manda na versão — marque DEPOIS do merge
+
+A versão publicada vem do nome da tag, não do que está nos POMs. Uma tag criada
+antes do merge publica o que havia no commit dela, e **versão no Central não se
+apaga**. Confira antes de empurrar:
+
+```bash
+git log -1 v1.4.0        # é o commit que você espera?
+```
+
+Foi o que aconteceu em 24/09/2026: a `v1.4.0` foi marcada no commit anterior ao
+PR que ela deveria carregar, e o release só não publicou o artefato errado
+porque foi cancelado antes do passo de deploy.
+
+### "Workflow verde" e "está no Central" são dois momentos
+
+O job termina quando o Central **valida** o bundle
+(`archflow.publish.waitUntil=validated`); a publicação segue sozinha pelo
+`autoPublish`, e a propagação para o `repo1.maven.org` leva o tempo dela —
+dezenas de minutos são normais.
+
+Até 24/09/2026 a espera era por `published`, e o `waitMaxTime` do plugin não
+aceita menos que 1800 s: na 1.4.0 o bundle subiu às 14:33, foi aceito, e o
+plugin desistiu de esperar aos 30 min. **O build falhou com a publicação a
+caminho** — a pior forma de falhar, porque convida a reexecutar um release cuja
+versão o Central não aceita reenviar.
+
+Se o job falhar no passo de deploy, olhe o log antes de refazer qualquer coisa:
+
+- `Uploaded bundle successfully, deploymentId: …` → **o envio deu certo**. O
+  estado está no portal; não reexecute o release.
+- sem essa linha → o bundle não chegou, e refazer é seguro.
+
+Para saber se já está no Central:
+
+```bash
+curl -sI https://repo1.maven.org/maven2/br/com/archflow/archflow-dsl/1.4.0/archflow-dsl-1.4.0.pom | head -1
+```
+
 ## Release manual (local)
 
 ```bash

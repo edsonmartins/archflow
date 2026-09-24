@@ -102,11 +102,27 @@
         <archflow.publish.skip>true</archflow.publish.skip>
         <!--
           Publica sozinho ao final. Para um ensaio — subir e validar sem
-          publicar — use `-Darchflow.publish.auto=false -Darchflow.publish.waitUntil=validated`
-          e conclua manualmente em central.sonatype.com/publishing/deployments.
+          publicar — use `-Darchflow.publish.auto=false` e conclua manualmente
+          em central.sonatype.com/publishing/deployments.
         -->
         <archflow.publish.auto>true</archflow.publish.auto>
-        <archflow.publish.waitUntil>published</archflow.publish.waitUntil>
+        <!--
+          Espera até VALIDADO, não até publicado — e a publicação segue sozinha
+          pelo autoPublish acima.
+
+          Medido em 24/09/2026, na 1.4.0: o bundle subiu e foi aceito às 14:33, o
+          plugin ficou esperando o estado "published" e desistiu aos 30 min
+          (`waitMaxTime` não aceita menos que 1800 s, e era o valor em uso). O
+          build falhou com a publicação a caminho — o pior tipo de falha, a que
+          diz que deu errado quando deu certo, e que convida a reexecutar um
+          release cuja versão o Central não aceita reenviar.
+
+          "Validado" é o último estado que ESTE lado controla e consegue afirmar.
+          O que vem depois é do Sonatype, e leva o tempo que levar.
+        -->
+        <archflow.publish.waitUntil>validated</archflow.publish.waitUntil>
+        <!-- Segundos; o plugin recusa menos que 1800. Folga para a validação. -->
+        <archflow.publish.waitMaxTime>3600</archflow.publish.waitMaxTime>
         <maven.source.plugin.version>3.3.0</maven.source.plugin.version>
         <maven.javadoc.plugin.version>3.6.3</maven.javadoc.plugin.version>
         <maven.gpg.plugin.version>3.2.7</maven.gpg.plugin.version>
@@ -425,6 +441,7 @@
                             -->
                             <autoPublish>${archflow.publish.auto}</autoPublish>
                             <waitUntil>${archflow.publish.waitUntil}</waitUntil>
+                            <waitMaxTime>${archflow.publish.waitMaxTime}</waitMaxTime>
                             <skipPublishing>${archflow.publish.skip}</skipPublishing>
                         </configuration>
                     </plugin>

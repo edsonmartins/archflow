@@ -97,6 +97,20 @@ jobs:
             -pl archflow-model,archflow-dsl,archflow-sdk-java \
             -s .maven-settings.xml.template
 
+      # O passo acima termina quando o Central VALIDA o bundle; a publicação em
+      # si continua no Sonatype e a propagação para o repo1 leva o tempo dela.
+      # Este aviso existe para que "workflow verde" não seja lido como "já está
+      # no Maven Central" — são dois momentos, e só o primeiro é nosso.
+      - name: Onde acompanhar a publicação
+        if: success()
+        run: |
+          echo "::notice title=Publicação enviada::Bundle validado e publicando."
+          echo "Acompanhe o deployment em https://central.sonatype.com/publishing/deployments"
+          echo "Quando publicar, os artefatos aparecem em:"
+          for a in archflow-model archflow-dsl archflow-sdk-java; do
+            echo "  https://repo1.maven.org/maven2/br/com/archflow/$a/${{ steps.version.outputs.VERSION }}/"
+          done
+
   build-frontend:
     name: Build Frontend
     runs-on: ubuntu-latest
