@@ -549,8 +549,36 @@ public class VendaxAgentDispatcher {
                     "Definição do tipo FLUXO sem saidaSchema: não há como tipar o rich object");
         }
 
-        AgentFlowRunner.Saida saida = fluxo.executar(invoke, invoke.definicao().fluxo(),
-                entradaDoAgente(invoke), uso);
+        // O PRAZO DO ENVELOPE VALE AQUI, como vale nos `case` interativos.
+        //
+        // O Core manda `validoAte` calculado do ttl da skill: passado esse instante há alguém que já
+        // desistiu de esperar na tela, e o resultado não serve mais. Este caminho não tinha prazo
+        // nenhum — o campo chegava e era descartado —, então o modelo seguia rodando e cobrando
+        // depois de a resposta ter perdido o dono. Sem `validoAte` (lote, ou Core anterior ao campo)
+        // nada muda: roda até o fim.
+        Duration restante = prazoRestante(invoke);
+        if (restante != null && restante.isNegative()) {
+            log.warn("Invoke de {} chegou depois do prazo (validoAte={}, trace={}): não executado",
+                    invoke.agent(), invoke.validoAte(), invoke.traceId());
+            return VendaxResult.error(invoke,
+                    "O prazo deste acionamento (" + invoke.validoAte() + ") já havia passado");
+        }
+
+        AgentFlowRunner.Saida saida;
+        try {
+            saida = restante == null
+                    ? fluxo.executar(invoke, invoke.definicao().fluxo(), entradaDoAgente(invoke), uso)
+                    : comPrazo(invoke, restante, () -> fluxo.executar(invoke,
+                            invoke.definicao().fluxo(), entradaDoAgente(invoke), uso));
+        } catch (PrazoEstourado e) {
+            log.warn("Fluxo de {} passou do prazo do envelope (validoAte={}, trace={})",
+                    invoke.agent(), invoke.validoAte(), invoke.traceId());
+            ContadorDeUso.Resumo ate = uso.resumo().orElse(null);
+            relatarDepoisDoPrazo(invoke, uso, ate, e.execucao());
+            VendaxResult erro = VendaxResult.error(invoke, "O fluxo de " + invoke.agent()
+                    + " não respondeu até " + invoke.validoAte());
+            return ate == null ? erro : erro.comUso(usoDe(ate));
+        }
 
         if (saida.suspenso()) {
             log.info("Fluxo de {} suspenso aguardando decisão humana (conv={})",
@@ -581,6 +609,33 @@ public class VendaxAgentDispatcher {
         // Ausente significaria "não informado"; vazia significa "não chamou nada".
         return VendaxResult.ok(invoke, tipo, conteudo)
                 .comChamadas(saida.toolCalls(), saida.encerradoPor());
+    }
+
+    /**
+     * Quanto falta do prazo do envelope, ou {@code null} quando não há prazo.
+     *
+     * <p>Negativo significa que ele já passou — e aí nem vale começar. Um {@code validoAte} que não
+     * se lê é tratado como ausência, com aviso: prazo ilegível não pode virar execução recusada, que
+     * seria trocar um resultado atrasado por nenhum resultado.</p>
+     */
+    Duration prazoRestante(VendaxInvoke invoke) {
+        String validoAte = invoke.validoAte();
+        if (validoAte == null || validoAte.isBlank()) {
+            return null;
+        }
+        try {
+            return Duration.between(java.time.Instant.now(),
+                    java.time.OffsetDateTime.parse(validoAte.trim()).toInstant());
+        } catch (java.time.format.DateTimeParseException naoEOffset) {
+            try {
+                return Duration.between(java.time.Instant.now(),
+                        java.time.Instant.parse(validoAte.trim()));
+            } catch (java.time.format.DateTimeParseException tambemNao) {
+                log.warn("validoAte ilegível no invoke de {} ('{}'): execução segue sem prazo",
+                        invoke.agent(), validoAte);
+                return null;
+            }
+        }
     }
 
     /** {@code sentiment@1} → {@code sentiment}. Sem schema não há tipo. */

@@ -79,6 +79,21 @@ public record VendaxInvoke(
          */
         java.util.List<String> memoria,
 
+        /**
+         * Quando este resultado deixa de valer — instante ISO-8601, calculado pelo Core do
+         * {@code ttl_segundos} da skill.
+         *
+         * <p>É o prazo da classe interativa dito em dado, e não em configuração deste lado: há alguém
+         * olhando a tela, e depois deste instante o resultado não serve mais. Os agentes que rodam
+         * pelo {@code case} tinham prazo próprio; o caminho de fluxo não tinha nenhum — e o campo
+         * chegava no envelope e era descartado, porque este record ignora o que não conhece. O efeito
+         * era o modelo seguir rodando e cobrando depois de a tela ter desistido.</p>
+         *
+         * <p>Nulo é o caso comum e significa "sem prazo": lote, e todo invoke de um Core anterior a
+         * este campo.</p>
+         */
+        String validoAte,
+
         /** Definição resolvida pelo Core (RFC-013); nula = usar o comportamento embutido. */
         DefinicaoDeAgente definicao) {
 
@@ -94,7 +109,18 @@ public record VendaxInvoke(
     VendaxInvoke comPayload(String novoPayload) {
         return new VendaxInvoke(schemaVersion, tenantId, conversationId, agent, sourceMessageId, text,
                 tier, reason, traceId, novoPayload, customerRef, vendorRef, idempotencyKey, taskId,
-                memoria, definicao);
+                memoria, validoAte, definicao);
+    }
+
+    /** Compat: invoke anterior ao prazo no envelope — sem prazo, como era. */
+    public VendaxInvoke(String schemaVersion, String tenantId, String conversationId, String agent,
+                        String sourceMessageId, String text, String tier, String reason,
+                        String traceId, String payload, String customerRef, String vendorRef,
+                        String idempotencyKey, String taskId, java.util.List<String> memoria,
+                        DefinicaoDeAgente definicao) {
+        this(schemaVersion, tenantId, conversationId, agent, sourceMessageId, text, tier, reason,
+                traceId, payload, customerRef, vendorRef, idempotencyKey, taskId, memoria, null,
+                definicao);
     }
 
     /**
@@ -109,7 +135,7 @@ public record VendaxInvoke(
                         String traceId, String payload, String customerRef, String vendorRef,
                         DefinicaoDeAgente definicao) {
         this(schemaVersion, tenantId, conversationId, agent, sourceMessageId, text, tier, reason,
-                traceId, payload, customerRef, vendorRef, null, null, null, definicao);
+                traceId, payload, customerRef, vendorRef, null, null, null, null, definicao);
     }
 
     /**
@@ -123,7 +149,8 @@ public record VendaxInvoke(
                         String traceId, String payload, String customerRef, String vendorRef,
                         String idempotencyKey, DefinicaoDeAgente definicao) {
         this(schemaVersion, tenantId, conversationId, agent, sourceMessageId, text, tier, reason,
-                traceId, payload, customerRef, vendorRef, idempotencyKey, null, null, definicao);
+                traceId, payload, customerRef, vendorRef, idempotencyKey, null, null, null,
+                definicao);
     }
 
     /** Compat: invoke anterior à memória enviada pelo Core. */
@@ -132,6 +159,7 @@ public record VendaxInvoke(
                         String traceId, String payload, String customerRef, String vendorRef,
                         String idempotencyKey, String taskId, DefinicaoDeAgente definicao) {
         this(schemaVersion, tenantId, conversationId, agent, sourceMessageId, text, tier, reason,
-                traceId, payload, customerRef, vendorRef, idempotencyKey, taskId, null, definicao);
+                traceId, payload, customerRef, vendorRef, idempotencyKey, taskId, null, null,
+                definicao);
     }
 }
