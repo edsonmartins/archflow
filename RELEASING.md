@@ -143,6 +143,21 @@ Se o job falhar no passo de deploy, olhe o log antes de refazer qualquer coisa:
   estado está no portal; não reexecute o release.
 - sem essa linha → o bundle não chegou, e refazer é seguro.
 
+### Não reexecute um release que falhou no deploy
+
+A partir de 27/09/2026 o job **para antes de tentar**, com
+`::error Versão já publicada`, quando a versão já está no `repo1`. O motivo é o
+que se viu na 1.4.0: o deploy falhou por espera, a publicação concluiu sozinha, e
+a reexecução do workflow trouxe do portal
+
+```
+Component with coordinate 'br.com.archflow:archflow-sdk-java:1.4.0' is currently
+being published in another deployment (a62eaa54-…)
+```
+
+que lê como erro de build e é, na verdade, a publicação anterior tendo dado certo.
+Uma versão publicada **não se republica**: para corrigir algo, publique outra.
+
 Para saber se já está no Central:
 
 ```bash
