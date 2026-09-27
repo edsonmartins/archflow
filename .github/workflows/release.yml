@@ -62,6 +62,33 @@ jobs:
       - name: Set POM version from tag
         run: mvn -B versions:set -DnewVersion="${{ steps.version.outputs.VERSION }}" -DgenerateBackupPoms=false
 
+      # PARA ANTES DE TENTAR REPUBLICAR. Versão no Central é imutável: uma
+      # segunda tentativa na mesma versão é recusada pelo portal com
+      # "currently being published in another deployment <id>" — e isso lê como
+      # falha de build, quando é a publicação anterior tendo dado certo.
+      #
+      # Aconteceu em 24-27/09/2026: o release da 1.4.0 falhou por espera (o
+      # plugin desistiu aos 30 min, corrigido no #70), a publicação concluiu
+      # sozinha, e a reexecução do workflow trouxe o erro do portal. Só o
+      # diagnóstico custou tempo; nada estava quebrado.
+      #
+      # Quem quer corrigir algo já publicado publica OUTRA versão.
+      - name: Recusar se a versão já está no Central
+        run: |
+          V="${{ steps.version.outputs.VERSION }}"
+          JA=""
+          for a in archflow-model archflow-dsl archflow-sdk-java; do
+            URL="https://repo1.maven.org/maven2/br/com/archflow/$a/$V/$a-$V.pom"
+            if [ "$(curl -s -o /dev/null -w '%{http_code}' -m 30 "$URL")" = "200" ]; then
+              JA="$JA $a"
+            fi
+          done
+          if [ -n "$JA" ]; then
+            echo "::error title=Versão já publicada::$V já está no Maven Central ($JA). O Central não aceita republicar uma versão; para corrigir algo, publique outra (tag nova)."
+            exit 1
+          fi
+          echo "$V não está no Central: seguindo."
+
       # Com testes, de propósito. Publicar no Central é IRREVERSÍVEL — o portal
       # não aceita remover uma versão já publicada, só publicar outra por cima.
       # O job build-backend usa -DskipTests porque uma imagem Docker se
