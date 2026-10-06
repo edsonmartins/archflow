@@ -186,14 +186,14 @@ Test structure follows Arrange-Act-Assert pattern within `src/test/java`.
 
 ## Technology Stack
 
-**Backend**: Java 25 (compiler release 25; Docker runtime `eclipse-temurin:25-jre-alpine`), Spring Boot 4.0.x, Apache Camel, LangChain4j 1.18.0
+**Backend**: Java 25 (compiler release 25; Docker runtime `eclipse-temurin:25-jre-alpine`), Spring Boot 4.0.x, Apache Camel, LangChain4j 1.21.0
 **Frontend**: React 19, TypeScript, Vite, Mantine UI, React Flow
 **Databases**: PostgreSQL with pgvector, Redis
 **Build**: Maven 3.8+, Node.js 18+
 
 ## Important Notes
 
-- LangChain4j version is managed via `langchain4j.version` property (currently 1.18.0)
+- LangChain4j version is managed via `langchain4j.version` property (currently 1.21.0)
 - Plugins are **fat-jars** loaded from `archflow.plugins.directory` with a child-first classloader that falls back to the parent (application) classloader. The loader was NOT on the server classpath until recently — directory discovery simply did not reach the runtime, and the catalogue only had the hard-coded built-in list. It is now wired but **opt-in**: without the property no jar is opened, because opening one runs `onLoad` — arbitrary code, no sandbox, full JVM privileges. Do not make it the default. There is also NO runtime dependency resolution (the old "Jeka" claim was never implemented), so each jar must be a self-contained fat-jar. See the javadoc of `ArchflowPluginManager` / `ArchflowPluginClassLoader`.
 - Frontend uses Mantine UI components (not shadcn/ui as earlier docs may state)
 - Flow execution is asynchronous with built-in retry policies and parallel processing support
