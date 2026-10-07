@@ -42,7 +42,7 @@ import java.util.function.LongSupplier;
  * <p>Thread-safe: um fluxo pode ter passos paralelos alimentando o mesmo contador, e a execução
  * que passou do prazo continua somando noutra thread enquanto o dispatcher lê.</p>
  */
-public final class ContadorDeUso {
+public final class ContadorDeUso implements br.com.archflow.decision.DecisionUsageListener {
 
     /** Onde o contador viaja no contexto do fluxo. */
     public static final String CONTEXT_KEY = ExecutionKeys.TRANSIENT_PREFIX + "contadorDeUso";
@@ -59,6 +59,8 @@ public final class ContadorDeUso {
     private int chamadasDeTool;
     /** Do início da execução ao primeiro token do provedor; {@code null} se nunca foi medido. */
     private Long msAtePrimeiroToken;
+    /** Custo declarado pelos provedores de decisão, em USD; {@code null} até algum informar. */
+    private Double custoDeclaradoUsd;
     private final Set<String> modelos = new LinkedHashSet<>();
     private final Set<String> provedores = new LinkedHashSet<>();
 
@@ -116,6 +118,22 @@ public final class ContadorDeUso {
         }
     }
 
+    /**
+     * Uma decisão (modelo de decisão, LLM classificador): conta como turno de modelo e soma o custo
+     * que o próprio provedor declarou. O custo vem em USD — este contador não o converte, e o
+     * {@code costCents} (reais) segue sendo só o da tabela de preços.
+     */
+    @Override
+    public void onDecision(String provedor, String modelo, Long entrada, Long saida, Double custoUsd) {
+        somar(provedor, modelo == null || provedor == null ? modelo : provedor + "/" + modelo,
+                entrada == null ? null : entrada.intValue(), saida == null ? null : saida.intValue());
+        if (custoUsd != null) {
+            synchronized (this) {
+                custoDeclaradoUsd = (custoDeclaradoUsd == null ? 0.0 : custoDeclaradoUsd) + custoUsd;
+            }
+        }
+    }
+
     /** Uma chamada de tool executada (bem-sucedida ou não) — uma ida ao servidor. */
     public synchronized void somarChamadaDeTool() {
         chamadasDeTool++;
@@ -140,7 +158,8 @@ public final class ContadorDeUso {
                 turnos,
                 chamadasDeTool,
                 (relogioNanos.getAsLong() - inicioNanos) / 1_000_000,
-                msAtePrimeiroToken));
+                msAtePrimeiroToken,
+                custoDeclaradoUsd));
     }
 
     /**
@@ -155,24 +174,34 @@ public final class ContadorDeUso {
      * @param turnos        chamadas ao modelo
      * @param chamadasDeTool idas ao servidor de tools
      * @param duracaoMs     tempo desde o início da execução (ou, num {@link #menos}, do trecho)
+     * @param custoDeclaradoUsd custo que os provedores de decisão declararam, em USD; {@code null}
+     *                      quando nenhum informou
      * @param msAtePrimeiroToken tempo do início da execução ao primeiro token do provedor;
      *                      {@code null} quando o provedor não transmitiu e não há como medir
      */
     public record Resumo(String execucaoId, String provedor, String modelo,
                          Long tokensEntrada, Long tokensSaida,
                          Integer turnos, Integer chamadasDeTool, Long duracaoMs,
-                         Long msAtePrimeiroToken) {
+                         Long msAtePrimeiroToken, Double custoDeclaradoUsd) {
+
+        /** Compat: resumo anterior ao custo declarado. */
+        public Resumo(String execucaoId, String provedor, String modelo, Long tokensEntrada,
+                      Long tokensSaida, Integer turnos, Integer chamadasDeTool, Long duracaoMs,
+                      Long msAtePrimeiroToken) {
+            this(execucaoId, provedor, modelo, tokensEntrada, tokensSaida, turnos, chamadasDeTool,
+                    duracaoMs, msAtePrimeiroToken, null);
+        }
 
         /** Compat: resumo anterior à medição do primeiro token. */
         public Resumo(String execucaoId, String provedor, String modelo, Long tokensEntrada,
                       Long tokensSaida, Integer turnos, Integer chamadasDeTool, Long duracaoMs) {
             this(execucaoId, provedor, modelo, tokensEntrada, tokensSaida, turnos, chamadasDeTool,
-                    duracaoMs, null);
+                    duracaoMs, null, null);
         }
 
         /** Compat: a forma do PR #51, sem id nem detalhamento. */
         public Resumo(String modelo, Long tokensEntrada, Long tokensSaida) {
-            this(null, null, modelo, tokensEntrada, tokensSaida, null, null, null, null);
+            this(null, null, modelo, tokensEntrada, tokensSaida, null, null, null, null, null);
         }
 
         /** Total de tokens, ou {@code null} se o provedor não informou. */
@@ -202,7 +231,10 @@ public final class ContadorDeUso {
                     diferenca(chamadasDeTool, anterior.chamadasDeTool),
                     diferenca(duracaoMs, anterior.duracaoMs),
                     // É um instante, não um consumo: subtrair daria um número sem sentido.
-                    msAtePrimeiroToken);
+                    msAtePrimeiroToken,
+                    custoDeclaradoUsd == null ? null
+                            : Math.max(0.0, custoDeclaradoUsd
+                                    - (anterior.custoDeclaradoUsd == null ? 0.0 : anterior.custoDeclaradoUsd)));
         }
 
         /** {@code true} quando o trecho não chamou o modelo — nada a relatar. */
@@ -229,6 +261,8 @@ public final class ContadorDeUso {
     public static void injetar(ExecutionContext context, ContadorDeUso contador) {
         if (context != null && contador != null) {
             context.set(CONTEXT_KEY, contador);
+            // O mesmo objeto, visto pelo nó de decisão — que não conhece este módulo.
+            context.set(br.com.archflow.decision.DecisionUsageListener.CONTEXT_KEY, contador);
         }
     }
 

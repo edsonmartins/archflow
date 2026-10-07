@@ -99,7 +99,8 @@ public class DefaultFlowStepFactory implements FlowStepFactory {
         String id = str(node.get("id"), "step");
         String type = str(node.get("type"), "");
         Map<String, Object> config = config(node);
-        List<StepConnection> connections = connections(id, node.get("connections"));
+        String kind = kindOf(node);
+        List<StepConnection> connections = connections(id, kind, node.get("connections"));
         ComponentAccessPolicy policy =
                 componentPolicy != null ? componentPolicy : ComponentAccessPolicy.allowAll();
         // O step só enxerga o recorte que o fluxo declarou: nem resolve nem lista
@@ -112,6 +113,12 @@ public class DefaultFlowStepFactory implements FlowStepFactory {
             // contornável por delegação.
             return new OrchestrateStep(id, connections, config, dynamicWorkflowService,
                     streamRegistry, stateManager, policy);
+        }
+
+        // Nós de controle do designer: passos de verdade, que calculam o ramo; quem ramifica é a aresta.
+        if ("condition".equals(kind) || "switch".equals(kind)) {
+            return new ControlStep(id, "condition".equals(kind)
+                    ? ControlStep.Kind.CONDITION : ControlStep.Kind.SWITCH, connections, config);
         }
 
         if (StepType.APPROVAL.name().equalsIgnoreCase(type)) {
@@ -217,7 +224,31 @@ public class DefaultFlowStepFactory implements FlowStepFactory {
         return v instanceof List<?> l ? (List<Object>) l : List.of();
     }
 
-    private static List<StepConnection> connections(String stepId, Object value) {
+    /** O tipo do nó em minúsculas: o componentId, ou o type quando o designer não grava um. */
+    private static String kindOf(Map<String, Object> node) {
+        Object componentId = node.get("componentId");
+        Object raw = componentId != null ? componentId : node.get("type");
+        return raw == null ? "" : raw.toString().trim().toLowerCase();
+    }
+
+    /**
+     * A condição que o ramo declarado numa aresta quer dizer, ou {@code null} quando o nó de origem
+     * não tem ramos. É o que deixa o designer (e quem escreve YAML) dizer "esta aresta é o ramo
+     * {@code true}" em vez de montar a expressão à mão — e mantém a regra num lugar só, o do motor.
+     */
+    static String conditionForBranch(String stepId, String kind, String branch) {
+        if (branch == null || branch.isBlank()) {
+            return null;
+        }
+        String ramo = branch.trim().replace("'", "");
+        return switch (kind) {
+            case "condition", "switch" -> "${" + stepId + ".branch} == '" + ramo + "'";
+            case "decision" -> "${" + stepId + ".route} == '" + ramo + "'";
+            default -> null;
+        };
+    }
+
+    private static List<StepConnection> connections(String stepId, String kind, Object value) {
         List<StepConnection> connections = new ArrayList<>();
         for (Object item : asList(value)) {
             Map<String, Object> map = asMap(item);
@@ -226,7 +257,11 @@ public class DefaultFlowStepFactory implements FlowStepFactory {
             if (targetId.isBlank()) {
                 continue;
             }
+            // Uma condição escrita à mão vence o ramo: quem a escreveu sabia o que queria.
             String condition = str(map.get("condition"), null);
+            if (condition == null) {
+                condition = conditionForBranch(stepId, kind, str(map.get("branch"), null));
+            }
             boolean errorPath = bool(map.get("isErrorPath"),
                     bool(map.get("errorPath"), "error".equals(map.get("type"))));
             connections.add(new PersistedStepConnection(sourceId, targetId, condition, errorPath));

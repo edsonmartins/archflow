@@ -12,7 +12,7 @@ import {
     IconFilter, IconFunctionFilled,
     IconArrowsMaximize,
     IconArrowMerge,
-    IconSitemap,
+    IconSitemap, IconScale,
 } from '@tabler/icons-react'
 
 /**
@@ -37,6 +37,7 @@ const ICON_MAP: Record<string, ComponentType<{ size?: number; stroke?: number }>
     'loop':             IconRotate,
     'parallel':         IconArrowsSplit2,
     'approval':         IconHandStop,
+    'decision':         IconScale,
     'subflow':          IconStackPush,
 
     // Data

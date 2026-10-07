@@ -16,6 +16,7 @@ import { getConfig } from './PropertyPanel/fields/helpers'
 import { McpToolFields } from './PropertyPanel/fields/McpToolFields'
 import { SubflowFields } from './PropertyPanel/fields/SubflowFields'
 import { SkillsFields } from './PropertyPanel/fields/SkillsFields'
+import { DecisionFields } from './PropertyPanel/fields/DecisionFields'
 import { ExecutionLogs, OutputPreview } from './PropertyPanel/fields/ExecutionPanels'
 
 // ── Embedding model catalog (tiny, kept local) ──────────────────
@@ -141,6 +142,7 @@ function NodeFields({ nodeId, nodeData }: { nodeId: string; nodeData: FlowNodeDa
   // ── New node families backed by existing backend surface ──────
   const isMcpTool         = nodeData.nodeType === 'mcp-tool'
   const isApproval        = nodeData.nodeType === 'approval'
+  const isDecision        = nodeData.nodeType === 'decision'
   const isSubflow         = nodeData.nodeType === 'subflow'
   const isSkills          = nodeData.nodeType === 'skills'
   const isLinktorSend     = nodeData.nodeType === 'linktor-send'
@@ -607,6 +609,8 @@ function NodeFields({ nodeId, nodeData }: { nodeId: string; nodeData: FlowNodeDa
           />
         </>
       )}
+
+      {isDecision && <DecisionFields nodeData={nodeData} update={update} />}
 
       {isApproval && (
         <>

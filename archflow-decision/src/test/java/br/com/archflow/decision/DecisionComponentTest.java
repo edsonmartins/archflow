@@ -283,4 +283,151 @@ class DecisionComponentTest {
         assertThatThrownBy(() -> c.execute("decide", "x", ctx())).isInstanceOf(IllegalStateException.class);
         assertThat(c.getMetadata().id()).isEqualTo("decision");
     }
+
+    // ── Cascata, consenso e consumo ─────────────────────────────────
+
+    /** Provedor que responde sempre a mesma opção/confiança, e conta as chamadas. */
+    private static Falso respondendoComo(String id, String opcao, double confianca) {
+        Falso f = new Falso(id, false);
+        f.resposta = r -> new DecisionResult(
+                Map.of("time", escolha(opcao, confianca),
+                        "urgencia", new Answer.Score(1.0, Map.of(), Map.of(), confianca)),
+                "modelo-" + id, id, true, new DecisionResult.Usage(10L, 2L, 0.00001));
+        return f;
+    }
+
+    private static DecisionComponent compondo(Map<String, Object> cfg, Falso... provedores) {
+        DecisionProviders catalogo = DecisionProviders.empty();
+        for (Falso p : provedores) {
+            catalogo.register(p);
+        }
+        DecisionComponent c = new DecisionComponent(catalogo, null);
+        c.initialize(cfg);
+        return c;
+    }
+
+    @Test
+    @DisplayName("cascata: para no primeiro degrau que atinge a confiança, e o seguinte nem é chamado")
+    @SuppressWarnings("unchecked")
+    void cascataParaNoPrimeiroSuficiente() throws Exception {
+        Falso a = respondendoComo("a", "conta", 0.6);
+        Falso b = respondendoComo("b", "pagamento", 0.95);
+        Falso c = respondendoComo("c", "conta", 0.99);
+
+        Map<String, Object> saida = rodar(compondo(config("provider", "a",
+                "cascade", List.of(Map.of("provider", "b"), Map.of("provider", "c"))), a, b, c), "x", ctx());
+
+        assertThat(saida.get("provider")).isEqualTo("b");
+        assertThat(saida.get("route")).isEqualTo("AUTO");
+        assertThat(c.pedidos).as("o terceiro degrau não foi necessário").isEmpty();
+        List<Map<String, Object>> trilha = (List<Map<String, Object>>) saida.get("cascade");
+        assertThat(trilha).extracting(t -> t.get("status")).containsExactly("LOW_CONFIDENCE", "ACCEPTED");
+    }
+
+    @Test
+    @DisplayName("cascata sem nenhum degrau suficiente: vale o mais confiante, e a rota diz que não é seguro")
+    @SuppressWarnings("unchecked")
+    void cascataSemSuficiente() throws Exception {
+        Map<String, Object> saida = rodar(compondo(config("provider", "a",
+                        "cascade", List.of(Map.of("provider", "b"))),
+                respondendoComo("a", "conta", 0.4), respondendoComo("b", "pagamento", 0.7)), "x", ctx());
+
+        assertThat(saida.get("provider")).isEqualTo("b");
+        assertThat(saida.get("route")).isEqualTo("REVIEW");
+        assertThat((List<Map<String, Object>>) saida.get("cascade"))
+                .extracting(t -> t.get("status")).containsExactly("LOW_CONFIDENCE", "LOW_CONFIDENCE");
+    }
+
+    @Test
+    @DisplayName("degrau que falha é pulado e registrado; sem cascata, o resultado não traz a trilha")
+    @SuppressWarnings("unchecked")
+    void cascataComFalha() throws Exception {
+        Falso a = new Falso("a", false);
+        a.falha = new DecisionException("fora do ar", true);
+
+        Map<String, Object> saida = rodar(compondo(config("provider", "a",
+                "cascade", List.of(Map.of("provider", "b"))), a, respondendoComo("b", "conta", 0.97)), "x", ctx());
+
+        assertThat((List<Map<String, Object>>) saida.get("cascade"))
+                .extracting(t -> t.get("status")).containsExactly("FAILED", "ACCEPTED");
+        assertThat(rodar(compondo(config(), respondendoComo("falso", "conta", 0.97)), "x", ctx()))
+                .doesNotContainKey("cascade");
+    }
+
+    @Test
+    @DisplayName("consenso: modelos que concordam mantêm a rota; o consumo soma todos os votos")
+    @SuppressWarnings("unchecked")
+    void consensoConcorda() throws Exception {
+        Map<String, Object> saida = rodar(compondo(config("provider", "a",
+                        "consensus", Map.of("models", List.of(Map.of("provider", "b")))),
+                respondendoComo("a", "conta", 0.95), respondendoComo("b", "conta", 0.92)), "x", ctx());
+
+        Map<String, Object> consenso = (Map<String, Object>) saida.get("consensus");
+        assertThat(consenso.get("agree")).isEqualTo(true);
+        assertThat((List<?>) consenso.get("votes")).hasSize(2);
+        assertThat(saida.get("route")).isEqualTo("AUTO");
+        assertThat(((Map<String, Object>) saida.get("usage")).get("inputTokens")).isEqualTo(20L);
+    }
+
+    @Test
+    @DisplayName("consenso: discordância rebaixa a rota (REVIEW por padrão, ESCALATE se o nó pedir)")
+    void consensoDiscorda() throws Exception {
+        Falso a = respondendoComo("a", "conta", 0.95);
+        Falso b = respondendoComo("b", "pagamento", 0.95);
+
+        Map<String, Object> revisao = rodar(compondo(config("provider", "a",
+                "consensus", Map.of("models", List.of(Map.of("provider", "b")))), a, b), "x", ctx());
+        assertThat(revisao.get("route")).isEqualTo("REVIEW");
+        assertThat(revisao.get("routeReason")).isEqualTo("consensus_disagreement");
+        assertThat(revisao.get("decision")).as("a decisão segue sendo a do principal").isEqualTo("conta");
+
+        Map<String, Object> escala = rodar(compondo(config("provider", "a",
+                "consensus", Map.of("models", List.of(Map.of("provider", "b")), "onDisagree", "ESCALATE")),
+                a, b), "x", ctx());
+        assertThat(escala.get("route")).isEqualTo("ESCALATE");
+    }
+
+    @Test
+    @DisplayName("consenso: modelo que falha não conta como discordância, mas fica registrado")
+    @SuppressWarnings("unchecked")
+    void consensoComFalha() throws Exception {
+        Falso b = new Falso("b", false);
+        b.falha = new DecisionException("HTTP 529", true);
+
+        Map<String, Object> saida = rodar(compondo(config("provider", "a",
+                        "consensus", Map.of("models", List.of(Map.of("provider", "b", "model", "mb")))),
+                respondendoComo("a", "conta", 0.95), b), "x", ctx());
+
+        Map<String, Object> consenso = (Map<String, Object>) saida.get("consensus");
+        assertThat(consenso.get("agree")).isEqualTo(true);
+        assertThat((List<String>) consenso.get("failures")).singleElement().asString().contains("529");
+        assertThat(saida.get("route")).isEqualTo("AUTO");
+    }
+
+    @Test
+    @DisplayName("cada chamada feita é reportada ao ouvinte de consumo — degraus e votos incluídos")
+    void consumoReportado() throws Exception {
+        List<String> vistas = new ArrayList<>();
+        ExecutionContext c = ctx();
+        c.set(DecisionUsageListener.CONTEXT_KEY, (DecisionUsageListener) (p, m, in, out, custo) ->
+                vistas.add(p + "/" + m + ":" + in + ":" + custo));
+
+        rodar(compondo(config("provider", "a",
+                        "cascade", List.of(Map.of("provider", "b")),
+                        "consensus", Map.of("models", List.of(Map.of("provider", "c")))),
+                respondendoComo("a", "conta", 0.5), respondendoComo("b", "conta", 0.97),
+                respondendoComo("c", "conta", 0.9)), "x", c);
+
+        assertThat(vistas).containsExactlyInAnyOrder(
+                "a/modelo-a:10:1.0E-5", "b/modelo-b:10:1.0E-5", "c/modelo-c:10:1.0E-5");
+    }
+
+    @Test
+    @DisplayName("configuração de cascata e consenso inválida é recusada")
+    void configuracaoDeCascataInvalida() {
+        var c = new DecisionComponent(DecisionProviders.empty(), null);
+        assertThatThrownBy(() -> c.initialize(config("acceptAt", 1.5))).hasMessageContaining("acceptAt");
+        assertThatThrownBy(() -> c.initialize(config("consensus", Map.of("onDisagree", "AUTO"))))
+                .hasMessageContaining("onDisagree");
+    }
 }

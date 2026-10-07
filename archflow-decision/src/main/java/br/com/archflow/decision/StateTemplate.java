@@ -1,5 +1,7 @@
 package br.com.archflow.decision;
 
+import br.com.archflow.model.engine.ExecutionContext;
+
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -20,6 +22,34 @@ public final class StateTemplate {
     private static final Pattern VAR = Pattern.compile("\\$\\{([^}]+)}");
 
     private StateTemplate() {
+    }
+
+    /**
+     * Resolve um caminho no contexto do fluxo: a chave inteira primeiro ({@code a.b} guardado assim),
+     * depois a descida pelos mapas aninhados. {@code input}, se informado, vale para o caminho
+     * {@code input}. É a mesma resolução das condições das arestas, para um {@code ${x.y}} querer
+     * dizer a mesma coisa em todo lugar.
+     */
+    @SuppressWarnings("unchecked")
+    public static Function<String, Object> fromContext(ExecutionContext context, Object input) {
+        return path -> {
+            if (input != null && path.equals("input")) {
+                return input;
+            }
+            if (context == null) {
+                return null;
+            }
+            java.util.Optional<Object> direto = context.get(path);
+            if (direto.isPresent()) {
+                return direto.get();
+            }
+            String[] partes = path.split("\\.");
+            Object atual = context.get(partes[0]).orElse(null);
+            for (int i = 1; i < partes.length && atual != null; i++) {
+                atual = atual instanceof Map<?, ?> m ? ((Map<String, Object>) m).get(partes[i]) : null;
+            }
+            return atual;
+        };
     }
 
     public static Object resolve(Object template, Function<String, Object> lookup) {
