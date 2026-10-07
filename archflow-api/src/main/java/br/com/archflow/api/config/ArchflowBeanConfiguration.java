@@ -1481,4 +1481,42 @@ public class ArchflowBeanConfiguration {
         return new br.com.archflow.api.agent.stream.InvocacaoEmFluxo(dispatcher, execucoes,
                 guardado, maxConcorrentes, batimento, retryAfter);
     }
+
+    // ── Decisões tipadas ────────────────────────────────────────────
+
+    /**
+     * Os provedores do nó {@code decision}: os embutidos (HTTP genérico e regras), os que o
+     * classpath declara por SPI e o LLM da plataforma como classificador de reserva.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public br.com.archflow.decision.DecisionProviders decisionProviders(
+            br.com.archflow.langchain4j.provider.LLMConfigResolver llmConfigResolver,
+            br.com.archflow.model.config.ResolvedLLMConfig platformDefaultLLMConfig) {
+        return br.com.archflow.decision.DecisionProviders.withDefaults().register(
+                new br.com.archflow.api.decision.LlmDecisionProvider(
+                        llmConfigResolver, platformDefaultLLMConfig));
+    }
+
+    /**
+     * A chave de um provedor de decisão: a do tenant (o mesmo resolvedor das chaves de LLM, com o
+     * id do provedor — {@code openrouter} por padrão) e, na falta dela,
+     * {@code archflow.decision.keys.<ref>} (env {@code ARCHFLOW_DECISION_KEYS_<REF>}). Nunca do
+     * documento do fluxo.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public br.com.archflow.decision.DecisionKeys decisionKeys(
+            br.com.archflow.langchain4j.provider.TenantKeyResolver tenantKeyResolver,
+            org.springframework.core.env.Environment env) {
+        return (tenantId, ref) -> {
+            var doTenant = tenantKeyResolver.resolveApiKey(tenantId, ref);
+            if (doTenant.isPresent() && !doTenant.get().isBlank()) {
+                return doTenant;
+            }
+            String daPlataforma = env.getProperty("archflow.decision.keys." + ref);
+            return daPlataforma == null || daPlataforma.isBlank()
+                    ? java.util.Optional.empty() : java.util.Optional.of(daPlataforma);
+        };
+    }
 }

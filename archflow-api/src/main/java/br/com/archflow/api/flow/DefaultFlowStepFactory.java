@@ -42,6 +42,24 @@ public class DefaultFlowStepFactory implements FlowStepFactory {
     private final ObjectProvider<FlowEngine> flowEngine;
     private final ToolInterceptorChain interceptors;
     private final TenantKeyResolver tenantKeyResolver;
+    // Sem o bean do host, o nó `decision` ainda funciona com os provedores embutidos — só não tem
+    // chave por tenant, e um provedor que exige chave escala a decisão em vez de chamar sem ela.
+    private br.com.archflow.decision.DecisionProviders decisionProviders =
+            br.com.archflow.decision.DecisionProviders.withDefaults();
+    private br.com.archflow.decision.DecisionKeys decisionKeys =
+            br.com.archflow.decision.DecisionKeys.NONE;
+
+    /** Provedores e chaves do nó de decisão, entregues pelo host (ver {@code ArchflowBeanConfiguration}). */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setDecisionSupport(br.com.archflow.decision.DecisionProviders providers,
+                                   br.com.archflow.decision.DecisionKeys keys) {
+        if (providers != null) {
+            this.decisionProviders = providers;
+        }
+        if (keys != null) {
+            this.decisionKeys = keys;
+        }
+    }
 
     public DefaultFlowStepFactory(ComponentCatalog catalog, DynamicWorkflowService dynamicWorkflowService,
                                   EventStreamRegistry streamRegistry, StateManager stateManager,
@@ -145,6 +163,23 @@ public class DefaultFlowStepFactory implements FlowStepFactory {
             mcpAgent.initialize(config);
             return new ComponentStep(id, StepType.TOOL, mcpAgent.getMetadata().id(),
                     operationOf(config, node), connections, scopedCatalog, interceptors, mcpAgent,
+                    config);
+        }
+        // O nó de decisão também é uma instância por passo: a configuração (perguntas, modelo,
+        // limiares) é do nó, e um singleton do catálogo vazaria isso entre fluxos e tenants.
+        if (br.com.archflow.decision.DecisionComponent.COMPONENT_ID
+                .equals(componentId == null ? null : componentId.toString())) {
+            if (!policy.isAllowed(br.com.archflow.decision.DecisionComponent.COMPONENT_ID)) {
+                return new ComponentStep(id, StepType.TOOL,
+                        br.com.archflow.decision.DecisionComponent.COMPONENT_ID,
+                        operationOf(config, node), connections, scopedCatalog, interceptors, null,
+                        config);
+            }
+            var decision = new br.com.archflow.decision.DecisionComponent(
+                    decisionProviders, decisionKeys);
+            decision.initialize(config);
+            return new ComponentStep(id, StepType.TOOL, decision.getMetadata().id(),
+                    operationOf(config, node), connections, scopedCatalog, interceptors, decision,
                     config);
         }
         return new ComponentStep(

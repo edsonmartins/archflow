@@ -99,6 +99,12 @@
             <version>${project.version}</version>
             <scope>test</scope>
         </dependency>
+        <!-- Decisões tipadas (choice/score/sim-não): contrato, provedor HTTP, regras e o nó `decision`. -->
+        <dependency>
+            <groupId>br.com.archflow</groupId>
+            <artifactId>archflow-decision</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         <!-- Built-in plugins so the CatalogController can surface them in the UI. -->
         <dependency>
             <groupId>br.com.archflow.plugins</groupId>
