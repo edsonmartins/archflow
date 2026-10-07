@@ -31,6 +31,10 @@ export interface WorkflowConnection {
   sourceId:    string
   targetId:    string
   isErrorPath: boolean
+  /** Condição escrita à mão (`${a.b} == 'x'`); vence o ramo. */
+  condition?:  string
+  /** O ramo que a aresta quer dizer ("true", um caso do switch, uma rota da decisão). */
+  branch?:     string
 }
 
 export interface WorkflowData {

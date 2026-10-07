@@ -23,6 +23,7 @@ import { useWorkflowStore }  from '../stores/workflow-store'
 import { workflowYamlApi }   from '../services/workflow-yaml-api'
 import type { FlowNodeData, WorkflowData } from '../components/FlowCanvas/types'
 import { NODE_TYPE_TO_CATEGORY } from '../components/FlowCanvas/constants'
+import { connectionsForStep, connectionsFromSteps } from '../components/FlowCanvas/workflowSerde'
 
 /**
  * Floating chevron button that sits flush to the canvas edge and
@@ -105,14 +106,9 @@ function toWorkflowData(detail: any): WorkflowData {
     }
   })
 
-  const connections = (detail.steps ?? []).flatMap((step: any) =>
-    (step.connections ?? []).map((conn: any, j: number) => ({
-      id:          `conn-${step.id}-${j}`,
-      sourceId:    conn.sourceId ?? step.id,
-      targetId:    conn.targetId,
-      isErrorPath: conn.isErrorPath ?? false,
-    }))
-  )
+  // Condition and branch survive the round trip — dropping them made a flow opened and saved in the
+  // designer follow every branch (see workflowSerde).
+  const connections = connectionsFromSteps(detail.steps)
 
   return { steps, connections }
 }
@@ -169,13 +165,7 @@ export function WorkflowEditor() {
         label:         s.label,
         position:      s.position,
         configuration: s.config ?? {},
-        connections:   snapshot.connections
-          .filter(c => c.sourceId === s.id)
-          .map(c => ({
-            sourceId:    c.sourceId,
-            targetId:    c.targetId,
-            isErrorPath: c.isErrorPath,
-          })),
+        connections:   connectionsForStep(s.id, snapshot.connections),
       })),
     }
     await updateWorkflow(current.id, merged)

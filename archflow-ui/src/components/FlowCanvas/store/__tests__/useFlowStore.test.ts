@@ -188,6 +188,22 @@ describe('useFlowStore', () => {
       })
     })
 
+    it('carries the branch and the hand-written condition of an edge into the snapshot', () => {
+      useFlowStore.getState().setNodes([makeNode('d'), makeNode('a'), makeNode('b')])
+      useFlowStore.getState().setEdges([
+        { id: 'e1', source: 'd', target: 'a', data: { isErrorPath: false, branch: 'AUTO' } },
+        { id: 'e2', source: 'd', target: 'b', data: { isErrorPath: false, condition: "${d.confidence} < 0.5" } },
+      ])
+
+      const snapshot = useFlowStore.getState().getCanvasSnapshot()
+      expect(snapshot.connections[0]).toEqual({
+        id: 'e1', sourceId: 'd', targetId: 'a', isErrorPath: false, branch: 'AUTO',
+      })
+      expect(snapshot.connections[1]).toEqual({
+        id: 'e2', sourceId: 'd', targetId: 'b', isErrorPath: false, condition: "${d.confidence} < 0.5",
+      })
+    })
+
     it('reflects config changes made via updateNodeConfig', () => {
       useFlowStore.getState().setNodes([makeNode('n1')])
       useFlowStore.getState().updateNodeConfig('n1', 'agentPattern', 'plan-execute')
