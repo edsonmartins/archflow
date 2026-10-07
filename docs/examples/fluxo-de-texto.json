@@ -1,0 +1,19 @@
+{
+  "id": "exemplo-assistente-de-texto",
+  "metadata": { "name": "Assistente de texto (exemplo neutro)" },
+  "configuration": {},
+  "steps": [
+    {
+      "id": "responder",
+      "type": "mcp-agent",
+      "componentId": "mcp-agent",
+      "config": {
+        "server": "ferramentas",
+        "systemPrompt": "Você é um assistente. Responda de forma curta e direta.",
+        "tools": [],
+        "maxIterations": 4
+      },
+      "connections": []
+    }
+  ]
+}

@@ -81,6 +81,8 @@ public class VendaxAgentDispatcher {
     /** Nulo: o roteiro do CPA espera o mesmo que o resto da classe interativa. */
     private volatile Duration prazoDoRoteiro;
     private volatile TabelaDePrecos precos = TabelaDePrecos.vazia();
+    /** Nulo: as execuções assíncronas não são canceláveis por chave. */
+    private volatile br.com.archflow.api.agent.stream.ExecucoesEmAndamento execucoes;
 
     public VendaxAgentDispatcher(QpAgentService qpAgent, McpAgentRunner runner,
                                  VendaxMcpClientProvider vendax, VendaxResultSender resultSender,
@@ -129,6 +131,11 @@ public class VendaxAgentDispatcher {
         this.prazoDoRoteiro = prazo;
     }
 
+    /** Registro das execuções em andamento; com ele, o cancelamento por chave alcança as assíncronas. */
+    public void setExecucoes(br.com.archflow.api.agent.stream.ExecucoesEmAndamento execucoes) {
+        this.execucoes = execucoes;
+    }
+
     /** Preços por modelo, para o custo que acompanha cada result; sem tabela, custo nulo. */
     public void setPrecos(TabelaDePrecos precos) {
         this.precos = precos == null ? TabelaDePrecos.vazia() : precos;
@@ -164,6 +171,12 @@ public class VendaxAgentDispatcher {
         // nunca é inferida nem reaproveitada: o que sai daqui é o que veio neste invoke, e o
         // `finally` abaixo garante que a próxima execução nesta mesma thread não herde nada.
         definirCorrelacao(invoke);
+        // CANCELÁVEL POR CHAVE, quando há registro. A chave é a do resultado (a mesma do webhook), e
+        // a thread é registrada junto para o cancelamento poder interrompê-la.
+        var registro = execucoes == null ? java.util.Optional
+                .<br.com.archflow.api.agent.stream.ExecucoesEmAndamento.Execucao>empty()
+                : execucoes.registrar(VendaxResult.idempotencyKeyOf(invoke), invoke.tenantId(),
+                        Thread.currentThread());
         // O CONSUMO É CONTADO DESDE O PRIMEIRO TURNO, e lido no fim aconteça o que acontecer: uma
         // execução que estoura o prazo ou cai por erro também gastou, e é essa que um teto de custo
         // mais precisa ver.
@@ -174,7 +187,9 @@ public class VendaxAgentDispatcher {
             // continua abaixo só enquanto houver skill em PROMPT — cada agente que virar FLUXO
             // apaga um `case`.
             if (invoke.definicao() != null && invoke.definicao().eFluxo()) {
-                VendaxResult porFluxo = runFluxo(invoke, uso);
+                VendaxResult porFluxo = runFluxo(invoke, uso,
+                        registro.map(r -> br.com.archflow.api.agent.mcp.SaidaDeTexto
+                                .soCancelamento(r.cancelamento())).orElse(null), false);
                 if (porFluxo != null) {
                     enviar(porFluxo, uso, invoke);
                 }
@@ -222,7 +237,60 @@ public class VendaxAgentDispatcher {
             // veio de task herdaria a task da anterior, e uma venda que nada tem a ver com ela
             // seria creditada à task — sem erro, sem log, e sem nada que destoe na conferência.
             br.com.archflow.langchain4j.mcp.client.CorrelacaoMcp.limpar();
+            if (registro.isPresent()) {
+                execucoes.concluir(registro.get().chave());
+                // Se um cancelamento interrompeu esta thread depois de a execução acabar, o flag
+                // não pode vazar para a próxima tarefa do pool.
+                Thread.interrupted();
+            }
         }
+    }
+
+    /** O que uma execução em fluxo produziu e se vale tentar de novo. */
+    public record ResultadoEmFluxo(VendaxResult resultado, boolean recuperavel) {
+    }
+
+    /**
+     * Executa o fluxo da definição <b>na thread de quem chama</b>, com a saída em fluxo ligada, e
+     * devolve o resultado em vez de mandá-lo ao webhook — quem decide se ele vai pela conexão ou
+     * pelo webhook é quem tem a conexão.
+     *
+     * <p>Sem {@code saidaSchema} a saída é texto ({@code richObjectType="text"}); com ele, o
+     * comportamento é o da rota assíncrona e nenhum {@code delta} é emitido. As validações são as
+     * mesmas: o prazo do envelope, a lista de tools, o teto de iterações — todas vivem no fluxo e
+     * na definição, não na rota.</p>
+     *
+     * @param saida o destino do texto e a origem do cancelamento
+     */
+    public ResultadoEmFluxo executarEmFluxo(VendaxInvoke invoke,
+                                            br.com.archflow.api.agent.mcp.SaidaDeTexto saida,
+                                            ContadorDeUso uso) {
+        if (metrics != null) metrics.received();
+        long startedAt = metrics != null ? metrics.started() : 0;
+        definirCorrelacao(invoke);
+        try {
+            VendaxResult r = runFluxo(invoke, uso, saida, true);
+            if (metrics != null) metrics.completed(startedAt);
+            // ERROR devolvido (prazo, definição, suspensão) não melhora tentando de novo.
+            return new ResultadoEmFluxo(comUso(r, uso), false);
+        } catch (Exception e) {
+            if (metrics != null) metrics.failed(startedAt, e);
+            log.error("Agente {} falhou em fluxo (conv={}): {}",
+                    invoke.agent(), invoke.conversationId(), e.getMessage(), e);
+            return new ResultadoEmFluxo(comUso(VendaxResult.error(invoke, causeOf(e)), uso), true);
+        } finally {
+            br.com.archflow.langchain4j.mcp.client.CorrelacaoMcp.limpar();
+        }
+    }
+
+    /** Entrega pelo webhook um resultado que não chegou pela conexão. */
+    public void entregarPorWebhook(VendaxResult result, VendaxInvoke invoke) {
+        resultSender.send(result, invoke.traceId());
+    }
+
+    /** O consumo desta execução no formato do resultado, para quem monta o seu. */
+    public VendaxResult comUsoDe(VendaxResult result, ContadorDeUso uso) {
+        return comUso(result, uso);
     }
 
     /**
@@ -265,6 +333,11 @@ public class VendaxAgentDispatcher {
 
     /** Envia carregando o consumo — em todo result, OK ou ERROR. */
     private void enviar(VendaxResult result, ContadorDeUso uso, VendaxInvoke invoke) {
+        // Cancelado pelo chamador: o que sair daqui, que não seja um OK completo, é o cancelamento.
+        if (execucoes != null && !VendaxResult.OK.equals(result.status())
+                && execucoes.cancelada(VendaxResult.idempotencyKeyOf(invoke))) {
+            result = VendaxResult.cancelado(invoke, null);
+        }
         // O traceId não está no result; vai junto para a desistência, se houver, dizer qual foi.
         resultSender.send(comUso(result, uso), invoke.traceId());
     }
@@ -536,13 +609,17 @@ public class VendaxAgentDispatcher {
      * {@code sentiment}. Quem declara é o Core, e é o que mantém a regra da {@code ADR-025} D-1: o
      * executor não decide se produziu uma cotação ou um sentimento, porque não sabe o que são.</p>
      */
-    private VendaxResult runFluxo(VendaxInvoke invoke, ContadorDeUso uso) {
+    private VendaxResult runFluxo(VendaxInvoke invoke, ContadorDeUso uso,
+                                  br.com.archflow.api.agent.mcp.SaidaDeTexto saida, boolean emFluxo) {
         if (fluxo == null) {
             return VendaxResult.error(invoke,
                     "Definição veio como FLUXO e este runtime não tem motor de fluxo configurado");
         }
         String tipo = tipoDoRichObject(invoke.definicao().saidaSchema());
-        if (tipo == null) {
+        // NA ROTA EM FLUXO, sem saidaSchema a saída é texto. Na assíncrona continua sendo erro — a
+        // assimetria é deliberada e documentada: o Core espera um rich object tipado.
+        boolean saidaDeTexto = emFluxo && tipo == null;
+        if (tipo == null && !saidaDeTexto) {
             // Sem o tipo, o Core recebe um JSON que não sabe onde encaixar. Adivinhar aqui seria
             // este runtime decidindo o que o resultado significa — exatamente o que ele não faz.
             return VendaxResult.error(invoke,
@@ -564,12 +641,16 @@ public class VendaxAgentDispatcher {
                     "O prazo deste acionamento (" + invoke.validoAte() + ") já havia passado");
         }
 
-        AgentFlowRunner.Saida saida;
+        Supplier<AgentFlowRunner.Saida> execucaoDoFluxo = () -> saida == null
+                // Sem saída em fluxo, a chamada é a de sempre.
+                ? fluxo.executar(invoke, invoke.definicao().fluxo(), entradaDoAgente(invoke), uso)
+                : fluxo.executar(invoke, invoke.definicao().fluxo(), entradaDoAgente(invoke), uso,
+                        saida, saidaDeTexto);
+        AgentFlowRunner.Saida resposta;
         try {
-            saida = restante == null
-                    ? fluxo.executar(invoke, invoke.definicao().fluxo(), entradaDoAgente(invoke), uso)
-                    : comPrazo(invoke, restante, () -> fluxo.executar(invoke,
-                            invoke.definicao().fluxo(), entradaDoAgente(invoke), uso));
+            resposta = restante == null
+                    ? execucaoDoFluxo.get()
+                    : comPrazo(invoke, restante, execucaoDoFluxo);
         } catch (PrazoEstourado e) {
             log.warn("Fluxo de {} passou do prazo do envelope (validoAte={}, trace={})",
                     invoke.agent(), invoke.validoAte(), invoke.traceId());
@@ -580,15 +661,31 @@ public class VendaxAgentDispatcher {
             return ate == null ? erro : erro.comUso(usoDe(ate));
         }
 
-        if (saida.suspenso()) {
+        if (resposta.suspenso()) {
             log.info("Fluxo de {} suspenso aguardando decisão humana (conv={})",
                     invoke.agent(), invoke.conversationId());
             // O gasto até aqui. Hoje uma retomada não manda result ao Core, e o que ela gastar não
             // é relatado — o contador desta execução não sobrevive à suspensão.
             relatar(invoke, VendaxUsoRelato.Motivo.SUSPENSO, uso.resumo().orElse(null));
+            if (emFluxo) {
+                // Quem espera na conexão não tem como esperar uma decisão humana: o fluxo fica
+                // suspenso (durável) e a resposta diz isso, em vez de calar.
+                return VendaxResult.error(invoke, "O fluxo de " + invoke.agent()
+                        + " suspendeu aguardando decisão humana e não cabe numa resposta em fluxo");
+            }
             return null;
         }
-        String conteudo = extractJson(saida.texto());
+        if (saidaDeTexto) {
+            String texto = resposta.texto();
+            if (texto == null || texto.isBlank()) {
+                return VendaxResult.error(invoke,
+                        "O fluxo de " + invoke.agent() + " não devolveu texto")
+                        .comChamadas(resposta.toolCalls(), resposta.encerradoPor());
+            }
+            return VendaxResult.ok(invoke, VendaxResult.TEXTO, texto)
+                    .comChamadas(resposta.toolCalls(), resposta.encerradoPor());
+        }
+        String conteudo = extractJson(resposta.texto());
         if (conteudo == null) {
             // Mesmo tratamento do CS embutido: o Core recusa o que não desserializa, então mandar
             // texto solto só empurra a falha para lá com menos contexto.
@@ -596,19 +693,19 @@ public class VendaxAgentDispatcher {
             // O ERROR também leva as chamadas e o encerramento: um laço que parou porque a tool
             // disse "não contratado" não produz JSON nenhum, e sem isso o Core não distingue esse
             // caso de "o modelo não redigiu" — que é a diferença que ele pediu para ver.
-            String motivo = saida.encerradoPor() == null ? ""
-                    : " (encerrado por " + saida.encerradoPor().name()
-                            + ", código " + saida.encerradoPor().code() + ")";
+            String motivo = resposta.encerradoPor() == null ? ""
+                    : " (encerrado por " + resposta.encerradoPor().name()
+                            + ", código " + resposta.encerradoPor().code() + ")";
             return VendaxResult.error(invoke,
                             "O fluxo de " + invoke.agent() + " não devolveu um JSON" + motivo)
-                    .comChamadas(saida.toolCalls(), saida.encerradoPor());
+                    .comChamadas(resposta.toolCalls(), resposta.encerradoPor());
         }
         // AS CHAMADAS DE TOOL SOBEM COM O RESULT, e a lista vai mesmo vazia: o Core monta o
         // parâmetro da resposta a partir dos ARGUMENTOS que foram à tool, e não do que o modelo
         // declara — é a garantia que o `case` do NS tem dentro daqui e que o fluxo não tinha.
         // Ausente significaria "não informado"; vazia significa "não chamou nada".
         return VendaxResult.ok(invoke, tipo, conteudo)
-                .comChamadas(saida.toolCalls(), saida.encerradoPor());
+                .comChamadas(resposta.toolCalls(), resposta.encerradoPor());
     }
 
     /**

@@ -106,6 +106,21 @@ public class AgentFlowRunner {
      */
     public Saida executar(VendaxInvoke invoke, Map<String, Object> fluxo, String entrada,
                           br.com.archflow.api.agent.mcp.ContadorDeUso uso) {
+        return executar(invoke, fluxo, entrada, uso, null, false);
+    }
+
+    /**
+     * Executa com a saída em fluxo ligada.
+     *
+     * @param saida          para onde vão os pedaços de texto, os avisos de tool e de onde vem o
+     *                       cancelamento; nula é a execução de sempre
+     * @param transmitirTexto o texto do nó final vai a {@code saida}. Falso para um fluxo de saída
+     *                       estruturada: o cancelamento e os avisos de tool continuam valendo, mas
+     *                       não se pede JSON parcial.
+     */
+    public Saida executar(VendaxInvoke invoke, Map<String, Object> fluxo, String entrada,
+                          br.com.archflow.api.agent.mcp.ContadorDeUso uso,
+                          br.com.archflow.api.agent.mcp.SaidaDeTexto saida, boolean transmitirTexto) {
         // Id único por execução: o motor indexa fluxos ativos por id, e duas execuções do mesmo
         // documento (reentrega do Core, retentativa) colidiriam se compartilhassem o dele.
         //
@@ -117,6 +132,9 @@ public class AgentFlowRunner {
 
         Map<String, Object> documento = new HashMap<>(fluxo);
         documento.put("id", execucaoId);
+        if (saida != null && transmitirTexto) {
+            documento.put("steps", marcandoOsNosFinais(documento.get("steps")));
+        }
 
         Flow flow = deserializer.toFlow(documento);
         // Registrar é o que permite retomar depois de uma suspensão por aprovação: sem isto, o
@@ -156,6 +174,7 @@ public class AgentFlowRunner {
                 invoke.tier());
         McpAgentHost.inject(contexto, mcpAgentHost);
         br.com.archflow.api.agent.mcp.ContadorDeUso.injetar(contexto, uso);
+        br.com.archflow.api.agent.mcp.SaidaDeTexto.injetar(contexto, saida);
         // A MEMÓRIA DO CLIENTE vai sob chave transient: é entrada deste invoke, e são dados pessoais.
         // Persistida, iria para o estado durável do fluxo a cada checkpoint. O custo é que um passo
         // executado depois de uma retomada roda sem ela.
@@ -165,11 +184,15 @@ public class AgentFlowRunner {
         }
 
         FlowResult resultado;
+        java.util.concurrent.CompletableFuture<FlowResult> execucao = null;
         try {
-            resultado = flowEngine.getObject()
-                    .execute(flow, contexto)
-                    .get(timeoutDe(invoke), TimeUnit.MILLISECONDS);
+            execucao = flowEngine.getObject().execute(flow, contexto);
+            resultado = execucao.get(timeoutDe(invoke), TimeUnit.MILLISECONDS);
         } catch (InterruptedException e) {
+            // Interromper quem espera não para o motor: sem isto o fluxo seguiria rodando.
+            if (execucao != null) {
+                execucao.cancel(true);
+            }
             Thread.currentThread().interrupt();
             throw new IllegalStateException("Execução do fluxo interrompida", e);
         } catch (Exception e) {
@@ -192,10 +215,10 @@ public class AgentFlowRunner {
             throw new IllegalStateException("Fluxo cancelado antes de concluir");
         }
 
-        Object saida = resultado.getOutput().orElse(null);
+        Object produzido = resultado.getOutput().orElse(null);
         log.debug("Fluxo {} do agente {} concluiu com status {} (conv={})",
                 execucaoId, invoke.agent(), resultado.getStatus(), invoke.conversationId());
-        return reduzir(saida);
+        return reduzir(produzido);
     }
 
     /**
@@ -210,6 +233,55 @@ public class AgentFlowRunner {
      * <p>Ausência é um valor legítimo aqui, e quem lê do outro lado já a trata: sem a chave, o
      * header correspondente não sai.</p>
      */
+    /**
+     * Uma cópia dos passos em que os agentes <b>finais</b> — os que não têm aresta de saída —
+     * levam {@code transmitirTexto}. É o documento do fluxo, e não o motor, quem diz qual nó fala
+     * com quem espera: o texto de um passo intermediário é insumo do seguinte.
+     *
+     * <p>Só se marca a cópia desta execução; o documento guardado não é tocado.</p>
+     */
+    @SuppressWarnings("unchecked")
+    static Object marcandoOsNosFinais(Object passos) {
+        if (!(passos instanceof List<?> lista)) {
+            return passos;
+        }
+        List<Object> marcados = new java.util.ArrayList<>();
+        for (Object item : lista) {
+            if (!(item instanceof Map<?, ?> bruto)) {
+                marcados.add(item);
+                continue;
+            }
+            Map<String, Object> passo = new HashMap<>((Map<String, Object>) bruto);
+            Object componente = passo.get("componentId") != null ? passo.get("componentId")
+                    : passo.get("type");
+            if (br.com.archflow.api.agent.mcp.McpAgentComponent.COMPONENT_ID
+                    .equals(componente == null ? null : componente.toString())
+                    && !temAresta(passo.get("connections"))) {
+                Map<String, Object> config = new HashMap<>();
+                if (passo.get("config") instanceof Map<?, ?> c) {
+                    config.putAll((Map<String, Object>) c);
+                }
+                config.put(br.com.archflow.api.agent.mcp.McpAgentComponent.CFG_TRANSMITIR_TEXTO, true);
+                passo.put("config", config);
+            }
+            marcados.add(passo);
+        }
+        return marcados;
+    }
+
+    private static boolean temAresta(Object connections) {
+        if (!(connections instanceof List<?> lista)) {
+            return false;
+        }
+        for (Object c : lista) {
+            if (c instanceof Map<?, ?> m && m.get("targetId") != null
+                    && !m.get("targetId").toString().isBlank()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static void definirSeHouver(ExecutionContext contexto, String chave, String valor) {
         if (valor != null && !valor.isBlank()) {
             contexto.set(chave, valor);

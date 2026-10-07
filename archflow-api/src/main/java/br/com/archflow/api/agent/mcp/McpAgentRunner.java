@@ -18,8 +18,13 @@ import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.ChatModel;
+import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.response.ChatResponse;
+import dev.langchain4j.model.chat.response.PartialResponse;
+import dev.langchain4j.model.chat.response.PartialResponseContext;
+import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
+import dev.langchain4j.model.chat.response.StreamingHandle;
 import dev.langchain4j.model.output.TokenUsage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -34,6 +39,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Loop de tool-calling NATIVO server-side — o motor que faltava no ArchFlow
@@ -352,6 +358,11 @@ public class McpAgentRunner {
                 .tier(options.tier())
                 .build();
         ChatModel model = llmConfigResolver.resolveModel(llmRequest);
+        SaidaDeTexto saida = options.saida();
+        // Só se resolve o modelo em streaming quando alguém vai receber o texto. Provedor ou
+        // resolvedor sem streaming não é erro: o turno final sai num único delta.
+        StreamingChatModel streaming = saida != null && saida.transmite()
+                ? modeloEmFluxo(llmRequest) : null;
         ResolvedLLMConfig configDoUso = configParaUso(llmRequest);
         String rotuloDoModelo = rotuloDoModelo(configDoUso);
         String provedorDoUso = configDoUso == null ? null : configDoUso.provider();
@@ -373,11 +384,22 @@ public class McpAgentRunner {
         }
 
         while (session.iteration < options.maxIterations()) {
+            if (saida != null && saida.cancelada()) {
+                throw new ExecucaoCancelada();
+            }
             session.iteration++;
-            ChatResponse response = chatComRepeticaoDeTransporte(model, session, ChatRequest.builder()
+            ChatRequest pedido = ChatRequest.builder()
                     .messages(session.messages)
                     .toolSpecifications(tools)
-                    .build());
+                    .build();
+            session.retidos.clear();
+            session.emitiuDireto = false;
+            // Com tools no catálogo, um turno só se mostra final quando termina sem pedir tool:
+            // o texto fica retido até lá. Sem tools não há o que esperar, e o texto sai na hora.
+            boolean reter = !tools.isEmpty() || !options.requiredOutputTools().isEmpty();
+            ChatResponse response = saida != null && saida.transmite()
+                    ? turnoEmFluxo(streaming, model, session, pedido, options, reter)
+                    : chatComRepeticaoDeTransporte(model, session, pedido);
             recordTurn(response);
             somarUso(options, provedorDoUso, rotuloDoModelo, response);
             AiMessage ai = response.aiMessage();
@@ -431,6 +453,7 @@ public class McpAgentRunner {
                     continue;
                 }
                 diagnosticarConclusaoSemArtefato(response, llmRequest, options, ai.text());
+                liberarTexto(session, options, ai.text());
                 return Result.finished(session.lastText, session.toolCalls);
             }
 
@@ -454,6 +477,7 @@ public class McpAgentRunner {
                 ToolCall feita = executeAndAppend(session, client, options, req.name(), req.id(),
                         parsed.args());
                 if (encerra(feita, options)) {
+                    emitirRestante(session, options);
                     return Result.encerrado(session.lastText, session.toolCalls, feita);
                 }
             }
@@ -461,6 +485,7 @@ public class McpAgentRunner {
 
         log.warn("Loop de tool-calling atingiu maxIterations={} sem resposta final",
                 options.maxIterations());
+        emitirRestante(session, options);
         return Result.finished(session.lastText, session.toolCalls);
     }
 
@@ -496,6 +521,155 @@ public class McpAgentRunner {
                     + "veio como texto. Emita a mesma chamada de novo, como tool call de verdade, "
                     + "com os argumentos em JSON simples — sem caracteres de escape no meio dos "
                     + "valores.";
+
+    /** O modelo em streaming, ou {@code null} quando o provedor (ou o resolvedor) não o tem. */
+    private StreamingChatModel modeloEmFluxo(LLMResolutionRequest request) {
+        try {
+            return llmConfigResolver.resolveStreamingModel(request);
+        } catch (UnsupportedOperationException | IllegalArgumentException e) {
+            log.info("Sem streaming para este modelo ({}); a resposta sai num único delta",
+                    e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Um turno com o texto indo a {@link SaidaDeTexto} à medida que chega.
+     *
+     * <p>Sem modelo em streaming, chama o bloqueante e o texto sai inteiro quando o turno se
+     * mostrar final. A repetição por falha de transporte vale como no laço bloqueante, mas só
+     * enquanto nenhum token foi entregue: depois disso repetir duplicaria texto na outra ponta.</p>
+     */
+    private ChatResponse turnoEmFluxo(StreamingChatModel streaming, ChatModel model, Session session,
+                                      ChatRequest pedido, Options options, boolean reter) {
+        if (streaming == null) {
+            return chatComRepeticaoDeTransporte(model, session, pedido);
+        }
+        try {
+            return transmitir(streaming, session, pedido, options, reter);
+        } catch (RuntimeException e) {
+            boolean entregou = session.emitiuDireto || !session.retidos.isEmpty();
+            if (e instanceof ExecucaoCancelada || entregou || session.repetiuTransporte
+                    || !ehFalhaDeTransporte(e)) {
+                throw e;
+            }
+            session.repetiuTransporte = true;
+            log.warn("Falha de TRANSPORTE ao chamar o modelo em streaming ({}); repetindo UMA vez",
+                    e.toString());
+            return transmitir(streaming, session, pedido, options, reter);
+        }
+    }
+
+    private ChatResponse transmitir(StreamingChatModel streaming, Session session, ChatRequest pedido,
+                                    Options options, boolean reter) {
+        SaidaDeTexto saida = options.saida();
+        CompletableFuture<ChatResponse> pronto = new CompletableFuture<>();
+        AtomicReference<StreamingHandle> handle = new AtomicReference<>();
+        // Quando o cancelamento chega, desistimos de esperar na hora — não no próximo token — e
+        // mandamos o provedor parar. O que ainda chegar é descartado.
+        saida.cancelamento().thenRun(() -> {
+            pronto.completeExceptionally(new ExecucaoCancelada());
+            StreamingHandle h = handle.get();
+            if (h != null) {
+                h.cancel();
+            }
+        });
+        streaming.chat(pedido, new StreamingChatResponseHandler() {
+            @Override
+            public void onPartialResponse(String token) {
+                token(token);
+            }
+
+            @Override
+            public void onPartialResponse(PartialResponse parcial, PartialResponseContext contexto) {
+                if (contexto != null && contexto.streamingHandle() != null) {
+                    handle.set(contexto.streamingHandle());
+                    if (saida.cancelada()) {
+                        contexto.streamingHandle().cancel();
+                    }
+                }
+                token(parcial == null ? null : parcial.text());
+            }
+
+            private void token(String texto) {
+                if (texto == null || texto.isEmpty() || pronto.isDone()) {
+                    return;
+                }
+                if (options.uso() != null) {
+                    options.uso().registrarPrimeiroToken();
+                }
+                if (reter) {
+                    session.retidos.add(texto);
+                } else {
+                    session.emitiuDireto = true;
+                    session.emitido.append(texto);
+                    saida.delta(texto);
+                }
+            }
+
+            @Override
+            public void onCompleteResponse(ChatResponse resposta) {
+                pronto.complete(resposta);
+            }
+
+            @Override
+            public void onError(Throwable erro) {
+                pronto.completeExceptionally(erro);
+            }
+        });
+        try {
+            return pronto.get();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            StreamingHandle h = handle.get();
+            if (h != null) {
+                h.cancel();
+            }
+            throw new ExecucaoCancelada();
+        } catch (ExecutionException e) {
+            Throwable causa = e.getCause();
+            if (causa instanceof RuntimeException r) {
+                throw r;
+            }
+            throw new RuntimeException(causa);
+        }
+    }
+
+    /**
+     * O turno se mostrou final: entrega o texto que estava retido, ou o texto inteiro quando o
+     * modelo não transmitiu (degradação para um único delta).
+     */
+    private static void liberarTexto(Session session, Options options, String textoDoTurno) {
+        SaidaDeTexto saida = options.saida();
+        if (saida == null || !saida.transmite()) {
+            return;
+        }
+        if (!session.retidos.isEmpty()) {
+            for (String pedaco : session.retidos) {
+                session.emitido.append(pedaco);
+                saida.delta(pedaco);
+            }
+        } else if (!session.emitiuDireto && textoDoTurno != null && !textoDoTurno.isBlank()) {
+            session.emitido.append(textoDoTurno);
+            saida.delta(textoDoTurno);
+        }
+        session.retidos.clear();
+    }
+
+    /**
+     * O laço terminou sem um turno final (teto de iterações, ou uma tool que encerra): o texto do
+     * resultado é o do último turno com texto, que ficou retido e foi descartado. Sem isto o texto
+     * do resultado e a soma dos deltas divergiriam.
+     */
+    private static void emitirRestante(Session session, Options options) {
+        SaidaDeTexto saida = options.saida();
+        if (saida == null || !saida.transmite() || session.emitido.length() > 0
+                || session.lastText == null || session.lastText.isBlank()) {
+            return;
+        }
+        session.emitido.append(session.lastText);
+        saida.delta(session.lastText);
+    }
 
     /**
      * Chama o modelo, repetindo <b>uma vez</b> quando a chamada nem chegou a
@@ -695,6 +869,10 @@ public class McpAgentRunner {
     private ToolCall executeAndAppend(Session session, McpClient client, Options options,
                                       String toolName, String toolCallId, Map<String, Object> args) {
         long startedAt = System.nanoTime();
+        SaidaDeTexto saida = options.saida();
+        if (saida != null) {
+            saida.tool(toolName, true, null);
+        }
         String resultText;
         boolean isError = true;
         Integer errorCode = null;
@@ -733,6 +911,9 @@ public class McpAgentRunner {
         }
 
         recordToolCall(toolName, startedAt, !isError);
+        if (saida != null) {
+            saida.tool(toolName, false, (System.nanoTime() - startedAt) / 1_000_000);
+        }
         ToolCall call = new ToolCall(toolName, effectiveArgs, resultText, isError, trust, errorCode);
         session.toolCalls.add(call);
         appendToolResult(session, toolCallId, toolName, resultText, isError, trust);
@@ -889,6 +1070,12 @@ public class McpAgentRunner {
         private final List<ChatMessage> messages = new ArrayList<>();
         private final List<ToolCall> toolCalls = new ArrayList<>();
         private int iteration;
+        /** Texto do turno em curso, retido até o turno se mostrar final. */
+        private final List<String> retidos = new ArrayList<>();
+        /** Tudo o que já foi entregue como delta. */
+        private final StringBuilder emitido = new StringBuilder();
+        /** O turno em curso já mandou texto direto, sem reter. */
+        private boolean emitiuDireto;
         /** Só se cobra a saída uma vez — insistir viraria laço com o modelo. */
         private boolean cobrouSaida;
         /**
@@ -972,7 +1159,19 @@ public class McpAgentRunner {
                           LLMConfigPatch flowPatch, LLMConfigPatch stepPatch,
                           Set<String> requiredOutputTools, String tier,
                           Set<Integer> codigosQueEncerram, ContadorDeUso uso,
-                          List<String> contextoRecuperado, McpAgentState.Retomada retomada) {
+                          List<String> contextoRecuperado, McpAgentState.Retomada retomada,
+                          SaidaDeTexto saida) {
+
+        /** Compat: sem saída em fluxo — o laço bloqueante de sempre. */
+        public Options(ToolAccessPolicy access, ToolTrustPolicy trust,
+                       ToolApprovalPolicy approval, int maxIterations,
+                       LLMConfigPatch flowPatch, LLMConfigPatch stepPatch,
+                       Set<String> requiredOutputTools, String tier,
+                       Set<Integer> codigosQueEncerram, ContadorDeUso uso,
+                       List<String> contextoRecuperado, McpAgentState.Retomada retomada) {
+            this(access, trust, approval, maxIterations, flowPatch, stepPatch, requiredOutputTools,
+                    tier, codigosQueEncerram, uso, contextoRecuperado, retomada, null);
+        }
 
         /** Compat: sem dados de retomada — só serve a laço que não suspende. */
         public Options(ToolAccessPolicy access, ToolTrustPolicy trust,
@@ -1008,7 +1207,7 @@ public class McpAgentRunner {
         public Options comUso(ContadorDeUso contador) {
             return new Options(access, trust, approval, maxIterations, flowPatch, stepPatch,
                     requiredOutputTools, tier, codigosQueEncerram, contador, contextoRecuperado,
-                    retomada);
+                    retomada, saida);
         }
 
         /** As mesmas opções, com o tier pedido por quem acionou; vazio mantém o atual. */
@@ -1018,13 +1217,13 @@ public class McpAgentRunner {
             }
             return new Options(access, trust, approval, maxIterations, flowPatch, stepPatch,
                     requiredOutputTools, novoTier, codigosQueEncerram, uso, contextoRecuperado,
-                    retomada);
+                    retomada, saida);
         }
 
         /** As mesmas opções, encerrando o laço quando uma tool responder um destes códigos. */
         public Options encerrandoEm(Set<Integer> codigos) {
             return new Options(access, trust, approval, maxIterations, flowPatch, stepPatch,
-                    requiredOutputTools, tier, codigos, uso, contextoRecuperado, retomada);
+                    requiredOutputTools, tier, codigos, uso, contextoRecuperado, retomada, saida);
         }
 
         /**
@@ -1033,7 +1232,7 @@ public class McpAgentRunner {
          */
         public Options comContextoRecuperado(List<String> contexto) {
             return new Options(access, trust, approval, maxIterations, flowPatch, stepPatch,
-                    requiredOutputTools, tier, codigosQueEncerram, uso, contexto, retomada);
+                    requiredOutputTools, tier, codigosQueEncerram, uso, contexto, retomada, saida);
         }
 
         /**
@@ -1042,7 +1241,17 @@ public class McpAgentRunner {
          */
         public Options comRetomada(McpAgentState.Retomada dados) {
             return new Options(access, trust, approval, maxIterations, flowPatch, stepPatch,
-                    requiredOutputTools, tier, codigosQueEncerram, uso, contextoRecuperado, dados);
+                    requiredOutputTools, tier, codigosQueEncerram, uso, contextoRecuperado, dados, saida);
+        }
+
+        /**
+         * As mesmas opções, entregando o que o laço produz a {@code novaSaida} enquanto produz. Ver
+         * {@link SaidaDeTexto}. Nula mantém o laço bloqueante.
+         */
+        public Options comSaida(SaidaDeTexto novaSaida) {
+            return new Options(access, trust, approval, maxIterations, flowPatch, stepPatch,
+                    requiredOutputTools, tier, codigosQueEncerram, uso, contextoRecuperado,
+                    retomada, novaSaida);
         }
 
         public Options(ToolAccessPolicy access, ToolTrustPolicy trust,
