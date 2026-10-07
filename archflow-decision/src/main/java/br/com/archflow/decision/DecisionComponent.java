@@ -32,7 +32,10 @@ import java.util.Set;
  * primary: time                     # a pergunta cujo valor vira `decision`; padrão: a primeira
  * gate: [time]                        # quais perguntas decidem a rota; padrão: todas
  * onError: ESCALATE                   # ou FAIL
- * fallbacks: [ { provider: rules, options: { rules: {...} } } ]   # tentados em ordem se o anterior falha
+ * fallbacks: [ { provider: rules, options: { rules: {...} } } ]   # tentados em ordem se um provedor FALHA
+ * cascade: [ { provider: http-decisions, model: outro } ]  # degraus seguintes, se o anterior respondeu com pouca confiança
+ * acceptAt: 0.9                       # confiança que encerra a cascata; padrão: thresholds.auto
+ * consensus: { models: [ { model: outro } ], onDisagree: REVIEW }  # outros modelos votam; discordância rebaixa a rota
  * providerOptions: { http-decisions: { endpoint: "…" } }
  * </pre>
  *
@@ -69,6 +72,10 @@ public class DecisionComponent implements AIComponent {
     private Duration timeout = Duration.ofSeconds(10);
     private Map<String, Object> providerOptions = Map.of();
     private List<Map<String, Object>> fallbacks = List.of();
+    private List<Map<String, Object>> cascade = List.of();
+    private double acceptAt = RoutePolicy.DEFAULT.auto();
+    private List<Map<String, Object>> consensusModels = List.of();
+    private RoutePolicy.Route onDisagree = RoutePolicy.Route.REVIEW;
     private boolean initialized;
 
     public DecisionComponent(DecisionProviders providers, DecisionKeys keys) {
@@ -118,7 +125,27 @@ public class DecisionComponent implements AIComponent {
         fallbacks = config.get("fallbacks") instanceof List<?> l
                 ? l.stream().filter(Map.class::isInstance).map(o -> (Map<String, Object>) o).toList()
                 : List.of();
+        cascade = tiers(config.get("cascade"));
+        acceptAt = num(config.get("acceptAt"), policy.auto());
+        if (acceptAt < 0 || acceptAt > 1) {
+            throw new IllegalArgumentException(COMPONENT_ID + ": 'acceptAt' deve estar entre 0 e 1");
+        }
+        Map<String, Object> consenso = config.get("consensus") instanceof Map<?, ?> m
+                ? (Map<String, Object>) m : Map.of();
+        consensusModels = tiers(consenso.get("models"));
+        String desacordo = str(consenso.get("onDisagree"), "REVIEW").toUpperCase();
+        if (!desacordo.equals("REVIEW") && !desacordo.equals("ESCALATE")) {
+            throw new IllegalArgumentException(COMPONENT_ID + ": 'consensus.onDisagree' deve ser REVIEW ou ESCALATE");
+        }
+        onDisagree = RoutePolicy.Route.valueOf(desacordo);
         initialized = true;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<Map<String, Object>> tiers(Object raw) {
+        return raw instanceof List<?> l
+                ? l.stream().filter(Map.class::isInstance).map(o -> (Map<String, Object>) o).toList()
+                : List.of();
     }
 
     @Override
@@ -143,43 +170,96 @@ public class DecisionComponent implements AIComponent {
                 Set.of("decisão", "classificar", "rotear", "triagem", "intenção"));
     }
 
+    /** Uma tentativa que deu certo: o resultado, de quem veio e a confiança que decide a rota. */
+    private record Tentativa(DecisionResult result, String provider, String model, double confidence) {
+    }
+
     @Override
     public Object execute(String operation, Object input, ExecutionContext context) throws Exception {
         if (!initialized) {
             throw new IllegalStateException(COMPONENT_ID + " não inicializado");
         }
         Object state = stateTemplate == null ? input
-                : StateTemplate.resolve(stateTemplate, path -> lookup(path, input, context));
+                : StateTemplate.resolve(stateTemplate, StateTemplate.fromContext(context, input));
         DecisionRequest request = new DecisionRequest(state, questions);
         String tenantId = context == null ? null : context.getTenantId();
+        Optional<DecisionUsageListener> uso = DecisionUsageListener.from(context);
 
-        List<Map<String, Object>> tentativas = new ArrayList<>();
+        // CASCATA: o primeiro degrau é o provedor do nó; os seguintes só entram quando o anterior
+        // respondeu mas com menos confiança que `acceptAt`. Para no primeiro que atinge o limiar; se
+        // nenhum atinge, vale o mais confiante — e a rota (REVIEW/ESCALATE) diz que não é seguro.
+        List<Map<String, Object>> degraus = new ArrayList<>();
         Map<String, Object> primeira = new LinkedHashMap<>();
         primeira.put("provider", provider);
         primeira.put("model", model);
-        tentativas.add(primeira);
-        tentativas.addAll(fallbacks);
+        degraus.add(primeira);
+        degraus.addAll(cascade);
 
         List<String> falhas = new ArrayList<>();
-        for (Map<String, Object> tentativa : tentativas) {
-            String id = str(tentativa.get("provider"), null);
+        List<Map<String, Object>> trilha = new ArrayList<>();
+        Tentativa aceita = null;
+        Tentativa melhor = null;
+        for (int i = 0; i < degraus.size() && aceita == null; i++) {
+            Tentativa t = comReserva(degraus.get(i), request, tenantId, uso, falhas);
+            Map<String, Object> passo = new LinkedHashMap<>();
+            passo.put("tier", i);
+            passo.put("provider", t == null ? str(degraus.get(i).get("provider"), null) : t.provider());
+            passo.put("model", t == null ? str(degraus.get(i).get("model"), null) : t.model());
+            if (t == null) {
+                passo.put("status", "FAILED");
+            } else {
+                passo.put("confidence", t.confidence());
+                boolean basta = t.confidence() >= acceptAt;
+                passo.put("status", basta ? "ACCEPTED" : "LOW_CONFIDENCE");
+                if (melhor == null || t.confidence() > melhor.confidence()) {
+                    melhor = t;
+                }
+                if (basta) {
+                    aceita = t;
+                }
+            }
+            trilha.add(passo);
+        }
+        Tentativa escolhida = aceita != null ? aceita : melhor;
+        if (escolhida == null) {
+            String erro = String.join("; ", falhas);
+            if (failOnError) {
+                throw new DecisionException("a decisão não saiu — " + erro, false);
+            }
+            return degradada(erro);
+        }
+
+        Map<String, Object> saida = montar(escolhida.result(), escolhida.confidence());
+        if (degraus.size() > 1) {
+            saida.put("cascade", trilha);
+        }
+        if (!consensusModels.isEmpty()) {
+            consenso(saida, escolhida, request, tenantId, uso);
+        }
+        return saida;
+    }
+
+    /** Tenta o degrau e, se ele FALHAR, os `fallbacks`, em ordem. Nulo quando nenhum respondeu. */
+    private Tentativa comReserva(Map<String, Object> degrau, DecisionRequest request, String tenantId,
+                                 Optional<DecisionUsageListener> uso, List<String> falhas) {
+        List<Map<String, Object>> candidatos = new ArrayList<>();
+        candidatos.add(degrau);
+        candidatos.addAll(fallbacks);
+        for (Map<String, Object> candidato : candidatos) {
+            String id = str(candidato.get("provider"), null);
             try {
-                DecisionResult result = tentar(id, tentativa, request, tenantId);
-                return montar(result);
+                return tentar(id, candidato, request, tenantId, uso);
             } catch (DecisionException e) {
                 log.warn("{}: provedor '{}' não decidiu: {}", COMPONENT_ID, id, e.getMessage());
                 falhas.add(id + ": " + e.getMessage());
             }
         }
-        String erro = String.join("; ", falhas);
-        if (failOnError) {
-            throw new DecisionException("a decisão não saiu — " + erro, false);
-        }
-        return degradada(erro);
+        return null;
     }
 
-    private DecisionResult tentar(String id, Map<String, Object> tentativa, DecisionRequest request,
-                                  String tenantId) throws DecisionException {
+    private Tentativa tentar(String id, Map<String, Object> tentativa, DecisionRequest request,
+                             String tenantId, Optional<DecisionUsageListener> uso)
+            throws DecisionException {
         Optional<DecisionProvider> found = providers.find(id);
         if (found.isEmpty()) {
             throw new DecisionException("provedor de decisão desconhecido: " + id, false);
@@ -200,14 +280,127 @@ public class DecisionComponent implements AIComponent {
                 throw new DecisionException("sem chave de API para o provedor '" + id + "'", false);
             }
         }
-        return p.decide(request, new DecisionCall(tenantId, str(tentativa.get("model"), null),
-                key, timeout, options));
+        DecisionResult result = p.decide(request, new DecisionCall(tenantId,
+                str(tentativa.get("model"), null), key, timeout, options));
+        // O consumo é de quem chamou: cada chamada que foi feita conta, mesmo a de um degrau que
+        // depois não foi o escolhido.
+        if (result.usage() != null) {
+            uso.ifPresent(u -> u.onDecision(result.provider(), result.model(),
+                    result.usage().inputTokens(), result.usage().outputTokens(),
+                    result.usage().costUsd()));
+        }
+        return new Tentativa(result, result.provider(), result.model(), confidenceOf(result));
     }
 
-    private Map<String, Object> montar(DecisionResult result) {
-        Map<String, Map<String, Object>> answers = new LinkedHashMap<>();
+    /** A menor confiança entre as perguntas que decidem a rota; 0 quando nenhuma decide. */
+    private double confidenceOf(DecisionResult result) {
         double minima = 1.0;
         boolean temGate = false;
+        for (Question q : questions) {
+            Answer a = result.answers().get(q.id());
+            if (a != null && (gate.isEmpty() || gate.contains(q.id()))) {
+                minima = Math.min(minima, a.confidence());
+                temGate = true;
+            }
+        }
+        return temGate ? minima : 0.0;
+    }
+
+    /**
+     * CONSENSO: os mesmos pedidos a outros modelos, em paralelo. Se discordam do valor da pergunta
+     * principal, a rota é rebaixada para no mínimo {@code onDisagree} — dois bons modelos que não
+     * concordam são um sinal de que a decisão não é segura, e quem aprova é uma pessoa.
+     */
+    private void consenso(Map<String, Object> saida, Tentativa principal, DecisionRequest request,
+                          String tenantId, Optional<DecisionUsageListener> uso) {
+        List<Tentativa> votos = new ArrayList<>();
+        votos.add(principal);
+        List<String> falhasDoConsenso = new ArrayList<>();
+        List<java.util.concurrent.Future<Tentativa>> futuros = new ArrayList<>();
+        try (var executor = java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor()) {
+            for (Map<String, Object> modelo : consensusModels) {
+                futuros.add(executor.submit(() -> tentar(str(modelo.get("provider"), provider),
+                        modelo, request, tenantId, uso)));
+            }
+            for (int i = 0; i < futuros.size(); i++) {
+                try {
+                    votos.add(futuros.get(i).get());
+                } catch (java.util.concurrent.ExecutionException e) {
+                    falhasDoConsenso.add(str(consensusModels.get(i).get("model"), "?") + ": "
+                            + (e.getCause() == null ? e : e.getCause()).getMessage());
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    falhasDoConsenso.add("interrompido");
+                    break;
+                }
+            }
+        }
+        java.util.Set<Object> distintos = new java.util.LinkedHashSet<>();
+        List<Map<String, Object>> lista = new ArrayList<>();
+        for (Tentativa t : votos) {
+            Object chave = chaveDeVoto(t.result().answers().get(primary));
+            distintos.add(chave);
+            Map<String, Object> voto = new LinkedHashMap<>();
+            voto.put("provider", t.provider());
+            voto.put("model", t.model());
+            voto.put("decision", t.result().answers().get(primary).value());
+            voto.put("confidence", t.confidence());
+            lista.add(voto);
+        }
+        boolean concordam = distintos.size() <= 1;
+        Map<String, Object> resumo = new LinkedHashMap<>();
+        resumo.put("agree", concordam);
+        resumo.put("votes", lista);
+        if (!falhasDoConsenso.isEmpty()) {
+            resumo.put("failures", falhasDoConsenso);
+        }
+        saida.put("consensus", resumo);
+        if (!concordam) {
+            RoutePolicy.Route atual = RoutePolicy.Route.valueOf((String) saida.get("route"));
+            if (onDisagree.ordinal() > atual.ordinal()) {
+                saida.put("route", onDisagree.name());
+            }
+            saida.put("routeReason", "consensus_disagreement");
+        }
+        // O consumo do resultado inclui o de todos os modelos que votaram.
+        saida.put("usage", somarUso(votos));
+    }
+
+    /** O que conta como "a mesma decisão": a opção, o nível arredondado, ou o lado do sim/não. */
+    private static Object chaveDeVoto(Answer a) {
+        return switch (a) {
+            case Answer.Choice c -> c.choice();
+            case Answer.Score s -> Math.round(s.score());
+            case Answer.YesNo y -> y.probability() >= 0.5;
+        };
+    }
+
+    private static Map<String, Object> somarUso(List<Tentativa> votos) {
+        long in = 0;
+        long out = 0;
+        double custo = 0;
+        boolean temCusto = false;
+        for (Tentativa t : votos) {
+            var u = t.result().usage();
+            if (u == null) {
+                continue;
+            }
+            in += u.inputTokens() == null ? 0 : u.inputTokens();
+            out += u.outputTokens() == null ? 0 : u.outputTokens();
+            if (u.costUsd() != null) {
+                custo += u.costUsd();
+                temCusto = true;
+            }
+        }
+        Map<String, Object> usage = new LinkedHashMap<>();
+        usage.put("inputTokens", in);
+        usage.put("outputTokens", out);
+        usage.put("costUsd", temCusto ? custo : null);
+        return usage;
+    }
+
+    private Map<String, Object> montar(DecisionResult result, double confidence) {
+        Map<String, Map<String, Object>> answers = new LinkedHashMap<>();
         for (Question q : questions) {
             Answer a = result.answers().get(q.id());
             Map<String, Object> no = new LinkedHashMap<>();
@@ -232,12 +425,7 @@ public class DecisionComponent implements AIComponent {
                 }
             }
             answers.put(q.id(), no);
-            if (gate.isEmpty() || gate.contains(q.id())) {
-                minima = Math.min(minima, a.confidence());
-                temGate = true;
-            }
         }
-        double confidence = temGate ? minima : 0.0;
         Map<String, Object> saida = new LinkedHashMap<>();
         saida.put("route", policy.route(confidence).name());
         saida.put("confidence", confidence);
@@ -314,26 +502,6 @@ public class DecisionComponent implements AIComponent {
             }
         }
         return lista;
-    }
-
-    @SuppressWarnings("unchecked")
-    private static Object lookup(String path, Object input, ExecutionContext context) {
-        if (path.equals("input")) {
-            return input;
-        }
-        if (context == null) {
-            return null;
-        }
-        Optional<Object> direto = context.get(path);
-        if (direto.isPresent()) {
-            return direto.get();
-        }
-        String[] partes = path.split("\\.");
-        Object atual = partes[0].equals("input") ? input : context.get(partes[0]).orElse(null);
-        for (int i = 1; i < partes.length && atual != null; i++) {
-            atual = atual instanceof Map<?, ?> m ? ((Map<String, Object>) m).get(partes[i]) : null;
-        }
-        return atual;
     }
 
     private static String str(Object v, String padrao) {

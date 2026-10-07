@@ -106,26 +106,40 @@ public record VendaxResult(
              * transmitiu — uma resposta bloqueante não tem primeiro token a medir —, e por isso
              * ausente significa "não medido", nunca zero.
              */
-            @JsonInclude(JsonInclude.Include.NON_NULL) Long msAtePrimeiroToken) {
+            @JsonInclude(JsonInclude.Include.NON_NULL) Long msAtePrimeiroToken,
+            /*
+             * Custo que os provedores de decisão declararam, em USD. Aditivo e separado do
+             * costCents (reais, da tabela de preços): este runtime não converte moeda, e o Core
+             * aplica a conversão que quiser. Ausente é "nenhum provedor informou", nunca zero.
+             */
+            @JsonInclude(JsonInclude.Include.NON_NULL) Double declaredCostUsd) {
+
+        /** Compat: uso anterior ao custo declarado. */
+        public Uso(String model, Long tokens, Long costCents, String execucaoId, String provider,
+                   Long inputTokens, Long outputTokens, Integer llmTurns, Integer toolCalls,
+                   Long durationMs, Long msAtePrimeiroToken) {
+            this(model, tokens, costCents, execucaoId, provider, inputTokens, outputTokens,
+                    llmTurns, toolCalls, durationMs, msAtePrimeiroToken, null);
+        }
 
         /** Compat: uso anterior à medição do primeiro token. */
         public Uso(String model, Long tokens, Long costCents, String execucaoId, String provider,
                    Long inputTokens, Long outputTokens, Integer llmTurns, Integer toolCalls,
                    Long durationMs) {
             this(model, tokens, costCents, execucaoId, provider, inputTokens, outputTokens,
-                    llmTurns, toolCalls, durationMs, null);
+                    llmTurns, toolCalls, durationMs, null, null);
         }
 
         /** Compat: a forma do PR #51. */
         public Uso(String model, Long tokens, Long costCents) {
-            this(model, tokens, costCents, null, null, null, null, null, null, null, null);
+            this(model, tokens, costCents, null, null, null, null, null, null, null, null, null);
         }
 
         /** O consumo contado, com o custo calculado por quem tem a tabela de preços. */
         public static Uso de(br.com.archflow.api.agent.mcp.ContadorDeUso.Resumo r, Long costCents) {
             return new Uso(r.modelo(), r.tokens(), costCents, r.execucaoId(), r.provedor(),
                     r.tokensEntrada(), r.tokensSaida(), r.turnos(), r.chamadasDeTool(),
-                    r.duracaoMs(), r.msAtePrimeiroToken());
+                    r.duracaoMs(), r.msAtePrimeiroToken(), r.custoDeclaradoUsd());
         }
     }
 

@@ -98,6 +98,7 @@ export const NODE_TYPE_TO_CATEGORY: Record<string, keyof typeof NODE_CATEGORIES>
   // Knowledge / HITL / orchestration (backend already supports these)
   'skills':           'knowledge',
   'approval':         'control',
+  'decision':         'control',
   'subflow':          'control',
   'mcp-tool':         'tool',
   // External messaging (Linktor)
@@ -146,6 +147,7 @@ export const PALETTE_NODES = [
   // Knowledge / orchestration / HITL (backend-backed)
   { componentId: 'skills',        label: 'Skills',         description: 'Activate and read playbook skills',  category: 'knowledge'   as const },
   { componentId: 'approval',      label: 'Human approval', description: 'Pause for a human decision (HITL)',  category: 'control'     as const },
+  { componentId: 'decision',      label: 'Decision',       description: 'Typed decision with confidence and route', category: 'control' as const },
   { componentId: 'subflow',       label: 'Subflow',        description: 'Invoke another workflow as a step',  category: 'control'     as const },
   { componentId: 'mcp-tool',      label: 'MCP tool',       description: 'Call a tool on a registered MCP server', category: 'tool'    as const },
   // External messaging (Linktor)

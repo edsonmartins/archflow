@@ -197,12 +197,17 @@ export const useFlowStore = create<FlowStore>((set, get) => ({
         position:    n.position,
         config:      n.data.config,
       })),
-      connections: edges.map(e => ({
-        id:          e.id,
-        sourceId:    e.source,
-        targetId:    e.target,
-        isErrorPath: (e.data as any)?.isErrorPath ?? false,
-      })),
+      connections: edges.map(e => {
+        const d = e.data as { isErrorPath?: boolean; condition?: string; branch?: string } | undefined
+        return {
+          id:          e.id,
+          sourceId:    e.source,
+          targetId:    e.target,
+          isErrorPath: d?.isErrorPath ?? false,
+          ...(d?.condition ? { condition: d.condition } : {}),
+          ...(d?.branch ? { branch: d.branch } : {}),
+        }
+      }),
     }
   },
 }))

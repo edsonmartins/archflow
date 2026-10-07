@@ -98,6 +98,11 @@ function configChips(category: CategoryKey, data: FlowNodeData): string[] {
         chips.push(`timeout ${asStr(cfg.approvalTimeoutMinutes) ?? 30}m`)
       }
       if (data.nodeType === 'subflow') chips.push(asStr(cfg.subflowId))
+      if (data.nodeType === 'decision') {
+        chips.push(asStr(cfg.model) ?? asStr(cfg.provider))
+        const qs = cfg.questions
+        if (qs && typeof qs === 'object') chips.push(`${Object.keys(qs).length} q`)
+      }
       break
     }
     case 'data':

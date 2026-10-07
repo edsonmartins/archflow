@@ -43,9 +43,15 @@ Perguntas sobre o mesmo estado são independentes: nenhuma enxerga a resposta da
     thresholds: { auto: 0.9, review: 0.5 }
     onError: ESCALATE                   # ou FAIL
     timeoutMs: 10000
-    fallbacks:                          # tentados em ordem quando o provedor anterior FALHA
+    fallbacks:                          # tentados em ordem quando um provedor FALHA
       - provider: llm
         model: openai/gpt-4o-mini
+    cascade:                            # degraus seguintes, se o anterior respondeu com pouca confiança
+      - { provider: http-decisions, model: upstage/solar-decide }
+    acceptAt: 0.9                       # confiança que encerra a cascata; padrão: thresholds.auto
+    consensus:                          # outros modelos votam sobre o mesmo estado
+      models: [ { model: liquid/d1 } ]
+      onDisagree: REVIEW                # ou ESCALATE
     providerOptions:
       http-decisions: { endpoint: "https://openrouter.ai/api/alpha/decisions", retries: 1 }
 ```
@@ -72,6 +78,48 @@ O nó grava no contexto, sob o seu `id`:
 ```
 
 `REVIEW` e `ESCALATE` ligam naturalmente a um nó `APPROVAL` (decisão humana, que já é durável).
+
+### O ramo da aresta (`branch`)
+Em vez de montar a condição à mão, a aresta pode declarar o ramo que quer dizer, e a factory a converte:
+
+```json
+{ "targetId": "resolver",  "branch": "AUTO" }       // → ${triagem.route} == 'AUTO'
+{ "targetId": "humano",    "branch": "ESCALATE" }
+```
+
+Vale para `decision` (rotas `AUTO`/`REVIEW`/`ESCALATE`) e para os nós `condition`/`switch` (abaixo). Uma
+`condition` escrita à mão na mesma aresta **vence** o ramo.
+
+## Nós `condition` e `switch`
+Até aqui existiam só no designer: sem tratamento na factory, caíam no catálogo como componentes
+inexistentes. Agora são passos de verdade (`ControlStep`) que **calculam o ramo**; quem ramifica
+continua sendo a condição da aresta.
+
+- `condition`: avalia `conditionExpression` (a sintaxe das arestas) e grava `branch = "true" | "false"`.
+  Expressão malformada ou que não se avalia é `false` (com o motivo em `error`), nunca "verdadeira".
+- `switch`: resolve `switchExpression` e, se o valor é um dos `switchCases` (um por linha, sem
+  diferenciar maiúsculas), grava `branch = <o caso>`; senão `"default"`.
+- A **entrada segue intacta**: um nó de controle decide o caminho, não transforma o dado.
+
+## Cascata por confiança
+`fallbacks` entra quando um provedor **falha**. `cascade` entra quando o provedor **respondeu, mas com
+pouca confiança**: os degraus são tentados em ordem e a cascata para no primeiro com
+`confidence ≥ acceptAt`. Se nenhum atinge, vale o **mais confiante** — e a rota (`REVIEW`/`ESCALATE`)
+diz que não é seguro. A saída traz `cascade` com a trilha (`ACCEPTED`, `LOW_CONFIDENCE`, `FAILED`).
+Uma cascata típica é `rules → modelo de decisão barato → modelo maior/LLM → humano`.
+
+## Consenso entre modelos
+`consensus.models` roda os mesmos pedidos em outros modelos, **em paralelo**. Se discordam do valor da
+pergunta `primary` (a opção, o nível arredondado, o lado do sim/não), a rota é rebaixada para no mínimo
+`onDisagree` (padrão `REVIEW`) e `routeReason` vira `consensus_disagreement`. A `decision` segue sendo a
+do modelo principal; `consensus.votes` lista o voto de cada um, e um modelo que **falha** fica em
+`consensus.failures` sem contar como discordância. O `usage` do resultado soma todos os votos.
+
+## Consumo
+Cada chamada feita — de um degrau da cascata, de um voto do consenso ou de um fallback — é reportada ao
+`ContadorDeUso` da execução. O custo declarado pelo provedor (`usage.cost`, em USD) soma em
+`uso.declaredCostUsd` do resultado ao Core, **separado** de `costCents` (reais, da tabela de preços):
+este runtime não converte moeda. Ausente é "nenhum provedor informou", nunca zero.
 
 ## Rota e limiares
 
@@ -121,9 +169,18 @@ OPENROUTER_API_KEY=... mvn test -pl archflow-decision,archflow-api -am \
 ```
 Sem a variável, esses casos são pulados. A chave nunca mora no repositório.
 
+## Designer
+O nó `decision` está na paleta (categoria controle) com painel de propriedades: provedor, modelo, perguntas
+(JSON validado — só grava quando parseia), estado, `primary`/`gate`, limiares, `onError`, cascata,
+reserva e consenso. Ao ligar uma aresta a partir de um `decision`, `condition` ou `switch`, ela já recebe
+o **primeiro ramo livre**; ao selecioná-la dá para trocar o ramo ou escrever uma condição à mão.
+
+**Correção que veio junto:** o editor descartava a `condition` das arestas ao carregar e ao salvar —
+um fluxo aberto e salvo no designer perdia toda condição e passava a seguir todos os ramos. Agora
+`condition` e `branch` fazem a ida e a volta (`workflowSerde.ts`, com teste).
+
 ## Limites conhecidos
-- O consumo (`usage.costUsd`) sai no resultado do nó, mas **não** alimenta o `ContadorDeUso` do
-  agente — um teto de custo por tenant ainda não enxerga decisões.
-- Os nós `condition`/`switch` do designer continuam sem efeito no runtime (ver issue de follow-up); o
-  caminho que funciona é a condição na aresta, como acima.
-- O designer ainda não tem um nó `decision`.
+- Os nós `parallel`, `loop`, `merge`, `map`, `filter` e `reduce` do designer ainda não têm execução no
+  runtime (só `condition`, `switch` e `decision` foram tratados).
+- No modo standalone (`archflow-standalone`) o `ControlStep` não é reconstruído a partir do YAML; o
+  nó `decision` e as arestas com `condition` resolvida são exportados normalmente.

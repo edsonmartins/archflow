@@ -34,6 +34,7 @@ import {
 } from './nodes/index'
 import { FlowEdge }      from './edges/FlowEdge'
 import { useFlowStore, type CanvasApi }  from './store/useFlowStore'
+import { branchOptions, nextFreeBranch } from './branches'
 import { NODE_CATEGORIES, NODE_TYPE_TO_CATEGORY } from './constants'
 import type { FlowNodeData, WorkflowData } from './types'
 import { CanvasOutline } from './CanvasOutline'
@@ -297,7 +298,8 @@ export function FlowCanvas({
         if (!ids.has(sourceId) || !ids.has(targetId)) return false
         pushHistory('connect')
         setEdges(eds => addEdge(
-          { id: `e-${sourceId}-${targetId}-${Date.now()}`, source: sourceId, target: targetId, type: 'flow', animated: false, data: { isErrorPath: false } },
+          { id: `e-${sourceId}-${targetId}-${Date.now()}`, source: sourceId, target: targetId, type: 'flow', animated: false,
+            data: defaultEdgeData(sourceId, localNodesRef.current, eds) },
           eds))
         return true
       },
@@ -328,7 +330,7 @@ export function FlowCanvas({
             ...params,
             type: 'flow',
             animated: false,
-            data: { isErrorPath: false },
+            data: defaultEdgeData(params.source, localNodesRef.current, eds),
           },
           eds
         )
@@ -374,7 +376,8 @@ export function FlowCanvas({
       ? [connectMenu.fromNodeId, id]
       : [id, connectMenu.fromNodeId]
     setEdges(eds => addEdge(
-      { id: `e-${source}-${target}`, source, target, type: 'flow', animated: false, data: { isErrorPath: false } },
+      { id: `e-${source}-${target}`, source, target, type: 'flow', animated: false,
+        data: defaultEdgeData(source, localNodesRef.current, eds) },
       eds))
     setConnectMenu(null)
   }, [connectMenu, pushHistory, setNodes, setEdges])
@@ -707,6 +710,19 @@ function minimapNodeColor(node: Node): string {
   return NODE_CATEGORIES[catKey ?? 'io'].color
 }
 
+/**
+ * O ramo padrão de uma aresta nova: o primeiro ainda livre do nó de origem (true/false, os casos do
+ * switch, AUTO/REVIEW/ESCALATE). Nó que não ramifica não ganha ramo.
+ */
+function defaultEdgeData(sourceId: string, nodes: Node[], edges: Edge[]): { isErrorPath: boolean; branch?: string } {
+  const source = nodes.find(n => n.id === sourceId)
+  const data = source?.data as FlowNodeData | undefined
+  const options = branchOptions(String(data?.nodeType ?? ''), data?.config)
+  const branch = nextFreeBranch(options, edges.filter(e => e.source === sourceId)
+    .map(e => (e.data as { branch?: string } | undefined)?.branch))
+  return branch ? { isErrorPath: false, branch } : { isErrorPath: false }
+}
+
 function workflowToNodes(wf: WorkflowData): Node<FlowNodeData>[] {
   return wf.steps.map(step => {
     const isAnnotation = step.category === 'annotation'
@@ -733,6 +749,10 @@ function workflowToEdges(wf: WorkflowData): Edge[] {
     source: conn.sourceId,
     target: conn.targetId,
     type:   'flow',
-    data:   { isErrorPath: conn.isErrorPath },
+    data:   {
+      isErrorPath: conn.isErrorPath,
+      ...(conn.condition ? { condition: conn.condition } : {}),
+      ...(conn.branch ? { branch: conn.branch } : {}),
+    },
   }))
 }
