@@ -39,7 +39,7 @@
           impedir REGRESSÃO, não para premiar. Subir é uma linha no pom do módulo.
         -->
         <jacoco.min.coverage>0.15</jacoco.min.coverage>
-        <langchain4j.version>1.18.0</langchain4j.version>
+        <langchain4j.version>1.21.0</langchain4j.version>
         <java.version>25</java.version>
         <maven.compiler.source>25</maven.compiler.source>
         <maven.compiler.target>25</maven.compiler.target>

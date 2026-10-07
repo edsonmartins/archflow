@@ -86,6 +86,13 @@ public class McpAgentComponent implements AIComponent, ComponentPlugin {
 
     /** Entrada e saída do passo, para quem encadeia. */
     public static final String SAIDA_TEXTO = "text";
+
+    /**
+     * Chave de config que marca o nó como o final do fluxo, o único cujo texto é transmitido. Quem
+     * hospeda a execução em fluxo a escreve na cópia do documento; um fluxo escrito à mão também
+     * pode declará-la.
+     */
+    public static final String CFG_TRANSMITIR_TEXTO = "transmitirTexto";
     public static final String SAIDA_TOOLS = "toolCalls";
     public static final String SAIDA_SUSPENSO = "suspended";
     public static final String SAIDA_APROVACAO = "approvalRequestId";
@@ -224,7 +231,13 @@ public class McpAgentComponent implements AIComponent, ComponentPlugin {
                 // tokens que nenhum resultado relata — e o teto de custo do tenant contaria menos
                 // do que foi gasto, justamente no caminho que vai substituir os outros.
                 .comUso(ContadorDeUso.de(context).orElse(null))
-                .comContextoRecuperado(memoriaDoContexto(context));
+                .comContextoRecuperado(memoriaDoContexto(context))
+                // O TEXTO SÓ SAI DO NÓ QUE O DOCUMENTO MARCOU como final (`transmitirTexto`). Os
+                // demais seguem na saída só para cancelamento e aviso de tool: o texto de um passo
+                // intermediário é insumo do passo seguinte, não resposta para quem espera.
+                .comSaida(SaidaDeTexto.de(context)
+                        .map(s -> booleano(config.get("transmitirTexto")) ? s : s.semTexto())
+                        .orElse(null));
 
         // A CORRELAÇÃO VOLTA AO ThreadLocal AQUI — nesta thread, que é a que chama as tools.
         //

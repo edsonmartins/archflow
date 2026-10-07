@@ -100,18 +100,32 @@ public record VendaxResult(
             @JsonInclude(JsonInclude.Include.NON_NULL) Long outputTokens,
             @JsonInclude(JsonInclude.Include.NON_NULL) Integer llmTurns,
             @JsonInclude(JsonInclude.Include.NON_NULL) Integer toolCalls,
-            @JsonInclude(JsonInclude.Include.NON_NULL) Long durationMs) {
+            @JsonInclude(JsonInclude.Include.NON_NULL) Long durationMs,
+            /*
+             * Do início da execução ao primeiro token do provedor. Só existe quando o provedor
+             * transmitiu — uma resposta bloqueante não tem primeiro token a medir —, e por isso
+             * ausente significa "não medido", nunca zero.
+             */
+            @JsonInclude(JsonInclude.Include.NON_NULL) Long msAtePrimeiroToken) {
+
+        /** Compat: uso anterior à medição do primeiro token. */
+        public Uso(String model, Long tokens, Long costCents, String execucaoId, String provider,
+                   Long inputTokens, Long outputTokens, Integer llmTurns, Integer toolCalls,
+                   Long durationMs) {
+            this(model, tokens, costCents, execucaoId, provider, inputTokens, outputTokens,
+                    llmTurns, toolCalls, durationMs, null);
+        }
 
         /** Compat: a forma do PR #51. */
         public Uso(String model, Long tokens, Long costCents) {
-            this(model, tokens, costCents, null, null, null, null, null, null, null);
+            this(model, tokens, costCents, null, null, null, null, null, null, null, null);
         }
 
         /** O consumo contado, com o custo calculado por quem tem a tabela de preços. */
         public static Uso de(br.com.archflow.api.agent.mcp.ContadorDeUso.Resumo r, Long costCents) {
             return new Uso(r.modelo(), r.tokens(), costCents, r.execucaoId(), r.provedor(),
                     r.tokensEntrada(), r.tokensSaida(), r.turnos(), r.chamadasDeTool(),
-                    r.duracaoMs());
+                    r.duracaoMs(), r.msAtePrimeiroToken());
         }
     }
 
@@ -172,6 +186,26 @@ public record VendaxResult(
                 invoke.agent(), OK, type, richObject, null, idempotencyKeyOf(invoke), null, null, null);
     }
 
+    /** Valor de {@link Encerramento#name()} quando quem acionou pediu para parar. */
+    public static final String CANCELADO = "CANCELADO";
+
+    /**
+     * A execução foi cancelada: o texto que já havia saído (se houve) e o consumo até ali.
+     *
+     * <p>O status é {@code ERROR} — não há resposta completa — e {@code CANCELADO} vem em
+     * {@code encerradoPor}, que é onde o chamador já olha para saber por que o laço parou.</p>
+     */
+    public static VendaxResult cancelado(VendaxInvoke invoke, String textoParcial) {
+        boolean temTexto = textoParcial != null && !textoParcial.isEmpty();
+        return new VendaxResult(SCHEMA_VERSION, invoke.tenantId(), invoke.conversationId(),
+                invoke.agent(), ERROR, temTexto ? TEXTO : null, temTexto ? textoParcial : null,
+                "Execução cancelada pelo chamador", idempotencyKeyOf(invoke), null,
+                java.util.List.of(), new Encerramento(CANCELADO, null));
+    }
+
+    /** {@code richObjectType} de um fluxo cuja saída é texto (rota em fluxo; ver o dispatcher). */
+    public static final String TEXTO = "text";
+
     public static VendaxResult error(VendaxInvoke invoke, String message) {
         return new VendaxResult(SCHEMA_VERSION, invoke.tenantId(), invoke.conversationId(),
                 invoke.agent(), ERROR, null, null, message, idempotencyKeyOf(invoke), null, null, null);
@@ -181,7 +215,7 @@ public record VendaxResult(
      * Deriva da mensagem que originou o acionamento e do agente: dois agentes sobre a mesma
      * mensagem produzem resultados distintos, e o mesmo agente reprocessado produz o mesmo.
      */
-    static String idempotencyKeyOf(VendaxInvoke invoke) {
+    public static String idempotencyKeyOf(VendaxInvoke invoke) {
         // A do Core vence, quando ela vem: só ele sabe que cinco mensagens de uma rajada são o
         // MESMO pedido. Aqui se enxerga um invoke isolado, e derivar da mensagem transformaria
         // cada item pedido numa cotação separada.

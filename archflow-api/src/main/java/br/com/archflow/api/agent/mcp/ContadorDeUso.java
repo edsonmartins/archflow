@@ -57,6 +57,8 @@ public final class ContadorDeUso {
     private int turnosMedidos;
     private int turnos;
     private int chamadasDeTool;
+    /** Do início da execução ao primeiro token do provedor; {@code null} se nunca foi medido. */
+    private Long msAtePrimeiroToken;
     private final Set<String> modelos = new LinkedHashSet<>();
     private final Set<String> provedores = new LinkedHashSet<>();
 
@@ -104,6 +106,16 @@ public final class ContadorDeUso {
         turnosMedidos++;
     }
 
+    /**
+     * O primeiro token do provedor chegou. Só o primeiro conta: o que interessa é quanto o
+     * chamador esperou até ver algo, não a latência de cada turno.
+     */
+    public synchronized void registrarPrimeiroToken() {
+        if (msAtePrimeiroToken == null) {
+            msAtePrimeiroToken = (relogioNanos.getAsLong() - inicioNanos) / 1_000_000;
+        }
+    }
+
     /** Uma chamada de tool executada (bem-sucedida ou não) — uma ida ao servidor. */
     public synchronized void somarChamadaDeTool() {
         chamadasDeTool++;
@@ -127,7 +139,8 @@ public final class ContadorDeUso {
                 turnosMedidos == 0 ? null : tokensSaida,
                 turnos,
                 chamadasDeTool,
-                (relogioNanos.getAsLong() - inicioNanos) / 1_000_000));
+                (relogioNanos.getAsLong() - inicioNanos) / 1_000_000,
+                msAtePrimeiroToken));
     }
 
     /**
@@ -142,14 +155,24 @@ public final class ContadorDeUso {
      * @param turnos        chamadas ao modelo
      * @param chamadasDeTool idas ao servidor de tools
      * @param duracaoMs     tempo desde o início da execução (ou, num {@link #menos}, do trecho)
+     * @param msAtePrimeiroToken tempo do início da execução ao primeiro token do provedor;
+     *                      {@code null} quando o provedor não transmitiu e não há como medir
      */
     public record Resumo(String execucaoId, String provedor, String modelo,
                          Long tokensEntrada, Long tokensSaida,
-                         Integer turnos, Integer chamadasDeTool, Long duracaoMs) {
+                         Integer turnos, Integer chamadasDeTool, Long duracaoMs,
+                         Long msAtePrimeiroToken) {
+
+        /** Compat: resumo anterior à medição do primeiro token. */
+        public Resumo(String execucaoId, String provedor, String modelo, Long tokensEntrada,
+                      Long tokensSaida, Integer turnos, Integer chamadasDeTool, Long duracaoMs) {
+            this(execucaoId, provedor, modelo, tokensEntrada, tokensSaida, turnos, chamadasDeTool,
+                    duracaoMs, null);
+        }
 
         /** Compat: a forma do PR #51, sem id nem detalhamento. */
         public Resumo(String modelo, Long tokensEntrada, Long tokensSaida) {
-            this(null, null, modelo, tokensEntrada, tokensSaida, null, null, null);
+            this(null, null, modelo, tokensEntrada, tokensSaida, null, null, null, null);
         }
 
         /** Total de tokens, ou {@code null} se o provedor não informou. */
@@ -177,7 +200,9 @@ public final class ContadorDeUso {
                     diferenca(tokensSaida, anterior.tokensSaida),
                     diferenca(turnos, anterior.turnos),
                     diferenca(chamadasDeTool, anterior.chamadasDeTool),
-                    diferenca(duracaoMs, anterior.duracaoMs));
+                    diferenca(duracaoMs, anterior.duracaoMs),
+                    // É um instante, não um consumo: subtrair daria um número sem sentido.
+                    msAtePrimeiroToken);
         }
 
         /** {@code true} quando o trecho não chamou o modelo — nada a relatar. */

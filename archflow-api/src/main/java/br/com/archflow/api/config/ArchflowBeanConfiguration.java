@@ -1435,16 +1435,50 @@ public class ArchflowBeanConfiguration {
             br.com.archflow.api.agent.vendax.VendaxAgentMetrics vendaxAgentMetrics,
             br.com.archflow.api.agent.vendax.AgentFlowRunner agentFlowRunner,
             br.com.archflow.api.agent.mcp.TabelaDePrecos tabelaDePrecos,
+            br.com.archflow.api.agent.stream.ExecucoesEmAndamento execucoesEmAndamento,
             @Value("${archflow.vendax.agent.prazo-interativo:PT20S}") java.time.Duration prazoInterativo,
             @Value("${archflow.vendax.agent.prazo-roteiro-cpa:}") String prazoDoRoteiroCpa) {
         var dispatcher = new br.com.archflow.api.agent.vendax.VendaxAgentDispatcher(
                 qpAgentService, mcpAgentRunner, vendaxMcpClientProvider,
                 vendaxResultSender, vendaxAgentExecutor, vendaxAgentMetrics, agentFlowRunner);
         dispatcher.setPrecos(tabelaDePrecos);
+        dispatcher.setExecucoes(execucoesEmAndamento);
         dispatcher.setPrazoInterativo(prazoInterativo);
         if (prazoDoRoteiroCpa != null && !prazoDoRoteiroCpa.isBlank()) {
             dispatcher.setPrazoDoRoteiro(java.time.Duration.parse(prazoDoRoteiroCpa.trim()));
         }
         return dispatcher;
+    }
+
+    // ── Invocação com resposta em fluxo ─────────────────────────────
+
+    /** As execuções em andamento desta réplica: cancelamento por chave e 409 em andamento. */
+    @Bean
+    @ConditionalOnMissingBean
+    public br.com.archflow.api.agent.stream.ExecucoesEmAndamento execucoesEmAndamento() {
+        return new br.com.archflow.api.agent.stream.ExecucoesEmAndamento();
+    }
+
+    /** Guarda em memória do resultado de uma chave terminada; a validade é configurável. */
+    @Bean
+    @ConditionalOnMissingBean
+    public br.com.archflow.api.agent.stream.ResultadoGuardado resultadoGuardado(
+            @Value("${archflow.agent.stream.result-ttl:PT10M}") java.time.Duration validade) {
+        return new br.com.archflow.api.agent.stream.ResultadoGuardadoEmMemoria(validade);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    @org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(
+            name = "archflow.agent.stream.enabled", havingValue = "true", matchIfMissing = true)
+    public br.com.archflow.api.agent.stream.InvocacaoEmFluxo invocacaoEmFluxo(
+            br.com.archflow.api.agent.vendax.VendaxAgentDispatcher dispatcher,
+            br.com.archflow.api.agent.stream.ExecucoesEmAndamento execucoes,
+            br.com.archflow.api.agent.stream.ResultadoGuardado guardado,
+            @Value("${archflow.agent.stream.max-concurrent:50}") int maxConcorrentes,
+            @Value("${archflow.agent.stream.heartbeat:PT15S}") java.time.Duration batimento,
+            @Value("${archflow.agent.stream.retry-after-seconds:5}") int retryAfter) {
+        return new br.com.archflow.api.agent.stream.InvocacaoEmFluxo(dispatcher, execucoes,
+                guardado, maxConcorrentes, batimento, retryAfter);
     }
 }
