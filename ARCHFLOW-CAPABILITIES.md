@@ -130,7 +130,7 @@ Sem Kotlin, sem Groovy, sem `module-info.java` em nenhum módulo (verificado: `f
 | Testes (`*Test.java`) | 286 | — |
 
 **Build.** Maven 3.8+ multi-módulo, 18 módulos no reator (`pom.xml:25-44`). BOMs importados:
-Spring Boot 4.0.0, Apache Camel 4.3.0, LangChain4j 1.21.0, Testcontainers 1.20.4.
+Spring Boot 4.0.0, Apache Camel 4.3.0, LangChain4j 1.22.0, Testcontainers 1.20.4.
 
 **Módulos (uma linha cada).**
 
@@ -156,7 +156,7 @@ Spring Boot 4.0.0, Apache Camel 4.3.0, LangChain4j 1.21.0, Testcontainers 1.20.4
 | `archflow-plugin-loader` | 0.8k | Carregamento de fat-jars com classloader child-first |
 | `archflow-ui` | 22.6k TS | React 19 + Vite + Mantine + React Flow |
 
-**Dependências de IA.** LangChain4j 1.21.0 é a única camada de IA (não há Spring AI, não há Embabel).
+**Dependências de IA.** LangChain4j 1.22.0 é a única camada de IA (não há Spring AI, não há Embabel).
 Não usa SDK MCP oficial — implementação **própria** de cliente e servidor MCP em
 `archflow-langchain4j-mcp` (~1.750 LOC entre client e transport). Providers de LLM via
 `langchain4j-{openai,anthropic,azure-open-ai,google-ai-gemini,bedrock,ollama,vertex-ai,watsonx,hugging-face}`.
