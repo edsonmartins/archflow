@@ -372,6 +372,8 @@ public class DecisionComponent implements AIComponent {
             case Answer.Choice c -> c.choice();
             case Answer.Score s -> Math.round(s.score());
             case Answer.YesNo y -> y.probability() >= 0.5;
+            // Uma recusa não concorda com nenhuma resposta: o consenso a trata como discordância.
+            case Answer.Refused r -> "refused";
         };
     }
 
@@ -422,6 +424,10 @@ public class DecisionComponent implements AIComponent {
                     no.put("type", "noul");
                     no.put("probability", y.probability());
                     no.put("result", y.probability() >= 0.5);
+                }
+                case Answer.Refused r -> {
+                    no.put("type", "refused");
+                    no.put("refused", true);
                 }
             }
             answers.put(q.id(), no);

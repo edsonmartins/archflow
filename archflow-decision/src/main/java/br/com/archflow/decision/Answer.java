@@ -42,6 +42,23 @@ public sealed interface Answer {
     }
 
     /**
+     * O provedor <b>recusou</b> responder a esta pergunta (e pode ter respondido as outras). Não é
+     * baixa confiança: é ausência de resposta — por isso a confiança é 0 e a rota escala, e o valor
+     * é nulo em vez de um palpite.
+     */
+    record Refused() implements Answer {
+        @Override
+        public double confidence() {
+            return 0.0;
+        }
+
+        @Override
+        public Object value() {
+            return null;
+        }
+    }
+
+    /**
      * Probabilidade de a condição valer. Não há confiança própria no fio: ela é derivada, com a mesma
      * fórmula da escolha entre duas opções ({@code |2p − 1|}) — 0,5 é incerteza total, 0 ou 1 é certeza.
      */

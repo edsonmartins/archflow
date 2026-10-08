@@ -53,7 +53,7 @@ Perguntas sobre o mesmo estado são independentes: nenhuma enxerga a resposta da
       models: [ { model: liquid/d1 } ]
       onDisagree: REVIEW                # ou ESCALATE
     providerOptions:
-      http-decisions: { endpoint: "https://openrouter.ai/api/alpha/decisions", retries: 1 }
+      http-decisions: { endpoint: "https://openrouter.ai/api/v1/systemone", retries: 1 }
 ```
 
 `apiKey` no nó é **ignorada** (com aviso): a chave vem do resolvedor do tenant.
@@ -137,6 +137,7 @@ resposta — o fluxo segue pela escalada em vez de seguir confiante. `FAIL` lan�
 | id | o que é | chave | calibrado |
 |---|---|---|---|
 | `http-decisions` | qualquer serviço no protocolo `POST {model, state, questions} → {answers, usage}`: **Decisions API do OpenRouter** (padrão) e a API do próprio fabricante. O serviço é escolhido por `endpoint` e `model`. | sim (`keyRef`, padrão `openrouter`) | sim |
+| `langchain4j-decisions` | qualquer `DecisionModel` da **langchain4j** (1.22+): `backend: typesafe` (TypeSafe, ou o que fala o mesmo protocolo — o OpenRouter é `baseUrl: https://openrouter.ai/api`) ou `backend: openai` (a **Decisions API da OpenAI**, `gpt-6-luna`). Traz a repetição, os listeners e o cliente HTTP da langchain4j. O custo em USD **não** vem (só os tokens). | sim (`keyRef`: `typesafe` ou `openai`, conforme o backend) | sim |
 | `llm` | um LLM qualquer da plataforma como classificador (reserva, ou para começar sem modelo de decisão). Estado cercado como conteúdo não confiável. | a do próprio LLM (por tenant) | **não** |
 | `rules` | regras determinísticas (texto ou `re:regex`) — o primeiro degrau da cascata | não | sim |
 
@@ -150,12 +151,23 @@ revisão. O operador sobe o teto se quiser.
 Novos provedores entram por `ServiceLoader` (`META-INF/services/br.com.archflow.decision.DecisionProvider`)
 ou `DecisionProviders.register(...)` — nenhum código do componente muda.
 
+### Recusa
+A API da OpenAI pode **recusar uma pergunta** e responder as outras. A recusa vira `type: "refused"` (valor
+nulo, confiança 0): se a pergunta está no `gate`, a rota escala; fora do `gate`, não rebaixa nada. No
+consenso, a recusa de um modelo conta como discordância. Nunca é preenchida com um palpite.
+
+### Qual provedor usar
+- **`http-decisions`** (padrão): sem dependência da langchain4j, devolve o **custo declarado** (`usage.cost`)
+  e fala o caminho estável do OpenRouter (`/api/v1/systemone`; o `/api/alpha/decisions` responde o mesmo, mas é alfa).
+- **`langchain4j-decisions`**: quando se quer a OpenAI direta (com recusa), a TypeSafe direta ou o que a
+  langchain4j vier a suportar — sem escrever cliente.
+
 ### Modelos de decisão no OpenRouter
 O catálogo vivo: `GET https://openrouter.ai/api/v1/models?output_modalities=decisions` (14 modelos na data
 da escrita, entre eles `typesafe/jev-1.13`, `liquid/d1`, `perplexity/pplx-decider-v1-27b`,
 `upstage/solar-decide`, `cloudflare/clef`, `inception/mercury-decide`). Todos respondem no mesmo
-formato: trocar de modelo é trocar o `model` do nó. O protocolo é **alfa** no OpenRouter: o contrato é
-coberto por teste contra servidor simulado e, opcionalmente, contra o serviço real (abaixo).
+formato: trocar de modelo é trocar o `model` do nó. O contrato é coberto por teste contra servidor
+simulado e, opcionalmente, contra o serviço real (abaixo).
 
 ## Chaves
 `DecisionKeys` resolve a chave pela referência do provedor (`openrouter`): primeiro a **do tenant** (o
@@ -165,7 +177,7 @@ mesmo `TenantKeyResolver` das chaves de LLM) e, na falta dela, `archflow.decisio
 ## Testes contra o serviço real (opcional)
 ```bash
 OPENROUTER_API_KEY=... mvn test -pl archflow-decision,archflow-api -am \
-  -Dtest='HttpDecisionProviderTest,DecisaoNoFluxoTest' -Dsurefire.failIfNoSpecifiedTests=false
+  -Dtest='HttpDecisionProviderTest,LangChain4jDecisionProviderTest,DecisaoNoFluxoTest' -Dsurefire.failIfNoSpecifiedTests=false
 ```
 Sem a variável, esses casos são pulados. A chave nunca mora no repositório.
 

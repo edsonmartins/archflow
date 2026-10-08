@@ -31,14 +31,15 @@ import java.util.Optional;
  *   <li>{@code headers}: cabeçalhos extras.</li>
  * </ul>
  *
- * <p>O protocolo é <b>alfa</b> no OpenRouter: o contrato é coberto por teste contra um servidor
- * simulado, e uma resposta que não casa vira {@link DecisionException} não repetível — nunca uma
- * decisão inventada.</p>
+ * <p>O padrão é o caminho <b>estável</b> do OpenRouter ({@code /api/v1/systemone}, o protocolo do
+ * TypeSafe); {@code /api/alpha/decisions} responde o mesmo, mas é alfa. O contrato é coberto por teste
+ * contra um servidor simulado, e uma resposta que não casa vira {@link DecisionException} não
+ * repetível — nunca uma decisão inventada.</p>
  */
 public final class HttpDecisionProvider implements DecisionProvider {
 
     public static final String ID = "http-decisions";
-    public static final String DEFAULT_ENDPOINT = "https://openrouter.ai/api/alpha/decisions";
+    public static final String DEFAULT_ENDPOINT = "https://openrouter.ai/api/v1/systemone";
     public static final String DEFAULT_KEY_REF = "openrouter";
 
     private static final ObjectMapper JSON = new ObjectMapper();
