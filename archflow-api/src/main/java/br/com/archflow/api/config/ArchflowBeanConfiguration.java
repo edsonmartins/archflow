@@ -1486,16 +1486,18 @@ public class ArchflowBeanConfiguration {
 
     /**
      * Os provedores do nó {@code decision}: os embutidos (HTTP genérico e regras), os que o
-     * classpath declara por SPI e o LLM da plataforma como classificador de reserva.
+     * classpath declara por SPI, o LLM da plataforma como classificador de reserva e os modelos de
+     * decisão da langchain4j (TypeSafe/OpenRouter e a Decisions API da OpenAI).
      */
     @Bean
     @ConditionalOnMissingBean
     public br.com.archflow.decision.DecisionProviders decisionProviders(
             br.com.archflow.langchain4j.provider.LLMConfigResolver llmConfigResolver,
             br.com.archflow.model.config.ResolvedLLMConfig platformDefaultLLMConfig) {
-        return br.com.archflow.decision.DecisionProviders.withDefaults().register(
-                new br.com.archflow.api.decision.LlmDecisionProvider(
-                        llmConfigResolver, platformDefaultLLMConfig));
+        return br.com.archflow.decision.DecisionProviders.withDefaults()
+                .register(new br.com.archflow.api.decision.LlmDecisionProvider(
+                        llmConfigResolver, platformDefaultLLMConfig))
+                .register(new br.com.archflow.api.decision.LangChain4jDecisionProvider());
     }
 
     /**

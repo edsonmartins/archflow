@@ -270,6 +270,19 @@
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j</artifactId>
         </dependency>
+        <!--
+          Modelos de decisão da langchain4j (DecisionModel): o provedor `langchain4j-decisions` do nó
+          `decision` os usa — TypeSafe (e o que fala o mesmo protocolo, como o OpenRouter) e a
+          Decisions API da OpenAI.
+        -->
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-typesafe</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-open-ai</artifactId>
+        </dependency>
 
         <!-- Validação -->
         <dependency>

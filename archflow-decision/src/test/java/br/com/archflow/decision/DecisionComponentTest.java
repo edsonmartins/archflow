@@ -430,4 +430,43 @@ class DecisionComponentTest {
         assertThatThrownBy(() -> c.initialize(config("consensus", Map.of("onDisagree", "AUTO"))))
                 .hasMessageContaining("onDisagree");
     }
+
+    @Test
+    @DisplayName("pergunta recusada: confiança 0 derruba a rota para ESCALATE e o valor é nulo, nunca um palpite")
+    @SuppressWarnings("unchecked")
+    void recusa() throws Exception {
+        Falso f = respondendo(escolha("pagamento", 0.99), new Answer.Refused());
+
+        Map<String, Object> saida = rodar(componente(f, null, config()), "x", ctx());
+
+        assertThat(saida.get("route")).isEqualTo("ESCALATE");
+        Map<String, Object> urgencia = (Map<String, Object>) ((Map<String, Object>) saida.get("answers")).get("urgencia");
+        assertThat(urgencia).containsEntry("type", "refused").containsEntry("refused", true);
+        assertThat(urgencia.get("value")).isNull();
+        assertThat(saida.get("decision")).as("a pergunta principal respondeu").isEqualTo("pagamento");
+    }
+
+    @Test
+    @DisplayName("recusa só da pergunta fora do gate não rebaixa a rota")
+    void recusaForaDoGate() throws Exception {
+        Falso f = respondendo(escolha("pagamento", 0.99), new Answer.Refused());
+
+        assertThat(rodar(componente(f, null, config("gate", List.of("time"))), "x", ctx()).get("route"))
+                .isEqualTo("AUTO");
+    }
+
+    @Test
+    @DisplayName("consenso: recusa da pergunta principal por um dos modelos conta como discordância")
+    void consensoComRecusa() throws Exception {
+        Falso a = respondendoComo("a", "conta", 0.95);
+        Falso b = new Falso("b", false);
+        b.resposta = r -> resultado(Map.of("time", new Answer.Refused(),
+                "urgencia", new Answer.Score(1, Map.of(), Map.of(), 0.9)));
+
+        Map<String, Object> saida = rodar(compondo(config("provider", "a",
+                "consensus", Map.of("models", List.of(Map.of("provider", "b")))), a, b), "x", ctx());
+
+        assertThat(saida.get("routeReason")).isEqualTo("consensus_disagreement");
+        assertThat(saida.get("route")).isEqualTo("REVIEW");
+    }
 }
