@@ -5,13 +5,27 @@ quatro pontos. Feito no branch `feat/vendax-custo-reais-e-no-de-decisao`, no mot
 
 ## 1. Versão publicada com o `archflow-decision`
 
-O `CHANGELOG.md` já traz a seção **1.5.0**. A publicação é a tag `v1.5.0` no ramo principal: `release.yml`
-fixa a versão dos POMs pela tag e publica `archflow-model`, `archflow-dsl` e `archflow-sdk-java` no Central
-(`archflow-decision` não vai ao Central — é do runtime; o que o Core consome dele é o contrato que a DSL
-escreve). Até a tag ser cortada, a `archflow-dsl` 1.5.0 não existe no Central.
+**Publicada: `archflow-dsl` 1.5.0 está no Maven Central** (também `archflow-model` e `archflow-sdk-java` 1.5.0;
+`maven-metadata` já aponta `latest=1.5.0`). Tag `v1.5.0` cortada em 18/10/2026 sobre a main com os PRs #83
+(esta entrega), #84 e #85. É a primeira versão com o módulo `archflow-decision` e o nó `decision` no runtime.
 
-**Qual versão roda na VPS (VEN-50).** Passou a ter resposta sem SSH: `GET https://archflow.com.br/actuator/info`
-(a rota `/actuator/` é pública):
+```xml
+<dependency>
+    <groupId>br.com.archflow</groupId>
+    <artifactId>archflow-dsl</artifactId>
+    <version>1.5.0</version>
+</dependency>
+```
+
+`archflow-decision` em si não vai ao Central — é do runtime; o que o Core consome dele é o contrato que a DSL
+escreve. Requer Java 25, como as versões anteriores.
+
+Nota de bastidor: a primeira execução do release falhou na validação do Central ("Bundle has content that does NOT
+have a .pom file"). Não era POM nosso: a imagem do runner do GitHub de 12/10 trouxe Maven 3.10, que deixa arquivos
+de repositório local dentro do bundle. Corrigido no PR #84 fixando Maven 3.9 no job; nada havia sido publicado.
+
+**Qual versão roda na VPS (VEN-50).** A imagem no ar é `sha-838447c` (main com os POMs em 1.5.0), saudável desde
+15:38 UTC de 18/10 — confirmado pelo watcher da VPS. Passou a existir `GET /actuator/info`, que responde:
 
 ```json
 {"build": {"artifact": "archflow-api", "name": "archflow-api", "version": "1.5.0", "time": "2026-10-18T…"},
@@ -19,8 +33,9 @@ escreve). Até a tag ser cortada, a `archflow-dsl` 1.5.0 não existe no Central.
 ```
 
 `build.*` vem do `build-info` do Maven; `image.revision` é o `github.sha` que `build-and-push.yml` passa ao
-Dockerfile (`ARG GIT_REVISION` → `ARCHFLOW_BUILD_REVISION`). Vale a partir da primeira imagem construída com
-esta mudança; a imagem que está no ar hoje não tem o campo — para ela, o que vale é a tag `sha-<7>` em
+Dockerfile (`ARG GIT_REVISION` → `ARCHFLOW_BUILD_REVISION`). **Pendência**: no momento desta resposta a VPS ainda
+devolve 404 nesse caminho com a imagem nova no ar; a exposição do endpoint está em investigação do lado do
+archflow (não é problema de deploy). Até resolver, a versão no ar é a tag `ARCHFLOW_IMAGE_TAG` em
 `/opt/archflow-devops/.env`.
 
 ## 2. O construtor na DSL
