@@ -233,19 +233,12 @@ public class DefaultFlowStepFactory implements FlowStepFactory {
 
     /**
      * A condição que o ramo declarado numa aresta quer dizer, ou {@code null} quando o nó de origem
-     * não tem ramos. É o que deixa o designer (e quem escreve YAML) dizer "esta aresta é o ramo
-     * {@code true}" em vez de montar a expressão à mão — e mantém a regra num lugar só, o do motor.
+     * não tem ramos. É o que deixa o designer, a DSL ({@code route(...)}) e quem escreve YAML dizer
+     * "esta aresta é o ramo {@code true}" em vez de montar a expressão à mão.
      */
     static String conditionForBranch(String stepId, String kind, String branch) {
-        if (branch == null || branch.isBlank()) {
-            return null;
-        }
-        String ramo = branch.trim().replace("'", "");
-        return switch (kind) {
-            case "condition", "switch" -> "${" + stepId + ".branch} == '" + ramo + "'";
-            case "decision" -> "${" + stepId + ".route} == '" + ramo + "'";
-            default -> null;
-        };
+        // A regra mora no modelo: o transporte do archflow-standalone converte o mesmo `branch`.
+        return br.com.archflow.model.flow.BranchCondition.of(stepId, kind, branch);
     }
 
     private static List<StepConnection> connections(String stepId, String kind, Object value) {

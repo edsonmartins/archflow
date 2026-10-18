@@ -43,6 +43,8 @@ import java.util.Objects;
 public final class TabelaDePrecos {
 
     private static final BigDecimal MILHAO = BigDecimal.valueOf(1_000_000);
+    /** Centavos por milhão de tokens → reais por token. */
+    private static final BigDecimal CENTAVOS_POR_MILHAO_EM_REAIS = MILHAO.multiply(BigDecimal.valueOf(100));
 
     /**
      * @param entradaCentavosPorMilhao preço de um milhão de tokens de entrada
@@ -163,6 +165,29 @@ public final class TabelaDePrecos {
      *         ou mais de um modelo no mesmo consumo (a divisão de tokens entre eles se perdeu)
      */
     public Long custoEmCentavos(ContadorDeUso.Resumo uso) {
+        BigDecimal centavosPorMilhao = custoEmCentavosPorMilhao(uso);
+        return centavosPorMilhao == null ? null
+                : centavosPorMilhao.divide(MILHAO, 0, RoundingMode.CEILING).longValueExact();
+    }
+
+    /**
+     * O mesmo custo de {@link #custoEmCentavos}, em <b>reais</b> e <b>sem arredondar</b>.
+     *
+     * <p>Pedido do VendaX de 14/10/2026 (VEN-245): com os modelos de hoje quase toda chamada custa
+     * fração de centavo, e uma série de {@code 0} e {@code 1} não serve para comparar modelos nem
+     * para dizer quanto um agente custa de fato. O teto continua lendo os centavos arredondados
+     * para cima — esse é o lado seguro para um teto; este é o lado exato para uma soma.</p>
+     *
+     * @return {@code null} exatamente nos mesmos casos de {@link #custoEmCentavos}
+     */
+    public Double custoEmReais(ContadorDeUso.Resumo uso) {
+        BigDecimal centavosPorMilhao = custoEmCentavosPorMilhao(uso);
+        return centavosPorMilhao == null ? null
+                : centavosPorMilhao.divide(CENTAVOS_POR_MILHAO_EM_REAIS).doubleValue();
+    }
+
+    /** O custo em centavos × 1.000.000, ainda sem dividir — a conta comum às duas moedas. */
+    private BigDecimal custoEmCentavosPorMilhao(ContadorDeUso.Resumo uso) {
         if (uso == null || uso.modelo() == null || uso.modelo().contains(",")
                 || uso.tokens() == null) {
             return null;
@@ -175,7 +200,7 @@ public final class TabelaDePrecos {
                 .multiply(preco.entradaCentavosPorMilhao());
         BigDecimal saida = BigDecimal.valueOf(uso.tokensSaida() == null ? 0 : uso.tokensSaida())
                 .multiply(preco.saidaCentavosPorMilhao());
-        return entrada.add(saida).divide(MILHAO, 0, RoundingMode.CEILING).longValueExact();
+        return entrada.add(saida);
     }
 
     private static String chave(String modelo) {

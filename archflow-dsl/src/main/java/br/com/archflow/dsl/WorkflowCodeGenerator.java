@@ -53,7 +53,7 @@ public final class WorkflowCodeGenerator {
     private static final Set<String> KNOWN_METADATA_KEYS =
             Set.of("name", "description", "version", "author", "category");
     private static final Set<String> KNOWN_CONNECTION_KEYS =
-            Set.of("id", "sourceId", "targetId", "condition", "isErrorPath", "errorPath", "type");
+            Set.of("id", "sourceId", "targetId", "condition", "branch", "isErrorPath", "errorPath", "type");
 
     /** Tipos de nó com atalho em {@link Nodes} — espelham {@code AdapterNodeTypes}. */
     private static final Map<String, String> ADAPTER_SHORTCUTS = Map.of(
@@ -270,10 +270,19 @@ public final class WorkflowCodeGenerator {
                 String source = str(connection.get("sourceId"), stepId);
                 String target = str(connection.get("targetId"), "");
                 String condition = str(connection.get("condition"), null);
+                String branch = str(connection.get("branch"), null);
                 boolean errorPath = bool(connection.get("isErrorPath"))
                         || bool(connection.get("errorPath"))
                         || "error".equals(connection.get("type"));
 
+                if (branch != null && condition != null) {
+                    // No motor a condição escrita à mão vence o ramo; o código gerado
+                    // reproduz o que vale, e avisa que o ramo ficou de fora.
+                    unrepresented.add("conexão " + source + " -> " + target
+                            + " tem ramo E condição; só a condição vale no motor"
+                            + " (o ramo foi omitido do código gerado)");
+                    branch = null;
+                }
                 if (errorPath) {
                     if (condition != null) {
                         // A DSL não tem "aresta de erro condicional": onError não
@@ -285,6 +294,10 @@ public final class WorkflowCodeGenerator {
                     }
                     out.append("                .onError(\"").append(escape(source)).append("\", \"")
                             .append(escape(target)).append("\")\n");
+                } else if (branch != null) {
+                    out.append("                .route(\"").append(escape(source)).append("\", \"")
+                            .append(escape(target)).append("\", \"")
+                            .append(escape(branch)).append("\")\n");
                 } else if (condition != null) {
                     out.append("                .edge(\"").append(escape(source)).append("\", \"")
                             .append(escape(target)).append("\", \"")

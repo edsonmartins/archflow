@@ -83,6 +83,9 @@ jobs:
           # Sem a label o watcher não sabe qual tag fixar e não implanta.
           labels: |
             org.opencontainers.image.revision=${{ github.sha }}
+          # O mesmo sha dentro da imagem, para /actuator/info (build.revision).
+          build-args: |
+            GIT_REVISION=${{ github.sha }}
           cache-from: type=gha,scope=archflow
           cache-to: type=gha,scope=archflow,mode=max
           provenance: false

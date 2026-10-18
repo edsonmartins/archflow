@@ -408,6 +408,10 @@ public class DecisionComponent implements AIComponent {
             Map<String, Object> no = new LinkedHashMap<>();
             no.put("value", a.value());
             no.put("confidence", a.confidence());
+            // A rota que ESTA pergunta teria sozinha, pelos limiares do nó. A rota do nó é a do
+            // `gate` (a menor confiança); esta diz, pergunta a pergunta, qual foi segura e qual
+            // não — é o que quem lê o resultado precisa para não tratar as duas como uma.
+            no.put("route", policy.route(a.confidence()).name());
             switch (a) {
                 case Answer.Choice c -> {
                     no.put("type", "choice");
@@ -436,6 +440,7 @@ public class DecisionComponent implements AIComponent {
         saida.put("route", policy.route(confidence).name());
         saida.put("confidence", confidence);
         saida.put("decision", answers.get(primary).get("value"));
+        saida.put("primary", primary);
         saida.put("answers", answers);
         saida.put("provider", result.provider());
         saida.put("model", result.model());

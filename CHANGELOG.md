@@ -114,6 +114,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   caminho de fluxo, reentrega do result, raciocínio mínimo no CS —, mas **não é publicado no
   Central**: quem consome os artefatos vê essas mudanças apenas pelo contrato que a DSL escreve.
 
+## [1.5.0] - 2026-10-18
+
+> A primeira versão publicada com o módulo `archflow-decision` e o nó `decision` no runtime
+> (que entraram no ramo principal em 08/10, depois da `v1.4.0`). Pedido do VendaX de 14/10/2026
+> (VEN-221). Como na 1.4.0, só `archflow-model`, `archflow-dsl` e `archflow-sdk-java` vão ao Central.
+
+### Added
+- **`Decision`, na DSL** — o nó `decision` escrito por método: `provider`, `model`, `keyRef`,
+  `endpoint`, `choice`/`score`/`yesNo`, `state`, `thresholds`, `primary`, `gate`,
+  `escalateOnError`/`failOnError`, `timeout`, `fallback`, `cascade`, `acceptAt`, `consensus`,
+  `consensusEscalatesOnDisagree`, `providerOption(s)`. As chaves emitidas são as que o
+  `DecisionComponent` lê — `DslDecisionConformanceTest` passa o documento pelo desserializador
+  real e executa o nó. Sem pergunta, `spec()` recusa; a chave de API nunca entra no documento.
+- **`Nodes.decision()`** — o nó cru, para quem prefere as chaves.
+- **`WorkflowBuilder.route(from, to, branch)`** — aresta por **ramo** (`AUTO`/`REVIEW`/`ESCALATE`
+  de um `decision`, `true`/`false` de um `condition`, um caso de um `switch`). Sai como `branch`
+  na conexão; o motor monta a condição ao carregar. `WorkflowCodeGenerator` devolve `.route(...)`
+  para uma conexão com `branch`.
+- **`WorkflowBuilder.step(String, Decision)`** — dispensa o `.spec()`.
+
+### Changed (runtime — não publicado no Central)
+- **A saída de um nó `decision` que é o último passo vai ao Core** como envelope tipado
+  (`decisao.<pergunta>.{valor, confianca, rota}`, `rota`, `confianca`, `principal`, `modelo`,
+  `provedor`, `uso.{entrada, saida, custoUsd}`), em vez de "o fluxo não devolveu um JSON".
+- **`answers.<id>.route` e `primary`** na saída do nó `decision`: a rota de cada pergunta sozinha,
+  e qual pergunta virou `decision`.
+- **`VendaxResult.uso.costReais`** (VEN-245): o mesmo custo de `costCents`, em reais e **sem
+  arredondar**; ausente quando não há preço declarado, como `costCents` nulo. `costCents` segue
+  arredondado para cima — é o que o teto lê.
+- **`GET /actuator/info`** passa a dizer qual build está no ar: `build.version`/`build.time`
+  (build-info do Maven) e `image.revision` (o commit da imagem, via `ARCHFLOW_BUILD_REVISION`,
+  que `build-and-push.yml` passa ao Dockerfile). Pedido VEN-50.
+
 ## [Unreleased]
 
 ### Added

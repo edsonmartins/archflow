@@ -77,6 +77,11 @@ USER archflow
 
 EXPOSE 16080
 
+# O commit de que esta imagem foi construída (build-and-push.yml passa o sha). Vai para
+# GET /actuator/info como build.revision — é como se confere, de fora, o que está no ar.
+ARG GIT_REVISION=unknown
+ENV ARCHFLOW_BUILD_REVISION=${GIT_REVISION}
+
 ENV JAVA_OPTS="-Xmx512m -Xms256m"
 
 # spring.web.resources.static-locations: nome atual da propriedade

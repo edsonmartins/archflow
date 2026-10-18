@@ -351,7 +351,7 @@ public class VendaxAgentDispatcher {
     }
 
     private VendaxResult.Uso usoDe(ContadorDeUso.Resumo r) {
-        return VendaxResult.Uso.de(r, precos.custoEmCentavos(r));
+        return VendaxResult.Uso.de(r, precos.custoEmCentavos(r), precos.custoEmReais(r));
     }
 
     /** Relata o consumo de uma execução que não vai num result; nada gasto, nada relatado. */

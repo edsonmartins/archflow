@@ -79,7 +79,7 @@ class RelatoDeUsoTest {
     private static VendaxUsoRelato relato() {
         return VendaxUsoRelato.de(invoke(), VendaxUsoRelato.Motivo.SEM_RESULT,
                 new VendaxResult.Uso("openrouter/m", 5000L, 7L, "exec-1", "openrouter",
-                        4600L, 400L, 3, 2, 8200L));
+                        4600L, 400L, 3, 2, 8200L, null, null, 0.0631));
     }
 
     private static String hmac(String timestamp, String corpo) throws Exception {
@@ -111,6 +111,8 @@ class RelatoDeUsoTest {
         assertThat(uso.path("model").asText()).isEqualTo("openrouter/m");
         assertThat(uso.path("tokens").asLong()).isEqualTo(5000);
         assertThat(uso.path("costCents").asLong()).isEqualTo(7);
+        assertThat(uso.path("costReais").asDouble()).as("o mesmo custo, sem arredondar (VEN-245)")
+                .isEqualTo(0.0631);
         assertThat(uso.path("provider").asText()).isEqualTo("openrouter");
         assertThat(uso.path("inputTokens").asLong()).isEqualTo(4600);
         assertThat(uso.path("outputTokens").asLong()).isEqualTo(400);
@@ -207,6 +209,7 @@ class RelatoDeUsoTest {
         JsonNode uso = MAPPER.readTree(corpos.get(0)).path("uso");
         assertThat(uso.path("execucaoId").asText()).isEqualTo("exec-1");
         assertThat(uso.has("costCents")).as("nulo explícito, como no PR #51").isTrue();
+        assertThat(uso.has("costReais")).as("sem preço, o campo aditivo fica ausente").isFalse();
         assertThat(uso.has("toolCalls")).as("o que não se sabe fica ausente").isFalse();
     }
 }

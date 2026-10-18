@@ -63,6 +63,9 @@ class DecisaoNoFluxoTest {
         assertThat(aresta("${triagem.route} == 'ESCALATE'", ctx)).isFalse();
         assertThat(aresta("${triagem.answers.time.choice} == 'pagamento'", ctx)).isTrue();
         assertThat(aresta("${triagem.answers.time.confidence} >= 0.9", ctx)).isTrue();
+        // Cada pergunta leva a SUA rota, pelos limiares do nó; o `primary` diz qual virou `decision`.
+        assertThat(aresta("${triagem.answers.time.route} == 'AUTO'", ctx)).isTrue();
+        assertThat(aresta("${triagem.primary} == 'time'", ctx)).isTrue();
         assertThat(aresta("${triagem.decision} == 'pagamento' && ${triagem.route} == 'AUTO'", ctx)).isTrue();
     }
 

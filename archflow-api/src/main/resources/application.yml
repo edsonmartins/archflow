@@ -21,6 +21,20 @@ spring:
       max-file-size: ${ARCHFLOW_STORAGE_MAX_FILE_SIZE:25MB}
       max-request-size: ${ARCHFLOW_STORAGE_MAX_REQUEST_SIZE:26MB}
 
+# O que GET /actuator/info responde, em qualquer perfil que exponha `info` (prod expõe).
+# `build.*` vem do build-info.properties gerado pelo Maven (versão, artefato, hora do build);
+# `image.revision` é o commit de que a imagem Docker foi construída (Dockerfile → ARG → env).
+# Pedido do VendaX de 14/10/2026 (VEN-50): saber qual versão roda na VPS sem SSH.
+info:
+  image:
+    revision: ${ARCHFLOW_BUILD_REVISION:}
+management:
+  info:
+    env:
+      enabled: true
+    build:
+      enabled: true
+
 server:
   port: ${SERVER_PORT:16080}
   error:
