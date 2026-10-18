@@ -1,7 +1,8 @@
 # ArchFlow — resposta ao pedido do custo sem arredondar (VEN-245)
 
 Resposta ao pedido do VendaX Core de 14/10/2026 (`PEDIDO-2026-10-14-archflow-custo-sem-arredondar.md`).
-Feito como pedido, no branch `feat/vendax-custo-reais-e-no-de-decisao`: um campo aditivo, `costCents` intocado.
+Feito como pedido, no PR #83 (merge em 18/10/2026, imagem `sha-838447c` no ar na VPS desde 15:38 UTC): um campo
+aditivo, `costCents` intocado.
 
 ## O que o Core passa a receber
 
