@@ -33,10 +33,14 @@ de repositório local dentro do bundle. Corrigido no PR #84 fixando Maven 3.9 no
 ```
 
 `build.*` vem do `build-info` do Maven; `image.revision` é o `github.sha` que `build-and-push.yml` passa ao
-Dockerfile (`ARG GIT_REVISION` → `ARCHFLOW_BUILD_REVISION`). **Pendência**: no momento desta resposta a VPS ainda
-devolve 404 nesse caminho com a imagem nova no ar; a exposição do endpoint está em investigação do lado do
-archflow (não é problema de deploy). Até resolver, a versão no ar é a tag `ARCHFLOW_IMAGE_TAG` em
-`/opt/archflow-devops/.env`.
+Dockerfile (`ARG GIT_REVISION` → `ARCHFLOW_BUILD_REVISION`).
+
+**Pela internet o caminho dá 404, e isso é do proxy, não do app.** O Caddy da VPS só repassa `/actuator/health*`
+(a página `/actuator` do app lista `info`, `metrics` e `prometheus` como expostos; o 404 vem vazio e sem
+`content-type`, assinatura do Caddy, não do Spring). É um bloqueio deliberado — métricas não devem ser públicas.
+Duas saídas, à escolha de quem opera a VPS (`/opt/archflow-devops`): liberar só `/actuator/info` no Caddyfile
+(expõe versão e commit, nada mais), ou consultar de dentro da VPS: `curl -s localhost:16080/actuator/info`. Até
+lá, a referência pública é a tag `ARCHFLOW_IMAGE_TAG` em `/opt/archflow-devops/.env`.
 
 ## 2. O construtor na DSL
 
