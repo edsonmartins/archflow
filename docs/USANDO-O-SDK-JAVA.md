@@ -12,7 +12,7 @@ Escrever fluxos (só isso):
 <dependency>
     <groupId>br.com.archflow</groupId>
     <artifactId>archflow-dsl</artifactId>
-    <version>1.1.0</version>
+    <version>1.5.0</version>
 </dependency>
 ```
 
@@ -22,14 +22,14 @@ Escrever **e** falar com um servidor archflow:
 <dependency>
     <groupId>br.com.archflow</groupId>
     <artifactId>archflow-sdk-java</artifactId>
-    <version>1.1.0</version>
+    <version>1.5.0</version>
 </dependency>
 ```
 
 O `archflow-sdk-java` já traz o `archflow-dsl`. Gradle:
 
 ```kotlin
-implementation("br.com.archflow:archflow-sdk-java:1.1.0")
+implementation("br.com.archflow:archflow-sdk-java:1.5.0")
 ```
 
 **Requer Java 25.** Os artefatos são compilados com `release 25`; um projeto em 17 ou 21 não consegue nem compilar contra eles.
