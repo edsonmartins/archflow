@@ -392,6 +392,10 @@
                     <execution>
                         <goals>
                             <goal>repackage</goal>
+                            <!-- Gera META-INF/build-info.properties: é o que faz GET /actuator/info
+                                 dizer qual versão (e de quando) está no ar. Pedido do VendaX de
+                                 14/10/2026 (VEN-50): "saber qual versão roda na VPS" sem SSH. -->
+                            <goal>build-info</goal>
                         </goals>
                     </execution>
                 </executions>

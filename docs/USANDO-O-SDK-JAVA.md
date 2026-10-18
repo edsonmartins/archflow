@@ -92,8 +92,10 @@ doc.writeTo(Path.of("fluxos/rag.yaml"));   // formato pela extensão (.yaml/.yml
 | `.edge(a, b)` | quando `a` termina bem, segue para `b` |
 | `.edge(a, b, "cond")` | idem, se a condição for satisfeita; a DSL transporta o texto sem interpretar |
 | `.onError(a, b)` | percorrido quando `a` **falha** |
+| `.route(a, b, ramo)` | segue o **ramo** de `a`: `AUTO`/`REVIEW`/`ESCALATE` de um `decision`, `true`/`false` de um `condition`, um caso de um `switch`. Sai como `branch`; o motor monta a condição |
 
-Não existe aresta de erro condicional — `onError` não aceita condição.
+Não existe aresta de erro condicional — `onError` não aceita condição. Uma aresta tem ramo
+**ou** condição: com os dois, a condição venceria no motor e o ramo seria letra morta.
 
 ---
 
@@ -139,6 +141,37 @@ Nodes.component("semantic-router")
 populado em runtime, por SPI e por jars de plugin carregados de um diretório.
 Não existe lista fechada em tempo de compilação, e helpers por componente
 produziriam uma API que envelhece em silêncio quando um plugin some.
+
+### 3.3b Nós com construtor próprio: `McpAgent` e `Decision`
+
+Dois nós têm a configuração escrita por método, porque nas chaves de texto o
+*valor* muda de sentido sem avisar (`tools` ausente é "todas", `tools: []` é
+"nenhuma") ou a forma é grande demais para digitar certo de cabeça:
+
+```java
+.step("narra", McpAgent.node().systemPrompt(PROMPT).noTools().maxIterations(1))
+
+.step("intencao", Decision.node()
+        .model("typesafe/jev-1.14")                 // provedor padrão: http-decisions (OpenRouter)
+        .keyRef("openrouter")                       // só a referência — a chave vem do tenant
+        .choice("intencao", "O cliente fecha o pedido?",
+                Map.of("PEDIDO", "Confirma itens.", "DUVIDA", "Pergunta sobre produto."))
+        .score("urgencia", "Quão urgente?", "pode esperar", "esta semana", "agora")
+        .yesNo("e_defeito", "É um defeito?")
+        .primary("intencao").gate("intencao", "e_defeito")
+        .thresholds(0.9, 0.5)                       // ≥ auto → AUTO; ≥ review → REVIEW; senão ESCALATE
+        .fallback("llm", "openai/gpt-4o-mini")      // quando o provedor FALHA
+        .cascade("http-decisions", "upstage/solar-decide")  // quando respondeu com pouca confiança
+        .consensus("liquid/d1"))                    // outros modelos votam; discordância rebaixa a rota
+.route("intencao", "fecha",  Decision.AUTO)
+.route("intencao", "humano", Decision.REVIEW)
+.route("intencao", "humano", Decision.ESCALATE)
+```
+
+A primeira pergunta declarada é a `primary` por padrão; sem pergunta, `spec()`
+recusa. `providerOption`/`providerOptions` e `with(Map)` continuam aceitando o que
+a versão da DSL ainda não tem método. O que o nó faz com cada chave está em
+`docs/decision-component.md`.
 
 ### 3.4 Ajustes de nó
 

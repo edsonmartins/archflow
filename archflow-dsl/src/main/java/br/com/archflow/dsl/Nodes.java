@@ -116,6 +116,19 @@ public final class Nodes {
     }
 
     /**
+     * Nó de decisão: perguntas tipadas (escolha, escala, sim/não) a um modelo de
+     * decisão, LLM ou regras, com confiança e rota ({@code AUTO}/{@code REVIEW}/
+     * {@code ESCALATE}). As arestas ramificam pela rota com
+     * {@link WorkflowBuilder#route}. A configuração por método está em
+     * {@link Decision}; este é o nó cru, para quem prefere as chaves.
+     *
+     * @since 1.5.0
+     */
+    public static NodeSpec decision() {
+        return new NodeSpec(Decision.NODE_TYPE, Decision.NODE_TYPE).operation(Decision.OPERATION);
+    }
+
+    /**
      * Nó de adapter com o tipo escrito à mão — para um tipo novo que esta
      * versão da DSL ainda não tenha método próprio.
      */

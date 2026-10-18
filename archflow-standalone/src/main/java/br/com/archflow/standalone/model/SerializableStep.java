@@ -80,8 +80,22 @@ public class SerializableStep implements FlowStep {
      */
     @com.fasterxml.jackson.annotation.JsonIgnore
     @Override public StepType getType() { return type; }
+    /**
+     * As arestas, com o {@code branch} de cada uma convertido na condição que o motor avalia
+     * ({@code ${id.route} == 'AUTO'}) — a mesma regra da factory do archflow-api
+     * ({@code BranchCondition}). Sem isto, um fluxo escrito pela DSL com {@code route(...)}
+     * carregaria aqui com arestas incondicionais e seguiria todos os ramos, em silêncio.
+     */
     @Override @SuppressWarnings("unchecked")
-    public List<StepConnection> getConnections() { return (List<StepConnection>) (List<?>) connections; }
+    public List<StepConnection> getConnections() {
+        if (connections == null) {
+            return List.of();
+        }
+        String kind = componentId != null ? componentId : rawType;
+        return connections.stream()
+                .map(c -> (StepConnection) c.comRamoResolvido(id, kind))
+                .toList();
+    }
 
     @Override
     public CompletableFuture<StepResult> execute(ExecutionContext context) {

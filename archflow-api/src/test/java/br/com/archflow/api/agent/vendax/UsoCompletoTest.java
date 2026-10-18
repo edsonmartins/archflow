@@ -91,6 +91,8 @@ class UsoCompletoTest {
                 assertThat(r.uso().provider()).isEqualTo("openrouter");
                 // 4600 × 50 + 400 × 200 = 310.000 → 0,31 centavo, para cima
                 assertThat(r.uso().costCents()).isEqualTo(1);
+                // … e o mesmo custo em reais, sem arredondar (VEN-245)
+                assertThat(r.uso().costReais()).isEqualTo(0.0031);
             });
         }
 

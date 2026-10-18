@@ -123,6 +123,15 @@ public final class WorkflowBuilder {
         return step(stepId, Objects.requireNonNull(agent, "agent").spec());
     }
 
+    /**
+     * Um nó de decisão, dispensando o {@code .spec()} no fim.
+     *
+     * @since 1.5.0
+     */
+    public WorkflowBuilder step(String stepId, Decision decision) {
+        return step(stepId, Objects.requireNonNull(decision, "decision").spec());
+    }
+
     /** Aresta normal: quando {@code from} termina bem, segue para {@code to}. */
     public WorkflowBuilder edge(String from, String to) {
         return edge(from, to, null, false);
@@ -141,8 +150,30 @@ public final class WorkflowBuilder {
         return edge(from, to, null, true);
     }
 
+    /**
+     * Uma aresta que segue um <b>ramo</b> do passo de origem, em vez de uma
+     * condição escrita à mão: {@code AUTO}/{@code REVIEW}/{@code ESCALATE} de um nó
+     * {@code decision} ({@link Decision#AUTO}…), {@code true}/{@code false} de um
+     * {@code condition}, um caso de um {@code switch}.
+     *
+     * <p>Sai no documento como {@code branch}, e é o <b>motor</b> que o converte na
+     * condição ({@code ${passo.route} == 'AUTO'}) ao carregar — a regra de qual
+     * variável cada tipo de nó grava fica num lugar só, o dele. Uma aresta pode
+     * ter ramo <i>ou</i> condição; com os dois, a condição venceria no motor e o
+     * ramo seria letra morta, então aqui isso é recusado.
+     *
+     * @since 1.5.0
+     */
+    public WorkflowBuilder route(String from, String to, String branch) {
+        if (branch == null || branch.isBlank()) {
+            throw new DslValidationException("aresta " + from + " -> " + to + " com ramo vazio");
+        }
+        edges.add(new Edge(from, to, null, branch.trim(), false));
+        return this;
+    }
+
     private WorkflowBuilder edge(String from, String to, String condition, boolean errorPath) {
-        edges.add(new Edge(from, to, condition, errorPath));
+        edges.add(new Edge(from, to, condition, null, errorPath));
         return this;
     }
 
@@ -284,6 +315,7 @@ public final class WorkflowBuilder {
             connection.put("sourceId", edge.from());
             connection.put("targetId", edge.to());
             putIfPresent(connection, "condition", edge.condition());
+            putIfPresent(connection, "branch", edge.branch());
             connection.put("isErrorPath", edge.errorPath());
             result.add(connection);
         }
@@ -296,6 +328,6 @@ public final class WorkflowBuilder {
         }
     }
 
-    private record Edge(String from, String to, String condition, boolean errorPath) {
+    private record Edge(String from, String to, String condition, String branch, boolean errorPath) {
     }
 }

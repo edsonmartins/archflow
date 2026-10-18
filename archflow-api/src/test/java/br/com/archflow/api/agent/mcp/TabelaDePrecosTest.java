@@ -36,6 +36,29 @@ class TabelaDePrecosTest {
         assertThat(tabela("10", "40").custoEmCentavos(uso(MODELO, 750L, 62L))).isEqualTo(1L);
     }
 
+    /**
+     * Pedido do VendaX de 14/10/2026 (VEN-245): no ambiente público, 213 chamadas do CS em 30
+     * dias só tinham custo 0 ou 1 — uma soma que não compara modelos. O teto segue com os
+     * centavos arredondados; quem soma recebe os reais exatos.
+     */
+    @Test
+    @DisplayName("em reais, a fração NÃO arredonda")
+    void emReaisSemArredondar() {
+        // 750 × 10 + 62 × 40 = 9.980 centavos por milhão → 0,00998 centavo → R$ 0,0000998
+        assertThat(tabela("10", "40").custoEmReais(uso(MODELO, 750L, 62L))).isEqualTo(0.0000998);
+        assertThat(tabela("50", "200").custoEmReais(uso(MODELO, 1_000_000L, 500_000L)))
+                .isEqualTo(1.50);
+    }
+
+    @Test
+    @DisplayName("em reais, nulo exatamente quando os centavos são nulos")
+    void emReaisNuloComoOsCentavos() {
+        assertThat(TabelaDePrecos.vazia().custoEmReais(uso(MODELO, 750L, 62L))).isNull();
+        assertThat(tabela("10", "40").custoEmReais(uso(MODELO, null, null))).isNull();
+        assertThat(tabela("10", "40").custoEmReais(uso(MODELO + ",outro/modelo", 750L, 62L))).isNull();
+        assertThat(tabela("10", "40").custoEmReais(uso(MODELO, 0L, 0L))).isEqualTo(0.0);
+    }
+
     @Test
     @DisplayName("entrada e saída com preços distintos")
     void precosDistintos() {

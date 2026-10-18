@@ -291,9 +291,11 @@ public class AgentFlowRunner {
     /**
      * A saída do último passo como texto.
      *
-     * <p>Um passo de componente devolve mapa; o de MCP traz {@code text} e {@code suspended}. Tratar
-     * um laço suspenso como conclusão entregaria ao Core uma resposta parcial com cara de final, e
-     * a aprovação pendente sumiria sem ninguém a ver — por isso a suspensão sobe explícita.</p>
+     * <p>Um passo de componente devolve mapa; o de MCP traz {@code text} e {@code suspended}; o de
+     * decisão traz {@code route} e {@code answers}, e vira o envelope de {@link DecisaoNoResult}.
+     * Tratar um laço suspenso como conclusão entregaria ao Core uma resposta parcial com cara de
+     * final, e a aprovação pendente sumiria sem ninguém a ver — por isso a suspensão sobe
+     * explícita.</p>
      */
     @SuppressWarnings("unchecked")
     private Saida reduzir(Object saida) {
@@ -301,6 +303,11 @@ public class AgentFlowRunner {
             Map<String, Object> m = (Map<String, Object>) mapa;
             boolean suspenso = Boolean.TRUE.equals(m.get("suspended"));
             Object texto = m.get("text");
+            if (texto == null && DecisaoNoResult.ehDecisao(m)) {
+                // O último passo foi um nó de decisão: a saída dele vai ao Core na forma pedida
+                // (VEN-221), em vez de "o fluxo não devolveu um JSON".
+                texto = DecisaoNoResult.envelope(m);
+            }
             if (texto == null) {
                 texto = m.get(ENTRADA);
             }

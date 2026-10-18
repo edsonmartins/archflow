@@ -67,7 +67,8 @@ O nó grava no contexto, sob o seu `id`:
 | `route` | `AUTO`, `REVIEW` ou `ESCALATE` |
 | `confidence` | a **menor** confiança entre as perguntas do `gate` (uma incerta rebaixa a decisão toda) |
 | `decision` | o valor da pergunta `primary` |
-| `answers.<id>` | `type`, `value`, `confidence`, `probabilities`, `choice`/`score`/`probability` |
+| `primary` | o id da pergunta cujo valor virou `decision` |
+| `answers.<id>` | `type`, `value`, `confidence`, **`route`** (a rota que *esta* pergunta teria sozinha, pelos limiares do nó), `probabilities`, `choice`/`score`/`probability` |
 | `provider`, `model`, `calibrated`, `usage` | quem respondeu, e o consumo (`costUsd` quando informado) |
 | `error` | só quando a decisão não saiu |
 
@@ -120,6 +121,58 @@ Cada chamada feita — de um degrau da cascata, de um voto do consenso ou de um 
 `ContadorDeUso` da execução. O custo declarado pelo provedor (`usage.cost`, em USD) soma em
 `uso.declaredCostUsd` do resultado ao Core, **separado** de `costCents` (reais, da tabela de preços):
 este runtime não converte moeda. Ausente é "nenhum provedor informou", nunca zero.
+
+## Na DSL (`archflow-dsl` 1.5.0+)
+
+```java
+Workflows.define("triagem-do-pedido")
+    .step("intencao", Decision.node()
+            .model("typesafe/jev-1.14")                         // provider padrão: http-decisions
+            .keyRef("openrouter")                               // referência; a chave vem do tenant
+            .choice("intencao", "O cliente está fechando um pedido?",
+                    Map.of("PEDIDO", "Confirma itens e quantidades.",
+                           "DUVIDA", "Pergunta sobre produto ou prazo."))
+            .yesNo("urgente", "Pede resposta imediata?")
+            .primary("intencao").gate("intencao")
+            .thresholds(0.9, 0.5)
+            .cascade("http-decisions", "upstage/solar-decide")
+            .consensus("liquid/d1"))
+    .step("fecha",  McpAgent.node().systemPrompt("..."))
+    .step("humano", Nodes.approval())
+    .route("intencao", "fecha",  Decision.AUTO)                 // vira ${intencao.route} == 'AUTO'
+    .route("intencao", "humano", Decision.REVIEW)
+    .route("intencao", "humano", Decision.ESCALATE)
+    .build();
+```
+
+`route(from, to, ramo)` emite `branch` na aresta; é o **motor** que o converte na condição ao carregar.
+`DslDecisionConformanceTest` (archflow-api) passa o documento emitido pelo desserializador real e executa o
+nó — se a DSL e o componente divergirem num nome de chave, é lá que aparece.
+
+## O nó como último passo: o que volta ao chamador
+
+Quando o nó de decisão é o **último passo** de um fluxo acionado pelo VendaX (`AgentFlowRunner`), a saída
+dele vai no `richObject` do result nesta forma (pedido de 14/10/2026, VEN-221 / ADR-107):
+
+```json
+{"decisao":   {"intencao": {"tipo": "choice", "valor": "PEDIDO", "confianca": 0.97, "rota": "AUTO",
+                            "probabilidades": {"PEDIDO": 0.97, "DUVIDA": 0.03}},
+               "urgente":  {"tipo": "noul", "valor": true, "confianca": 0.6, "rota": "REVIEW"}},
+ "rota": "AUTO", "confianca": 0.97, "principal": "intencao",
+ "modelo": "typesafe/jev-1.14-20261014", "provedor": "http-decisions",
+ "uso": {"entrada": 312, "saida": 9, "custoUsd": 0.00002}}
+```
+
+- `rota`/`confianca` no topo são as do **nó** (a menor confiança do `gate`); `rota` por pergunta é a daquela
+  pergunta sozinha. `urgente` acima é incerta e não rebaixa nada porque está fora do `gate` — as duas
+  rotas existem para que isso seja visível.
+- `modelo` é como o provedor respondeu, com a versão. `uso` é o **da chamada de decisão**, em USD, como o
+  provedor declarou; o consumo da execução inteira (tokens, `costCents`, `costReais`, `declaredCostUsd`)
+  continua em `VendaxResult.uso`, que já soma a decisão.
+- O que o nó não informou fica **ausente** (nunca zero). `erro` só aparece quando a decisão não saiu — e
+  aí `rota` é `ESCALATE` e `decisao` é vazio.
+- O tipo do rich object vem do `saidaSchema` da definição (`decisao@1` → `decisao`), como para qualquer
+  fluxo; sem schema, na rota em fluxo, o JSON vai como texto.
 
 ## Rota e limiares
 
