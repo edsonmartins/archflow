@@ -55,6 +55,20 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
+      # Maven 3.9 FIXO, e não o da imagem do runner. A imagem de 12/10/2026 veio com
+      # Maven 3.10, que grava maven-metadata-local.xml e _remote.repositories dentro
+      # do diretório de staging do central-publishing-maven-plugin; o bundle sobe com
+      # esses arquivos e o Central o recusa ("Bundle has content that does NOT have a
+      # .pom file") — foi o que derrubou a publicação da v1.5.0 em 18/10/2026. Nenhum
+      # POM nosso estava errado. Ver mavenplugins/central-publishing-maven-plugin#79.
+      - name: Set up Maven 3.9
+        uses: stCarolas/setup-maven@v5
+        with:
+          maven-version: '3.9.11'
+
+      - name: Maven em uso
+        run: mvn -v
+
       - name: Extract version from tag
         id: version
         run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
