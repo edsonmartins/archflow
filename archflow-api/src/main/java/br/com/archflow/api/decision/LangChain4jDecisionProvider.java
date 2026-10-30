@@ -352,7 +352,13 @@ public class LangChain4jDecisionProvider implements DecisionProvider {
             try {
                 JsonNode custo = JSON.readTree(body).path("usage").path("cost");
                 if (custo.isNumber()) {
-                    custoCapturado.set(custo.doubleValue());
+                    double valor = custo.doubleValue();
+                    if (Double.isFinite(valor) && valor >= 0) {
+                        custoCapturado.set(valor);
+                    } else {
+                        // Telemetria inválida é desconhecida; não a propague como custo ou falha do agente.
+                        custoCapturado.remove();
+                    }
                 }
             } catch (IOException ignored) {
                 // A interpretação completa continua sob responsabilidade do SDK TypeSafe.

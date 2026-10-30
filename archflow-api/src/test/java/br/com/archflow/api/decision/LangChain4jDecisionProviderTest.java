@@ -122,6 +122,16 @@ class LangChain4jDecisionProviderTest {
     }
 
     @Test
+    @DisplayName("custo negativo do endpoint é tratado como desconhecido")
+    void custoNegativoContinuaDesconhecido() throws Exception {
+        resposta = RESPOSTA.replace("0.0000123", "-0.0000123");
+
+        DecisionResult r = new LangChain4jDecisionProvider().decide(pedido(), chamada(Map.of()));
+
+        assertThat(r.usage().costUsd()).isNull();
+    }
+
+    @Test
     @DisplayName("429 é repetido pela langchain4j; 401 não é")
     void repeticao() {
         status = new int[]{429, 200};
