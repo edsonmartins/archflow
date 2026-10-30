@@ -41,10 +41,11 @@ class LangChain4jDecisionProviderTest {
                        "probabilities":{"pagamento":0.8,"conta":0.2},"confidence":0.6},
                "urg":{"type":"score","score":1.4,"legend":{"0":"baixa","1":"media","2":"alta"},
                       "probabilities":{"0":0.1,"1":0.5,"2":0.4},"confidence":0.7}},
-             "usage":{"input_tokens":120,"output_tokens":30}}
+             "usage":{"input_tokens":120,"output_tokens":30,"cost":0.0000123}}
             """;
 
     private HttpServer server;
+    private volatile String resposta = RESPOSTA;
     private final List<String> corpos = new CopyOnWriteArrayList<>();
     private final List<String> autorizacoes = new CopyOnWriteArrayList<>();
     private final AtomicInteger chamadas = new AtomicInteger();
@@ -58,7 +59,7 @@ class LangChain4jDecisionProviderTest {
             corpos.add(new String(troca.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
             autorizacoes.add(String.valueOf(troca.getRequestHeaders().getFirst("Authorization")));
             int s = status[Math.min(n, status.length - 1)];
-            byte[] corpo = (s == 200 ? RESPOSTA : "{\"error\":\"x\"}").getBytes(StandardCharsets.UTF_8);
+            byte[] corpo = (s == 200 ? resposta : "{\"error\":\"x\"}").getBytes(StandardCharsets.UTF_8);
             troca.getResponseHeaders().add("Content-Type", "application/json");
             troca.sendResponseHeaders(s, corpo.length);
             troca.getResponseBody().write(corpo);
@@ -108,7 +109,16 @@ class LangChain4jDecisionProviderTest {
         assertThat(urg.probabilities()).containsEntry("1", 0.5);
         assertThat(urg.legend()).containsEntry("2", "alta");
         assertThat(r.usage().inputTokens()).isEqualTo(120);
-        assertThat(r.usage().costUsd()).as("a langchain4j não informa o custo").isNull();
+        assertThat(r.usage().costUsd()).isEqualTo(0.0000123);
+    }
+
+    @Test
+    @DisplayName("custo ausente continua nulo, sem converter ausência em zero")
+    void custoAusenteContinuaNulo() throws Exception {
+        resposta = RESPOSTA.replace(",\"cost\":0.0000123", "");
+        DecisionResult r = new LangChain4jDecisionProvider().decide(pedido(), chamada(Map.of()));
+
+        assertThat(r.usage().costUsd()).isNull();
     }
 
     @Test
