@@ -1021,52 +1021,73 @@ public class McpAgentRunner {
         }
         try {
             TokenUsage usage = response.tokenUsage();
-            options.uso().somarComCustoDeclaradoUsd(provedor, rotulo,
-                    usage == null || usage.inputTokenCount() == null ? null : usage.inputTokenCount().longValue(),
-                    usage == null || usage.outputTokenCount() == null ? null : usage.outputTokenCount().longValue(),
-                    custoOpenRouter(provedor, response));
+            Long input = usage == null || usage.inputTokenCount() == null ? null : usage.inputTokenCount().longValue();
+            Long output = usage == null || usage.outputTokenCount() == null ? null : usage.outputTokenCount().longValue();
+            OpenRouterUsage route = usoOpenRouter(provedor, response);
+            options.uso().somarComDetalhe(provedor, rotulo, route.provider(), route.model(),
+                    input, output, route.costUsd());
         } catch (RuntimeException e) {
             log.debug("Falha ao somar o uso do turno: {}", e.getMessage());
         }
     }
 
     static Double custoOpenRouter(String provedor, ChatResponse response) {
+        return usoOpenRouter(provedor, response).costUsd();
+    }
+
+    static OpenRouterUsage usoOpenRouter(String provedor, ChatResponse response) {
         if (!"openrouter".equalsIgnoreCase(provedor) || response == null
                 || !(response.metadata() instanceof OpenAiChatResponseMetadata metadata)) {
-            return null;
+            return new OpenRouterUsage(null, null, null);
         }
         if (metadata.rawHttpResponse() != null) {
-            Double cost = custoDoCorpo(metadata.rawHttpResponse().body());
-            if (cost != null) {
-                return cost;
-            }
+            OpenRouterUsage usage = usoDoCorpo(metadata.rawHttpResponse().body());
+            if (usage.hasData()) return usage;
         }
         var events = metadata.rawServerSentEvents();
         if (events != null) {
+            OpenRouterUsage merged = new OpenRouterUsage(null, null, null);
             for (int i = events.size() - 1; i >= 0; i--) {
-                Double cost = custoDoCorpo(events.get(i).data());
-                if (cost != null) {
-                    return cost;
-                }
+                OpenRouterUsage event = usoDoCorpo(events.get(i).data());
+                merged = new OpenRouterUsage(first(merged.provider(), event.provider()),
+                        first(merged.model(), event.model()),
+                        merged.costUsd() == null ? event.costUsd() : merged.costUsd());
             }
+            return merged;
         }
-        return null;
+        return new OpenRouterUsage(null, null, null);
     }
 
-    private static Double custoDoCorpo(String body) {
+    private static OpenRouterUsage usoDoCorpo(String body) {
         if (body == null || body.isBlank()) {
-            return null;
+            return new OpenRouterUsage(null, null, null);
         }
         try {
-            var cost = USAGE_JSON.readTree(body).path("usage").path("cost");
-            if (!cost.isNumber()) {
-                return null;
+            var root = USAGE_JSON.readTree(body);
+            var cost = root.path("usage").path("cost");
+            Double value = cost.isNumber() && Double.isFinite(cost.doubleValue()) && cost.doubleValue() >= 0
+                    ? cost.doubleValue() : null;
+            String model = root.path("model").isTextual() ? root.path("model").textValue() : null;
+            String provider = null;
+            var endpoints = root.path("openrouter_metadata").path("endpoints").path("available");
+            if (endpoints.isArray()) {
+                for (var endpoint : endpoints) {
+                    if (endpoint.path("selected").asBoolean(false) && endpoint.path("provider").isTextual()) {
+                        provider = endpoint.path("provider").textValue();
+                        break;
+                    }
+                }
             }
-            double value = cost.doubleValue();
-            return Double.isFinite(value) && value >= 0 ? value : null;
+            return new OpenRouterUsage(provider, model, value);
         } catch (Exception e) {
-            return null;
+            return new OpenRouterUsage(null, null, null);
         }
+    }
+
+    private static String first(String first, String fallback) { return first == null ? fallback : first; }
+
+    record OpenRouterUsage(String provider, String model, Double costUsd) {
+        boolean hasData() { return provider != null || model != null || costUsd != null; }
     }
 
     /**

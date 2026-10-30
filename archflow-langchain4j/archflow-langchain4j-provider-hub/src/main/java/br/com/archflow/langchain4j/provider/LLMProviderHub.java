@@ -440,6 +440,11 @@ public class LLMProviderHub {
         }
     }
 
+    static Map<String, String> customHeaders(LLMProviderConfig config) {
+        return config.getProvider() == LLMProvider.OPENROUTER
+                ? Map.of("X-OpenRouter-Metadata", "enabled") : Map.of();
+    }
+
     /**
      * Instala o breakpoint de cache no fim do prefixo estável, no caminho
      * OpenAI-compatível (é por ele que o OpenRouter serve os modelos Anthropic).
@@ -564,6 +569,10 @@ public class LLMProviderHub {
         if (config.getMaxTokens() != null) {
             builder.maxTokens(config.getMaxTokens());
         }
+        Map<String, String> headers = customHeaders(config);
+        if (!headers.isEmpty()) {
+            builder.customHeaders(headers);
+        }
         aplicarParametrosDoCorpo(builder, config);
         aplicarCacheDePrompt(builder, config);
 
@@ -582,6 +591,10 @@ public class LLMProviderHub {
         }
         if (config.getMaxTokens() != null) {
             builder.maxTokens(config.getMaxTokens());
+        }
+        Map<String, String> headers = customHeaders(config);
+        if (!headers.isEmpty()) {
+            builder.customHeaders(headers);
         }
         if (config.getBaseUrl() != null) {
             builder.baseUrl(config.getBaseUrl());

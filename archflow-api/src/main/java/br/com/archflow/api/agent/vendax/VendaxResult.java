@@ -101,12 +101,16 @@ public record VendaxResult(
      *                     (o mesmo custo sem arredondar está em {@code costReais})
      * @param execucaoId   a execução do agente; o Core conta cada (execução, motivo) uma vez, e é
      *                     o que torna a reentrega segura. Não é a chave de idempotência do result
-     * @param provider     o provedor ({@code openrouter})
-     * @param inputTokens  tokens de entrada
-     * @param outputTokens tokens de saída
+     * @param provider     o provedor configurado ({@code openrouter})
+     * @param inputTokens  tokens de entrada agregados
+     * @param outputTokens tokens de saída agregados
      * @param llmTurns     chamadas ao modelo
      * @param toolCalls    idas ao servidor de tools
      * @param durationMs   duração da execução — ou, num relato {@code APOS_PRAZO}, do trecho depois
+     * @param declaredCostUsd custo de modelo declarado pelos providers, em USD
+     * @param costReais custo calculado em reais sem arredondamento
+     * @param modelUsage detalhamento por chamada; modelo e provedor efetivos podem ficar nulos
+     *                   quando o provider não os retornar
      *                     do prazo
      */
     public record Uso(
@@ -141,7 +145,23 @@ public record VendaxResult(
              * costCents, arredondado para cima, que é o lado seguro de um teto. Ausente quando não
              * há preço declarado para o modelo, exatamente como costCents nulo.
              */
-            @JsonInclude(JsonInclude.Include.NON_NULL) Double costReais) {
+            @JsonInclude(JsonInclude.Include.NON_NULL) Double costReais,
+            @JsonInclude(JsonInclude.Include.NON_NULL) java.util.List<TurnoUso> modelUsage) {
+
+        public Uso {
+            modelUsage = modelUsage == null ? null : java.util.List.copyOf(modelUsage);
+        }
+
+        public record TurnoUso(String requestedProvider, String requestedModel,
+                               String effectiveProvider, String effectiveModel,
+                               Long inputTokens, Long outputTokens, Double declaredCostUsd) {}
+
+        public Uso(String model, Long tokens, Long costCents, String execucaoId, String provider,
+                   Long inputTokens, Long outputTokens, Integer llmTurns, Integer toolCalls,
+                   Long durationMs, Long msAtePrimeiroToken, Double declaredCostUsd, Double costReais) {
+            this(model, tokens, costCents, execucaoId, provider, inputTokens, outputTokens,
+                    llmTurns, toolCalls, durationMs, msAtePrimeiroToken, declaredCostUsd, costReais, null);
+        }
 
         /** Compat: uso anterior ao custo em reais sem arredondar. */
         public Uso(String model, Long tokens, Long costCents, String execucaoId, String provider,
@@ -185,7 +205,10 @@ public record VendaxResult(
                              Double costReais) {
             return new Uso(r.modelo(), r.tokens(), costCents, r.execucaoId(), r.provedor(),
                     r.tokensEntrada(), r.tokensSaida(), r.turnos(), r.chamadasDeTool(),
-                    r.duracaoMs(), r.msAtePrimeiroToken(), r.custoDeclaradoUsd(), costReais);
+                    r.duracaoMs(), r.msAtePrimeiroToken(), r.custoDeclaradoUsd(), costReais,
+                    r.usoPorTurno().stream().map(t -> new TurnoUso(t.requestedProvider(), t.requestedModel(),
+                            t.effectiveProvider(), t.effectiveModel(), t.inputTokens(), t.outputTokens(),
+                            t.declaredCostUsd())).toList());
         }
     }
 

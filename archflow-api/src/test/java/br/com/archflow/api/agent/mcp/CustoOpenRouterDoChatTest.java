@@ -26,17 +26,33 @@ class CustoOpenRouterDoChatTest {
     }
 
     @Test
+    @DisplayName("captura modelo servido e endpoint selecionado sem confundir com o pedido")
+    void capturaRotaEfetiva() {
+        var route = McpAgentRunner.usoOpenRouter("openrouter", response("""
+                {"model":"google/gemini-2.5-flash-lite-2026-01-01","usage":{"cost":0.00425},
+                 "openrouter_metadata":{"endpoints":{"available":[
+                   {"provider":"Google AI Studio","selected":true}]}}}
+                """));
+        assertThat(route.model()).isEqualTo("google/gemini-2.5-flash-lite-2026-01-01");
+        assertThat(route.provider()).isEqualTo("Google AI Studio");
+        assertThat(route.costUsd()).isEqualTo(0.00425);
+    }
+
+    @Test
     @DisplayName("captura usage.cost do evento final de uma resposta SSE")
     void capturaCustoDaRespostaSse() {
         var metadata = OpenAiChatResponseMetadata.builder()
                 .rawServerSentEvents(List.of(
-                        new ServerSentEvent("message", "{\"choices\":[{}]}"),
+                        new ServerSentEvent("message", "{\"model\":\"served/model\",\"openrouter_metadata\":{"
+                                + "\"endpoints\":{\"available\":[{\"provider\":\"Provider SSE\",\"selected\":true}]}}}"),
                         new ServerSentEvent("message", "{\"usage\":{\"cost\":0.006}}")))
                 .build();
         var response = ChatResponse.builder().aiMessage(AiMessage.from("resposta"))
                 .metadata(metadata).build();
 
         assertThat(McpAgentRunner.custoOpenRouter("openrouter", response)).isEqualTo(0.006);
+        assertThat(McpAgentRunner.usoOpenRouter("openrouter", response).model()).isEqualTo("served/model");
+        assertThat(McpAgentRunner.usoOpenRouter("openrouter", response).provider()).isEqualTo("Provider SSE");
     }
 
     @Test
@@ -47,11 +63,17 @@ class CustoOpenRouterDoChatTest {
                 null, null, Set.of(), counter);
 
         McpAgentRunner.somarUso(options, "openrouter", "openrouter/model-x",
-                response("{\"usage\":{\"cost\":0.00425}}"));
+                response("{\"model\":\"actual/model-v2\",\"usage\":{\"cost\":0.00425},"
+                        + "\"openrouter_metadata\":{\"endpoints\":{\"available\":["
+                        + "{\"provider\":\"Provider X\",\"selected\":true}]}}}"));
 
         var summary = counter.resumo().orElseThrow();
         assertThat(summary.custoDeclaradoUsd()).isEqualTo(0.00425);
         assertThat(VendaxResult.Uso.de(summary, null).declaredCostUsd()).isEqualTo(0.00425);
+        var turn = VendaxResult.Uso.de(summary, null).modelUsage().getFirst();
+        assertThat(turn.requestedModel()).isEqualTo("openrouter/model-x");
+        assertThat(turn.effectiveModel()).isEqualTo("actual/model-v2");
+        assertThat(turn.effectiveProvider()).isEqualTo("Provider X");
     }
 
     @Test

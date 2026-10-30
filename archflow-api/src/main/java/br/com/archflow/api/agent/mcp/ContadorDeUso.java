@@ -65,6 +65,7 @@ public final class ContadorDeUso implements br.com.archflow.decision.DecisionUsa
     private boolean custoDeclaradoIncompleto;
     private final Set<String> modelos = new LinkedHashSet<>();
     private final Set<String> provedores = new LinkedHashSet<>();
+    private final java.util.List<Resumo.TurnoUso> usoPorTurno = new java.util.ArrayList<>();
 
     public ContadorDeUso() {
         this(System::nanoTime);
@@ -98,13 +99,24 @@ public final class ContadorDeUso implements br.com.archflow.decision.DecisionUsa
         somarContadores(provedor, modelo,
                 entrada == null ? null : entrada.longValue(), saida == null ? null : saida.longValue());
         registrarCusto(null);
+        usoPorTurno.add(new Resumo.TurnoUso(provedor, modelo, null, null,
+                entrada == null ? null : entrada.longValue(), saida == null ? null : saida.longValue(), null));
     }
 
     /** Soma um turno e o custo declarado de forma atômica para snapshots concorrentes. */
     public synchronized void somarComCustoDeclaradoUsd(String provedor, String modelo,
                                                         Long entrada, Long saida, Double custoUsd) {
-        somarContadores(provedor, modelo, entrada, saida);
+        somarComDetalhe(provedor, modelo, null, null, entrada, saida, custoUsd);
+    }
+
+    public synchronized void somarComDetalhe(String provedorSolicitado, String modeloSolicitado,
+                                              String provedorEfetivo, String modeloEfetivo,
+                                              Long entrada, Long saida, Double custoUsd) {
+        somarContadores(provedorSolicitado, modeloSolicitado, entrada, saida);
         registrarCusto(custoUsd);
+        usoPorTurno.add(new Resumo.TurnoUso(provedorSolicitado, modeloSolicitado, provedorEfetivo,
+                modeloEfetivo, entrada, saida,
+                custoUsd != null && Double.isFinite(custoUsd) && custoUsd >= 0 ? custoUsd : null));
     }
 
     private void somarContadores(String provedor, String modelo, Long entrada, Long saida) {
@@ -191,7 +203,8 @@ public final class ContadorDeUso implements br.com.archflow.decision.DecisionUsa
                 chamadasDeTool,
                 (relogioNanos.getAsLong() - inicioNanos) / 1_000_000,
                 msAtePrimeiroToken,
-                custoDeclaradoIncompleto ? null : custoDeclaradoUsd));
+                custoDeclaradoIncompleto ? null : custoDeclaradoUsd,
+                java.util.List.copyOf(usoPorTurno)));
     }
 
     /**
@@ -214,7 +227,22 @@ public final class ContadorDeUso implements br.com.archflow.decision.DecisionUsa
     public record Resumo(String execucaoId, String provedor, String modelo,
                          Long tokensEntrada, Long tokensSaida,
                          Integer turnos, Integer chamadasDeTool, Long duracaoMs,
-                         Long msAtePrimeiroToken, Double custoDeclaradoUsd) {
+                         Long msAtePrimeiroToken, Double custoDeclaradoUsd, java.util.List<TurnoUso> usoPorTurno) {
+
+        public Resumo {
+            usoPorTurno = usoPorTurno == null ? java.util.List.of() : java.util.List.copyOf(usoPorTurno);
+        }
+
+        public Resumo(String execucaoId, String provedor, String modelo, Long tokensEntrada,
+                      Long tokensSaida, Integer turnos, Integer chamadasDeTool, Long duracaoMs,
+                      Long msAtePrimeiroToken, Double custoDeclaradoUsd) {
+            this(execucaoId, provedor, modelo, tokensEntrada, tokensSaida, turnos, chamadasDeTool,
+                    duracaoMs, msAtePrimeiroToken, custoDeclaradoUsd, java.util.List.of());
+        }
+
+        public record TurnoUso(String requestedProvider, String requestedModel,
+                               String effectiveProvider, String effectiveModel,
+                               Long inputTokens, Long outputTokens, Double declaredCostUsd) {}
 
         /** Compat: resumo anterior ao custo declarado. */
         public Resumo(String execucaoId, String provedor, String modelo, Long tokensEntrada,
@@ -266,7 +294,8 @@ public final class ContadorDeUso implements br.com.archflow.decision.DecisionUsa
                     msAtePrimeiroToken,
                     custoDeclaradoUsd == null ? null
                             : Math.max(0.0, custoDeclaradoUsd
-                                    - (anterior.custoDeclaradoUsd == null ? 0.0 : anterior.custoDeclaradoUsd)));
+                                    - (anterior.custoDeclaradoUsd == null ? 0.0 : anterior.custoDeclaradoUsd)),
+                    usoPorTurno.subList(Math.min(anterior.usoPorTurno.size(), usoPorTurno.size()), usoPorTurno.size()));
         }
 
         /** {@code true} quando o trecho não chamou o modelo — nada a relatar. */

@@ -21,6 +21,8 @@ class UsageOpenRouterTest {
         assertThat(LLMProviderHub.parametrosDoCorpo(config))
                 .containsEntry("usage", Map.of("include", true))
                 .containsEntry("reasoning", Map.of("effort", "none"));
+        assertThat(LLMProviderHub.customHeaders(config))
+                .containsEntry("X-OpenRouter-Metadata", "enabled");
     }
 
     @Test
@@ -34,5 +36,6 @@ class UsageOpenRouterTest {
         assertThat(LLMProviderHub.parametrosDoCorpo(config))
                 .containsOnlyKeys("reasoning")
                 .doesNotContainKey("usage");
+        assertThat(LLMProviderHub.customHeaders(config)).isEmpty();
     }
 }
