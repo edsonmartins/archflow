@@ -127,9 +127,10 @@ public record VendaxResult(
              */
             @JsonInclude(JsonInclude.Include.NON_NULL) Long msAtePrimeiroToken,
             /*
-             * Custo que os provedores de decisão declararam, em USD. Aditivo e separado do
-             * costCents (reais, da tabela de preços): este runtime não converte moeda, e o Core
-             * aplica a conversão que quiser. Ausente é "nenhum provedor informou", nunca zero.
+             * Custo efetivamente declarado pelos providers, em USD. Aditivo e separado do
+             * costCents (reais, da tabela de preços): o total só existe quando todos os turnos
+             * informaram custo válido; faltante ou inválido deixa o total ausente, nunca zero nem
+             * soma parcial.
              */
             @JsonInclude(JsonInclude.Include.NON_NULL) Double declaredCostUsd,
             /*

@@ -399,7 +399,8 @@ public class LLMProviderHub {
 
     /**
      * Os campos de topo do corpo que o langchain4j nao modela: {@code reasoning}
-     * e, no OpenRouter, {@code provider} (ZDR / coleta de dados).
+     * e, no OpenRouter, {@code provider} (ZDR / coleta de dados) e
+     * {@code usage: {include: true}} (o custo declarado da geração).
      *
      * <p>Um mapa so, e de proposito: {@code customParameters} <b>substitui</b> o
      * mapa anterior. Se cada campo chamasse o builder por conta propria, o
@@ -420,9 +421,12 @@ public class LLMProviderHub {
         if (reasoning != null && !reasoning.isEmpty()) {
             parametros.put("reasoning", reasoning);
         }
-        if (config.getProvider() == LLMProvider.OPENROUTER
-                && !config.getProviderPreferences().isEmpty()) {
-            parametros.put("provider", config.getProviderPreferences().toWire());
+        if (config.getProvider() == LLMProvider.OPENROUTER) {
+            if (!config.getProviderPreferences().isEmpty()) {
+                parametros.put("provider", config.getProviderPreferences().toWire());
+            }
+            // O custo da geração (usage.cost) só vem se pedido; vai no MESMO mapa (VendaX VEN-557).
+            parametros.put("usage", Map.of("include", true));
         }
         return parametros;
     }

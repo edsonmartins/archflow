@@ -56,6 +56,35 @@ class ContadorDeUsoTest {
         assertThat(r.duracaoMs()).isEqualTo(1500);
     }
 
+    @Test
+    @DisplayName("soma custos declarados finitos e não negativos")
+    void custoDeclaradoValido() {
+        ContadorDeUso c = new ContadorDeUso();
+        c.somarComCustoDeclaradoUsd("openrouter", "openrouter/m", 10L, 5L, 0.001);
+        c.somarComCustoDeclaradoUsd("openrouter", "openrouter/m", 20L, 5L, 0.002);
+
+        assertThat(c.resumo().orElseThrow().custoDeclaradoUsd()).isEqualTo(0.003);
+    }
+
+    @Test
+    @DisplayName("não expõe uma soma parcial se algum turno não informar custo válido")
+    void custoDeclaradoIncompleto() {
+        ContadorDeUso c = new ContadorDeUso();
+        c.somarComCustoDeclaradoUsd("openrouter", "openrouter/m", 10L, 5L, 0.001);
+        c.somar("openrouter", "openrouter/m", 10, 5);
+        assertThat(c.resumo().orElseThrow().custoDeclaradoUsd()).isNull();
+    }
+
+    @Test
+    @DisplayName("tentativa de transporte sem resposta invalida o total de custo")
+    void tentativaSemRespostaInvalidaCusto() {
+        ContadorDeUso c = new ContadorDeUso();
+        c.somarComCustoDeclaradoUsd("openrouter", "openrouter/m", 10L, 5L, 0.001);
+        c.marcarCustoDeclaradoDesconhecido();
+
+        assertThat(c.resumo().orElseThrow().custoDeclaradoUsd()).isNull();
+    }
+
     /**
      * O ERROR por prazo sai com o gasto até o prazo; o relato posterior leva só a diferença. Somar o
      * total de novo contaria o trecho anterior duas vezes.

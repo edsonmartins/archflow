@@ -25,6 +25,7 @@ import dev.langchain4j.model.chat.response.PartialResponse;
 import dev.langchain4j.model.chat.response.PartialResponseContext;
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import dev.langchain4j.model.chat.response.StreamingHandle;
+import dev.langchain4j.model.openai.OpenAiChatResponseMetadata;
 import dev.langchain4j.model.output.TokenUsage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -96,6 +97,7 @@ public class McpAgentRunner {
     private final int catalogWarnTokens;
     private final McpAgentStateStore stateStore;
     private final ObjectMapper mapper = new ObjectMapper();
+    private static final ObjectMapper USAGE_JSON = new ObjectMapper();
 
     public McpAgentRunner(LLMConfigResolver llmConfigResolver, ResolvedLLMConfig platformDefault) {
         this(llmConfigResolver, platformDefault, null, 0);
@@ -417,9 +419,23 @@ public class McpAgentRunner {
             // Com tools no catálogo, um turno só se mostra final quando termina sem pedir tool:
             // o texto fica retido até lá. Sem tools não há o que esperar, e o texto sai na hora.
             boolean reter = !tools.isEmpty() || !options.requiredOutputTools().isEmpty();
-            ChatResponse response = saida != null && saida.transmite()
-                    ? turnoEmFluxo(streaming, model, session, pedido, options, reter)
-                    : chatComRepeticaoDeTransporte(model, session, pedido);
+            boolean haviaRetryDeTransporte = session.repetiuTransporte;
+            ChatResponse response;
+            try {
+                response = saida != null && saida.transmite()
+                        ? turnoEmFluxo(streaming, model, session, pedido, options, reter)
+                        : chatComRepeticaoDeTransporte(model, session, pedido);
+            } catch (RuntimeException e) {
+                if (options.uso() != null) {
+                    options.uso().marcarCustoDeclaradoDesconhecido();
+                }
+                throw e;
+            }
+            if (!haviaRetryDeTransporte && session.repetiuTransporte && options.uso() != null) {
+                // A primeira tentativa falhou sem response usage; somar só a resposta repetida
+                // subestimaria o custo se o provider chegou a cobrar a tentativa anterior.
+                options.uso().marcarCustoDeclaradoDesconhecido();
+            }
             recordTurn(response);
             somarUso(options, provedorDoUso, rotuloDoModelo, response);
             AiMessage ai = response.aiMessage();
@@ -998,18 +1014,58 @@ public class McpAgentRunner {
     }
 
     /** Soma o turno no contador da execução, quando há um. Observação, nunca requisito. */
-    private static void somarUso(Options options, String provedor, String rotulo,
+    static void somarUso(Options options, String provedor, String rotulo,
                                  ChatResponse response) {
         if (options.uso() == null) {
             return;
         }
         try {
             TokenUsage usage = response.tokenUsage();
-            options.uso().somar(provedor, rotulo,
-                    usage == null ? null : usage.inputTokenCount(),
-                    usage == null ? null : usage.outputTokenCount());
+            options.uso().somarComCustoDeclaradoUsd(provedor, rotulo,
+                    usage == null || usage.inputTokenCount() == null ? null : usage.inputTokenCount().longValue(),
+                    usage == null || usage.outputTokenCount() == null ? null : usage.outputTokenCount().longValue(),
+                    custoOpenRouter(provedor, response));
         } catch (RuntimeException e) {
             log.debug("Falha ao somar o uso do turno: {}", e.getMessage());
+        }
+    }
+
+    static Double custoOpenRouter(String provedor, ChatResponse response) {
+        if (!"openrouter".equalsIgnoreCase(provedor) || response == null
+                || !(response.metadata() instanceof OpenAiChatResponseMetadata metadata)) {
+            return null;
+        }
+        if (metadata.rawHttpResponse() != null) {
+            Double cost = custoDoCorpo(metadata.rawHttpResponse().body());
+            if (cost != null) {
+                return cost;
+            }
+        }
+        var events = metadata.rawServerSentEvents();
+        if (events != null) {
+            for (int i = events.size() - 1; i >= 0; i--) {
+                Double cost = custoDoCorpo(events.get(i).data());
+                if (cost != null) {
+                    return cost;
+                }
+            }
+        }
+        return null;
+    }
+
+    private static Double custoDoCorpo(String body) {
+        if (body == null || body.isBlank()) {
+            return null;
+        }
+        try {
+            var cost = USAGE_JSON.readTree(body).path("usage").path("cost");
+            if (!cost.isNumber()) {
+                return null;
+            }
+            double value = cost.doubleValue();
+            return Double.isFinite(value) && value >= 0 ? value : null;
+        } catch (Exception e) {
+            return null;
         }
     }
 
