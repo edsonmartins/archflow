@@ -51,7 +51,25 @@ public record VendaxResult(
 
         /** A tool cujo código de erro encerrou o laço; ausente quando nada encerrou. */
         @JsonInclude(JsonInclude.Include.NON_NULL)
-        Encerramento encerradoPor) {
+        Encerramento encerradoPor,
+        /** Diagnóstico não publicável em ERROR; o consumidor interpreta códigos próprios, não o motor. */
+        @JsonInclude(JsonInclude.Include.NON_NULL) String outputText) {
+
+    public VendaxResult {
+        if (outputText != null && (!"ERROR".equals(status) || outputText.length() > 4096)) outputText = null;
+    }
+
+    public VendaxResult(String schemaVersion, String tenantId, String conversationId, String agent,
+                        String status, String richObjectType, String richObject, String error,
+                        String idempotencyKey, Uso uso, java.util.List<ToolCall> toolCalls, Encerramento encerradoPor) {
+        this(schemaVersion, tenantId, conversationId, agent, status, richObjectType, richObject, error,
+                idempotencyKey, uso, toolCalls, encerradoPor, null);
+    }
+
+    public VendaxResult comOutputText(String texto) {
+        return new VendaxResult(schemaVersion, tenantId, conversationId, agent, status, richObjectType,
+                richObject, error, idempotencyKey, uso, toolCalls, encerradoPor, texto);
+    }
 
     /**
      * Uma chamada de tool como o Core precisa vê-la.
@@ -195,13 +213,13 @@ public record VendaxResult(
      */
     public VendaxResult comChave(String idempotencyKey) {
         return new VendaxResult(schemaVersion, tenantId, conversationId, agent, status,
-                richObjectType, richObject, error, idempotencyKey, uso, toolCalls, encerradoPor);
+                richObjectType, richObject, error, idempotencyKey, uso, toolCalls, encerradoPor, outputText);
     }
 
     /** O mesmo result, carregando o consumo. */
     public VendaxResult comUso(Uso uso) {
         return new VendaxResult(schemaVersion, tenantId, conversationId, agent, status,
-                richObjectType, richObject, error, idempotencyKey, uso, toolCalls, encerradoPor);
+                richObjectType, richObject, error, idempotencyKey, uso, toolCalls, encerradoPor, outputText);
     }
 
     /**
@@ -215,7 +233,7 @@ public record VendaxResult(
         return new VendaxResult(schemaVersion, tenantId, conversationId, agent, status,
                 richObjectType, richObject, error, idempotencyKey, uso,
                 chamadas == null ? java.util.List.of() : java.util.List.copyOf(chamadas),
-                encerradoPor);
+                encerradoPor, outputText);
     }
 
     public static final String SCHEMA_VERSION = "1.0";

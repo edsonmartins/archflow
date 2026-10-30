@@ -698,7 +698,8 @@ public class VendaxAgentDispatcher {
                             + ", código " + resposta.encerradoPor().code() + ")";
             return VendaxResult.error(invoke,
                             "O fluxo de " + invoke.agent() + " não devolveu um JSON" + motivo)
-                    .comChamadas(resposta.toolCalls(), resposta.encerradoPor());
+                    .comChamadas(resposta.toolCalls(), resposta.encerradoPor())
+                    .comOutputText(resposta.texto());
         }
         // AS CHAMADAS DE TOOL SOBEM COM O RESULT, e a lista vai mesmo vazia: o Core monta o
         // parâmetro da resposta a partir dos ARGUMENTOS que foram à tool, e não do que o modelo
@@ -1064,17 +1065,9 @@ public class VendaxAgentDispatcher {
         return ToolAccessPolicy.allowOnly(embutida);
     }
 
-    /** Extrai o primeiro objeto JSON do texto — o modelo às vezes embrulha em cerca de código. */
+    /** Documento inteiro; nunca recorta texto ao redor nem aceita um objeto truncado/duplicado. */
     static String extractJson(String text) {
-        if (text == null) {
-            return null;
-        }
-        int start = text.indexOf('{');
-        int end = text.lastIndexOf('}');
-        if (start < 0 || end <= start) {
-            return null;
-        }
-        return text.substring(start, end + 1);
+        return JsonDeSaida.objeto(text);
     }
 
     private static String causeOf(Exception e) {

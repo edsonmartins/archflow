@@ -222,10 +222,12 @@ class SentimentoDoCsTest {
     class Extracao {
 
         @Test
-        @DisplayName("dentro de cerca de código, e com prosa em volta, vale")
+        @DisplayName("cerca externa completa vale; prosa ao redor é recusada")
         void cercaEProsa() {
-            assertThat(VendaxAgentDispatcher.sentimentoEm("Aqui está:\n```json\n" + SENTIMENTO + "\n```"))
+            assertThat(VendaxAgentDispatcher.sentimentoEm("```json\n" + SENTIMENTO + "\n```"))
                     .isEqualTo(SENTIMENTO);
+            assertThat(VendaxAgentDispatcher.sentimentoEm("Aqui está:\n```json\n" + SENTIMENTO + "\n```"))
+                    .isNull();
         }
 
         /** Antes passava: o Core recebia prosa como sentimento e a recusava lá, sem contexto. */

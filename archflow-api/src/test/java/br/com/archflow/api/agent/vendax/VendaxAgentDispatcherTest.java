@@ -138,10 +138,9 @@ class VendaxAgentDispatcherTest {
     }
 
     @Test
-    @DisplayName("JSON do CS é extraído mesmo embrulhado em cerca de código")
+    @DisplayName("JSON do CS aceita cerca externa completa e recusa prosa")
     void extractsJsonFromFencedText() {
         String fenced = """
-                Aqui está:
                 ```json
                 {"score": -3, "trend": "CAINDO", "tone": "peça desculpas", "bigCustomer": true}
                 ```
@@ -149,6 +148,7 @@ class VendaxAgentDispatcherTest {
         assertThat(VendaxAgentDispatcher.extractJson(fenced))
                 .isEqualTo("{\"score\": -3, \"trend\": \"CAINDO\", "
                         + "\"tone\": \"peça desculpas\", \"bigCustomer\": true}");
+        assertThat(VendaxAgentDispatcher.extractJson("Aqui está:\n" + fenced)).isNull();
         assertThat(VendaxAgentDispatcher.extractJson("sem json aqui")).isNull();
         assertThat(VendaxAgentDispatcher.extractJson(null)).isNull();
     }
