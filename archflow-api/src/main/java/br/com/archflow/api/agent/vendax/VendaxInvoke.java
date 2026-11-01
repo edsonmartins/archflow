@@ -94,12 +94,37 @@ public record VendaxInvoke(
          */
         String validoAte,
 
+        /**
+         * Imagens que o agente lê junto do texto — a foto de um encarte de concorrente, o print de
+         * uma conversa, a página de um PDF que o Core já rasterizou.
+         *
+         * <p>Entram no primeiro turno do usuário, ao lado do texto, em todo nó {@code mcp-agent} do
+         * fluxo. O modelo do nó precisa ter visão: quem escreve o fluxo escolhe. Vão sob chave
+         * transient, como a memória: são entrada deste invoke e podem ser dado de cliente.</p>
+         *
+         * <p>Nulo ou vazio: só texto, como sempre foi.</p>
+         */
+        java.util.List<br.com.archflow.api.agent.mcp.ImagemDaEntrada> imagens,
+
         /** Definição resolvida pelo Core (RFC-013); nula = usar o comportamento embutido. */
         DefinicaoDeAgente definicao) {
 
     public VendaxInvoke {
         memoria = memoria == null ? java.util.List.of()
                 : memoria.stream().filter(java.util.Objects::nonNull).toList();
+        imagens = imagens == null ? java.util.List.of()
+                : imagens.stream().filter(java.util.Objects::nonNull).toList();
+    }
+
+    /** Compat: invoke anterior às imagens na entrada — só texto, como era. */
+    public VendaxInvoke(String schemaVersion, String tenantId, String conversationId, String agent,
+                        String sourceMessageId, String text, String tier, String reason,
+                        String traceId, String payload, String customerRef, String vendorRef,
+                        String idempotencyKey, String taskId, java.util.List<String> memoria,
+                        String validoAte, DefinicaoDeAgente definicao) {
+        this(schemaVersion, tenantId, conversationId, agent, sourceMessageId, text, tier, reason,
+                traceId, payload, customerRef, vendorRef, idempotencyKey, taskId, memoria, validoAte,
+                null, definicao);
     }
 
     /**
@@ -109,7 +134,7 @@ public record VendaxInvoke(
     VendaxInvoke comPayload(String novoPayload) {
         return new VendaxInvoke(schemaVersion, tenantId, conversationId, agent, sourceMessageId, text,
                 tier, reason, traceId, novoPayload, customerRef, vendorRef, idempotencyKey, taskId,
-                memoria, validoAte, definicao);
+                memoria, validoAte, imagens, definicao);
     }
 
     /** Compat: invoke anterior ao prazo no envelope — sem prazo, como era. */
