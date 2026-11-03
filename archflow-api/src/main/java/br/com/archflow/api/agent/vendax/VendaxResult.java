@@ -51,7 +51,25 @@ public record VendaxResult(
 
         /** A tool cujo código de erro encerrou o laço; ausente quando nada encerrou. */
         @JsonInclude(JsonInclude.Include.NON_NULL)
-        Encerramento encerradoPor) {
+        Encerramento encerradoPor,
+        /** Diagnóstico não publicável em ERROR; o consumidor interpreta códigos próprios, não o motor. */
+        @JsonInclude(JsonInclude.Include.NON_NULL) String outputText) {
+
+    public VendaxResult {
+        if (outputText != null && (!"ERROR".equals(status) || outputText.length() > 4096)) outputText = null;
+    }
+
+    public VendaxResult(String schemaVersion, String tenantId, String conversationId, String agent,
+                        String status, String richObjectType, String richObject, String error,
+                        String idempotencyKey, Uso uso, java.util.List<ToolCall> toolCalls, Encerramento encerradoPor) {
+        this(schemaVersion, tenantId, conversationId, agent, status, richObjectType, richObject, error,
+                idempotencyKey, uso, toolCalls, encerradoPor, null);
+    }
+
+    public VendaxResult comOutputText(String texto) {
+        return new VendaxResult(schemaVersion, tenantId, conversationId, agent, status, richObjectType,
+                richObject, error, idempotencyKey, uso, toolCalls, encerradoPor, texto);
+    }
 
     /**
      * Uma chamada de tool como o Core precisa vê-la.
@@ -83,12 +101,16 @@ public record VendaxResult(
      *                     (o mesmo custo sem arredondar está em {@code costReais})
      * @param execucaoId   a execução do agente; o Core conta cada (execução, motivo) uma vez, e é
      *                     o que torna a reentrega segura. Não é a chave de idempotência do result
-     * @param provider     o provedor ({@code openrouter})
-     * @param inputTokens  tokens de entrada
-     * @param outputTokens tokens de saída
+     * @param provider     o provedor configurado ({@code openrouter})
+     * @param inputTokens  tokens de entrada agregados
+     * @param outputTokens tokens de saída agregados
      * @param llmTurns     chamadas ao modelo
      * @param toolCalls    idas ao servidor de tools
      * @param durationMs   duração da execução — ou, num relato {@code APOS_PRAZO}, do trecho depois
+     * @param declaredCostUsd custo de modelo declarado pelos providers, em USD
+     * @param costReais custo calculado em reais sem arredondamento
+     * @param modelUsage detalhamento por chamada; modelo e provedor efetivos podem ficar nulos
+     *                   quando o provider não os retornar
      *                     do prazo
      */
     public record Uso(
@@ -109,9 +131,10 @@ public record VendaxResult(
              */
             @JsonInclude(JsonInclude.Include.NON_NULL) Long msAtePrimeiroToken,
             /*
-             * Custo que os provedores de decisão declararam, em USD. Aditivo e separado do
-             * costCents (reais, da tabela de preços): este runtime não converte moeda, e o Core
-             * aplica a conversão que quiser. Ausente é "nenhum provedor informou", nunca zero.
+             * Custo efetivamente declarado pelos providers, em USD. Aditivo e separado do
+             * costCents (reais, da tabela de preços): o total só existe quando todos os turnos
+             * informaram custo válido; faltante ou inválido deixa o total ausente, nunca zero nem
+             * soma parcial.
              */
             @JsonInclude(JsonInclude.Include.NON_NULL) Double declaredCostUsd,
             /*
@@ -122,7 +145,23 @@ public record VendaxResult(
              * costCents, arredondado para cima, que é o lado seguro de um teto. Ausente quando não
              * há preço declarado para o modelo, exatamente como costCents nulo.
              */
-            @JsonInclude(JsonInclude.Include.NON_NULL) Double costReais) {
+            @JsonInclude(JsonInclude.Include.NON_NULL) Double costReais,
+            @JsonInclude(JsonInclude.Include.NON_NULL) java.util.List<TurnoUso> modelUsage) {
+
+        public Uso {
+            modelUsage = modelUsage == null ? null : java.util.List.copyOf(modelUsage);
+        }
+
+        public record TurnoUso(String requestedProvider, String requestedModel,
+                               String effectiveProvider, String effectiveModel,
+                               Long inputTokens, Long outputTokens, Double declaredCostUsd) {}
+
+        public Uso(String model, Long tokens, Long costCents, String execucaoId, String provider,
+                   Long inputTokens, Long outputTokens, Integer llmTurns, Integer toolCalls,
+                   Long durationMs, Long msAtePrimeiroToken, Double declaredCostUsd, Double costReais) {
+            this(model, tokens, costCents, execucaoId, provider, inputTokens, outputTokens,
+                    llmTurns, toolCalls, durationMs, msAtePrimeiroToken, declaredCostUsd, costReais, null);
+        }
 
         /** Compat: uso anterior ao custo em reais sem arredondar. */
         public Uso(String model, Long tokens, Long costCents, String execucaoId, String provider,
@@ -166,7 +205,10 @@ public record VendaxResult(
                              Double costReais) {
             return new Uso(r.modelo(), r.tokens(), costCents, r.execucaoId(), r.provedor(),
                     r.tokensEntrada(), r.tokensSaida(), r.turnos(), r.chamadasDeTool(),
-                    r.duracaoMs(), r.msAtePrimeiroToken(), r.custoDeclaradoUsd(), costReais);
+                    r.duracaoMs(), r.msAtePrimeiroToken(), r.custoDeclaradoUsd(), costReais,
+                    r.usoPorTurno().stream().map(t -> new TurnoUso(t.requestedProvider(), t.requestedModel(),
+                            t.effectiveProvider(), t.effectiveModel(), t.inputTokens(), t.outputTokens(),
+                            t.declaredCostUsd())).toList());
         }
     }
 
@@ -195,13 +237,13 @@ public record VendaxResult(
      */
     public VendaxResult comChave(String idempotencyKey) {
         return new VendaxResult(schemaVersion, tenantId, conversationId, agent, status,
-                richObjectType, richObject, error, idempotencyKey, uso, toolCalls, encerradoPor);
+                richObjectType, richObject, error, idempotencyKey, uso, toolCalls, encerradoPor, outputText);
     }
 
     /** O mesmo result, carregando o consumo. */
     public VendaxResult comUso(Uso uso) {
         return new VendaxResult(schemaVersion, tenantId, conversationId, agent, status,
-                richObjectType, richObject, error, idempotencyKey, uso, toolCalls, encerradoPor);
+                richObjectType, richObject, error, idempotencyKey, uso, toolCalls, encerradoPor, outputText);
     }
 
     /**
@@ -215,7 +257,7 @@ public record VendaxResult(
         return new VendaxResult(schemaVersion, tenantId, conversationId, agent, status,
                 richObjectType, richObject, error, idempotencyKey, uso,
                 chamadas == null ? java.util.List.of() : java.util.List.copyOf(chamadas),
-                encerradoPor);
+                encerradoPor, outputText);
     }
 
     public static final String SCHEMA_VERSION = "1.0";

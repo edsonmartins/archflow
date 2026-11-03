@@ -59,10 +59,13 @@ public final class ContadorDeUso implements br.com.archflow.decision.DecisionUsa
     private int chamadasDeTool;
     /** Do início da execução ao primeiro token do provedor; {@code null} se nunca foi medido. */
     private Long msAtePrimeiroToken;
-    /** Custo declarado pelos provedores de decisão, em USD; {@code null} até algum informar. */
+    /** Custo efetivo declarado pelos providers, em USD; {@code null} se algum turno for desconhecido. */
     private Double custoDeclaradoUsd;
+    /** Não expõe soma parcial como se fosse o custo total quando algum turno não informou custo. */
+    private boolean custoDeclaradoIncompleto;
     private final Set<String> modelos = new LinkedHashSet<>();
     private final Set<String> provedores = new LinkedHashSet<>();
+    private final java.util.List<Resumo.TurnoUso> usoPorTurno = new java.util.ArrayList<>();
 
     public ContadorDeUso() {
         this(System::nanoTime);
@@ -93,6 +96,30 @@ public final class ContadorDeUso implements br.com.archflow.decision.DecisionUsa
      * @param saida    tokens de saída informados pelo provedor, ou {@code null}
      */
     public synchronized void somar(String provedor, String modelo, Integer entrada, Integer saida) {
+        somarContadores(provedor, modelo,
+                entrada == null ? null : entrada.longValue(), saida == null ? null : saida.longValue());
+        registrarCusto(null);
+        usoPorTurno.add(new Resumo.TurnoUso(provedor, modelo, null, null,
+                entrada == null ? null : entrada.longValue(), saida == null ? null : saida.longValue(), null));
+    }
+
+    /** Soma um turno e o custo declarado de forma atômica para snapshots concorrentes. */
+    public synchronized void somarComCustoDeclaradoUsd(String provedor, String modelo,
+                                                        Long entrada, Long saida, Double custoUsd) {
+        somarComDetalhe(provedor, modelo, null, null, entrada, saida, custoUsd);
+    }
+
+    public synchronized void somarComDetalhe(String provedorSolicitado, String modeloSolicitado,
+                                              String provedorEfetivo, String modeloEfetivo,
+                                              Long entrada, Long saida, Double custoUsd) {
+        somarContadores(provedorSolicitado, modeloSolicitado, entrada, saida);
+        registrarCusto(custoUsd);
+        usoPorTurno.add(new Resumo.TurnoUso(provedorSolicitado, modeloSolicitado, provedorEfetivo,
+                modeloEfetivo, entrada, saida,
+                custoUsd != null && Double.isFinite(custoUsd) && custoUsd >= 0 ? custoUsd : null));
+    }
+
+    private void somarContadores(String provedor, String modelo, Long entrada, Long saida) {
         turnos++;
         if (modelo != null && !modelo.isBlank()) {
             modelos.add(modelo);
@@ -125,13 +152,30 @@ public final class ContadorDeUso implements br.com.archflow.decision.DecisionUsa
      */
     @Override
     public void onDecision(String provedor, String modelo, Long entrada, Long saida, Double custoUsd) {
-        somar(provedor, modelo == null || provedor == null ? modelo : provedor + "/" + modelo,
-                entrada == null ? null : entrada.intValue(), saida == null ? null : saida.intValue());
-        if (custoUsd != null) {
-            synchronized (this) {
-                custoDeclaradoUsd = (custoDeclaradoUsd == null ? 0.0 : custoDeclaradoUsd) + custoUsd;
-            }
+        somarComCustoDeclaradoUsd(provedor, modelo == null || provedor == null ? modelo
+                : provedor + "/" + modelo, entrada, saida, custoUsd);
+    }
+
+    /** Registra custo do turno; uma ausência torna o total da execução desconhecido. */
+    private void registrarCusto(Double custoUsd) {
+        if (custoUsd == null || !Double.isFinite(custoUsd) || custoUsd < 0) {
+            custoDeclaradoIncompleto = true;
+            return;
         }
+        if (custoDeclaradoIncompleto) {
+            return;
+        }
+        double total = (custoDeclaradoUsd == null ? 0.0 : custoDeclaradoUsd) + custoUsd;
+        if (Double.isFinite(total)) {
+            custoDeclaradoUsd = total;
+        } else {
+            custoDeclaradoIncompleto = true;
+        }
+    }
+
+    /** Marca uma tentativa que falhou antes de fornecer uso/custo reconciliável. */
+    public synchronized void marcarCustoDeclaradoDesconhecido() {
+        custoDeclaradoIncompleto = true;
     }
 
     /** Uma chamada de tool executada (bem-sucedida ou não) — uma ida ao servidor. */
@@ -159,7 +203,8 @@ public final class ContadorDeUso implements br.com.archflow.decision.DecisionUsa
                 chamadasDeTool,
                 (relogioNanos.getAsLong() - inicioNanos) / 1_000_000,
                 msAtePrimeiroToken,
-                custoDeclaradoUsd));
+                custoDeclaradoIncompleto ? null : custoDeclaradoUsd,
+                java.util.List.copyOf(usoPorTurno)));
     }
 
     /**
@@ -174,15 +219,30 @@ public final class ContadorDeUso implements br.com.archflow.decision.DecisionUsa
      * @param turnos        chamadas ao modelo
      * @param chamadasDeTool idas ao servidor de tools
      * @param duracaoMs     tempo desde o início da execução (ou, num {@link #menos}, do trecho)
-     * @param custoDeclaradoUsd custo que os provedores de decisão declararam, em USD; {@code null}
-     *                      quando nenhum informou
+     * @param custoDeclaradoUsd soma dos custos declarados em USD; {@code null} se algum turno não
+     *                      informou custo ou se o valor informado era inválido
      * @param msAtePrimeiroToken tempo do início da execução ao primeiro token do provedor;
      *                      {@code null} quando o provedor não transmitiu e não há como medir
      */
     public record Resumo(String execucaoId, String provedor, String modelo,
                          Long tokensEntrada, Long tokensSaida,
                          Integer turnos, Integer chamadasDeTool, Long duracaoMs,
-                         Long msAtePrimeiroToken, Double custoDeclaradoUsd) {
+                         Long msAtePrimeiroToken, Double custoDeclaradoUsd, java.util.List<TurnoUso> usoPorTurno) {
+
+        public Resumo {
+            usoPorTurno = usoPorTurno == null ? java.util.List.of() : java.util.List.copyOf(usoPorTurno);
+        }
+
+        public Resumo(String execucaoId, String provedor, String modelo, Long tokensEntrada,
+                      Long tokensSaida, Integer turnos, Integer chamadasDeTool, Long duracaoMs,
+                      Long msAtePrimeiroToken, Double custoDeclaradoUsd) {
+            this(execucaoId, provedor, modelo, tokensEntrada, tokensSaida, turnos, chamadasDeTool,
+                    duracaoMs, msAtePrimeiroToken, custoDeclaradoUsd, java.util.List.of());
+        }
+
+        public record TurnoUso(String requestedProvider, String requestedModel,
+                               String effectiveProvider, String effectiveModel,
+                               Long inputTokens, Long outputTokens, Double declaredCostUsd) {}
 
         /** Compat: resumo anterior ao custo declarado. */
         public Resumo(String execucaoId, String provedor, String modelo, Long tokensEntrada,
@@ -234,7 +294,8 @@ public final class ContadorDeUso implements br.com.archflow.decision.DecisionUsa
                     msAtePrimeiroToken,
                     custoDeclaradoUsd == null ? null
                             : Math.max(0.0, custoDeclaradoUsd
-                                    - (anterior.custoDeclaradoUsd == null ? 0.0 : anterior.custoDeclaradoUsd)));
+                                    - (anterior.custoDeclaradoUsd == null ? 0.0 : anterior.custoDeclaradoUsd)),
+                    usoPorTurno.subList(Math.min(anterior.usoPorTurno.size(), usoPorTurno.size()), usoPorTurno.size()));
         }
 
         /** {@code true} quando o trecho não chamou o modelo — nada a relatar. */

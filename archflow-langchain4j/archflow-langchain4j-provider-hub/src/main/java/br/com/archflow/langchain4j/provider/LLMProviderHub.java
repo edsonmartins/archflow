@@ -399,7 +399,8 @@ public class LLMProviderHub {
 
     /**
      * Os campos de topo do corpo que o langchain4j nao modela: {@code reasoning}
-     * e, no OpenRouter, {@code provider} (ZDR / coleta de dados).
+     * e, no OpenRouter, {@code provider} (ZDR / coleta de dados) e
+     * {@code usage: {include: true}} (o custo declarado da geração).
      *
      * <p>Um mapa so, e de proposito: {@code customParameters} <b>substitui</b> o
      * mapa anterior. Se cada campo chamasse o builder por conta propria, o
@@ -420,9 +421,12 @@ public class LLMProviderHub {
         if (reasoning != null && !reasoning.isEmpty()) {
             parametros.put("reasoning", reasoning);
         }
-        if (config.getProvider() == LLMProvider.OPENROUTER
-                && !config.getProviderPreferences().isEmpty()) {
-            parametros.put("provider", config.getProviderPreferences().toWire());
+        if (config.getProvider() == LLMProvider.OPENROUTER) {
+            if (!config.getProviderPreferences().isEmpty()) {
+                parametros.put("provider", config.getProviderPreferences().toWire());
+            }
+            // O custo da geração (usage.cost) só vem se pedido; vai no MESMO mapa (VendaX VEN-557).
+            parametros.put("usage", Map.of("include", true));
         }
         return parametros;
     }
@@ -434,6 +438,11 @@ public class LLMProviderHub {
         if (!parametros.isEmpty()) {
             builder.customParameters(parametros);
         }
+    }
+
+    static Map<String, String> customHeaders(LLMProviderConfig config) {
+        return config.getProvider() == LLMProvider.OPENROUTER
+                ? Map.of("X-OpenRouter-Metadata", "enabled") : Map.of();
     }
 
     /**
@@ -560,6 +569,10 @@ public class LLMProviderHub {
         if (config.getMaxTokens() != null) {
             builder.maxTokens(config.getMaxTokens());
         }
+        Map<String, String> headers = customHeaders(config);
+        if (!headers.isEmpty()) {
+            builder.customHeaders(headers);
+        }
         aplicarParametrosDoCorpo(builder, config);
         aplicarCacheDePrompt(builder, config);
 
@@ -578,6 +591,10 @@ public class LLMProviderHub {
         }
         if (config.getMaxTokens() != null) {
             builder.maxTokens(config.getMaxTokens());
+        }
+        Map<String, String> headers = customHeaders(config);
+        if (!headers.isEmpty()) {
+            builder.customHeaders(headers);
         }
         if (config.getBaseUrl() != null) {
             builder.baseUrl(config.getBaseUrl());

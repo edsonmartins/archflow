@@ -7,11 +7,19 @@ import br.com.archflow.decision.DecisionProvider;
 import br.com.archflow.decision.DecisionRequest;
 import br.com.archflow.decision.DecisionResult;
 import br.com.archflow.decision.Question;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.exception.ContentFilteredException;
 import dev.langchain4j.exception.InvalidDecisionResponseException;
 import dev.langchain4j.exception.NonRetriableException;
 import dev.langchain4j.exception.UnsupportedFeatureException;
+import dev.langchain4j.http.client.HttpClient;
+import dev.langchain4j.http.client.HttpClientBuilder;
+import dev.langchain4j.http.client.HttpClientBuilderLoader;
+import dev.langchain4j.http.client.HttpRequest;
+import dev.langchain4j.http.client.SuccessfulHttpResponse;
+import dev.langchain4j.http.client.sse.ServerSentEventListener;
+import dev.langchain4j.http.client.sse.ServerSentEventParser;
 import dev.langchain4j.model.decision.DecisionModel;
 import dev.langchain4j.model.decision.request.ChoiceQuestion;
 import dev.langchain4j.model.decision.request.ScaleQuestion;
@@ -25,6 +33,7 @@ import dev.langchain4j.model.decision.response.YesNoAnswer;
 import dev.langchain4j.model.openai.OpenAiDecisionModel;
 import dev.langchain4j.model.typesafe.TypeSafeDecisionModel;
 
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Duration;
@@ -57,9 +66,10 @@ import java.util.concurrent.ConcurrentHashMap;
  * {@link Answer.Refused}: confiança 0, valor nulo — a rota escala, em vez de seguir com um palpite.</p>
  *
  * <h2>Limites</h2>
- * <p>O custo em USD não vem da langchain4j (só os tokens); quem precisa do custo declarado usa o
- * {@code http-decisions}. Uma pergunta {@code choice} exige ao menos duas opções — a langchain4j recusa
- * menos que isso.</p>
+ * <p>Quando a resposta TypeSafe informa {@code usage.cost}, o adapter captura o valor bruto porque
+ * o SDK LangChain4j só mapeia as contagens de tokens. O backend OpenAI e provedores que não informam
+ * custo continuam retornando {@code costUsd=null}. Uma pergunta {@code choice} exige ao menos duas
+ * opções — a langchain4j recusa menos que isso.</p>
  */
 public class LangChain4jDecisionProvider implements DecisionProvider {
 
@@ -69,6 +79,7 @@ public class LangChain4jDecisionProvider implements DecisionProvider {
     private static final int CACHE_MAX = 64;
 
     private final Map<String, DecisionModel> modelos = new ConcurrentHashMap<>();
+    private final ThreadLocal<Double> custoDaResposta = new ThreadLocal<>();
 
     @Override
     public String id() {
@@ -102,10 +113,17 @@ public class LangChain4jDecisionProvider implements DecisionProvider {
             pedido.question(q.id(), pergunta(q));
         }
         DecisionResponse resposta;
+        Double custo = null;
+        custoDaResposta.remove();
         try {
             resposta = modelo.decide(pedido.build());
+            if (backend(call.options()).equals("typesafe")) {
+                custo = custoDaResposta.get();
+            }
         } catch (RuntimeException e) {
             throw new DecisionException("a langchain4j não decidiu: " + e.getMessage(), repetivel(e), e);
+        } finally {
+            custoDaResposta.remove();
         }
         Map<String, Answer> answers = new LinkedHashMap<>();
         for (Question q : request.questions()) {
@@ -119,7 +137,7 @@ public class LangChain4jDecisionProvider implements DecisionProvider {
                 resposta.tokenUsage().inputTokenCount() == null ? null
                         : resposta.tokenUsage().inputTokenCount().longValue(),
                 resposta.tokenUsage().outputTokenCount() == null ? null
-                        : resposta.tokenUsage().outputTokenCount().longValue(), null);
+                        : resposta.tokenUsage().outputTokenCount().longValue(), custo);
         return new DecisionResult(answers, resposta.modelName() != null ? resposta.modelName() : call.model(),
                 backend(call.options()), true, uso);
     }
@@ -259,7 +277,7 @@ public class LangChain4jDecisionProvider implements DecisionProvider {
         return modelos.computeIfAbsent(chave, k -> construir(backend, baseUrl, call, retries));
     }
 
-    private static DecisionModel construir(String backend, String baseUrl, DecisionCall call, int retries) {
+    private DecisionModel construir(String backend, String baseUrl, DecisionCall call, int retries) {
         Duration timeout = call.timeout();
         if (backend.equals("openai")) {
             OpenAiDecisionModel.OpenAiDecisionModelBuilder b = OpenAiDecisionModel.builder()
@@ -271,10 +289,81 @@ public class LangChain4jDecisionProvider implements DecisionProvider {
         }
         TypeSafeDecisionModel.TypeSafeDecisionModelBuilder b = TypeSafeDecisionModel.builder()
                 .apiKey(call.apiKey()).modelName(call.model()).timeout(timeout).maxRetries(retries);
+        b.httpClientBuilder(new CostCapturingHttpClientBuilder(custoDaResposta));
         if (baseUrl != null) {
             b.baseUrl(baseUrl);
         }
         return b.build();
+    }
+
+    /** Captura somente o campo de custo da resposta TypeSafe, sem registrar corpo ou credenciais. */
+    private static final class CostCapturingHttpClientBuilder implements HttpClientBuilder {
+        private static final ObjectMapper JSON = new ObjectMapper();
+
+        private final HttpClientBuilder delegate = HttpClientBuilderLoader.loadHttpClientBuilder();
+        private final ThreadLocal<Double> custoCapturado;
+
+        private CostCapturingHttpClientBuilder(ThreadLocal<Double> custoCapturado) {
+            this.custoCapturado = custoCapturado;
+        }
+
+        @Override
+        public Duration connectTimeout() {
+            return delegate.connectTimeout();
+        }
+
+        @Override
+        public HttpClientBuilder connectTimeout(Duration timeout) {
+            delegate.connectTimeout(timeout);
+            return this;
+        }
+
+        @Override
+        public Duration readTimeout() {
+            return delegate.readTimeout();
+        }
+
+        @Override
+        public HttpClientBuilder readTimeout(Duration timeout) {
+            delegate.readTimeout(timeout);
+            return this;
+        }
+
+        @Override
+        public HttpClient build() {
+            HttpClient client = delegate.build();
+            return new HttpClient() {
+                @Override
+                public SuccessfulHttpResponse execute(HttpRequest request) {
+                    SuccessfulHttpResponse response = client.execute(request);
+                    extrairCusto(response.body());
+                    return response;
+                }
+
+                @Override
+                public void execute(HttpRequest request, ServerSentEventParser parser,
+                                    ServerSentEventListener listener) {
+                    client.execute(request, parser, listener);
+                }
+            };
+        }
+
+        private void extrairCusto(String body) {
+            try {
+                JsonNode custo = JSON.readTree(body).path("usage").path("cost");
+                if (custo.isNumber()) {
+                    double valor = custo.doubleValue();
+                    if (Double.isFinite(valor) && valor >= 0) {
+                        custoCapturado.set(valor);
+                    } else {
+                        // Telemetria inválida é desconhecida; não a propague como custo ou falha do agente.
+                        custoCapturado.remove();
+                    }
+                }
+            } catch (IOException ignored) {
+                // A interpretação completa continua sob responsabilidade do SDK TypeSafe.
+            }
+        }
     }
 
     private static String resumo(String segredo) {

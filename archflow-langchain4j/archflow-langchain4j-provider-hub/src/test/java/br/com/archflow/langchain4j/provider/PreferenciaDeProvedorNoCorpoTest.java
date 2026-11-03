@@ -286,20 +286,24 @@ class PreferenciaDeProvedorNoCorpoTest {
     /**
      * Controle. "Byte a byte o de hoje" é literal: o corpo enviado com a preferência desligada é
      * comparado ao de um modelo construído como o hub construía antes desta mudança — o builder do
-     * langchain4j com os mesmos parâmetros e nada mais.
+     * langchain4j com os mesmos parâmetros e nada mais — salvo o {@code usage: {include: true}}, que o OpenRouter
+     * sempre recebe para devolver o custo da geração (VendaX VEN-557). O que a preferência desligada não pode
+     * acrescentar é o {@code provider}.
      */
     @Nested
     @DisplayName("preferência desligada e required=false: corpo inalterado")
     class Controle {
 
+        private static final Map<String, Object> SO_O_USO = Map.of("usage", Map.of("include", true));
+
         @Test
-        @DisplayName("bloqueante: byte a byte o mesmo de um OpenAiChatModel sem customParameters")
+        @DisplayName("bloqueante: byte a byte o mesmo de um OpenAiChatModel só com o pedido de uso")
         void bloqueante() throws Exception {
             resolvedor(ProviderPreferences.NONE, false)
                     .resolveModel(pedido(plataforma("openrouter"), LLMConfigPatch.empty())).chat("oi");
             OpenAiChatModel.builder().baseUrl(baseUrl()).apiKey("k")
                     .modelName("google/gemini-2.5-flash-lite").temperature(0.2)
-                    .timeout(Duration.ofSeconds(30)).maxTokens(256).build()
+                    .timeout(Duration.ofSeconds(30)).maxTokens(256).customParameters(SO_O_USO).build()
                     .chat("oi");
 
             assertThat(corpos).hasSize(2);
@@ -308,16 +312,17 @@ class PreferenciaDeProvedorNoCorpoTest {
         }
 
         @Test
-        @DisplayName("em fluxo: byte a byte o mesmo de um OpenAiStreamingChatModel sem customParameters")
+        @DisplayName("em fluxo: byte a byte o mesmo de um OpenAiStreamingChatModel só com o pedido de uso")
         void emFluxoControle() throws Exception {
             emFluxo(resolvedor(ProviderPreferences.NONE, false)
                     .resolveStreamingModel(pedido(plataforma("openrouter"), LLMConfigPatch.empty())));
             emFluxo(OpenAiStreamingChatModel.builder().baseUrl(baseUrl()).apiKey("k")
                     .modelName("google/gemini-2.5-flash-lite").temperature(0.2)
-                    .timeout(Duration.ofSeconds(30)).maxTokens(256).build());
+                    .timeout(Duration.ofSeconds(30)).maxTokens(256).customParameters(SO_O_USO).build());
 
             assertThat(corpos).hasSize(2);
             assertThat(corpos.get(0)).isEqualTo(corpos.get(1));
+            assertThat(corpos.get(0)).doesNotContain("\"provider\"");
         }
     }
 }

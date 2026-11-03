@@ -25,6 +25,7 @@ import dev.langchain4j.model.chat.response.PartialResponse;
 import dev.langchain4j.model.chat.response.PartialResponseContext;
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import dev.langchain4j.model.chat.response.StreamingHandle;
+import dev.langchain4j.model.openai.OpenAiChatResponseMetadata;
 import dev.langchain4j.model.output.TokenUsage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -96,6 +97,7 @@ public class McpAgentRunner {
     private final int catalogWarnTokens;
     private final McpAgentStateStore stateStore;
     private final ObjectMapper mapper = new ObjectMapper();
+    private static final ObjectMapper USAGE_JSON = new ObjectMapper();
 
     public McpAgentRunner(LLMConfigResolver llmConfigResolver, ResolvedLLMConfig platformDefault) {
         this(llmConfigResolver, platformDefault, null, 0);
@@ -417,9 +419,23 @@ public class McpAgentRunner {
             // Com tools no catálogo, um turno só se mostra final quando termina sem pedir tool:
             // o texto fica retido até lá. Sem tools não há o que esperar, e o texto sai na hora.
             boolean reter = !tools.isEmpty() || !options.requiredOutputTools().isEmpty();
-            ChatResponse response = saida != null && saida.transmite()
-                    ? turnoEmFluxo(streaming, model, session, pedido, options, reter)
-                    : chatComRepeticaoDeTransporte(model, session, pedido);
+            boolean haviaRetryDeTransporte = session.repetiuTransporte;
+            ChatResponse response;
+            try {
+                response = saida != null && saida.transmite()
+                        ? turnoEmFluxo(streaming, model, session, pedido, options, reter)
+                        : chatComRepeticaoDeTransporte(model, session, pedido);
+            } catch (RuntimeException e) {
+                if (options.uso() != null) {
+                    options.uso().marcarCustoDeclaradoDesconhecido();
+                }
+                throw e;
+            }
+            if (!haviaRetryDeTransporte && session.repetiuTransporte && options.uso() != null) {
+                // A primeira tentativa falhou sem response usage; somar só a resposta repetida
+                // subestimaria o custo se o provider chegou a cobrar a tentativa anterior.
+                options.uso().marcarCustoDeclaradoDesconhecido();
+            }
             recordTurn(response);
             somarUso(options, provedorDoUso, rotuloDoModelo, response);
             AiMessage ai = response.aiMessage();
@@ -998,19 +1014,80 @@ public class McpAgentRunner {
     }
 
     /** Soma o turno no contador da execução, quando há um. Observação, nunca requisito. */
-    private static void somarUso(Options options, String provedor, String rotulo,
+    static void somarUso(Options options, String provedor, String rotulo,
                                  ChatResponse response) {
         if (options.uso() == null) {
             return;
         }
         try {
             TokenUsage usage = response.tokenUsage();
-            options.uso().somar(provedor, rotulo,
-                    usage == null ? null : usage.inputTokenCount(),
-                    usage == null ? null : usage.outputTokenCount());
+            Long input = usage == null || usage.inputTokenCount() == null ? null : usage.inputTokenCount().longValue();
+            Long output = usage == null || usage.outputTokenCount() == null ? null : usage.outputTokenCount().longValue();
+            OpenRouterUsage route = usoOpenRouter(provedor, response);
+            options.uso().somarComDetalhe(provedor, rotulo, route.provider(), route.model(),
+                    input, output, route.costUsd());
         } catch (RuntimeException e) {
             log.debug("Falha ao somar o uso do turno: {}", e.getMessage());
         }
+    }
+
+    static Double custoOpenRouter(String provedor, ChatResponse response) {
+        return usoOpenRouter(provedor, response).costUsd();
+    }
+
+    static OpenRouterUsage usoOpenRouter(String provedor, ChatResponse response) {
+        if (!"openrouter".equalsIgnoreCase(provedor) || response == null
+                || !(response.metadata() instanceof OpenAiChatResponseMetadata metadata)) {
+            return new OpenRouterUsage(null, null, null);
+        }
+        if (metadata.rawHttpResponse() != null) {
+            OpenRouterUsage usage = usoDoCorpo(metadata.rawHttpResponse().body());
+            if (usage.hasData()) return usage;
+        }
+        var events = metadata.rawServerSentEvents();
+        if (events != null) {
+            OpenRouterUsage merged = new OpenRouterUsage(null, null, null);
+            for (int i = events.size() - 1; i >= 0; i--) {
+                OpenRouterUsage event = usoDoCorpo(events.get(i).data());
+                merged = new OpenRouterUsage(first(merged.provider(), event.provider()),
+                        first(merged.model(), event.model()),
+                        merged.costUsd() == null ? event.costUsd() : merged.costUsd());
+            }
+            return merged;
+        }
+        return new OpenRouterUsage(null, null, null);
+    }
+
+    private static OpenRouterUsage usoDoCorpo(String body) {
+        if (body == null || body.isBlank()) {
+            return new OpenRouterUsage(null, null, null);
+        }
+        try {
+            var root = USAGE_JSON.readTree(body);
+            var cost = root.path("usage").path("cost");
+            Double value = cost.isNumber() && Double.isFinite(cost.doubleValue()) && cost.doubleValue() >= 0
+                    ? cost.doubleValue() : null;
+            String model = root.path("model").isTextual() ? root.path("model").textValue() : null;
+            String provider = null;
+            var endpoints = root.path("openrouter_metadata").path("endpoints").path("available");
+            if (endpoints.isArray()) {
+                for (var endpoint : endpoints) {
+                    if (endpoint.path("selected").asBoolean(false) && endpoint.path("provider").isTextual()) {
+                        provider = endpoint.path("provider").textValue();
+                        break;
+                    }
+                }
+            }
+            return new OpenRouterUsage(provider, model, value);
+        } catch (Exception e) {
+            return new OpenRouterUsage(null, null, null);
+        }
+    }
+
+    private static String first(String first, String fallback) { return first == null ? fallback : first; }
+
+    record OpenRouterUsage(String provider, String model, Double costUsd) {
+        boolean hasData() { return provider != null || model != null || costUsd != null; }
     }
 
     /**
