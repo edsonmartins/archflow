@@ -45,6 +45,26 @@ public class AgentFlowRunner {
     private static final String ENTRADA = "input";
 
     /**
+     * O {@code text} do invoke, como veio — ao lado de {@link #ENTRADA}, que é a entrada já montada para o agente.
+     * Pedido do VendaX (18/10, VEN-397): o {@code state} do nó {@code decision} resolve caminhos do contexto
+     * ({@code StateTemplate}), e o nó julgava a entrada inteira em texto. Com o texto e o payload separados, o estado
+     * vira objeto — e o classificador do VendaX acertou 35/36 contra 28/36.
+     */
+    static final String TEXTO = "texto";
+
+    /**
+     * O {@code payload} do invoke LIDO COMO OBJETO ({@code ${payload.pergunta}}). Ilegível, ou JSON que não é objeto:
+     * fica ausente — o caminho não resolve, e o {@code StateTemplate} já trata o ausente.
+     *
+     * <p>Chave comum, e não {@code transient}: a {@link #ENTRADA} já leva este mesmo texto e payload ao estado
+     * durável; separá-los não expõe nada novo.</p>
+     */
+    static final String PAYLOAD = "payload";
+
+    private static final com.fasterxml.jackson.databind.ObjectMapper JSON =
+            new com.fasterxml.jackson.databind.ObjectMapper();
+
+    /**
      * O que o fluxo produziu.
      *
      * @param texto    saída do último passo, já reduzida a texto
@@ -145,6 +165,7 @@ public class AgentFlowRunner {
                 invoke.tenantId(), "vendax", execucaoId,
                 MessageWindowChatMemory.builder().maxMessages(20).build());
         contexto.set(ENTRADA, entrada == null ? "" : entrada);
+        textoEPayload(contexto, invoke);
         // A CORRELAÇÃO ATRAVESSA POR AQUI, e não por ThreadLocal: o passo executa noutra thread
         // (medido: dispatcher em [vendax-agent-N], passo em [virtual-N]). Quem a repõe do outro
         // lado é o McpAgentComponent, já na thread que chama as tools.
@@ -287,6 +308,30 @@ public class AgentFlowRunner {
             }
         }
         return false;
+    }
+
+    /** O texto e o payload do invoke, separados, no contexto do fluxo (VEN-397 do VendaX) — ver {@link #TEXTO}. */
+    static void textoEPayload(ExecutionContext contexto, VendaxInvoke invoke) {
+        definirSeHouver(contexto, TEXTO, invoke.text());
+        Map<String, Object> payload = payloadComoObjeto(invoke.payload());
+        if (payload != null) {
+            contexto.set(PAYLOAD, payload);
+        }
+    }
+
+    /** O payload do invoke como objeto; nulo quando vazio, ilegível ou não é um objeto JSON. */
+    @SuppressWarnings("unchecked")
+    static Map<String, Object> payloadComoObjeto(String payload) {
+        if (payload == null || payload.isBlank()) {
+            return null;
+        }
+        try {
+            Object lido = JSON.readValue(payload, Object.class);
+            return lido instanceof Map<?, ?> m ? (Map<String, Object>) m : null;
+        } catch (Exception e) {
+            log.debug("payload do invoke ilegível — fica fora do contexto: {}", e.getMessage());
+            return null;
+        }
     }
 
     private static void definirSeHouver(ExecutionContext contexto, String chave, String valor) {
