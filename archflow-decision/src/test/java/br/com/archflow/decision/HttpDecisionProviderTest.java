@@ -1,5 +1,6 @@
 package br.com.archflow.decision;
 
+import br.com.archflow.model.config.ProviderPreferences;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpServer;
@@ -215,6 +216,67 @@ class HttpDecisionProviderTest {
         assertThat(p.keyRef(Map.of())).contains("openrouter");
         assertThat(p.keyRef(Map.of("keyRef", "typesafe"))).contains("typesafe");
         assertThat(p.requiresKey()).isTrue();
+    }
+
+    // ── Preferência de provedor (ZDR) ──────────────────────────────
+    //
+    // O servidor simulado é local, então o predicado "é OpenRouter" é trocado por um que aceita
+    // tudo; o predicado real tem teste próprio logo abaixo.
+
+    private static final ProviderPreferences ZDR = new ProviderPreferences(true, "deny");
+
+    @Test
+    @DisplayName("ZDR: o corpo enviado ao endpoint traz provider {zdr, data_collection}, e só isso")
+    void zdrNoCorpo() throws Exception {
+        new HttpDecisionProvider(ZDR, false, uri -> true).decide(pedido(), chamada(Map.of()));
+
+        JsonNode corpo = JSON.readTree(corpos.get(0));
+        assertThat(JSON.convertValue(corpo.get("provider"), Map.class))
+                .as("ProviderPreferences tem additionalProperties: false — nada além dos dois campos")
+                .isEqualTo(Map.of("zdr", true, "data_collection", "deny"));
+        assertThat(corpo.get("model").asText()).isEqualTo("typesafe/jev-1.13");
+    }
+
+    @Test
+    @DisplayName("ZDR: endpoint que não é do OpenRouter não recebe o campo")
+    void zdrSoNoOpenRouter() throws Exception {
+        new HttpDecisionProvider(ZDR, false, uri -> false).decide(pedido(), chamada(Map.of()));
+
+        assertThat(JSON.readTree(corpos.get(0)).has("provider")).isFalse();
+    }
+
+    @Test
+    @DisplayName("ZDR: required sem preferência falha antes de enviar, sem repetir")
+    void zdrObrigatorio() {
+        assertThatThrownBy(() -> new HttpDecisionProvider(ProviderPreferences.NONE, true, uri -> true)
+                .decide(pedido(), chamada(Map.of())))
+                .isInstanceOf(DecisionException.class)
+                .hasMessageContaining("provider-preferences.required")
+                .satisfies(e -> assertThat(((DecisionException) e).retryable()).isFalse());
+        assertThat(chamadas.get()).as("nenhuma requisição pode chegar ao servidor").isZero();
+    }
+
+    @Test
+    @DisplayName("ZDR: desligado e required=false, o corpo é byte a byte o do construtor sem preferência")
+    void zdrControle() throws Exception {
+        new HttpDecisionProvider(ProviderPreferences.NONE, false, uri -> true).decide(pedido(), chamada(Map.of()));
+        new HttpDecisionProvider().decide(pedido(), chamada(Map.of()));
+
+        assertThat(corpos).hasSize(2);
+        assertThat(corpos.get(0)).isEqualTo(corpos.get(1)).doesNotContain("\"provider\"");
+    }
+
+    @Test
+    @DisplayName("ZDR: o padrão e o alfa do OpenRouter contam como OpenRouter; localhost e TypeSafe não")
+    void ehOpenRouter() {
+        assertThat(HttpDecisionProvider.ehOpenRouter(java.net.URI.create(HttpDecisionProvider.DEFAULT_ENDPOINT)))
+                .isTrue();
+        assertThat(HttpDecisionProvider.ehOpenRouter(
+                java.net.URI.create("https://openrouter.ai/api/alpha/decisions"))).isTrue();
+        assertThat(HttpDecisionProvider.ehOpenRouter(java.net.URI.create(endpoint()))).isFalse();
+        assertThat(HttpDecisionProvider.ehOpenRouter(
+                java.net.URI.create("https://openrouter.ai.evil.example/x"))).isFalse();
+        assertThat(HttpDecisionProvider.ehOpenRouter(java.net.URI.create("https://api.typesafe.ai/v1"))).isFalse();
     }
 
     /**

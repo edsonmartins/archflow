@@ -365,6 +365,13 @@ public class LLMProviderHub {
         if (config.getMaxTokens() != null) {
             builder.maxTokens(config.getMaxTokens());
         }
+        // O mesmo mapa do caminho bloqueante. Antes o streaming nao levava nada
+        // alem de modelo/temperatura/tokens — nem o reasoning: um agente em fluxo
+        // ia ao OpenRouter sem a preferencia de ZDR que o bloqueante mandava.
+        Map<String, Object> parametros = parametrosDoCorpo(config);
+        if (!parametros.isEmpty()) {
+            builder.customParameters(parametros);
+        }
         aplicarCacheDePrompt(builder, config);
         return builder.build();
     }
@@ -391,23 +398,41 @@ public class LLMProviderHub {
 
 
     /**
-     * Injeta o {@code reasoning} no corpo da requisicao.
+     * Os campos de topo do corpo que o langchain4j nao modela: {@code reasoning}
+     * e, no OpenRouter, {@code provider} (ZDR / coleta de dados).
      *
-     * <p>Via {@code customParameters} do adapter OpenAI, que e o unico caminho
-     * para um campo de topo que o langchain4j nao modela. O objeto vai como foi
-     * declarado no no — a forma ({@code effort} / {@code max_tokens} /
-     * {@code exclude}) e decidida pelo provedor, nao aqui.
+     * <p>Um mapa so, e de proposito: {@code customParameters} <b>substitui</b> o
+     * mapa anterior. Se cada campo chamasse o builder por conta propria, o
+     * segundo apagaria o primeiro — o {@code reasoning} declarado no no sumiria
+     * do corpo assim que o ZDR fosse ligado, ou o contrario.
      *
-     * <p>Sem {@code reasoning} declarado o builder NAO e tocado: o corpo enviado
-     * fica byte a byte o que era antes desta funcionalidade existir. Um agente
-     * que nao pediu controle de raciocinio nao pode pagar por ele.
+     * <p>O {@code reasoning} vai como foi declarado no no — a forma
+     * ({@code effort} / {@code max_tokens} / {@code exclude}) e decidida pelo
+     * provedor, nao aqui. O {@code provider} so vai ao OpenRouter: noutro
+     * provedor um campo desconhecido pode virar 400.
+     *
+     * <p>Mapa vazio = o builder NAO e tocado e o corpo fica byte a byte o que era.
+     * Um agente que nao pediu nada disso nao pode pagar por isso.
      */
-    private static void aplicarReasoning(
-            dev.langchain4j.model.openai.OpenAiChatModel.OpenAiChatModelBuilder builder,
-            LLMProviderConfig config) {
+    static Map<String, Object> parametrosDoCorpo(LLMProviderConfig config) {
+        Map<String, Object> parametros = new LinkedHashMap<>();
         Map<String, Object> reasoning = config.getReasoning();
         if (reasoning != null && !reasoning.isEmpty()) {
-            builder.customParameters(Map.of("reasoning", reasoning));
+            parametros.put("reasoning", reasoning);
+        }
+        if (config.getProvider() == LLMProvider.OPENROUTER
+                && !config.getProviderPreferences().isEmpty()) {
+            parametros.put("provider", config.getProviderPreferences().toWire());
+        }
+        return parametros;
+    }
+
+    private static void aplicarParametrosDoCorpo(
+            dev.langchain4j.model.openai.OpenAiChatModel.OpenAiChatModelBuilder builder,
+            LLMProviderConfig config) {
+        Map<String, Object> parametros = parametrosDoCorpo(config);
+        if (!parametros.isEmpty()) {
+            builder.customParameters(parametros);
         }
     }
 
@@ -511,7 +536,7 @@ public class LLMProviderHub {
         if (config.getBaseUrl() != null) {
             builder.baseUrl(config.getBaseUrl());
         }
-        aplicarReasoning(builder, config);
+        aplicarParametrosDoCorpo(builder, config);
         aplicarCacheDePrompt(builder, config);
 
         return builder.build();
@@ -535,7 +560,7 @@ public class LLMProviderHub {
         if (config.getMaxTokens() != null) {
             builder.maxTokens(config.getMaxTokens());
         }
-        aplicarReasoning(builder, config);
+        aplicarParametrosDoCorpo(builder, config);
         aplicarCacheDePrompt(builder, config);
 
         return builder.build();

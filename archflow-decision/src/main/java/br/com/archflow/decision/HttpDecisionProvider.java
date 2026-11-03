@@ -1,5 +1,6 @@
 package br.com.archflow.decision;
 
+import br.com.archflow.model.config.ProviderPreferences;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -14,6 +15,7 @@ import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Predicate;
 
 /**
  * Provedor para qualquer serviço que fale o protocolo de decisões tipadas por HTTP: um {@code POST}
@@ -35,6 +37,14 @@ import java.util.Optional;
  * TypeSafe); {@code /api/alpha/decisions} responde o mesmo, mas é alfa. O contrato é coberto por teste
  * contra um servidor simulado, e uma resposta que não casa vira {@link DecisionException} não
  * repetível — nunca uma decisão inventada.</p>
+ *
+ * <h2>Preferência de provedor (ZDR)</h2>
+ * <p>Quando o endpoint é do OpenRouter e o hospedeiro configurou uma {@link ProviderPreferences}, o
+ * corpo leva {@code provider: {zdr, data_collection}} — só esses dois campos, porque o
+ * {@code ProviderPreferences} do esquema de decisões tem {@code additionalProperties: false}. Um
+ * endpoint que não é do OpenRouter não recebe o campo: outro serviço pode recusá-lo. Com
+ * {@code required} e a preferência vazia, a chamada a um endpoint do OpenRouter falha <b>antes</b> de
+ * sair — não repetível, e o nó escala.</p>
  */
 public final class HttpDecisionProvider implements DecisionProvider {
 
@@ -45,6 +55,37 @@ public final class HttpDecisionProvider implements DecisionProvider {
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final HttpClient CLIENT = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(5)).build();
+
+    private final ProviderPreferences preferences;
+    private final boolean preferencesRequired;
+    private final Predicate<URI> aceitaPreferencias;
+
+    /** Sem preferência de provedor: o corpo é o de sempre. */
+    public HttpDecisionProvider() {
+        this(ProviderPreferences.NONE, false);
+    }
+
+    /**
+     * @param preferences objeto {@code provider} enviado aos endpoints do OpenRouter
+     * @param required    endpoint do OpenRouter sem preferência → falha antes de enviar
+     */
+    public HttpDecisionProvider(ProviderPreferences preferences, boolean required) {
+        this(preferences, required, HttpDecisionProvider::ehOpenRouter);
+    }
+
+    /** Para teste: decide quais endpoints recebem a preferência (o servidor simulado é local). */
+    HttpDecisionProvider(ProviderPreferences preferences, boolean required, Predicate<URI> aceitaPreferencias) {
+        this.preferences = preferences == null ? ProviderPreferences.NONE : preferences;
+        this.preferencesRequired = required;
+        this.aceitaPreferencias = aceitaPreferencias;
+    }
+
+    /** O host é o do OpenRouter — {@code /api/v1/systemone} e {@code /api/alpha/decisions}. */
+    static boolean ehOpenRouter(URI uri) {
+        String host = uri.getHost();
+        return host != null && (host.equalsIgnoreCase("openrouter.ai")
+                || host.toLowerCase(java.util.Locale.ROOT).endsWith(".openrouter.ai"));
+    }
 
     @Override
     public String id() {
@@ -67,9 +108,20 @@ public final class HttpDecisionProvider implements DecisionProvider {
         if (call.model() == null || call.model().isBlank()) {
             throw new DecisionException("o provedor " + ID + " exige o 'model' do nó", false);
         }
+        URI uri = endpoint(call);
+        boolean openRouter = aceitaPreferencias.test(uri);
+        if (openRouter && preferencesRequired && preferences.isEmpty()) {
+            throw new DecisionException("[LLM-ZDR] archflow.llm.provider-preferences.required=true, mas "
+                    + "nenhuma preferência de provedor está configurada — a decisão não foi enviada a "
+                    + uri.getHost(), false);
+        }
         String body;
         try {
-            body = JSON.writeValueAsString(toWire(request, call.model()));
+            ObjectNode wire = toWire(request, call.model());
+            if (openRouter && !preferences.isEmpty()) {
+                wire.set("provider", JSON.valueToTree(preferences.toWire()));
+            }
+            body = JSON.writeValueAsString(wire);
         } catch (IOException e) {
             throw new DecisionException("pedido não serializável: " + e.getMessage(), false, e);
         }
@@ -78,7 +130,7 @@ public final class HttpDecisionProvider implements DecisionProvider {
         DecisionException ultima = null;
         for (int tentativa = 0; tentativa <= retries; tentativa++) {
             try {
-                return parse(send(body, call), request);
+                return parse(send(uri, body, call), request);
             } catch (DecisionException e) {
                 ultima = e;
                 if (!e.retryable() || tentativa == retries) {
@@ -90,9 +142,12 @@ public final class HttpDecisionProvider implements DecisionProvider {
         throw ultima;
     }
 
-    private HttpResponse<String> doSend(String body, DecisionCall call) throws DecisionException {
+    private static URI endpoint(DecisionCall call) {
         Object endpoint = call.options().get("endpoint");
-        URI uri = URI.create(endpoint instanceof String s && !s.isBlank() ? s : DEFAULT_ENDPOINT);
+        return URI.create(endpoint instanceof String s && !s.isBlank() ? s : DEFAULT_ENDPOINT);
+    }
+
+    private HttpResponse<String> doSend(URI uri, String body, DecisionCall call) throws DecisionException {
         HttpRequest.Builder req = HttpRequest.newBuilder(uri).timeout(call.timeout())
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(body));
@@ -116,8 +171,8 @@ public final class HttpDecisionProvider implements DecisionProvider {
         }
     }
 
-    private HttpResponse<String> send(String body, DecisionCall call) throws DecisionException {
-        HttpResponse<String> resposta = doSend(body, call);
+    private HttpResponse<String> send(URI uri, String body, DecisionCall call) throws DecisionException {
+        HttpResponse<String> resposta = doSend(uri, body, call);
         int status = resposta.statusCode();
         if (status / 100 == 2) {
             return resposta;

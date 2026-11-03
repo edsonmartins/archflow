@@ -1,5 +1,7 @@
 package br.com.archflow.langchain4j.provider;
 
+import br.com.archflow.model.config.ProviderPreferences;
+
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
@@ -35,6 +37,7 @@ public class LLMProviderConfig {
     private final Map<String, Object> extraParams;
     private final Map<String, Object> reasoning;
     private final boolean cachePrompt;
+    private final ProviderPreferences providerPreferences;
 
     private LLMProviderConfig(Builder builder) {
         this.provider = builder.provider;
@@ -48,6 +51,8 @@ public class LLMProviderConfig {
         this.extraParams = Map.copyOf(builder.extraParams);
         this.reasoning = builder.reasoning == null ? null : Map.copyOf(builder.reasoning);
         this.cachePrompt = builder.cachePrompt;
+        this.providerPreferences = builder.providerPreferences == null
+                ? ProviderPreferences.NONE : builder.providerPreferences;
     }
 
     /**
@@ -127,6 +132,16 @@ public class LLMProviderConfig {
      */
     public boolean isCachePrompt() {
         return cachePrompt;
+    }
+
+    /**
+     * Objeto {@code provider} do corpo (ZDR, coleta de dados), nunca {@code null}.
+     *
+     * <p>Só é enviado quando o provedor é {@link LLMProvider#OPENROUTER}: noutro provedor um campo
+     * desconhecido pode virar 400 (a mesma cautela do cache de prompt).
+     */
+    public ProviderPreferences getProviderPreferences() {
+        return providerPreferences;
     }
 
     /**
@@ -212,13 +227,14 @@ public class LLMProviderConfig {
                 Objects.equals(topP, that.topP) &&
                 Objects.equals(maxTokens, that.maxTokens) &&
                 Objects.equals(reasoning, that.reasoning) &&
-                cachePrompt == that.cachePrompt;
+                cachePrompt == that.cachePrompt &&
+                Objects.equals(providerPreferences, that.providerPreferences);
     }
 
     @Override
     public int hashCode() {
         return Objects.hash(provider, modelId, apiKey, baseUrl, temperature, topP, maxTokens,
-                reasoning, cachePrompt);
+                reasoning, cachePrompt, providerPreferences);
     }
 
     @Override
@@ -248,6 +264,7 @@ public class LLMProviderConfig {
         private Map<String, Object> extraParams = new HashMap<>();
         private Map<String, Object> reasoning;
         private boolean cachePrompt;
+        private ProviderPreferences providerPreferences = ProviderPreferences.NONE;
 
         private Builder() {
         }
@@ -264,6 +281,7 @@ public class LLMProviderConfig {
             this.extraParams = new HashMap<>(existing.extraParams);
             this.reasoning = existing.reasoning;
             this.cachePrompt = existing.cachePrompt;
+            this.providerPreferences = existing.providerPreferences;
         }
 
         public Builder provider(LLMProvider provider) {
@@ -330,6 +348,12 @@ public class LLMProviderConfig {
         /** Breakpoint de cache no fim do prefixo estável; {@code false} = nenhum. */
         public Builder cachePrompt(boolean cachePrompt) {
             this.cachePrompt = cachePrompt;
+            return this;
+        }
+
+        /** Objeto {@code provider} do corpo (só no OpenRouter); {@code null} = nenhum. */
+        public Builder providerPreferences(ProviderPreferences providerPreferences) {
+            this.providerPreferences = providerPreferences;
             return this;
         }
 
