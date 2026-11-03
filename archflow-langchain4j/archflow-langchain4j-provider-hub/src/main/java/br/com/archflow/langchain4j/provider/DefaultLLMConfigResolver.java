@@ -1,6 +1,7 @@
 package br.com.archflow.langchain4j.provider;
 
 import br.com.archflow.model.config.LLMConfigPatch;
+import br.com.archflow.model.config.ProviderPreferences;
 import br.com.archflow.model.config.ResolvedLLMConfig;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
@@ -27,6 +28,8 @@ public class DefaultLLMConfigResolver implements LLMConfigResolver {
     private final LLMProviderHub hub;
     private final TenantKeyResolver tenantKeyResolver;
     private final TierModelResolver tierModelResolver;
+    private final ProviderPreferences providerPreferences;
+    private final boolean providerPreferencesRequired;
 
     public DefaultLLMConfigResolver(LLMProviderHub hub) {
         this(hub, TenantKeyResolver.NOOP);
@@ -38,9 +41,25 @@ public class DefaultLLMConfigResolver implements LLMConfigResolver {
 
     public DefaultLLMConfigResolver(LLMProviderHub hub, TenantKeyResolver tenantKeyResolver,
                                     TierModelResolver tierModelResolver) {
+        this(hub, tenantKeyResolver, tierModelResolver, ProviderPreferences.NONE, false);
+    }
+
+    /**
+     * @param providerPreferences objeto {@code provider} (ZDR / coleta de dados) enviado em toda
+     *                            chamada ao OpenRouter; default do deployment
+     *                            ({@code archflow.llm.provider-preferences.*})
+     * @param providerPreferencesRequired com o provedor OpenRouter e a preferência vazia, a criação
+     *                            do modelo <b>falha</b> em vez de mandar a requisição sem ela
+     */
+    public DefaultLLMConfigResolver(LLMProviderHub hub, TenantKeyResolver tenantKeyResolver,
+                                    TierModelResolver tierModelResolver,
+                                    ProviderPreferences providerPreferences,
+                                    boolean providerPreferencesRequired) {
         this.hub = hub;
         this.tenantKeyResolver = tenantKeyResolver != null ? tenantKeyResolver : TenantKeyResolver.NOOP;
         this.tierModelResolver = tierModelResolver != null ? tierModelResolver : TierModelResolver.NOOP;
+        this.providerPreferences = providerPreferences != null ? providerPreferences : ProviderPreferences.NONE;
+        this.providerPreferencesRequired = providerPreferencesRequired;
     }
 
     @Override
@@ -142,6 +161,7 @@ public class DefaultLLMConfigResolver implements LLMConfigResolver {
 
         String apiKey = resolveApiKey(request.tenantId(), provider, resolved);
         LLMProviderConfig providerConfig = toProviderConfig(resolved, apiKey);
+        exigirPreferenciaSeObrigatoria(providerConfig);
         String configId = cacheConfigId(request.tenantId(), resolved, apiKey);
 
         log.debug("[LLM-RESOLVE] tenant={}, provider={}, model={}, maxTokens={}",
@@ -149,6 +169,25 @@ public class DefaultLLMConfigResolver implements LLMConfigResolver {
 
         hub.registerConfig(configId, providerConfig);
         return configId;
+    }
+
+    /**
+     * Com o deployment exigente, um modelo OpenRouter sem preferência de provedor não é criado.
+     *
+     * <p>Falhar alto é o requisito. O modo de falha que isto evita é silencioso por natureza: sem o
+     * campo, o OpenRouter roteia por qualquer provedor que a conta permita, e a resposta chega igual
+     * — nenhum erro, nenhum log, nenhum número errado. Só um consumidor que quer ZDR liga o
+     * {@code required}; os outros não pagam nada.
+     */
+    private void exigirPreferenciaSeObrigatoria(LLMProviderConfig config) {
+        if (providerPreferencesRequired
+                && config.getProvider() == LLMProvider.OPENROUTER
+                && config.getProviderPreferences().isEmpty()) {
+            throw new IllegalStateException("[LLM-ZDR] archflow.llm.provider-preferences.required=true, "
+                    + "mas nenhuma preferencia de provedor esta configurada para o OpenRouter "
+                    + "(archflow.llm.provider-preferences.zdr / .data-collection). Modelo "
+                    + config.getModelId() + " NAO criado — a requisicao iria sem a garantia.");
+        }
     }
 
     /** Chave por tenant {@literal >} chave inline em {@code additionalConfig.apiKey} {@literal >} nenhuma. */
@@ -190,6 +229,10 @@ public class DefaultLLMConfigResolver implements LLMConfigResolver {
         // requisicao. O extraParams nao atravessa — ele fica no LLMProviderConfig
         // e so e lido por quem o consulta por chave, nunca pelo builder do modelo.
         resolved.reasoning().ifPresent(builder::reasoning);
+        // Default do deployment, nao do no: governanca de privacidade nao pode
+        // ser desligada por um campo num fluxo (mesma regra da chave de API). O
+        // hub so o envia quando o provedor e OpenRouter.
+        builder.providerPreferences(providerPreferences);
         if (resolved.timeout() > 0) {
             // timeout efetivo é em SEGUNDos (convenção do UI/gestor/integrall).
             builder.timeout(Duration.ofSeconds(resolved.timeout()));

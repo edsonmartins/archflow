@@ -1141,10 +1141,32 @@ public class ArchflowBeanConfiguration {
     @ConditionalOnMissingBean
     public br.com.archflow.langchain4j.provider.LLMConfigResolver llmConfigResolver(
             br.com.archflow.langchain4j.provider.TenantKeyResolver tenantKeyResolver,
-            br.com.archflow.langchain4j.provider.TierModelResolver tierModelResolver) {
+            br.com.archflow.langchain4j.provider.TierModelResolver tierModelResolver,
+            br.com.archflow.model.config.ProviderPreferences llmProviderPreferences,
+            @Value("${archflow.llm.provider-preferences.required:false}") boolean preferencesRequired) {
         return new br.com.archflow.langchain4j.provider.DefaultLLMConfigResolver(
                 br.com.archflow.langchain4j.provider.LLMProviderHub.getInstance(),
-                tenantKeyResolver, tierModelResolver);
+                tenantKeyResolver, tierModelResolver, llmProviderPreferences, preferencesRequired);
+    }
+
+    /**
+     * Preferência de provedor enviada <b>na requisição</b> a toda chamada ao OpenRouter — agentes
+     * (bloqueante e em fluxo) e o nó {@code decision} pelo {@code http-decisions}.
+     *
+     * <p>{@code archflow.llm.provider-preferences.zdr=true} e
+     * {@code archflow.llm.provider-preferences.data-collection=deny} (env
+     * {@code ARCHFLOW_LLM_PROVIDER_PREFERENCES_ZDR} / {@code …_DATA_COLLECTION}). Sem propriedade, nada
+     * muda no corpo. Com {@code archflow.llm.provider-preferences.required=true}, um modelo OpenRouter
+     * sem preferência <b>não é criado</b> — sem isso, o ZDR valeria só pela caixa marcada na conta.
+     *
+     * <p>É do deployment de propósito, como a chave: nenhum nó de fluxo desliga.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public br.com.archflow.model.config.ProviderPreferences llmProviderPreferences(
+            @Value("${archflow.llm.provider-preferences.zdr:}") String zdr,
+            @Value("${archflow.llm.provider-preferences.data-collection:}") String dataCollection) {
+        return br.com.archflow.model.config.ProviderPreferences.of(zdr, dataCollection);
     }
 
     // =========================================================================
@@ -1493,8 +1515,13 @@ public class ArchflowBeanConfiguration {
     @ConditionalOnMissingBean
     public br.com.archflow.decision.DecisionProviders decisionProviders(
             br.com.archflow.langchain4j.provider.LLMConfigResolver llmConfigResolver,
-            br.com.archflow.model.config.ResolvedLLMConfig platformDefaultLLMConfig) {
+            br.com.archflow.model.config.ResolvedLLMConfig platformDefaultLLMConfig,
+            br.com.archflow.model.config.ProviderPreferences llmProviderPreferences,
+            @Value("${archflow.llm.provider-preferences.required:false}") boolean preferencesRequired) {
         return br.com.archflow.decision.DecisionProviders.withDefaults()
+                // Substitui o embutido (mesmo id) pelo que leva a preferencia de provedor.
+                .register(new br.com.archflow.decision.HttpDecisionProvider(
+                        llmProviderPreferences, preferencesRequired))
                 .register(new br.com.archflow.api.decision.LlmDecisionProvider(
                         llmConfigResolver, platformDefaultLLMConfig))
                 .register(new br.com.archflow.api.decision.LangChain4jDecisionProvider());

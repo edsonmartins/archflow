@@ -94,6 +94,16 @@ Adapters are discovered via SPI at runtime.
 - **archflow-sdk-java** - `ArchflowClient` (REST) and `EmbeddedWorkflowRunner` (in-process). The `archflow-standalone` dependency is `optional`: only the embedded runner needs it, and it drags the whole engine along
 - **archflow-conversation** - Suspend/resume wired to the server; guardrails/governance/episodic memory/summarizer are an OPT-IN library not yet called by the archflow-api execution path
 
+### OpenRouter provider preferences (ZDR) travel in the request body
+
+`archflow.llm.provider-preferences.{zdr,data-collection,required}` → `ProviderPreferences`
+(`archflow-model`), sent as `provider: {zdr, data_collection}` by `LLMProviderHub.parametrosDoCorpo`
+(blocking **and** streaming — one `customParameters` map with `reasoning`, because the builder
+replaces the map) and by `HttpDecisionProvider` (only to `openrouter.ai` hosts). Never to other
+providers (unknown field → 400). `required=true` makes an OpenRouter model/decision fail before any
+request leaves. Deployment-level on purpose: no node can switch it off. Tests read the raw body at a
+local server (`PreferenciaDeProvedorNoCorpoTest`) — asserting on the resolved config proves nothing.
+
 ### Two LLM integration layers — know which one you are in
 
 - **`archflow-langchain4j-provider-hub`** (`LLMConfigResolver` → `LLMProviderHub` → `ChatModel`) —

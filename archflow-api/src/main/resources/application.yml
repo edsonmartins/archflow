@@ -110,6 +110,12 @@ archflow:
     # bean tolera a colisão desde 21/09/2026; antes dela, qualquer valor — inclusive vazio —
     # derrubava a subida. Ver TabelaDePrecosBeanTest.
     precos-texto: ${ARCHFLOW_LLM_PRECOS:}
+    # Preferência de provedor enviada NA REQUISIÇÃO a toda chamada ao OpenRouter (agente bloqueante,
+    # agente em fluxo e nó `decision` pelo http-decisions) — o objeto `provider` do corpo. Sem ela, ZDR
+    # vale só pela caixa marcada na conta do OpenRouter. Vazio = corpo inalterado. Lidas por @Value:
+    #   ARCHFLOW_LLM_PROVIDER_PREFERENCES_ZDR=true
+    #   ARCHFLOW_LLM_PROVIDER_PREFERENCES_DATA_COLLECTION=deny
+    #   ARCHFLOW_LLM_PROVIDER_PREFERENCES_REQUIRED=true   # OpenRouter sem preferência → o modelo não é criado
 
 logging:
   level:
