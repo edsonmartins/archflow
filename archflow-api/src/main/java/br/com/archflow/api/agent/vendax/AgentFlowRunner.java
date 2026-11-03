@@ -182,6 +182,13 @@ public class AgentFlowRunner {
             contexto.set(br.com.archflow.api.agent.mcp.McpAgentComponent.CTX_MEMORIA,
                     invoke.memoria());
         }
+        // AS IMAGENS vão pela mesma porta e pelo mesmo motivo: entrada deste invoke, possivelmente
+        // dado de cliente, fora do estado durável. Pesam centenas de KB — mais um motivo para não
+        // ir a checkpoint.
+        if (!invoke.imagens().isEmpty()) {
+            contexto.set(br.com.archflow.api.agent.mcp.McpAgentComponent.CTX_IMAGENS,
+                    invoke.imagens());
+        }
 
         FlowResult resultado;
         java.util.concurrent.CompletableFuture<FlowResult> execucao = null;

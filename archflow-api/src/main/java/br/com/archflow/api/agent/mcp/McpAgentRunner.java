@@ -247,10 +247,30 @@ public class McpAgentRunner {
         // conversa. Anunciá-la de dentro do próprio conteúdo cercado seria pedir
         // ao dado que se autodeclare inofensivo.
         session.messages.add(SystemMessage.from(systemPrompt + "\n" + session.fence.preamble()));
-        session.messages.add(UserMessage.from(
-                comContextoRecuperado(options.contextoRecuperado(), session.fence, userMessage)));
+        session.messages.add(primeiroTurno(
+                comContextoRecuperado(options.contextoRecuperado(), session.fence, userMessage),
+                options.imagens()));
 
         return drive(session, client, options);
+    }
+
+    /**
+     * O primeiro turno do usuário: o texto e, se vieram, as imagens, na ordem em que vieram.
+     *
+     * <p>Sem imagem, é a mesma {@code UserMessage.from(texto)} de sempre — nenhum fluxo que só manda
+     * texto muda de requisição. Com imagem, o texto vem antes: é ele que diz ao modelo o que fazer
+     * com o que vê.</p>
+     */
+    static UserMessage primeiroTurno(String texto, List<ImagemDaEntrada> imagens) {
+        if (imagens == null || imagens.isEmpty()) {
+            return UserMessage.from(texto);
+        }
+        List<dev.langchain4j.data.message.Content> partes = new ArrayList<>();
+        partes.add(dev.langchain4j.data.message.TextContent.from(texto == null ? "" : texto));
+        for (ImagemDaEntrada imagem : imagens) {
+            partes.add(dev.langchain4j.data.message.ImageContent.from(imagem.base64(), imagem.mime()));
+        }
+        return UserMessage.from(partes);
     }
 
     /**
@@ -1160,7 +1180,19 @@ public class McpAgentRunner {
                           Set<String> requiredOutputTools, String tier,
                           Set<Integer> codigosQueEncerram, ContadorDeUso uso,
                           List<String> contextoRecuperado, McpAgentState.Retomada retomada,
-                          SaidaDeTexto saida) {
+                          SaidaDeTexto saida, List<ImagemDaEntrada> imagens) {
+
+        /** Compat: sem imagens na entrada — só texto, como sempre foi. */
+        public Options(ToolAccessPolicy access, ToolTrustPolicy trust,
+                       ToolApprovalPolicy approval, int maxIterations,
+                       LLMConfigPatch flowPatch, LLMConfigPatch stepPatch,
+                       Set<String> requiredOutputTools, String tier,
+                       Set<Integer> codigosQueEncerram, ContadorDeUso uso,
+                       List<String> contextoRecuperado, McpAgentState.Retomada retomada,
+                       SaidaDeTexto saida) {
+            this(access, trust, approval, maxIterations, flowPatch, stepPatch, requiredOutputTools,
+                    tier, codigosQueEncerram, uso, contextoRecuperado, retomada, saida, List.of());
+        }
 
         /** Compat: sem saída em fluxo — o laço bloqueante de sempre. */
         public Options(ToolAccessPolicy access, ToolTrustPolicy trust,
@@ -1207,7 +1239,7 @@ public class McpAgentRunner {
         public Options comUso(ContadorDeUso contador) {
             return new Options(access, trust, approval, maxIterations, flowPatch, stepPatch,
                     requiredOutputTools, tier, codigosQueEncerram, contador, contextoRecuperado,
-                    retomada, saida);
+                    retomada, saida, imagens);
         }
 
         /** As mesmas opções, com o tier pedido por quem acionou; vazio mantém o atual. */
@@ -1217,13 +1249,14 @@ public class McpAgentRunner {
             }
             return new Options(access, trust, approval, maxIterations, flowPatch, stepPatch,
                     requiredOutputTools, novoTier, codigosQueEncerram, uso, contextoRecuperado,
-                    retomada, saida);
+                    retomada, saida, imagens);
         }
 
         /** As mesmas opções, encerrando o laço quando uma tool responder um destes códigos. */
         public Options encerrandoEm(Set<Integer> codigos) {
             return new Options(access, trust, approval, maxIterations, flowPatch, stepPatch,
-                    requiredOutputTools, tier, codigos, uso, contextoRecuperado, retomada, saida);
+                    requiredOutputTools, tier, codigos, uso, contextoRecuperado, retomada, saida,
+                    imagens);
         }
 
         /**
@@ -1232,7 +1265,18 @@ public class McpAgentRunner {
          */
         public Options comContextoRecuperado(List<String> contexto) {
             return new Options(access, trust, approval, maxIterations, flowPatch, stepPatch,
-                    requiredOutputTools, tier, codigosQueEncerram, uso, contexto, retomada, saida);
+                    requiredOutputTools, tier, codigosQueEncerram, uso, contexto, retomada, saida,
+                    imagens);
+        }
+
+        /**
+         * As mesmas opções, com imagens que entram no primeiro turno do usuário, ao lado do texto
+         * (a foto de um encarte, a página de um PDF). Vazio é o caso comum: só texto.
+         */
+        public Options comImagens(List<ImagemDaEntrada> novas) {
+            return new Options(access, trust, approval, maxIterations, flowPatch, stepPatch,
+                    requiredOutputTools, tier, codigosQueEncerram, uso, contextoRecuperado, retomada,
+                    saida, novas);
         }
 
         /**
@@ -1241,7 +1285,8 @@ public class McpAgentRunner {
          */
         public Options comRetomada(McpAgentState.Retomada dados) {
             return new Options(access, trust, approval, maxIterations, flowPatch, stepPatch,
-                    requiredOutputTools, tier, codigosQueEncerram, uso, contextoRecuperado, dados, saida);
+                    requiredOutputTools, tier, codigosQueEncerram, uso, contextoRecuperado, dados, saida,
+                    imagens);
         }
 
         /**
@@ -1251,7 +1296,7 @@ public class McpAgentRunner {
         public Options comSaida(SaidaDeTexto novaSaida) {
             return new Options(access, trust, approval, maxIterations, flowPatch, stepPatch,
                     requiredOutputTools, tier, codigosQueEncerram, uso, contextoRecuperado,
-                    retomada, novaSaida);
+                    retomada, novaSaida, imagens);
         }
 
         public Options(ToolAccessPolicy access, ToolTrustPolicy trust,
@@ -1291,6 +1336,8 @@ public class McpAgentRunner {
                     ? Set.of() : Set.copyOf(codigosQueEncerram);
             contextoRecuperado = contextoRecuperado == null ? List.of()
                     : contextoRecuperado.stream().filter(Objects::nonNull).toList();
+            imagens = imagens == null ? List.of()
+                    : imagens.stream().filter(Objects::nonNull).toList();
         }
 
         void validate() {

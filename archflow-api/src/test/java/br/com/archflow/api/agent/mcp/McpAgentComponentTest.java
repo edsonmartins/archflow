@@ -386,6 +386,31 @@ class McpAgentComponentTest {
                 .isNull();
     }
 
+    @Test
+    @DisplayName("as imagens do contexto chegam às options do laço")
+    void imagensAtravessamOContexto() {
+        HostFalso host = new HostFalso(Set.of(), concluido());
+        ExecutionContext ctx = contextoCom(host);
+        List<ImagemDaEntrada> imagens = List.of(new ImagemDaEntrada("image/png", "iVBORw0KGgo="));
+        when(ctx.get(McpAgentComponent.CTX_IMAGENS)).thenReturn(Optional.of(imagens));
+
+        componente(Map.of("systemPrompt", "p")).execute("execute", "oi", ctx);
+
+        assertThat(host.options.get().imagens())
+                .as("a imagem posta no contexto pelo AgentFlowRunner precisa chegar ao primeiro turno")
+                .isEqualTo(imagens);
+    }
+
+    @Test
+    @DisplayName("sem imagens no contexto, as options ficam sem imagens — nada muda")
+    void semImagensNoContexto() {
+        HostFalso host = new HostFalso(Set.of(), concluido());
+
+        componente(Map.of("systemPrompt", "p")).execute("execute", "oi", contextoCom(host));
+
+        assertThat(host.options.get().imagens()).isEmpty();
+    }
+
     /**
      * O contador de uso chega ao runner pelo contexto.
      *

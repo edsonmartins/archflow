@@ -84,6 +84,14 @@ public class McpAgentComponent implements AIComponent, ComponentPlugin {
     public static final String CTX_MEMORIA =
             br.com.archflow.model.engine.ExecutionKeys.TRANSIENT_PREFIX + "contextoRecuperado";
 
+    /**
+     * Imagens que quem acionou manda junto do texto, como lista de {@link ImagemDaEntrada} no
+     * {@link ExecutionContext}. Entram no primeiro turno do usuário. Chave {@code transient} pelo
+     * mesmo motivo do {@link #CTX_MEMORIA}: entrada da execução, possivelmente dado de cliente.
+     */
+    public static final String CTX_IMAGENS =
+            br.com.archflow.model.engine.ExecutionKeys.TRANSIENT_PREFIX + "imagens";
+
     /** Entrada e saída do passo, para quem encadeia. */
     public static final String SAIDA_TEXTO = "text";
 
@@ -232,6 +240,7 @@ public class McpAgentComponent implements AIComponent, ComponentPlugin {
                 // do que foi gasto, justamente no caminho que vai substituir os outros.
                 .comUso(ContadorDeUso.de(context).orElse(null))
                 .comContextoRecuperado(memoriaDoContexto(context))
+                .comImagens(imagensDoContexto(context))
                 // O TEXTO SÓ SAI DO NÓ QUE O DOCUMENTO MARCOU como final (`transmitirTexto`). Os
                 // demais seguem na saída só para cancelamento e aviso de tool: o texto de um passo
                 // intermediário é insumo do passo seguinte, não resposta para quem espera.
@@ -335,6 +344,21 @@ public class McpAgentComponent implements AIComponent, ComponentPlugin {
             }
         }
         return textos;
+    }
+
+    /** As imagens que quem acionou pôs no contexto; vazias é o caso normal. */
+    private static List<ImagemDaEntrada> imagensDoContexto(ExecutionContext context) {
+        Object valor = context.get(CTX_IMAGENS).orElse(null);
+        if (!(valor instanceof List<?> lista)) {
+            return List.of();
+        }
+        List<ImagemDaEntrada> imagens = new ArrayList<>();
+        for (Object item : lista) {
+            if (item instanceof ImagemDaEntrada imagem) {
+                imagens.add(imagem);
+            }
+        }
+        return imagens;
     }
 
     /** Um valor de texto do contexto, ou {@code null} — ausência é o caso normal. */
