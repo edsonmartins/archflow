@@ -974,14 +974,36 @@ public class VendaxAgentDispatcher {
             }
             var resto = objeto.deepCopy();
             resto.remove("messages");
+            resto.remove("modoEntrada");          // já vai na linha modoEntrada=, não se repete no payload
             return resto.isEmpty() ? null : MAPPER.writeValueAsString(resto);
         } catch (Exception e) {
             return null;                  // ilegível: conversaDe já registrou
         }
     }
 
-    /** Modo de entrada: o Core manda texto de canal; ditado/imagem/PDF entram quando o multimodal for fiado. */
-    private String modoEntrada(VendaxInvoke invoke) {
+    /** O modo que o Core declara no payload: só maiúsculas e sublinhado, para não virar texto livre no envelope. */
+    private static final java.util.regex.Pattern MODO_VALIDO = java.util.regex.Pattern.compile("[A-Z][A-Z_]{0,39}");
+
+    /**
+     * Modo de entrada: o que o Core declara em {@code payload.modoEntrada}, ou {@code TEXTO_CLIENTE} quando não declara.
+     *
+     * <p>Era fixo em {@code TEXTO_CLIENTE}. Para quem lê o que o cliente escreveu (QP, CS, VI) isso é verdade; para os
+     * nós que conferem o texto de um AGENTE — a resposta do NS ao vendedor, o texto do Vendedor Virtual — o envelope
+     * dizia que aquilo era texto do cliente. Medido pelo VendaX em 13/11 (VEN-1018): a conferência da resposta do NS
+     * travou 43 de 66 defeitos com {@code TEXTO_CLIENTE} e 56 de 66 com {@code TEXTO_DO_NS}, no mesmo corpus e no
+     * mesmo modelo. Quem não declara segue igual.</p>
+     */
+    String modoEntrada(VendaxInvoke invoke) {
+        if (invoke.payload() != null && !invoke.payload().isBlank()) {
+            try {
+                var modo = MAPPER.readTree(invoke.payload()).path("modoEntrada");
+                if (modo.isTextual() && MODO_VALIDO.matcher(modo.asText()).matches()) {
+                    return modo.asText();
+                }
+            } catch (Exception e) {
+                // payload ilegível: vale o padrão
+            }
+        }
         return "TEXTO_CLIENTE";
     }
 
