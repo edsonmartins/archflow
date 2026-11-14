@@ -1237,12 +1237,20 @@ public class ArchflowBeanConfiguration {
             br.com.archflow.model.config.ResolvedLLMConfig platformDefaultLLMConfig,
             br.com.archflow.agent.metrics.MetricsCollector metricsCollector,
             br.com.archflow.api.agent.mcp.McpAgentStateStore mcpAgentStateStore,
-            @Value("${archflow.agent.tool-catalog.warn-tokens:4000}") int catalogWarnTokens) {
+            @Value("${archflow.agent.tool-catalog.warn-tokens:4000}") int catalogWarnTokens,
+            @Value("${archflow.llm.custo-da-geracao.prazo:PT2S}") java.time.Duration prazoDoCusto) {
         // Mesmo coletor do engine e do ObservabilityService: latência e taxa de
         // falha por tool aparecem junto das métricas de fluxo, não num silo.
+        //
+        // CUSTO QUE FALTOU (VEN-1044): um turno do OpenRouter sem usage.cost deixa o total da
+        // execução desconhecido. A consulta pela geração o busca, correndo junto com o laço; no fim,
+        // o laço espera no máximo `prazo` pelas que ainda estão em voo. PT0S desliga.
+        br.com.archflow.api.agent.mcp.CustoDaGeracao custoDaGeracao =
+                prazoDoCusto == null || prazoDoCusto.isZero() || prazoDoCusto.isNegative()
+                        ? null : br.com.archflow.api.agent.mcp.CustoDaGeracao.openRouter(prazoDoCusto);
         return new br.com.archflow.api.agent.mcp.McpAgentRunner(
                 llmConfigResolver, platformDefaultLLMConfig, metricsCollector, catalogWarnTokens,
-                mcpAgentStateStore);
+                mcpAgentStateStore, custoDaGeracao, prazoDoCusto);
     }
 
     /** Referência sob a qual a configuração legada do VendaX é semeada. */

@@ -111,6 +111,10 @@ public record VendaxResult(
      * @param costReais custo calculado em reais sem arredondamento
      * @param modelUsage detalhamento por chamada; modelo e provedor efetivos podem ficar nulos
      *                   quando o provider não os retornar
+     * @param turnsWithoutCost turnos sem custo declarado (VEN-1044). Com {@code declaredCostUsd}
+     *                   ausente, separa "um turno de dez sem custo" de "nada medido"; o id de cada
+     *                   um está em {@code modelUsage[].generationId}. Zero com o total ausente: uma
+     *                   tentativa falhou antes de informar uso
      *                     do prazo
      */
     public record Uso(
@@ -146,15 +150,40 @@ public record VendaxResult(
              * há preço declarado para o modelo, exatamente como costCents nulo.
              */
             @JsonInclude(JsonInclude.Include.NON_NULL) Double costReais,
-            @JsonInclude(JsonInclude.Include.NON_NULL) java.util.List<TurnoUso> modelUsage) {
+            @JsonInclude(JsonInclude.Include.NON_NULL) java.util.List<TurnoUso> modelUsage,
+            @JsonInclude(JsonInclude.Include.NON_NULL) Integer turnsWithoutCost) {
 
         public Uso {
             modelUsage = modelUsage == null ? null : java.util.List.copyOf(modelUsage);
         }
 
+        /** Compat: uso anterior à contagem de turnos sem custo. */
+        public Uso(String model, Long tokens, Long costCents, String execucaoId, String provider,
+                   Long inputTokens, Long outputTokens, Integer llmTurns, Integer toolCalls,
+                   Long durationMs, Long msAtePrimeiroToken, Double declaredCostUsd, Double costReais,
+                   java.util.List<TurnoUso> modelUsage) {
+            this(model, tokens, costCents, execucaoId, provider, inputTokens, outputTokens,
+                    llmTurns, toolCalls, durationMs, msAtePrimeiroToken, declaredCostUsd, costReais,
+                    modelUsage, null);
+        }
+
+        /**
+         * @param generationId id da geração no provedor ({@code gen-…}), a chave para conciliar o
+         *                     custo de um turno que veio sem ele; ausente quando não informado
+         */
         public record TurnoUso(String requestedProvider, String requestedModel,
                                String effectiveProvider, String effectiveModel,
-                               Long inputTokens, Long outputTokens, Double declaredCostUsd) {}
+                               Long inputTokens, Long outputTokens, Double declaredCostUsd,
+                               @JsonInclude(JsonInclude.Include.NON_NULL) String generationId) {
+
+            /** Compat: turno sem id de geração. */
+            public TurnoUso(String requestedProvider, String requestedModel,
+                            String effectiveProvider, String effectiveModel,
+                            Long inputTokens, Long outputTokens, Double declaredCostUsd) {
+                this(requestedProvider, requestedModel, effectiveProvider, effectiveModel,
+                        inputTokens, outputTokens, declaredCostUsd, null);
+            }
+        }
 
         public Uso(String model, Long tokens, Long costCents, String execucaoId, String provider,
                    Long inputTokens, Long outputTokens, Integer llmTurns, Integer toolCalls,
@@ -208,7 +237,8 @@ public record VendaxResult(
                     r.duracaoMs(), r.msAtePrimeiroToken(), r.custoDeclaradoUsd(), costReais,
                     r.usoPorTurno().stream().map(t -> new TurnoUso(t.requestedProvider(), t.requestedModel(),
                             t.effectiveProvider(), t.effectiveModel(), t.inputTokens(), t.outputTokens(),
-                            t.declaredCostUsd())).toList());
+                            t.declaredCostUsd(), t.generationId())).toList(),
+                    r.turnosSemCusto());
         }
     }
 

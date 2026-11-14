@@ -150,6 +150,20 @@ public class DefaultLLMConfigResolver implements LLMConfigResolver {
         return hub.getStreamingModel(registerConfigFor(request));
     }
 
+    @Override
+    public Optional<ProviderEndpoint> resolveEndpoint(LLMResolutionRequest request) {
+        ResolvedLLMConfig resolved = resolve(request);
+        if (resolved.provider() == null || resolved.provider().isBlank()) {
+            return Optional.empty();
+        }
+        LLMProviderConfig config = toProviderConfig(resolved,
+                resolveApiKey(request.tenantId(), resolved.provider(), resolved));
+        String baseUrl = LLMProviderHub.effectiveBaseUrl(config);
+        return baseUrl == null || baseUrl.isBlank()
+                ? Optional.empty()
+                : Optional.of(new ProviderEndpoint(resolved.provider(), baseUrl, config.getApiKey()));
+    }
+
     /** Resolves config + key, registers it with the hub, and returns the cache id. */
     private String registerConfigFor(LLMResolutionRequest request) {
         ResolvedLLMConfig resolved = resolve(request);

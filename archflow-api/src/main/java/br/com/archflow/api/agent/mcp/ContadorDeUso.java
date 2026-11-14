@@ -59,10 +59,15 @@ public final class ContadorDeUso implements br.com.archflow.decision.DecisionUsa
     private int chamadasDeTool;
     /** Do início da execução ao primeiro token do provedor; {@code null} se nunca foi medido. */
     private Long msAtePrimeiroToken;
-    /** Custo efetivo declarado pelos providers, em USD; {@code null} se algum turno for desconhecido. */
-    private Double custoDeclaradoUsd;
-    /** Não expõe soma parcial como se fosse o custo total quando algum turno não informou custo. */
-    private boolean custoDeclaradoIncompleto;
+    /**
+     * Uma tentativa falhou antes de informar uso — não há turno onde anotar, mas o provedor pode ter
+     * cobrado. O total fica desconhecido. O custo dos turnos fica em {@link #usoPorTurno}: é de lá
+     * que o total sai, para que um custo que chega depois (consulta da geração) entre na soma.
+     */
+    private boolean custoForaDeTurnoDesconhecido;
+    /** Consultas de custo ainda em voo — ver {@link #aguardarCusto}. */
+    private final java.util.List<java.util.concurrent.CompletableFuture<?>> custosPendentes =
+            new java.util.ArrayList<>();
     private final Set<String> modelos = new LinkedHashSet<>();
     private final Set<String> provedores = new LinkedHashSet<>();
     private final java.util.List<Resumo.TurnoUso> usoPorTurno = new java.util.ArrayList<>();
@@ -96,11 +101,9 @@ public final class ContadorDeUso implements br.com.archflow.decision.DecisionUsa
      * @param saida    tokens de saída informados pelo provedor, ou {@code null}
      */
     public synchronized void somar(String provedor, String modelo, Integer entrada, Integer saida) {
-        somarContadores(provedor, modelo,
-                entrada == null ? null : entrada.longValue(), saida == null ? null : saida.longValue());
-        registrarCusto(null);
-        usoPorTurno.add(new Resumo.TurnoUso(provedor, modelo, null, null,
-                entrada == null ? null : entrada.longValue(), saida == null ? null : saida.longValue(), null));
+        somarTurno(provedor, modelo, null, null,
+                entrada == null ? null : entrada.longValue(), saida == null ? null : saida.longValue(),
+                null, null);
     }
 
     /** Soma um turno e o custo declarado de forma atômica para snapshots concorrentes. */
@@ -112,11 +115,89 @@ public final class ContadorDeUso implements br.com.archflow.decision.DecisionUsa
     public synchronized void somarComDetalhe(String provedorSolicitado, String modeloSolicitado,
                                               String provedorEfetivo, String modeloEfetivo,
                                               Long entrada, Long saida, Double custoUsd) {
+        somarTurno(provedorSolicitado, modeloSolicitado, provedorEfetivo, modeloEfetivo, entrada,
+                saida, custoUsd, null);
+    }
+
+    /**
+     * Um turno de modelo, com o id da geração no provedor.
+     *
+     * @param idDaGeracao o id que o provedor deu à geração ({@code gen-…} no OpenRouter), ou
+     *                    {@code null}. É a chave com que o custo pode ser conciliado depois.
+     * @return a posição do turno, para {@link #aguardarCusto} preencher o custo que faltou
+     */
+    public synchronized int somarTurno(String provedorSolicitado, String modeloSolicitado,
+                                       String provedorEfetivo, String modeloEfetivo,
+                                       Long entrada, Long saida, Double custoUsd, String idDaGeracao) {
         somarContadores(provedorSolicitado, modeloSolicitado, entrada, saida);
-        registrarCusto(custoUsd);
         usoPorTurno.add(new Resumo.TurnoUso(provedorSolicitado, modeloSolicitado, provedorEfetivo,
-                modeloEfetivo, entrada, saida,
-                custoUsd != null && Double.isFinite(custoUsd) && custoUsd >= 0 ? custoUsd : null));
+                modeloEfetivo, entrada, saida, custoValido(custoUsd) ? custoUsd : null, idDaGeracao));
+        return usoPorTurno.size() - 1;
+    }
+
+    /**
+     * O custo do turno {@code indice} chega depois — de uma consulta ao provedor pelo id da geração.
+     *
+     * <p>Quando {@code custo} completa com um valor válido, ele entra no turno e, portanto, no total.
+     * Nulo, falha ou demora deixam o turno como estava: sem custo, e o total desconhecido. Quem vai
+     * ler o {@link #resumo()} chama {@link #aguardarCustosPendentes} antes, com um prazo.</p>
+     */
+    public void aguardarCusto(int indice, java.util.concurrent.CompletableFuture<Double> custo) {
+        if (custo == null) {
+            return;
+        }
+        java.util.concurrent.CompletableFuture<Void> preenchido = custo
+                .thenAccept(valor -> preencherCusto(indice, valor))
+                .exceptionally(e -> null);
+        synchronized (this) {
+            if (!preenchido.isDone()) {
+                custosPendentes.add(preenchido);
+            }
+        }
+    }
+
+    /**
+     * Espera as consultas de custo em voo, até {@code prazo}. Nunca lança: o que não chegou fica
+     * desconhecido, como ficaria sem a consulta.
+     *
+     * @return {@code true} se todas terminaram dentro do prazo
+     */
+    public boolean aguardarCustosPendentes(java.time.Duration prazo) {
+        java.util.concurrent.CompletableFuture<?>[] emVoo;
+        synchronized (this) {
+            custosPendentes.removeIf(java.util.concurrent.CompletableFuture::isDone);
+            if (custosPendentes.isEmpty()) {
+                return true;
+            }
+            emVoo = custosPendentes.toArray(new java.util.concurrent.CompletableFuture<?>[0]);
+        }
+        try {
+            java.util.concurrent.CompletableFuture.allOf(emVoo)
+                    .get(Math.max(0, prazo.toMillis()), java.util.concurrent.TimeUnit.MILLISECONDS);
+            return true;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        } catch (java.util.concurrent.ExecutionException | java.util.concurrent.TimeoutException e) {
+            return false;
+        }
+    }
+
+    private synchronized void preencherCusto(int indice, Double custoUsd) {
+        if (!custoValido(custoUsd) || indice < 0 || indice >= usoPorTurno.size()) {
+            return;
+        }
+        Resumo.TurnoUso t = usoPorTurno.get(indice);
+        if (t.declaredCostUsd() != null) {
+            return;
+        }
+        usoPorTurno.set(indice, new Resumo.TurnoUso(t.requestedProvider(), t.requestedModel(),
+                t.effectiveProvider(), t.effectiveModel(), t.inputTokens(), t.outputTokens(), custoUsd,
+                t.generationId()));
+    }
+
+    private static boolean custoValido(Double custoUsd) {
+        return custoUsd != null && Double.isFinite(custoUsd) && custoUsd >= 0;
     }
 
     private void somarContadores(String provedor, String modelo, Long entrada, Long saida) {
@@ -156,26 +237,27 @@ public final class ContadorDeUso implements br.com.archflow.decision.DecisionUsa
                 : provedor + "/" + modelo, entrada, saida, custoUsd);
     }
 
-    /** Registra custo do turno; uma ausência torna o total da execução desconhecido. */
-    private void registrarCusto(Double custoUsd) {
-        if (custoUsd == null || !Double.isFinite(custoUsd) || custoUsd < 0) {
-            custoDeclaradoIncompleto = true;
-            return;
+    /**
+     * Soma dos custos declarados; {@code null} se algum turno ficou sem custo — não se expõe soma
+     * parcial como se fosse o total.
+     */
+    private Double custoDeclaradoUsd() {
+        if (custoForaDeTurnoDesconhecido) {
+            return null;
         }
-        if (custoDeclaradoIncompleto) {
-            return;
+        double total = 0.0;
+        for (Resumo.TurnoUso t : usoPorTurno) {
+            if (t.declaredCostUsd() == null) {
+                return null;
+            }
+            total += t.declaredCostUsd();
         }
-        double total = (custoDeclaradoUsd == null ? 0.0 : custoDeclaradoUsd) + custoUsd;
-        if (Double.isFinite(total)) {
-            custoDeclaradoUsd = total;
-        } else {
-            custoDeclaradoIncompleto = true;
-        }
+        return Double.isFinite(total) ? total : null;
     }
 
     /** Marca uma tentativa que falhou antes de fornecer uso/custo reconciliável. */
     public synchronized void marcarCustoDeclaradoDesconhecido() {
-        custoDeclaradoIncompleto = true;
+        custoForaDeTurnoDesconhecido = true;
     }
 
     /** Uma chamada de tool executada (bem-sucedida ou não) — uma ida ao servidor. */
@@ -203,7 +285,7 @@ public final class ContadorDeUso implements br.com.archflow.decision.DecisionUsa
                 chamadasDeTool,
                 (relogioNanos.getAsLong() - inicioNanos) / 1_000_000,
                 msAtePrimeiroToken,
-                custoDeclaradoIncompleto ? null : custoDeclaradoUsd,
+                custoDeclaradoUsd(),
                 java.util.List.copyOf(usoPorTurno)));
     }
 
@@ -240,9 +322,42 @@ public final class ContadorDeUso implements br.com.archflow.decision.DecisionUsa
                     duracaoMs, msAtePrimeiroToken, custoDeclaradoUsd, java.util.List.of());
         }
 
+        /**
+         * Um turno de modelo.
+         *
+         * @param declaredCostUsd custo declarado pelo provedor — no corpo, no stream ou na consulta
+         *                        da geração; {@code null} se nenhum dos três o trouxe
+         * @param generationId    id da geração no provedor, para conciliar depois; {@code null}
+         *                        quando o provedor não o informa
+         */
         public record TurnoUso(String requestedProvider, String requestedModel,
                                String effectiveProvider, String effectiveModel,
-                               Long inputTokens, Long outputTokens, Double declaredCostUsd) {}
+                               Long inputTokens, Long outputTokens, Double declaredCostUsd,
+                               String generationId) {
+
+            /** Compat: turno sem id de geração. */
+            public TurnoUso(String requestedProvider, String requestedModel,
+                            String effectiveProvider, String effectiveModel,
+                            Long inputTokens, Long outputTokens, Double declaredCostUsd) {
+                this(requestedProvider, requestedModel, effectiveProvider, effectiveModel,
+                        inputTokens, outputTokens, declaredCostUsd, null);
+            }
+        }
+
+        /**
+         * Turnos sem custo declarado. Com {@link #custoDeclaradoUsd} nulo, é o que separa "um turno
+         * de dez sem custo" de "nada medido". Zero com o total nulo quer dizer que uma tentativa
+         * falhou antes de informar uso (não há turno onde contar).
+         */
+        public int turnosSemCusto() {
+            int n = 0;
+            for (TurnoUso t : usoPorTurno) {
+                if (t.declaredCostUsd() == null) {
+                    n++;
+                }
+            }
+            return n;
+        }
 
         /** Compat: resumo anterior ao custo declarado. */
         public Resumo(String execucaoId, String provedor, String modelo, Long tokensEntrada,
