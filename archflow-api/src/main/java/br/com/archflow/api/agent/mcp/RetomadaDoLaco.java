@@ -155,6 +155,7 @@ public class RetomadaDoLaco {
                 retomada.saidaPorTool(),
                 retomada.tier())
                 .encerrandoEm(retomada.codigosQueEncerram())
+                .encerrandoNaSaida(retomada.toolsQueEncerram())
                 .comUso(uso)
                 .comRetomada(retomada);
     }

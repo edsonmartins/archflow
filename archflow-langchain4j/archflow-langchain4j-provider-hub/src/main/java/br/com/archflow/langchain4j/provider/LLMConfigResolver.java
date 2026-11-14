@@ -4,6 +4,8 @@ import br.com.archflow.model.config.ResolvedLLMConfig;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
 
+import java.util.Optional;
+
 /**
  * Resolve a configuração efetiva de LLM percorrendo a cadeia de herança
  * (plataforma → tenant → flow → agente → step) e produz o {@link ChatModel}
@@ -37,5 +39,13 @@ public interface LLMConfigResolver {
      */
     default StreamingChatModel resolveStreamingModel(LLMResolutionRequest request) {
         throw new UnsupportedOperationException("streaming not supported by this resolver");
+    }
+
+    /**
+     * Endereço e chave do provider que {@link #resolveModel} usaria para esta requisição. Vazio
+     * quando a implementação não sabe dizer — o padrão, para não quebrar impls e mocks existentes.
+     */
+    default Optional<ProviderEndpoint> resolveEndpoint(LLMResolutionRequest request) {
+        return Optional.empty();
     }
 }

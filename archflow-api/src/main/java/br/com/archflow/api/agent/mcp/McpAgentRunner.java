@@ -30,6 +30,7 @@ import dev.langchain4j.model.output.TokenUsage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -96,6 +97,10 @@ public class McpAgentRunner {
     private final MetricsCollector metrics;
     private final int catalogWarnTokens;
     private final McpAgentStateStore stateStore;
+    /** Busca o custo de um turno que voltou sem ele; {@code null} desliga. */
+    private final CustoDaGeracao custoDaGeracao;
+    /** Quanto o laço espera, no fim, pelas consultas de custo ainda em voo. */
+    private final Duration prazoDoCusto;
     private final ObjectMapper mapper = new ObjectMapper();
     private static final ObjectMapper USAGE_JSON = new ObjectMapper();
 
@@ -128,6 +133,23 @@ public class McpAgentRunner {
     public McpAgentRunner(LLMConfigResolver llmConfigResolver, ResolvedLLMConfig platformDefault,
                           MetricsCollector metrics, int catalogWarnTokens,
                           McpAgentStateStore stateStore) {
+        this(llmConfigResolver, platformDefault, metrics, catalogWarnTokens, stateStore, null,
+                Duration.ZERO);
+    }
+
+    /**
+     * @param custoDaGeracao consulta do custo de um turno que voltou sem {@code usage.cost} — ver
+     *                       {@link CustoDaGeracao}. {@code null} desliga: o turno fica sem custo
+     * @param prazoDoCusto   quanto o laço espera, no fim, pelas consultas ainda em voo. Elas
+     *                       começam no turno e correm junto com as tools e os turnos seguintes;
+     *                       só a do último turno costuma ainda estar em voo
+     */
+    public McpAgentRunner(LLMConfigResolver llmConfigResolver, ResolvedLLMConfig platformDefault,
+                          MetricsCollector metrics, int catalogWarnTokens,
+                          McpAgentStateStore stateStore, CustoDaGeracao custoDaGeracao,
+                          Duration prazoDoCusto) {
+        this.custoDaGeracao = custoDaGeracao;
+        this.prazoDoCusto = prazoDoCusto == null || prazoDoCusto.isNegative() ? Duration.ZERO : prazoDoCusto;
         this.llmConfigResolver = llmConfigResolver;
         this.platformDefault = platformDefault;
         this.metrics = metrics;
@@ -253,7 +275,7 @@ public class McpAgentRunner {
                 comContextoRecuperado(options.contextoRecuperado(), session.fence, userMessage),
                 options.imagens()));
 
-        return drive(session, client, options);
+        return conduzir(session, client, options);
     }
 
     /**
@@ -346,6 +368,10 @@ public class McpAgentRunner {
                 requireStore().delete(session.runId);
                 return Result.encerrado(session.lastText, session.toolCalls, feita);
             }
+            if (respondeuASaida(feita, options)) {
+                requireStore().delete(session.runId);
+                return Result.finished(session.lastText, session.toolCalls);
+            }
         } else {
             log.info("Aprovação {} recusada; devolvendo a recusa ao modelo (run={})",
                     requestId, session.runId);
@@ -358,10 +384,29 @@ public class McpAgentRunner {
         // O estado suspenso deixa de existir: a decisão foi consumida. Se o laço
         // suspender de novo, um estado novo é gravado com outro requestId.
         requireStore().delete(session.runId);
-        return drive(session, client, options);
+        return conduzir(session, client, options);
     }
 
     // ── Laço ─────────────────────────────────────────────────────────
+
+    /**
+     * O laço, e depois a espera pelas consultas de custo que ele disparou.
+     *
+     * <p>Esperar aqui, e não em quem lê o uso, é o que vale para todos os chamadores — fluxo,
+     * dispatcher, streaming — sem que cada um precise lembrar. Vale também quando o laço falha: a
+     * execução que falhou já gastou, e o uso dela é relatado do mesmo jeito.</p>
+     */
+    private Result conduzir(Session session, McpClient client, Options options) {
+        try {
+            return drive(session, client, options);
+        } finally {
+            if (options.uso() != null && custoDaGeracao != null && !prazoDoCusto.isZero()
+                    && !options.uso().aguardarCustosPendentes(prazoDoCusto)) {
+                log.info("Consultas de custo da geração não terminaram em {} ms; o turno segue sem custo",
+                        prazoDoCusto.toMillis());
+            }
+        }
+    }
 
     /**
      * Conduz o laço até uma resposta final, uma suspensão ou o teto de iterações.
@@ -388,6 +433,8 @@ public class McpAgentRunner {
         ResolvedLLMConfig configDoUso = configParaUso(llmRequest);
         String rotuloDoModelo = rotuloDoModelo(configDoUso);
         String provedorDoUso = configDoUso == null ? null : configDoUso.provider();
+        java.util.function.Function<String, CompletableFuture<Double>> buscaDeCusto =
+                buscaDeCusto(llmRequest, provedorDoUso, options);
 
         List<ToolSpecification> tools;
         // Schemas guardados por nome: o mesmo contrato que descrevemos ao modelo
@@ -437,7 +484,7 @@ public class McpAgentRunner {
                 options.uso().marcarCustoDeclaradoDesconhecido();
             }
             recordTurn(response);
-            somarUso(options, provedorDoUso, rotuloDoModelo, response);
+            somarUso(options, provedorDoUso, rotuloDoModelo, response, buscaDeCusto);
             AiMessage ai = response.aiMessage();
             session.messages.add(ai);
             if (ai.text() != null) {
@@ -515,6 +562,15 @@ public class McpAgentRunner {
                 if (encerra(feita, options)) {
                     emitirRestante(session, options);
                     return Result.encerrado(session.lastText, session.toolCalls, feita);
+                }
+                // A RESPOSTA DO PASSO JÁ EXISTE. Termina como conclusão, não como `encerrado`:
+                // `encerrado` diz a quem lê que o texto não é resposta, e aqui a resposta é a
+                // própria chamada. As demais tools pedidas no mesmo turno não rodam — o que viesse
+                // delas não muda a saída, que já foi produzida.
+                if (respondeuASaida(feita, options)) {
+                    log.debug("Tool de saída {} respondeu; encerrando o laço", feita.name());
+                    emitirRestante(session, options);
+                    return Result.finished(session.lastText, session.toolCalls);
                 }
             }
         }
@@ -989,6 +1045,16 @@ public class McpAgentRunner {
     }
 
     /**
+     * Uma tool de saída respondeu com sucesso e o chamador pediu para parar aí
+     * ({@link Options#toolsQueEncerram}). Erro — {@code isError} ou código de protocolo — não
+     * conta: a tool pode recusar a forma errada com o motivo, e o modelo precisa da volta seguinte
+     * para corrigir.
+     */
+    private static boolean respondeuASaida(ToolCall call, Options options) {
+        return !call.isError() && options.toolsQueEncerram().contains(call.name());
+    }
+
+    /**
      * {@code provider/modelo} da execução, para quem vai contar o custo.
      *
      * <p>Sai da configuração resolvida, não do nome que o provedor devolve: é a chave com que o
@@ -1013,9 +1079,43 @@ public class McpAgentRunner {
                 : resolved.provider() + "/" + resolved.model();
     }
 
+    /**
+     * Como buscar o custo de um turno que voltou sem ele, nesta execução — ou {@code null}.
+     *
+     * <p>Só para o OpenRouter, que guarda o custo por geração, e só quando há contador: sem quem
+     * leia o custo, consultar seria uma ida à rede sem efeito. O endpoint vem do mesmo resolvedor do
+     * modelo — a chave do tenant, não uma da plataforma.</p>
+     */
+    private java.util.function.Function<String, CompletableFuture<Double>> buscaDeCusto(
+            LLMResolutionRequest llmRequest, String provedor, Options options) {
+        if (custoDaGeracao == null || options.uso() == null || !"openrouter".equalsIgnoreCase(provedor)) {
+            return null;
+        }
+        try {
+            return llmConfigResolver.resolveEndpoint(llmRequest)
+                    .<java.util.function.Function<String, CompletableFuture<Double>>>map(
+                            endpoint -> id -> custoDaGeracao.consultar(endpoint, id))
+                    .orElse(null);
+        } catch (RuntimeException e) {
+            log.debug("Sem endpoint para consultar o custo da geração: {}", e.getMessage());
+            return null;
+        }
+    }
+
     /** Soma o turno no contador da execução, quando há um. Observação, nunca requisito. */
     static void somarUso(Options options, String provedor, String rotulo,
                                  ChatResponse response) {
+        somarUso(options, provedor, rotulo, response, null);
+    }
+
+    /**
+     * Soma o turno e, se ele veio do OpenRouter sem custo, dispara a consulta pela geração.
+     *
+     * <p>A consulta não segura o laço: corre junto com as tools e os turnos seguintes, e o custo
+     * entra no turno quando chegar. Quem espera por ela é {@link #conduzir}, no fim, com prazo.</p>
+     */
+    static void somarUso(Options options, String provedor, String rotulo, ChatResponse response,
+                         java.util.function.Function<String, CompletableFuture<Double>> buscaDeCusto) {
         if (options.uso() == null) {
             return;
         }
@@ -1024,8 +1124,20 @@ public class McpAgentRunner {
             Long input = usage == null || usage.inputTokenCount() == null ? null : usage.inputTokenCount().longValue();
             Long output = usage == null || usage.outputTokenCount() == null ? null : usage.outputTokenCount().longValue();
             OpenRouterUsage route = usoOpenRouter(provedor, response);
-            options.uso().somarComDetalhe(provedor, rotulo, route.provider(), route.model(),
-                    input, output, route.costUsd());
+            String idDaGeracao = route.generationId() != null ? route.generationId() : response.id();
+            int turno = options.uso().somarTurno(provedor, rotulo, route.provider(), route.model(),
+                    input, output, route.costUsd(), idDaGeracao);
+            if (route.costUsd() == null && "openrouter".equalsIgnoreCase(provedor)) {
+                // O BURACO TEM DE APARECER. Sem este log não dá para saber se ele é de um caminho só
+                // (o evento final do stream, por exemplo) ou dos dois.
+                boolean consulta = buscaDeCusto != null && idDaGeracao != null && !idDaGeracao.isBlank();
+                log.info("Turno OpenRouter sem usage.cost (geração={}, via={}); {}",
+                        idDaGeracao, route.via(),
+                        consulta ? "consultando o custo pela geração" : "sem consulta — o turno fica sem custo");
+                if (consulta) {
+                    options.uso().aguardarCusto(turno, buscaDeCusto.apply(idDaGeracao));
+                }
+            }
         } catch (RuntimeException e) {
             log.debug("Falha ao somar o uso do turno: {}", e.getMessage());
         }
@@ -1038,29 +1150,36 @@ public class McpAgentRunner {
     static OpenRouterUsage usoOpenRouter(String provedor, ChatResponse response) {
         if (!"openrouter".equalsIgnoreCase(provedor) || response == null
                 || !(response.metadata() instanceof OpenAiChatResponseMetadata metadata)) {
-            return new OpenRouterUsage(null, null, null);
+            return OpenRouterUsage.VAZIO;
         }
+        OpenRouterUsage doCorpo = null;
         if (metadata.rawHttpResponse() != null) {
-            OpenRouterUsage usage = usoDoCorpo(metadata.rawHttpResponse().body());
-            if (usage.hasData()) return usage;
+            doCorpo = usoDoCorpo(metadata.rawHttpResponse().body(), VIA_CORPO);
+            if (doCorpo.hasData()) return doCorpo;
         }
         var events = metadata.rawServerSentEvents();
         if (events != null) {
-            OpenRouterUsage merged = new OpenRouterUsage(null, null, null);
+            OpenRouterUsage merged = new OpenRouterUsage(null, null, null, null, VIA_SSE);
             for (int i = events.size() - 1; i >= 0; i--) {
-                OpenRouterUsage event = usoDoCorpo(events.get(i).data());
+                OpenRouterUsage event = usoDoCorpo(events.get(i).data(), VIA_SSE);
                 merged = new OpenRouterUsage(first(merged.provider(), event.provider()),
                         first(merged.model(), event.model()),
-                        merged.costUsd() == null ? event.costUsd() : merged.costUsd());
+                        merged.costUsd() == null ? event.costUsd() : merged.costUsd(),
+                        first(merged.generationId(), event.generationId()), VIA_SSE);
             }
             return merged;
         }
-        return new OpenRouterUsage(null, null, null);
+        return doCorpo != null ? doCorpo : OpenRouterUsage.VAZIO;
     }
 
-    private static OpenRouterUsage usoDoCorpo(String body) {
+    /** O uso veio no corpo da resposta (chamada bloqueante). */
+    static final String VIA_CORPO = "corpo";
+    /** O uso veio nos eventos do stream. */
+    static final String VIA_SSE = "sse";
+
+    private static OpenRouterUsage usoDoCorpo(String body, String via) {
         if (body == null || body.isBlank()) {
-            return new OpenRouterUsage(null, null, null);
+            return new OpenRouterUsage(null, null, null, null, via);
         }
         try {
             var root = USAGE_JSON.readTree(body);
@@ -1078,16 +1197,31 @@ public class McpAgentRunner {
                     }
                 }
             }
-            return new OpenRouterUsage(provider, model, value);
+            String id = root.path("id").isTextual() && !root.path("id").textValue().isBlank()
+                    ? root.path("id").textValue() : null;
+            return new OpenRouterUsage(provider, model, value, id, via);
         } catch (Exception e) {
-            return new OpenRouterUsage(null, null, null);
+            return new OpenRouterUsage(null, null, null, null, via);
         }
     }
 
     private static String first(String first, String fallback) { return first == null ? fallback : first; }
 
-    record OpenRouterUsage(String provider, String model, Double costUsd) {
-        boolean hasData() { return provider != null || model != null || costUsd != null; }
+    /**
+     * @param generationId id da geração ({@code gen-…}) — a chave para buscar o custo que faltou
+     * @param via          de onde o uso foi lido: {@link #VIA_CORPO}, {@link #VIA_SSE} ou
+     *                     {@code null} quando não havia resposta crua
+     */
+    record OpenRouterUsage(String provider, String model, Double costUsd, String generationId, String via) {
+        static final OpenRouterUsage VAZIO = new OpenRouterUsage(null, null, null, null, null);
+
+        OpenRouterUsage(String provider, String model, Double costUsd) {
+            this(provider, model, costUsd, null, null);
+        }
+
+        boolean hasData() {
+            return provider != null || model != null || costUsd != null || generationId != null;
+        }
     }
 
     /**
@@ -1257,7 +1391,20 @@ public class McpAgentRunner {
                           Set<String> requiredOutputTools, String tier,
                           Set<Integer> codigosQueEncerram, ContadorDeUso uso,
                           List<String> contextoRecuperado, McpAgentState.Retomada retomada,
-                          SaidaDeTexto saida, List<ImagemDaEntrada> imagens) {
+                          SaidaDeTexto saida, List<ImagemDaEntrada> imagens,
+                          Set<String> toolsQueEncerram) {
+
+        /** Compat: sem encerramento por saída — o laço segue depois da tool de saída. */
+        public Options(ToolAccessPolicy access, ToolTrustPolicy trust,
+                       ToolApprovalPolicy approval, int maxIterations,
+                       LLMConfigPatch flowPatch, LLMConfigPatch stepPatch,
+                       Set<String> requiredOutputTools, String tier,
+                       Set<Integer> codigosQueEncerram, ContadorDeUso uso,
+                       List<String> contextoRecuperado, McpAgentState.Retomada retomada,
+                       SaidaDeTexto saida, List<ImagemDaEntrada> imagens) {
+            this(access, trust, approval, maxIterations, flowPatch, stepPatch, requiredOutputTools,
+                    tier, codigosQueEncerram, uso, contextoRecuperado, retomada, saida, imagens, Set.of());
+        }
 
         /** Compat: sem imagens na entrada — só texto, como sempre foi. */
         public Options(ToolAccessPolicy access, ToolTrustPolicy trust,
@@ -1316,7 +1463,7 @@ public class McpAgentRunner {
         public Options comUso(ContadorDeUso contador) {
             return new Options(access, trust, approval, maxIterations, flowPatch, stepPatch,
                     requiredOutputTools, tier, codigosQueEncerram, contador, contextoRecuperado,
-                    retomada, saida, imagens);
+                    retomada, saida, imagens, toolsQueEncerram);
         }
 
         /** As mesmas opções, com o tier pedido por quem acionou; vazio mantém o atual. */
@@ -1326,14 +1473,14 @@ public class McpAgentRunner {
             }
             return new Options(access, trust, approval, maxIterations, flowPatch, stepPatch,
                     requiredOutputTools, novoTier, codigosQueEncerram, uso, contextoRecuperado,
-                    retomada, saida, imagens);
+                    retomada, saida, imagens, toolsQueEncerram);
         }
 
         /** As mesmas opções, encerrando o laço quando uma tool responder um destes códigos. */
         public Options encerrandoEm(Set<Integer> codigos) {
             return new Options(access, trust, approval, maxIterations, flowPatch, stepPatch,
                     requiredOutputTools, tier, codigos, uso, contextoRecuperado, retomada, saida,
-                    imagens);
+                    imagens, toolsQueEncerram);
         }
 
         /**
@@ -1343,7 +1490,7 @@ public class McpAgentRunner {
         public Options comContextoRecuperado(List<String> contexto) {
             return new Options(access, trust, approval, maxIterations, flowPatch, stepPatch,
                     requiredOutputTools, tier, codigosQueEncerram, uso, contexto, retomada, saida,
-                    imagens);
+                    imagens, toolsQueEncerram);
         }
 
         /**
@@ -1353,7 +1500,7 @@ public class McpAgentRunner {
         public Options comImagens(List<ImagemDaEntrada> novas) {
             return new Options(access, trust, approval, maxIterations, flowPatch, stepPatch,
                     requiredOutputTools, tier, codigosQueEncerram, uso, contextoRecuperado, retomada,
-                    saida, novas);
+                    saida, novas, toolsQueEncerram);
         }
 
         /**
@@ -1363,7 +1510,7 @@ public class McpAgentRunner {
         public Options comRetomada(McpAgentState.Retomada dados) {
             return new Options(access, trust, approval, maxIterations, flowPatch, stepPatch,
                     requiredOutputTools, tier, codigosQueEncerram, uso, contextoRecuperado, dados, saida,
-                    imagens);
+                    imagens, toolsQueEncerram);
         }
 
         /**
@@ -1373,7 +1520,23 @@ public class McpAgentRunner {
         public Options comSaida(SaidaDeTexto novaSaida) {
             return new Options(access, trust, approval, maxIterations, flowPatch, stepPatch,
                     requiredOutputTools, tier, codigosQueEncerram, uso, contextoRecuperado,
-                    retomada, novaSaida, imagens);
+                    retomada, novaSaida, imagens, toolsQueEncerram);
+        }
+
+        /**
+         * As mesmas opções, encerrando o laço na <b>primeira</b> chamada bem-sucedida a uma destas
+         * tools. Chamada com erro não encerra: o modelo precisa poder corrigir o argumento. Vazio
+         * (o padrão) mantém o laço até a resposta em texto.
+         *
+         * <p>Existe porque, quando a resposta do passo sai de uma tool, as voltas depois dela são
+         * só custo: medido no VendaX em 13/11 (VEN-1044), o modelo chamava a tool de saída,
+         * continuava consultando e a chamava de novo — e pedir no prompt que parasse dependia de
+         * ele obedecer.</p>
+         */
+        public Options encerrandoNaSaida(Set<String> tools) {
+            return new Options(access, trust, approval, maxIterations, flowPatch, stepPatch,
+                    requiredOutputTools, tier, codigosQueEncerram, uso, contextoRecuperado,
+                    retomada, saida, imagens, tools);
         }
 
         public Options(ToolAccessPolicy access, ToolTrustPolicy trust,
@@ -1415,6 +1578,7 @@ public class McpAgentRunner {
                     : contextoRecuperado.stream().filter(Objects::nonNull).toList();
             imagens = imagens == null ? List.of()
                     : imagens.stream().filter(Objects::nonNull).toList();
+            toolsQueEncerram = toolsQueEncerram == null ? Set.of() : Set.copyOf(toolsQueEncerram);
         }
 
         void validate() {

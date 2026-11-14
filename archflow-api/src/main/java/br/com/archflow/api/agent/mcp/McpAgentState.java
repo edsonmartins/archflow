@@ -83,13 +83,25 @@ public record McpAgentState(
      * @param tier                 tier de LLM pedido por quem acionou
      * @param maxIteracoes         teto de voltas do laço
      * @param codigosQueEncerram   códigos de erro que encerram o laço
+     * @param toolsQueEncerram     tools cuja primeira chamada bem-sucedida encerra o laço
+     *                             ({@code encerrarNaSaida}); ausente em estados gravados antes
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record Retomada(String serverRef, Set<String> toolsPermitidas,
                            Set<String> toolsComAprovacao, Set<String> saidaPorTool,
-                           String tier, int maxIteracoes, Set<Integer> codigosQueEncerram) {
+                           String tier, int maxIteracoes, Set<Integer> codigosQueEncerram,
+                           Set<String> toolsQueEncerram) {
+
+        /** Compat: sem encerramento por saída — a forma gravada antes do VEN-1044. */
+        public Retomada(String serverRef, Set<String> toolsPermitidas,
+                        Set<String> toolsComAprovacao, Set<String> saidaPorTool,
+                        String tier, int maxIteracoes, Set<Integer> codigosQueEncerram) {
+            this(serverRef, toolsPermitidas, toolsComAprovacao, saidaPorTool, tier, maxIteracoes,
+                    codigosQueEncerram, Set.of());
+        }
 
         public Retomada {
+            toolsQueEncerram = toolsQueEncerram == null ? Set.of() : Set.copyOf(toolsQueEncerram);
             toolsPermitidas = toolsPermitidas == null ? null : Set.copyOf(toolsPermitidas);
             toolsComAprovacao = toolsComAprovacao == null ? Set.of() : Set.copyOf(toolsComAprovacao);
             saidaPorTool = saidaPorTool == null ? Set.of() : Set.copyOf(saidaPorTool);

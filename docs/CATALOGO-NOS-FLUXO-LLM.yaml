@@ -282,6 +282,7 @@ builtInComponents:
       tools: { type: array, items: string, description: "Allowlist ∩ teto do host; AUSENTE = todas as do server; LISTA VAZIA = nenhuma (sem catálogo e sem abrir o server)" }
       maxIterations: { type: integer, default: 10, minimum: 1 }
       encerrarEmCodigos: { type: array, items: integer, description: "Códigos de erro de tool que encerram o laço em vez de voltar ao modelo" }
+      encerrarNaSaida: { type: boolean, default: false, description: "Com saidaDaTool, a primeira chamada bem-sucedida a uma delas encerra o laço (erro/-32602 não encerra). Exige saidaDaTool" }
     operations:
       - id: execute
         input: { input: string }

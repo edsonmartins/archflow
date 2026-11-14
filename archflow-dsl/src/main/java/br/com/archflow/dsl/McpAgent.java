@@ -106,6 +106,15 @@ public final class McpAgent {
         return with("exigirSaidaDaTool", true);
     }
 
+    /**
+     * Encerra o laço na <b>primeira</b> chamada bem-sucedida a uma das ferramentas de saída
+     * ({@link #outputFromTool}). Chamada com erro não encerra: o modelo pode corrigir o argumento.
+     * Sem ferramenta de saída declarada, o componente recusa o nó.
+     */
+    public McpAgent stopOnOutputTool() {
+        return with("encerrarNaSaida", true);
+    }
+
     /** Ferramentas que só rodam depois de uma decisão humana; o laço suspende antes. */
     public McpAgent humanApproval(String... names) {
         return with("aprovacaoHumana", List.of(names));

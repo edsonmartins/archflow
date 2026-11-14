@@ -40,6 +40,7 @@ import java.util.Set;
  * maxIterations  (inteiro)     voltas do laço; ausente = padrão do runner
  * saidaDaTool    (lista)       de onde sai a resposta do passo — ver abaixo
  * exigirSaidaDaTool (bool)     falha o passo se nenhuma delas for chamada
+ * encerrarNaSaida (bool)       a primeira chamada bem-sucedida a uma delas encerra o laço
  * </pre>
  *
  * <p><b>{@code saidaDaTool} existe porque nem todo agente responde pelo texto.</b> Uns produzem um
@@ -145,6 +146,12 @@ public class McpAgentComponent implements AIComponent, ComponentPlugin {
         if (saidaDaTool != null && !(saidaDaTool instanceof List<?>)) {
             throw new IllegalArgumentException(COMPONENT_ID + ": 'saidaDaTool' deve ser uma lista");
         }
+        // ENCERRAR NA SAÍDA SEM SAÍDA DECLARADA não encerraria nada — e o fluxo pareceria protegido
+        // de voltas a mais sem estar. Recusar na carga é mais barato que descobrir pela latência.
+        if (booleano(config.get("encerrarNaSaida")) && listaDeTexto(saidaDaTool).isEmpty()) {
+            throw new IllegalArgumentException(COMPONENT_ID
+                    + ": 'encerrarNaSaida' exige 'saidaDaTool' com ao menos uma tool");
+        }
         Object max = config.get("maxIterations");
         if (max != null && inteiro(max) <= 0) {
             throw new IllegalArgumentException(COMPONENT_ID + ": 'maxIterations' deve ser positivo");
@@ -212,6 +219,11 @@ public class McpAgentComponent implements AIComponent, ComponentPlugin {
 
         Set<String> saidaDaTool = listaDeTexto(config.get("saidaDaTool"));
         boolean exigir = booleano(config.get("exigirSaidaDaTool"));
+        // ENCERRAR NA SAÍDA. Com a resposta do passo vindo de uma tool, toda volta depois da
+        // primeira chamada bem-sucedida a ela é custo e latência sem efeito na saída. Pedir no
+        // prompt que o modelo pare depende de ele obedecer — medido no VendaX em 13/11 (VEN-1044),
+        // não obedecia. Desligado por padrão: a saída continua sendo a ÚLTIMA chamada bem-sucedida.
+        Set<String> encerraNaSaida = booleano(config.get("encerrarNaSaida")) ? saidaDaTool : Set.of();
         // As tools que o nó põe sob decisão humana. O laço suspende ANTES de executá-las, e volta
         // pela fila de aprovações (RetomadaDoLaco). Vazio é o caso comum: nada sob gate.
         Set<String> sobAprovacao = interseccao(listaDeTexto(config.get("aprovacaoHumana")),
@@ -229,12 +241,14 @@ public class McpAgentComponent implements AIComponent, ComponentPlugin {
                 // tentar de novo até o teto e acabar redigindo uma resposta SEM o dado — o pior
                 // desfecho, porque parece resposta. Vazio (o padrão) mantém o laço como era.
                 .encerrandoEm(codigosQueEncerram())
+                .encerrandoNaSaida(encerraNaSaida)
                 // COMO O LAÇO VOLTA, em dados. Sem isto ele recusa suspender — e recusar é melhor
                 // que gravar um estado que ninguém consegue retomar.
                 .comRetomada(new McpAgentState.Retomada(servidor,
                         toolsPermitidas(host, tenantId), sobAprovacao,
                         exigir ? saidaDaTool : Set.of(),
-                        textoDoContexto(context, CTX_TIER), iteracoes(), Set.of()))
+                        textoDoContexto(context, CTX_TIER), iteracoes(), codigosQueEncerram(),
+                        encerraNaSaida))
                 // O CONSUMO VAI PARA QUEM HOSPEDA A EXECUÇÃO. Sem isto, um agente em fluxo gastaria
                 // tokens que nenhum resultado relata — e o teto de custo do tenant contaria menos
                 // do que foi gasto, justamente no caminho que vai substituir os outros.
