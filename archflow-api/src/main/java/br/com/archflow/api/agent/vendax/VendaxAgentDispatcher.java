@@ -48,24 +48,6 @@ public class VendaxAgentDispatcher {
      */
     private static final Set<String> CS_TOOLS = Set.of("obter_eventos_operacionais", "obter_cliente_360");
 
-    /** O NS só é executado aqui para a consulta do vendedor (ADR-038 D-3); é o que o reason diz. */
-    static final String NS_CONSULTA = "ns:consulta";
-
-    /** A consulta lê o plano de negociação, e nada mais: ela não grava nem promete. */
-    private static final Set<String> NS_TOOLS = Set.of(ConsultaAoNegociador.TOOL);
-
-    /**
-     * Entender → chamar a tool → redigir, com folga para UMA correção de argumento. Mais que isso
-     * não cabe no prazo de quem está esperando, e um laço longo só adiaria o mesmo erro.
-     */
-    private static final int NS_MAX_ITERACOES = 4;
-
-    /**
-     * {@code -32001}: o agente NS não foi contratado pelo tenant. Nenhuma volta a mais muda isso,
-     * então o laço para na hora em vez de devolver o erro ao modelo para ele tentar de novo.
-     */
-    static final int NS_NAO_CONTRATADO = -32001;
-
     /** Prazo padrão da classe interativa (ADR-025 D-2): a tela espera 30 s; aqui sobra margem. */
     static final Duration PRAZO_INTERATIVO_PADRAO = Duration.ofSeconds(20);
 
@@ -200,18 +182,12 @@ public class VendaxAgentDispatcher {
             VendaxResult result = switch (agent) {
                 case "QP" -> runQp(invoke, uso);
                 case "CS" -> runCs(invoke, uso);
-                // O NS de negociação autônoma não roda aqui; só a consulta do vendedor, que o Core
-                // distingue pelo reason.
-                case "NS" -> NS_CONSULTA.equals(invoke.reason())
-                        ? runNsConsulta(invoke, uso)
-                        : naoImplementado(invoke);
-                // O AP aqui só narra o dia; o reason distingue, como no NS.
+                // NS e US viraram FLUXO (VEN-1134) e saíram daqui: sem `definicao`, caem no
+                // `naoImplementado` como qualquer agente sem caminho — erro visível no Core, e não o
+                // prompt antigo rodando em silêncio.
+                // O AP aqui só narra o dia; o reason distingue.
                 case "AP" -> NarracaoDoDia.REASON.equals(invoke.reason())
                         ? runApNarracao(invoke, uso)
-                        : naoImplementado(invoke);
-                // O US sugere o item que costuma vir junto, antes do fechamento.
-                case "US" -> SugestaoDeUpsell.REASON.equals(invoke.reason())
-                        ? runUsSugestao(invoke, uso)
                         : naoImplementado(invoke);
                 // O CPA aqui só roteiriza a abordagem de uma tarefa aberta.
                 case "CPA" -> RoteiroDeAbordagem.REASON.equals(invoke.reason())
@@ -361,101 +337,6 @@ public class VendaxAgentDispatcher {
             return;
         }
         resultSender.relatarUso(VendaxUsoRelato.de(invoke, motivo, usoDe(resumo)));
-    }
-
-    /**
-     * NS, consulta do vendedor: uma pergunta em linguagem vira um parâmetro, uma chamada ao plano
-     * de negociação e uma frase curta.
-     *
-     * <h2>Classe interativa</h2>
-     *
-     * <p>O vendedor está olhando para a tela, que espera até 30 s. Por isso há prazo, e por isso
-     * estourá-lo devolve {@code ERROR} na hora — com a mesma chave de idempotência, que é o que faz
-     * a tela parar de esperar — em vez de reenfileirar.</p>
-     *
-     * <h2>O parâmetro vem da chamada, não da afirmação</h2>
-     *
-     * <p>O Core refaz a conta com o {@code parametro} devolvido e recusa a frase que citar número
-     * fora dela. Ver {@link ConsultaAoNegociador} para por que o parâmetro é lido dos argumentos que
-     * de fato foram à tool.</p>
-     */
-    private VendaxResult runNsConsulta(VendaxInvoke invoke, ContadorDeUso uso) {
-        var client = vendax.clientFor(invoke.tenantId(),
-                invoke.definicao() != null ? invoke.definicao().versao() : null);
-        McpAgentRunner.Options opcoes = new McpAgentRunner.Options(
-                politicaDe(invoke, NS_TOOLS),
-                ToolTrustPolicy.untrustedByDefault(),
-                ToolApprovalPolicy.none(),
-                NS_MAX_ITERACOES,
-                null, null, Set.of(),
-                invoke.tier())
-                .encerrandoEm(Set.of(NS_NAO_CONTRATADO));
-        McpAgentRunner.Options opcoesDaExecucao = daExecucao(opcoes, invoke, uso);
-        String systemPrompt = promptDe(invoke, ConsultaAoNegociador.SYSTEM_PROMPT);
-        String entrada = entradaDoAgente(invoke);
-
-        McpAgentRunner.Result result;
-        try {
-            result = comPrazo(invoke, prazoInterativo, () ->
-                    runner.run(invoke.tenantId(), systemPrompt, entrada, client, opcoesDaExecucao));
-        } catch (PrazoEstourado e) {
-            log.warn("Consulta ao NS passou do prazo de {} ms (trace={})",
-                    prazoInterativo.toMillis(), invoke.traceId());
-            ContadorDeUso.Resumo ate = uso.resumo().orElse(null);
-            relatarDepoisDoPrazo(invoke, uso, ate, e.execucao());
-            VendaxResult erro = VendaxResult.error(invoke, "O negociador não respondeu em "
-                    + prazoInterativo.toSeconds() + " s");
-            return ate == null ? erro : erro.comUso(usoDe(ate));
-        }
-
-        if (result.isEncerrado()) {
-            McpAgentRunner.ToolCall causa = result.encerradoPor();
-            log.info("Consulta ao NS encerrada pela tool {} (código {}, trace={})",
-                    causa.name(), causa.errorCode(), invoke.traceId());
-            return VendaxResult.error(invoke, NS_NAO_CONTRATADO == causa.errorCode()
-                    ? "O agente NS não foi contratado por este tenant"
-                    : causa.resultText());
-        }
-        return ConsultaAoNegociador.resultado(invoke, result);
-    }
-
-    /**
-     * US, upsell pré-fechamento: a tool devolve as candidatas que o Core filtrou, e o modelo escolhe
-     * uma e escreve a frase.
-     *
-     * <p>Interativo (ADR-025 D-2): o vendedor está olhando a cotação que acabou de sair, então vale
-     * o mesmo prazo da consulta ao NS — passou, sai {@code ERROR} e o que o laço gastar depois é
-     * relatado à parte.</p>
-     *
-     * <p>Medido em 18/09, no homolog do VendaX: <b>544 acionamentos de US</b> entre 03 e 24/08
-     * caíram no ramo "agente não implementado" deste switch, e nenhuma sugestão chegou ao vendedor.
-     * Nada do lado do Core acusou — por isso este caminho existe agora.</p>
-     */
-    private VendaxResult runUsSugestao(VendaxInvoke invoke, ContadorDeUso uso) {
-        var client = vendax.clientFor(invoke.tenantId(),
-                invoke.definicao() != null ? invoke.definicao().versao() : null);
-        McpAgentRunner.Options opcoes = daExecucao(new McpAgentRunner.Options(
-                politicaDe(invoke, Set.of(SugestaoDeUpsell.TOOL)),
-                ToolTrustPolicy.untrustedByDefault(),
-                ToolApprovalPolicy.none(),
-                SugestaoDeUpsell.MAX_ITERACOES), invoke, uso);
-        String systemPrompt = promptDe(invoke, SugestaoDeUpsell.SYSTEM_PROMPT);
-        String entrada = entradaDoAgente(invoke);
-
-        McpAgentRunner.Result result;
-        try {
-            result = comPrazo(invoke, prazoInterativo, () ->
-                    runner.run(invoke.tenantId(), systemPrompt, entrada, client, opcoes));
-        } catch (PrazoEstourado e) {
-            log.warn("Sugestão do US passou do prazo de {} ms (trace={})",
-                    prazoInterativo.toMillis(), invoke.traceId());
-            ContadorDeUso.Resumo ate = uso.resumo().orElse(null);
-            relatarDepoisDoPrazo(invoke, uso, ate, e.execucao());
-            VendaxResult erro = VendaxResult.error(invoke, "O US não respondeu em "
-                    + prazoInterativo.toSeconds() + " s").comChave(SugestaoDeUpsell.chave(invoke));
-            return ate == null ? erro : erro.comUso(usoDe(ate));
-        }
-        return SugestaoDeUpsell.resultado(invoke, result);
     }
 
     /**
@@ -703,7 +584,7 @@ public class VendaxAgentDispatcher {
         }
         // AS CHAMADAS DE TOOL SOBEM COM O RESULT, e a lista vai mesmo vazia: o Core monta o
         // parâmetro da resposta a partir dos ARGUMENTOS que foram à tool, e não do que o modelo
-        // declara — é a garantia que o `case` do NS tem dentro daqui e que o fluxo não tinha.
+        // declara — é a garantia que o antigo `case` do NS tinha e que o fluxo não tinha.
         // Ausente significaria "não informado"; vazia significa "não chamou nada".
         return VendaxResult.ok(invoke, tipo, conteudo)
                 .comChamadas(resposta.toolCalls(), resposta.encerradoPor());

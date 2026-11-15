@@ -39,7 +39,7 @@ import static org.mockito.Mockito.when;
  *
  * <p>A memória é do Core (RFC-014 do VendaX): ele busca no Brain Sentry e escolhe os fatos. O que
  * este runtime garante é que eles cheguem ao modelo cercados e fora do prefixo cacheado — e que
- * nenhum caminho (QP, CS, NS, fluxo) os perca pelo caminho.</p>
+ * nenhum caminho (QP, CS, fluxo) os perca pelo caminho.</p>
  */
 @DisplayName("memória do cliente no invoke")
 class MemoriaDoClienteNoInvokeTest {
@@ -78,20 +78,6 @@ class MemoriaDoClienteNoInvokeTest {
         McpAgentRunner.Options o = opcoesDoRunner();
         assertThat(o.contextoRecuperado()).isEqualTo(MEMORIA);
         assertThat(o.uso()).isNotNull();
-    }
-
-    @Test
-    @DisplayName("NS: idem, sem perder os códigos terminais")
-    void ns() {
-        when(runner.run(anyString(), anyString(), anyString(), any(), any(McpAgentRunner.Options.class)))
-                .thenReturn(new McpAgentRunner.Result("{\"parametro\":{},\"resposta\":\"\"}", List.of()));
-
-        dispatcher.runAndReport(invoke("NS", VendaxAgentDispatcher.NS_CONSULTA, MEMORIA));
-
-        McpAgentRunner.Options o = opcoesDoRunner();
-        assertThat(o.contextoRecuperado()).isEqualTo(MEMORIA);
-        assertThat(o.codigosQueEncerram()).containsExactly(VendaxAgentDispatcher.NS_NAO_CONTRATADO);
-        assertThat(o.tier()).isEqualTo("LIGHT");
     }
 
     @Test

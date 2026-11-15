@@ -50,6 +50,16 @@ class UsoCompletoTest {
                 new TabelaDePrecos.Preco(new BigDecimal("50"), new BigDecimal("200")))));
     }
 
+    /**
+     * O roteiro do CPA: o caminho interativo (com prazo) que resta no {@code switch} desde que NS e
+     * US viraram fluxo (VEN-1134). Basta um dossiê que seja objeto.
+     */
+    private static VendaxInvoke invokeInterativo() {
+        return new VendaxInvoke("1.0", "t1", "c1", "CPA", "m1", "bom dia", "LIGHT",
+                RoteiroDeAbordagem.REASON, "trace", "{\"cliente\":{}}", "cli-1", "vend-1", "chave-CPA",
+                null, null, null);
+    }
+
     private static VendaxInvoke invoke(String agente, String reason, String tier) {
         return new VendaxInvoke("1.0", "t1", "c1", agente, "m1", "bom dia", tier, reason,
                 "trace", null, "cli-1", "vend-1", "chave-" + agente, null, null, null);
@@ -171,7 +181,7 @@ class UsoCompletoTest {
                     return new McpAgentRunner.Result("tarde", List.of());
                 });
 
-        dispatcher.runAndReport(invoke("NS", VendaxAgentDispatcher.NS_CONSULTA, "LIGHT"));
+        dispatcher.runAndReport(invokeInterativo());
 
         VendaxResult erro = sender.sent.get(0);
         assertThat(erro.status()).isEqualTo(VendaxResult.ERROR);
@@ -213,7 +223,7 @@ class UsoCompletoTest {
                     return new McpAgentRunner.Result("tarde", List.of());
                 });
 
-        dispatcher.runAndReport(invoke("NS", VendaxAgentDispatcher.NS_CONSULTA, "LIGHT"));
+        dispatcher.runAndReport(invokeInterativo());
         Thread.sleep(400);
 
         assertThat(sender.sent.get(0).uso().tokens()).isEqualTo(640);
