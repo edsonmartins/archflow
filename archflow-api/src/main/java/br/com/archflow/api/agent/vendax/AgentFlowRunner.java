@@ -76,7 +76,7 @@ public class AgentFlowRunner {
      *
      * <p>As {@code toolCalls} sobem junto com o texto porque o Core confere a frase contra os
      * ARGUMENTOS que de fato foram à tool — "o modelo chama com 850 e relata 800" é o caso que o
-     * caminho por {@code case} já tratava (ver {@link ConsultaAoNegociador}) e que o caminho
+     * caminho por {@code case} do NS já tratava (retirado no VEN-1134) e que o caminho
      * genérico descartava aqui, antes mesmo do dispatcher. Sem elas, um agente só sai do
      * {@code switch} perdendo a garantia.</p>
      *

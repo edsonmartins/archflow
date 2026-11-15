@@ -80,7 +80,7 @@ da resposta saíram da tool com aqueles argumentos, e é com eles que o Core ref
 Corolário: **sem chamada, sem parâmetro.** Se o modelo não consultou a tool, qualquer número que
 ele afirme foi inventado, e o resultado sai com o parâmetro vazio.
 
-PR #51. Classe: `ConsultaAoNegociador`.
+PR #51. Classe: `ConsultaAoNegociador` — **retirada em 15/11/2026 (VEN-1134)**: o NS virou fluxo, e a garantia passou a viver no Core, que monta o parâmetro a partir dos argumentos em `toolCalls` do result.
 
 ### D19 — Todo consumo chega ao consumidor, e chega uma vez
 
@@ -210,5 +210,5 @@ PRs #39 (cobrança), #45 (malformada) e #49 (transporte). Classe: `McpAgentRunne
 - `archflow-langchain4j/archflow-langchain4j-mcp/src/main/java/br/com/archflow/langchain4j/mcp/client/CorrelacaoMcp.java`
 - `archflow-api/src/main/java/br/com/archflow/api/agent/mcp/McpAgentRunner.java`
 - `archflow-api/src/main/java/br/com/archflow/api/agent/vendax/VendaxAgentDispatcher.java`
-- `archflow-api/src/main/java/br/com/archflow/api/agent/vendax/ConsultaAoNegociador.java`
+- `archflow-api/src/main/java/br/com/archflow/api/agent/vendax/ConsultaAoNegociador.java` (retirada no VEN-1134)
 - Testes: `TaskDeOrigemTest`, `ConsultaAoNegociadorTest`, `EncerramentoEUsoTest`, `HttpMcpClientTest`

@@ -28,7 +28,7 @@ import static org.mockito.Mockito.when;
  * <p>É o que falta para um agente sair do {@code switch} por nome: o Core monta o parâmetro da
  * resposta a partir dos <b>argumentos</b> que foram à tool, não do que o modelo declara — "chama com
  * 850 e relata 800". O caminho por {@code case} fazia isso dentro do ArchFlow
- * ({@link ConsultaAoNegociador}); o caminho de fluxo descartava as chamadas na
+ * (o antigo {@code ConsultaAoNegociador}); o caminho de fluxo descartava as chamadas na
  * {@link AgentFlowRunner.Saida}, antes do dispatcher.</p>
  */
 @DisplayName("tool calls no caminho de fluxo")
