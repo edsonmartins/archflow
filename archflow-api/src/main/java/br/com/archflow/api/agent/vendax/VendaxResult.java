@@ -115,6 +115,9 @@ public record VendaxResult(
      *                   ausente, separa "um turno de dez sem custo" de "nada medido"; o id de cada
      *                   um está em {@code modelUsage[].generationId}. Zero com o total ausente: uma
      *                   tentativa falhou antes de informar uso
+     * @param outputReminders vezes em que o laço cobrou a tool de saída de um modelo que concluiu
+     *                   falando (VEN-1083). Já estão em {@code llmTurns}; aqui separadas de uma
+     *                   leitura a mais. {@code 0} quando não houve cobrança
      *                     do prazo
      */
     public record Uso(
@@ -151,7 +154,18 @@ public record VendaxResult(
              */
             @JsonInclude(JsonInclude.Include.NON_NULL) Double costReais,
             @JsonInclude(JsonInclude.Include.NON_NULL) java.util.List<TurnoUso> modelUsage,
-            @JsonInclude(JsonInclude.Include.NON_NULL) Integer turnsWithoutCost) {
+            @JsonInclude(JsonInclude.Include.NON_NULL) Integer turnsWithoutCost,
+            @JsonInclude(JsonInclude.Include.NON_NULL) Integer outputReminders) {
+
+        /** Compat: uso anterior à contagem de cobranças de saída. */
+        public Uso(String model, Long tokens, Long costCents, String execucaoId, String provider,
+                   Long inputTokens, Long outputTokens, Integer llmTurns, Integer toolCalls,
+                   Long durationMs, Long msAtePrimeiroToken, Double declaredCostUsd, Double costReais,
+                   java.util.List<TurnoUso> modelUsage, Integer turnsWithoutCost) {
+            this(model, tokens, costCents, execucaoId, provider, inputTokens, outputTokens,
+                    llmTurns, toolCalls, durationMs, msAtePrimeiroToken, declaredCostUsd, costReais,
+                    modelUsage, turnsWithoutCost, null);
+        }
 
         public Uso {
             modelUsage = modelUsage == null ? null : java.util.List.copyOf(modelUsage);
@@ -238,7 +252,7 @@ public record VendaxResult(
                     r.usoPorTurno().stream().map(t -> new TurnoUso(t.requestedProvider(), t.requestedModel(),
                             t.effectiveProvider(), t.effectiveModel(), t.inputTokens(), t.outputTokens(),
                             t.declaredCostUsd(), t.generationId())).toList(),
-                    r.turnosSemCusto());
+                    r.turnosSemCusto(), r.cobrancasDeSaida());
         }
     }
 

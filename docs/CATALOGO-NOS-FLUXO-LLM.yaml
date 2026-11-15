@@ -283,6 +283,7 @@ builtInComponents:
       maxIterations: { type: integer, default: 10, minimum: 1 }
       encerrarEmCodigos: { type: array, items: integer, description: "Códigos de erro de tool que encerram o laço em vez de voltar ao modelo" }
       encerrarNaSaida: { type: boolean, default: false, description: "Com saidaDaTool, a primeira chamada bem-sucedida a uma delas encerra o laço (erro/-32602 não encerra). Exige saidaDaTool" }
+      lembreteDaSaida: { type: string, description: "Texto da cobrança quando o modelo conclui sem a tool exigida (uma vez por execução); ausente = frase padrão. Exige exigirSaidaDaTool e saidaDaTool" }
     operations:
       - id: execute
         input: { input: string }

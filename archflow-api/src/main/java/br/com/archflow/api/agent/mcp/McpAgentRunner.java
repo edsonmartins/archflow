@@ -532,7 +532,12 @@ public class McpAgentRunner {
                     session.cobrouSaida = true;
                     log.info("Modelo concluiu sem chamar nenhuma tool de saída {} — cobrando uma vez",
                             options.requiredOutputTools());
-                    session.messages.add(UserMessage.from(cobrancaDeSaida(options.requiredOutputTools())));
+                    if (options.uso() != null) {
+                        options.uso().somarCobrancaDeSaida();
+                    }
+                    session.messages.add(UserMessage.from(options.lembreteDaSaida() != null
+                            ? options.lembreteDaSaida()
+                            : cobrancaDeSaida(options.requiredOutputTools())));
                     continue;
                 }
                 diagnosticarConclusaoSemArtefato(response, llmRequest, options, ai.text());
@@ -893,7 +898,7 @@ public class McpAgentRunner {
      * canal seria dizer mais alto a mesma coisa. Como turno de usuário, ela entra no fim da
      * conversa, referindo-se ao que acabou de acontecer — que é onde a instrução tem mais peso.</p>
      */
-    private static String cobrancaDeSaida(Set<String> exigidas) {
+    static String cobrancaDeSaida(Set<String> exigidas) {
         return "Você terminou sem chamar nenhuma destas tools: " + String.join(", ", exigidas)
                 + ". A resposta deste passo sai do resultado de uma delas — texto não serve. "
                 + "Chame a apropriada agora, com o que você já apurou.";
@@ -1392,7 +1397,21 @@ public class McpAgentRunner {
                           Set<Integer> codigosQueEncerram, ContadorDeUso uso,
                           List<String> contextoRecuperado, McpAgentState.Retomada retomada,
                           SaidaDeTexto saida, List<ImagemDaEntrada> imagens,
-                          Set<String> toolsQueEncerram) {
+                          Set<String> toolsQueEncerram, String lembreteDaSaida) {
+
+        /** Compat: sem lembrete próprio — a cobrança de saída usa a frase padrão. */
+        public Options(ToolAccessPolicy access, ToolTrustPolicy trust,
+                       ToolApprovalPolicy approval, int maxIterations,
+                       LLMConfigPatch flowPatch, LLMConfigPatch stepPatch,
+                       Set<String> requiredOutputTools, String tier,
+                       Set<Integer> codigosQueEncerram, ContadorDeUso uso,
+                       List<String> contextoRecuperado, McpAgentState.Retomada retomada,
+                       SaidaDeTexto saida, List<ImagemDaEntrada> imagens,
+                       Set<String> toolsQueEncerram) {
+            this(access, trust, approval, maxIterations, flowPatch, stepPatch, requiredOutputTools,
+                    tier, codigosQueEncerram, uso, contextoRecuperado, retomada, saida, imagens,
+                    toolsQueEncerram, null);
+        }
 
         /** Compat: sem encerramento por saída — o laço segue depois da tool de saída. */
         public Options(ToolAccessPolicy access, ToolTrustPolicy trust,
@@ -1463,7 +1482,7 @@ public class McpAgentRunner {
         public Options comUso(ContadorDeUso contador) {
             return new Options(access, trust, approval, maxIterations, flowPatch, stepPatch,
                     requiredOutputTools, tier, codigosQueEncerram, contador, contextoRecuperado,
-                    retomada, saida, imagens, toolsQueEncerram);
+                    retomada, saida, imagens, toolsQueEncerram, lembreteDaSaida);
         }
 
         /** As mesmas opções, com o tier pedido por quem acionou; vazio mantém o atual. */
@@ -1473,14 +1492,14 @@ public class McpAgentRunner {
             }
             return new Options(access, trust, approval, maxIterations, flowPatch, stepPatch,
                     requiredOutputTools, novoTier, codigosQueEncerram, uso, contextoRecuperado,
-                    retomada, saida, imagens, toolsQueEncerram);
+                    retomada, saida, imagens, toolsQueEncerram, lembreteDaSaida);
         }
 
         /** As mesmas opções, encerrando o laço quando uma tool responder um destes códigos. */
         public Options encerrandoEm(Set<Integer> codigos) {
             return new Options(access, trust, approval, maxIterations, flowPatch, stepPatch,
                     requiredOutputTools, tier, codigos, uso, contextoRecuperado, retomada, saida,
-                    imagens, toolsQueEncerram);
+                    imagens, toolsQueEncerram, lembreteDaSaida);
         }
 
         /**
@@ -1490,7 +1509,7 @@ public class McpAgentRunner {
         public Options comContextoRecuperado(List<String> contexto) {
             return new Options(access, trust, approval, maxIterations, flowPatch, stepPatch,
                     requiredOutputTools, tier, codigosQueEncerram, uso, contexto, retomada, saida,
-                    imagens, toolsQueEncerram);
+                    imagens, toolsQueEncerram, lembreteDaSaida);
         }
 
         /**
@@ -1500,7 +1519,7 @@ public class McpAgentRunner {
         public Options comImagens(List<ImagemDaEntrada> novas) {
             return new Options(access, trust, approval, maxIterations, flowPatch, stepPatch,
                     requiredOutputTools, tier, codigosQueEncerram, uso, contextoRecuperado, retomada,
-                    saida, novas, toolsQueEncerram);
+                    saida, novas, toolsQueEncerram, lembreteDaSaida);
         }
 
         /**
@@ -1510,7 +1529,7 @@ public class McpAgentRunner {
         public Options comRetomada(McpAgentState.Retomada dados) {
             return new Options(access, trust, approval, maxIterations, flowPatch, stepPatch,
                     requiredOutputTools, tier, codigosQueEncerram, uso, contextoRecuperado, dados, saida,
-                    imagens, toolsQueEncerram);
+                    imagens, toolsQueEncerram, lembreteDaSaida);
         }
 
         /**
@@ -1520,7 +1539,7 @@ public class McpAgentRunner {
         public Options comSaida(SaidaDeTexto novaSaida) {
             return new Options(access, trust, approval, maxIterations, flowPatch, stepPatch,
                     requiredOutputTools, tier, codigosQueEncerram, uso, contextoRecuperado,
-                    retomada, novaSaida, imagens, toolsQueEncerram);
+                    retomada, novaSaida, imagens, toolsQueEncerram, lembreteDaSaida);
         }
 
         /**
@@ -1536,7 +1555,23 @@ public class McpAgentRunner {
         public Options encerrandoNaSaida(Set<String> tools) {
             return new Options(access, trust, approval, maxIterations, flowPatch, stepPatch,
                     requiredOutputTools, tier, codigosQueEncerram, uso, contextoRecuperado,
-                    retomada, saida, imagens, tools);
+                    retomada, saida, imagens, tools, lembreteDaSaida);
+        }
+
+        /**
+         * As mesmas opções, com o texto da cobrança de saída escrito por quem declara o nó. Vazio
+         * mantém a frase padrão ({@link McpAgentRunner#cobrancaDeSaida}).
+         *
+         * <p>A frase padrão manda responder "agora, com o que você já apurou" — certa para o agente
+         * cujo trabalho já está feito quando ele conclui falando (o QP, em 08/2026), errada para o
+         * que encadeia leituras e anunciou a próxima: medido no VendaX em 14/11 (VEN-1083), o
+         * deepseek-v4-flash falhava 8 de 120 execuções do Agente da Diretoria assim. Quem sabe o
+         * que o agente deveria fazer ao ser cobrado é quem escreveu o fluxo.</p>
+         */
+        public Options comLembreteDaSaida(String lembrete) {
+            return new Options(access, trust, approval, maxIterations, flowPatch, stepPatch,
+                    requiredOutputTools, tier, codigosQueEncerram, uso, contextoRecuperado,
+                    retomada, saida, imagens, toolsQueEncerram, lembrete);
         }
 
         public Options(ToolAccessPolicy access, ToolTrustPolicy trust,
@@ -1579,6 +1614,7 @@ public class McpAgentRunner {
             imagens = imagens == null ? List.of()
                     : imagens.stream().filter(Objects::nonNull).toList();
             toolsQueEncerram = toolsQueEncerram == null ? Set.of() : Set.copyOf(toolsQueEncerram);
+            lembreteDaSaida = lembreteDaSaida == null || lembreteDaSaida.isBlank() ? null : lembreteDaSaida.strip();
         }
 
         void validate() {

@@ -85,12 +85,24 @@ public record McpAgentState(
      * @param codigosQueEncerram   códigos de erro que encerram o laço
      * @param toolsQueEncerram     tools cuja primeira chamada bem-sucedida encerra o laço
      *                             ({@code encerrarNaSaida}); ausente em estados gravados antes
+     * @param lembreteDaSaida      texto da cobrança de saída escrito pelo nó; {@code null} = a
+     *                             frase padrão. Vai no estado porque a cobrança pode acontecer
+     *                             depois da retomada
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record Retomada(String serverRef, Set<String> toolsPermitidas,
                            Set<String> toolsComAprovacao, Set<String> saidaPorTool,
                            String tier, int maxIteracoes, Set<Integer> codigosQueEncerram,
-                           Set<String> toolsQueEncerram) {
+                           Set<String> toolsQueEncerram, String lembreteDaSaida) {
+
+        /** Compat: sem lembrete próprio da saída — a forma gravada antes do VEN-1083. */
+        public Retomada(String serverRef, Set<String> toolsPermitidas,
+                        Set<String> toolsComAprovacao, Set<String> saidaPorTool,
+                        String tier, int maxIteracoes, Set<Integer> codigosQueEncerram,
+                        Set<String> toolsQueEncerram) {
+            this(serverRef, toolsPermitidas, toolsComAprovacao, saidaPorTool, tier, maxIteracoes,
+                    codigosQueEncerram, toolsQueEncerram, null);
+        }
 
         /** Compat: sem encerramento por saída — a forma gravada antes do VEN-1044. */
         public Retomada(String serverRef, Set<String> toolsPermitidas,
