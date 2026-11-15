@@ -115,6 +115,15 @@ public final class McpAgent {
         return with("encerrarNaSaida", true);
     }
 
+    /**
+     * O que se diz ao modelo quando ele conclui sem chamar a ferramenta de saída exigida
+     * ({@link #requireOutputFromTool}). Sem isto vale a frase padrão, que manda responder já com o
+     * que foi apurado — boa para quem já terminou o trabalho, ruim para quem encadeia leituras.
+     */
+    public McpAgent outputReminder(String text) {
+        return with("lembreteDaSaida", Objects.requireNonNull(text, "text"));
+    }
+
     /** Ferramentas que só rodam depois de uma decisão humana; o laço suspende antes. */
     public McpAgent humanApproval(String... names) {
         return with("aprovacaoHumana", List.of(names));

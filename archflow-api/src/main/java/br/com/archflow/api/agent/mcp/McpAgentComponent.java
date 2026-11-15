@@ -41,6 +41,8 @@ import java.util.Set;
  * saidaDaTool    (lista)       de onde sai a resposta do passo — ver abaixo
  * exigirSaidaDaTool (bool)     falha o passo se nenhuma delas for chamada
  * encerrarNaSaida (bool)       a primeira chamada bem-sucedida a uma delas encerra o laço
+ * lembreteDaSaida (texto)      o que se diz ao modelo quando ele conclui sem a tool exigida;
+ *                              ausente = a frase padrão. Exige exigirSaidaDaTool
  * </pre>
  *
  * <p><b>{@code saidaDaTool} existe porque nem todo agente responde pelo texto.</b> Uns produzem um
@@ -152,6 +154,17 @@ public class McpAgentComponent implements AIComponent, ComponentPlugin {
             throw new IllegalArgumentException(COMPONENT_ID
                     + ": 'encerrarNaSaida' exige 'saidaDaTool' com ao menos uma tool");
         }
+        // O LEMBRETE SÓ É DITO NA COBRANÇA, e a cobrança só existe com `exigirSaidaDaTool`. Aceitá-lo
+        // sem ela daria um fluxo que parece instruído para o caso e nunca diz a frase.
+        Object lembrete = config.get("lembreteDaSaida");
+        if (lembrete != null && !(lembrete instanceof String)) {
+            throw new IllegalArgumentException(COMPONENT_ID + ": 'lembreteDaSaida' deve ser texto");
+        }
+        if (lembrete instanceof String l && !l.isBlank()
+                && (!booleano(config.get("exigirSaidaDaTool")) || listaDeTexto(saidaDaTool).isEmpty())) {
+            throw new IllegalArgumentException(COMPONENT_ID
+                    + ": 'lembreteDaSaida' exige 'exigirSaidaDaTool' e 'saidaDaTool'");
+        }
         Object max = config.get("maxIterations");
         if (max != null && inteiro(max) <= 0) {
             throw new IllegalArgumentException(COMPONENT_ID + ": 'maxIterations' deve ser positivo");
@@ -242,13 +255,17 @@ public class McpAgentComponent implements AIComponent, ComponentPlugin {
                 // desfecho, porque parece resposta. Vazio (o padrão) mantém o laço como era.
                 .encerrandoEm(codigosQueEncerram())
                 .encerrandoNaSaida(encerraNaSaida)
+                // O QUE SE DIZ AO MODELO QUANDO ELE CONCLUI SEM A SAÍDA. A frase padrão manda
+                // responder já; para um agente que encadeia leituras, quem escreveu o fluxo sabe dizer
+                // melhor (VEN-1083). Ausente mantém a padrão.
+                .comLembreteDaSaida(texto(config.get("lembreteDaSaida")))
                 // COMO O LAÇO VOLTA, em dados. Sem isto ele recusa suspender — e recusar é melhor
                 // que gravar um estado que ninguém consegue retomar.
                 .comRetomada(new McpAgentState.Retomada(servidor,
                         toolsPermitidas(host, tenantId), sobAprovacao,
                         exigir ? saidaDaTool : Set.of(),
                         textoDoContexto(context, CTX_TIER), iteracoes(), codigosQueEncerram(),
-                        encerraNaSaida))
+                        encerraNaSaida, texto(config.get("lembreteDaSaida"))))
                 // O CONSUMO VAI PARA QUEM HOSPEDA A EXECUÇÃO. Sem isto, um agente em fluxo gastaria
                 // tokens que nenhum resultado relata — e o teto de custo do tenant contaria menos
                 // do que foi gasto, justamente no caminho que vai substituir os outros.

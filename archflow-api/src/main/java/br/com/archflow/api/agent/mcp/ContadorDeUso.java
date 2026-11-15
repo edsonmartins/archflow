@@ -57,6 +57,8 @@ public final class ContadorDeUso implements br.com.archflow.decision.DecisionUsa
     private int turnosMedidos;
     private int turnos;
     private int chamadasDeTool;
+    /** Vezes em que o laço cobrou a tool de saída — ver {@link #somarCobrancaDeSaida}. */
+    private int cobrancasDeSaida;
     /** Do início da execução ao primeiro token do provedor; {@code null} se nunca foi medido. */
     private Long msAtePrimeiroToken;
     /**
@@ -260,6 +262,14 @@ public final class ContadorDeUso implements br.com.archflow.decision.DecisionUsa
         custoForaDeTurnoDesconhecido = true;
     }
 
+    /**
+     * O laço cobrou a tool de saída: o modelo concluiu falando e recebeu um turno a mais. Contado à
+     * parte porque, em {@code turnos}, essa volta não se distingue de uma leitura a mais (VEN-1083).
+     */
+    public synchronized void somarCobrancaDeSaida() {
+        cobrancasDeSaida++;
+    }
+
     /** Uma chamada de tool executada (bem-sucedida ou não) — uma ida ao servidor. */
     public synchronized void somarChamadaDeTool() {
         chamadasDeTool++;
@@ -286,7 +296,8 @@ public final class ContadorDeUso implements br.com.archflow.decision.DecisionUsa
                 (relogioNanos.getAsLong() - inicioNanos) / 1_000_000,
                 msAtePrimeiroToken,
                 custoDeclaradoUsd(),
-                java.util.List.copyOf(usoPorTurno)));
+                java.util.List.copyOf(usoPorTurno),
+                cobrancasDeSaida));
     }
 
     /**
@@ -305,14 +316,25 @@ public final class ContadorDeUso implements br.com.archflow.decision.DecisionUsa
      *                      informou custo ou se o valor informado era inválido
      * @param msAtePrimeiroToken tempo do início da execução ao primeiro token do provedor;
      *                      {@code null} quando o provedor não transmitiu e não há como medir
+     * @param cobrancasDeSaida vezes em que o laço cobrou a tool de saída de um modelo que concluiu
+     *                      falando; já contadas em {@code turnos}
      */
     public record Resumo(String execucaoId, String provedor, String modelo,
                          Long tokensEntrada, Long tokensSaida,
                          Integer turnos, Integer chamadasDeTool, Long duracaoMs,
-                         Long msAtePrimeiroToken, Double custoDeclaradoUsd, java.util.List<TurnoUso> usoPorTurno) {
+                         Long msAtePrimeiroToken, Double custoDeclaradoUsd, java.util.List<TurnoUso> usoPorTurno,
+                         Integer cobrancasDeSaida) {
 
         public Resumo {
             usoPorTurno = usoPorTurno == null ? java.util.List.of() : java.util.List.copyOf(usoPorTurno);
+        }
+
+        /** Compat: resumo anterior à contagem de cobranças de saída. */
+        public Resumo(String execucaoId, String provedor, String modelo, Long tokensEntrada,
+                      Long tokensSaida, Integer turnos, Integer chamadasDeTool, Long duracaoMs,
+                      Long msAtePrimeiroToken, Double custoDeclaradoUsd, java.util.List<TurnoUso> usoPorTurno) {
+            this(execucaoId, provedor, modelo, tokensEntrada, tokensSaida, turnos, chamadasDeTool,
+                    duracaoMs, msAtePrimeiroToken, custoDeclaradoUsd, usoPorTurno, null);
         }
 
         public Resumo(String execucaoId, String provedor, String modelo, Long tokensEntrada,
@@ -410,7 +432,8 @@ public final class ContadorDeUso implements br.com.archflow.decision.DecisionUsa
                     custoDeclaradoUsd == null ? null
                             : Math.max(0.0, custoDeclaradoUsd
                                     - (anterior.custoDeclaradoUsd == null ? 0.0 : anterior.custoDeclaradoUsd)),
-                    usoPorTurno.subList(Math.min(anterior.usoPorTurno.size(), usoPorTurno.size()), usoPorTurno.size()));
+                    usoPorTurno.subList(Math.min(anterior.usoPorTurno.size(), usoPorTurno.size()), usoPorTurno.size()),
+                    diferenca(cobrancasDeSaida, anterior.cobrancasDeSaida));
         }
 
         /** {@code true} quando o trecho não chamou o modelo — nada a relatar. */
