@@ -149,7 +149,7 @@ public class LangChain4jDecisionProvider implements DecisionProvider {
         if (state instanceof CharSequence s) {
             b.input(s.toString());
         } else if (state instanceof Map<?, ?> m) {
-            b.input((Map<String, ?>) m);
+            b.inputFields((Map<String, ?>) m);
         } else {
             try {
                 b.input(JSON.writeValueAsString(state));
