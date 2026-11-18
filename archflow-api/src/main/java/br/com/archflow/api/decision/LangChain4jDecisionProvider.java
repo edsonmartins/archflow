@@ -6,7 +6,9 @@ import br.com.archflow.decision.DecisionException;
 import br.com.archflow.decision.DecisionProvider;
 import br.com.archflow.decision.DecisionRequest;
 import br.com.archflow.decision.DecisionResult;
+import br.com.archflow.decision.HttpDecisionProvider;
 import br.com.archflow.decision.Question;
+import br.com.archflow.model.config.ProviderPreferences;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.exception.ContentFilteredException;
@@ -34,6 +36,7 @@ import dev.langchain4j.model.openai.OpenAiDecisionModel;
 import dev.langchain4j.model.typesafe.TypeSafeDecisionModel;
 
 import java.io.IOException;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Duration;
@@ -43,6 +46,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Predicate;
 
 /**
  * Encaixa qualquer {@link DecisionModel} da langchain4j no contrato de decisão do archflow.
@@ -70,6 +74,14 @@ import java.util.concurrent.ConcurrentHashMap;
  * o SDK LangChain4j só mapeia as contagens de tokens. O backend OpenAI e provedores que não informam
  * custo continuam retornando {@code costUsd=null}. Uma pergunta {@code choice} exige ao menos duas
  * opções — a langchain4j recusa menos que isso.</p>
+ *
+ * <h2>Preferência de provedor (ZDR)</h2>
+ * <p>Mesmo contrato do {@link HttpDecisionProvider}: quando o {@code baseUrl} é do OpenRouter e o
+ * hospedeiro configurou uma {@link ProviderPreferences}, o corpo leva
+ * {@code provider: {zdr, data_collection}} (pelos {@code customParameters} da langchain4j, que os
+ * mescla no topo do corpo). Outro servidor não recebe o campo. Com {@code required} e a preferência
+ * vazia, a chamada a um {@code baseUrl} do OpenRouter falha <b>antes</b> de sair — não repetível. A
+ * preferência é do deployment: nenhuma opção do nó a desliga.</p>
  */
 public class LangChain4jDecisionProvider implements DecisionProvider {
 
@@ -80,6 +92,30 @@ public class LangChain4jDecisionProvider implements DecisionProvider {
 
     private final Map<String, DecisionModel> modelos = new ConcurrentHashMap<>();
     private final ThreadLocal<Double> custoDaResposta = new ThreadLocal<>();
+    private final ProviderPreferences preferences;
+    private final boolean preferencesRequired;
+    private final Predicate<URI> aceitaPreferencias;
+
+    /** Sem preferência de provedor: o corpo é o de sempre. */
+    public LangChain4jDecisionProvider() {
+        this(ProviderPreferences.NONE, false);
+    }
+
+    /**
+     * @param preferences objeto {@code provider} enviado quando o {@code baseUrl} é do OpenRouter
+     * @param required    {@code baseUrl} do OpenRouter sem preferência → falha antes de enviar
+     */
+    public LangChain4jDecisionProvider(ProviderPreferences preferences, boolean required) {
+        this(preferences, required, HttpDecisionProvider::ehOpenRouter);
+    }
+
+    /** Para teste: decide quais servidores recebem a preferência (o servidor simulado é local). */
+    LangChain4jDecisionProvider(ProviderPreferences preferences, boolean required,
+                                Predicate<URI> aceitaPreferencias) {
+        this.preferences = preferences == null ? ProviderPreferences.NONE : preferences;
+        this.preferencesRequired = required;
+        this.aceitaPreferencias = aceitaPreferencias;
+    }
 
     @Override
     public String id() {
@@ -269,21 +305,50 @@ public class LangChain4jDecisionProvider implements DecisionProvider {
         if (!backend.equals("typesafe") && !backend.equals("openai")) {
             throw new DecisionException("backend desconhecido: '" + backend + "' (typesafe ou openai)", false);
         }
+        boolean openRouter = paraOpenRouter(baseUrl);
+        if (openRouter && preferencesRequired && preferences.isEmpty()) {
+            throw new DecisionException("[LLM-ZDR] archflow.llm.provider-preferences.required=true, mas "
+                    + "nenhuma preferência de provedor está configurada — a decisão não foi enviada a "
+                    + URI.create(baseUrl).getHost(), false);
+        }
+        Map<String, Object> corpoExtra = openRouter && !preferences.isEmpty()
+                ? Map.of("provider", preferences.toWire()) : Map.of();
+        // A preferência é fixa por instância (deployment), então não precisa entrar na chave do cache.
         String chave = String.join("|", backend, String.valueOf(baseUrl), call.model(),
                 String.valueOf(retries), String.valueOf(call.timeout().toMillis()), resumo(call.apiKey()));
         if (modelos.size() >= CACHE_MAX) {
             modelos.clear();
         }
-        return modelos.computeIfAbsent(chave, k -> construir(backend, baseUrl, call, retries));
+        return modelos.computeIfAbsent(chave, k -> construir(backend, baseUrl, call, retries, corpoExtra));
     }
 
-    private DecisionModel construir(String backend, String baseUrl, DecisionCall call, int retries) {
+    /**
+     * O {@code baseUrl} aponta para o OpenRouter. Sem {@code baseUrl} o destino é o padrão do backend
+     * (TypeSafe ou OpenAI), que não é. Um {@code baseUrl} que nem é URI falha aqui — melhor que deixar
+     * a regra do ZDR decidir sobre um host que não sabemos ler.
+     */
+    private boolean paraOpenRouter(String baseUrl) throws DecisionException {
+        if (baseUrl == null) {
+            return false;
+        }
+        try {
+            return aceitaPreferencias.test(URI.create(baseUrl));
+        } catch (IllegalArgumentException e) {
+            throw new DecisionException("baseUrl inválido: '" + baseUrl + "'", false, e);
+        }
+    }
+
+    private DecisionModel construir(String backend, String baseUrl, DecisionCall call, int retries,
+                                    Map<String, Object> corpoExtra) {
         Duration timeout = call.timeout();
         if (backend.equals("openai")) {
             OpenAiDecisionModel.OpenAiDecisionModelBuilder b = OpenAiDecisionModel.builder()
                     .apiKey(call.apiKey()).modelName(call.model()).timeout(timeout).maxRetries(retries);
             if (baseUrl != null) {
                 b.baseUrl(baseUrl);
+            }
+            if (!corpoExtra.isEmpty()) {
+                b.customParameters(corpoExtra);
             }
             return b.build();
         }
@@ -292,6 +357,9 @@ public class LangChain4jDecisionProvider implements DecisionProvider {
         b.httpClientBuilder(new CostCapturingHttpClientBuilder(custoDaResposta));
         if (baseUrl != null) {
             b.baseUrl(baseUrl);
+        }
+        if (!corpoExtra.isEmpty()) {
+            b.customParameters(corpoExtra);
         }
         return b.build();
     }
