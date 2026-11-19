@@ -56,6 +56,9 @@ COPY archflow-ui/package.json archflow-ui/pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
 
 COPY archflow-ui/ .
+# Mais heap para o Node: com o limite padrão (~2 GB no Node 18) o vite build já estourou
+# memória uma vez no CI (heap out of memory, exit 134 — RCHFLW-19).
+ENV NODE_OPTIONS=--max-old-space-size=4096
 # `pnpm run build` gera o SPA em dist-app/ (o web-component é `build:component`)
 RUN pnpm run build
 
