@@ -98,4 +98,8 @@ jobs:
         run: pnpm run test:e2e
 
       - name: Build
+        # Mais heap para o Node: com o limite padrão (~2 GB no Node 18) o vite build já estourou
+        # memória uma vez (heap out of memory, exit 134 — RCHFLW-19).
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
         run: pnpm run build
