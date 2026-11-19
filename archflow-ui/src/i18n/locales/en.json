@@ -71,6 +71,13 @@
         "searchTooltip": "Search everywhere",
         "searchPlaceholder": "Search pages and workflows...",
         "searchNothing": "Nothing found",
+        "short": {
+            "executions": "Runs",
+            "conversations": "Chats",
+            "dynamicFlow": "Dynamic",
+            "aguiRunner": "AG-UI",
+            "admin": "Admin"
+        },
         "groups": {
             "build": "Build",
             "run": "Run",

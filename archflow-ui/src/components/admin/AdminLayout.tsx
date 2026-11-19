@@ -109,7 +109,7 @@ export default function AdminLayout() {
             </span>
           }
         />
-        <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', margin: '0 -10px', padding: '0 10px' }}>
+        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', margin: '0 -10px', padding: '0 10px' }}>
           {/* Sem título no primeiro grupo: a etiqueta ao lado do logo já diz qual é. */}
           <div style={{ height: 8 }} />
           {navItems.map(item)}

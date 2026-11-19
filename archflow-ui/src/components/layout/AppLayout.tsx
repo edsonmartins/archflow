@@ -190,7 +190,7 @@ export default function AppLayout() {
             return next;
         });
     };
-    const navWidth = navCollapsed ? 64 : 232;
+    const navWidth = navCollapsed ? 84 : 232;
 
     return (
         // key forces AppShell to re-evaluate navbar.width. Some Mantine
@@ -257,7 +257,7 @@ export default function AppLayout() {
                     alt={t('common.appName')}
                     tag={<span className="af-sidebar-version">v1.0</span>}
                 />
-                <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', margin: '0 -10px', padding: '0 10px' }}>
+                <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', margin: '0 -10px', padding: '0 10px' }}>
                     {NAV_GROUPS.map((group, groupIndex) => (
                         <div key={group.key}>
                             <SidebarGroup label={t(group.key)} collapsed={navCollapsed} first={groupIndex === 0} />
@@ -273,6 +273,7 @@ export default function AppLayout() {
                                         key={item.path}
                                         icon={item.icon}
                                         label={t(item.key)}
+                                        shortLabel={t(item.key.replace('nav.', 'nav.short.'), { defaultValue: t(item.key) })}
                                         active={active}
                                         collapsed={navCollapsed}
                                         onClick={() => navigate(item.path)}
@@ -297,6 +298,7 @@ export default function AppLayout() {
                         <SidebarItem
                             icon={IconSettings}
                             label={t('nav.admin')}
+                            shortLabel={t('nav.short.admin')}
                             active={location.pathname.startsWith('/admin')}
                             collapsed={navCollapsed}
                             onClick={() => navigate('/admin')}

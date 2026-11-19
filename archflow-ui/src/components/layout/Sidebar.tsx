@@ -37,15 +37,17 @@ export function SidebarSeparator() {
 }
 
 /**
- * Um item de navegação. Recolhida, só o ícone aparece e o tooltip diz o que ele é
- * (o rótulo vira aria-label). Aberta, o rótulo é texto visível — os testes E2E
+ * Um item de navegação. Recolhida, o ícone com uma legenda curta embaixo e o nome
+ * completo no tooltip (o rótulo vira aria-label). Aberta, o rótulo é texto visível — os testes E2E
  * localizam os itens por ele.
  */
 export function SidebarItem({
-    icon: Icon, label, active, collapsed, onClick, badge, dimmed,
+    icon: Icon, label, shortLabel, active, collapsed, onClick, badge, dimmed,
 }: {
     icon: ComponentType<{ size?: number; stroke?: number }>
     label: string
+    /** Legenda curta embaixo do ícone na sidebar recolhida (padrão: o próprio `label`). */
+    shortLabel?: string
     active?: boolean
     collapsed?: boolean
     onClick: () => void
@@ -63,7 +65,9 @@ export function SidebarItem({
             onClick={onClick}
         >
             <Icon size={18} stroke={1.8} />
-            {!collapsed && <span className="af-nav-label">{label}</span>}
+            {collapsed
+                ? <span className="af-nav-caption" aria-hidden>{shortLabel ?? label}</span>
+                : <span className="af-nav-label">{label}</span>}
             {badge}
         </UnstyledButton>
     )
