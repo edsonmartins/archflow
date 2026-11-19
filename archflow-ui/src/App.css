@@ -421,16 +421,32 @@ body {
 
 /* Recolhida: quadrados de 40 px centralizados; o ativo ganha borda, como na referência. */
 .af-sidebar[data-collapsed] .af-nav-item {
-  width: 40px;
-  height: 40px;
-  padding: 0;
-  margin: 0 auto 4px;
+  width: 68px;
+  height: 46px;
+  padding: 0 2px;
+  margin: 0 auto 1px;
+  gap: 3px;
+  flex-direction: column;
   justify-content: center;
 }
+/* Legenda curta embaixo do ícone, só na sidebar recolhida. */
+.af-nav-caption {
+  max-width: 100%;
+  font-size: 9px;
+  line-height: 1.1;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--sb-text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.af-nav-item:hover .af-nav-caption { color: #fff; }
+.af-nav-item[data-active] .af-nav-caption { color: var(--sb-active-fg); font-weight: 600; }
 .af-sidebar[data-collapsed] .af-nav-item[data-active] {
   box-shadow: inset 0 0 0 1px rgba(147, 197, 253, 0.45);
 }
-.af-sidebar[data-collapsed] .af-nav-item[data-active]::before { left: -8px; }
+.af-sidebar[data-collapsed] .af-nav-item[data-active]::before { left: -10px; }
 .af-nav-badge-dot {
   position: absolute;
   top: 3px;
@@ -510,7 +526,9 @@ body {
  * à esquerda; formulário sobre o degradê em malha da paleta à direita. */
 .af-login {
   display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  /* Banner 70% / formulário 30%; o formulário não fica abaixo de 380 px — em telas
+   * menores quem cede espaço é o banner. */
+  grid-template-columns: minmax(0, 7fr) minmax(380px, 3fr);
   min-height: 100vh;
   background: var(--color-background-primary);
 }
@@ -520,7 +538,7 @@ body {
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  padding: 40px 56px;
+  padding: 40px clamp(56px, 6vw, 104px);
   background: var(--sb-bg);
   color: var(--sb-text);
 }
@@ -555,7 +573,7 @@ body {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  max-width: 560px;
+  max-width: 640px;
   padding: 40px 0;
 }
 .af-login-tagline {
@@ -631,11 +649,11 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 48px 24px;
+  padding: 48px 32px;
   background: var(--palette-bg);
 }
 .af-login-lang { position: absolute; top: 20px; right: 24px; }
-.af-login-form { width: 100%; max-width: 400px; }
+.af-login-form { width: 100%; max-width: 380px; }
 .af-login-mark { display: none; width: 44px; height: 44px; margin-bottom: 20px; }
 .af-login-welcome { font-size: 28px !important; font-weight: 700 !important; }
 .af-login-form .mantine-Input-input {
