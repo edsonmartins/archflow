@@ -47,7 +47,7 @@ test.describe('Scoped API keys', () => {
 
         await page.goto('/admin/workspace/api-keys');
         await expect(page.getByTestId('scoped-apikeys-page')).toBeVisible();
-        await expect(page.getByText('CI runner')).toBeVisible();
+        await expect(page.getByText('CI runner')).toBeAttached();
 
         // Create a new key.
         await page.getByTestId('scoped-key-new').click();
@@ -61,6 +61,6 @@ test.describe('Scoped API keys', () => {
 
         // Dismiss banner and verify key is present in listing.
         await page.getByRole('button', { name: 'Dismiss' }).click();
-        await expect(page.getByText('dev-laptop')).toBeVisible();
+        await expect(page.getByText('dev-laptop')).toBeAttached();
     });
 });

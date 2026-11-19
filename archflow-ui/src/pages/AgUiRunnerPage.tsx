@@ -1,8 +1,12 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Badge, Button, Group, Paper, Stack, Text, TextInput } from '@mantine/core'
-import { IconPlayerPlay, IconPlugConnected, IconPlayerStop } from '@tabler/icons-react'
+import { Badge, Button, Group, Loader, ScrollArea, Stack, Text, TextInput } from '@mantine/core'
+import {
+    IconActivity, IconPlayerPlay, IconPlayerStop, IconPlugConnected, IconTrash,
+} from '@tabler/icons-react'
 import { PageHeader } from '../components/PageHeader'
+import { SectionCard } from '../components/SectionCard'
+import EmptyState from '../components/EmptyState'
 import { runAgUiWorkflow, type AgUiEvent } from '../services/agui-client'
 
 /** Colour per AG-UI event type for the live log. */
@@ -31,6 +35,13 @@ export default function AgUiRunnerPage() {
     const [events, setEvents] = useState<AgUiEvent[]>([])
     const [running, setRunning] = useState(false)
     const cancelRef = useRef<(() => void) | null>(null)
+    const viewportRef = useRef<HTMLDivElement>(null)
+
+    // Console behaviour: keep the newest event in view while the stream grows.
+    useEffect(() => {
+        const node = viewportRef.current
+        if (node) node.scrollTo({ top: node.scrollHeight })
+    }, [events.length])
 
     const run = () => {
         setEvents([])
@@ -52,59 +63,127 @@ export default function AgUiRunnerPage() {
         setRunning(false)
     }
 
+    const last = events[events.length - 1]?.type
+    const outcome = last === 'RUN_FINISHED' ? 'finished' : last === 'RUN_ERROR' ? 'error' : null
+
     return (
-        <Stack p="md" gap="md" maw={820}>
+        <Stack p="md" gap="lg">
             <PageHeader
-                title={t('agui.title', { defaultValue: 'AG-UI Runner' })}
-                subtitle={t('agui.subtitle', { defaultValue: 'Run a workflow over the AG-UI protocol and watch the event stream.' })}
+                icon={IconPlugConnected}
+                accent="violet"
+                title={t('agui.title')}
+                subtitle={t('agui.subtitle')}
             />
 
-            <Paper withBorder radius="lg" p="lg">
-                <Group align="flex-end">
+            <SectionCard
+                icon={IconPlayerPlay}
+                accent="violet"
+                title={t('agui.requestTitle')}
+                description={t('agui.requestHint')}
+            >
+                <Group align="flex-end" gap="sm">
                     <TextInput
-                        label={t('agui.workflowId', { defaultValue: 'Workflow ID' })}
+                        size="sm"
+                        label={t('agui.workflowId')}
                         value={workflowId}
                         onChange={(e) => setWorkflowId(e.currentTarget.value)}
-                        style={{ flex: 1 }}
+                        style={{ flex: 1, minWidth: 220 }}
+                        styles={{ input: { fontFamily: 'var(--font-mono)' } }}
                         data-testid="agui-workflow-id"
                     />
                     {running ? (
                         <Button color="red" leftSection={<IconPlayerStop size={16} />} onClick={stop}>
-                            {t('agui.stop', { defaultValue: 'Stop' })}
+                            {t('agui.stop')}
                         </Button>
                     ) : (
                         <Button leftSection={<IconPlayerPlay size={16} />} onClick={run} disabled={!workflowId.trim()} data-testid="agui-run">
-                            {t('agui.run', { defaultValue: 'Run' })}
+                            {t('agui.run')}
                         </Button>
                     )}
                 </Group>
-            </Paper>
+            </SectionCard>
 
-            <Paper withBorder radius="lg" p="lg" data-testid="agui-events">
-                <Group gap="xs" mb="sm">
-                    <IconPlugConnected size={18} />
-                    <Text fw={600}>{t('agui.events', { defaultValue: 'AG-UI events' })}</Text>
-                    <Badge variant="light">{events.length}</Badge>
-                </Group>
+            <SectionCard
+                flush
+                icon={IconActivity}
+                accent="violet"
+                title={t('agui.events')}
+                description={t('agui.eventsHint')}
+                data-testid="agui-events"
+                actions={
+                    <>
+                        {running && (
+                            <Badge variant="light" color="violet" leftSection={<Loader size={10} color="violet" />}>
+                                {t('agui.streaming')}
+                            </Badge>
+                        )}
+                        {!running && outcome && (
+                            <Badge variant="light" color={outcome === 'finished' ? 'teal' : 'red'}>
+                                {t(`agui.outcome.${outcome}`)}
+                            </Badge>
+                        )}
+                        <Badge variant="default">{t('agui.eventCount', { count: events.length })}</Badge>
+                        <Button
+                            variant="subtle"
+                            color="gray"
+                            size="xs"
+                            leftSection={<IconTrash size={14} />}
+                            onClick={() => setEvents([])}
+                            disabled={running || events.length === 0}
+                        >
+                            {t('agui.clear')}
+                        </Button>
+                    </>
+                }
+            >
                 {events.length === 0 ? (
-                    <Text size="sm" c="dimmed">{t('agui.empty', { defaultValue: 'No events yet — run a workflow.' })}</Text>
+                    running ? (
+                        <Stack align="center" justify="center" gap="sm" mih={240}>
+                            <Loader color="violet" />
+                            <Text size="sm" c="dimmed">{t('agui.waiting')}</Text>
+                        </Stack>
+                    ) : (
+                        <EmptyState
+                            accent="violet"
+                            icon={<IconActivity />}
+                            title={t('agui.emptyTitle')}
+                            description={t('agui.empty')}
+                        />
+                    )
                 ) : (
-                    <Stack gap={4}>
-                        {events.map((event, i) => (
-                            <Group key={i} gap="xs" wrap="nowrap">
-                                <Badge size="xs" variant="light" color={EVENT_COLOR[event.type] ?? 'gray'}
-                                       w={160} style={{ flexShrink: 0 }}>
-                                    {event.type}
-                                </Badge>
-                                <Text size="xs" c="dimmed" lineClamp={1}
-                                      style={{ fontFamily: 'var(--mantine-font-family-monospace)' }}>
-                                    {summarize(event)}
-                                </Text>
-                            </Group>
-                        ))}
-                    </Stack>
+                    <ScrollArea.Autosize mah={520} viewportRef={viewportRef} type="auto">
+                        <Stack
+                            gap={0}
+                            role="log"
+                            aria-live="polite"
+                            aria-label={t('agui.events')}
+                            style={{ fontFamily: 'var(--font-mono)', background: 'var(--color-background-secondary)' }}
+                        >
+                            {events.map((event, i) => (
+                                <Group
+                                    key={i}
+                                    gap="sm"
+                                    wrap="nowrap"
+                                    px="lg"
+                                    py={6}
+                                    style={{ borderTop: '1px solid var(--color-border-tertiary)' }}
+                                >
+                                    <Text size="xs" c="dimmed" w={32} ta="right" style={{ flexShrink: 0 }}>
+                                        {i + 1}
+                                    </Text>
+                                    <Badge size="sm" variant="light" color={EVENT_COLOR[event.type] ?? 'gray'}
+                                           w={190} style={{ flexShrink: 0 }}>
+                                        {event.type}
+                                    </Badge>
+                                    <Text size="xs" c="dimmed" lineClamp={1} style={{ minWidth: 0 }} title={summarize(event)}>
+                                        {summarize(event)}
+                                    </Text>
+                                </Group>
+                            ))}
+                        </Stack>
+                    </ScrollArea.Autosize>
                 )}
-            </Paper>
+            </SectionCard>
         </Stack>
     )
 }

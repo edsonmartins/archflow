@@ -1,16 +1,33 @@
 import {
-  Table, Badge, Text, Paper, Stack, Group, Button, ActionIcon,
-  Tooltip, Modal, TextInput, Select, LoadingOverlay, Alert,
+  Text, Stack, Group, Button, Modal, TextInput, Select, LoadingOverlay, Alert, SimpleGrid, Paper,
+  ThemeIcon, Avatar,
 } from '@mantine/core'
-import { IconPlus, IconPencil, IconTrash, IconAlertCircle } from '@tabler/icons-react'
-import { useEffect, useState } from 'react'
+import {
+  IconPlus, IconAlertCircle, IconUsers, IconShieldLock, IconCheck, IconMinus, IconUserPlus,
+} from '@tabler/icons-react'
+import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { notifications } from '@mantine/notifications'
 import { userApi, type TenantUser } from '../../../services/admin-api'
 import { confirmAction } from '../../../lib/confirm'
 import { PageHeader } from '../../../components/PageHeader'
+import { SectionCard } from '../../../components/SectionCard'
+import {
+  VxTable, colunaAcoes, colunaApagada, colunaDupla, colunaStatus, type VxColumn,
+} from '../../../components/VTable'
 
 const ROLE_COLORS: Record<string, string> = { admin: 'blue', editor: 'teal', viewer: 'gray' }
+
+const ROLES = ['admin', 'editor', 'viewer'] as const
+
+/** O que cada papel pode fazer — a mesma matriz de antes, agora lida por papel. */
+const PERMISSIONS: [string, boolean, boolean, boolean][] = [
+  ['viewWorkflows',     true, true,  true ],
+  ['editWorkflows',     true, true,  false],
+  ['executeWorkflows',  true, true,  false],
+  ['manageUsers',       true, false, false],
+  ['manageApiKeys',     true, false, false],
+]
 
 export default function UserManagement() {
   const { t } = useTranslation()
@@ -37,6 +54,7 @@ export default function UserManagement() {
 
   useEffect(() => {
     void load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const handleInvite = async () => {
@@ -85,12 +103,48 @@ export default function UserManagement() {
     })
   }
 
+  const colunas = useMemo((): VxColumn[] => [
+    {
+      ...colunaDupla(
+        { field: 'name', title: t('admin.tenant.users.columns.user'), width: 'auto', minWidth: 260 },
+        (r) => String(r.name || r.email),
+        (r) => (r.name ? String(r.email) : undefined),
+      ),
+      espelho: (r) => <><span>{String(r.name)}</span> <span>{String(r.email)}</span></>,
+    },
+    colunaStatus(
+      { field: 'role', title: t('admin.tenant.users.columns.role'), width: 130,
+        fieldFormat: (r) => t(`admin.tenant.users.roles.${r.role}`, { defaultValue: String(r.role) }) },
+      (r) => ROLE_COLORS[r.role as string] ?? 'gray',
+    ),
+    colunaStatus(
+      { field: 'status', title: t('admin.tenant.users.columns.status'), width: 170,
+        fieldFormat: (r) => (r.status === 'invited' ? t('admin.tenant.users.status.invited') : t('admin.tenant.users.status.active')) },
+      (r) => (r.status === 'active' ? 'green' : 'orange'),
+    ),
+    colunaApagada({ field: 'lastAccessAt', title: t('admin.tenant.users.columns.lastAccess'), width: 170,
+      fieldFormat: (r) => (r.lastAccessAt as string | null) ?? '—' }),
+    { field: 'workflowCount', title: t('admin.tenant.users.columns.workflows'), width: 120 },
+    colunaAcoes([
+      { nome: 'edit', icone: 'pencil', rotulo: t('admin.tenant.users.editTooltip') },
+      { nome: 'revoke', icone: 'x', rotulo: t('admin.tenant.users.revokeInvite'), cor: 'red',
+        mostrar: (r) => r.status === 'invited' },
+      { nome: 'remove', icone: 'trash', rotulo: t('admin.tenant.users.remove'), cor: 'red',
+        mostrar: (r) => r.status !== 'invited' },
+    ]),
+  ], [t])
+
+  const invitedCount = users.filter((u) => u.status === 'invited').length
+
   return (
-    <Stack gap="md" pos="relative">
-      <LoadingOverlay visible={loading} />
+    <Stack gap="lg" p="md" pos="relative">
+      <LoadingOverlay visible={loading && users.length > 0} />
 
       <PageHeader
+        icon={IconUsers}
+        accent="blue"
         title={t('admin.tenant.users.title')}
+        subtitle={t('admin.tenant.users.subtitle')}
         actions={
           <Button leftSection={<IconPlus size={16} />} onClick={() => setInviteOpen(true)}>
             {t('admin.tenant.users.invite')}
@@ -104,94 +158,82 @@ export default function UserManagement() {
         </Alert>
       )}
 
-      <Paper withBorder p="md" radius="lg">
-        <Text fw={600} size="sm" mb="sm">{t('admin.tenant.users.permissionsTitle')}</Text>
-        <Table withColumnBorders>
-          <Table.Thead>
-            <Table.Tr>
-              <Table.Th>{t('admin.tenant.users.permissions.header')}</Table.Th>
-              <Table.Th ta="center">{t('admin.tenant.users.permissions.admin')}</Table.Th>
-              <Table.Th ta="center">{t('admin.tenant.users.permissions.editor')}</Table.Th>
-              <Table.Th ta="center">{t('admin.tenant.users.permissions.viewer')}</Table.Th>
-            </Table.Tr>
-          </Table.Thead>
-          <Table.Tbody>
-            {[
-              ['viewWorkflows',     true, true,  true ],
-              ['editWorkflows',     true, true,  false],
-              ['executeWorkflows',  true, true,  false],
-              ['manageUsers',       true, false, false],
-              ['manageApiKeys',     true, false, false],
-            ].map(([permKey, admin, editor, viewer]) => (
-              <Table.Tr key={permKey as string}>
-                <Table.Td><Text size="sm">{t(`admin.tenant.users.permissions.${permKey as string}`)}</Text></Table.Td>
-                <Table.Td ta="center">{admin  ? '✓' : '—'}</Table.Td>
-                <Table.Td ta="center">{editor ? '✓' : '—'}</Table.Td>
-                <Table.Td ta="center">{viewer ? '✓' : '—'}</Table.Td>
-              </Table.Tr>
-            ))}
-          </Table.Tbody>
-        </Table>
-      </Paper>
+      <SectionCard
+        flush
+        icon={IconUsers}
+        accent="blue"
+        title={t('admin.tenant.users.listTitle')}
+        description={t('admin.tenant.users.listHint', { count: users.length, invited: invitedCount })}
+      >
+        <VxTable
+          legenda={t('admin.tenant.users.listTitle')}
+          records={users as unknown as Record<string, unknown>[]}
+          columns={colunas}
+          rowHeight={58}
+          loading={loading && users.length === 0}
+          onIconClick={(nome, r) => {
+            const user = r as unknown as TenantUser
+            if (nome === 'edit') {
+              setEditingUser(user)
+              setEditRole(user.role)
+            } else {
+              handleRemove(user)
+            }
+          }}
+          emptyMessage={t('admin.tenant.users.emptyTitle')}
+          emptyDescription={t('admin.tenant.users.emptyHint')}
+          emptyIcon={<IconUsers />}
+          emptyAccent="blue"
+          emptyAction={
+            <Button variant="light" size="xs" leftSection={<IconUserPlus size={14} />} onClick={() => setInviteOpen(true)}>
+              {t('admin.tenant.users.invite')}
+            </Button>
+          }
+          testid="user-list"
+          rowTestId={(r) => `user-row-${r.id}`}
+        />
+      </SectionCard>
 
-      <Paper withBorder radius="lg" style={{ overflow: 'hidden' }}>
-        <Table striped highlightOnHover>
-          <Table.Thead>
-            <Table.Tr>
-              <Table.Th>{t('admin.tenant.users.columns.user')}</Table.Th>
-              <Table.Th>{t('admin.tenant.users.columns.role')}</Table.Th>
-              <Table.Th>{t('admin.tenant.users.columns.status')}</Table.Th>
-              <Table.Th>{t('admin.tenant.users.columns.lastAccess')}</Table.Th>
-              <Table.Th>{t('admin.tenant.users.columns.workflows')}</Table.Th>
-              <Table.Th w={80}>{t('admin.tenant.users.columns.actions')}</Table.Th>
-            </Table.Tr>
-          </Table.Thead>
-          <Table.Tbody>
-            {users.map(u => (
-              <Table.Tr key={u.id}>
-                <Table.Td>
-                  <Group gap="sm" wrap="nowrap">
-                    <div style={{
-                      width: 32, height: 32, borderRadius: '50%',
-                      background: 'var(--blue-l)', color: 'var(--blue)',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      fontWeight: 700, fontSize: 11,
-                    }}>
-                      {u.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
-                    </div>
-                    <div>
-                      <Text size="sm" fw={500}>{u.name}</Text>
-                      <Text size="xs" c="dimmed">{u.email}</Text>
-                    </div>
-                  </Group>
-                </Table.Td>
-                <Table.Td><Badge color={ROLE_COLORS[u.role] ?? 'gray'} size="sm">{t(`admin.tenant.users.roles.${u.role}`, { defaultValue: u.role })}</Badge></Table.Td>
-                <Table.Td>
-                  <Badge color={u.status === 'active' ? 'green' : 'orange'} size="sm" variant="light">
-                    {u.status === 'invited' ? t('admin.tenant.users.status.invited') : t('admin.tenant.users.status.active')}
-                  </Badge>
-                </Table.Td>
-                <Table.Td><Text size="xs" c="dimmed">{u.lastAccessAt ?? '—'}</Text></Table.Td>
-                <Table.Td><Text size="sm">{u.workflowCount}</Text></Table.Td>
-                <Table.Td>
-                  <Group gap={4}>
-                    <Tooltip label={t('admin.tenant.users.editTooltip')}>
-                      <ActionIcon variant="subtle" size="sm" onClick={() => { setEditingUser(u); setEditRole(u.role) }}>
-                        <IconPencil size={14} />
-                      </ActionIcon>
-                    </Tooltip>
-                    <Tooltip label={u.status === 'invited' ? t('admin.tenant.users.revokeInvite') : t('admin.tenant.users.remove')}>
-                      <ActionIcon variant="subtle" color="red" size="sm" onClick={() => void handleRemove(u)}>
-                        <IconTrash size={14} />
-                      </ActionIcon>
-                    </Tooltip>
-                  </Group>
-                </Table.Td>
-              </Table.Tr>
-            ))}
-          </Table.Tbody>
-        </Table>
-      </Paper>
+      <SectionCard
+        icon={IconShieldLock}
+        accent="slate"
+        title={t('admin.tenant.users.permissionsTitle')}
+        description={t('admin.tenant.users.permissionsHint')}
+      >
+        <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="md">
+          {ROLES.map((role, roleIndex) => (
+            <Paper key={role} withBorder p="md" radius="md" data-testid={`role-card-${role}`}>
+              <Group gap="sm" mb="sm" wrap="nowrap">
+                <Avatar size={30} radius="md" color={ROLE_COLORS[role]} variant="light">
+                  {t(`admin.tenant.users.roles.${role}`).slice(0, 1)}
+                </Avatar>
+                <Stack gap={0} style={{ minWidth: 0 }}>
+                  <Text size="sm" fw={600}>{t(`admin.tenant.users.permissions.${role}`)}</Text>
+                  <Text size="xs" c="dimmed">
+                    {t('admin.tenant.users.membersWithRole', { count: users.filter((u) => u.role === role).length })}
+                  </Text>
+                </Stack>
+              </Group>
+              <Stack gap={6}>
+                {PERMISSIONS.map(([permKey, ...allowed]) => {
+                  const ok = allowed[roleIndex]
+                  return (
+                    <Group key={permKey} gap={8} wrap="nowrap">
+                      <ThemeIcon size={18} radius="xl" variant="light" color={ok ? 'teal' : 'gray'}
+                                 aria-label={ok ? t('admin.tenant.users.allowed') : t('admin.tenant.users.notAllowed')}>
+                        {ok ? <IconCheck size={12} stroke={2.4} /> : <IconMinus size={12} stroke={2.4} />}
+                      </ThemeIcon>
+                      <Text size="xs" c={ok ? undefined : 'dimmed'}>
+                        {t(`admin.tenant.users.permissions.${permKey}`)}
+                      </Text>
+                    </Group>
+                  )
+                })}
+              </Stack>
+            </Paper>
+          ))}
+        </SimpleGrid>
+      </SectionCard>
 
       <Modal opened={inviteOpen} onClose={() => setInviteOpen(false)} title={t('admin.tenant.users.inviteTitle')} centered>
         <Stack gap="md">

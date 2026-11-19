@@ -8,24 +8,35 @@ import {
     Button,
     Code,
     Group,
-    List,
     Paper,
     SimpleGrid,
     Stack,
     Text,
-    Title,
     Tooltip,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
     IconAlertCircle,
-    IconArrowLeft,
+    IconArrowRight,
+    IconBraces,
+    IconCategory,
     IconCheck,
     IconCopy,
+    IconGauge,
+    IconInfoCircle,
+    IconListNumbers,
     IconRocket,
+    IconStack2,
+    IconTemplate,
+    IconVariable,
 } from '@tabler/icons-react';
 import { templateApi } from '../services/template-api';
-import { TEMPLATE_CATEGORIES, type WorkflowTemplate } from '../data/templates';
+import type { WorkflowTemplate } from '../data/templates';
+import { PageHeader } from '../components/PageHeader';
+import { SectionCard } from '../components/SectionCard';
+import { StatCard } from '../components/admin/StatCard';
+import EmptyState from '../components/EmptyState';
+import { categoriaVisivel, rotuloDaComplexidade } from '../components/templates/categoria';
 import { NODE_CATEGORIES } from '../components/FlowCanvas/constants';
 
 export default function TemplateDetailPage() {
@@ -58,18 +69,32 @@ export default function TemplateDetailPage() {
 
     if (!template) {
         return (
-            <Stack p="md" gap="md">
-                <Alert color="red" icon={<IconAlertCircle size={16} />}>
-                    {t('templates.detail.notFound')}
-                </Alert>
-                <Button variant="default" onClick={() => navigate('/templates')}>
-                    {t('templates.detail.back')}
-                </Button>
+            <Stack p="md" gap="lg">
+                <PageHeader
+                    icon={IconTemplate}
+                    accent="blue"
+                    title={t('templates.title')}
+                    backTo="/templates"
+                    backLabel={t('templates.detail.back')}
+                />
+                <Paper withBorder>
+                    <EmptyState
+                        icon={<IconAlertCircle />}
+                        accent="rose"
+                        title={t('templates.detail.notFound')}
+                        description={t('templates.detail.notFoundHint')}
+                        actionLabel={t('templates.detail.back')}
+                        onAction={() => navigate('/templates')}
+                    />
+                </Paper>
             </Stack>
         );
     }
 
-    const cat = TEMPLATE_CATEGORIES[template.category];
+    const cat = categoriaVisivel(template.category, t);
+    const steps = template.steps ?? [];
+    const variables = Object.entries(template.variables ?? {});
+    const workflowJson = JSON.stringify({ steps, connections: template.connections ?? [] }, null, 2);
 
     const handleClone = async () => {
         setCloning(true);
@@ -91,122 +116,124 @@ export default function TemplateDetailPage() {
     };
 
     return (
-        <Stack p="md" gap="md">
-            <Group gap="sm">
-                <Tooltip label={t('templates.detail.back')}>
-                    <ActionIcon variant="subtle" onClick={() => navigate('/templates')}>
-                        <IconArrowLeft size={18} />
-                    </ActionIcon>
-                </Tooltip>
-                <Text fz={42} style={{ lineHeight: 1 }}>
-                    {template.icon}
-                </Text>
-                <Stack gap={0} style={{ flex: 1 }}>
-                    <Title order={2}>{template.name}</Title>
-                    <Text size="sm" c="dimmed">
-                        {template.summary}
-                    </Text>
-                </Stack>
-                <Button
-                    leftSection={<IconRocket size={16} />}
-                    onClick={handleClone}
-                    loading={cloning}
-                    data-testid="template-clone"
-                >
-                    {t('templates.detail.use')}
-                </Button>
-            </Group>
-
-            <Group gap={4}>
-                <Badge size="sm" variant="light" color={cat.color}>
-                    {cat.label}
-                </Badge>
-                <Badge size="sm" variant="light" color="grape">
-                    {template.complexity}
-                </Badge>
-                {template.tags.map((t) => (
-                    <Badge key={t} size="sm" variant="outline" color="gray">
-                        {t}
-                    </Badge>
-                ))}
-            </Group>
+        <Stack p="md" gap="lg">
+            <PageHeader
+                icon={IconTemplate}
+                accent={cat.accent}
+                title={template.name}
+                subtitle={template.summary}
+                breadcrumbs={[{ label: t('templates.title'), to: '/templates' }, { label: template.name }]}
+                actions={
+                    <Button
+                        leftSection={<IconRocket size={16} />}
+                        onClick={handleClone}
+                        loading={cloning}
+                        data-testid="template-clone"
+                    >
+                        {t('templates.detail.use')}
+                    </Button>
+                }
+            />
 
             {error && (
-                <Alert color="red" icon={<IconAlertCircle size={16} />}>
+                <Alert color="red" variant="light" icon={<IconAlertCircle size={16} />}>
                     {error}
                 </Alert>
             )}
 
-            <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="md">
-                <Paper withBorder p="md" radius="md">
-                    <Title order={5} mb="xs">
-                        {t('templates.detail.about')}
-                    </Title>
-                    <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>
-                        {template.description}
-                    </Text>
-                </Paper>
+            <SimpleGrid cols={{ base: 1, xs: 2, md: 4 }} spacing="md">
+                <StatCard label={t('templates.detail.stats.steps')} value={steps.length} icon={IconStack2}
+                          accent="blue"
+                          hint={steps.length > 0 ? t('templates.detail.hints.steps') : t('templates.stepsServer')} />
+                <StatCard label={t('templates.detail.stats.category')} value={<Text component="span" fz={20} fw={700}>{cat.rotulo}</Text>}
+                          icon={IconCategory} accent={cat.accent} hint={t('templates.detail.hints.category')} />
+                <StatCard label={t('templates.detail.stats.complexity')}
+                          value={<Text component="span" fz={20} fw={700}>{rotuloDaComplexidade(template.complexity, t)}</Text>}
+                          icon={IconGauge} accent="amber" hint={t('templates.detail.hints.complexity')} />
+                <StatCard label={t('templates.detail.stats.variables')} value={variables.length} icon={IconVariable}
+                          accent="violet" hint={t('templates.detail.hints.variables')} />
+            </SimpleGrid>
 
-                <Paper withBorder p="md" radius="md">
-                    <Title order={5} mb="xs">
-                        {t('templates.detail.pipeline', { count: template.steps.length })}
-                    </Title>
-                    <List size="sm" spacing={4}>
-                        {template.steps.map((s, idx) => (
-                            <List.Item key={s.id}>
-                                <Group gap={6} wrap="nowrap">
-                                    <Badge size="xs" variant="filled" color="dark">
+            <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="md">
+                <SectionCard icon={IconInfoCircle} accent="blue" title={t('templates.detail.about')}>
+                    <Stack gap="md">
+                        <Text size="sm" style={{ whiteSpace: 'pre-wrap' }} lh={1.6}>
+                            {template.description}
+                        </Text>
+                        {(template.tags ?? []).length > 0 && (
+                            <Group gap={6}>
+                                <Badge size="sm" variant="dot" color={cat.cor}>{cat.rotulo}</Badge>
+                                {(template.tags ?? []).map((tag) => (
+                                    <Badge key={tag} size="sm" variant="outline" color="gray">
+                                        {tag}
+                                    </Badge>
+                                ))}
+                            </Group>
+                        )}
+                    </Stack>
+                </SectionCard>
+
+                <SectionCard
+                    icon={IconListNumbers}
+                    accent="violet"
+                    title={t('templates.detail.pipeline', { count: steps.length })}
+                    description={t('templates.detail.pipelineHint')}
+                >
+                    {steps.length === 0 ? (
+                        <EmptyState compact icon={<IconStack2 />} accent="violet"
+                                    title={t('templates.detail.noSteps')}
+                                    description={t('templates.detail.noStepsHint')} />
+                    ) : (
+                        <Stack gap={6}>
+                            {steps.map((s, idx) => (
+                                <Group key={s.id} gap="sm" wrap="nowrap" px="sm" py={8}
+                                       style={{ borderRadius: 10, background: 'var(--table-head-bg)',
+                                           border: '1px solid var(--surface-border)' }}>
+                                    <Badge size="md" variant="light" color="gray" radius="sm" w={30} px={0}
+                                           style={{ flexShrink: 0 }}>
                                         {idx + 1}
                                     </Badge>
-                                    <Text size="sm" fw={500}>
+                                    <Text size="sm" fw={500} style={{ flex: 1, minWidth: 0 }} truncate>
                                         {s.label}
                                     </Text>
-                                    <Badge
-                                        size="xs"
-                                        variant="dot"
-                                        color={categoryColor(s.category)}
-                                    >
-                                        {t(`categories.${s.category}`, { defaultValue: NODE_CATEGORIES[s.category].label })}
+                                    <Badge size="xs" variant="dot" color={categoryColor(s.category)}
+                                           style={{ flexShrink: 0 }}>
+                                        {t(`categories.${s.category}`, { defaultValue: NODE_CATEGORIES[s.category]?.label ?? s.category })}
                                     </Badge>
                                 </Group>
-                            </List.Item>
-                        ))}
-                    </List>
-                </Paper>
+                            ))}
+                        </Stack>
+                    )}
+                </SectionCard>
 
-                {template.variables && Object.keys(template.variables).length > 0 && (
-                    <Paper withBorder p="md" radius="md">
-                        <Title order={5} mb="xs">
-                            {t('templates.detail.variables')}
-                        </Title>
-                        <Stack gap={4}>
-                            {Object.entries(template.variables).map(([k, v]) => (
-                                <Group key={k} gap={6} wrap="nowrap">
+                {variables.length > 0 && (
+                    <SectionCard icon={IconVariable} accent="amber" title={t('templates.detail.variables')}
+                                 description={t('templates.detail.variablesHint')}>
+                        <Stack gap={6}>
+                            {variables.map(([k, v]) => (
+                                <Group key={k} gap="sm" wrap="nowrap">
                                     <Code>{`{{${k}}}`}</Code>
-                                    <Text size="xs" c="dimmed">
-                                        →
-                                    </Text>
+                                    <IconArrowRight size={13} style={{ color: 'var(--mantine-color-dimmed)', flexShrink: 0 }} />
                                     <Text size="sm">{v}</Text>
                                 </Group>
                             ))}
                         </Stack>
-                    </Paper>
+                    </SectionCard>
                 )}
 
-                <Paper withBorder p="md" radius="md">
-                    <Group justify="space-between" mb="xs">
-                        <Title order={5}>{t('templates.detail.workflowJson')}</Title>
+                <SectionCard
+                    icon={IconBraces}
+                    accent="slate"
+                    title={t('templates.detail.workflowJson')}
+                    description={t('templates.detail.workflowJsonHint')}
+                    actions={
                         <Tooltip label={t('templates.detail.copy')}>
                             <ActionIcon
                                 variant="subtle"
+                                color="gray"
+                                aria-label={t('templates.detail.copy')}
                                 onClick={() => {
-                                    navigator.clipboard.writeText(
-                                        JSON.stringify(
-                                            { steps: template.steps, connections: template.connections },
-                                            null,
-                                            2,
-                                        ),
-                                    );
+                                    navigator.clipboard.writeText(workflowJson);
                                     notifications.show({
                                         title: t('templates.detail.copied'),
                                         message: t('templates.detail.copiedMsg'),
@@ -217,22 +244,12 @@ export default function TemplateDetailPage() {
                                 <IconCopy size={16} />
                             </ActionIcon>
                         </Tooltip>
-                    </Group>
-                    <Code
-                        block
-                        style={{
-                            maxHeight: 280,
-                            overflow: 'auto',
-                            fontSize: 11,
-                        }}
-                    >
-                        {JSON.stringify(
-                            { steps: template.steps, connections: template.connections },
-                            null,
-                            2,
-                        )}
+                    }
+                >
+                    <Code block style={{ maxHeight: 280, overflow: 'auto', fontSize: 11 }}>
+                        {workflowJson}
                     </Code>
-                </Paper>
+                </SectionCard>
             </SimpleGrid>
         </Stack>
     );

@@ -79,6 +79,28 @@
         }
     },
     "knowledge": {
+        "basesHint": "Escolha uma para gerenciar",
+        "emptyTitle": "Nenhuma base ainda",
+        "selectBaseTitle": "Nenhuma base selecionada",
+        "noDocumentsTitle": "Nenhum documento ainda",
+        "noResultsHint": "Tente outras palavras ou busque em outra versão do índice.",
+        "noVersionsTitle": "Nenhuma versão de índice ainda",
+        "versionId": "Versão",
+        "created": "Criada",
+        "basedOnCol": "Baseada em",
+        "stats": {
+            "bases": "Bases",
+            "activeVersion": "Índice ativo"
+        },
+        "hints": {
+            "bases": "Neste workspace",
+            "noBase": "Selecione uma base",
+            "documents_one": "{{count}} pronto para busca",
+            "documents_other": "{{count}} prontos para busca",
+            "chunks": "Fragmentos indexados",
+            "versions_one": "{{count}} versão",
+            "versions_other": "{{count}} versões"
+        },
         "title": "Bases de conhecimento",
         "subtitle": "Envie documentos, acompanhe a indexação e teste a recuperação semântica.",
         "bases": "Bases",
@@ -127,6 +149,34 @@
         }
     },
     "dynamicWorkflow": {
+        "goalSection": "Objetivo",
+        "goalSectionHint": "O que os agentes devem cumprir",
+        "policySection": "Política",
+        "policySectionHint": "Distribuição, verificação e limites",
+        "budgetHint": "Deixe em branco para não limitar tokens",
+        "stats": {
+            "rounds": "Rodadas",
+            "roundsHint": "Ciclos decompor → verificar",
+            "confirmed": "Confirmados",
+            "confirmedHint": "Resultados aprovados na verificação"
+        },
+        "noConfirmed": "Nada confirmado",
+        "noConfirmedHint": "Os verificadores rejeitaram todos os resultados candidatos.",
+        "traceHint_one": "{{count}} evento",
+        "traceHint_other": "{{count}} eventos",
+        "traceCols": {
+            "round": "Rodada",
+            "type": "Evento",
+            "verdict": "Veredito",
+            "detail": "Detalhe"
+        },
+        "verdict": {
+            "confirmed": "confirmado",
+            "rejected": "rejeitado"
+        },
+        "resultsHint": "Resultados confirmados e o trace da execução",
+        "running": "Executando — decompondo, distribuindo e verificando…",
+        "emptyTitle": "Nada executado ainda",
         "title": "Workflow Dinâmico",
         "subtitle": "Decompõe um objetivo, distribui em agentes do catálogo, verifica adversarialmente e itera até convergir — limitado por orçamento.",
         "goal": "Objetivo",
@@ -152,6 +202,27 @@
         "language": "Idioma"
     },
     "workflows": {
+        "stats": {
+            "total": "Workflows",
+            "active": "Ativos",
+            "draft": "Rascunhos",
+            "attention": "Pedem atenção"
+        },
+        "hints": {
+            "total_one": "{{count}} etapa no total",
+            "total_other": "{{count}} etapas no total",
+            "active": "Prontos para rodar",
+            "draft": "Ainda em desenho",
+            "attention": "Pausados ou com falha"
+        },
+        "showing": "{{shown}} de {{total}} workflows",
+        "clearSearch": "Limpar busca",
+        "noDescription": "Sem descrição",
+        "card": {
+            "version": "Versão",
+            "steps": "Etapas",
+            "updated": "Atualizado"
+        },
         "title": "Fluxos",
         "subtitle": "Projete e gerencie seus fluxos de IA",
         "newWorkflow": "Novo Fluxo",
@@ -183,6 +254,9 @@
             "archived": "Arquivado"
         },
         "actions": {
+            "run": "Rodar",
+            "activate": "Ativar",
+            "deactivate": "Voltar para rascunho",
             "execute": "Executar",
             "edit": "Editar",
             "delete": "Excluir"
@@ -537,6 +611,24 @@
         }
     },
     "executions": {
+        "subtitle": "Cada execução de workflow, com status, tempo e erros. Clique numa linha para ver etapa por etapa.",
+        "listTitle": "Execuções",
+        "listHint": "Mais recentes primeiro",
+        "stats": {
+            "total": "Execuções",
+            "completed": "Concluídas",
+            "failed": "Com falha",
+            "running": "Rodando"
+        },
+        "hints": {
+            "total": "Carregadas nesta lista",
+            "filtered": "Do workflow selecionado",
+            "successRate": "{{pct}}% de sucesso",
+            "none": "Nenhuma execução ainda",
+            "failed": "Abra uma para ver o erro",
+            "failedNone": "Nenhuma falha",
+            "running": "Ainda em andamento"
+        },
         "title": "Histórico de execuções",
         "allWorkflows": "Todos os fluxos",
         "empty": "Nenhuma execução ainda",
@@ -559,6 +651,23 @@
         }
     },
     "triggers": {
+        "subtitle": "Invocações recorrentes de agentes num agendamento cron do Quartz.",
+        "listTitle": "Gatilhos",
+        "listHint": "Clique numa linha para editar; use os ícones para disparar, editar ou excluir",
+        "emptyHint": "Crie um para invocar um agente num horário.",
+        "tenantHint": "Tenant em nome do qual a invocação roda",
+        "agentLabel": "agente",
+        "assistantLabel": "assistente",
+        "stats": {
+            "total": "Gatilhos",
+            "totalHint": "Agendamentos configurados",
+            "enabled": "Ativos",
+            "enabledHint": "Disparam no horário",
+            "paused": "Pausados",
+            "pausedHint": "Mantidos, sem disparar",
+            "failing": "Com falha",
+            "failingHint": "A última execução deu erro"
+        },
         "title": "Gatilhos agendados",
         "newTrigger": "Novo gatilho",
         "info": "Os gatilhos disparam no horário local do servidor usando expressões cron do Quartz (6 ou 7 campos: <code>seg min hora dia-do-mês mês dia-da-semana [ano]</code>). Ao disparar, submete um InvocationRequest na fila do agente — o mesmo caminho do botão \"Invocar\" do playground.",
@@ -626,6 +735,7 @@
             "back": "Voltar ao superadmin →"
         },
         "observability": {
+            "subtitle": "Saúde, traces, métricas e trilha de auditoria dos fluxos que rodam nesta instalação.",
             "title": "Observabilidade",
             "loadFailed": "Falha ao carregar visão geral",
             "tabs": {
@@ -637,6 +747,13 @@
                 "live": "Eventos ao vivo"
             },
             "overview": {
+                "execTodayHint": "Execuções de fluxo desde a meia-noite",
+                "latencyTrend": "Tendência de latência",
+                "latencyTrendHint": "Latência média na janela recente",
+                "trendStart": "Antes",
+                "trendNow": "Agora",
+                "noTrend": "Ainda não há amostras de latência.",
+                "topPersonasHint": "Personas mais ativas e sua taxa de sucesso",
                 "execToday": "Execuções hoje",
                 "successRate": "Taxa de sucesso",
                 "errorsPct": "{{pct}}% de erros",
@@ -651,6 +768,17 @@
                 "okPct": "{{pct}}% ok"
             },
             "metrics": {
+                "chartHint": "Série temporal da métrica e do intervalo escolhidos",
+                "countersHint": "Totais acumulados desde o início",
+                "gaugesHint": "Valores do momento",
+                "histogramsHint": "Distribuição das durações registradas",
+                "stats": {
+                    "last": "Último",
+                    "avg": "Média",
+                    "peak": "Pico",
+                    "low": "Mínimo",
+                    "window": "Na janela do gráfico"
+                },
                 "loadFailed": "Falha ao carregar métricas",
                 "metric": "Métrica",
                 "bucket": "Bucket",
@@ -681,9 +809,12 @@
                 "noData": "Sem dados."
             },
             "audit": {
+                "listTitle": "Trilha de auditoria",
+                "listHint": "Quem fez o quê, quando e se deu certo",
+                "emptyHint": "Ações como logins e execuções ficam registradas aqui.",
                 "loadFailed": "Falha ao carregar log de auditoria",
-                "filterActor": "Filtrar por ator (id ou username)...",
-                "filterAction": "Ação (ex.: WORKFLOW_EXECUTE)",
+                "filterActor": "Ator (id ou username)",
+                "filterAction": "Ação, ex.: LOGIN_SUCCESS",
                 "exportCsv": "Exportar CSV",
                 "empty": "Nenhum registro de auditoria ainda.",
                 "showing": "Exibindo {{from}}–{{to}} de {{total}}",
@@ -701,12 +832,17 @@
                 }
             },
             "traces": {
+                "statusError": "Erro",
+                "listTitle": "Traces capturados",
+                "listHint": "Clique num trace para abrir a linha do tempo dos spans",
+                "emptyHint": "Os traces aparecem assim que fluxos e agentes rodam.",
                 "loadFailed": "Falha ao carregar traces",
-                "search": "Buscar por trace id, flow id, execution id...",
+                "search": "Id do trace, fluxo ou execução",
                 "status": "Status",
                 "statusAll": "Todos",
                 "empty": "Nenhum trace capturado ainda.",
                 "cols": {
+                    "flow": "Fluxo",
                     "traceId": "ID do trace",
                     "tenant": "Tenant",
                     "persona": "Persona",
@@ -722,11 +858,24 @@
                 }
             },
             "traceDetail": {
+                "notFoundTitle": "Trace indisponível",
+                "depthHint_one": "{{count}} nível de profundidade",
+                "depthHint_other": "{{count}} níveis de profundidade",
+                "errorsHint": "Spans que não terminaram OK",
+                "errorsNone": "Todos os spans terminaram OK",
+                "properties": "Propriedades",
+                "timelineHint": "Spans em árvore no eixo de tempo do trace — clique num para ver os atributos",
+                "attributesHint": "Atributos de todos os spans",
+                "attributesOf": "Atributos de {{name}}",
+                "showAll": "Mostrar todos",
+                "noAttributes": "Nenhum atributo registrado.",
                 "title": "Trace {{id}}",
                 "back": "Voltar aos traces",
                 "notFound": "Trace não encontrado.",
                 "loadFailed": "Falha ao carregar trace",
                 "meta": {
+                    "errors": "Erros",
+                    "persona": "Persona",
                     "tenant": "Tenant",
                     "flow": "Fluxo",
                     "execution": "Execução",
@@ -743,6 +892,7 @@
                 }
             },
             "running": {
+                "hint": "Lista ao vivo, atualizada a cada 2 segundos",
                 "title": "Fluxos em execução",
                 "activeCount": "{{count}} ativo(s)",
                 "refreshNow": "Atualizar agora",
@@ -767,6 +917,12 @@
                 "durShort": "< 1s"
             },
             "live": {
+                "connection": "Conexão",
+                "connectionHint": "Conecte a um tenant e sessão para receber os eventos",
+                "eventFeedHint": "Mais recentes embaixo · até 500 eventos · clique para inspecionar",
+                "payload": "Payload",
+                "payloadHint": "Dados do evento",
+                "noSelection": "Escolha um evento para ver o payload.",
                 "openFailed": "Falha ao abrir stream",
                 "tenantId": "ID do tenant",
                 "sessionId": "ID da sessão",
@@ -791,6 +947,19 @@
         "superadmin": {
             "tenants": {
                 "title": "Tenants",
+                "subtitle": "Organizações desta instalação, seus planos e consumo.",
+                "listTitle": "Todos os tenants",
+                "listHint": "Clique na linha para ver o detalhe; a seta abre o workspace como o tenant.",
+                "searchPlaceholder": "Buscar por nome ou ID",
+                "noMatch": "Nenhum tenant corresponde à busca.",
+                "emptyHint": "Crie o primeiro tenant para trazer uma organização.",
+                "details": "Detalhes",
+                "hints": {
+                    "active": "Workspaces em operação",
+                    "executionsToday": "Somando todos os tenants",
+                    "tokensMonth": "Consumo total de LLM",
+                    "trial": "Em período de avaliação"
+                },
                 "newTenant": "Novo tenant",
                 "loadFailed": "Falha ao carregar tenants",
                 "empty": "Nenhum tenant encontrado.",
@@ -823,6 +992,13 @@
             },
             "tenantDetail": {
                 "title": "Detalhe do tenant",
+                "subtitle": "{{id}} · identidade, plano e consumo frente aos limites",
+                "identityHint": "Quem é o tenant e quem o administra.",
+                "planStatusHint": "Plano comercial, situação e os modelos liberados.",
+                "usageHint": "Consumo atual frente aos limites do plano.",
+                "dangerTitle": "Zona de perigo",
+                "dangerHint": "Ações irreversíveis.",
+                "dangerBody": "Excluir remove o tenant com seus fluxos, usuários e chaves. Será pedido que você digite o nome para confirmar.",
                 "back": "← Voltar",
                 "loadFailed": "Falha ao carregar tenant",
                 "updateFailed": "Falha ao atualizar tenant",
@@ -853,6 +1029,10 @@
             },
             "tenantNew": {
                 "title": "Criar tenant",
+                "subtitle": "Provisione uma organização com os limites do plano e o primeiro administrador.",
+                "identityHint": "Como o tenant se chama e quem o administra.",
+                "planLimitsHint": "Cotas aplicadas a este tenant.",
+                "summaryHint": "Revise antes de criar.",
                 "back": "← Voltar",
                 "createFailed": "Falha ao criar tenant",
                 "created": "Tenant criado",
@@ -893,6 +1073,18 @@
             },
             "usage": {
                 "title": "Uso e cobrança",
+                "subtitle": "Consumo mensal e custo estimado por tenant.",
+                "month": "Mês",
+                "listTitle": "Consumo por tenant",
+                "listHint": "A barra é a fatia do total do mês.",
+                "empty": "Sem uso neste mês",
+                "emptyHint": "Escolha outro mês ou aguarde execuções serem registradas.",
+                "hints": {
+                    "executions": "Em {{month}}",
+                    "tokens": "Entrada + saída",
+                    "cost": "Estimado, em USD",
+                    "tenants": "Com atividade no mês"
+                },
                 "exportCsv": "Exportar CSV",
                 "loadFailed": "Falha ao carregar uso",
                 "stats": {
@@ -912,6 +1104,19 @@
             },
             "globalConfig": {
                 "title": "Configuração global",
+                "subtitle": "Modelos, padrões de plano e chaves que valem para todos os tenants.",
+                "modelsHint": "Desligar um modelo o retira de todos os tenants.",
+                "modelsEmpty": "Nenhum modelo cadastrado",
+                "plansHint": "Limites iniciais dos novos tenants de cada plano.",
+                "plansEmpty": "Sem padrões de plano",
+                "togglesHint": "Recursos ligados ou desligados para toda a plataforma.",
+                "costLine": "entrada ${{input}} · saída ${{output}} por 1M tokens",
+                "enableModel": "Habilitar {{name}}",
+                "modelStatuses": {
+                    "active": "Ativo",
+                    "beta": "Beta",
+                    "deprecated": "Desligado"
+                },
                 "loadFailed": "Falha ao carregar configuração",
                 "updateTogglesFailed": "Falha ao atualizar toggles",
                 "updateModelFailed": "Falha ao atualizar modelo",
@@ -947,6 +1152,15 @@
         "tenant": {
             "workspace": {
                 "title": "Visão geral do workspace",
+                "subtitle": "Como este workspace está frente ao plano.",
+                "subtitleNamed": "{{name}} — como este workspace está frente ao plano.",
+                "planUsageHint": "As barras ficam âmbar em 70% e vermelhas em 90% do limite.",
+                "hints": {
+                    "ofLimit": "Limite: {{limit}}",
+                    "perDay": "Limite: {{limit}} por dia",
+                    "seats": "Limite: {{limit}} assentos",
+                    "apiKeys": "Chaves de integração ativas"
+                },
                 "loadFailed": "Falha ao carregar workspace",
                 "summaryUnavailable": "Resumo do workspace indisponível no momento.",
                 "planUsage": "Uso do plano",
@@ -965,6 +1179,11 @@
             },
             "apiKeys": {
                 "title": "Chaves de API",
+                "subtitle": "Chaves do workspace para integrações e o web component.",
+                "listTitle": "Chaves do workspace",
+                "listHint": "Só a chave mascarada fica guardada; a completa aparece uma vez, na criação.",
+                "emptyTitle": "Nenhuma chave de API",
+                "emptyHint": "Crie uma chave para chamar o archflow dos seus sistemas.",
                 "create": "Criar chave",
                 "createTitle": "Criar chave de API",
                 "loadFailed": "Falha ao carregar chaves",
@@ -1000,6 +1219,16 @@
             },
             "users": {
                 "title": "Usuários",
+                "subtitle": "Quem tem acesso a este workspace e o que cada papel pode fazer.",
+                "listTitle": "Membros",
+                "listHint": "{{count}} pessoas · {{invited}} convites pendentes",
+                "emptyTitle": "Nenhum usuário ainda",
+                "emptyHint": "Convide alguém para colaborar neste workspace.",
+                "permissionsHint": "O que cada papel pode fazer.",
+                "membersWithRole_one": "{{count}} membro",
+                "membersWithRole_other": "{{count}} membros",
+                "allowed": "Permitido",
+                "notAllowed": "Não permitido",
                 "invite": "Convidar usuário",
                 "inviteTitle": "Convidar usuário",
                 "loadFailed": "Falha ao carregar usuários",
@@ -1051,6 +1280,10 @@
             },
             "scopedKeys": {
                 "title": "Chaves de API com escopo",
+                "subtitle": "Chaves com escopos explícitos e validade opcional, para /api/apikeys.",
+                "listTitle": "Chaves com escopo",
+                "listHint": "O segredo aparece uma única vez, logo após a criação.",
+                "emptyHint": "Crie uma chave só com os escopos que a integração precisa.",
                 "new": "Nova chave",
                 "info": "Estas chaves pertencem ao sistema com escopos/expiração (/api/apikeys) — distintas das chaves de dev do workspace. Carregam escopos explícitos.",
                 "created": "Chave criada — copie o segredo agora",
@@ -1117,6 +1350,12 @@
         }
     },
     "agentPlayground": {
+        "subtitle": "Dispare um agente sob demanda ou envie uma mensagem de chat, e inspecione a resposta bruta.",
+        "requestTitle": "Requisição",
+        "requestHint": "Tenant, sessão, agente e o que enviar",
+        "responseHint": "Corpo bruto devolvido pelo endpoint de gatilho",
+        "emptyTitle": "Nenhuma resposta ainda",
+        "emptyHint": "Escolha um agente e invoque-o ou envie uma mensagem — a resposta aparece aqui.",
         "title": "Agent Playground",
         "info": "Dispare um agente diretamente (on-demand) ou envie uma mensagem conversacional. Ambos exigem um <code>AgentInvocationQueue</code> configurado no backend.",
         "tenantId": "ID do tenant",
@@ -1144,6 +1383,25 @@
         "sendFailed": "Falha ao enviar"
     },
     "voicePlayground": {
+        "sessionTitle": "Sessão",
+        "sessionHint": "Persona e microfone",
+        "transcriptHint_one": "{{count}} turno",
+        "transcriptHint_other": "{{count}} turnos",
+        "emptyTranscript": "Nenhuma transcrição ainda — inicie a sessão para começar.",
+        "emptyTranscriptHint": "Toque no microfone e fale; os dois lados da conversa aparecem aqui ao vivo.",
+        "speaker": {
+            "user": "você",
+            "agent": "agente"
+        },
+        "mic": {
+            "toggle": "Alternar sessão de voz",
+            "start": "Toque para começar",
+            "requesting": "Pedindo o microfone…",
+            "connecting": "Conectando…",
+            "listening": "Ouvindo — toque para parar",
+            "speaking": "Agente falando…",
+            "retry": "Erro — toque para tentar de novo"
+        },
         "title": "Playground de voz",
         "subtitle": "Converse com um agente ArchFlow em tempo real. Escolha uma persona, toque no microfone e fale — seu áudio é transmitido ao adaptador de realtime e a transcrição aparece abaixo conforme o agente responde.",
         "persona": "Persona",
@@ -1184,9 +1442,42 @@
         "password": "Senha",
         "passwordPlaceholder": "sua-senha",
         "signIn": "Entrar",
-        "devCredentials": "Credenciais de dev"
+        "devCredentials": "Credenciais de dev",
+        "welcome": "Bem-vindo de volta",
+        "subtitle": "Entre para desenhar, executar e governar seus agentes de IA.",
+        "heroTitle": "Agentes de IA que você consegue governar.",
+        "featureFlowsTitle": "Fluxos visuais",
+        "featureFlowsDesc": "Agentes, ferramentas e decisões num só canvas.",
+        "featureGovernanceTitle": "Governança nativa",
+        "featureGovernanceDesc": "Aprovação humana, allowlist de ferramentas e auditoria.",
+        "featureJavaTitle": "Java + LangChain4j",
+        "featureJavaDesc": "Open source, roda na sua infraestrutura.",
+        "flowInput": "Entrada",
+        "flowAgent": "Agente",
+        "flowDecision": "Decisão",
+        "flowOutput": "Saída",
+        "footer": "Open source · Apache 2.0"
     },
     "executionDetail": {
+        "subtitle": "Execução de {{workflow}}",
+        "loadFailed": "Não foi possível carregar esta execução",
+        "openWorkflow": "Abrir no editor",
+        "errorTitle": "A execução falhou",
+        "stepsHint": "Na ordem de execução; etapas com falha já abrem expandidas",
+        "noStepsTitle": "Nenhuma etapa registrada",
+        "dynamicTreeHint": "Caminhos percorridos pela orquestração dinâmica",
+        "rawJsonHint": "O registro completo da execução, como a API devolve",
+        "stats": {
+            "status": "Status"
+        },
+        "hints": {
+            "live": "Atualizando a cada 2 s",
+            "finished": "Terminou {{when}}",
+            "started": "Começou {{when}}",
+            "steps": "Registradas pelo motor",
+            "failedSteps_one": "{{count}} etapa falhou",
+            "failedSteps_other": "{{count}} etapas falharam"
+        },
         "title": "Execução {{id}}",
         "viewTrace": "Ver trace",
         "back": "Voltar",
@@ -1253,6 +1544,16 @@
         "title": "Início",
         "recentExecutions": "Execuções recentes",
         "seeAll": "Ver todas",
+        "subtitle": "Seu workspace num relance: fluxos, execuções recentes e o que está esperando por você.",
+        "recentExecutionsHint": "As últimas execuções de todos os fluxos",
+        "quickActions": "Ações rápidas",
+        "hints": {
+            "workflows": "{{count}} ativos",
+            "active": "Rodando em produção",
+            "failedRuns": "Nas últimas {{count}} execuções",
+            "failedNone": "Nenhuma falha — tudo certo",
+            "pendingApprovals": "Aguardando decisão humana"
+        },
         "stats": {
             "workflows": "Workflows",
             "active": "Ativos",
@@ -1266,7 +1567,38 @@
             "approvalsHint": "{{count}} solicitações aguardando decisão"
         }
     },
+    "agui": {
+        "title": "Runner AG-UI",
+        "subtitle": "Execute um workflow pelo protocolo AG-UI e acompanhe o fluxo de eventos.",
+        "requestTitle": "Executar",
+        "requestHint": "Workflow a disparar pelo endpoint AG-UI",
+        "workflowId": "ID do workflow",
+        "run": "Executar",
+        "stop": "Parar",
+        "events": "Eventos AG-UI",
+        "eventsHint": "Fluxo ao vivo, o mais novo embaixo",
+        "streaming": "transmitindo",
+        "outcome": {
+            "finished": "concluído",
+            "error": "erro"
+        },
+        "eventCount_one": "{{count}} evento",
+        "eventCount_other": "{{count}} eventos",
+        "clear": "Limpar",
+        "waiting": "Aguardando o primeiro evento…",
+        "emptyTitle": "Nenhum evento ainda",
+        "empty": "Execute um workflow para ver seus eventos AG-UI chegando."
+    },
     "copilot": {
+        "tryHint": "Abra a barra lateral (canto inferior direito) e experimente um destes",
+        "exampleTitles": {
+            "context": "Lê a tela",
+            "navigate": "Navega",
+            "run": "Executa workflows",
+            "status": "Mostra notificações"
+        },
+        "securityTitle": "Como se conecta",
+        "whereHint": "O copiloto é montado uma vez no layout da aplicação, então está disponível em todas as telas — esta página só explica o que ele faz.",
         "title": "Copilot (AG-UI)",
         "subtitle": "O copilot é a barra lateral disponível em todas as páginas (canto inferior direito). Ele é conectado ao agente archflow via AG-UI, conhece a tela atual e consegue operar o app.",
         "tryTitle": "Experimente pedir ao copilot:",
@@ -1279,6 +1611,21 @@
         "hint": "Conexão AG-UI direta (sem runtime Node): o backend Java é a fronteira de segurança."
     },
     "templates": {
+        "catalog": "Catálogo",
+        "catalogHint": "{{shown}} de {{total}} templates",
+        "noMatchesHint": "Tente outro termo, categoria ou complexidade.",
+        "stepsServer": "Etapas montadas ao usar",
+        "categories": {
+            "customer_support": "Atendimento",
+            "rag": "RAG / Conhecimento",
+            "content": "Conteúdo",
+            "code": "Código",
+            "research": "Pesquisa",
+            "productivity": "Produtividade",
+            "processing": "Processamento",
+            "automation": "Automação",
+            "other": "Outros"
+        },
         "title": "Modelos",
         "subtitle": "Comece com um fluxo pronto e adapte ao seu caso. Clique em um card para visualizar o canvas e depois clone para seu workspace.",
         "search": "Buscar modelos...",
@@ -1292,6 +1639,24 @@
         "clearFilters": "Limpar filtros",
         "stepsShort": "{{count}} passos",
         "detail": {
+            "notFoundHint": "Ele pode ter saído do catálogo. Escolha outro na galeria.",
+            "pipelineHint": "Os nós que este template coloca no canvas",
+            "noSteps": "As etapas são montadas pelo servidor",
+            "noStepsHint": "Este template vem do catálogo do backend; os nós são criados quando você o usa.",
+            "variablesHint": "Marcadores para preencher depois de clonar",
+            "workflowJsonHint": "Etapas e conexões, prontas para colar",
+            "stats": {
+                "steps": "Etapas",
+                "category": "Categoria",
+                "complexity": "Complexidade",
+                "variables": "Variáveis"
+            },
+            "hints": {
+                "steps": "Nós do pipeline",
+                "category": "Seção da galeria",
+                "complexity": "Quanto preparo esperar",
+                "variables": "Marcadores padrão"
+            },
             "back": "Voltar aos modelos",
             "notFound": "Modelo não encontrado.",
             "use": "Usar este modelo",
@@ -1309,12 +1674,30 @@
     },
     "mcp": {
         "servers": {
+            "subtitle": "Servidores Model Context Protocol registrados no backend.",
+            "listTitle": "Servidores",
+            "listHint": "Inspecione um servidor para ver suas tools, prompts e recursos",
+            "count_one": "{{count}} servidor",
+            "count_other": "{{count}} servidores",
+            "tileHint": "Conecta na primeira inspeção",
             "title": "Servidores MCP",
             "emptyTitle": "Nenhum servidor MCP registrado nesta instância.",
             "emptyHint": "Configure os servidores MCP no contexto Spring do backend (veja <code>McpInspectionControllerImpl</code>) e eles aparecerão aqui.",
             "inspect": "Inspecionar"
         },
         "detail": {
+            "subtitle": "Tools, prompts e recursos que este servidor MCP expõe.",
+            "inputSchema": "Schema de entrada",
+            "stats": {
+                "status": "Status",
+                "statusHint": "Aberto sob demanda na 1ª requisição",
+                "tools": "Tools",
+                "toolsHint": "Chamáveis pelos agentes",
+                "prompts": "Prompts",
+                "promptsHint": "Modelos de prompt",
+                "resources": "Recursos",
+                "resourcesHint": "Recursos legíveis"
+            },
             "reconnect": "Reconectar",
             "back": "Voltar",
             "inspecting": "Inspecionando…",
@@ -1331,6 +1714,19 @@
         }
     },
     "skills": {
+        "subtitle": "Skills carregadas pelo adaptador de skills. Desligue uma para escondê-la dos agentes.",
+        "listTitle": "Skills registradas",
+        "listHint": "Alterne uma skill para ativá-la ou desativá-la",
+        "stats": {
+            "total": "Skills",
+            "totalHint": "Carregadas nesta instância",
+            "active": "Ativas",
+            "activeHint": "Disponíveis aos agentes",
+            "inactive": "Inativas",
+            "inactiveHint": "Carregadas, mas desligadas",
+            "resources": "Recursos",
+            "resourcesHint": "Arquivos que vêm com as skills"
+        },
         "title": "Skills",
         "emptyTitle": "Nenhuma skill configurada.",
         "emptyHint": "Defina <code>archflow.skills.directory</code> nas propriedades da aplicação e reinicie o backend para carregar skills do filesystem.",
@@ -1344,6 +1740,14 @@
     },
     "linktor": {
         "config": {
+            "subtitle": "Conecte a plataforma de mensageria Linktor para os agentes falarem em todos os canais.",
+            "statusEnabled": "Ativada",
+            "statusDisabled": "Desativada",
+            "connectionTitle": "Conexão",
+            "connectionHint": "Onde o Linktor está e como autenticar",
+            "enableHint": "Expõe o servidor MCP do Linktor aos agentes e ao editor",
+            "mcpTitle": "Servidor MCP",
+            "mcpHint": "O processo que o archflow inicia para falar com o Linktor",
             "title": "Linktor",
             "info": "Linktor é uma plataforma de mensageria omnichannel open source (WhatsApp, Telegram, Instagram, SMS, Email, Webchat…). Quando ativada, aparece em Servidores MCP e como servidor disponível no editor de fluxos, dando aos agentes acesso a ~51 ferramentas Linktor (enviar mensagem, listar conversas, controlar respostas visuais VRE, etc.).",
             "enable": "Ativar integração Linktor",
@@ -1362,6 +1766,25 @@
             "installHint": "<code>npm install -g @linktor/mcp-server</code> — o binário <code>linktor-mcp</code> é adicionado ao PATH. Alternativamente, rode <code>node /caminho/para/linktor-mcp-server/dist/index.js</code>."
         },
         "inbox": {
+            "subtitle": "Conversas, contatos e canais omnichannel do Linktor.",
+            "disabledTitle": "Linktor está desativado",
+            "disabledBody": "Ative a integração para ver aqui as conversas, os contatos e os canais.",
+            "openConfig": "Abrir configuração",
+            "conversationsTitle": "Conversas",
+            "conversationsHint": "Clique numa conversa para responder ou transferir",
+            "emptyConversationsHint": "As mensagens que chegam em qualquer canal do Linktor aparecem aqui.",
+            "contactsHint": "Pessoas que o Linktor conhece em todos os canais",
+            "emptyChannelsHint": "Conecte WhatsApp, Telegram, e-mail e outros no Linktor.",
+            "stats": {
+                "total": "Conversas",
+                "totalHint": "Carregadas do Linktor",
+                "open": "Abertas",
+                "openHint": "Aguardando resposta",
+                "assigned": "Atribuídas",
+                "assignedHint": "Com um operador humano",
+                "resolved": "Resolvidas",
+                "resolvedHint": "Encerradas"
+            },
             "title": "Inbox Linktor",
             "tabs": {
                 "conversations": "Conversas ({{count}})",
@@ -1385,6 +1808,15 @@
             }
         },
         "conversation": {
+            "subtitle": "Leia o histórico, responda no canal do cliente ou transfira para um humano.",
+            "transcript": "Mensagens",
+            "messageCount": "{{count}} mensagens",
+            "noMessagesHint": "O histórico aparece aqui assim que chegar a primeira mensagem.",
+            "replyPlaceholder": "Escreva uma resposta…",
+            "replyResolved": "Esta conversa está resolvida.",
+            "handoffHint": "Atribua a um operador ou encerre a conversa",
+            "assignee": "Operador",
+            "details": "Detalhes",
             "title": "Conversa",
             "back": "Voltar",
             "noMessages": "Nenhuma mensagem ainda.",
@@ -1408,6 +1840,9 @@
         }
     },
     "chat": {
+        "transcript": "Transcrição",
+        "emptyHint": "Digite abaixo para enviar a primeira mensagem — as respostas chegam em tempo real.",
+        "thinking": "O assistente está digitando",
         "roles": {
             "user": "usuário",
             "assistant": "assistente",
@@ -1450,6 +1885,10 @@
         }
     },
     "conversationDetail": {
+        "subtitle": "Transcrição ao vivo, chamadas de ferramenta e o contexto da conversa.",
+        "details": "Detalhes",
+        "detailsHint": "Quem, onde e quando",
+        "rawHint": "O registro da conversa como a API devolve",
         "title": "Conversa {{id}}",
         "back": "Voltar às conversas",
         "refresh": "Atualizar metadados da conversa",
@@ -1467,6 +1906,22 @@
         }
     },
     "conversations": {
+        "subtitle": "Conversas dos agentes em todos os canais. Abra uma para acompanhar a transcrição ao vivo.",
+        "new": "Nova conversa",
+        "listTitle": "Todas as conversas",
+        "listHint": "Mais recentes primeiro — clique numa linha para abrir a transcrição",
+        "emptyHint": "As conversas aparecem aqui assim que um agente começa a falar com alguém.",
+        "emptyFiltered": "Nada corresponde a estes filtros — limpe a busca ou o status.",
+        "stats": {
+            "total": "Conversas",
+            "totalHint": "Na lista atual",
+            "active": "Ativas",
+            "activeHint": "O agente está atendendo",
+            "waiting": "Aguardando",
+            "waitingHint": "Esperando humano ou suspensas",
+            "escalated": "Escaladas",
+            "escalatedHint": "Encaminhadas para atenção"
+        },
         "title": "Conversas",
         "search": "Buscar por usuário, id da conversa...",
         "status": "Status",
@@ -1499,6 +1954,21 @@
         }
     },
     "approvals": {
+        "listTitle": "Decisões pendentes",
+        "listHint": "Mais antigas primeiro — clique numa linha para revisar",
+        "review": "Revisar",
+        "emptyHint": "Quando um fluxo chega a um passo de aprovação, ele espera aqui por uma decisão humana.",
+        "emptyFiltered": "Nenhuma aprovação corresponde à busca.",
+        "stats": {
+            "pending": "Pendentes",
+            "pendingHint": "Aguardando um revisor",
+            "urgent": "Expirando",
+            "urgentHint": "Menos de 5 minutos restantes",
+            "oldest": "Maior espera",
+            "oldestHint": "Solicitação mais antiga",
+            "flows": "Fluxos",
+            "flowsHint": "Fluxos distintos aguardando"
+        },
         "title": "Fila de aprovações",
         "subtitle": "Decisões pendentes de humano (HITL). Clique em uma linha para revisar a proposta e decidir.",
         "search": "Buscar por id da solicitação, id do fluxo, descrição...",
@@ -1516,6 +1986,13 @@
             "expires": "Expira"
         },
         "detail": {
+            "subtitle": "Revise o que o fluxo quer fazer e então aprove, edite ou rejeite.",
+            "request": "Solicitação",
+            "requestHint": "De onde vem esta decisão",
+            "proposalHint": "O que o fluxo fará se for aprovado",
+            "proposalEditHint": "Edite o JSON — ele substitui a proposta ao aprovar",
+            "decisionHint": "Registrada com sua identidade e comentário",
+            "comment": "Comentário",
             "heading": "Aprovação {{id}}",
             "tenant": "Tenant",
             "flow": "Fluxo",

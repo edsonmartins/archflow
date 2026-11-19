@@ -1,9 +1,13 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import {
-    Alert, Badge, Button, Card, Code, Group, Stack, Table, Tabs, Text, Title,
+    Alert, Badge, Button, Group, Paper, SimpleGrid, Skeleton, Stack, Tabs, Text, ThemeIcon,
 } from '@mantine/core'
+import {
+    IconAddressBook, IconBroadcast, IconCircleCheck, IconHeadset, IconInbox, IconMessages, IconRefresh,
+    IconMessageCircle, IconPlugConnectedX, IconAlertCircle,
+} from '@tabler/icons-react'
 import {
     linktorInboxApi,
     type LinktorChannel,
@@ -11,9 +15,15 @@ import {
     type LinktorConversation,
 } from '../services/linktor-inbox-api'
 import { ApiError } from '../services/api'
-import { DataTable, clickableRow } from '../components/DataTable'
-import { StatusBadge } from '../components/StatusBadge'
 import { formatInstant } from '../lib/format'
+import { PageHeader } from '../components/PageHeader'
+import { SectionCard } from '../components/SectionCard'
+import { StatCard } from '../components/admin/StatCard'
+import EmptyState from '../components/EmptyState'
+import { VxTable, colunaApagada, colunaDupla, colunaStatus, type VxColumn } from '../components/VTable'
+import { canalDoLinktor } from '../components/linktor/canal'
+
+const statusColor = (s: string) => (s === 'resolved' ? 'green' : s === 'assigned' ? 'blue' : 'yellow')
 
 /**
  * Admin inbox proxying Linktor conversations / contacts / channels.
@@ -51,132 +61,199 @@ export default function LinktorInboxPage() {
 
     useEffect(() => { reload(tab) }, [tab]) // eslint-disable-line react-hooks/exhaustive-deps
 
+    const counts = useMemo(() => {
+        const by = (s: string) => conversations.filter(c => String(c.status ?? 'open') === s).length
+        return { open: by('open'), assigned: by('assigned'), resolved: by('resolved') }
+    }, [conversations])
+
+    const colunasConversas = useMemo((): VxColumn[] => [
+        colunaDupla(
+            { field: 'lastMessagePreview', title: t('linktor.inbox.columns.lastMessage'), width: 'auto', minWidth: 300 },
+            (r) => (typeof r.lastMessagePreview === 'string' && r.lastMessagePreview ? r.lastMessagePreview : '—'),
+            (r) => String(r.id ?? '').slice(0, 10),
+        ),
+        colunaStatus(
+            { field: 'status', title: t('linktor.inbox.columns.status'), width: 150,
+              fieldFormat: (r) => {
+                  const s = String(r.status ?? '') || 'open'
+                  return t(`linktor.status.${s}`, { defaultValue: s })
+              } },
+            (r) => statusColor(String(r.status ?? '')),
+        ),
+        colunaStatus(
+            { field: 'channelType', title: t('linktor.inbox.columns.channel'), width: 160,
+              fieldFormat: (r) => String(r.channelType ?? r.channelId ?? '') },
+            (r) => canalDoLinktor(String(r.channelType ?? '')).color,
+        ),
+        colunaApagada({ field: 'updatedAt', title: t('linktor.inbox.columns.updated'), width: 210,
+          fieldFormat: (r) => formatInstant(String(r.updatedAt ?? r.createdAt ?? ''), locale) }),
+    ], [t, locale])
+
+    const colunasContatos = useMemo((): VxColumn[] => [
+        colunaDupla(
+            { field: 'name', title: t('linktor.inbox.columns.name'), width: 'auto', minWidth: 260 },
+            (r) => String(r.name ?? '—'),
+            (r) => (r.email ? String(r.email) : undefined),
+        ),
+        colunaApagada({ field: 'phone', title: t('linktor.inbox.columns.phone'), width: 180,
+          fieldFormat: (r) => String(r.phone ?? '—') }),
+        { field: 'tags', title: t('linktor.inbox.columns.tags'), width: 260,
+          fieldFormat: (r) => (Array.isArray(r.tags) ? (r.tags as unknown[]).map(String).join(' · ') : '') },
+    ], [t])
+
+    const conversationsLabel = t('linktor.inbox.tabs.conversations', { count: conversations.length })
+
     return (
-        <Stack gap="md" p="md" data-testid="linktor-inbox">
-            <Group justify="space-between">
-                <Title order={2}>{t('linktor.inbox.title')}</Title>
-                <Button variant="default" onClick={() => reload(tab)}>{t('common.refresh')}</Button>
-            </Group>
+        <Stack gap="lg" p="md" data-testid="linktor-inbox">
+            <PageHeader
+                icon={IconInbox}
+                accent="teal"
+                title={t('linktor.inbox.title')}
+                subtitle={t('linktor.inbox.subtitle')}
+                actions={
+                    <Button variant="default" leftSection={<IconRefresh size={16} />} onClick={() => reload(tab)}>
+                        {t('common.refresh')}
+                    </Button>
+                }
+            />
 
             {error && (
-                <Alert color="red" title={t('linktor.config.title')} data-testid="linktor-inbox-error">
-                    {error}
-                </Alert>
+                // O backend responde `{"error":"..."}`: mostra só a frase. Integração desligada não é falha —
+                // é um aviso neutro com o atalho para ligá-la.
+                linktorDesligado(error) ? (
+                    <Alert color="blue" variant="light" icon={<IconPlugConnectedX size={18} />}
+                           title={t('linktor.inbox.disabledTitle')} data-testid="linktor-inbox-error">
+                        <Group justify="space-between" wrap="wrap" gap="sm">
+                            <Text size="sm">{t('linktor.inbox.disabledBody')}</Text>
+                            <Button size="xs" variant="light" onClick={() => navigate('/admin/linktor')}>
+                                {t('linktor.inbox.openConfig')}
+                            </Button>
+                        </Group>
+                    </Alert>
+                ) : (
+                    <Alert color="red" variant="light" icon={<IconAlertCircle size={18} />}
+                           title={t('linktor.config.title')} data-testid="linktor-inbox-error">
+                        {mensagemDoErro(error)}
+                    </Alert>
+                )
             )}
+
+            <SimpleGrid cols={{ base: 1, xs: 2, md: 4 }} spacing="md">
+                <StatCard label={t('linktor.inbox.stats.total')} value={conversations.length}
+                          icon={IconMessages} accent="teal" hint={t('linktor.inbox.stats.totalHint')} />
+                <StatCard label={t('linktor.inbox.stats.open')} value={counts.open}
+                          color={counts.open > 0 ? 'orange' : undefined}
+                          icon={IconMessageCircle} accent="amber" hint={t('linktor.inbox.stats.openHint')} />
+                <StatCard label={t('linktor.inbox.stats.assigned')} value={counts.assigned}
+                          icon={IconHeadset} accent="blue" hint={t('linktor.inbox.stats.assignedHint')} />
+                <StatCard label={t('linktor.inbox.stats.resolved')} value={counts.resolved}
+                          icon={IconCircleCheck} accent="green" hint={t('linktor.inbox.stats.resolvedHint')} />
+            </SimpleGrid>
 
             <Tabs value={tab} onChange={v => setTab((v as typeof tab) ?? 'conversations')}>
                 <Tabs.List>
-                    <Tabs.Tab value="conversations">{t('linktor.inbox.tabs.conversations', { count: conversations.length })}</Tabs.Tab>
-                    <Tabs.Tab value="contacts">{t('linktor.inbox.tabs.contacts')}</Tabs.Tab>
-                    <Tabs.Tab value="channels">{t('linktor.inbox.tabs.channels')}</Tabs.Tab>
+                    <Tabs.Tab value="conversations" leftSection={<IconMessages size={15} />}>{conversationsLabel}</Tabs.Tab>
+                    <Tabs.Tab value="contacts" leftSection={<IconAddressBook size={15} />}>{t('linktor.inbox.tabs.contacts')}</Tabs.Tab>
+                    <Tabs.Tab value="channels" leftSection={<IconBroadcast size={15} />}>{t('linktor.inbox.tabs.channels')}</Tabs.Tab>
                 </Tabs.List>
             </Tabs>
 
             {tab === 'conversations' && (
-                <DataTable
-                    columns={5}
-                    minWidth={760}
-                    loading={loading}
-                    isEmpty={!error && conversations.length === 0}
-                    emptyMessage={t('linktor.inbox.emptyConversations')}
-                    head={
-                        <Table.Tr>
-                            <Table.Th>{t('linktor.inbox.columns.id')}</Table.Th>
-                            <Table.Th>{t('linktor.inbox.columns.status')}</Table.Th>
-                            <Table.Th>{t('linktor.inbox.columns.channel')}</Table.Th>
-                            <Table.Th>{t('linktor.inbox.columns.lastMessage')}</Table.Th>
-                            <Table.Th>{t('linktor.inbox.columns.updated')}</Table.Th>
-                        </Table.Tr>
-                    }
-                >
-                    {conversations.map(c => {
-                        const id     = String(c.id ?? '')
-                        const status = String(c.status ?? '')
-                        const lastAt = String(c.updatedAt ?? c.createdAt ?? '')
-                        const channel = String(c.channelType ?? c.channelId ?? '')
-                        const preview = typeof c.lastMessagePreview === 'string' ? c.lastMessagePreview : ''
-                        return (
-                            <Table.Tr
-                                key={id}
-                                data-testid={`lk-conv-${id}`}
-                                {...clickableRow(() => navigate(`/admin/linktor/inbox/${encodeURIComponent(id)}`))}
-                            >
-                                <Table.Td><Code>{id.slice(0, 10)}</Code></Table.Td>
-                                <Table.Td>
-                                    <StatusBadge
-                                        status={status === 'resolved' ? 'closed' : status === 'assigned' ? 'active' : 'pending'}
-                                        color={status === 'resolved' ? 'green' : status === 'assigned' ? 'blue' : 'yellow'}
-                                        label={t(`linktor.status.${status || 'open'}`, { defaultValue: status || 'open' })}
-                                    />
-                                </Table.Td>
-                                <Table.Td><Text size="sm">{channel}</Text></Table.Td>
-                                <Table.Td>
-                                    <Text size="sm" lineClamp={1}>{preview}</Text>
-                                </Table.Td>
-                                <Table.Td><Text size="sm">{formatInstant(lastAt, locale)}</Text></Table.Td>
-                            </Table.Tr>
-                        )
-                    })}
-                </DataTable>
+                <SectionCard flush icon={IconMessages} accent="teal"
+                             title={t('linktor.inbox.conversationsTitle')}
+                             description={t('linktor.inbox.conversationsHint')}>
+                    <VxTable
+                        legenda={t('linktor.inbox.conversationsTitle')}
+                        records={error ? [] : conversations}
+                        columns={colunasConversas}
+                        rowHeight={58}
+                        loading={loading}
+                        onRowClick={(r) => navigate(`/admin/linktor/inbox/${encodeURIComponent(String(r.id ?? ''))}`)}
+                        emptyMessage={t('linktor.inbox.emptyConversations')}
+                        emptyDescription={t('linktor.inbox.emptyConversationsHint')}
+                        emptyIcon={<IconMessages />}
+                        emptyAccent="teal"
+                        testid="lk-conversations"
+                        rowTestId={(r) => `lk-conv-${String(r.id ?? '')}`}
+                    />
+                </SectionCard>
             )}
 
             {tab === 'contacts' && (
-                <DataTable
-                    columns={4}
-                    minWidth={620}
-                    loading={loading}
-                    isEmpty={!error && contacts.length === 0}
-                    emptyMessage={t('linktor.inbox.emptyContacts')}
-                    head={
-                        <Table.Tr>
-                            <Table.Th>{t('linktor.inbox.columns.name')}</Table.Th>
-                            <Table.Th>{t('linktor.inbox.columns.email')}</Table.Th>
-                            <Table.Th>{t('linktor.inbox.columns.phone')}</Table.Th>
-                            <Table.Th>{t('linktor.inbox.columns.tags')}</Table.Th>
-                        </Table.Tr>
-                    }
-                >
-                    {contacts.map(ct => {
-                        const id = String(ct.id ?? '')
-                        const tags = Array.isArray(ct.tags) ? (ct.tags as unknown[]).map(String) : []
-                        return (
-                            <Table.Tr key={id}>
-                                <Table.Td>{String(ct.name ?? '')}</Table.Td>
-                                <Table.Td>{String(ct.email ?? '')}</Table.Td>
-                                <Table.Td>{String(ct.phone ?? '')}</Table.Td>
-                                <Table.Td>
-                                    {tags.map(tag => (
-                                        <Badge key={tag} size="sm" variant="outline" mr={4}>{tag}</Badge>
-                                    ))}
-                                </Table.Td>
-                            </Table.Tr>
-                        )
-                    })}
-                </DataTable>
+                <SectionCard flush icon={IconAddressBook} accent="teal"
+                             title={t('linktor.inbox.tabs.contacts')}
+                             description={t('linktor.inbox.contactsHint')}>
+                    <VxTable
+                        legenda={t('linktor.inbox.tabs.contacts')}
+                        records={error ? [] : contacts}
+                        columns={colunasContatos}
+                        rowHeight={58}
+                        loading={loading}
+                        emptyMessage={t('linktor.inbox.emptyContacts')}
+                        emptyIcon={<IconAddressBook />}
+                        emptyAccent="teal"
+                        testid="lk-contacts"
+                    />
+                </SectionCard>
             )}
 
             {tab === 'channels' && (
-                <Stack gap="sm">
-                    {loading && <Text c="dimmed">{t('common.loading')}</Text>}
-                    {!loading && channels.length === 0 && <Text c="dimmed">{t('linktor.inbox.emptyChannels')}</Text>}
-                    {!loading && channels.map(ch => {
-                        const id = String(ch.id ?? '')
-                        return (
-                            <Card key={id} withBorder>
-                                <Group justify="space-between">
-                                    <Stack gap={2}>
-                                        <Group gap="xs">
-                                            <Text fw={600}>{String(ch.name ?? id)}</Text>
-                                            <Badge variant="light">{String(ch.type ?? '')}</Badge>
-                                        </Group>
-                                        <Text size="xs" c="dimmed">{String(ch.status ?? '')}</Text>
-                                    </Stack>
-                                </Group>
-                            </Card>
-                        )
-                    })}
-                </Stack>
+                loading ? (
+                    <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="md">
+                        {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} height={84} radius="md" />)}
+                    </SimpleGrid>
+                ) : channels.length === 0 ? (
+                    <Paper withBorder>
+                        <EmptyState icon={<IconBroadcast />} accent="teal" title={t('linktor.inbox.emptyChannels')}
+                                    description={t('linktor.inbox.emptyChannelsHint')} />
+                    </Paper>
+                ) : (
+                    <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="md">
+                        {channels.map(ch => {
+                            const id = String(ch.id ?? '')
+                            const type = String(ch.type ?? '')
+                            const status = String(ch.status ?? '')
+                            const { icon: Icon, color } = canalDoLinktor(type)
+                            const up = /active|connected|online|enabled/i.test(status)
+                            return (
+                                <Paper key={id} withBorder p="md">
+                                    <Group gap="md" wrap="nowrap">
+                                        <ThemeIcon size={42} radius="md" variant="light" color={color} aria-hidden>
+                                            <Icon size={22} />
+                                        </ThemeIcon>
+                                        <Stack gap={4} style={{ minWidth: 0, flex: 1 }}>
+                                            <Text fw={600} truncate>{String(ch.name ?? id)}</Text>
+                                            <Group gap={6}>
+                                                {type && <Badge size="xs" variant="light" color={color} radius="sm">{type}</Badge>}
+                                                {status && (
+                                                    <Badge size="xs" variant="dot" color={up ? 'green' : 'gray'} radius="sm">
+                                                        {status}
+                                                    </Badge>
+                                                )}
+                                            </Group>
+                                        </Stack>
+                                    </Group>
+                                </Paper>
+                            )
+                        })}
+                    </SimpleGrid>
+                )
             )}
         </Stack>
     )
+}
+
+/** O backend devolve o erro como JSON (`{"error":"..."}`); fica só a frase. */
+function mensagemDoErro(bruto: string): string {
+    try {
+        const corpo = JSON.parse(bruto) as { error?: unknown; message?: unknown }
+        const msg = corpo.error ?? corpo.message
+        return typeof msg === 'string' && msg ? msg : bruto
+    } catch {
+        return bruto
+    }
+}
+
+function linktorDesligado(bruto: string): boolean {
+    return /disabled/i.test(mensagemDoErro(bruto))
 }

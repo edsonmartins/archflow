@@ -602,15 +602,27 @@ export function FlowCanvas({
         fitView
         fitViewOptions={{ padding: 0.2 }}
         proOptions={{ hideAttribution: true }}
-        style={{ background: 'var(--color-background-tertiary)' }}
+        style={{ background: 'var(--canvas-bg)' }}
       >
         {showGrid && (
-          <Background
-            variant={BackgroundVariant.Dots}
-            gap={20}
-            size={1}
-            color="var(--color-border-secondary)"
-          />
+          <>
+            {/* Duas camadas: pontos finos a cada 20 px (grade de alinhamento) e
+                pontos maiores a cada 100 px (ritmo). Cores em App.css (--canvas-*). */}
+            <Background
+              id="af-grid-minor"
+              variant={BackgroundVariant.Dots}
+              gap={20}
+              size={1.8}
+              color="var(--canvas-dot)"
+            />
+            <Background
+              id="af-grid-major"
+              variant={BackgroundVariant.Dots}
+              gap={100}
+              size={3.2}
+              color="var(--canvas-dot-major)"
+            />
+          </>
         )}
 
         {!readonly && (

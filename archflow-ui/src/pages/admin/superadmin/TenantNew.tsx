@@ -1,13 +1,14 @@
 import {
-  TextInput, Select, NumberInput, Button, Paper, Stack, Group, Divider, Text, Alert,
+  TextInput, Select, NumberInput, Button, Stack, Group, Divider, Text, Alert, SimpleGrid, Grid,
 } from '@mantine/core'
-import { IconAlertCircle } from '@tabler/icons-react'
+import { IconAlertCircle, IconBuildingSkyscraper, IconId, IconGauge, IconListCheck, IconCheck } from '@tabler/icons-react'
 import { notifications } from '@mantine/notifications'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { tenantApi } from '../../../services/admin-api'
 import { PageHeader } from '../../../components/PageHeader'
+import { SectionCard } from '../../../components/SectionCard'
 
 export default function TenantNew() {
   const navigate = useNavigate()
@@ -35,6 +36,7 @@ export default function TenantNew() {
         tenantId,
         adminEmail: email,
         sector,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         plan: plan as any,
         limits: {
           executionsPerDay: execLimit,
@@ -52,12 +54,23 @@ export default function TenantNew() {
     }
   }
 
+  const planOptions = [
+    { value: 'trial',        label: t('admin.superadmin.tenantNew.plans.trial') },
+    { value: 'professional', label: t('admin.superadmin.tenantNew.plans.professional') },
+    { value: 'enterprise',   label: t('admin.superadmin.tenantNew.plans.enterprise') },
+    { value: 'internal',     label: t('admin.superadmin.tenantNew.plans.internal') },
+  ]
+  const planLabel = planOptions.find((option) => option.value === plan)?.label
+
   return (
-    <Stack gap="md">
+    <Stack gap="lg" p="md">
       <PageHeader
+        icon={IconBuildingSkyscraper}
+        accent="blue"
         title={t('admin.superadmin.tenantNew.title')}
+        subtitle={t('admin.superadmin.tenantNew.subtitle')}
         backTo="/admin/tenants"
-        backLabel={t('admin.superadmin.tenantNew.back')}
+        backLabel={t('common.back')}
         breadcrumbs={[
           { label: t('admin.layout.tenants'), to: '/admin/tenants' },
           { label: t('admin.superadmin.tenantNew.title') },
@@ -70,72 +83,79 @@ export default function TenantNew() {
         </Alert>
       )}
 
-      <div style={{ display: 'flex', gap: 20 }}>
-        <Stack gap="md" style={{ flex: 1 }}>
-          <Paper withBorder p="lg" radius="lg">
-            <Text fw={600} size="sm" mb="md">{t('admin.superadmin.tenantNew.identity')}</Text>
-            <Stack gap="sm">
-              <TextInput label={t('admin.superadmin.tenantNew.form.name')} required value={name}
-                onChange={e => { setName(e.currentTarget.value); setTenantId(e.currentTarget.value.toLowerCase().trim().replace(/\s+/g, '_')) }} />
-              <TextInput label={t('admin.superadmin.tenantNew.form.id')} required value={tenantId} onChange={e => setTenantId(e.currentTarget.value)}
-                description={t('admin.superadmin.tenantNew.form.idHint')} styles={{ input: { fontFamily: 'var(--font-mono)', fontSize: 12 } }} />
-              <TextInput label={t('admin.superadmin.tenantNew.form.email')} required value={email} onChange={e => setEmail(e.currentTarget.value)}
-                description={t('admin.superadmin.tenantNew.form.emailHint')} />
-              <Select label={t('admin.superadmin.tenantNew.form.sector')} data={['Food Distribution', 'Legal', 'Healthcare', 'Fintech', 'Other']}
-                value={sector} onChange={setSector} />
-            </Stack>
-          </Paper>
+      <Grid gap="lg">
+        <Grid.Col span={{ base: 12, md: 8 }}>
+          <Stack gap="lg">
+            <SectionCard icon={IconId} accent="blue"
+              title={t('admin.superadmin.tenantNew.identity')}
+              description={t('admin.superadmin.tenantNew.identityHint')}>
+              <Stack gap="sm">
+                <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">
+                  <TextInput size="sm" label={t('admin.superadmin.tenantNew.form.name')} required value={name}
+                    onChange={e => { setName(e.currentTarget.value); setTenantId(e.currentTarget.value.toLowerCase().trim().replace(/\s+/g, '_')) }} />
+                  <TextInput size="sm" label={t('admin.superadmin.tenantNew.form.id')} required value={tenantId} onChange={e => setTenantId(e.currentTarget.value)}
+                    description={t('admin.superadmin.tenantNew.form.idHint')} />
+                </SimpleGrid>
+                <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">
+                  <TextInput size="sm" label={t('admin.superadmin.tenantNew.form.email')} required value={email} onChange={e => setEmail(e.currentTarget.value)}
+                    description={t('admin.superadmin.tenantNew.form.emailHint')} />
+                  <Select size="sm" label={t('admin.superadmin.tenantNew.form.sector')} data={['Food Distribution', 'Legal', 'Healthcare', 'Fintech', 'Other']}
+                    value={sector} onChange={setSector} />
+                </SimpleGrid>
+              </Stack>
+            </SectionCard>
 
-          <Paper withBorder p="lg" radius="lg">
-            <Text fw={600} size="sm" mb="md">{t('admin.superadmin.tenantNew.planLimits')}</Text>
-            <Stack gap="sm">
-              <Select label={t('admin.superadmin.tenantNew.form.plan')} required data={[
-                { value: 'trial',        label: t('admin.superadmin.tenantNew.plans.trial') },
-                { value: 'professional', label: t('admin.superadmin.tenantNew.plans.professional') },
-                { value: 'enterprise',   label: t('admin.superadmin.tenantNew.plans.enterprise') },
-                { value: 'internal',     label: t('admin.superadmin.tenantNew.plans.internal') },
-              ]} value={plan} onChange={setPlan} />
-              <SimpleGrid cols={2}>
-                <NumberInput label={t('admin.superadmin.tenantNew.form.execPerDay')}   value={execLimit}    onChange={v => setExecLimit(Number(v))}    min={1} />
-                <NumberInput label={t('admin.superadmin.tenantNew.form.tokensPerMonth')} value={tokenLimit}    onChange={v => setTokenLimit(Number(v))}   min={1000} step={100000} />
-                <NumberInput label={t('admin.superadmin.tenantNew.form.maxWorkflows')} value={maxWorkflows} onChange={v => setMaxWorkflows(Number(v))} min={1} />
-                <NumberInput label={t('admin.superadmin.tenantNew.form.maxUsers')}     value={maxUsers}     onChange={v => setMaxUsers(Number(v))}     min={1} />
-              </SimpleGrid>
-            </Stack>
-          </Paper>
-        </Stack>
-
-        <Paper withBorder p="lg" radius="lg" w={280} style={{ flexShrink: 0, position: 'sticky', top: 80, alignSelf: 'flex-start' }}>
-          <Text fw={600} size="sm" mb="md">{t('admin.superadmin.tenantNew.summary')}</Text>
-          <Stack gap="xs">
-            <SummaryRow label={t('admin.superadmin.tenantNew.summaryRows.name')}       value={name || '—'} />
-            <SummaryRow label={t('admin.superadmin.tenantNew.summaryRows.id')}         value={tenantId || '—'} mono />
-            <SummaryRow label={t('admin.superadmin.tenantNew.summaryRows.email')}      value={email || '—'} />
-            <SummaryRow label={t('admin.superadmin.tenantNew.summaryRows.plan')}       value={plan || '—'} />
-            <Divider my="xs" />
-            <SummaryRow label={t('admin.superadmin.tenantNew.summaryRows.exec')}       value={String(execLimit)} />
-            <SummaryRow label={t('admin.superadmin.tenantNew.summaryRows.tokensMo')}   value={tokenLimit.toLocaleString(locale)} />
-            <SummaryRow label={t('admin.superadmin.tenantNew.summaryRows.workflows')}  value={String(maxWorkflows)} />
-            <SummaryRow label={t('admin.superadmin.tenantNew.summaryRows.users')}      value={String(maxUsers)} />
+            <SectionCard icon={IconGauge} accent="teal"
+              title={t('admin.superadmin.tenantNew.planLimits')}
+              description={t('admin.superadmin.tenantNew.planLimitsHint')}>
+              <Stack gap="sm">
+                <Select size="sm" label={t('admin.superadmin.tenantNew.form.plan')} required data={planOptions} value={plan} onChange={setPlan} />
+                <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">
+                  <NumberInput size="sm" label={t('admin.superadmin.tenantNew.form.execPerDay')}     value={execLimit}    onChange={v => setExecLimit(Number(v))}    min={1} thousandSeparator />
+                  <NumberInput size="sm" label={t('admin.superadmin.tenantNew.form.tokensPerMonth')} value={tokenLimit}   onChange={v => setTokenLimit(Number(v))}   min={1000} step={100000} thousandSeparator />
+                  <NumberInput size="sm" label={t('admin.superadmin.tenantNew.form.maxWorkflows')}   value={maxWorkflows} onChange={v => setMaxWorkflows(Number(v))} min={1} />
+                  <NumberInput size="sm" label={t('admin.superadmin.tenantNew.form.maxUsers')}       value={maxUsers}     onChange={v => setMaxUsers(Number(v))}     min={1} />
+                </SimpleGrid>
+              </Stack>
+            </SectionCard>
           </Stack>
-          <Button fullWidth mt="lg" onClick={handleCreate} disabled={!name || !email || !sector || !plan} loading={loading}>
-            {t('admin.superadmin.tenantNew.createBtn')}
-          </Button>
-        </Paper>
-      </div>
+        </Grid.Col>
+
+        <Grid.Col span={{ base: 12, md: 4 }}>
+          <SectionCard icon={IconListCheck} accent="slate"
+            title={t('admin.superadmin.tenantNew.summary')}
+            description={t('admin.superadmin.tenantNew.summaryHint')}
+            style={{ position: 'sticky', top: 80 }}>
+            <Stack gap="xs">
+              <SummaryRow label={t('admin.superadmin.tenantNew.summaryRows.name')}       value={name || '—'} />
+              <SummaryRow label={t('admin.superadmin.tenantNew.summaryRows.id')}         value={tenantId || '—'} mono />
+              <SummaryRow label={t('admin.superadmin.tenantNew.summaryRows.email')}      value={email || '—'} />
+              <SummaryRow label={t('admin.superadmin.tenantNew.summaryRows.plan')}       value={planLabel || '—'} />
+              <Divider my={4} />
+              <SummaryRow label={t('admin.superadmin.tenantNew.summaryRows.exec')}       value={execLimit.toLocaleString(locale)} />
+              <SummaryRow label={t('admin.superadmin.tenantNew.summaryRows.tokensMo')}   value={tokenLimit.toLocaleString(locale)} />
+              <SummaryRow label={t('admin.superadmin.tenantNew.summaryRows.workflows')}  value={String(maxWorkflows)} />
+              <SummaryRow label={t('admin.superadmin.tenantNew.summaryRows.users')}      value={String(maxUsers)} />
+            </Stack>
+            <Group justify="flex-end" gap="xs" mt="lg">
+              <Button variant="default" onClick={() => navigate('/admin/tenants')}>{t('common.cancel')}</Button>
+              <Button leftSection={<IconCheck size={16} />} onClick={handleCreate}
+                disabled={!name || !email || !sector || !plan} loading={loading}>
+                {t('admin.superadmin.tenantNew.createBtn')}
+              </Button>
+            </Group>
+          </SectionCard>
+        </Grid.Col>
+      </Grid>
     </Stack>
   )
 }
 
 function SummaryRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
-    <Group justify="space-between">
+    <Group justify="space-between" wrap="nowrap" gap="sm">
       <Text size="xs" c="dimmed">{label}</Text>
-      <Text size="xs" fw={500} ff={mono ? 'monospace' : undefined}>{value}</Text>
+      <Text size="xs" fw={600} ff={mono ? 'monospace' : undefined} truncate style={{ minWidth: 0 }}>{value}</Text>
     </Group>
   )
-}
-
-function SimpleGrid({ cols, children }: { cols: number; children: React.ReactNode }) {
-  return <div style={{ display: 'grid', gridTemplateColumns: `repeat(${cols}, 1fr)`, gap: 12 }}>{children}</div>
 }

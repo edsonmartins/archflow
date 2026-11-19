@@ -113,7 +113,7 @@ function NodeHeader({ nodeData }: { nodeData: FlowNodeData }) {
   return (
     <div style={{ padding: '12px 16px', borderBottom: '0.5px solid var(--color-border-tertiary)', display: 'flex', alignItems: 'center', gap: 10 }}>
       <div style={{ width: 32, height: 32, borderRadius: 8, background: cat.colorLight, border: `1px solid ${cat.border}`, color: cat.colorDark, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-        <NodeIcon componentId={nodeData.nodeType} size={16} />
+        <NodeIcon componentId={nodeData.nodeType} size={16} imageSize={28} />
       </div>
       <div>
         <div data-testid="property-panel-node-title" style={{ fontSize: 13, fontWeight: 500, color: 'var(--color-text-primary)' }}>{nodeData.label}</div>

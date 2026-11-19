@@ -1,16 +1,22 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
-    Alert, Button, Code, Group, Modal, Select, Stack, Switch,
-    Table, Textarea, TextInput, Title,
+    Alert, Button, Group, Modal, Select, SimpleGrid, Stack, Switch,
+    Textarea, TextInput,
 } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
+import {
+    IconAlertTriangle, IconClockPause, IconClockPlay, IconInfoCircle, IconPlayerPlay, IconPlus, IconRefresh,
+} from '@tabler/icons-react'
 import { triggersApi, type ScheduledTrigger } from '../services/triggers-api'
 import { useCatalog } from '../components/PropertyPanel/useCatalog'
 import { ApiError } from '../services/api'
 import { confirmAction } from '../lib/confirm'
-import { DataTable } from '../components/DataTable'
-import { StatusBadge } from '../components/StatusBadge'
+import { PageHeader } from '../components/PageHeader'
+import { SectionCard } from '../components/SectionCard'
+import { StatCard } from '../components/admin/StatCard'
+import { VxTable, colunaAcoes, colunaApagada, colunaDupla, colunaStatus, type VxColumn } from '../components/VTable'
+import { formatInstant } from '../lib/format'
 
 /**
  * Cron-scheduled trigger admin surface.
@@ -21,7 +27,8 @@ import { StatusBadge } from '../components/StatusBadge'
  * server-side before the trigger is materialised.</p>
  */
 export default function ScheduledTriggersPage() {
-    const { t } = useTranslation()
+    const { t, i18n } = useTranslation()
+    const locale = i18n.resolvedLanguage ?? i18n.language
     const [items, setItems]   = useState<ScheduledTrigger[]>([])
     const [loading, setL]     = useState(true)
     const [error, setError]   = useState<string | null>(null)
@@ -31,8 +38,8 @@ export default function ScheduledTriggersPage() {
     const catalog = useCatalog()
 
     const agentOptions = [
-        ...catalog.agents.map(a => ({ value: a.id, label: `${a.displayName} (agent)` })),
-        ...catalog.assistants.map(a => ({ value: a.id, label: `${a.displayName} (assistant)` })),
+        ...catalog.agents.map(a => ({ value: a.id, label: `${a.displayName} (${t('triggers.agentLabel')})` })),
+        ...catalog.assistants.map(a => ({ value: a.id, label: `${a.displayName} (${t('triggers.assistantLabel')})` })),
     ]
 
     const reload = async () => {
@@ -46,16 +53,16 @@ export default function ScheduledTriggersPage() {
     useEffect(() => { reload() }, [])
 
     const openCreate = () => { setDraft(blankDraft); setEdit({} as ScheduledTrigger) }
-    const openEdit = (t: ScheduledTrigger) => {
+    const openEdit = (trig: ScheduledTrigger) => {
         setDraft({
-            name: t.name,
-            cronExpression: t.cronExpression,
-            tenantId: t.tenantId,
-            agentId: t.agentId,
-            payloadJson: JSON.stringify(t.payload ?? {}, null, 2),
-            enabled: t.enabled,
+            name: trig.name,
+            cronExpression: trig.cronExpression,
+            tenantId: trig.tenantId,
+            agentId: trig.agentId,
+            payloadJson: JSON.stringify(trig.payload ?? {}, null, 2),
+            enabled: trig.enabled,
         })
-        setEdit(t)
+        setEdit(trig)
     }
 
     const save = async () => {
@@ -118,93 +125,135 @@ export default function ScheduledTriggersPage() {
         }
     }
 
-    return (
-        <Stack gap="md" p="md" data-testid="triggers-page">
-            <Group justify="space-between">
-                <Title order={2}>{t('triggers.title')}</Title>
-                <Group>
-                    <Button variant="default" onClick={reload}>{t('common.refresh')}</Button>
-                    <Button onClick={openCreate} data-testid="trigger-new">{t('triggers.newTrigger')}</Button>
-                </Group>
-            </Group>
+    const columns = useMemo((): VxColumn[] => [
+        colunaDupla(
+            { field: 'name', title: t('triggers.table.name'), width: 'auto', minWidth: 220 },
+            (r) => String(r.name ?? ''),
+            (r) => String(r.id ?? ''),
+        ),
+        { field: 'cronExpression', title: t('triggers.table.cron'), width: 140,
+          style: { fontWeight: 600 } },
+        colunaApagada({ field: 'tenantId', title: t('triggers.table.tenant'), width: 130 }),
+        { field: 'agentId', title: t('triggers.table.agent'), width: 190 },
+        colunaStatus(
+            { field: 'enabled', title: t('triggers.table.status'), width: 120,
+              fieldFormat: (r) => (r.enabled ? t('triggers.status.enabled') : t('triggers.status.paused')) },
+            (r) => (r.enabled ? 'green' : 'gray'),
+        ),
+        colunaApagada({ field: 'lastFiredAt', title: t('triggers.table.lastFired'), width: 190,
+          fieldFormat: (r) => formatInstant(r.lastFiredAt as string | null, locale) }),
+        colunaAcoes([
+            { nome: 'fire', icone: 'play', rotulo: t('triggers.fireNow'), cor: 'violet' },
+            { nome: 'edit', icone: 'pencil', rotulo: t('triggers.edit') },
+            { nome: 'delete', icone: 'trash', rotulo: t('triggers.delete'), cor: 'red' },
+        ]),
+    ], [t, locale])
 
-            <Alert color="blue" variant="light">
+    const enabledCount = items.filter(i => i.enabled).length
+    const failingCount = items.filter(i => i.lastError).length
+    const firstLoad = loading && items.length === 0
+
+    return (
+        <Stack gap="lg" p="md" data-testid="triggers-page">
+            <PageHeader
+                icon={IconClockPlay}
+                accent="slate"
+                title={t('triggers.title')}
+                subtitle={t('triggers.subtitle')}
+                actions={
+                    <>
+                        <Button variant="default" leftSection={<IconRefresh size={16} />} onClick={reload}>
+                            {t('common.refresh')}
+                        </Button>
+                        <Button leftSection={<IconPlus size={16} />} onClick={openCreate} data-testid="trigger-new">
+                            {t('triggers.newTrigger')}
+                        </Button>
+                    </>
+                }
+            />
+
+            <SimpleGrid cols={{ base: 1, xs: 2, md: 4 }} spacing="md">
+                <StatCard label={t('triggers.stats.total')} value={firstLoad ? '—' : items.length}
+                          icon={IconClockPlay} accent="blue" hint={t('triggers.stats.totalHint')} />
+                <StatCard label={t('triggers.stats.enabled')} value={firstLoad ? '—' : enabledCount}
+                          icon={IconPlayerPlay} accent="teal" hint={t('triggers.stats.enabledHint')} />
+                <StatCard label={t('triggers.stats.paused')} value={firstLoad ? '—' : items.length - enabledCount}
+                          icon={IconClockPause} accent="slate" hint={t('triggers.stats.pausedHint')} />
+                <StatCard label={t('triggers.stats.failing')} value={firstLoad ? '—' : failingCount}
+                          color={failingCount > 0 ? 'red' : undefined}
+                          icon={IconAlertTriangle} accent="rose" hint={t('triggers.stats.failingHint')} />
+            </SimpleGrid>
+
+            <SectionCard
+                flush
+                icon={IconClockPlay}
+                accent="slate"
+                title={t('triggers.listTitle')}
+                description={t('triggers.listHint')}
+            >
+                <VxTable
+                    legenda={t('triggers.listTitle')}
+                    records={items as unknown as Record<string, unknown>[]}
+                    columns={columns}
+                    rowHeight={58}
+                    rightFrozenColCount={1}
+                    loading={loading}
+                    error={error}
+                    onRetry={reload}
+                    onRowClick={(r) => openEdit(r as unknown as ScheduledTrigger)}
+                    onIconClick={(nome, r) => {
+                        const trig = r as unknown as ScheduledTrigger
+                        if (nome === 'fire') fire(trig)
+                        else if (nome === 'edit') openEdit(trig)
+                        else if (nome === 'delete') remove(trig)
+                    }}
+                    emptyMessage={t('triggers.empty')}
+                    emptyDescription={t('triggers.emptyHint')}
+                    emptyIcon={<IconClockPlay />}
+                    emptyAccent="slate"
+                    emptyAction={
+                        <Button variant="light" size="xs" leftSection={<IconPlus size={14} />} onClick={openCreate}>
+                            {t('triggers.newTrigger')}
+                        </Button>
+                    }
+                    testid="triggers-table"
+                    rowTestId={(r) => `trigger-${r.id}`}
+                />
+            </SectionCard>
+
+            <Alert color="blue" variant="light" icon={<IconInfoCircle size={16} />}>
                 {t('triggers.info').split(/<code>|<\/code>/).map((seg, i) =>
                     i % 2 === 1 ? <code key={i}>{seg}</code> : <span key={i}>{seg}</span>)}
             </Alert>
 
-            <DataTable
-                columns={7}
-                minWidth={860}
-                loading={loading}
-                error={error}
-                onRetry={reload}
-                isEmpty={items.length === 0}
-                emptyMessage={t('triggers.empty')}
-                head={
-                    <Table.Tr>
-                        <Table.Th>{t('triggers.table.name')}</Table.Th>
-                        <Table.Th>{t('triggers.table.cron')}</Table.Th>
-                        <Table.Th>{t('triggers.table.tenant')}</Table.Th>
-                        <Table.Th>{t('triggers.table.agent')}</Table.Th>
-                        <Table.Th>{t('triggers.table.status')}</Table.Th>
-                        <Table.Th>{t('triggers.table.lastFired')}</Table.Th>
-                        <Table.Th />
-                    </Table.Tr>
-                }
-            >
-                {items.map(trig => (
-                    <Table.Tr key={trig.id} data-testid={`trigger-${trig.id}`}>
-                        <Table.Td>{trig.name}</Table.Td>
-                        <Table.Td><Code>{trig.cronExpression}</Code></Table.Td>
-                        <Table.Td>{trig.tenantId}</Table.Td>
-                        <Table.Td>{trig.agentId}</Table.Td>
-                        <Table.Td>
-                            <StatusBadge
-                                status={trig.enabled ? 'enabled' : 'paused'}
-                                color={trig.enabled ? 'green' : 'gray'}
-                                label={trig.enabled ? t('triggers.status.enabled') : t('triggers.status.paused')}
-                            />
-                        </Table.Td>
-                        <Table.Td>{trig.lastFiredAt ?? '—'}</Table.Td>
-                        <Table.Td>
-                            <Group gap={4} wrap="nowrap">
-                                <Button size="xs" variant="light"
-                                        onClick={() => fire(trig)}>{t('triggers.fireNow')}</Button>
-                                <Button size="xs" variant="default"
-                                        onClick={() => openEdit(trig)}>{t('triggers.edit')}</Button>
-                                <Button size="xs" color="red" variant="outline"
-                                        onClick={() => remove(trig)}>{t('triggers.delete')}</Button>
-                            </Group>
-                        </Table.Td>
-                    </Table.Tr>
-                ))}
-            </DataTable>
-
             <Modal opened={editing !== null} onClose={() => setEdit(null)}
                    title={editing?.id ? t('triggers.editTitle') : t('triggers.newTitle')}
                    size="lg" data-testid="trigger-modal">
-                <Stack>
-                    <TextInput label={t('triggers.name')} value={draft.name}
+                <Stack gap="sm">
+                    <TextInput size="sm" label={t('triggers.name')} value={draft.name}
                                onChange={e => setDraft({ ...draft, name: e.currentTarget.value })}
                                data-testid="trigger-name" />
-                    <TextInput label={t('triggers.cron')}
-                               value={draft.cronExpression}
-                               onChange={e => setDraft({ ...draft, cronExpression: e.currentTarget.value })}
-                               placeholder="0 0 2 * * ?"
-                               description={t('triggers.cronHint')}
-                               data-testid="trigger-cron" />
-                    <TextInput label={t('triggers.tenant')}
-                               value={draft.tenantId}
-                               onChange={e => setDraft({ ...draft, tenantId: e.currentTarget.value })}
-                               placeholder="tenant_demo" />
-                    <Select label={t('triggers.agent')}
+                    <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">
+                        <TextInput size="sm" label={t('triggers.cron')}
+                                   value={draft.cronExpression}
+                                   onChange={e => setDraft({ ...draft, cronExpression: e.currentTarget.value })}
+                                   placeholder="0 0 2 * * ?"
+                                   description={t('triggers.cronHint')}
+                                   styles={{ input: { fontFamily: 'var(--font-mono)' } }}
+                                   data-testid="trigger-cron" />
+                        <TextInput size="sm" label={t('triggers.tenant')}
+                                   value={draft.tenantId}
+                                   onChange={e => setDraft({ ...draft, tenantId: e.currentTarget.value })}
+                                   description={t('triggers.tenantHint')}
+                                   placeholder="tenant_demo" />
+                    </SimpleGrid>
+                    <Select size="sm" label={t('triggers.agent')}
                             value={draft.agentId || null}
                             onChange={v => setDraft({ ...draft, agentId: v ?? '' })}
                             data={agentOptions}
                             searchable
                             data-testid="trigger-agent" />
-                    <Textarea label={t('triggers.payload')}
+                    <Textarea size="sm" label={t('triggers.payload')}
                               value={draft.payloadJson}
                               onChange={e => setDraft({ ...draft, payloadJson: e.currentTarget.value })}
                               autosize minRows={3}
@@ -212,7 +261,7 @@ export default function ScheduledTriggersPage() {
                     <Switch label={t('triggers.enabled')}
                             checked={draft.enabled}
                             onChange={e => setDraft({ ...draft, enabled: e.currentTarget.checked })} />
-                    <Group justify="flex-end">
+                    <Group justify="flex-end" mt="xs">
                         <Button variant="default" onClick={() => setEdit(null)}>{t('common.cancel')}</Button>
                         <Button onClick={save} data-testid="trigger-save"
                                 disabled={!draft.name.trim() || !draft.cronExpression.trim()

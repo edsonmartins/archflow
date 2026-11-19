@@ -3,7 +3,7 @@ import { Handle, Position } from '@xyflow/react'
 import { useMantineColorScheme } from '@mantine/core'
 import { IconLoader2, IconCheck, IconX, IconMinus } from '@tabler/icons-react'
 import { NODE_CATEGORIES, EXECUTION_STATUS_COLORS } from '../constants'
-import { NodeIcon } from '../nodeIcons'
+import { NodeIcon, hasNodeImage } from '../nodeIcons'
 import type { FlowNodeData } from '../types'
 
 /**
@@ -203,7 +203,7 @@ export const ShapedNode = memo(function ShapedNode({
             ? `0 0 0 4px ${cat.color}22, 0 6px 18px ${palette.shadowColor}`
             : `0 2px 8px ${palette.shadowColorSub}`,
         overflow:     'hidden',
-        fontFamily:   "'DM Sans', 'Inter', system-ui, sans-serif",
+        fontFamily:   'var(--font-sans)',
         userSelect:   'none',
         cursor:       'pointer',
         transition:   'border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease',
@@ -256,7 +256,16 @@ export const ShapedNode = memo(function ShapedNode({
             Tabler icon. No emojis here — every icon renders as proper
             SVG and scales with zoom. */}
         <div
-          style={{
+          data-testid="node-icon-badge"
+          style={hasNodeImage(data.componentId) ? {
+            // Arte própria: já tem forma e cor — sem o degradê por trás.
+            width:          34,
+            height:         34,
+            display:        'flex',
+            alignItems:     'center',
+            justifyContent: 'center',
+            flexShrink:     0,
+          } : {
             width:          34,
             height:         34,
             borderRadius:   category === 'integration' ? '50%' : 9,
@@ -270,7 +279,7 @@ export const ShapedNode = memo(function ShapedNode({
             boxShadow:      `0 3px 8px ${cat.color}55, inset 0 1px 0 rgba(255,255,255,0.25)`,
           }}
         >
-          <NodeIcon componentId={data.componentId} size={18} stroke={2} />
+          <NodeIcon componentId={data.componentId} size={18} stroke={2} imageSize={34} />
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div
@@ -290,7 +299,7 @@ export const ShapedNode = memo(function ShapedNode({
             style={{
               fontSize:      10,
               color:         palette.subtitle,
-              fontFamily:    "'DM Mono', ui-monospace, 'SF Mono', Menlo, monospace",
+              fontFamily:    'var(--font-mono)',
               marginTop:     2,
               letterSpacing: 0.4,
               textTransform: 'uppercase',
@@ -329,7 +338,7 @@ export const ShapedNode = memo(function ShapedNode({
                 color:        palette.chipText,
                 fontSize:     10,
                 fontWeight:   500,
-                fontFamily:   "'DM Mono', ui-monospace, monospace",
+                fontFamily:   'var(--font-mono)',
                 maxWidth:     100,
                 overflow:     'hidden',
                 textOverflow: 'ellipsis',

@@ -2,24 +2,15 @@ import { useEffect, useMemo, useState } from 'react';
 import { useDebouncedValue } from '@mantine/hooks';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import {
-    Badge,
-    Button,
-    Group,
-    Select,
-    Stack,
-    Table,
-    Text,
-    TextInput,
-} from '@mantine/core';
-import { IconRefresh, IconSearch } from '@tabler/icons-react';
+import { ActionIcon, Button, Group, Select, Text, TextInput, Tooltip } from '@mantine/core';
+import { IconRefresh, IconSearch, IconTimeline } from '@tabler/icons-react';
 import {
     observabilityApi,
     type ObservabilityFilter,
     type TraceSummaryDto,
 } from '../../../services/observability-api';
-import { DataTable, clickableRow, tabularNums } from '../../../components/DataTable';
-import { StatusBadge } from '../../../components/StatusBadge';
+import { SectionCard } from '../../../components/SectionCard';
+import { VxTable, colunaApagada, colunaStatus, type Registro, type VxColumn } from '../../../components/VTable';
 
 const PAGE_SIZE = 50;
 
@@ -30,7 +21,7 @@ export default function TracesPage() {
     const STATUS_OPTIONS = [
         { value: 'all', label: t('admin.observability.traces.statusAll') },
         { value: 'OK', label: 'OK' },
-        { value: 'ERROR', label: 'Error' },
+        { value: 'ERROR', label: t('admin.observability.traces.statusError') },
     ];
     const [traces, setTraces] = useState<TraceSummaryDto[]>([]);
     const [total, setTotal] = useState(0);
@@ -72,122 +63,123 @@ export default function TracesPage() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [page, debSearch, statusFilter]);
 
-    return (
-        <Stack gap="sm">
-            <Group gap="sm" wrap="wrap" align="flex-end">
-                <TextInput
-                    placeholder={t('admin.observability.traces.search')}
-                    leftSection={<IconSearch size={14} />}
-                    value={search}
-                    onChange={(e) => {
-                        setPage(0);
-                        setSearch(e.currentTarget.value);
-                    }}
-                    style={{ flex: 1, minWidth: 260 }}
-                    data-testid="traces-search"
-                />
-                <Select
-                    label={t('admin.observability.traces.status')}
-                    data={STATUS_OPTIONS}
-                    value={statusFilter}
-                    onChange={(v) => {
-                        setPage(0);
-                        setStatusFilter(v ?? 'all');
-                    }}
-                    w={140}
-                    data-testid="traces-status"
-                />
-                <Button
-                    variant="subtle"
-                    leftSection={<IconRefresh size={14} />}
-                    onClick={() => load()}
-                >
-                    {t('common.refresh')}
-                </Button>
-            </Group>
+    const columns = useMemo((): VxColumn[] => [
+        { field: 'traceId', title: t('admin.observability.traces.cols.traceId'), width: 170,
+          style: { fontWeight: 600 },
+          fieldFormat: (r: Registro) => (r.traceId as string).slice(0, 12) },
+        { field: 'flowId', title: t('admin.observability.traces.cols.flow'), width: 'auto', minWidth: 140,
+          fieldFormat: (r: Registro) => (r.flowId as string | null) ?? '—' },
+        colunaApagada({ field: 'tenantId', title: t('admin.observability.traces.cols.tenant'), width: 130,
+          fieldFormat: (r: Registro) => (r.tenantId as string | null) ?? '—' }),
+        colunaStatus(
+            { field: 'personaId', title: t('admin.observability.traces.cols.persona'), width: 190,
+              fieldFormat: (r: Registro) => (r.personaId as string | null) ?? '' },
+            () => 'violet',
+        ),
+        colunaApagada({ field: 'startedAt', title: t('admin.observability.traces.cols.started'), width: 220,
+          fieldFormat: (r: Registro) => formatTime(r.startedAt as string, t, locale) }),
+        colunaApagada({ field: 'durationMs', title: t('admin.observability.traces.cols.duration'), width: 120,
+          fieldFormat: (r: Registro) => `${r.durationMs as number} ms` }),
+        colunaApagada({ field: 'spanCount', title: t('admin.observability.traces.cols.spans'), width: 90 }),
+        colunaStatus(
+            { field: 'status', title: t('admin.observability.traces.cols.status'), width: 120 },
+            (r) => statusColor(r.status as string),
+        ),
+    ], [t, locale]);
 
-            <DataTable
-                columns={7}
-                minWidth={820}
-                striped
-                highlightOnHover
+    return (
+        <SectionCard
+            flush
+            icon={IconTimeline}
+            accent="green"
+            title={t('admin.observability.traces.listTitle')}
+            description={t('admin.observability.traces.listHint')}
+            actions={
+                <>
+                    <TextInput
+                        size="xs"
+                        placeholder={t('admin.observability.traces.search')}
+                        aria-label={t('admin.observability.traces.search')}
+                        leftSection={<IconSearch size={14} />}
+                        value={search}
+                        onChange={(e) => {
+                            setPage(0);
+                            setSearch(e.currentTarget.value);
+                        }}
+                        w={300}
+                        data-testid="traces-search"
+                    />
+                    <Select
+                        size="xs"
+                        aria-label={t('admin.observability.traces.status')}
+                        data={STATUS_OPTIONS}
+                        value={statusFilter}
+                        onChange={(v) => {
+                            setPage(0);
+                            setStatusFilter(v ?? 'all');
+                        }}
+                        allowDeselect={false}
+                        w={130}
+                        data-testid="traces-status"
+                    />
+                    <Tooltip label={t('common.refresh')}>
+                        <ActionIcon variant="subtle" color="gray" onClick={() => load()} aria-label={t('common.refresh')}>
+                            <IconRefresh size={16} />
+                        </ActionIcon>
+                    </Tooltip>
+                </>
+            }
+        >
+            <VxTable
+                legenda={t('admin.observability.traces.listTitle')}
+                records={traces as unknown as Registro[]}
+                columns={columns}
                 loading={loading}
                 error={error}
                 onRetry={() => load()}
-                isEmpty={traces.length === 0}
+                onRowClick={(r) => navigate(`/admin/observability/traces/${r.traceId as string}`)}
                 emptyMessage={t('admin.observability.traces.empty')}
-                head={
-                    <Table.Tr>
-                        <Table.Th>{t('admin.observability.traces.cols.traceId')}</Table.Th>
-                        <Table.Th>{t('admin.observability.traces.cols.tenant')}</Table.Th>
-                        <Table.Th>{t('admin.observability.traces.cols.persona')}</Table.Th>
-                        <Table.Th>{t('admin.observability.traces.cols.started')}</Table.Th>
-                        <Table.Th>{t('admin.observability.traces.cols.duration')}</Table.Th>
-                        <Table.Th>{t('admin.observability.traces.cols.spans')}</Table.Th>
-                        <Table.Th>{t('admin.observability.traces.cols.status')}</Table.Th>
-                    </Table.Tr>
-                }
-            >
-                {traces.map((row) => (
-                    <Table.Tr key={row.traceId} {...clickableRow(() => navigate(`/admin/observability/traces/${row.traceId}`))}>
-                        <Table.Td>
-                            <Text size="xs" ff="DM Mono, monospace">
-                                {row.traceId.slice(0, 12)}
-                            </Text>
-                        </Table.Td>
-                        <Table.Td>{row.tenantId ?? '—'}</Table.Td>
-                        <Table.Td>
-                            {row.personaId ? (
-                                <Badge size="xs" variant="outline" color="grape">
-                                    {row.personaId}
-                                </Badge>
-                            ) : (
-                                '—'
-                            )}
-                        </Table.Td>
-                        <Table.Td>{formatTime(row.startedAt, t, locale)}</Table.Td>
-                        <Table.Td style={tabularNums}>{row.durationMs} ms</Table.Td>
-                        <Table.Td style={tabularNums}>{row.spanCount}</Table.Td>
-                        <Table.Td>
-                            <StatusBadge size="xs" status={row.status} color={statusColor(row.status)} label={row.status} />
-                        </Table.Td>
-                    </Table.Tr>
-                ))}
-            </DataTable>
+                emptyDescription={t('admin.observability.traces.emptyHint')}
+                emptyIcon={<IconTimeline />}
+                emptyAccent="green"
+                testid="traces-table"
+                rowTestId={(r) => `trace-row-${r.traceId as string}`}
+            />
+            {total > 0 && (
+                <Pager page={page} pageSize={PAGE_SIZE} total={total} onPage={setPage} />
+            )}
+        </SectionCard>
+    );
+}
 
-            <Group justify="space-between">
-                <Text size="xs" c="dimmed">
-                    {t('admin.observability.audit.showing', {
-                        from: page * PAGE_SIZE + 1,
-                        to: Math.min((page + 1) * PAGE_SIZE, total),
-                        total,
-                    })}
-                </Text>
-                <Group gap="xs">
-                    <Button
-                        variant="default"
-                        size="xs"
-                        disabled={page === 0}
-                        onClick={() => setPage((p) => Math.max(0, p - 1))}
-                    >
-                        {t('admin.observability.audit.previous')}
-                    </Button>
-                    <Button
-                        variant="default"
-                        size="xs"
-                        disabled={(page + 1) * PAGE_SIZE >= total}
-                        onClick={() => setPage((p) => p + 1)}
-                    >
-                        {t('admin.observability.audit.next')}
-                    </Button>
-                </Group>
+/** Pagination footer under the table: "showing a–b of n" plus previous / next. */
+function Pager({ page, pageSize, total, onPage }: {
+    page: number; pageSize: number; total: number; onPage: (p: number) => void;
+}) {
+    const { t } = useTranslation();
+    return (
+        <Group justify="space-between" px="lg" py="sm" style={{ borderTop: '1px solid var(--surface-border)' }}>
+            <Text size="xs" c="dimmed">
+                {t('admin.observability.audit.showing', {
+                    from: page * pageSize + 1,
+                    to: Math.min((page + 1) * pageSize, total),
+                    total,
+                })}
+            </Text>
+            <Group gap="xs">
+                <Button variant="default" size="xs" disabled={page === 0} onClick={() => onPage(Math.max(0, page - 1))}>
+                    {t('admin.observability.audit.previous')}
+                </Button>
+                <Button variant="default" size="xs" disabled={(page + 1) * pageSize >= total} onClick={() => onPage(page + 1)}>
+                    {t('admin.observability.audit.next')}
+                </Button>
             </Group>
-        </Stack>
+        </Group>
     );
 }
 
 function statusColor(status: string): string {
-    if (status === 'OK') return 'teal';
+    if (status === 'OK') return 'green';
     if (status === 'ERROR') return 'red';
     return 'gray';
 }

@@ -1,12 +1,29 @@
-import { useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { useEffect, useState, type ReactNode } from 'react'
+import { useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import {
-    Accordion, Alert, Badge, Button, Card, Code, Group, Stack, Text, Title,
+    Accordion, Alert, Badge, Button, Code, Group, Paper, SimpleGrid, Skeleton, Stack, Text, ThemeIcon,
 } from '@mantine/core'
+import {
+    IconAlertCircle, IconAlertTriangle, IconDatabase, IconMessage2, IconPlug, IconPlugConnected,
+    IconPlugConnectedX, IconRefresh, IconTool,
+} from '@tabler/icons-react'
 import { mcpApi, type McpIntrospection } from '../services/mcp-api'
 import { JsonViewer } from '../components/JsonViewer'
 import { ApiError } from '../services/api'
+import { PageHeader } from '../components/PageHeader'
+import { StatCard } from '../components/admin/StatCard'
+import EmptyState from '../components/EmptyState'
+
+/** Accordion section heading: icon + label (the label keeps the "Name (n)" text the button is found by). */
+function SectionControl({ icon, color, label }: { icon: ReactNode; color: string; label: string }) {
+    return (
+        <Group gap="sm" wrap="nowrap">
+            <ThemeIcon size={30} radius="md" variant="light" color={color}>{icon}</ThemeIcon>
+            <Text fw={600} size="sm">{label}</Text>
+        </Group>
+    )
+}
 
 /**
  * Shows the tools, prompts and resources exposed by a single MCP
@@ -29,90 +46,170 @@ export default function McpServerDetailPage() {
     }
     useEffect(load, [name])
 
-    return (
-        <Stack gap="md" p="md" data-testid="mcp-detail">
-            <Group justify="space-between">
-                <Group>
-                    <Title order={2}>{name}</Title>
-                    {data && (data.connected
-                        ? <Badge color="green">{t('mcp.detail.connected')}</Badge>
-                        : <Badge color="red">{t('mcp.detail.offline')}</Badge>)}
-                </Group>
-                <Group>
-                    <Button variant="default" onClick={load}>{t('mcp.detail.reconnect')}</Button>
-                    <Link to="/admin/mcp"><Button variant="default">{t('mcp.detail.back')}</Button></Link>
-                </Group>
-            </Group>
+    const dash = loading && !data ? '—' : null
 
-            {loading && <Text c="dimmed">{t('mcp.detail.inspecting')}</Text>}
-            {err && <Alert color="red" title={t('mcp.detail.inspectFailed')}>{err}</Alert>}
-            {data?.error && <Alert color="yellow" title={t('mcp.detail.serverError')}>{data.error}</Alert>}
+    return (
+        <Stack gap="lg" p="md" data-testid="mcp-detail">
+            <PageHeader
+                icon={IconPlug}
+                accent="teal"
+                title={
+                    <Group gap="sm" component="span">
+                        <span>{name}</span>
+                        {data && (data.connected
+                            ? <Badge color="teal" variant="light">{t('mcp.detail.connected')}</Badge>
+                            : <Badge color="red" variant="light">{t('mcp.detail.offline')}</Badge>)}
+                    </Group>
+                }
+                subtitle={t('mcp.detail.subtitle')}
+                breadcrumbs={[
+                    { label: t('mcp.servers.title'), to: '/admin/mcp' },
+                    { label: name },
+                ]}
+                backTo="/admin/mcp"
+                backLabel={t('mcp.detail.back')}
+                actions={
+                    <Button variant="default" leftSection={<IconRefresh size={16} />} onClick={load} loading={loading}>
+                        {t('mcp.detail.reconnect')}
+                    </Button>
+                }
+            />
+
+            <SimpleGrid cols={{ base: 1, xs: 2, md: 4 }} spacing="md">
+                <StatCard
+                    label={t('mcp.detail.stats.status')}
+                    value={dash ?? (data?.connected ? t('mcp.detail.connected') : t('mcp.detail.offline'))}
+                    color={data && !data.connected ? 'red' : undefined}
+                    icon={data && !data.connected ? IconPlugConnectedX : IconPlugConnected}
+                    accent={data && !data.connected ? 'rose' : 'teal'}
+                    hint={loading ? t('mcp.detail.inspecting') : t('mcp.detail.stats.statusHint')}
+                />
+                <StatCard label={t('mcp.detail.stats.tools')} value={dash ?? data?.tools.length ?? 0}
+                          icon={IconTool} accent="blue" hint={t('mcp.detail.stats.toolsHint')} />
+                <StatCard label={t('mcp.detail.stats.prompts')} value={dash ?? data?.prompts.length ?? 0}
+                          icon={IconMessage2} accent="violet" hint={t('mcp.detail.stats.promptsHint')} />
+                <StatCard label={t('mcp.detail.stats.resources')} value={dash ?? data?.resources.length ?? 0}
+                          icon={IconDatabase} accent="amber" hint={t('mcp.detail.stats.resourcesHint')} />
+            </SimpleGrid>
+
+            {err && (
+                <Alert color="red" variant="light" icon={<IconAlertCircle size={16} />} title={t('mcp.detail.inspectFailed')}>
+                    {err}
+                </Alert>
+            )}
+            {data?.error && (
+                <Alert color="yellow" variant="light" icon={<IconAlertTriangle size={16} />} title={t('mcp.detail.serverError')}>
+                    {data.error}
+                </Alert>
+            )}
+
+            {loading && !data && (
+                <Stack gap="sm" aria-hidden>
+                    {[0, 1, 2].map(i => <Skeleton key={i} height={60} radius="md" />)}
+                </Stack>
+            )}
 
             {data && (
-                <Accordion multiple defaultValue={['tools']}>
+                <Accordion
+                    multiple
+                    defaultValue={['tools']}
+                    variant="separated"
+                    radius="lg"
+                    styles={{
+                        item: {
+                            background: 'var(--surface-bg)',
+                            border: '1px solid var(--surface-border)',
+                            boxShadow: 'var(--surface-shadow)',
+                        },
+                    }}
+                >
                     <Accordion.Item value="tools">
-                        <Accordion.Control>{t('mcp.detail.tools', { count: data.tools.length })}</Accordion.Control>
+                        <Accordion.Control>
+                            <SectionControl icon={<IconTool size={16} />} color="blue"
+                                            label={t('mcp.detail.tools', { count: data.tools.length })} />
+                        </Accordion.Control>
                         <Accordion.Panel>
-                            <Stack gap="xs">
-                                {data.tools.length === 0 && <Text c="dimmed">{t('mcp.detail.noTools')}</Text>}
-                                {data.tools.map(t => (
-                                    <Card key={t.name} withBorder data-testid={`mcp-tool-${t.name}`}>
-                                        <Stack gap={4}>
-                                            <Group gap="xs">
-                                                <Text fw={600}>{t.name}</Text>
-                                            </Group>
-                                            <Text size="sm" c="dimmed">{t.description}</Text>
-                                            <JsonViewer value={t.inputSchema} />
-                                        </Stack>
-                                    </Card>
-                                ))}
-                            </Stack>
+                            {data.tools.length === 0 ? (
+                                <EmptyState compact accent="blue" icon={<IconTool />} title={t('mcp.detail.noTools')} />
+                            ) : (
+                                <Stack gap="sm">
+                                    {data.tools.map(tool => (
+                                        <Paper key={tool.name} withBorder p="md" data-testid={`mcp-tool-${tool.name}`}>
+                                            <Stack gap="xs">
+                                                <Group gap="xs">
+                                                    <Code fw={600}>{tool.name}</Code>
+                                                </Group>
+                                                {tool.description && <Text size="sm" c="dimmed">{tool.description}</Text>}
+                                                <Text size="xs" fw={600} c="dimmed" tt="uppercase" style={{ letterSpacing: '0.06em' }}>
+                                                    {t('mcp.detail.inputSchema')}
+                                                </Text>
+                                                <JsonViewer value={tool.inputSchema} />
+                                            </Stack>
+                                        </Paper>
+                                    ))}
+                                </Stack>
+                            )}
                         </Accordion.Panel>
                     </Accordion.Item>
 
                     <Accordion.Item value="prompts">
-                        <Accordion.Control>{t('mcp.detail.prompts', { count: data.prompts.length })}</Accordion.Control>
+                        <Accordion.Control>
+                            <SectionControl icon={<IconMessage2 size={16} />} color="violet"
+                                            label={t('mcp.detail.prompts', { count: data.prompts.length })} />
+                        </Accordion.Control>
                         <Accordion.Panel>
-                            <Stack gap="xs">
-                                {data.prompts.length === 0 && <Text c="dimmed">{t('mcp.detail.noPrompts')}</Text>}
-                                {data.prompts.map(p => (
-                                    <Card key={p.name} withBorder>
-                                        <Stack gap={4}>
-                                            <Text fw={600}>{p.name}</Text>
-                                            <Text size="sm" c="dimmed">{p.description}</Text>
-                                            {p.arguments.length > 0 && (
-                                                <Group gap={4}>
-                                                    {p.arguments.map(a => (
-                                                        <Badge key={a.name} size="sm"
-                                                               variant={a.required ? 'filled' : 'outline'}>
-                                                            {a.name}
-                                                        </Badge>
-                                                    ))}
-                                                </Group>
-                                            )}
-                                        </Stack>
-                                    </Card>
-                                ))}
-                            </Stack>
+                            {data.prompts.length === 0 ? (
+                                <EmptyState compact accent="violet" icon={<IconMessage2 />} title={t('mcp.detail.noPrompts')} />
+                            ) : (
+                                <SimpleGrid cols={{ base: 1, md: 2 }} spacing="sm">
+                                    {data.prompts.map(p => (
+                                        <Paper key={p.name} withBorder p="md">
+                                            <Stack gap={6}>
+                                                <Code fw={600} w="fit-content">{p.name}</Code>
+                                                {p.description && <Text size="sm" c="dimmed">{p.description}</Text>}
+                                                {p.arguments.length > 0 && (
+                                                    <Group gap={4}>
+                                                        {p.arguments.map(a => (
+                                                            <Badge key={a.name} size="sm" color="violet"
+                                                                   variant={a.required ? 'filled' : 'outline'}
+                                                                   title={a.description}>
+                                                                {a.name}
+                                                            </Badge>
+                                                        ))}
+                                                    </Group>
+                                                )}
+                                            </Stack>
+                                        </Paper>
+                                    ))}
+                                </SimpleGrid>
+                            )}
                         </Accordion.Panel>
                     </Accordion.Item>
 
                     <Accordion.Item value="resources">
-                        <Accordion.Control>{t('mcp.detail.resources', { count: data.resources.length })}</Accordion.Control>
+                        <Accordion.Control>
+                            <SectionControl icon={<IconDatabase size={16} />} color="orange"
+                                            label={t('mcp.detail.resources', { count: data.resources.length })} />
+                        </Accordion.Control>
                         <Accordion.Panel>
-                            <Stack gap="xs">
-                                {data.resources.length === 0 && <Text c="dimmed">{t('mcp.detail.noResources')}</Text>}
-                                {data.resources.map(r => (
-                                    <Card key={r.name} withBorder>
-                                        <Stack gap={4}>
-                                            <Text fw={600}>{r.name}</Text>
-                                            {r.uri && <Text size="xs" c="dimmed"><Code>{r.uri}</Code></Text>}
-                                            {r.description && <Text size="sm" c="dimmed">{r.description}</Text>}
-                                            {r.mimeType && <Badge size="xs" variant="outline">{r.mimeType}</Badge>}
-                                        </Stack>
-                                    </Card>
-                                ))}
-                            </Stack>
+                            {data.resources.length === 0 ? (
+                                <EmptyState compact accent="amber" icon={<IconDatabase />} title={t('mcp.detail.noResources')} />
+                            ) : (
+                                <SimpleGrid cols={{ base: 1, md: 2 }} spacing="sm">
+                                    {data.resources.map(r => (
+                                        <Paper key={r.name} withBorder p="md">
+                                            <Stack gap={6}>
+                                                <Group justify="space-between" wrap="nowrap" gap="xs">
+                                                    <Text fw={600} truncate>{r.name}</Text>
+                                                    {r.mimeType && <Badge size="xs" variant="outline" color="gray">{r.mimeType}</Badge>}
+                                                </Group>
+                                                {r.uri && <Code w="fit-content">{r.uri}</Code>}
+                                                {r.description && <Text size="sm" c="dimmed">{r.description}</Text>}
+                                            </Stack>
+                                        </Paper>
+                                    ))}
+                                </SimpleGrid>
+                            )}
                         </Accordion.Panel>
                     </Accordion.Item>
                 </Accordion>

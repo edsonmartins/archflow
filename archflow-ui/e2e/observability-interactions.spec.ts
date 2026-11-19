@@ -53,18 +53,19 @@ test.describe('Observability interactions', () => {
         await authenticateAsSuperadmin(page);
         await page.goto('/admin/observability/traces', { waitUntil: 'commit' });
 
-        await expect(page.getByText('trace-ok-1234'.slice(0, 12))).toBeVisible({ timeout: 20_000 });
-        await expect(page.getByText('trace-error-5678'.slice(0, 12))).toBeVisible({ timeout: 20_000 });
+        // The list is a VTable: rows are read from its accessible mirror.
+        await expect(page.getByText('trace-ok-1234'.slice(0, 12))).toBeAttached({ timeout: 20_000 });
+        await expect(page.getByText('trace-error-5678'.slice(0, 12))).toBeAttached({ timeout: 20_000 });
 
         await page.getByTestId('traces-search').fill('error');
-        await expect(page.getByText('trace-error-5678'.slice(0, 12))).toBeVisible();
+        await expect(page.getByText('trace-error-5678'.slice(0, 12))).toBeAttached();
         await expect(page.getByText('trace-ok-1234'.slice(0, 12))).toBeHidden();
 
         await page.getByTestId('traces-search').fill('');
         await page.getByTestId('traces-status').click();
         await page.getByRole('option', { name: 'OK' }).click();
 
-        await expect(page.getByText('trace-ok-1234'.slice(0, 12))).toBeVisible();
+        await expect(page.getByText('trace-ok-1234'.slice(0, 12))).toBeAttached();
         await expect(page.getByText('trace-error-5678'.slice(0, 12))).toBeHidden();
     });
 
@@ -139,10 +140,11 @@ test.describe('Observability interactions', () => {
         await authenticateAsSuperadmin(page);
         await page.goto('/admin/observability/running', { waitUntil: 'commit' });
 
-        await expect(page.getByText('flow-running-1')).toBeVisible({ timeout: 15_000 });
-        await expect(page.getByText('step-router')).toBeVisible({ timeout: 15_000 });
+        // The table is a VTable: rows and the cancel action are reached through its accessible mirror.
+        await expect(page.getByText('flow-running-1')).toBeAttached({ timeout: 15_000 });
+        await expect(page.getByText('step-router')).toBeAttached({ timeout: 15_000 });
 
-        await page.locator('tbody tr').first().getByRole('button').click();
+        await page.getByTestId('running-flows').getByRole('button', { name: 'Cancel flow' }).dispatchEvent('click');
         await page.getByRole('dialog').getByRole('button', { name: 'Cancel flow' }).click();
 
         await expect(page.getByRole('main').getByText('flow-running-1', { exact: true })).toBeHidden();

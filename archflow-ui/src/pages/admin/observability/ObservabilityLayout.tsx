@@ -1,15 +1,16 @@
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Group, Stack, Tabs } from '@mantine/core';
+import { Stack, Tabs } from '@mantine/core';
 import {
     IconActivity,
-    IconAlertCircle,
+    IconActivityHeartbeat,
     IconChartBar,
     IconHistory,
     IconPlayerPlay,
     IconRadar2,
     IconTimeline,
 } from '@tabler/icons-react';
+import { PageHeader } from '../../../components/PageHeader';
 
 const TABS = [
     { value: 'overview', key: 'overview', path: '/admin/observability',         icon: IconActivity   },
@@ -21,9 +22,13 @@ const TABS = [
 ] as const;
 
 /**
- * Sub-layout for the {@code /admin/observability} area. Exposes a
- * horizontal tab strip that maps 1:1 to the child routes registered
- * in App.tsx. The currently active tab is derived from the pathname.
+ * Sub-layout for the {@code /admin/observability} area: the area's
+ * PageHeader plus a horizontal tab strip that maps 1:1 to the child routes
+ * registered in App.tsx. The active tab is derived from the pathname.
+ *
+ * Deep pages (a single trace) bring their own PageHeader with breadcrumbs,
+ * so the area header and tabs step aside there instead of stacking two
+ * titles on the same screen.
  */
 export default function ObservabilityLayout() {
     const navigate = useNavigate();
@@ -31,24 +36,39 @@ export default function ObservabilityLayout() {
     const { t } = useTranslation();
 
     const active = resolveActiveTab(location.pathname);
+    const deepPage = /^\/admin\/observability\/traces\/[^/]+/.test(location.pathname);
+
+    if (deepPage) {
+        return (
+            <Stack gap="lg" p="md">
+                <Outlet />
+            </Stack>
+        );
+    }
 
     return (
-        <Stack p="md" gap="md">
-            <Group justify="space-between">
-                <Group gap={8}>
-                    <IconAlertCircle size={18} />
-                    <strong style={{ fontSize: 18 }}>{t('admin.observability.title')}</strong>
-                </Group>
-            </Group>
-            <Tabs value={active} onChange={(v) => v && navigate(TABS.find((tab) => tab.value === v)?.path ?? '/admin/observability')}>
-                <Tabs.List>
-                    {TABS.map((tab) => (
-                        <Tabs.Tab key={tab.value} value={tab.value} leftSection={<tab.icon size={14} />}>
-                            {t(`admin.observability.tabs.${tab.key}`)}
-                        </Tabs.Tab>
-                    ))}
-                </Tabs.List>
-            </Tabs>
+        <Stack gap="lg" p="md">
+            <Stack gap="sm">
+                <PageHeader
+                    icon={IconActivityHeartbeat}
+                    accent="green"
+                    title={t('admin.observability.title')}
+                    subtitle={t('admin.observability.subtitle')}
+                />
+                <Tabs
+                    data-accent="green"
+                    value={active}
+                    onChange={(v) => v && navigate(TABS.find((tab) => tab.value === v)?.path ?? '/admin/observability')}
+                >
+                    <Tabs.List>
+                        {TABS.map((tab) => (
+                            <Tabs.Tab key={tab.value} value={tab.value} leftSection={<tab.icon size={15} stroke={1.8} />}>
+                                {t(`admin.observability.tabs.${tab.key}`)}
+                            </Tabs.Tab>
+                        ))}
+                    </Tabs.List>
+                </Tabs>
+            </Stack>
             <Outlet />
         </Stack>
     );

@@ -3,7 +3,7 @@ import { ScrollArea, TextInput, Accordion } from '@mantine/core'
 import { IconSearch }          from '@tabler/icons-react'
 import { useTranslation }      from 'react-i18next'
 import { NODE_CATEGORIES }     from './FlowCanvas/constants'
-import { NodeIcon }            from './FlowCanvas/nodeIcons'
+import { NodeIcon, hasNodeImage } from './FlowCanvas/nodeIcons'
 import { useFlowStore }        from './FlowCanvas/store/useFlowStore'
 import {
   paletteCategoryLabel, searchPaletteEntries, type PaletteEntry,
@@ -11,8 +11,13 @@ import {
 
 type CategoryKey = keyof typeof NODE_CATEGORIES
 
+/** Lado do ícone na paleta (arte própria e badge Tabler têm o mesmo, para os textos alinharem). */
+const PALETTE_ICON = 36
+/** Tamanho da arte própria — maior que o espaço por causa da margem transparente dela. */
+const PALETTE_ART = 38
+
 /**
- * Compact (30×30) icon badge matching the canvas card aesthetic:
+ * Compact (36×36) icon badge matching the canvas card aesthetic:
  * rounded square with a vertical category stripe on the left edge and
  * a gradient fill — same visual vocabulary as
  * {@link ../FlowCanvas/nodes/ShapedNode} so users see at a glance
@@ -25,14 +30,27 @@ function PaletteShapeIcon({
   const cat = NODE_CATEGORIES[category]
   const stripeGradient = `linear-gradient(180deg, ${cat.color}, ${cat.colorDark})`
   const isPill = category === 'integration'
+  if (hasNodeImage(componentId)) {
+    // Arte própria: já tem forma e cor — sem o degradê nem o brilho por trás.
+    return (
+      <div style={{ width: PALETTE_ICON, height: PALETTE_ICON, flexShrink: 0, display: 'flex',
+                    alignItems: 'center', justifyContent: 'center' }}>
+        {/* A arte traz ~5% de margem transparente; 38 px num espaço de 36 deixa o
+            desenho visível do tamanho do badge Tabler, sem mexer no alinhamento dos textos. */}
+        <span style={{ margin: -(PALETTE_ART - PALETTE_ICON) / 2, display: 'flex' }}>
+          <NodeIcon componentId={componentId} imageSize={PALETTE_ART} />
+        </span>
+      </div>
+    )
+  }
   return (
     <div
       style={{
         position:       'relative',
-        width:          30,
-        height:         30,
+        width:          PALETTE_ICON,
+        height:         PALETTE_ICON,
         flexShrink:     0,
-        borderRadius:   isPill ? 15 : 8,
+        borderRadius:   isPill ? PALETTE_ICON / 2 : 9,
         background:     stripeGradient,
         color:          '#fff',
         display:        'flex',
@@ -51,7 +69,7 @@ function PaletteShapeIcon({
         }}
       />
       <span style={{ position: 'relative', display: 'flex' }}>
-        <NodeIcon componentId={componentId} size={16} stroke={2} />
+        <NodeIcon componentId={componentId} size={18} stroke={2} />
       </span>
     </div>
   )
@@ -83,11 +101,11 @@ export function NodePalette() {
 
   return (
     <div
+      className="af-palette"
       style={{
         display:        'flex',
         flexDirection:  'column',
         height:         '100%',
-        background:     'var(--color-background-secondary)',
         borderRight:    '0.5px solid var(--color-border-tertiary)',
       }}
     >
@@ -122,7 +140,7 @@ export function NodePalette() {
               return (
                 <div key={cat} style={{ marginBottom: 4 }}>
                   <div
-                    style={{
+                            style={{
                       fontSize:      10,
                       fontWeight:    500,
                       color:         'var(--color-text-tertiary)',

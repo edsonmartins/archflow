@@ -12,18 +12,33 @@ export const theme = createTheme({
   primaryColor:  'archBlue',
   primaryShade:  6,
   colors:        { archBlue },
-  fontFamily:    "'DM Sans', system-ui, sans-serif",
-  fontFamilyMonospace: "'DM Mono', 'Fira Code', monospace",
-  // Display font própria para títulos: dá identidade tipográfica ao produto
-  // (DM Sans continua no corpo; DM Mono no conteúdo técnico).
+  // Maple Mono em tudo (a mesma do Linktor): texto, títulos e código. É
+  // monoespaçada — fallbacks também monoespaçados, para não mudar a métrica
+  // se o arquivo demorar. Self-hosted em public/fonts (SIL OFL 1.1).
+  fontFamily:          "'Maple Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace",
+  fontFamilyMonospace: "'Maple Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace",
   headings: {
-    fontFamily: "'Bricolage Grotesque', 'DM Sans', system-ui, sans-serif",
+    fontFamily: "'Maple Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace",
     fontWeight: '600',
   },
   defaultRadius: 'md',
+  // Padrões visuais das superfícies: o "como fica" mora em App.css (classes
+  // af-*), aqui só ligamos cada componente à sua classe e aos tamanhos.
   components: {
     Button: { defaultProps: { radius: 'md' } },
     Input:  { defaultProps: { radius: 'md' } },
-    Paper:  { defaultProps: { radius: 'lg' } },
+    Paper:  { defaultProps: { radius: 'lg' }, classNames: { root: 'af-paper' } },
+    Card:   { defaultProps: { radius: 'lg' }, classNames: { root: 'af-paper' } },
+    Table:  {
+      defaultProps: { verticalSpacing: 'sm', horizontalSpacing: 'md', highlightOnHover: true },
+      classNames: { table: 'af-table' },
+    },
+    Badge:  { defaultProps: { radius: 'sm' } },
+    Alert:  { defaultProps: { radius: 'md' } },
+    Tabs:   { classNames: { list: 'af-tabs-list', tab: 'af-tab' } },
+    Modal:  {
+      defaultProps: { radius: 'lg', overlayProps: { backgroundOpacity: 0.45, blur: 3 } },
+    },
+    ThemeIcon: { defaultProps: { radius: 'md' } },
   },
 })

@@ -96,8 +96,8 @@ test.describe('Approval queue', () => {
 
         await page.goto('/approvals', { waitUntil: 'commit' });
 
-        await expect(page.getByRole('button', { name: /Approve refund draft for order 12345/ })).toBeVisible({ timeout: 15_000 });
-        await expect(page.getByRole('button', { name: /Outbound email to vip@acme.com/ })).toBeVisible({ timeout: 15_000 });
+        await expect(page.getByTestId('approval-row-req-approval-1')).toContainText('Approve refund draft for order 12345', { timeout: 15_000 });
+        await expect(page.getByTestId('approval-row-req-approval-2')).toContainText('Outbound email to vip@acme.com', { timeout: 15_000 });
 
         // Navbar badge reflects the count
         await expect(page.getByTestId('nav-badge-approvals')).toHaveText('2');
@@ -110,8 +110,8 @@ test.describe('Approval queue', () => {
         await page.goto('/approvals', { waitUntil: 'commit' });
 
         await page.getByTestId('approvals-search').fill('refund');
-        await expect(page.getByText('Approve refund draft for order 12345')).toBeVisible();
-        await expect(page.getByText('Outbound email to vip@acme.com')).toBeHidden();
+        await expect(page.getByTestId('approval-row-req-approval-1')).toBeAttached();
+        await expect(page.getByTestId('approval-row-req-approval-2')).not.toBeAttached();
     });
 
     test('approving a request submits APPROVED and redirects back', async ({ page }) => {
@@ -119,7 +119,7 @@ test.describe('Approval queue', () => {
         await authenticate(page);
 
         await page.goto('/approvals', { waitUntil: 'commit' });
-        await page.getByText('Approve refund draft for order 12345').click();
+        await page.getByTestId('approval-row-req-approval-1').dispatchEvent('click');
 
         await expect(page).toHaveURL(/\/approvals\/req-approval-1$/);
         // UI truncates the request id to its first 12 chars.
@@ -131,8 +131,8 @@ test.describe('Approval queue', () => {
         await page.getByRole('dialog', { name: 'Approve request' }).getByRole('button', { name: 'Approve' }).click();
 
         await expect(page).toHaveURL(/\/approvals$/);
-        await expect(page.getByText('Outbound email to vip@acme.com')).toBeVisible();
-        await expect(page.getByText('Approve refund draft for order 12345')).toBeHidden();
+        await expect(page.getByTestId('approval-row-req-approval-2')).toBeAttached();
+        await expect(page.getByTestId('approval-row-req-approval-1')).not.toBeAttached();
     });
 
     test('rejecting a request submits REJECTED', async ({ page }) => {

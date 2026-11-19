@@ -40,7 +40,7 @@ export default function CitationList({ citations, label }: CitationListProps) {
             withBorder
             radius="md"
             p="xs"
-            style={(theme) => ({ backgroundColor: theme.colors.gray[0] })}
+            style={{ backgroundColor: 'var(--mantine-color-default-hover)' }}
         >
             <Text size="xs" c="dimmed" tt="uppercase" style={{ letterSpacing: 0.5 }} mb={4}>
                 {heading}

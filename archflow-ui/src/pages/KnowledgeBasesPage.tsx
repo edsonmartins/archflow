@@ -1,17 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-    Alert, Badge, Button, Card, Divider, FileButton, Group, Loader, Modal,
-    Paper, Progress, ScrollArea, SimpleGrid, Stack, Table, Tabs, Text,
-    TextInput, Title,
+    ActionIcon, Alert, Badge, Button, Divider, FileButton, Grid, Group, Modal,
+    Paper, SimpleGrid, Skeleton, Stack, Tabs, Text,
+    TextInput, Tooltip, UnstyledButton,
 } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import {
-    IconAlertCircle, IconBook2, IconCloudUpload, IconDatabaseSearch,
-    IconHistory, IconPlus, IconRefresh, IconSearch,
+    IconAlertCircle, IconBook2, IconBooks, IconCloudUpload, IconDatabase, IconDatabaseSearch,
+    IconFileText, IconHistory, IconPlus, IconPuzzle, IconRefresh, IconSearch,
 } from '@tabler/icons-react'
 import { useTranslation } from 'react-i18next'
 import { PageHeader } from '../components/PageHeader'
-import { StatusBadge } from '../components/StatusBadge'
+import { SectionCard } from '../components/SectionCard'
+import { StatCard } from '../components/admin/StatCard'
+import EmptyState from '../components/EmptyState'
+import {
+    VxTable, colunaAcoes, colunaApagada, colunaDupla, colunaStatus, type Registro, type VxColumn,
+} from '../components/VTable'
 import { confirmAction } from '../lib/confirm'
 import {
     knowledgeApi,
@@ -219,212 +224,277 @@ export default function KnowledgeBasesPage() {
     const jobForDocument = (document: KnowledgeDocument) =>
         jobs[documentJobs[document.id]]
 
+    const documentRows = documents.map(document => {
+        const file = files[document.fileId]
+        const job = jobForDocument(document)
+        const jobActive = !!job && (job.status === 'QUEUED' || job.status === 'RUNNING')
+        const effectiveStatus = job?.status === 'RUNNING' ? 'PROCESSING' : document.status
+        return {
+            id: document.id,
+            name: file?.originalName ?? document.fileId,
+            detail: document.error ?? formatBytes(file?.size),
+            hasError: !!document.error,
+            status: effectiveStatus,
+            progress: jobActive ? job.progress : null,
+            chunks: document.chunkCount,
+            updatedAt: document.updatedAt,
+        }
+    })
+    const totalChunks = documents.reduce((n, document) => n + (document.chunkCount ?? 0), 0)
+    const readyDocuments = documents.filter(document => document.status === 'READY').length
+    const activeVersion = versions.find(version => version.status === 'ACTIVE')
+
+    const documentColumns: VxColumn[] = [
+        colunaDupla({ field: 'name', title: t('knowledge.file'), width: 'auto', minWidth: 260 },
+            r => String(r.name), r => String(r.detail ?? '')),
+        colunaStatus({ field: 'status', title: t('knowledge.status'), width: 190,
+            fieldFormat: (r: Registro) => {
+                const label = t(`knowledge.statuses.${r.status}`, { defaultValue: String(r.status) })
+                return r.progress == null ? label : `${label} · ${Math.round(Number(r.progress))}%`
+            } },
+            r => statusColor(String(r.status))),
+        { field: 'chunks', title: t('knowledge.chunks'), width: 110,
+            fieldFormat: (r: Registro) => String(r.chunks ?? 0) } as VxColumn,
+        colunaApagada({ field: 'updatedAt', title: t('knowledge.updated'), width: 210,
+            fieldFormat: (r: Registro) => formatDate(r.updatedAt as string | null) }),
+    ]
+
+    const versionColumns: VxColumn[] = [
+        colunaApagada({ field: 'id', title: t('knowledge.versionId'), width: 'auto', minWidth: 240 }),
+        colunaStatus({ field: 'status', title: t('knowledge.status'), width: 150,
+            fieldFormat: (r: Registro) => t(`knowledge.statuses.${r.status}`, { defaultValue: String(r.status) }) },
+            r => statusColor(String(r.status))),
+        colunaApagada({ field: 'createdAt', title: t('knowledge.created'), width: 200,
+            fieldFormat: (r: Registro) => formatDate(r.createdAt as string | null) }),
+        colunaApagada({ field: 'basedOnVersionId', title: t('knowledge.basedOnCol'), width: 'auto', minWidth: 180,
+            fieldFormat: (r: Registro) => (r.basedOnVersionId ? String(r.basedOnVersionId) : '—') }),
+        colunaAcoes([{ nome: 'rollback', icone: 'refresh', rotulo: t('knowledge.rollback'), cor: 'blue',
+            mostrar: r => r.status === 'INACTIVE' }]),
+    ]
+
     return (
-        <Stack gap="lg" data-testid="knowledge-bases-page">
+        <Stack gap="lg" p="md" data-testid="knowledge-bases-page">
             <PageHeader
+                icon={IconBook2}
+                accent="teal"
                 title={t('knowledge.title')}
                 subtitle={t('knowledge.subtitle')}
                 actions={<Button leftSection={<IconPlus size={16} />}
                     onClick={() => setCreateOpen(true)}>{t('knowledge.newBase')}</Button>}
             />
 
-            {error && <Alert color="red" icon={<IconAlertCircle size={16} />}>{error}</Alert>}
+            {error && <Alert color="red" variant="light" icon={<IconAlertCircle size={16} />}>{error}</Alert>}
 
-            <SimpleGrid cols={{ base: 1, md: 4 }} spacing="md">
-                <Stack gap="xs">
-                    <Group justify="space-between">
-                        <Text size="sm" fw={600}>{t('knowledge.bases')}</Text>
-                        <Button variant="subtle" size="compact-xs" px={5}
-                            onClick={() => void loadBases()} aria-label={t('common.refresh')}>
-                            <IconRefresh size={14} />
-                        </Button>
-                    </Group>
-                    {loading ? <Loader size="sm" /> : bases.length === 0 ? (
-                        <Card withBorder>
-                            <Stack align="center" gap="xs" py="md">
-                                <IconBook2 size={28} opacity={0.55} />
-                                <Text size="sm" c="dimmed" ta="center">{t('knowledge.empty')}</Text>
+            <SimpleGrid cols={{ base: 1, xs: 2, md: 4 }} spacing="md">
+                <StatCard label={t('knowledge.stats.bases')} value={loading ? '—' : bases.length}
+                          icon={IconBooks} accent="teal" hint={t('knowledge.hints.bases')} />
+                <StatCard label={t('knowledge.documents')} value={selected ? documents.length : '—'}
+                          icon={IconFileText} accent="blue"
+                          hint={selected ? t('knowledge.hints.documents', { count: readyDocuments }) : t('knowledge.hints.noBase')} />
+                <StatCard label={t('knowledge.chunks')} value={selected ? totalChunks : '—'}
+                          icon={IconPuzzle} accent="violet" hint={t('knowledge.hints.chunks')} />
+                <StatCard label={t('knowledge.stats.activeVersion')}
+                          value={<Text component="span" inherit fz={20}>{activeVersion ? activeVersion.id.slice(-8) : '—'}</Text>}
+                          icon={IconHistory} accent="amber"
+                          hint={t('knowledge.hints.versions', { count: versions.length })} />
+            </SimpleGrid>
+
+            <Grid gap="md" align="flex-start">
+                <Grid.Col span={{ base: 12, md: 4, lg: 3 }}>
+                    <SectionCard
+                        flush
+                        icon={IconBooks}
+                        accent="teal"
+                        title={t('knowledge.bases')}
+                        description={t('knowledge.basesHint')}
+                        actions={
+                            <Tooltip label={t('common.refresh')}>
+                                <ActionIcon variant="subtle" color="gray" onClick={() => void loadBases()}
+                                            aria-label={t('common.refresh')}>
+                                    <IconRefresh size={15} />
+                                </ActionIcon>
+                            </Tooltip>
+                        }
+                    >
+                        {loading ? (
+                            <Stack gap="xs" p="md">
+                                {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} height={44} radius="md" />)}
                             </Stack>
-                        </Card>
-                    ) : bases.map(base => (
-                        <Card key={base.id} withBorder padding="sm"
-                            bg={selectedId === base.id ? 'var(--mantine-color-blue-light)' : undefined}
-                            style={{ cursor: 'pointer' }} onClick={() => setSelectedId(base.id)}>
-                            <Text fw={600} size="sm">{base.name}</Text>
-                            <Text size="xs" c="dimmed">{formatDate(base.createdAt)}</Text>
-                        </Card>
-                    ))}
-                </Stack>
+                        ) : bases.length === 0 ? (
+                            <EmptyState compact icon={<IconBook2 />} accent="teal"
+                                        title={t('knowledge.emptyTitle')} description={t('knowledge.empty')}
+                                        actionLabel={t('knowledge.newBase')} onAction={() => setCreateOpen(true)} />
+                        ) : (
+                            <Stack gap={4} p="xs">
+                                {bases.map(base => {
+                                    const active = selectedId === base.id
+                                    return (
+                                        <UnstyledButton key={base.id} onClick={() => setSelectedId(base.id)}
+                                            aria-current={active || undefined}
+                                            px="sm" py={8}
+                                            style={{
+                                                borderRadius: 10,
+                                                background: active ? 'var(--mantine-color-teal-light)' : undefined,
+                                                border: `1px solid ${active ? 'var(--mantine-color-teal-light-hover)' : 'transparent'}`,
+                                            }}>
+                                            <Group gap="sm" wrap="nowrap">
+                                                <span className="af-stat-icon" data-accent={active ? 'teal' : 'slate'} aria-hidden
+                                                      style={{ width: 30, height: 30, borderRadius: 8 }}>
+                                                    <IconBook2 size={15} stroke={1.8} />
+                                                </span>
+                                                <Stack gap={0} style={{ minWidth: 0 }}>
+                                                    <Text fw={600} size="sm" truncate>{base.name}</Text>
+                                                    <Text size="xs" c="dimmed">{formatDate(base.createdAt)}</Text>
+                                                </Stack>
+                                            </Group>
+                                        </UnstyledButton>
+                                    )
+                                })}
+                            </Stack>
+                        )}
+                    </SectionCard>
+                </Grid.Col>
 
-                <Stack gap="md" style={{ gridColumn: 'span 3' }}>
+                <Grid.Col span={{ base: 12, md: 8, lg: 9 }}>
                     {!selected ? (
-                        <Paper withBorder p="xl"><Text c="dimmed" ta="center">
-                            {t('knowledge.selectBase')}</Text></Paper>
-                    ) : detailLoading ? <Loader /> : (
-                        <>
-                            <Group justify="space-between">
-                                <div>
-                                    <Title order={3}>{selected.name}</Title>
-                                    <Text size="xs" c="dimmed">{selected.id}</Text>
-                                </div>
+                        <Paper withBorder>
+                            <EmptyState icon={<IconDatabaseSearch />} accent="teal"
+                                        title={t('knowledge.selectBaseTitle')}
+                                        description={t('knowledge.selectBase')} />
+                        </Paper>
+                    ) : (
+                        <SectionCard
+                            flush
+                            icon={IconDatabase}
+                            accent="teal"
+                            title={selected.name}
+                            description={selected.id}
+                            actions={
                                 <FileButton onChange={upload}
                                     accept=".txt,.md,.markdown,.pdf,.docx,text/plain,text/markdown,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document">
-                                    {props => <Button {...props} loading={uploading}
+                                    {props => <Button {...props} size="sm" loading={uploading}
                                         leftSection={<IconCloudUpload size={16} />}>
                                         {t('knowledge.upload')}
                                     </Button>}
                                 </FileButton>
-                            </Group>
+                            }
+                        >
+                            {detailLoading ? (
+                                <Stack gap="xs" p="lg">
+                                    {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} height={36} radius="sm" />)}
+                                </Stack>
+                            ) : (
+                                <Tabs defaultValue="documents" keepMounted={false}>
+                                    <Tabs.List px="md">
+                                        <Tabs.Tab value="documents" leftSection={<IconBook2 size={15} />}>
+                                            {t('knowledge.documents')} ({documents.length})
+                                        </Tabs.Tab>
+                                        <Tabs.Tab value="search" leftSection={<IconDatabaseSearch size={15} />}>
+                                            {t('knowledge.search')}
+                                        </Tabs.Tab>
+                                        <Tabs.Tab value="versions" leftSection={<IconHistory size={15} />}>
+                                            {t('knowledge.versions')} ({versions.length})
+                                        </Tabs.Tab>
+                                    </Tabs.List>
 
-                            <Tabs defaultValue="documents">
-                                <Tabs.List>
-                                    <Tabs.Tab value="documents" leftSection={<IconBook2 size={15} />}>
-                                        {t('knowledge.documents')} ({documents.length})
-                                    </Tabs.Tab>
-                                    <Tabs.Tab value="search" leftSection={<IconDatabaseSearch size={15} />}>
-                                        {t('knowledge.search')}
-                                    </Tabs.Tab>
-                                    <Tabs.Tab value="versions" leftSection={<IconHistory size={15} />}>
-                                        {t('knowledge.versions')} ({versions.length})
-                                    </Tabs.Tab>
-                                </Tabs.List>
+                                    <Tabs.Panel value="documents">
+                                        <VxTable
+                                            legenda={t('knowledge.documents')}
+                                            records={documentRows}
+                                            columns={documentColumns}
+                                            rowHeight={58}
+                                            emptyMessage={t('knowledge.noDocumentsTitle')}
+                                            emptyDescription={t('knowledge.noDocuments')}
+                                            emptyIcon={<IconCloudUpload />}
+                                            emptyAccent="teal"
+                                            testid="knowledge-documents"
+                                            rowTestId={r => `knowledge-doc-${r.id}`}
+                                        />
+                                    </Tabs.Panel>
 
-                                <Tabs.Panel value="documents" pt="md">
-                                    {documents.length === 0 ? (
-                                        <Card withBorder><Text c="dimmed" ta="center" py="lg">
-                                            {t('knowledge.noDocuments')}</Text></Card>
-                                    ) : (
-                                        <ScrollArea>
-                                            <Table verticalSpacing="sm">
-                                                <Table.Thead><Table.Tr>
-                                                    <Table.Th>{t('knowledge.file')}</Table.Th>
-                                                    <Table.Th>{t('knowledge.status')}</Table.Th>
-                                                    <Table.Th>{t('knowledge.chunks')}</Table.Th>
-                                                    <Table.Th>{t('knowledge.updated')}</Table.Th>
-                                                </Table.Tr></Table.Thead>
-                                                <Table.Tbody>{documents.map(document => {
-                                                    const file = files[document.fileId]
-                                                    const job = jobForDocument(document)
-                                                    const effectiveStatus = job?.status === 'RUNNING'
-                                                        ? 'PROCESSING' : document.status
-                                                    return <Table.Tr key={document.id}>
-                                                        <Table.Td>
-                                                            <Text size="sm" fw={500}>
-                                                                {file?.originalName ?? document.fileId}
+                                    <Tabs.Panel value="search" p="lg">
+                                        <Stack>
+                                            <Group align="flex-end">
+                                                <TextInput style={{ flex: 1 }}
+                                                    size="sm"
+                                                    label={t('knowledge.query')}
+                                                    placeholder={t('knowledge.queryPlaceholder')}
+                                                    leftSection={<IconSearch size={14} />}
+                                                    value={query}
+                                                    onChange={event => setQuery(event.currentTarget.value)}
+                                                    onKeyDown={event => {
+                                                        if (event.key === 'Enter') void search()
+                                                    }} />
+                                                <Button onClick={() => void search()} loading={searching}
+                                                    disabled={!query.trim()}
+                                                    leftSection={<IconSearch size={16} />}>
+                                                    {t('knowledge.search')}
+                                                </Button>
+                                            </Group>
+                                            <Group gap="xs">
+                                                <Text size="xs" c="dimmed">{t('knowledge.searchIn')}</Text>
+                                                <Button size="compact-xs"
+                                                    variant={!searchVersion ? 'light' : 'subtle'}
+                                                    onClick={() => setSearchVersion(undefined)}>
+                                                    {t('knowledge.activeVersion')}
+                                                </Button>
+                                                {versions.filter(version => version.status !== 'ACTIVE')
+                                                    .slice(0, 4).map(version => (
+                                                        <Button key={version.id} size="compact-xs"
+                                                            variant={searchVersion === version.id ? 'light' : 'subtle'}
+                                                            onClick={() => setSearchVersion(version.id)}>
+                                                            {version.id.slice(-8)}
+                                                        </Button>
+                                                    ))}
+                                            </Group>
+                                            {hits.map(hit => (
+                                                <Paper key={hit.chunkId} withBorder p="md">
+                                                    <Group justify="space-between" mb="xs" wrap="nowrap">
+                                                        <Group gap={6} wrap="nowrap" style={{ minWidth: 0 }}>
+                                                            <IconFileText size={14} style={{ flexShrink: 0, color: 'var(--mantine-color-dimmed)' }} />
+                                                            <Text size="xs" c="dimmed" truncate>
+                                                                {files[documents.find(d => d.id === hit.documentId)?.fileId ?? '']
+                                                                    ?.originalName ?? hit.documentId}
                                                             </Text>
-                                                            <Text size="xs" c="dimmed">
-                                                                {formatBytes(file?.size)}
-                                                            </Text>
-                                                            {job && (job.status === 'QUEUED' || job.status === 'RUNNING') &&
-                                                                <Progress value={job.progress} size="xs" mt={5} />}
-                                                            {document.error &&
-                                                                <Text size="xs" c="red">{document.error}</Text>}
-                                                        </Table.Td>
-                                                        <Table.Td><StatusBadge status={effectiveStatus}
-                                                            label={t(`knowledge.statuses.${effectiveStatus}`)}
-                                                            color={statusColor(effectiveStatus)} /></Table.Td>
-                                                        <Table.Td>{document.chunkCount}</Table.Td>
-                                                        <Table.Td><Text size="xs">
-                                                            {formatDate(document.updatedAt)}</Text></Table.Td>
-                                                    </Table.Tr>
-                                                })}</Table.Tbody>
-                                            </Table>
-                                        </ScrollArea>
-                                    )}
-                                </Tabs.Panel>
-
-                                <Tabs.Panel value="search" pt="md">
-                                    <Stack>
-                                        <Group align="flex-end">
-                                            <TextInput style={{ flex: 1 }}
-                                                label={t('knowledge.query')}
-                                                placeholder={t('knowledge.queryPlaceholder')}
-                                                value={query}
-                                                onChange={event => setQuery(event.currentTarget.value)}
-                                                onKeyDown={event => {
-                                                    if (event.key === 'Enter') void search()
-                                                }} />
-                                            <Button onClick={() => void search()} loading={searching}
-                                                disabled={!query.trim()}
-                                                leftSection={<IconSearch size={16} />}>
-                                                {t('knowledge.search')}
-                                            </Button>
-                                        </Group>
-                                        <Group gap="xs">
-                                            <Text size="xs" c="dimmed">{t('knowledge.searchIn')}</Text>
-                                            <Button size="compact-xs"
-                                                variant={!searchVersion ? 'light' : 'subtle'}
-                                                onClick={() => setSearchVersion(undefined)}>
-                                                {t('knowledge.activeVersion')}
-                                            </Button>
-                                            {versions.filter(version => version.status !== 'ACTIVE')
-                                                .slice(0, 4).map(version => (
-                                                    <Button key={version.id} size="compact-xs"
-                                                        variant={searchVersion === version.id ? 'light' : 'subtle'}
-                                                        onClick={() => setSearchVersion(version.id)}>
-                                                        {version.id.slice(-8)}
-                                                    </Button>
-                                                ))}
-                                        </Group>
-                                        {hits.map(hit => (
-                                            <Card key={hit.chunkId} withBorder>
-                                                <Group justify="space-between" mb="xs">
-                                                    <Text size="xs" c="dimmed">
-                                                        {files[documents.find(d => d.id === hit.documentId)?.fileId ?? '']
-                                                            ?.originalName ?? hit.documentId}
-                                                    </Text>
-                                                    <Badge variant="light">
-                                                        {(hit.score * 100).toFixed(1)}%
-                                                    </Badge>
-                                                </Group>
-                                                <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>
-                                                    {hit.content}
-                                                </Text>
-                                            </Card>
-                                        ))}
-                                        {!searching && query && hits.length === 0 &&
-                                            <Text c="dimmed" ta="center">{t('knowledge.noResults')}</Text>}
-                                    </Stack>
-                                </Tabs.Panel>
-
-                                <Tabs.Panel value="versions" pt="md">
-                                    <Stack gap="sm">
-                                        {versions.length === 0
-                                            ? <Text c="dimmed">{t('knowledge.noVersions')}</Text>
-                                            : versions.map(version => (
-                                                <Card key={version.id} withBorder>
-                                                    <Group justify="space-between" align="flex-start">
-                                                        <div>
-                                                            <Group gap="xs">
-                                                                <Text ff="monospace" size="sm">{version.id}</Text>
-                                                                <StatusBadge status={version.status}
-                                                                    label={t(`knowledge.statuses.${version.status}`)}
-                                                                    color={statusColor(version.status)} />
-                                                            </Group>
-                                                            <Text size="xs" c="dimmed" mt={4}>
-                                                                {t('knowledge.createdAt', {
-                                                                    date: formatDate(version.createdAt) })}
-                                                            </Text>
-                                                            {version.basedOnVersionId && <Text size="xs" c="dimmed">
-                                                                {t('knowledge.basedOn', {
-                                                                    id: version.basedOnVersionId })}
-                                                            </Text>}
-                                                        </div>
-                                                        {version.status === 'INACTIVE' &&
-                                                            <Button size="xs" variant="light"
-                                                                onClick={() => rollback(version)}>
-                                                                {t('knowledge.rollback')}
-                                                            </Button>}
+                                                        </Group>
+                                                        <Badge variant="light" color="teal">
+                                                            {(hit.score * 100).toFixed(1)}%
+                                                        </Badge>
                                                     </Group>
-                                                </Card>
+                                                    <Text size="sm" style={{ whiteSpace: 'pre-wrap' }} lh={1.55}>
+                                                        {hit.content}
+                                                    </Text>
+                                                </Paper>
                                             ))}
-                                    </Stack>
-                                </Tabs.Panel>
-                            </Tabs>
-                        </>
+                                            {!searching && query && hits.length === 0 &&
+                                                <EmptyState compact icon={<IconDatabaseSearch />} accent="teal"
+                                                            title={t('knowledge.noResults')}
+                                                            description={t('knowledge.noResultsHint')} />}
+                                        </Stack>
+                                    </Tabs.Panel>
+
+                                    <Tabs.Panel value="versions">
+                                        <VxTable
+                                            legenda={t('knowledge.versions')}
+                                            records={versions as unknown as Registro[]}
+                                            columns={versionColumns}
+                                            onIconClick={(nome, r) => {
+                                                if (nome === 'rollback') void rollback(r as unknown as IndexVersion)
+                                            }}
+                                            emptyMessage={t('knowledge.noVersionsTitle')}
+                                            emptyDescription={t('knowledge.noVersions')}
+                                            emptyIcon={<IconHistory />}
+                                            emptyAccent="amber"
+                                            testid="knowledge-versions"
+                                            rowTestId={r => `knowledge-version-${r.id}`}
+                                        />
+                                    </Tabs.Panel>
+                                </Tabs>
+                            )}
+                        </SectionCard>
                     )}
-                </Stack>
-            </SimpleGrid>
+                </Grid.Col>
+            </Grid>
 
             <Modal opened={createOpen} onClose={() => setCreateOpen(false)}
                 title={t('knowledge.createBase')}>

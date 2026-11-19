@@ -272,15 +272,16 @@ test.describe('Auth and workflows', () => {
 
         await page.goto('/executions');
 
-        await expect(page.getByRole('cell', { name: 'Customer Support Flow' })).toBeVisible();
-        await expect(page.getByRole('cell', { name: 'Invoice Approval' })).toBeVisible();
-        await expect(page.getByText('Missing invoice total')).toBeVisible();
+        // VTable: the canvas is not readable; the accessible mirror table carries the text.
+        await expect(page.getByRole('cell', { name: 'Customer Support Flow' })).toBeAttached();
+        await expect(page.getByRole('cell', { name: 'Invoice Approval' })).toBeAttached();
+        await expect(page.getByText('Missing invoice total')).toBeAttached();
 
         await page.getByRole('combobox', { name: 'All workflows' }).click();
         await page.getByRole('option', { name: 'Invoice Approval' }).click();
 
-        await expect(page.getByRole('cell', { name: 'Invoice Approval' })).toBeVisible();
+        await expect(page.getByRole('cell', { name: 'Invoice Approval' })).toBeAttached();
         await expect(page.getByText('Customer Support Flow')).toBeHidden();
-        await expect(page.getByText('Missing invoice total')).toBeVisible();
+        await expect(page.getByText('Missing invoice total')).toBeAttached();
     });
 });

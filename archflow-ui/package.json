@@ -104,6 +104,8 @@
     "@mantine/modals": "^9.4.1",
     "@mantine/notifications": "^9.4.1",
     "@mantine/spotlight": "^9.4.1",
+    "@tabler/icons": "3.49.0",
+    "@visactor/vtable": "1.26.8",
     "@xyflow/react": "^12.10.2",
     "i18next": "^26.0.7",
     "i18next-browser-languagedetector": "^8.2.1",

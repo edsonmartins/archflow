@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Badge, Button, Center, Group, Loader, ScrollArea, Stack, Text, TextInput } from '@mantine/core';
-import { IconSend } from '@tabler/icons-react';
+import { Badge, Box, Button, Center, Group, Loader, Paper, ScrollArea, Stack, Text, TextInput, ThemeIcon } from '@mantine/core';
+import { IconMessageChatbot, IconRobot, IconSend } from '@tabler/icons-react';
+import EmptyState from '../EmptyState';
 import ChatMessage from './ChatMessage';
 import type { ToolCallView } from './ToolCallBlock';
 import type { Citation } from './CitationList';
@@ -395,29 +396,56 @@ export default function ChatPanel({ conversationId, workflowId, tenantId }: Chat
 
     if (initialLoading) {
         return (
-            <Center h="100%">
-                <Loader size="sm" />
+            <Center h="100%" mih={240}>
+                <Loader size="sm" color="teal" />
             </Center>
         );
     }
 
+    const empty = messages.length === 0 && !pending && !suspendedForm;
+    const locked = sending || !!suspendedForm;
+
     return (
         <Stack h="100%" gap={0}>
-            {/* Stream status indicator */}
-            <Group justify="flex-end" px="sm" py={4}>
+            {/* Header: transcript label + live stream status */}
+            <Group
+                justify="space-between"
+                px="md"
+                py="xs"
+                wrap="nowrap"
+                style={{ borderBottom: '1px solid var(--mantine-color-default-border)' }}
+            >
+                <Group gap={8} wrap="nowrap">
+                    <IconMessageChatbot size={16} color="var(--mantine-color-teal-text)" />
+                    <Text size="sm" fw={600}>{t('chat.transcript')}</Text>
+                    {messages.length > 0 && (
+                        <Badge size="xs" variant="light" color="gray" radius="sm">
+                            {messages.length}
+                        </Badge>
+                    )}
+                </Group>
                 <StreamBadge status={streamStatus} t={t} />
             </Group>
 
             {/* Messages area */}
-            <ScrollArea style={{ flex: 1 }} px="sm" py="xs" viewportRef={scrollRef} role="log" aria-live="polite" aria-relevant="additions" aria-label={t('chat.messagesRegion')}>
-                {messages.length === 0 && !pending && !suspendedForm && (
-                    <Center h={200}>
-                        <Text size="sm" c="dimmed">
-                            {workflowId
-                                ? t('chat.startWithWorkflow')
-                                : t('chat.noMessages')}
-                        </Text>
-                    </Center>
+            <ScrollArea
+                style={{ flex: 1, background: 'var(--bg3)' }}
+                px="md"
+                py="xs"
+                viewportRef={scrollRef}
+                role="log"
+                aria-live="polite"
+                aria-relevant="additions"
+                aria-label={t('chat.messagesRegion')}
+            >
+                {empty && (
+                    <EmptyState
+                        compact
+                        icon={<IconMessageChatbot />}
+                        accent="teal"
+                        title={workflowId ? t('chat.startWithWorkflow') : t('chat.noMessages')}
+                        description={t('chat.emptyHint')}
+                    />
                 )}
 
                 {messages.map((msg) => (
@@ -460,37 +488,64 @@ export default function ChatPanel({ conversationId, workflowId, tenantId }: Chat
                 )}
 
                 {sending && !pending && (
-                    <Group justify="flex-start" my="xs">
-                        <Loader size="xs" type="dots" />
+                    <Group justify="flex-start" gap="sm" my="md" wrap="nowrap">
+                        <ThemeIcon size={32} radius="xl" variant="gradient"
+                                   gradient={{ from: 'teal.4', to: 'cyan.7', deg: 135 }} aria-hidden>
+                            <IconRobot size={17} />
+                        </ThemeIcon>
+                        <Paper
+                            px="md"
+                            py={10}
+                            style={{
+                                borderRadius: '16px 16px 16px 4px',
+                                border: '1px solid var(--mantine-color-default-border)',
+                                background: 'var(--mantine-color-body)',
+                            }}
+                        >
+                            <Loader size="xs" type="dots" color="teal" aria-label={t('chat.thinking')} />
+                        </Paper>
                     </Group>
                 )}
             </ScrollArea>
 
-            {/* Input bar */}
-            <Group
-                gap="xs"
-                p="sm"
-                style={{ borderTop: '1px solid var(--mantine-color-gray-3)' }}
-            >
-                <TextInput
-                    ref={inputRef}
-                    placeholder={t('chat.placeholder')}
-                    size="sm"
-                    style={{ flex: 1 }}
-                    value={input}
-                    onChange={(e) => setInput(e.currentTarget.value)}
-                    onKeyDown={handleKeyDown}
-                    disabled={sending || !!suspendedForm}
-                />
-                <Button
-                    size="sm"
-                    onClick={handleSend}
-                    disabled={!input.trim() || sending || !!suspendedForm}
-                    leftSection={<IconSend size={16} />}
+            {/* Composer */}
+            <Box p="sm" style={{ borderTop: '1px solid var(--mantine-color-default-border)' }}>
+                <Group
+                    gap="xs"
+                    wrap="nowrap"
+                    pl="md"
+                    pr={6}
+                    py={6}
+                    style={{
+                        border: '1px solid var(--mantine-color-default-border)',
+                        borderRadius: 999,
+                        background: locked ? 'var(--mantine-color-default-hover)' : 'var(--mantine-color-body)',
+                    }}
                 >
-                    {t('chat.send')}
-                </Button>
-            </Group>
+                    <TextInput
+                        ref={inputRef}
+                        variant="unstyled"
+                        placeholder={t('chat.placeholder')}
+                        aria-label={t('chat.placeholder')}
+                        size="sm"
+                        style={{ flex: 1 }}
+                        value={input}
+                        onChange={(e) => setInput(e.currentTarget.value)}
+                        onKeyDown={handleKeyDown}
+                        disabled={locked}
+                    />
+                    <Button
+                        size="sm"
+                        radius="xl"
+                        color="teal"
+                        onClick={handleSend}
+                        disabled={!input.trim() || locked}
+                        leftSection={<IconSend size={15} />}
+                    >
+                        {t('chat.send')}
+                    </Button>
+                </Group>
+            </Box>
         </Stack>
     );
 }
@@ -518,7 +573,7 @@ function StreamBadge({ status, t }: { status: StreamStatus; t: (k: string) => st
         error: 'red',
     };
     return (
-        <Badge size="xs" variant="dot" color={colorMap[status]}>
+        <Badge size="sm" variant="dot" color={colorMap[status]} radius="sm" aria-live="polite">
             {t(`chat.stream.${status}`)}
         </Badge>
     );
