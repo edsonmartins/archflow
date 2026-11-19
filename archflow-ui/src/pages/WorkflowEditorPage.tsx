@@ -425,7 +425,10 @@ export function WorkflowEditor() {
     : null
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 52px - 32px)', overflow: 'hidden' }}>
+    <div
+      className="af-editor-frame"
+      style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 52px - 32px)', overflow: 'hidden' }}
+    >
       {/* ── Top bar ─────────────────────────────────────────── */}
       <div
         style={{

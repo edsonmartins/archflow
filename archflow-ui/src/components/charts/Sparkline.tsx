@@ -85,7 +85,7 @@ export default function Sparkline({
     return (
         <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" style={svgStyle} role="img" aria-label={ariaLabel}>
             <path d={areaPath} fill={color} fillOpacity={0.13} />
-            <path d={linePath} fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
+            <path d={linePath} fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
         </svg>
     );
 }

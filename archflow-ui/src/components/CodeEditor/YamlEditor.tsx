@@ -18,7 +18,7 @@ interface YamlEditorProps {
  * <p>Why not CodeMirror? The archflow-ui bundle is already ~1.2 MB — a
  * full editor would add another 400-600 KB of code split. For the YAML
  * round-trip use case (read/write a few hundred lines max) a native
- * textarea with DM Mono + tab handling is perfectly usable and adds
+ * textarea with the monospace font + tab handling is perfectly usable and adds
  * zero runtime dependencies.
  */
 export default function YamlEditor({
@@ -74,7 +74,7 @@ export default function YamlEditor({
                 border: '1px solid var(--mantine-color-gray-3)',
                 borderRadius: 6,
                 overflow: 'hidden',
-                fontFamily: 'DM Mono, ui-monospace, monospace',
+                fontFamily: 'var(--font-mono)',
                 fontSize: 12,
                 background: '#0f172a',
                 color: '#e2e8f0',

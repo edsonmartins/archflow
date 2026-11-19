@@ -1,22 +1,26 @@
-import { Stack, Text, Title, ThemeIcon, Button, Center } from '@mantine/core';
+import { Stack, Text, Title, Button, Center } from '@mantine/core';
 import type { ReactNode } from 'react';
+import type { Accent } from './PageHeader';
 
 interface EmptyStateProps {
-    /** Ícone Tabler (ou qualquer nó) exibido no topo. */
+    /** Ícone Tabler (ou qualquer nó) exibido no centro da ilustração. */
     icon: ReactNode;
-    title: string;
-    description?: string;
+    title: ReactNode;
+    description?: ReactNode;
     /** Rótulo do call-to-action; omitir esconde o botão. */
     actionLabel?: string;
     onAction?: () => void;
-    /** Conteúdo extra abaixo do CTA (ex.: link de docs). */
+    /** Conteúdo extra abaixo do CTA (ex.: link de docs, botão customizado). */
     children?: ReactNode;
+    accent?: Accent;
+    /** Versão baixa, para dentro de tabelas e cartões. */
+    compact?: boolean;
 }
 
 /**
- * Estado vazio padrão da aplicação — substitui os textos centralizados e
- * Alerts ad-hoc para que toda lista/painel vazio tenha a mesma voz:
- * ícone suave, título curto, descrição de uma linha e um CTA opcional.
+ * Estado vazio padrão da aplicação: ícone num círculo com degradê e anéis
+ * pontilhados (af-empty-* em App.css), título curto, uma linha de descrição e
+ * um CTA opcional — para nenhuma lista vazia ficar só com uma frase cinza.
  */
 export default function EmptyState({
     icon,
@@ -25,16 +29,18 @@ export default function EmptyState({
     actionLabel,
     onAction,
     children,
+    accent = 'blue',
+    compact = false,
 }: EmptyStateProps) {
     return (
-        <Center mih={240} p="xl">
-            <Stack align="center" gap="sm" maw={420}>
-                <ThemeIcon size={56} radius="xl" variant="light" color="archBlue">
-                    {icon}
-                </ThemeIcon>
-                <Title order={4} ta="center">{title}</Title>
+        <Center mih={compact ? 180 : 280} p={compact ? 'lg' : 'xl'}>
+            <Stack align="center" gap="sm" maw={440}>
+                <span className="af-empty-art" data-accent={accent} data-compact={compact || undefined} aria-hidden>
+                    <span className="af-empty-icon">{icon}</span>
+                </span>
+                <Title order={compact ? 5 : 4} ta="center" mt={compact ? 4 : 8}>{title}</Title>
                 {description && (
-                    <Text size="sm" c="dimmed" ta="center">
+                    <Text size="sm" c="dimmed" ta="center" lh={1.55}>
                         {description}
                     </Text>
                 )}

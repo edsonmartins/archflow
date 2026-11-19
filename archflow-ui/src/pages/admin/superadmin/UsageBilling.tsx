@@ -1,10 +1,19 @@
-import { Table, Text, Paper, Stack, Select, Button, SimpleGrid, LoadingOverlay, Alert } from '@mantine/core'
-import { IconDownload, IconAlertCircle } from '@tabler/icons-react'
+import { Stack, Select, Button, SimpleGrid, Alert } from '@mantine/core'
+import {
+  IconDownload, IconAlertCircle, IconReceipt, IconPlayerPlay, IconCoins, IconCurrencyDollar,
+  IconBuildingSkyscraper, IconCalendar,
+} from '@tabler/icons-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { usageApi, type TenantUsageRow } from '../../../services/admin-api'
 import { StatCard } from '../../../components/admin/StatCard'
 import { PageHeader } from '../../../components/PageHeader'
+import { SectionCard } from '../../../components/SectionCard'
+import { VxTable, colunaBarra, colunaDupla, type VxColumn } from '../../../components/VTable'
+
+/** Tokens compactos: 4.3M, 50K, 900 — `0.0M` escondia os tenants pequenos. */
+const millions = (n: number) =>
+  n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1_000 ? `${Math.round(n / 1_000)}K` : String(n)
 
 export default function UsageBilling() {
   const { t, i18n } = useTranslation()
@@ -44,16 +53,39 @@ export default function UsageBilling() {
     return { executions, tokens, cost }
   }, [rows])
 
-  return (
-    <Stack gap="md" pos="relative">
-      <LoadingOverlay visible={loading} />
+  const colunas = useMemo((): VxColumn[] => [
+    {
+      ...colunaDupla(
+        { field: 'tenantName', title: t('admin.superadmin.usage.columns.tenant'), width: 'auto', minWidth: 220 },
+        (r) => String(r.tenantName),
+        (r) => String(r.tenantId),
+      ),
+      espelho: (r) => <><span>{String(r.tenantName)}</span> <span>{String(r.tenantId)}</span></>,
+    },
+    { field: 'executions', title: t('admin.superadmin.usage.columns.executions'), width: 140,
+      fieldFormat: (r) => Number(r.executions).toLocaleString(locale) },
+    { field: 'tokensInput', title: t('admin.superadmin.usage.columns.tokensIn'), width: 130,
+      fieldFormat: (r) => millions(Number(r.tokensInput)) },
+    { field: 'tokensOutput', title: t('admin.superadmin.usage.columns.tokensOut'), width: 130,
+      fieldFormat: (r) => millions(Number(r.tokensOutput)) },
+    { field: 'estimatedCost', title: t('admin.superadmin.usage.columns.cost'), width: 130,
+      fieldFormat: (r) => `$${Number(r.estimatedCost).toFixed(2)}`, style: { fontWeight: 600 } },
+    colunaBarra({ field: 'percentOfTotal', title: t('admin.superadmin.usage.columns.percent'), width: 170 }),
+  ], [t, locale])
 
+  return (
+    <Stack gap="lg" p="md">
       <PageHeader
+        icon={IconReceipt}
+        accent="slate"
         title={t('admin.superadmin.usage.title')}
+        subtitle={t('admin.superadmin.usage.subtitle')}
         actions={
           <>
-            <Select size="sm" w={140} data={['2026-04', '2026-03', '2026-02', '2026-01']}
-              value={month} onChange={setMonth} />
+            <Select size="sm" w={150} data={['2026-04', '2026-03', '2026-02', '2026-01']}
+              leftSection={<IconCalendar size={14} />}
+              aria-label={t('admin.superadmin.usage.month')}
+              value={month} onChange={setMonth} allowDeselect={false} />
             <Button
               component="a"
               href={usageApi.exportCsv(month ?? '')}
@@ -71,39 +103,38 @@ export default function UsageBilling() {
         </Alert>
       )}
 
-      <SimpleGrid cols={{ base: 2, lg: 4 }} spacing="md">
-        <StatCard label={t('admin.superadmin.usage.stats.executions')} value={totals.executions.toLocaleString(locale)} />
-        <StatCard label={t('admin.superadmin.usage.stats.tokens')}     value={`${(totals.tokens / 1_000_000).toFixed(1)}M`} />
-        <StatCard label={t('admin.superadmin.usage.stats.cost')}       value={`$${totals.cost.toFixed(2)}`} />
-        <StatCard label={t('admin.superadmin.usage.stats.tenants')}    value={String(rows.length)} />
+      <SimpleGrid cols={{ base: 1, xs: 2, md: 4 }} spacing="md">
+        <StatCard label={t('admin.superadmin.usage.stats.executions')} value={totals.executions.toLocaleString(locale)}
+          icon={IconPlayerPlay} accent="violet" hint={t('admin.superadmin.usage.hints.executions', { month })} />
+        <StatCard label={t('admin.superadmin.usage.stats.tokens')} value={millions(totals.tokens)}
+          icon={IconCoins} accent="teal" hint={t('admin.superadmin.usage.hints.tokens')} />
+        <StatCard label={t('admin.superadmin.usage.stats.cost')} value={`$${totals.cost.toFixed(2)}`}
+          icon={IconCurrencyDollar} accent="amber" hint={t('admin.superadmin.usage.hints.cost')} />
+        <StatCard label={t('admin.superadmin.usage.stats.tenants')} value={String(rows.length)}
+          icon={IconBuildingSkyscraper} accent="blue" hint={t('admin.superadmin.usage.hints.tenants')} />
       </SimpleGrid>
 
-      <Paper withBorder radius="lg" style={{ overflow: 'hidden' }}>
-        <Table striped highlightOnHover>
-          <Table.Thead>
-            <Table.Tr>
-              <Table.Th>{t('admin.superadmin.usage.columns.tenant')}</Table.Th>
-              <Table.Th>{t('admin.superadmin.usage.columns.executions')}</Table.Th>
-              <Table.Th>{t('admin.superadmin.usage.columns.tokensIn')}</Table.Th>
-              <Table.Th>{t('admin.superadmin.usage.columns.tokensOut')}</Table.Th>
-              <Table.Th>{t('admin.superadmin.usage.columns.cost')}</Table.Th>
-              <Table.Th>{t('admin.superadmin.usage.columns.percent')}</Table.Th>
-            </Table.Tr>
-          </Table.Thead>
-          <Table.Tbody>
-            {rows.map(r => (
-              <Table.Tr key={r.tenantId}>
-                <Table.Td><Text size="sm" fw={500}>{r.tenantName}</Text></Table.Td>
-                <Table.Td><Text size="sm">{r.executions.toLocaleString(locale)}</Text></Table.Td>
-                <Table.Td><Text size="sm">{(r.tokensInput / 1000000).toFixed(1)}M</Text></Table.Td>
-                <Table.Td><Text size="sm">{(r.tokensOutput / 1000000).toFixed(1)}M</Text></Table.Td>
-                <Table.Td><Text size="sm" fw={500}>${r.estimatedCost.toFixed(2)}</Text></Table.Td>
-                <Table.Td><Text size="sm">{r.percentOfTotal}%</Text></Table.Td>
-              </Table.Tr>
-            ))}
-          </Table.Tbody>
-        </Table>
-      </Paper>
+      <SectionCard
+        flush
+        icon={IconReceipt}
+        accent="slate"
+        title={t('admin.superadmin.usage.listTitle')}
+        description={t('admin.superadmin.usage.listHint')}
+      >
+        <VxTable
+          legenda={t('admin.superadmin.usage.listTitle')}
+          records={rows as unknown as Record<string, unknown>[]}
+          columns={colunas}
+          rowHeight={58}
+          loading={loading}
+          emptyMessage={t('admin.superadmin.usage.empty')}
+          emptyDescription={t('admin.superadmin.usage.emptyHint')}
+          emptyIcon={<IconReceipt />}
+          emptyAccent="slate"
+          testid="usage-by-tenant"
+          rowTestId={(r) => `usage-row-${r.tenantId}`}
+        />
+      </SectionCard>
     </Stack>
   )
 }

@@ -1,23 +1,42 @@
-import { useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useParams } from 'react-router-dom';
 import {
-    ActionIcon,
     Alert,
     Badge,
+    Box,
+    Button,
     Group,
-    Loader,
     Paper,
-    ScrollArea,
+    SimpleGrid,
+    Skeleton,
     Stack,
     Text,
-    Title,
-    Tooltip,
 } from '@mantine/core';
-import { IconAlertCircle, IconArrowLeft, IconRefresh } from '@tabler/icons-react';
+import {
+    IconAlertCircle,
+    IconBraces,
+    IconInfoCircle,
+    IconMessage,
+    IconRefresh,
+} from '@tabler/icons-react';
 import ChatPanel from '../components/chat/ChatPanel';
-import { conversationApi, type Conversation } from '../services/conversation-api';
+import { conversationApi, type Conversation, type ConversationStatus } from '../services/conversation-api';
 import { formatInstant } from '../lib/format';
+import { PageHeader } from '../components/PageHeader';
+import { SectionCard } from '../components/SectionCard';
+import EmptyState from '../components/EmptyState';
+import { JsonViewer } from '../components/JsonViewer';
+
+const STATUS_COLOR: Record<ConversationStatus, string> = {
+    ACTIVE: 'teal',
+    AWAITING_HUMAN: 'orange',
+    SUSPENDED: 'yellow',
+    ESCALATED: 'red',
+    CLOSED: 'gray',
+    COMPLETED: 'blue',
+    CANCELLED: 'gray',
+};
 
 /**
  * Conversation detail page with split layout.
@@ -26,7 +45,6 @@ import { formatInstant } from '../lib/format';
  * Right pane: contextual metadata — persona, status, timestamps, raw JSON.
  */
 export default function ConversationPage() {
-    const navigate = useNavigate();
     const { t, i18n } = useTranslation();
     const locale = i18n.resolvedLanguage ?? i18n.language;
     const { id } = useParams<{ id: string }>();
@@ -69,58 +87,68 @@ export default function ConversationPage() {
         );
     }
 
+    const title = conversation?.title ?? t('conversationDetail.title', { id: id.slice(0, 8) });
+
     return (
-        <Stack h="100%" gap={0}>
-            <Group justify="space-between" px="md" py="sm" style={{ borderBottom: '1px solid var(--mantine-color-gray-3)' }}>
-                <Group gap="sm">
-                    <Tooltip label={t('conversationDetail.back')}>
-                        <ActionIcon variant="subtle" onClick={() => navigate('/conversations')}>
-                            <IconArrowLeft size={18} />
-                        </ActionIcon>
-                    </Tooltip>
-                    <Stack gap={0}>
-                        <Title order={4}>
-                            {conversation?.title ?? t('conversationDetail.title', { id: id.slice(0, 8) })}
-                        </Title>
-                        <Group gap={6}>
-                            <Text size="xs" c="dimmed" ff="DM Mono, monospace">
-                                {id}
-                            </Text>
-                            {conversation?.status && (
-                                <Badge size="xs" variant="light">
-                                    {t(`conversations.statuses.${conversation.status}`, { defaultValue: conversation.status })}
-                                </Badge>
-                            )}
-                            {conversation?.persona && (
-                                <Badge size="xs" variant="outline" color="grape">
-                                    {conversation.persona}
-                                </Badge>
-                            )}
-                        </Group>
-                    </Stack>
-                </Group>
-                <Tooltip label={t('conversationDetail.refresh')}>
-                    <ActionIcon
-                        variant="subtle"
-                        onClick={() => {
-                            if (id) conversationApi.getConversation(id).then(setConversation);
-                        }}
-                    >
-                        <IconRefresh size={18} />
-                    </ActionIcon>
-                </Tooltip>
-            </Group>
+        <Stack gap="lg" p="md">
+            <PageHeader
+                icon={IconMessage}
+                accent="teal"
+                title={title}
+                subtitle={t('conversationDetail.subtitle')}
+                breadcrumbs={[
+                    { label: t('conversations.title'), to: '/conversations' },
+                    { label: id.slice(0, 8) },
+                ]}
+                actions={
+                    <>
+                        {conversation?.status && (
+                            <Badge
+                                size="lg"
+                                radius="sm"
+                                variant="dot"
+                                color={STATUS_COLOR[conversation.status] ?? 'gray'}
+                            >
+                                {t(`conversations.statuses.${conversation.status}`, { defaultValue: conversation.status })}
+                            </Badge>
+                        )}
+                        {conversation?.persona && (
+                            <Badge size="lg" radius="sm" variant="light" color="grape">
+                                {conversation.persona}
+                            </Badge>
+                        )}
+                        <Button
+                            variant="default"
+                            leftSection={<IconRefresh size={16} />}
+                            title={t('conversationDetail.refresh')}
+                            onClick={() => {
+                                if (id) conversationApi.getConversation(id).then(setConversation);
+                            }}
+                        >
+                            {t('common.refresh')}
+                        </Button>
+                    </>
+                }
+            />
 
             {error && (
-                <Alert m="sm" color="red" icon={<IconAlertCircle size={16} />}>
+                <Alert color="red" variant="light" icon={<IconAlertCircle size={16} />}>
                     {error}
                 </Alert>
             )}
 
-            <Group align="stretch" gap={0} style={{ flex: 1, minHeight: 0 }}>
+            <Group align="stretch" gap="md" wrap="wrap">
                 {/* Chat surface */}
                 <Paper
-                    style={{ flex: 1, minWidth: 0, borderRight: '1px solid var(--mantine-color-gray-3)' }}
+                    withBorder
+                    style={{
+                        flex: '1 1 520px',
+                        minWidth: 0,
+                        height: 'max(520px, calc(100vh - 250px))',
+                        overflow: 'hidden',
+                        display: 'flex',
+                        flexDirection: 'column',
+                    }}
                 >
                     <ChatPanel
                         conversationId={id}
@@ -130,76 +158,79 @@ export default function ConversationPage() {
                 </Paper>
 
                 {/* Context sidebar */}
-                <Paper w={320} p="md" style={{ overflow: 'hidden' }}>
-                    {loading ? (
-                        <Group justify="center" py="md">
-                            <Loader size="sm" />
-                        </Group>
-                    ) : conversation ? (
-                        <ScrollArea h="100%">
-                            <Stack gap="md">
-                                <Section label={t('conversationDetail.section.tenant')}>
-                                    <Text size="sm">{conversation.tenantId ?? '—'}</Text>
-                                </Section>
-                                <Section label={t('conversationDetail.section.user')}>
-                                    <Text size="sm">{conversation.userId ?? '—'}</Text>
-                                </Section>
-                                <Section label={t('conversationDetail.section.channel')}>
-                                    <Text size="sm">{conversation.channel ?? '—'}</Text>
-                                </Section>
-                                <Section label={t('conversationDetail.section.created')}>
-                                    <Text size="xs" c="dimmed">
-                                        {formatInstant(conversation.createdAt, locale)}
-                                    </Text>
-                                </Section>
-                                <Section label={t('conversationDetail.section.updated')}>
-                                    <Text size="xs" c="dimmed">
-                                        {formatInstant(conversation.updatedAt, locale)}
-                                    </Text>
-                                </Section>
-                                {conversation.workflowId && (
-                                    <Section label={t('conversationDetail.section.workflow')}>
-                                        <Text size="xs" ff="DM Mono, monospace">
-                                            {conversation.workflowId}
-                                        </Text>
-                                    </Section>
-                                )}
-                                <Section label={t('conversationDetail.section.raw')}>
-                                    <Paper
-                                        withBorder
-                                        radius="sm"
-                                        p={6}
-                                        style={(theme) => ({
-                                            backgroundColor: theme.colors.dark[0],
-                                            fontFamily: 'DM Mono, monospace',
-                                            fontSize: 11,
-                                            whiteSpace: 'pre-wrap',
-                                            wordBreak: 'break-all',
-                                        })}
-                                    >
-                                        {JSON.stringify(conversation, null, 2)}
-                                    </Paper>
-                                </Section>
+                <Stack gap="md" style={{ flex: '0 1 340px', minWidth: 280 }}>
+                    <SectionCard
+                        icon={IconInfoCircle}
+                        accent="teal"
+                        title={t('conversationDetail.details')}
+                        description={t('conversationDetail.detailsHint')}
+                    >
+                        {loading ? (
+                            <Stack gap="sm">
+                                {Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} height={14} radius="sm" />)}
                             </Stack>
-                        </ScrollArea>
-                    ) : (
-                        <Text size="sm" c="dimmed">
-                            {t('conversationDetail.noMetadata')}
-                        </Text>
+                        ) : conversation ? (
+                            <SimpleGrid cols={2} spacing="md" verticalSpacing="md">
+                                <Prop label={t('conversationDetail.section.tenant')}>{conversation.tenantId ?? '—'}</Prop>
+                                <Prop label={t('conversationDetail.section.user')}>{conversation.userId ?? '—'}</Prop>
+                                <Prop label={t('conversationDetail.section.channel')}>{conversation.channel ?? '—'}</Prop>
+                                <Prop label={t('conversations.table.messages')}>{conversation.messageCount ?? '—'}</Prop>
+                                <Box style={{ gridColumn: '1 / -1' }}>
+                                    <Prop label={t('conversationDetail.section.created')} dim>
+                                        {formatInstant(conversation.createdAt, locale)}
+                                    </Prop>
+                                </Box>
+                                <Box style={{ gridColumn: '1 / -1' }}>
+                                    <Prop label={t('conversationDetail.section.updated')} dim>
+                                        {formatInstant(conversation.updatedAt, locale)}
+                                    </Prop>
+                                </Box>
+                                {conversation.workflowId && (
+                                    <Box style={{ gridColumn: '1 / -1' }}>
+                                        <Prop label={t('conversationDetail.section.workflow')} dim>
+                                            {conversation.workflowId}
+                                        </Prop>
+                                    </Box>
+                                )}
+                                <Box style={{ gridColumn: '1 / -1' }}>
+                                    <Prop label={t('conversations.table.id')} dim>{id}</Prop>
+                                </Box>
+                            </SimpleGrid>
+                        ) : (
+                            <EmptyState
+                                compact
+                                icon={<IconInfoCircle />}
+                                accent="slate"
+                                title={t('conversationDetail.noMetadata')}
+                            />
+                        )}
+                    </SectionCard>
+
+                    {conversation && (
+                        <SectionCard
+                            icon={IconBraces}
+                            accent="slate"
+                            title={t('conversationDetail.section.raw')}
+                            description={t('conversationDetail.rawHint')}
+                        >
+                            <JsonViewer value={conversation} autoExpandDepth={1} />
+                        </SectionCard>
                     )}
-                </Paper>
+                </Stack>
             </Group>
         </Stack>
     );
 }
 
-function Section({ label, children }: { label: string; children: React.ReactNode }) {
+function Prop({ label, children, dim }: { label: string; children: ReactNode; dim?: boolean }) {
     return (
-        <Stack gap={2}>
-            <Text size="xs" tt="uppercase" c="dimmed" style={{ letterSpacing: 0.5 }}>
+        <Stack gap={3} style={{ minWidth: 0 }}>
+            <Text size="xs" fw={600} c="dimmed" tt="uppercase" style={{ letterSpacing: '0.06em' }}>
                 {label}
             </Text>
-            {children}
+            <Text size="sm" c={dim ? 'dimmed' : undefined} style={{ overflowWrap: 'anywhere' }}>
+                {children}
+            </Text>
         </Stack>
     );
 }

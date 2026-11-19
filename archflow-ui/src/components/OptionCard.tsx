@@ -20,8 +20,8 @@ export function OptionCard({
     return (
         <Card
             withBorder
-            radius="md"
-            padding="sm"
+            padding="md"
+            className="af-hoverable"
             component="button"
             type="button"
             onClick={onClick}
@@ -30,7 +30,7 @@ export function OptionCard({
         >
             <Group gap="sm" wrap="nowrap">
                 {color ? (
-                    <ThemeIcon size={40} radius="md" variant="light" color={color}>
+                    <ThemeIcon size={44} radius="md" variant="light" color={color}>
                         {icon}
                     </ThemeIcon>
                 ) : icon}

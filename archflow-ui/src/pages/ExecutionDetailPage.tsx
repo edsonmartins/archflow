@@ -2,18 +2,22 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import {
-    ActionIcon, Alert, Badge, Button, Card, Code, Collapse, Group, Loader,
-    Paper, Stack, Text, Title,
+    ActionIcon, Alert, Anchor, Badge, Box, Button, Code, Collapse, Group, Loader,
+    Paper, SimpleGrid, Skeleton, Stack, Text,
 } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import {
-    IconAlertCircle, IconChevronDown, IconChevronRight, IconCheck,
-    IconMinus, IconPlayerPlay, IconSitemap, IconX,
+    IconAlertCircle, IconAlertTriangle, IconBraces, IconChevronDown, IconChevronRight, IconCheck,
+    IconCircleCheck, IconCircleDashed, IconClock, IconListDetails, IconLoader2, IconMinus,
+    IconPlayerPause, IconPlayerPlay, IconPlayerStop, IconSitemap, IconTimeline, IconTopologyRing, IconX,
 } from '@tabler/icons-react'
 import { executionApi, workflowApi, ApiError } from '../services/api'
-import { tabularNums } from '../components/DataTable'
 import { JsonViewer } from '../components/JsonViewer'
 import { Meta } from '../components/Meta'
+import { PageHeader, type Accent } from '../components/PageHeader'
+import { SectionCard } from '../components/SectionCard'
+import { StatCard } from '../components/admin/StatCard'
+import EmptyState from '../components/EmptyState'
 import { formatDuration, formatInstant } from '../lib/format'
 import { EXECUTION_STATUS_COLOR } from '../lib/executionStatus'
 
@@ -37,6 +41,17 @@ interface StepRecord {
     error?: string
 }
 
+const tabularNums = { fontVariantNumeric: 'tabular-nums' } as const
+
+const STATUS_ACCENT: Record<string, Accent> = {
+    RUNNING: 'blue', COMPLETED: 'teal', FAILED: 'rose', PAUSED: 'amber', CANCELLED: 'slate',
+}
+
+const STATUS_ICON: Record<string, typeof IconCircleCheck> = {
+    RUNNING: IconLoader2, COMPLETED: IconCircleCheck, FAILED: IconAlertTriangle,
+    PAUSED: IconPlayerPause, CANCELLED: IconPlayerStop,
+}
+
 // Reuse the shared status→color map; 'STARTED' is a path-node-only alias of RUNNING.
 function pathColor(status: string): string {
     return EXECUTION_STATUS_COLOR[status] ?? (status === 'STARTED' ? 'blue' : 'gray')
@@ -47,9 +62,11 @@ function PathTree({ nodes, depth = 0 }: { nodes: PathNode[]; depth?: number }) {
         <Stack gap={4}>
             {nodes.map((n, i) => (
                 <div key={`${n.pathId}-${i}`}>
-                    <Group gap="xs" wrap="nowrap" style={{ paddingLeft: depth * 16 }}>
+                    <Group gap="xs" wrap="nowrap" py={4}
+                           style={{ paddingLeft: depth * 20, borderLeft: depth > 0 ? '2px solid var(--surface-border)' : undefined,
+                               marginLeft: depth > 0 ? 8 : 0 }}>
                         <Badge size="xs" variant="light" color={pathColor(n.status)}>{n.status}</Badge>
-                        <Text size="sm">{n.pathId}</Text>
+                        <Text size="sm" ff="monospace">{n.pathId}</Text>
                     </Group>
                     {n.parallelBranches && n.parallelBranches.length > 0 && (
                         <PathTree nodes={n.parallelBranches} depth={depth + 1} />
@@ -78,7 +95,8 @@ function StepBlock({ step, locale }: { step: StepRecord; locale: string }) {
         : step.status
 
     return (
-        <Paper withBorder radius="md" p="xs" data-testid={`execution-step-${step.stepId}`}>
+        <Paper withBorder radius="md" px="sm" py="xs" data-testid={`execution-step-${step.stepId}`}
+               style={{ borderLeft: `3px solid var(--mantine-color-${statusColor}-6)`, boxShadow: 'none' }}>
             <Group
                 justify="space-between"
                 wrap="nowrap"
@@ -91,7 +109,7 @@ function StepBlock({ step, locale }: { step: StepRecord; locale: string }) {
                         {open ? <IconChevronDown size={14} /> : <IconChevronRight size={14} />}
                     </ActionIcon>
                     {typeof step.stepIndex === 'number' && (
-                        <Text size="xs" c="dimmed" ff="DM Mono, monospace" style={tabularNums}>
+                        <Text size="xs" c="dimmed" ff="monospace" style={tabularNums}>
                             {step.stepIndex + 1}{typeof step.stepCount === 'number' ? `/${step.stepCount}` : ''}
                         </Text>
                     )}
@@ -113,7 +131,7 @@ function StepBlock({ step, locale }: { step: StepRecord; locale: string }) {
                 </Group>
 
                 {typeof step.durationMs === 'number' && (
-                    <Text size="xs" c="dimmed" ff="DM Mono, monospace" style={tabularNums}>
+                    <Text size="xs" c="dimmed" ff="monospace" style={tabularNums}>
                         {formatDuration(step.durationMs)}
                     </Text>
                 )}
@@ -198,74 +216,138 @@ export default function ExecutionDetailPage() {
         }
     }
 
+    const header = (extra?: { subtitle?: string; accent?: Accent }) => (
+        <PageHeader
+            icon={IconPlayerPlay}
+            accent={extra?.accent ?? 'violet'}
+            title={t('executionDetail.title', { id: id.slice(0, 12) })}
+            subtitle={extra?.subtitle}
+            breadcrumbs={[{ label: t('executions.title'), to: '/executions' }, { label: id.slice(0, 12) }]}
+            actions={data ? (
+                <>
+                    {traceId && (
+                        <Button component={Link} to={`/admin/observability/traces/${traceId}`} variant="default"
+                                leftSection={<IconTimeline size={15} />}>
+                            {t('executionDetail.viewTrace')}
+                        </Button>
+                    )}
+                    <Button
+                        leftSection={<IconPlayerPlay size={14} />}
+                        loading={rerunning}
+                        onClick={handleRerun}
+                        disabled={!data.workflowId}
+                        data-testid="execution-rerun"
+                    >
+                        {t('executionDetail.rerun')}
+                    </Button>
+                </>
+            ) : undefined}
+        />
+    )
+
+    const traceId = data?.traceId as string | undefined
+
     if (err) return (
-        <Stack gap="md" p="md" data-testid="execution-detail-error">
-            <Alert color="red" variant="light" icon={<IconAlertCircle size={16} />}>{err}</Alert>
-            <Group>
-                <Link to="/executions"><Button variant="default">{t('executionDetail.back')}</Button></Link>
-            </Group>
+        <Stack gap="lg" p="md" data-testid="execution-detail-error">
+            {header({ accent: 'rose' })}
+            <Paper withBorder>
+                <EmptyState
+                    icon={<IconAlertCircle />}
+                    accent="rose"
+                    title={t('executionDetail.loadFailed')}
+                    description={err}
+                    actionLabel={t('common.refresh')}
+                    onAction={() => void load()}
+                />
+            </Paper>
         </Stack>
     )
     if (!data) return (
-        <Group p="md"><Loader size="sm" /><Text size="sm" c="dimmed">{t('triggers.loading')}</Text></Group>
+        <Stack gap="lg" p="md" aria-busy="true">
+            {header()}
+            <SimpleGrid cols={{ base: 1, xs: 2, md: 4 }} spacing="md">
+                {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} height={118} radius="md" />)}
+            </SimpleGrid>
+            <Skeleton height={220} radius="md" />
+        </Stack>
     )
 
-    const traceId = data.traceId as string | undefined
     const paths = (data.executionPaths as PathNode[] | undefined) ?? []
     const steps = ((data.steps as StepRecord[] | undefined) ?? [])
         .slice()
         .sort((a, b) => (a.stepIndex ?? 0) - (b.stepIndex ?? 0))
     const execError = data.error as string | null | undefined
     const duration = data.duration as number | null | undefined
+    const statusColor = EXECUTION_STATUS_COLOR[status] ?? 'gray'
+    const statusAccent: Accent = STATUS_ACCENT[status] ?? 'slate'
+    const StatusIcon = STATUS_ICON[status] ?? IconCircleDashed
+    const failedSteps = steps.filter((s) => s.status === 'FAILED').length
+    const workflowName = String(data.workflowName ?? data.workflowId ?? '—')
 
     return (
-        <Stack gap="md" p="md" data-testid="execution-detail">
-            <Group justify="space-between">
-                <Group>
-                    <Title order={2}>{t('executionDetail.title', { id: id.slice(0, 12) })}</Title>
-                    {status && (
-                        <Badge color={status === 'COMPLETED' ? 'teal' : status === 'FAILED' ? 'red' : status === 'RUNNING' ? 'blue' : 'yellow'}>
-                            {t(`executions.statuses.${status}`, { defaultValue: status })}
-                        </Badge>
-                    )}
-                </Group>
-                <Group>
-                    <Button
-                        variant="light"
-                        leftSection={<IconPlayerPlay size={14} />}
-                        loading={rerunning}
-                        onClick={handleRerun}
-                        data-testid="execution-rerun"
-                    >
-                        {t('executionDetail.rerun')}
-                    </Button>
-                    {traceId && (
-                        <Link to={`/admin/observability/traces/${traceId}`}>
-                            <Button variant="light">{t('executionDetail.viewTrace')}</Button>
-                        </Link>
-                    )}
-                    <Link to="/executions"><Button variant="default">{t('executionDetail.back')}</Button></Link>
-                </Group>
-            </Group>
+        <Stack gap="lg" p="md" data-testid="execution-detail">
+            {header({ subtitle: t('executionDetail.subtitle', { workflow: workflowName }), accent: status === 'FAILED' ? 'rose' : 'violet' })}
 
-            <Card withBorder>
-                <Group gap="xl" wrap="wrap">
-                    <Meta label={t('executionDetail.summary.workflow')} value={String(data.workflowName ?? data.workflowId ?? '—')} />
-                    <Meta label={t('executionDetail.summary.started')} value={formatInstant(data.startedAt as string | undefined, locale)} />
-                    <Meta label={t('executionDetail.summary.completed')} value={formatInstant(data.completedAt as string | undefined, locale)} />
-                    <Meta label={t('executionDetail.summary.duration')} value={typeof duration === 'number' ? formatDuration(duration) : '—'} />
-                </Group>
-                {execError && (
-                    <Alert mt="sm" color="red" variant="light" icon={<IconAlertCircle size={16} />}>
-                        {execError}
-                    </Alert>
-                )}
-            </Card>
+            <SimpleGrid cols={{ base: 1, xs: 2, md: 4 }} spacing="md">
+                <StatCard
+                    label={t('executionDetail.stats.status')}
+                    value={<Text component="span" inherit fz={24} c={statusColor}>
+                        {status ? t(`executions.statuses.${status}`, { defaultValue: status }) : '—'}
+                    </Text>}
+                    icon={StatusIcon}
+                    accent={statusAccent}
+                    hint={status === 'RUNNING' ? t('executionDetail.hints.live') : t('executionDetail.hints.finished', {
+                        when: formatInstant(data.completedAt as string | undefined, locale) })}
+                />
+                <StatCard
+                    label={t('executionDetail.summary.duration')}
+                    value={typeof duration === 'number' ? formatDuration(duration) : '—'}
+                    icon={IconClock}
+                    accent="blue"
+                    hint={t('executionDetail.hints.started', {
+                        when: formatInstant(data.startedAt as string | undefined, locale) })}
+                />
+                <StatCard
+                    label={t('executionDetail.steps')}
+                    value={steps.length}
+                    icon={IconListDetails}
+                    accent="violet"
+                    color={failedSteps > 0 ? 'red' : undefined}
+                    hint={failedSteps > 0
+                        ? t('executionDetail.hints.failedSteps', { count: failedSteps })
+                        : t('executionDetail.hints.steps')}
+                />
+                <StatCard
+                    label={t('executionDetail.summary.workflow')}
+                    value={<Text component="span" inherit fz={18} lineClamp={1} title={workflowName}>{workflowName}</Text>}
+                    icon={IconTopologyRing}
+                    accent="teal"
+                    hint={data.workflowId ? (
+                        <Anchor component={Link} to={`/editor/${data.workflowId as string}`} size="xs">
+                            {t('executionDetail.openWorkflow')}
+                        </Anchor>
+                    ) : undefined}
+                />
+            </SimpleGrid>
 
-            <Card withBorder data-testid="execution-steps">
-                <Text fw={600} mb="sm">{t('executionDetail.steps')}</Text>
+            {execError && (
+                <Alert color="red" variant="light" icon={<IconAlertCircle size={16} />}
+                       title={t('executionDetail.errorTitle')}>
+                    <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>{execError}</Text>
+                </Alert>
+            )}
+
+            <SectionCard
+                icon={IconListDetails}
+                accent="violet"
+                title={t('executionDetail.steps')}
+                description={t('executionDetail.stepsHint')}
+                data-testid="execution-steps"
+            >
                 {steps.length === 0 ? (
-                    <Text size="sm" c="dimmed">{t('executionDetail.noSteps')}</Text>
+                    <EmptyState compact icon={<IconListDetails />} accent="violet"
+                                title={t('executionDetail.noStepsTitle')}
+                                description={t('executionDetail.noSteps')} />
                 ) : (
                     <Stack gap="xs">
                         {steps.map((s) => (
@@ -273,33 +355,43 @@ export default function ExecutionDetailPage() {
                         ))}
                     </Stack>
                 )}
-            </Card>
+            </SectionCard>
 
             {paths.length > 0 && (
-                <Card withBorder data-testid="execution-paths">
-                    <Group gap="xs" mb="sm">
-                        <IconSitemap size={18} />
-                        <Text fw={600}>{t('executionDetail.dynamicTree')}</Text>
-                    </Group>
+                <SectionCard
+                    icon={IconSitemap}
+                    accent="teal"
+                    title={t('executionDetail.dynamicTree')}
+                    description={t('executionDetail.dynamicTreeHint')}
+                    data-testid="execution-paths"
+                >
                     <PathTree nodes={paths} />
-                </Card>
+                </SectionCard>
             )}
 
-            <div>
-                <Button
-                    variant="subtle"
-                    size="xs"
-                    leftSection={rawOpen ? <IconChevronDown size={14} /> : <IconChevronRight size={14} />}
-                    onClick={() => setRawOpen((o) => !o)}
-                >
-                    {rawOpen ? t('executionDetail.hideRaw') : t('executionDetail.showRaw')}
-                </Button>
+            <SectionCard
+                icon={IconBraces}
+                accent="slate"
+                title={t('executionDetail.rawJson')}
+                description={t('executionDetail.rawJsonHint')}
+                actions={
+                    <Button
+                        variant="subtle"
+                        size="xs"
+                        leftSection={rawOpen ? <IconChevronDown size={14} /> : <IconChevronRight size={14} />}
+                        onClick={() => setRawOpen((o) => !o)}
+                    >
+                        {rawOpen ? t('executionDetail.hideRaw') : t('executionDetail.showRaw')}
+                    </Button>
+                }
+                flush
+            >
                 <Collapse expanded={rawOpen}>
-                    <Card withBorder mt="xs">
+                    <Box p="lg">
                         <JsonViewer value={data} autoExpandDepth={2} />
-                    </Card>
+                    </Box>
                 </Collapse>
-            </div>
+            </SectionCard>
         </Stack>
     )
 }

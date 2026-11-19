@@ -1,25 +1,34 @@
 import {
-    Title, Button, Group, Text, TextInput, Stack, LoadingOverlay, Modal,
-    Alert, SimpleGrid, Card, Badge, ActionIcon, ThemeIcon, Tooltip, Code, Center,
+    Button, Group, Text, TextInput, Stack, LoadingOverlay, Modal,
+    Alert, SimpleGrid, Card, Badge, ActionIcon, Tooltip, Paper,
 } from '@mantine/core';
 import {
     IconPlus, IconSearch, IconPlayerPlay, IconPencil, IconTrash,
     IconAlertCircle, IconRobot, IconFileText, IconPlayerPause,
-    IconAlertTriangle, IconTopologyRing, IconTemplate, IconSparkles,
+    IconAlertTriangle, IconTopologyRing, IconTemplate, IconSparkles, IconBolt,
 } from '@tabler/icons-react';
 import { useEffect, useState, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useWorkflowStore } from '../stores/workflow-store';
 import { workflowApi } from '../services/api';
-import { clickableRow } from '../components/DataTable';
 import { OptionCard } from '../components/OptionCard';
+import { PageHeader, type Accent } from '../components/PageHeader';
+import { StatCard } from '../components/admin/StatCard';
+import EmptyState from '../components/EmptyState';
 
 const STATUS_COLOR: Record<string, string> = {
     active: 'teal',
     draft:  'gray',
     paused: 'yellow',
     failed: 'red',
+};
+
+const STATUS_ACCENT: Record<string, Accent> = {
+    active: 'teal',
+    draft:  'slate',
+    paused: 'amber',
+    failed: 'rose',
 };
 
 const STATUS_ICON: Record<string, typeof IconRobot> = {
@@ -43,6 +52,13 @@ export default function WorkflowListPage() {
         if (!q) return workflows;
         return workflows.filter(w => w.name.toLowerCase().includes(q) || w.description.toLowerCase().includes(q));
     }, [search, workflows]);
+
+    const counts = useMemo(() => ({
+        active: workflows.filter(w => w.status === 'active').length,
+        draft: workflows.filter(w => w.status === 'draft').length,
+        attention: workflows.filter(w => w.status === 'failed' || w.status === 'paused').length,
+    }), [workflows]);
+    const totalSteps = useMemo(() => workflows.reduce((n, w) => n + (w.stepCount ?? 0), 0), [workflows]);
 
     const handleDelete = async () => { if (deleteId) { await deleteWorkflow(deleteId); setDeleteId(null); } };
 
@@ -84,40 +100,68 @@ export default function WorkflowListPage() {
     }, [searchParams]);
 
     return (
-        <Stack gap="md" p="md" pos="relative">
-            <LoadingOverlay visible={loading} zIndex={5} />
-            {error && <Alert color="red" variant="light" icon={<IconAlertCircle size={16} />}>{error}</Alert>}
+        <Stack gap="lg" p="md" pos="relative">
+            <LoadingOverlay visible={loading && workflows.length === 0} zIndex={5} />
 
-            <Group justify="space-between" wrap="wrap">
-                <Title order={2}>{t('workflows.title')}</Title>
-                <Button leftSection={<IconPlus size={16} />} onClick={handleNew} data-testid="workflow-new">
-                    {t('workflows.newWorkflow')}
-                </Button>
-            </Group>
-
-            <TextInput
-                aria-label={t('workflows.search')}
-                placeholder={t('workflows.search')}
-                leftSection={<IconSearch size={14} />}
-                value={search}
-                onChange={e => setSearch(e.currentTarget.value)}
-                maw={420}
+            <PageHeader
+                icon={IconTopologyRing}
+                accent="blue"
+                title={t('workflows.title')}
+                subtitle={t('workflows.subtitle')}
+                actions={
+                    <>
+                        <Button variant="default" leftSection={<IconTemplate size={16} />}
+                                onClick={() => navigate('/templates')}>
+                            {t('workflows.browseTemplates')}
+                        </Button>
+                        <Button leftSection={<IconPlus size={16} />} onClick={handleNew} data-testid="workflow-new">
+                            {t('workflows.newWorkflow')}
+                        </Button>
+                    </>
+                }
             />
 
+            {error && <Alert color="red" variant="light" icon={<IconAlertCircle size={16} />}>{error}</Alert>}
+
+            <SimpleGrid cols={{ base: 1, xs: 2, md: 4 }} spacing="md">
+                <StatCard label={t('workflows.stats.total')} value={workflows.length} icon={IconTopologyRing}
+                          accent="blue" hint={t('workflows.hints.total', { count: totalSteps })} />
+                <StatCard label={t('workflows.stats.active')} value={counts.active} icon={IconBolt}
+                          accent="teal" hint={t('workflows.hints.active')} />
+                <StatCard label={t('workflows.stats.draft')} value={counts.draft} icon={IconFileText}
+                          accent="slate" hint={t('workflows.hints.draft')} />
+                <StatCard label={t('workflows.stats.attention')} value={counts.attention} icon={IconAlertTriangle}
+                          accent="rose" color={counts.attention > 0 ? 'red' : undefined}
+                          hint={t('workflows.hints.attention')} />
+            </SimpleGrid>
+
+            <Group justify="space-between" wrap="wrap" gap="sm">
+                <TextInput
+                    aria-label={t('workflows.search')}
+                    placeholder={t('workflows.search')}
+                    leftSection={<IconSearch size={14} />}
+                    value={search}
+                    onChange={e => setSearch(e.currentTarget.value)}
+                    w={420}
+                    maw="100%"
+                />
+                {workflows.length > 0 && (
+                    <Text size="xs" c="dimmed">
+                        {t('workflows.showing', { shown: filtered.length, total: workflows.length })}
+                    </Text>
+                )}
+            </Group>
+
             {filtered.length === 0 && !loading ? (
-                <Center mih={280}>
-                    <Stack align="center" gap="xs" maw={320}>
-                        <ThemeIcon size={56} radius="xl" variant="light" color="gray">
-                            <IconTopologyRing size={30} />
-                        </ThemeIcon>
-                        <Text fw={600} size="lg" ta="center">
-                            {workflows.length === 0 ? t('workflows.empty') : t('workflows.noMatches')}
-                        </Text>
-                        <Text size="sm" c="dimmed" ta="center">
-                            {workflows.length === 0 ? t('workflows.emptyHint') : t('workflows.noMatchesHint')}
-                        </Text>
-                        {workflows.length === 0 && (
-                            <Group mt="xs" gap="sm">
+                <Paper withBorder>
+                    <EmptyState
+                        icon={workflows.length === 0 ? <IconTopologyRing /> : <IconSearch />}
+                        accent="blue"
+                        title={workflows.length === 0 ? t('workflows.empty') : t('workflows.noMatches')}
+                        description={workflows.length === 0 ? t('workflows.emptyHint') : t('workflows.noMatchesHint')}
+                    >
+                        {workflows.length === 0 ? (
+                            <Group mt="xs" gap="sm" justify="center">
                                 <Button leftSection={<IconPlus size={16} />} onClick={handleNew}>
                                     {t('workflows.createWorkflow')}
                                 </Button>
@@ -129,96 +173,120 @@ export default function WorkflowListPage() {
                                     {t('workflows.browseTemplates')}
                                 </Button>
                             </Group>
+                        ) : (
+                            <Button variant="light" size="xs" mt="xs" onClick={() => setSearch('')}>
+                                {t('workflows.clearSearch')}
+                            </Button>
                         )}
-                    </Stack>
-                </Center>
+                    </EmptyState>
+                </Paper>
             ) : (
                 <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="md">
                     {filtered.map(w => {
                         const color = STATUS_COLOR[w.status] ?? 'gray';
+                        const accent = STATUS_ACCENT[w.status] ?? 'slate';
                         const StatusIcon = STATUS_ICON[w.status] ?? IconFileText;
+                        const open = () => navigate(`/editor/${w.id}`);
+                        const toggleLabel = w.status === 'active'
+                            ? t('workflows.actions.deactivate')
+                            : t('workflows.actions.activate');
                         return (
                             <Card
                                 key={w.id}
                                 withBorder
-                                radius="lg"
-                                padding="md"
+                                padding="lg"
                                 data-testid={`workflow-card-${w.id}`}
                                 aria-label={w.name}
-                                {...clickableRow(() => navigate(`/editor/${w.id}`))}
+                                role="button"
+                                tabIndex={0}
+                                onClick={open}
+                                onKeyDown={(e) => {
+                                    if (e.target !== e.currentTarget) return;
+                                    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); }
+                                }}
+                                style={{ cursor: 'pointer', display: 'flex', flexDirection: 'column' }}
                             >
-                                <Group align="flex-start" gap="sm" wrap="nowrap" mb="sm">
-                                    <ThemeIcon size={38} radius="md" variant="light" color={color}>
-                                        <StatusIcon size={20} />
-                                    </ThemeIcon>
-                                    <div style={{ minWidth: 0, flex: 1 }}>
+                                <Group align="flex-start" gap="sm" wrap="nowrap" mb="md">
+                                    <span className="af-stat-icon" data-accent={accent} aria-hidden
+                                          style={{ width: 40, height: 40, borderRadius: 11 }}>
+                                        <IconTopologyRing size={20} stroke={1.8} />
+                                    </span>
+                                    <Stack gap={2} style={{ minWidth: 0, flex: 1 }}>
                                         <Text fw={600} size="sm" lineClamp={1}>{w.name}</Text>
-                                        <Text size="xs" c="dimmed" lineClamp={2}>{w.description}</Text>
-                                    </div>
-                                </Group>
-
-                                <Group gap="xs" wrap="wrap" mb="sm">
-                                    <Badge size="sm" variant="light" color={color} leftSection={<StatusIcon size={11} />}>
+                                        <Text size="xs" c="dimmed" lineClamp={2} mih={34}>
+                                            {w.description || t('workflows.noDescription')}
+                                        </Text>
+                                    </Stack>
+                                    <Badge size="sm" variant="light" color={color} leftSection={<StatusIcon size={11} />}
+                                           style={{ flexShrink: 0 }}>
                                         {t(`workflows.status.${w.status}`, { defaultValue: w.status.charAt(0).toUpperCase() + w.status.slice(1) })}
                                     </Badge>
-                                    <Code>{w.version}</Code>
-                                    <Text size="xs" c="dimmed">{t('workflows.stepCount', { count: w.stepCount })}</Text>
                                 </Group>
 
-                                <Text size="xs" c="dimmed" mb="sm">
-                                    {new Date(w.updatedAt).toLocaleDateString(i18n.resolvedLanguage ?? i18n.language)}
-                                </Text>
+                                <Group gap="lg" wrap="wrap" mb="md" mt="auto">
+                                    <Stack gap={0}>
+                                        <Text size="10px" c="dimmed" tt="uppercase" fw={600} style={{ letterSpacing: '0.06em' }}>
+                                            {t('workflows.card.version')}
+                                        </Text>
+                                        <Text size="xs" fw={500}>{w.version}</Text>
+                                    </Stack>
+                                    <Stack gap={0}>
+                                        <Text size="10px" c="dimmed" tt="uppercase" fw={600} style={{ letterSpacing: '0.06em' }}>
+                                            {t('workflows.card.steps')}
+                                        </Text>
+                                        <Text size="xs" fw={500}>{t('workflows.stepCount', { count: w.stepCount })}</Text>
+                                    </Stack>
+                                    <Stack gap={0}>
+                                        <Text size="10px" c="dimmed" tt="uppercase" fw={600} style={{ letterSpacing: '0.06em' }}>
+                                            {t('workflows.card.updated')}
+                                        </Text>
+                                        <Text size="xs" fw={500}>
+                                            {new Date(w.updatedAt).toLocaleDateString(i18n.resolvedLanguage ?? i18n.language)}
+                                        </Text>
+                                    </Stack>
+                                </Group>
 
                                 <Group
                                     gap={4}
                                     pt="sm"
-                                    style={{ borderTop: '1px solid var(--mantine-color-default-border)' }}
+                                    justify="space-between"
+                                    style={{ borderTop: '1px solid var(--surface-border)' }}
                                     onClick={e => e.stopPropagation()}
                                 >
-                                    <Tooltip label={t('workflows.actions.execute')}>
-                                        <ActionIcon
-                                            variant="subtle"
-                                            color="gray"
-                                            aria-label={t('workflows.actions.execute')}
-                                            onClick={() => handleExecute(w.id)}
-                                        >
-                                            <IconPlayerPlay size={16} />
-                                        </ActionIcon>
-                                    </Tooltip>
-                                    <Tooltip label={t('workflows.actions.edit')}>
-                                        <ActionIcon
-                                            variant="subtle"
-                                            color="gray"
-                                            aria-label={t('workflows.actions.edit')}
-                                            onClick={() => navigate(`/editor/${w.id}`)}
-                                        >
-                                            <IconPencil size={16} />
-                                        </ActionIcon>
-                                    </Tooltip>
-                                    <Tooltip label={w.status === 'active'
-                                        ? t('workflows.actions.deactivate', 'Voltar para rascunho')
-                                        : t('workflows.actions.activate', 'Ativar')}>
-                                        <ActionIcon
-                                            variant="subtle"
-                                            color={w.status === 'active' ? 'yellow' : 'teal'}
-                                            aria-label={w.status === 'active'
-                                                ? t('workflows.actions.deactivate', 'Voltar para rascunho')
-                                                : t('workflows.actions.activate', 'Ativar')}
-                                            onClick={() => void handleToggleStatus(w.id, w.status)}
-                                        >
-                                            {w.status === 'active' ? <IconPlayerPause size={16} /> : <IconRobot size={16} />}
-                                        </ActionIcon>
-                                    </Tooltip>
-                                    <Tooltip label={t('workflows.actions.delete')}>
-                                        <ActionIcon
-                                            variant="subtle"
-                                            color="red"
-                                            aria-label={t('workflows.actions.delete')}
-                                            onClick={() => setDeleteId(w.id)}
-                                        >
-                                            <IconTrash size={16} />
-                                        </ActionIcon>
-                                    </Tooltip>
+                                    <Group gap={4}>
+                                        <Tooltip label={t('workflows.actions.edit')}>
+                                            <ActionIcon variant="subtle" color="gray" aria-label={t('workflows.actions.edit')}
+                                                        onClick={open}>
+                                                <IconPencil size={16} />
+                                            </ActionIcon>
+                                        </Tooltip>
+                                        <Tooltip label={toggleLabel}>
+                                            <ActionIcon
+                                                variant="subtle"
+                                                color={w.status === 'active' ? 'yellow' : 'teal'}
+                                                aria-label={toggleLabel}
+                                                onClick={() => void handleToggleStatus(w.id, w.status)}
+                                            >
+                                                {w.status === 'active' ? <IconPlayerPause size={16} /> : <IconRobot size={16} />}
+                                            </ActionIcon>
+                                        </Tooltip>
+                                        <Tooltip label={t('workflows.actions.delete')}>
+                                            <ActionIcon variant="subtle" color="red" aria-label={t('workflows.actions.delete')}
+                                                        onClick={() => setDeleteId(w.id)}>
+                                                <IconTrash size={16} />
+                                            </ActionIcon>
+                                        </Tooltip>
+                                    </Group>
+                                    <Button
+                                        size="compact-sm"
+                                        variant="light"
+                                        color="violet"
+                                        leftSection={<IconPlayerPlay size={14} />}
+                                        aria-label={t('workflows.actions.execute')}
+                                        onClick={() => handleExecute(w.id)}
+                                    >
+                                        {t('workflows.actions.run')}
+                                    </Button>
                                 </Group>
                             </Card>
                         );

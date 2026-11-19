@@ -4,14 +4,16 @@ import {
     Alert,
     Badge,
     Button,
-    Group,
-    Paper,
+    Grid,
     Select,
     Stack,
     Text,
-    Title,
 } from '@mantine/core';
-import { IconAlertCircle, IconRefresh } from '@tabler/icons-react';
+import {
+    IconAlertCircle, IconMessages, IconMicrophone, IconRefresh, IconUserCircle,
+} from '@tabler/icons-react';
+import { PageHeader } from '../components/PageHeader';
+import { SectionCard } from '../components/SectionCard';
 import MicButton from '../components/voice/MicButton';
 import Transcript, { type TranscriptTurn } from '../components/voice/Transcript';
 import {
@@ -154,64 +156,80 @@ export default function VoicePlaygroundPage() {
     }, [disposeListeners]);
 
     return (
-        <Stack p="md" gap="md">
-            <Stack gap={4}>
-                <Title order={2}>{t('voicePlayground.title')}</Title>
-                <Text size="sm" c="dimmed">
-                    {t('voicePlayground.subtitle')}
-                </Text>
-            </Stack>
-
-            <Group gap="sm" wrap="nowrap" align="flex-end">
-                <Select
-                    label={t('voicePlayground.persona')}
-                    description={t('voicePlayground.personaHint')}
-                    data={personas}
-                    value={persona}
-                    onChange={(v) => v && setPersona(v)}
-                    w={260}
-                    data-testid="voice-persona"
-                />
-                <Button
-                    variant="default"
-                    leftSection={<IconRefresh size={16} />}
-                    onClick={handleReset}
-                    data-testid="voice-reset"
-                >
-                    {t('voicePlayground.reset')}
-                </Button>
-                <Badge
-                    size="lg"
-                    variant="dot"
-                    color={statusColor(status)}
-                    data-testid="voice-status"
-                >
-                    {t(`voicePlayground.status.${status}`, { defaultValue: status })}
-                </Badge>
-            </Group>
+        <Stack p="md" gap="lg">
+            <PageHeader
+                icon={IconMicrophone}
+                accent="violet"
+                title={t('voicePlayground.title')}
+                subtitle={t('voicePlayground.subtitle')}
+                actions={
+                    <>
+                        <Badge
+                            size="lg"
+                            variant="dot"
+                            color={statusColor(status)}
+                            data-testid="voice-status"
+                        >
+                            {t(`voicePlayground.status.${status}`, { defaultValue: status })}
+                        </Badge>
+                        <Button
+                            variant="default"
+                            leftSection={<IconRefresh size={16} />}
+                            onClick={handleReset}
+                            data-testid="voice-reset"
+                        >
+                            {t('voicePlayground.reset')}
+                        </Button>
+                    </>
+                }
+            />
 
             {error && (
-                <Alert color="red" icon={<IconAlertCircle size={16} />}>
+                <Alert color="red" variant="light" icon={<IconAlertCircle size={16} />}>
                     {error}
                 </Alert>
             )}
 
-            <Group align="flex-start" gap="md" wrap="wrap">
-                <Paper withBorder radius="md" p="lg" miw={280}>
-                    <Stack align="center" gap="md">
-                        <MicButton status={status} onStart={handleStart} onStop={handleStop} />
-                        <Text size="xs" c="dimmed" ta="center" maw={220}>
-                            {t('voicePlayground.micHint')}
-                        </Text>
-                    </Stack>
-                </Paper>
-                <Stack style={{ flex: 1, minWidth: 320 }} gap="xs">
-                    <Text size="xs" tt="uppercase" c="dimmed" style={{ letterSpacing: 0.5 }}>
-                        {t('voicePlayground.transcript')}
-                    </Text>
-                    <Transcript turns={turns} />
-                </Stack>
-            </Group>
+            <Grid gap="lg" align="stretch">
+                <Grid.Col span={{ base: 12, md: 5, lg: 4 }}>
+                    <SectionCard
+                        h="100%"
+                        icon={IconUserCircle}
+                        accent="violet"
+                        title={t('voicePlayground.sessionTitle')}
+                        description={t('voicePlayground.sessionHint')}
+                    >
+                        <Stack gap="lg">
+                            <Select
+                                size="sm"
+                                label={t('voicePlayground.persona')}
+                                description={t('voicePlayground.personaHint')}
+                                data={personas}
+                                value={persona}
+                                onChange={(v) => v && setPersona(v)}
+                                data-testid="voice-persona"
+                            />
+                            <Stack align="center" gap="md" py="md">
+                                <MicButton status={status} onStart={handleStart} onStop={handleStop} />
+                            </Stack>
+                            <Text size="xs" c="dimmed" ta="center" lh={1.55}>
+                                {t('voicePlayground.micHint')}
+                            </Text>
+                        </Stack>
+                    </SectionCard>
+                </Grid.Col>
+                <Grid.Col span={{ base: 12, md: 7, lg: 8 }}>
+                    <SectionCard
+                        h="100%"
+                        icon={IconMessages}
+                        accent="violet"
+                        title={t('voicePlayground.transcript')}
+                        description={t('voicePlayground.transcriptHint', { count: turns.length })}
+                    >
+                        <Transcript turns={turns} />
+                    </SectionCard>
+                </Grid.Col>
+            </Grid>
         </Stack>
     );
 }

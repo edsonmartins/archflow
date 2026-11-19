@@ -1,3 +1,14 @@
+/* Maple Mono — a fonte do archflow (a mesma do Linktor). Self-hosted,
+ * SIL OFL 1.1: public/fonts/MapleMono-LICENSE.txt. */
+@font-face { font-family: 'Maple Mono'; font-style: normal; font-weight: 400; font-display: swap;
+  src: url('/fonts/MapleMono-Regular.woff2') format('woff2'); }
+@font-face { font-family: 'Maple Mono'; font-style: normal; font-weight: 500; font-display: swap;
+  src: url('/fonts/MapleMono-Medium.woff2') format('woff2'); }
+@font-face { font-family: 'Maple Mono'; font-style: normal; font-weight: 600; font-display: swap;
+  src: url('/fonts/MapleMono-SemiBold.woff2') format('woff2'); }
+@font-face { font-family: 'Maple Mono'; font-style: normal; font-weight: 700; font-display: swap;
+  src: url('/fonts/MapleMono-Bold.woff2') format('woff2'); }
+
 /* ── ArchFlow Design System — aligned with HTML reference ────── */
 
 #root {
@@ -49,8 +60,8 @@
   --cat-io:      #6B7280; --cat-io-l:      #F3F4F6;
 
   /* Typography */
-  --font-sans:  'DM Sans', -apple-system, sans-serif;
-  --font-mono:  'DM Mono', 'Fira Code', monospace;
+  --font-sans:  'Maple Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  --font-mono:  'Maple Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
 
   /* Legacy aliases (for existing components) */
   --color-background-primary:   var(--bg2);
@@ -303,3 +314,537 @@ body {
 .af-canvas-outline button[aria-current='true'] {
   border-color: var(--blue);
 }
+
+/* ── Sidebar ─────────────────────────────────────────────────────────
+ * Painel com cor própria (marinho da marca), para a navegação não se
+ * confundir com o conteúdo branco. No tema escuro fica um degrau abaixo
+ * do fundo da página, pelo mesmo motivo. Ativo = pílula azul translúcida
+ * + barra à esquerda; os textos ficam claros sobre o marinho nos dois
+ * temas, então os tokens só mudam o fundo e a borda. */
+:root {
+  --sb-bg:        linear-gradient(180deg, #13214A 0%, #0E1838 100%);
+  --sb-border:    rgba(255, 255, 255, 0.06);
+  --sb-divider:   rgba(255, 255, 255, 0.08);
+  --sb-text:      #D5DEEF;
+  --sb-text-dim:  #7F90B5;
+  --sb-icon:      #A9B8D6;
+  --sb-hover:     rgba(255, 255, 255, 0.07);
+  --sb-active-bg: rgba(59, 130, 246, 0.24);
+  --sb-active-fg: #FFFFFF;
+  --sb-active-ic: #93C5FD;
+  --sb-bar:       #60A5FA;
+}
+[data-mantine-color-scheme='dark'] {
+  --sb-bg:        linear-gradient(180deg, #0B1224 0%, #080D1B 100%);
+  --sb-border:    rgba(255, 255, 255, 0.05);
+}
+
+.af-sidebar {
+  background: var(--sb-bg) !important;
+  border-right: 1px solid var(--sb-border) !important;
+  color: var(--sb-text);
+}
+
+.af-sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 52px;
+  padding: 0 6px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid var(--sb-divider);
+}
+.af-sidebar[data-collapsed] .af-sidebar-brand { justify-content: center; padding: 0; }
+.af-sidebar-logo { height: 26px; width: auto; display: block; }
+.af-sidebar-mark { width: 32px; height: 32px; display: block; }
+.af-sidebar-version {
+  margin-left: auto;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 6px;
+  color: var(--sb-active-ic);
+  background: rgba(96, 165, 250, 0.14);
+}
+
+.af-sidebar-group {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--sb-text-dim);
+  padding: 12px 12px 5px;
+}
+.af-sidebar-sep {
+  height: 1px;
+  margin: 8px 10px;
+  background: var(--sb-divider);
+}
+
+.af-nav-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  height: 34px;
+  padding: 0 12px;
+  margin-bottom: 2px;
+  border-radius: 9px;
+  color: var(--sb-text);
+  font-size: 12px;
+  font-weight: 500;
+  transition: background 120ms ease, color 120ms ease;
+}
+.af-nav-item svg { color: var(--sb-icon); flex-shrink: 0; transition: color 120ms ease; }
+.af-nav-item:hover { background: var(--sb-hover); color: #fff; }
+.af-nav-item:hover svg { color: #fff; }
+.af-nav-item:focus-visible { outline: 2px solid var(--sb-bar); outline-offset: 1px; }
+.af-nav-item[data-active] {
+  background: var(--sb-active-bg);
+  color: var(--sb-active-fg);
+  font-weight: 600;
+}
+.af-nav-item[data-active] svg { color: var(--sb-active-ic); }
+/* Barra de "você está aqui", encostada na borda do painel (como na referência). */
+.af-nav-item[data-active]::before {
+  content: '';
+  position: absolute;
+  left: -10px;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--sb-bar);
+}
+.af-nav-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+
+/* Recolhida: quadrados de 40 px centralizados; o ativo ganha borda, como na referência. */
+.af-sidebar[data-collapsed] .af-nav-item {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  margin: 0 auto 4px;
+  justify-content: center;
+}
+.af-sidebar[data-collapsed] .af-nav-item[data-active] {
+  box-shadow: inset 0 0 0 1px rgba(147, 197, 253, 0.45);
+}
+.af-sidebar[data-collapsed] .af-nav-item[data-active]::before { left: -8px; }
+.af-nav-badge-dot {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  padding: 0 4px !important;
+  height: 15px !important;
+  min-width: 15px;
+}
+
+/* ── Paleta de componentes do editor ────────────────────────────────
+ * Degradê "em malha": manchas radiais pastel nas cores do logo (azul e
+ * verde-água) + um toque de amarelo, sobre uma base quase branca. Pastel
+ * de propósito — os ícones dos nós são coloridos e têm que continuar a
+ * ser o que chama atenção. */
+:root {
+  --palette-bg:
+    radial-gradient(130% 55% at 0% 0%,    rgba(59, 130, 246, 0.20) 0%, transparent 62%),
+    radial-gradient(90% 45% at 100% 38%,  rgba(45, 212, 191, 0.20) 0%, transparent 65%),
+    radial-gradient(110% 40% at 15% 100%, rgba(250, 204, 21, 0.17) 0%, transparent 65%),
+    radial-gradient(70% 30% at 100% 92%,  rgba(52, 211, 153, 0.14) 0%, transparent 70%),
+    linear-gradient(180deg, #F6F9FF 0%, #F7FBF9 60%, #FBFBF4 100%);
+}
+[data-mantine-color-scheme='dark'] {
+  --palette-bg:
+    radial-gradient(130% 55% at 0% 0%,    rgba(59, 130, 246, 0.22) 0%, transparent 62%),
+    radial-gradient(90% 45% at 100% 38%,  rgba(45, 212, 191, 0.13) 0%, transparent 65%),
+    radial-gradient(110% 40% at 15% 100%, rgba(250, 204, 21, 0.08) 0%, transparent 65%),
+    radial-gradient(70% 30% at 100% 92%,  rgba(52, 211, 153, 0.08) 0%, transparent 70%),
+    linear-gradient(180deg, #172036 0%, #172330 60%, #1A1F2E 100%);
+}
+.af-palette { background: var(--palette-bg); }
+
+/* ── Quadro do editor de fluxos ─────────────────────────────────────
+ * Borda leve + cantos arredondados: o editor lê como uma peça só
+ * (barra, paleta, canvas, propriedades) sobre o fundo da página. */
+.af-editor-frame {
+  border: 1px solid var(--color-border-secondary);
+  border-radius: 12px;
+  background: var(--color-background-primary);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 6px 20px rgba(15, 23, 42, 0.05);
+}
+[data-mantine-color-scheme='dark'] .af-editor-frame {
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 6px 20px rgba(0, 0, 0, 0.25);
+}
+
+/* ── Fundo do canvas do editor ──────────────────────────────────────
+ * Base levemente tingida de azul (conversa com a paleta) e pontos
+ * cinza-azulados em duas camadas — fina a cada 20 px, maior a cada 100 px. */
+:root {
+  --canvas-bg:        linear-gradient(180deg, #F3F6FC 0%, #F5F7FB 100%);
+  --canvas-dot:       #B9C3D6;
+  --canvas-dot-major: #8E9BB6;
+}
+[data-mantine-color-scheme='dark'] {
+  --canvas-bg:        #121A2B;
+  --canvas-dot:       rgba(148, 163, 184, 0.26);
+  --canvas-dot-major: rgba(148, 163, 184, 0.48);
+}
+
+/* Etiqueta do papel no topo da sidebar da Administração, e itens secundários. */
+.af-sidebar-role {
+  margin-left: auto;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 6px;
+}
+.af-sidebar-role[data-variant='superadmin'] { color: #C4B5FD; background: rgba(139, 92, 246, 0.2); }
+.af-sidebar-role[data-variant='workspace']  { color: #6EE7B7; background: rgba(16, 185, 129, 0.16); }
+.af-nav-item[data-dimmed] { color: var(--sb-text-dim); }
+.af-nav-item[data-dimmed] svg { color: var(--sb-text-dim); }
+
+/* ── Login ───────────────────────────────────────────────────────────
+ * Painel da marca (marinho da sidebar + manchas de luz nas cores do logo)
+ * à esquerda; formulário sobre o degradê em malha da paleta à direita. */
+.af-login {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  min-height: 100vh;
+  background: var(--color-background-primary);
+}
+
+.af-login-hero {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding: 40px 56px;
+  background: var(--sb-bg);
+  color: var(--sb-text);
+}
+/* Manchas de luz: azul em cima, verde-água à direita, amarelo embaixo. */
+.af-login-glow {
+  position: absolute;
+  inset: -20%;
+  pointer-events: none;
+  background:
+    radial-gradient(30% 26% at 22% 18%, rgba(59, 130, 246, 0.75) 0%, transparent 72%),
+    radial-gradient(26% 24% at 86% 44%, rgba(45, 212, 191, 0.50) 0%, transparent 72%),
+    radial-gradient(28% 22% at 34% 92%, rgba(250, 204, 21, 0.30) 0%, transparent 72%),
+    radial-gradient(22% 20% at 92% 88%, rgba(124, 58, 237, 0.50) 0%, transparent 72%);
+  filter: blur(24px);
+}
+/* Pontos do canvas, bem leves, para lembrar o editor. */
+.af-login-hero::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.10) 1.2px, transparent 1.2px);
+  background-size: 22px 22px;
+  mask-image: linear-gradient(180deg, transparent 0%, #000 30%, #000 75%, transparent 100%);
+}
+.af-login-hero > :not(.af-login-glow) { position: relative; z-index: 1; }
+
+.af-login-logo { height: 34px; width: auto; align-self: flex-start; }
+
+.af-login-hero-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  max-width: 560px;
+  padding: 40px 0;
+}
+.af-login-tagline {
+  font-size: 12px !important;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #7DD3FC !important;
+}
+.af-login-headline {
+  color: #fff !important;
+  font-size: clamp(28px, 2.6vw, 40px) !important;
+  line-height: 1.15 !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.01em;
+}
+
+/* Mini-fluxo: cartões de vidro ligados por traço com gradiente. */
+.af-login-flow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  row-gap: 12px;
+  margin-bottom: 44px;
+}
+.af-login-flow-step { display: flex; align-items: center; }
+.af-login-flow-step:nth-child(even) { transform: translateY(14px); }
+.af-login-flow-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px 8px 8px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 8px 24px rgba(2, 6, 23, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(6px);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.af-login-flow-link {
+  width: 26px;
+  height: 2px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, rgba(96, 165, 250, 0.9), rgba(45, 212, 191, 0.9));
+  box-shadow: 0 0 10px rgba(45, 212, 191, 0.5);
+}
+
+.af-login-features { list-style: none; margin: 0; padding: 0; display: grid; gap: 18px; }
+.af-login-feature { display: flex; align-items: flex-start; gap: 14px; }
+.af-login-feature-icon {
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #93C5FD;
+  background: rgba(96, 165, 250, 0.12);
+  border: 1px solid rgba(147, 197, 253, 0.18);
+}
+.af-login-feature-title { display: block; color: #fff; font-weight: 600; font-size: 14px; }
+.af-login-feature-desc  { display: block; color: var(--sb-text-dim); font-size: 13px; margin-top: 2px; }
+
+.af-login-footer { font-size: 12px !important; color: var(--sb-text-dim) !important; }
+
+/* Lado do formulário. */
+.af-login-panel {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+  background: var(--palette-bg);
+}
+.af-login-lang { position: absolute; top: 20px; right: 24px; }
+.af-login-form { width: 100%; max-width: 400px; }
+.af-login-mark { display: none; width: 44px; height: 44px; margin-bottom: 20px; }
+.af-login-welcome { font-size: 28px !important; font-weight: 700 !important; }
+.af-login-form .mantine-Input-input {
+  background: var(--color-background-primary);
+  border-color: var(--color-border-secondary);
+}
+.af-login-form .mantine-Input-input:focus,
+.af-login-form .mantine-Input-input:focus-within {
+  border-color: #3B82F6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.18);
+}
+.af-login-submit { box-shadow: 0 8px 20px rgba(37, 99, 235, 0.28); }
+
+@media (max-width: 960px) {
+  .af-login { grid-template-columns: 1fr; }
+  .af-login-hero { display: none; }
+  .af-login-mark { display: block; }
+}
+
+/* ── Sistema de superfícies (todas as telas) ────────────────────────
+ * Fundo da área principal com as manchas pastel da marca só no topo;
+ * cartões brancos com borda suave e sombra leve por cima dele. As classes
+ * são ligadas no theme.ts (Paper/Card → af-paper, Table → af-table…). */
+:root {
+  --main-bg:
+    radial-gradient(60% 320px at 8% 0%,   rgba(59, 130, 246, 0.10) 0%, transparent 70%),
+    radial-gradient(45% 280px at 92% 0%,  rgba(45, 212, 191, 0.09) 0%, transparent 70%),
+    radial-gradient(35% 240px at 55% 0%,  rgba(250, 204, 21, 0.06) 0%, transparent 70%),
+    #F5F7FB;
+  --surface-bg:      #FFFFFF;
+  --surface-border:  rgba(15, 23, 42, 0.08);
+  --surface-shadow:  0 1px 2px rgba(15, 23, 42, 0.04), 0 4px 14px rgba(15, 23, 42, 0.04);
+  --surface-hover:   0 2px 4px rgba(15, 23, 42, 0.05), 0 10px 26px rgba(15, 23, 42, 0.08);
+  --table-head-bg:   #F8FAFD;
+  --row-hover:       rgba(59, 130, 246, 0.05);
+}
+[data-mantine-color-scheme='dark'] {
+  --main-bg:
+    radial-gradient(60% 320px at 8% 0%,   rgba(59, 130, 246, 0.14) 0%, transparent 70%),
+    radial-gradient(45% 280px at 92% 0%,  rgba(45, 212, 191, 0.08) 0%, transparent 70%),
+    #111827;
+  --surface-bg:      #172033;
+  --surface-border:  rgba(255, 255, 255, 0.07);
+  --surface-shadow:  0 1px 2px rgba(0, 0, 0, 0.3), 0 6px 18px rgba(0, 0, 0, 0.2);
+  --surface-hover:   0 2px 6px rgba(0, 0, 0, 0.35), 0 12px 28px rgba(0, 0, 0, 0.3);
+  --table-head-bg:   rgba(255, 255, 255, 0.03);
+  --row-hover:       rgba(96, 165, 250, 0.07);
+}
+
+.af-main { background: var(--main-bg); min-height: 100vh; }
+
+.af-paper[data-with-border] {
+  background: var(--surface-bg);
+  border-color: var(--surface-border);
+  box-shadow: var(--surface-shadow);
+}
+/* Cartões clicáveis (com cursor pointer) sobem um pouco no hover. */
+.af-paper[data-with-border][role='button'],
+.af-paper[data-with-border].af-hoverable {
+  transition: box-shadow 140ms ease, transform 140ms ease, border-color 140ms ease;
+}
+.af-paper[data-with-border][role='button']:hover,
+.af-paper[data-with-border].af-hoverable:hover {
+  box-shadow: var(--surface-hover);
+  transform: translateY(-1px);
+  border-color: rgba(59, 130, 246, 0.25);
+}
+
+.af-table { --table-hover-color: var(--row-hover); --table-border-color: var(--surface-border); }
+.af-table thead th {
+  background: var(--table-head-bg);
+  color: var(--color-text-tertiary);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.af-table thead tr:first-of-type th:first-of-type { border-top-left-radius: 10px; }
+.af-table thead tr:first-of-type th:last-of-type  { border-top-right-radius: 10px; }
+.af-table tbody td { font-size: 13px; }
+
+.af-tabs-list { --tab-border-color: var(--surface-border); gap: 2px; }
+.af-tab { font-weight: 500; }
+.af-tab[data-active] { color: var(--accent-ink, var(--blue)); }
+
+/* Cabeçalho de página: quadrado do ícone com degradê na cor da seção. */
+.af-page-header { margin-bottom: 4px; }
+.af-page-title { font-size: 24px !important; font-weight: 700 !important; letter-spacing: -0.01em; }
+.af-page-icon {
+  width: 46px;
+  height: 46px;
+  flex-shrink: 0;
+  border-radius: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  background: linear-gradient(135deg, var(--accent-from), var(--accent-to));
+  box-shadow: 0 6px 16px var(--accent-glow), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}
+[data-accent='blue']   { --accent-from: #3B82F6; --accent-to: #1D4ED8; --accent-glow: rgba(37, 99, 235, 0.28);  --accent-soft: rgba(59, 130, 246, 0.12);  --accent-ink: #2563EB; }
+[data-accent='teal']   { --accent-from: #2DD4BF; --accent-to: #0D9488; --accent-glow: rgba(13, 148, 136, 0.28); --accent-soft: rgba(20, 184, 166, 0.13); --accent-ink: #0F9F90; }
+[data-accent='violet'] { --accent-from: #A78BFA; --accent-to: #7C3AED; --accent-glow: rgba(124, 58, 237, 0.28); --accent-soft: rgba(139, 92, 246, 0.13); --accent-ink: #7C3AED; }
+[data-accent='amber']  { --accent-from: #FBBF24; --accent-to: #F59E0B; --accent-glow: rgba(245, 158, 11, 0.3);  --accent-soft: rgba(245, 158, 11, 0.14); --accent-ink: #D97706; }
+[data-accent='rose']   { --accent-from: #FB7185; --accent-to: #E11D48; --accent-glow: rgba(225, 29, 72, 0.26);  --accent-soft: rgba(244, 63, 94, 0.12);  --accent-ink: #E11D48; }
+[data-accent='green']  { --accent-from: #4ADE80; --accent-to: #16A34A; --accent-glow: rgba(22, 163, 74, 0.26);  --accent-soft: rgba(34, 197, 94, 0.13);  --accent-ink: #16A34A; }
+[data-accent='slate']  { --accent-from: #94A3B8; --accent-to: #475569; --accent-glow: rgba(71, 85, 105, 0.26);  --accent-soft: rgba(100, 116, 139, 0.13); --accent-ink: #475569; }
+[data-mantine-color-scheme='dark'] [data-accent='blue']   { --accent-ink: #93C5FD; }
+[data-mantine-color-scheme='dark'] [data-accent='teal']   { --accent-ink: #5EEAD4; }
+[data-mantine-color-scheme='dark'] [data-accent='violet'] { --accent-ink: #C4B5FD; }
+[data-mantine-color-scheme='dark'] [data-accent='amber']  { --accent-ink: #FCD34D; }
+[data-mantine-color-scheme='dark'] [data-accent='rose']   { --accent-ink: #FDA4AF; }
+[data-mantine-color-scheme='dark'] [data-accent='green']  { --accent-ink: #86EFAC; }
+[data-mantine-color-scheme='dark'] [data-accent='slate']  { --accent-ink: #CBD5E1; }
+
+/* Cartão de métrica: sem sombra, fundo em malha pastel como a paleta do
+ * editor — a mancha principal na cor do cartão (accent), com verde-água e
+ * amarelo de apoio. */
+.af-paper[data-with-border].af-stat {
+  box-shadow: none;
+  background:
+    radial-gradient(90% 75% at 0% 0%,    var(--accent-soft) 0%, transparent 70%),
+    radial-gradient(70% 70% at 100% 40%, rgba(45, 212, 191, 0.10) 0%, transparent 70%),
+    radial-gradient(80% 60% at 20% 100%, rgba(250, 204, 21, 0.09) 0%, transparent 72%),
+    linear-gradient(180deg, #F7F9FF 0%, #F8FBFA 100%);
+}
+[data-mantine-color-scheme='dark'] .af-paper[data-with-border].af-stat {
+  background:
+    radial-gradient(90% 75% at 0% 0%,    var(--accent-soft) 0%, transparent 70%),
+    radial-gradient(70% 70% at 100% 40%, rgba(45, 212, 191, 0.07) 0%, transparent 70%),
+    radial-gradient(80% 60% at 20% 100%, rgba(250, 204, 21, 0.05) 0%, transparent 72%),
+    #172033;
+}
+.af-stat-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent-ink);
+  background: var(--accent-soft);
+  flex-shrink: 0;
+}
+
+/* Estado vazio: círculo com degradê suave + dois anéis pontilhados. */
+.af-empty-art {
+  position: relative;
+  width: 96px;
+  height: 96px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.af-empty-art[data-compact] { width: 76px; height: 76px; }
+.af-empty-art::before,
+.af-empty-art::after {
+  content: '';
+  position: absolute;
+  border-radius: 50%;
+  border: 1.5px dashed var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent-ink) 28%, transparent);
+}
+.af-empty-art::before { inset: 0; }
+.af-empty-art::after  { inset: -12px; opacity: 0.5; }
+.af-empty-icon {
+  width: 60%;
+  height: 60%;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  background: linear-gradient(135deg, var(--accent-from), var(--accent-to));
+  box-shadow: 0 8px 20px var(--accent-glow), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}
+.af-empty-icon svg { width: 46%; height: 46%; }
+
+/* SectionCard com tabela encostada: linha separando o cabeçalho da tabela. */
+.af-section-head-flush { border-bottom: 1px solid var(--surface-border); }
+
+/* Rodapé da sidebar: usuário logado + sair. */
+.af-sidebar-user {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  padding: 10px 4px 2px;
+  border-top: 1px solid var(--sb-divider);
+}
+.af-sidebar-user[data-collapsed] { justify-content: center; padding-left: 0; padding-right: 0; }
+.af-sidebar-avatar {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: #fff;
+  background: linear-gradient(135deg, #3B82F6 0%, #14B8A6 100%);
+}
+.af-sidebar-user-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.af-sidebar-user-name,
+.af-sidebar-user-detail { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.af-sidebar-user-name { font-size: 12px; font-weight: 600; color: #fff; }
+.af-sidebar-user-detail { font-size: 11px; color: var(--sb-text-dim); }
+.af-sidebar-logout { color: var(--sb-icon) !important; }
+.af-sidebar-logout:hover { color: #FCA5A5 !important; background: rgba(248, 113, 113, 0.12) !important; }

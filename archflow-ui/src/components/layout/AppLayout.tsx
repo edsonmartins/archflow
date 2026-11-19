@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { AppShell, NavLink, Group, Text, Badge, ActionIcon, Tooltip, Kbd } from '@mantine/core';
+import { AppShell, Group, Badge, ActionIcon, Tooltip, Kbd } from '@mantine/core';
 import { Spotlight, spotlight, type SpotlightActionData, type SpotlightActionGroupData } from '@mantine/spotlight';
 import { HttpAgent } from '@ag-ui/client';
 import { CopilotKitProvider, CopilotSidebar } from '@copilotkit/react-core/v2';
@@ -13,7 +13,6 @@ import {
     IconTemplate,
     IconMicrophone,
     IconShieldCheck,
-    IconLogout,
     IconSun,
     IconMoon,
     IconLayoutSidebarLeftCollapse,
@@ -37,6 +36,7 @@ import { useColorScheme } from '../../App';
 import { approvalApi } from '../../services/approval-api';
 import { authFetch } from '../../services/api';
 import LanguageSwitcher from './LanguageSwitcher';
+import { SidebarBrand, SidebarGroup, SidebarItem, SidebarUser } from './Sidebar';
 
 // Labels come from t() at render time so switching languages updates
 // the sidebar without remounting. The `key` is the stable i18n lookup
@@ -190,7 +190,7 @@ export default function AppLayout() {
             return next;
         });
     };
-    const navWidth = navCollapsed ? 56 : 220;
+    const navWidth = navCollapsed ? 64 : 232;
 
     return (
         // key forces AppShell to re-evaluate navbar.width. Some Mantine
@@ -198,12 +198,17 @@ export default function AppLayout() {
         // changes; remounting on toggle is the safe escape hatch.
         <AppShell
             key={navCollapsed ? 'collapsed' : 'expanded'}
+            // "alt": a sidebar ocupa a altura toda e a marca mora no topo dela,
+            // em vez de o header branco atravessar por cima do painel colorido.
+            layout="alt"
             navbar={{ width: navWidth, breakpoint: 'sm' }}
             header={{ height: 52 }}
             padding="md"
         >
             <AppShell.Header>
-                <Group h="100%" px="md" justify="space-between">
+                {/* Em dev, o inspetor do CopilotKit flutua no canto superior direito: o header
+                    reserva o espaço dele para nenhum botão ficar embaixo. */}
+                <Group h="100%" pl="md" pr={import.meta.env.DEV ? 84 : 'md'} justify="space-between">
                     <Group gap="xs">
                         <Tooltip label={navCollapsed ? t('nav.expandSidebar') : t('nav.collapseSidebar')}>
                             <ActionIcon
@@ -217,8 +222,6 @@ export default function AppLayout() {
                                     : <IconLayoutSidebarLeftCollapse size={18} />}
                             </ActionIcon>
                         </Tooltip>
-                        <Text fw={700} size="lg">{t('common.appName')}</Text>
-                        {!navCollapsed && <Badge variant="light" size="sm">v1.0</Badge>}
                     </Group>
                     <Group gap="xs">
                         <Tooltip label={<Group gap={6}>{t('nav.searchTooltip')}<Kbd size="xs">⌘K</Kbd></Group>}>
@@ -244,136 +247,72 @@ export default function AppLayout() {
                                 {dark ? <IconSun size={18} /> : <IconMoon size={18} />}
                             </ActionIcon>
                         </Tooltip>
-                        {user && (
-                            <Group gap={4}>
-                                <Text size="sm" c="dimmed">{user.name || user.username}</Text>
-                                <Tooltip label={t('header.logout')}>
-                                    <ActionIcon variant="subtle" color="red" onClick={handleLogout} aria-label={t('header.logout')}>
-                                        <IconLogout size={18} />
-                                    </ActionIcon>
-                                </Tooltip>
-                            </Group>
-                        )}
                     </Group>
                 </Group>
             </AppShell.Header>
 
-            <AppShell.Navbar p="xs">
-                {NAV_GROUPS.map((group, groupIndex) => (
-                    <div key={group.key}>
-                        {navCollapsed ? (
-                            groupIndex > 0 && (
-                                <div
-                                    style={{
-                                        borderTop: '1px solid var(--color-border-tertiary)',
-                                        margin: '6px 4px',
-                                    }}
-                                    aria-hidden
-                                />
-                            )
-                        ) : (
-                            <Text
-                                size="xs"
-                                c="dimmed"
-                                fw={600}
-                                tt="uppercase"
-                                px="xs"
-                                pt={groupIndex > 0 ? 'sm' : 4}
-                                pb={4}
-                                style={{ letterSpacing: 0.5 }}
-                            >
-                                {t(group.key)}
-                            </Text>
-                        )}
-                        {group.items.map((item) => {
-                            const active =
-                                item.path === '/'
-                                    ? location.pathname === '/'
-                                    : location.pathname === item.path ||
-                                      location.pathname.startsWith(`${item.path}/`);
-                            const showBadge = item.withBadge && pendingApprovals > 0;
-                            // Collapsed: render as a narrow icon-only button with
-                            // a tooltip so the user still knows what each icon
-                            // means. Mantine's NavLink doesn't natively support
-                            // this so we render a compact ActionIcon instead.
-                            const label = t(item.key);
-                            if (navCollapsed) {
+            <AppShell.Navbar p={10} className="af-sidebar" data-collapsed={navCollapsed || undefined}>
+                <SidebarBrand
+                    collapsed={navCollapsed}
+                    alt={t('common.appName')}
+                    tag={<span className="af-sidebar-version">v1.0</span>}
+                />
+                <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', margin: '0 -10px', padding: '0 10px' }}>
+                    {NAV_GROUPS.map((group, groupIndex) => (
+                        <div key={group.key}>
+                            <SidebarGroup label={t(group.key)} collapsed={navCollapsed} first={groupIndex === 0} />
+                            {group.items.map((item) => {
+                                const active =
+                                    item.path === '/'
+                                        ? location.pathname === '/'
+                                        : location.pathname === item.path ||
+                                          location.pathname.startsWith(`${item.path}/`);
+                                const showBadge = item.withBadge && pendingApprovals > 0;
                                 return (
-                                    <Tooltip key={item.path} label={label} position="right" withArrow>
-                                        <ActionIcon
-                                            variant={active ? 'light' : 'subtle'}
-                                            size="lg"
-                                            onClick={() => navigate(item.path)}
-                                            aria-label={label}
-                                            mb={4}
-                                            style={{ position: 'relative', width: '100%' }}
-                                        >
-                                            <item.icon size={18} />
-                                            {showBadge && (
-                                                <Badge
-                                                    size="xs" color="orange" variant="filled"
-                                                    style={{
-                                                        position: 'absolute', top: 2, right: 2,
-                                                        padding: '0 4px', height: 14, minWidth: 14,
-                                                    }}
-                                                    data-testid={`nav-badge-${item.path.replace('/', '')}`}
-                                                >
-                                                    {pendingApprovals}
-                                                </Badge>
-                                            )}
-                                        </ActionIcon>
-                                    </Tooltip>
-                                );
-                            }
-                            return (
-                                <NavLink
-                                    key={item.path}
-                                    label={label}
-                                    leftSection={<item.icon size={18} />}
-                                    rightSection={
-                                        showBadge ? (
+                                    <SidebarItem
+                                        key={item.path}
+                                        icon={item.icon}
+                                        label={t(item.key)}
+                                        active={active}
+                                        collapsed={navCollapsed}
+                                        onClick={() => navigate(item.path)}
+                                        badge={showBadge ? (
                                             <Badge
-                                                size="xs"
-                                                color="orange"
-                                                variant="filled"
+                                                size="xs" color="orange" variant="filled"
+                                                className={navCollapsed ? 'af-nav-badge-dot' : undefined}
                                                 data-testid={`nav-badge-${item.path.replace('/', '')}`}
                                             >
                                                 {pendingApprovals}
                                             </Badge>
-                                        ) : undefined
-                                    }
-                                    active={active}
-                                    onClick={() => navigate(item.path)}
-                                    variant="light"
-                                />
-                            );
-                        })}
-                    </div>
-                ))}
+                                        ) : undefined}
+                                    />
+                                );
+                            })}
+                        </div>
+                    ))}
+                </div>
 
                 {isAdmin && (
-                    <div style={{ marginTop: 'auto', paddingTop: 8, borderTop: '1px solid var(--color-border-tertiary)' }}>
-                        {navCollapsed ? (
-                            <Tooltip label={t('nav.admin')} position="right" withArrow>
-                                <ActionIcon
-                                    variant="subtle"
-                                    size="lg"
-                                    onClick={() => navigate('/admin')}
-                                    aria-label={t('nav.admin')}
-                                    style={{ width: '100%' }}
-                                >
-                                    <IconSettings size={18} />
-                                </ActionIcon>
-                            </Tooltip>
-                        ) : (
-                            <NavLink
-                                label={t('nav.admin')}
-                                leftSection={<IconSettings size={18} />}
-                                onClick={() => navigate('/admin')}
-                                variant="subtle"
-                            />
-                        )}
+                    <div style={{ paddingTop: 8, marginTop: 8, borderTop: '1px solid var(--sb-divider)' }}>
+                        <SidebarItem
+                            icon={IconSettings}
+                            label={t('nav.admin')}
+                            active={location.pathname.startsWith('/admin')}
+                            collapsed={navCollapsed}
+                            onClick={() => navigate('/admin')}
+                        />
                     </div>
+                )}
+
+                {/* Quem está logado + sair. Morava no header, embaixo do botão flutuante do CopilotKit. */}
+                {user && (
+                    <SidebarUser
+                        name={user.name || user.username}
+                        detail={user.email || undefined}
+                        logoutLabel={t('header.logout')}
+                        onLogout={handleLogout}
+                        collapsed={navCollapsed}
+                    />
                 )}
             </AppShell.Navbar>
 
@@ -388,7 +327,7 @@ export default function AppLayout() {
                 nothingFound={t('nav.searchNothing')}
             />
 
-            <AppShell.Main>
+            <AppShell.Main className="af-main">
                 <CopilotKitProvider agents__unsafe_dev_only={{ archflow: copilotAgent }}>
                     <CopilotAppOperator />
                     <CopilotGenerateBridge />

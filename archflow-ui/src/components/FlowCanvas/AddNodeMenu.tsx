@@ -86,7 +86,7 @@ export function AddNodeMenu({
                                     background: cat.colorLight, color: cat.colorDark,
                                 }}
                             >
-                                <NodeIcon componentId={n.componentId} size={14} />
+                                <NodeIcon componentId={n.componentId} size={14} imageSize={22} />
                             </span>
                             <span style={{ minWidth: 0 }}>
                                 <Text size="xs" fw={500} component="span" display="block">{n.label}</Text>

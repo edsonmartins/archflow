@@ -1,21 +1,12 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import {
-    ActionIcon,
-    Badge,
-    Box,
-    Button,
-    Center,
-    Group,
-    Modal,
-    Progress,
-    Stack,
-    Table,
-    Text,
-    Tooltip,
-} from '@mantine/core';
-import { IconPlayerStop, IconRefresh } from '@tabler/icons-react';
+import { ActionIcon, Badge, Button, Group, Modal, Stack, Text, Tooltip } from '@mantine/core';
+import { IconPlayerPlay, IconRefresh } from '@tabler/icons-react';
 import { RunningFlowDto, observabilityApi } from '../../../services/observability-api';
+import { SectionCard } from '../../../components/SectionCard';
+import {
+    VxTable, colunaAcoes, colunaApagada, colunaBarra, colunaStatus, type Registro, type VxColumn,
+} from '../../../components/VTable';
 
 const POLL_INTERVAL_MS = 2_000;
 
@@ -29,6 +20,15 @@ function formatDuration(ms: number, shortLabel: string): string {
     const sec = s % 60;
     return m > 0 ? `${m}m ${sec}s` : `${sec}s`;
 }
+
+const progressPercent = (flow: RunningFlowDto) => {
+    if (flow.stepCount <= 0) return 0;
+    if (flow.stepIndex < 0) return 0;
+    return Math.round(((flow.stepIndex + 1) / flow.stepCount) * 100);
+};
+
+/** One row of the table: the DTO plus the values the canvas paints (live duration, progress). */
+type Row = RunningFlowDto & { pct: number; liveMs: number };
 
 /**
  * Running Flows Dashboard — shows a live table of currently-executing flows.
@@ -44,7 +44,7 @@ export default function RunningFlowsPage() {
     const locale = i18n.resolvedLanguage ?? i18n.language;
     const [flows, setFlows] = useState<RunningFlowDto[]>([]);
     const [loading, setLoading] = useState(true);
-    const [, setTick] = useState(0);
+    const [tick, setTick] = useState(0);
     const [confirmCancel, setConfirmCancel] = useState<string | null>(null);
     const [cancelling, setCancelling] = useState(false);
 
@@ -69,7 +69,7 @@ export default function RunningFlowsPage() {
 
     // Duration tick — increments every second so displayed durations stay live
     useEffect(() => {
-        const timer = setInterval(() => setTick((t) => t + 1), 1000);
+        const timer = setInterval(() => setTick((n) => n + 1), 1000);
         return () => clearInterval(timer);
     }, []);
 
@@ -87,132 +87,88 @@ export default function RunningFlowsPage() {
         }
     };
 
-    // Compute live duration using tick as a signal to re-evaluate
-    const liveDuration = (flow: RunningFlowDto) => {
-        const started = new Date(flow.startedAt).getTime();
-        return Date.now() - started;
-    };
+    // `tick` re-derives the rows every second, so the duration column stays live.
+    const rows = useMemo<Row[]>(
+        () => flows.map((f) => ({ ...f, pct: progressPercent(f), liveMs: Date.now() - new Date(f.startedAt).getTime() })),
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [flows, tick],
+    );
 
-    const progressPercent = (flow: RunningFlowDto) => {
-        if (flow.stepCount <= 0) return 0;
-        if (flow.stepIndex < 0) return 0;
-        return Math.round(((flow.stepIndex + 1) / flow.stepCount) * 100);
-    };
+    const columns = useMemo((): VxColumn[] => [
+        { field: 'flowId', title: t('admin.observability.running.cols.flow'), width: 'auto', minWidth: 220,
+          style: { fontWeight: 600 } },
+        colunaApagada({ field: 'tenantId', title: t('admin.observability.running.cols.tenant'), width: 140,
+          fieldFormat: (r: Registro) => (r.tenantId as string | null) ?? '—' }),
+        colunaApagada({ field: 'startedAt', title: t('admin.observability.running.cols.started'), width: 130,
+          fieldFormat: (r: Registro) => new Date(r.startedAt as string).toLocaleTimeString(locale) }),
+        colunaStatus(
+            { field: 'currentStepId', title: t('admin.observability.running.cols.currentStep'), width: 200,
+              fieldFormat: (r: Registro) => (r.currentStepId as string | null) ?? '' },
+            () => 'blue',
+        ),
+        colunaBarra(
+            { field: 'pct', title: t('admin.observability.running.cols.progress'), width: 170,
+              fieldFormat: (r: Registro) => {
+                  const idx = r.stepIndex as number;
+                  return `${idx >= 0 ? idx + 1 : 0} / ${r.stepCount as number}`;
+              } },
+            (r) => ((r.pct as number) === 100 ? 'green' : 'blue'),
+        ),
+        { field: 'liveMs', title: t('admin.observability.running.cols.duration'), width: 120,
+          style: { fontWeight: 600 },
+          fieldFormat: (r: Registro) => formatDuration(r.liveMs as number, t('admin.observability.running.durShort')) },
+        colunaAcoes([
+            { nome: 'cancel', icone: 'stop', rotulo: t('admin.observability.running.cancelTooltip'), cor: 'red' },
+        ]),
+    ], [t, locale]);
 
     return (
-        <Stack gap="md">
-            <Group justify="space-between">
-                <Text fw={600} size="lg">{t('admin.observability.running.title')}</Text>
-                <Group gap="xs">
-                    <Badge variant="light" color={flows.length > 0 ? 'green' : 'gray'} role="status" aria-live="polite">
-                        {t('admin.observability.running.activeCount', { count: flows.length })}
-                    </Badge>
-                    <Tooltip label={t('admin.observability.running.refreshNow')}>
-                        <ActionIcon variant="subtle" onClick={fetchFlows} aria-label={t('admin.observability.running.refreshNow')}>
-                            <IconRefresh size={16} />
-                        </ActionIcon>
-                    </Tooltip>
-                </Group>
-            </Group>
-
-            {loading && (
-                <Center py="xl">
-                    <Text c="dimmed" size="sm">{t('admin.observability.running.loading')}</Text>
-                </Center>
-            )}
-
-            {!loading && flows.length === 0 && (
-                <Center py="xl">
-                    <Stack align="center" gap="xs">
-                        <Text c="dimmed" size="sm">{t('admin.observability.running.empty')}</Text>
-                        <Text c="dimmed" size="xs">{t('admin.observability.running.emptyHint')}</Text>
-                    </Stack>
-                </Center>
-            )}
-
-            {flows.length > 0 && (
-                <Box style={{ overflowX: 'auto' }}>
-                    <Table striped highlightOnHover withTableBorder withColumnBorders>
-                        <Table.Thead>
-                            <Table.Tr>
-                                <Table.Th>{t('admin.observability.running.cols.flow')}</Table.Th>
-                                <Table.Th>{t('admin.observability.running.cols.tenant')}</Table.Th>
-                                <Table.Th>{t('admin.observability.running.cols.started')}</Table.Th>
-                                <Table.Th>{t('admin.observability.running.cols.currentStep')}</Table.Th>
-                                <Table.Th>{t('admin.observability.running.cols.progress')}</Table.Th>
-                                <Table.Th>{t('admin.observability.running.cols.duration')}</Table.Th>
-                                <Table.Th>{t('admin.observability.running.cols.actions')}</Table.Th>
-                            </Table.Tr>
-                        </Table.Thead>
-                        <Table.Tbody>
-                            {flows.map((flow) => {
-                                const pct = progressPercent(flow);
-                                const dur = liveDuration(flow);
-                                return (
-                                    <Table.Tr key={flow.flowId}>
-                                        <Table.Td>
-                                            <Text size="sm" fw={500} ff="monospace">
-                                                {flow.flowId}
-                                            </Text>
-                                        </Table.Td>
-                                        <Table.Td>
-                                            <Text size="sm" c="dimmed">
-                                                {flow.tenantId ?? '—'}
-                                            </Text>
-                                        </Table.Td>
-                                        <Table.Td>
-                                            <Text size="sm" c="dimmed">
-                                                {new Date(flow.startedAt).toLocaleTimeString(locale)}
-                                            </Text>
-                                        </Table.Td>
-                                        <Table.Td>
-                                            {flow.currentStepId ? (
-                                                <Badge variant="dot" color="blue" size="sm">
-                                                    {flow.currentStepId}
-                                                </Badge>
-                                            ) : (
-                                                <Text size="sm" c="dimmed">—</Text>
-                                            )}
-                                        </Table.Td>
-                                        <Table.Td style={{ minWidth: 140 }}>
-                                            <Stack gap={4}>
-                                                <Progress
-                                                    value={pct}
-                                                    size="sm"
-                                                    color={pct === 100 ? 'green' : 'blue'}
-                                                    animated={pct < 100}
-                                                />
-                                                <Text size="xs" c="dimmed">
-                                                    {flow.stepIndex >= 0
-                                                        ? `${flow.stepIndex + 1} / ${flow.stepCount}`
-                                                        : `0 / ${flow.stepCount}`}
-                                                </Text>
-                                            </Stack>
-                                        </Table.Td>
-                                        <Table.Td>
-                                            <Text size="sm" ff="monospace">
-                                                {formatDuration(dur, t('admin.observability.running.durShort'))}
-                                            </Text>
-                                        </Table.Td>
-                                        <Table.Td>
-                                            <Tooltip label={t('admin.observability.running.cancelTooltip')}>
-                                                <ActionIcon
-                                                    color="red"
-                                                    variant="subtle"
-                                                    onClick={() => setConfirmCancel(flow.flowId)}
-                                                    aria-label={t('admin.observability.running.cancelTooltip')}
-                                                >
-                                                    <IconPlayerStop size={16} />
-                                                </ActionIcon>
-                                            </Tooltip>
-                                        </Table.Td>
-                                    </Table.Tr>
-                                );
-                            })}
-                        </Table.Tbody>
-                    </Table>
-                </Box>
-            )}
+        <>
+            <SectionCard
+                flush
+                icon={IconPlayerPlay}
+                accent="green"
+                title={t('admin.observability.running.title')}
+                description={t('admin.observability.running.hint')}
+                actions={
+                    <>
+                        <Badge
+                            variant="light"
+                            color={flows.length > 0 ? 'green' : 'gray'}
+                            role="status"
+                            aria-live="polite"
+                        >
+                            {t('admin.observability.running.activeCount', { count: flows.length })}
+                        </Badge>
+                        <Tooltip label={t('admin.observability.running.refreshNow')}>
+                            <ActionIcon
+                                variant="subtle"
+                                color="gray"
+                                onClick={fetchFlows}
+                                aria-label={t('admin.observability.running.refreshNow')}
+                            >
+                                <IconRefresh size={16} />
+                            </ActionIcon>
+                        </Tooltip>
+                    </>
+                }
+            >
+                <VxTable
+                    legenda={t('admin.observability.running.title')}
+                    records={rows as unknown as Registro[]}
+                    columns={columns}
+                    loading={loading}
+                    onIconClick={(nome, r) => {
+                        if (nome === 'cancel') setConfirmCancel(r.flowId as string);
+                    }}
+                    emptyMessage={t('admin.observability.running.empty')}
+                    emptyDescription={t('admin.observability.running.emptyHint')}
+                    emptyIcon={<IconPlayerPlay />}
+                    emptyAccent="green"
+                    testid="running-flows"
+                    rowTestId={(r) => `running-row-${r.flowId}`}
+                />
+            </SectionCard>
 
             {/* Cancel confirmation modal */}
             <Modal
@@ -234,16 +190,12 @@ export default function RunningFlowsPage() {
                         <Button variant="default" onClick={() => setConfirmCancel(null)}>
                             {t('admin.observability.running.keepRunning')}
                         </Button>
-                        <Button
-                            color="red"
-                            loading={cancelling}
-                            onClick={handleCancelConfirm}
-                        >
+                        <Button color="red" loading={cancelling} onClick={handleCancelConfirm}>
                             {t('admin.observability.running.cancelBtn')}
                         </Button>
                     </Group>
                 </Stack>
             </Modal>
-        </Stack>
+        </>
     );
 }

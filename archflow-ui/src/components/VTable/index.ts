@@ -1,0 +1,5 @@
+export { VxTable } from './VxTable'
+export type { VxTableProps, VxColumn, Registro } from './VxTable'
+export { colunaStatus, colunaDupla, colunaApagada, colunaBarra, colunaAcoes } from './colunas'
+export type { Acao, IconeDeAcao } from './colunas'
+export { selo, tokens, temaEscuro } from './tokens'

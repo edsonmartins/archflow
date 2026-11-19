@@ -11,7 +11,7 @@ export function Meta({ label, value }: { label: string; value: string }) {
             <Text size="xs" c="dimmed" tt="uppercase" style={{ letterSpacing: 0.5 }}>
                 {label}
             </Text>
-            <Text size="sm" ff="DM Mono, monospace">
+            <Text size="sm" ff="monospace">
                 {value}
             </Text>
         </Stack>

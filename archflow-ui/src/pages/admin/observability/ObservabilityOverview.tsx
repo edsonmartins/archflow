@@ -1,21 +1,27 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Alert, Group, Progress, SimpleGrid, Skeleton, Stack, Text } from '@mantine/core';
 import {
-    Alert,
-    Badge,
-    Card,
-    Center,
-    Group,
-    Loader,
-    Paper,
-    SimpleGrid,
-    Stack,
-    Text,
-    Title,
-} from '@mantine/core';
-import { IconAlertCircle, IconBolt, IconCheck, IconClock, IconRadar2 } from '@tabler/icons-react';
+    IconAlertCircle,
+    IconBolt,
+    IconCheck,
+    IconClock,
+    IconRadar2,
+    IconTrendingUp,
+    IconUsersGroup,
+} from '@tabler/icons-react';
 import Sparkline from '../../../components/charts/Sparkline';
+import EmptyState from '../../../components/EmptyState';
+import { SectionCard } from '../../../components/SectionCard';
+import { StatCard } from '../../../components/admin/StatCard';
 import { observabilityApi, type OverviewDto } from '../../../services/observability-api';
+
+/** Success-rate colour: the same thresholds the persona list always used. */
+function rateColor(rate: number): string {
+    if (rate >= 0.9) return 'green';
+    if (rate >= 0.7) return 'orange';
+    return 'red';
+}
 
 export default function ObservabilityOverview() {
     const { t, i18n } = useTranslation();
@@ -46,15 +52,18 @@ export default function ObservabilityOverview() {
 
     if (loading) {
         return (
-            <Center py="xl">
-                <Loader size="sm" />
-            </Center>
+            <Stack gap="lg" aria-busy="true">
+                <SimpleGrid cols={{ base: 1, xs: 2, md: 4 }} spacing="md">
+                    {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} height={128} radius="md" />)}
+                </SimpleGrid>
+                <Skeleton height={240} radius="md" />
+            </Stack>
         );
     }
 
     if (error) {
         return (
-            <Alert color="red" icon={<IconAlertCircle size={16} />}>
+            <Alert color="red" variant="light" icon={<IconAlertCircle size={16} />}>
                 {error}
             </Alert>
         );
@@ -62,106 +71,122 @@ export default function ObservabilityOverview() {
 
     if (!data) return null;
 
+    const errorPct = data.errorRate * 100;
+
     return (
-        <Stack gap="md">
-            <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }} spacing="md">
+        <Stack gap="lg">
+            <SimpleGrid cols={{ base: 1, xs: 2, md: 4 }} spacing="md">
                 <StatCard
                     label={t('admin.observability.overview.execToday')}
                     value={formatNumber(locale, data.totalExecutionsToday)}
-                    icon={<IconBolt size={18} />}
-                    sparkline={data.latencySparkline}
+                    icon={IconBolt}
+                    accent="green"
+                    hint={t('admin.observability.overview.execTodayHint')}
                 />
                 <StatCard
                     label={t('admin.observability.overview.successRate')}
                     value={`${(data.successRate * 100).toFixed(1)}%`}
-                    icon={<IconCheck size={18} />}
-                    hint={t('admin.observability.overview.errorsPct', { pct: (data.errorRate * 100).toFixed(1) })}
+                    icon={IconCheck}
+                    accent={data.successRate < 0.7 ? 'rose' : data.successRate < 0.9 ? 'amber' : 'green'}
+                    color={data.successRate < 0.9 ? rateColor(data.successRate) : undefined}
+                    hint={t('admin.observability.overview.errorsPct', { pct: errorPct.toFixed(1) })}
                 />
                 <StatCard
                     label={t('admin.observability.overview.avgLatency')}
                     value={`${Math.round(data.avgLatencyMs)} ms`}
-                    icon={<IconClock size={18} />}
+                    icon={IconClock}
+                    accent="teal"
                     hint={t('admin.observability.overview.p95', { ms: Math.round(data.p95LatencyMs) })}
                 />
                 <StatCard
                     label={t('admin.observability.overview.activeStreams')}
                     value={String(data.activeStreams)}
-                    icon={<IconRadar2 size={18} />}
-                    hint={t('admin.observability.overview.auditEventsToday', { count: formatNumber(locale, data.totalAuditEventsToday) })}
+                    icon={IconRadar2}
+                    accent="blue"
+                    hint={t('admin.observability.overview.auditEventsToday', {
+                        count: formatNumber(locale, data.totalAuditEventsToday),
+                    })}
                 />
             </SimpleGrid>
 
-            <Paper withBorder radius="md" p="md">
-                <Title order={5} mb="xs">
-                    {t('admin.observability.overview.topPersonas')}
-                </Title>
-                {data.topPersonas.length === 0 ? (
-                    <Text size="sm" c="dimmed">
-                        {t('admin.observability.overview.noPersonas')}
-                    </Text>
-                ) : (
-                    <Stack gap={6}>
-                        {data.topPersonas.map((p) => (
-                            <Group key={p.personaId} justify="space-between">
-                                <Group gap={6}>
-                                    <Badge size="sm" variant="light" color="grape">
-                                        {p.personaId}
-                                    </Badge>
-                                    <Text size="sm" c="dimmed">
-                                        {t('admin.observability.overview.exec', { count: p.executionCount })}
-                                    </Text>
-                                </Group>
-                                <Badge
-                                    size="sm"
-                                    variant="light"
-                                    color={p.successRate >= 0.9 ? 'teal' : p.successRate >= 0.7 ? 'yellow' : 'red'}
-                                >
-                                    {t('admin.observability.overview.okPct', { pct: (p.successRate * 100).toFixed(1) })}
-                                </Badge>
+            <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
+                <SectionCard
+                    icon={IconTrendingUp}
+                    accent="green"
+                    title={t('admin.observability.overview.latencyTrend')}
+                    description={t('admin.observability.overview.latencyTrendHint')}
+                >
+                    {data.latencySparkline.length > 0 ? (
+                        <Stack gap="xs">
+                            <Sparkline
+                                values={data.latencySparkline}
+                                width={560}
+                                height={150}
+                                strokeWidth={2}
+                                color="var(--mantine-color-green-6)"
+                                label={t('admin.observability.overview.latencyTrend')}
+                            />
+                            <Group justify="space-between">
+                                <Text size="xs" c="dimmed">{t('admin.observability.overview.trendStart')}</Text>
+                                <Text size="xs" c="dimmed">{t('admin.observability.overview.trendNow')}</Text>
                             </Group>
-                        ))}
-                    </Stack>
-                )}
-            </Paper>
-        </Stack>
-    );
-}
+                        </Stack>
+                    ) : (
+                        <EmptyState
+                            compact
+                            accent="green"
+                            icon={<IconTrendingUp />}
+                            title={t('admin.observability.overview.noTrend')}
+                        />
+                    )}
+                </SectionCard>
 
-function StatCard({
-    label,
-    value,
-    icon,
-    hint,
-    sparkline,
-}: {
-    label: string;
-    value: string;
-    icon: React.ReactNode;
-    hint?: string;
-    sparkline?: number[];
-}) {
-    return (
-        <Card withBorder radius="md" padding="md">
-            <Stack gap={4}>
-                <Group justify="space-between">
-                    <Text size="xs" c="dimmed" tt="uppercase" style={{ letterSpacing: 0.5 }}>
-                        {label}
-                    </Text>
-                    {icon}
-                </Group>
-                <Text fz={26} fw={600} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                    {value}
-                </Text>
-                {sparkline && sparkline.length > 0 && (
-                    <Sparkline values={sparkline} width={180} height={28} label={label} />
-                )}
-                {hint && (
-                    <Text size="xs" c="dimmed">
-                        {hint}
-                    </Text>
-                )}
-            </Stack>
-        </Card>
+                <SectionCard
+                    icon={IconUsersGroup}
+                    accent="green"
+                    title={t('admin.observability.overview.topPersonas')}
+                    description={t('admin.observability.overview.topPersonasHint')}
+                >
+                    {data.topPersonas.length === 0 ? (
+                        <EmptyState
+                            compact
+                            accent="green"
+                            icon={<IconUsersGroup />}
+                            title={t('admin.observability.overview.noPersonas')}
+                        />
+                    ) : (
+                        <Stack gap="md">
+                            {data.topPersonas.map((p) => (
+                                <Stack key={p.personaId} gap={6}>
+                                    <Group justify="space-between" wrap="nowrap" gap="sm">
+                                        <Text size="sm" fw={600} truncate>
+                                            {p.personaId}
+                                        </Text>
+                                        <Group gap="sm" wrap="nowrap">
+                                            <Text size="xs" c="dimmed">
+                                                {t('admin.observability.overview.exec', { count: p.executionCount })}
+                                            </Text>
+                                            <Text size="xs" fw={600} c={rateColor(p.successRate)}>
+                                                {t('admin.observability.overview.okPct', {
+                                                    pct: (p.successRate * 100).toFixed(1),
+                                                })}
+                                            </Text>
+                                        </Group>
+                                    </Group>
+                                    <Progress
+                                        value={p.successRate * 100}
+                                        color={rateColor(p.successRate)}
+                                        size="sm"
+                                        radius="xl"
+                                        aria-label={`${p.personaId}: ${(p.successRate * 100).toFixed(1)}%`}
+                                    />
+                                </Stack>
+                            ))}
+                        </Stack>
+                    )}
+                </SectionCard>
+            </SimpleGrid>
+        </Stack>
     );
 }
 

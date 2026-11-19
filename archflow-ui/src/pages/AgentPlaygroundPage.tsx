@@ -1,12 +1,21 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
-    Alert, Button, Card, Group, Select, Stack, Tabs, Text, Textarea, TextInput, Title,
+    Alert, Badge, Button, Grid, Group, Select, SimpleGrid, Stack, Tabs, Textarea, TextInput,
 } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
+import {
+    IconInfoCircle, IconMessage, IconPlayerPlayFilled, IconRobot, IconSend, IconTerminal2,
+} from '@tabler/icons-react'
 import { useCatalog } from '../components/PropertyPanel/useCatalog'
 import { agentPlaygroundApi } from '../services/agent-playground-api'
 import { JsonViewer } from '../components/JsonViewer'
+import { PageHeader } from '../components/PageHeader'
+import { SectionCard } from '../components/SectionCard'
+import EmptyState from '../components/EmptyState'
+
+/** Which endpoint produced the last response — shown as a tag on the response panel. */
+type Origem = 'invoke' | 'message'
 
 /**
  * Playground for the two external-trigger endpoints that previously
@@ -23,6 +32,8 @@ export default function AgentPlaygroundPage() {
     const [payload, setPayload] = useState('{"topic":"weather"}')
     const [message, setMessage] = useState('Hello, agent!')
     const [response, setResp]   = useState<unknown>(null)
+    const [origem, setOrigem]   = useState<Origem | null>(null)
+    const [busy, setBusy]       = useState<Origem | null>(null)
 
     const agentOptions = [
         ...catalog.agents.map(a => ({ value: a.id, label: `${a.displayName} (${t('agentPlayground.agentLabel')})` })),
@@ -34,14 +45,18 @@ export default function AgentPlaygroundPage() {
             notifications.show({ color: 'yellow', title: t('agentPlayground.agent'), message: t('agentPlayground.selectFirst') })
             return
         }
+        setBusy('invoke')
         try {
             const parsed = payload.trim() ? JSON.parse(payload) : {}
             const res = await agentPlaygroundApi.invoke(agentId, tenantId, sessionId || undefined, parsed)
             setResp(res)
+            setOrigem('invoke')
             notifications.show({ color: 'green', title: t('agentPlayground.invoked'), message: t('agentPlayground.requestIdMsg', { id: res.requestId }) })
         } catch (e) {
             notifications.show({ color: 'red', title: t('agentPlayground.invokeFailed'),
                 message: e instanceof Error ? e.message : String(e) })
+        } finally {
+            setBusy(null)
         }
     }
 
@@ -54,87 +69,144 @@ export default function AgentPlaygroundPage() {
             notifications.show({ color: 'yellow', title: t('agentPlayground.message'), message: t('agentPlayground.emptyMessage') })
             return
         }
+        setBusy('message')
         try {
             const res = await agentPlaygroundApi.message(tenantId, agentId, message, sessionId || undefined)
             setResp(res)
+            setOrigem('message')
             notifications.show({ color: 'green', title: t('agentPlayground.accepted'), message: t('agentPlayground.requestIdMsg', { id: res.requestId }) })
         } catch (e) {
             notifications.show({ color: 'red', title: t('agentPlayground.sendFailed'),
                 message: e instanceof Error ? e.message : String(e) })
+        } finally {
+            setBusy(null)
         }
     }
 
     return (
-        <Stack gap="md" p="md" maw={900} data-testid="agent-playground">
-            <Title order={2}>{t('agentPlayground.title')}</Title>
-            <Alert color="blue" variant="light">
-                {t('agentPlayground.info').split(/<code>|<\/code>/).map((seg, i) =>
-                    i % 2 === 1 ? <code key={i}>{seg}</code> : <span key={i}>{seg}</span>)}
-            </Alert>
-
-            <Group grow>
-                <TextInput label={t('agentPlayground.tenantId')} value={tenantId}
-                        onChange={e => setTenant(e.currentTarget.value)}
-                        data-testid="pg-tenant" />
-                <TextInput label={t('agentPlayground.sessionId')} value={sessionId}
-                        onChange={e => setSess(e.currentTarget.value)}
-                        placeholder={t('agentPlayground.sessionPlaceholder')} />
-            </Group>
-
-            <Select
-                label={t('agentPlayground.agent')}
-                value={agentId}
-                onChange={setAgent}
-                data={agentOptions}
-                searchable
-                placeholder={t('agentPlayground.agentPlaceholder')}
-                data-testid="pg-agent"
+        <Stack gap="lg" p="md" data-testid="agent-playground">
+            <PageHeader
+                icon={IconPlayerPlayFilled}
+                accent="violet"
+                title={t('agentPlayground.title')}
+                subtitle={t('agentPlayground.subtitle')}
             />
 
-            <Tabs defaultValue="invoke">
-                <Tabs.List>
-                    <Tabs.Tab value="invoke">{t('agentPlayground.tabs.invoke')}</Tabs.Tab>
-                    <Tabs.Tab value="message">{t('agentPlayground.tabs.message')}</Tabs.Tab>
-                </Tabs.List>
+            <Grid gap="lg" align="flex-start">
+                <Grid.Col span={{ base: 12, lg: 5 }}>
+                    <SectionCard
+                        icon={IconRobot}
+                        accent="violet"
+                        title={t('agentPlayground.requestTitle')}
+                        description={t('agentPlayground.requestHint')}
+                    >
+                        <Stack gap="md">
+                            <Alert color="blue" variant="light" icon={<IconInfoCircle size={16} />} p="sm">
+                                {t('agentPlayground.info').split(/<code>|<\/code>/).map((seg, i) =>
+                                    i % 2 === 1 ? <code key={i}>{seg}</code> : <span key={i}>{seg}</span>)}
+                            </Alert>
 
-                <Tabs.Panel value="invoke" pt="sm">
-                    <Stack>
-                        <Textarea
-                            label={t('agentPlayground.jsonPayload')}
-                            value={payload}
-                            onChange={e => setPayload(e.currentTarget.value)}
-                            autosize minRows={4}
-                            data-testid="pg-payload"
-                            styles={{ input: { fontFamily: 'var(--font-mono)' } }}
-                        />
-                        <Group justify="flex-end">
-                            <Button onClick={handleInvoke} data-testid="pg-invoke-btn">{t('agentPlayground.invokeBtn')}</Button>
-                        </Group>
-                    </Stack>
-                </Tabs.Panel>
+                            <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">
+                                <TextInput size="sm" label={t('agentPlayground.tenantId')} value={tenantId}
+                                        onChange={e => setTenant(e.currentTarget.value)}
+                                        data-testid="pg-tenant" />
+                                <TextInput size="sm" label={t('agentPlayground.sessionId')} value={sessionId}
+                                        onChange={e => setSess(e.currentTarget.value)}
+                                        placeholder={t('agentPlayground.sessionPlaceholder')} />
+                            </SimpleGrid>
 
-                <Tabs.Panel value="message" pt="sm">
-                    <Stack>
-                        <Textarea
-                            label={t('agentPlayground.message')}
-                            value={message}
-                            onChange={e => setMessage(e.currentTarget.value)}
-                            autosize minRows={3}
-                            data-testid="pg-message"
-                        />
-                        <Group justify="flex-end">
-                            <Button onClick={handleMessage} data-testid="pg-message-btn">{t('agentPlayground.sendBtn')}</Button>
-                        </Group>
-                    </Stack>
-                </Tabs.Panel>
-            </Tabs>
+                            <Select
+                                size="sm"
+                                label={t('agentPlayground.agent')}
+                                value={agentId}
+                                onChange={setAgent}
+                                data={agentOptions}
+                                searchable
+                                placeholder={t('agentPlayground.agentPlaceholder')}
+                                data-testid="pg-agent"
+                            />
 
-            {response != null && (
-                <Card withBorder role="status" aria-live="polite">
-                    <Text size="sm" c="dimmed" mb={4}>{t('agentPlayground.response')}</Text>
-                    <JsonViewer value={response} autoExpandDepth={2} testId="pg-response" />
-                </Card>
-            )}
+                            <Tabs defaultValue="invoke">
+                                <Tabs.List grow>
+                                    <Tabs.Tab value="invoke" leftSection={<IconTerminal2 size={14} />}>
+                                        {t('agentPlayground.tabs.invoke')}
+                                    </Tabs.Tab>
+                                    <Tabs.Tab value="message" leftSection={<IconMessage size={14} />}>
+                                        {t('agentPlayground.tabs.message')}
+                                    </Tabs.Tab>
+                                </Tabs.List>
+
+                                <Tabs.Panel value="invoke" pt="md">
+                                    <Stack gap="sm">
+                                        <Textarea
+                                            size="sm"
+                                            label={t('agentPlayground.jsonPayload')}
+                                            value={payload}
+                                            onChange={e => setPayload(e.currentTarget.value)}
+                                            autosize minRows={5}
+                                            data-testid="pg-payload"
+                                            styles={{ input: { fontFamily: 'var(--font-mono)' } }}
+                                        />
+                                        <Group justify="flex-end">
+                                            <Button onClick={handleInvoke} loading={busy === 'invoke'}
+                                                    leftSection={<IconPlayerPlayFilled size={14} />}
+                                                    data-testid="pg-invoke-btn">
+                                                {t('agentPlayground.invokeBtn')}
+                                            </Button>
+                                        </Group>
+                                    </Stack>
+                                </Tabs.Panel>
+
+                                <Tabs.Panel value="message" pt="md">
+                                    <Stack gap="sm">
+                                        <Textarea
+                                            size="sm"
+                                            label={t('agentPlayground.message')}
+                                            value={message}
+                                            onChange={e => setMessage(e.currentTarget.value)}
+                                            autosize minRows={5}
+                                            data-testid="pg-message"
+                                        />
+                                        <Group justify="flex-end">
+                                            <Button onClick={handleMessage} loading={busy === 'message'}
+                                                    leftSection={<IconSend size={14} />}
+                                                    data-testid="pg-message-btn">
+                                                {t('agentPlayground.sendBtn')}
+                                            </Button>
+                                        </Group>
+                                    </Stack>
+                                </Tabs.Panel>
+                            </Tabs>
+                        </Stack>
+                    </SectionCard>
+                </Grid.Col>
+
+                <Grid.Col span={{ base: 12, lg: 7 }}>
+                    <SectionCard
+                        icon={IconTerminal2}
+                        accent="violet"
+                        title={t('agentPlayground.response')}
+                        description={t('agentPlayground.responseHint')}
+                        actions={origem && (
+                            <Badge variant="light" color="violet">{t(`agentPlayground.tabs.${origem}`)}</Badge>
+                        )}
+                    >
+                        {response != null ? (
+                            <div role="status" aria-live="polite">
+                                <JsonViewer value={response} autoExpandDepth={2} testId="pg-response" />
+                            </div>
+                        ) : (
+                            <EmptyState
+                                compact
+                                accent="violet"
+                                icon={<IconTerminal2 />}
+                                title={t('agentPlayground.emptyTitle')}
+                                description={t('agentPlayground.emptyHint')}
+                            />
+                        )}
+                    </SectionCard>
+                </Grid.Col>
+            </Grid>
         </Stack>
     )
 }

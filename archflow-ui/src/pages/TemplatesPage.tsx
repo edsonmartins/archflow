@@ -3,33 +3,30 @@ import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
     Badge,
-    Button,
     Card,
-    Center,
     Chip,
     Group,
-    Loader,
+    Paper,
     Select,
     SimpleGrid,
+    Skeleton,
     Stack,
     Text,
     TextInput,
-    Title,
-    UnstyledButton,
 } from '@mantine/core';
-import { IconSearch } from '@tabler/icons-react';
-import {
-    TEMPLATE_CATEGORIES,
-    type TemplateCategory,
-    type WorkflowTemplate,
-} from '../data/templates';
+import { IconArrowRight, IconFilter, IconSearch, IconStack2, IconTemplate } from '@tabler/icons-react';
+import type { WorkflowTemplate } from '../data/templates';
 import { templateApi } from '../services/template-api';
-
-const COMPLEXITY_COLOR: Record<WorkflowTemplate['complexity'], string> = {
-    starter: 'teal',
-    intermediate: 'yellow',
-    advanced: 'red',
-};
+import { PageHeader } from '../components/PageHeader';
+import { SectionCard } from '../components/SectionCard';
+import EmptyState from '../components/EmptyState';
+import {
+    COMPLEXITY_COLOR,
+    categoriaVisivel,
+    categoriasDoCatalogo,
+    chaveDaCategoria,
+    rotuloDaComplexidade,
+} from '../components/templates/categoria';
 
 type Complexity = WorkflowTemplate['complexity'] | 'all';
 
@@ -38,14 +35,10 @@ const COMPLEXITY_VALUES: Complexity[] = ['all', 'starter', 'intermediate', 'adva
 export default function TemplatesPage() {
     const navigate = useNavigate();
     const { t } = useTranslation();
-    const complexityLabel = (v: Complexity) => {
-        if (v === 'all') return t('templates.complexityAny');
-        if (v === 'starter') return t('templates.complexityStarter');
-        if (v === 'intermediate') return t('templates.complexityIntermediate');
-        return t('templates.complexityAdvanced');
-    };
+    const complexityLabel = (v: Complexity) =>
+        v === 'all' ? t('templates.complexityAny') : rotuloDaComplexidade(v, t);
     const [search, setSearch] = useState('');
-    const [category, setCategory] = useState<TemplateCategory | 'all'>('all');
+    const [category, setCategory] = useState<string>('all');
     const [complexity, setComplexity] = useState<Complexity>('all');
     const [all, setAll] = useState<WorkflowTemplate[]>(() => templateApi.listSync());
     const [loading, setLoading] = useState(true);
@@ -66,84 +59,105 @@ export default function TemplatesPage() {
         };
     }, []);
 
+    const categories = useMemo(() => categoriasDoCatalogo(all), [all]);
+
     const filtered = useMemo(() => {
         const q = search.trim().toLowerCase();
-        return all.filter((t) => {
-            if (category !== 'all' && t.category !== category) return false;
-            if (complexity !== 'all' && t.complexity !== complexity) return false;
+        return all.filter((tpl) => {
+            if (category !== 'all' && chaveDaCategoria(tpl.category) !== category) return false;
+            if (complexity !== 'all' && tpl.complexity !== complexity) return false;
             if (!q) return true;
             return (
-                t.name.toLowerCase().includes(q) ||
-                t.summary.toLowerCase().includes(q) ||
-                t.tags.some((tag) => tag.toLowerCase().includes(q))
+                (tpl.name ?? '').toLowerCase().includes(q) ||
+                (tpl.summary ?? '').toLowerCase().includes(q) ||
+                (tpl.tags ?? []).some((tag) => tag.toLowerCase().includes(q))
             );
         });
     }, [all, search, category, complexity]);
 
+    const clearFilters = () => { setSearch(''); setCategory('all'); setComplexity('all'); };
+
     return (
-        <Stack p="md" gap="md">
-            <Stack gap={4}>
-                <Title order={2}>{t('templates.title')}</Title>
-                <Text size="sm" c="dimmed">{t('templates.subtitle')}</Text>
-            </Stack>
+        <Stack p="md" gap="lg">
+            <PageHeader
+                icon={IconTemplate}
+                accent="blue"
+                title={t('templates.title')}
+                subtitle={t('templates.subtitle')}
+            />
 
-            <Group gap="sm" wrap="wrap" align="flex-end">
-                <TextInput
-                    placeholder={t('templates.search')}
-                    leftSection={<IconSearch size={14} />}
-                    value={search}
-                    onChange={(e) => setSearch(e.currentTarget.value)}
-                    style={{ flex: 1, minWidth: 240 }}
-                    data-testid="templates-search"
-                />
-                <Select
-                    label={t('templates.complexity')}
-                    data={COMPLEXITY_VALUES.map((c) => ({ value: c, label: complexityLabel(c) }))}
-                    value={complexity}
-                    onChange={(v) => setComplexity((v as Complexity) ?? 'all')}
-                    w={180}
-                    data-testid="templates-complexity"
-                />
-            </Group>
+            <SectionCard
+                icon={IconFilter}
+                accent="blue"
+                title={t('templates.catalog')}
+                description={t('templates.catalogHint', { shown: filtered.length, total: all.length })}
+            >
+                <Stack gap="md">
+                    <Group gap="sm" wrap="wrap" align="flex-end">
+                        <TextInput
+                            aria-label={t('templates.search')}
+                            placeholder={t('templates.search')}
+                            leftSection={<IconSearch size={14} />}
+                            value={search}
+                            onChange={(e) => setSearch(e.currentTarget.value)}
+                            style={{ flex: 1, minWidth: 240 }}
+                            size="sm"
+                            data-testid="templates-search"
+                        />
+                        <Select
+                            label={t('templates.complexity')}
+                            data={COMPLEXITY_VALUES.map((c) => ({ value: c, label: complexityLabel(c) }))}
+                            value={complexity}
+                            onChange={(v) => setComplexity((v as Complexity) ?? 'all')}
+                            w={200}
+                            size="sm"
+                            allowDeselect={false}
+                            data-testid="templates-complexity"
+                        />
+                    </Group>
 
-            <Chip.Group value={category} onChange={(v) => setCategory(v as TemplateCategory | 'all')}>
-                <Group gap="xs" wrap="wrap">
-                    <Chip value="all" size="xs" variant="light">
-                        {t('templates.all')}
-                    </Chip>
-                    {(Object.entries(TEMPLATE_CATEGORIES) as [TemplateCategory, { label: string; color: string }][])
-                        .map(([key, meta]) => (
-                            <Chip key={key} value={key} size="xs" variant="light" color={meta.color}>
-                                {meta.label}
+                    <Chip.Group value={category} onChange={(v) => setCategory(v as string)}>
+                        <Group gap="xs" wrap="wrap">
+                            <Chip value="all" size="xs" variant="light">
+                                {t('templates.all')}
                             </Chip>
-                        ))}
-                </Group>
-            </Chip.Group>
+                            {categories.map((key) => {
+                                const meta = categoriaVisivel(key, t);
+                                return (
+                                    <Chip key={key} value={key} size="xs" variant="light" color={meta.cor}>
+                                        {meta.rotulo}
+                                    </Chip>
+                                );
+                            })}
+                        </Group>
+                    </Chip.Group>
+                </Stack>
+            </SectionCard>
 
             {loading && all.length === 0 ? (
-                <Center py="xl">
-                    <Loader size="sm" />
-                </Center>
+                <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="md">
+                    {Array.from({ length: 6 }).map((_, i) => (
+                        <Skeleton key={i} height={196} radius="md" />
+                    ))}
+                </SimpleGrid>
             ) : filtered.length === 0 ? (
-                <Stack align="center" gap="xs" py="lg">
-                    <Text size="sm" c="dimmed" ta="center">
-                        {t('templates.noMatches')}
-                    </Text>
-                    <Button
-                        variant="light"
-                        size="xs"
-                        onClick={() => { setSearch(''); setCategory('all'); setComplexity('all'); }}
-                    >
-                        {t('templates.clearFilters')}
-                    </Button>
-                </Stack>
+                <Paper withBorder>
+                    <EmptyState
+                        icon={<IconTemplate />}
+                        accent="blue"
+                        title={t('templates.noMatches')}
+                        description={t('templates.noMatchesHint')}
+                        actionLabel={t('templates.clearFilters')}
+                        onAction={clearFilters}
+                    />
+                </Paper>
             ) : (
                 <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="md">
-                    {filtered.map((t) => (
+                    {filtered.map((tpl) => (
                         <TemplateCard
-                            key={t.id}
-                            template={t}
-                            onClick={() => navigate(`/templates/${t.id}`)}
+                            key={tpl.id}
+                            template={tpl}
+                            onClick={() => navigate(`/templates/${tpl.id}`)}
                         />
                     ))}
                 </SimpleGrid>
@@ -160,67 +174,64 @@ function TemplateCard({
     onClick: () => void;
 }) {
     const { t } = useTranslation();
-    const cat = TEMPLATE_CATEGORIES[template.category];
+    const cat = categoriaVisivel(template.category, t);
+    const stepCount = template.steps?.length ?? 0;
     return (
-        <UnstyledButton
+        <Card
+            withBorder
+            padding="lg"
+            component="button"
+            type="button"
+            className="af-hoverable"
             onClick={onClick}
             data-testid={`template-card-${template.id}`}
-            style={{ display: 'block', height: '100%' }}
+            style={{ cursor: 'pointer', textAlign: 'left', width: '100%', height: '100%',
+                display: 'flex', flexDirection: 'column' }}
         >
-            <Card
-                withBorder
-                radius="md"
-                padding="md"
-                h="100%"
-                style={{
-                    transition: 'transform 0.12s, box-shadow 0.12s',
-                    cursor: 'pointer',
-                }}
-                styles={{
-                    root: {
-                        '&:hover': {
-                            transform: 'translateY(-2px)',
-                            boxShadow: '0 6px 16px rgba(0,0,0,0.08)',
-                        },
-                    },
-                }}
-            >
-                <Stack gap="xs" h="100%">
-                    <Group justify="space-between" wrap="nowrap" align="flex-start">
-                        <Group gap={8} wrap="nowrap">
-                            <Text fz={28} style={{ lineHeight: 1 }}>
-                                {template.icon}
+            <Group justify="space-between" wrap="nowrap" align="flex-start" gap="sm" mb="sm">
+                <Group gap="sm" wrap="nowrap" style={{ minWidth: 0 }}>
+                    <span className="af-stat-icon" data-accent={cat.accent} aria-hidden
+                          style={{ width: 42, height: 42, borderRadius: 12, fontSize: 21, lineHeight: 1 }}>
+                        {template.icon || '📄'}
+                    </span>
+                    <Stack gap={2} style={{ minWidth: 0 }}>
+                        <Text fw={600} size="sm" lineClamp={2}>
+                            {template.name}
+                        </Text>
+                        <Group gap={4} wrap="nowrap">
+                            <IconStack2 size={12} style={{ color: 'var(--mantine-color-dimmed)', flexShrink: 0 }} />
+                            <Text size="xs" c="dimmed">
+                                {stepCount > 0
+                                    ? t('templates.stepsShort', { count: stepCount })
+                                    : t('templates.stepsServer')}
                             </Text>
-                            <Stack gap={0}>
-                                <Text fw={600} size="sm">
-                                    {template.name}
-                                </Text>
-                                <Text size="xs" c="dimmed">
-                                    {t('templates.stepsShort', { count: template.steps.length })}
-                                </Text>
-                            </Stack>
                         </Group>
-                        <Badge size="xs" color={COMPLEXITY_COLOR[template.complexity]} variant="light">
-                            {template.complexity}
-                        </Badge>
-                    </Group>
+                    </Stack>
+                </Group>
+                <Badge size="xs" color={COMPLEXITY_COLOR[template.complexity] ?? 'gray'} variant="light"
+                       style={{ flexShrink: 0 }}>
+                    {rotuloDaComplexidade(template.complexity, t)}
+                </Badge>
+            </Group>
 
-                    <Text size="xs" c="dimmed" style={{ flex: 1 }}>
-                        {template.summary}
-                    </Text>
+            <Text size="xs" c="dimmed" lineClamp={3} style={{ flex: 1 }} mb="md">
+                {template.summary}
+            </Text>
 
-                    <Group gap={4}>
-                        <Badge size="xs" variant="dot" color={cat.color}>
-                            {cat.label}
+            <Group justify="space-between" wrap="nowrap" gap="xs" pt="sm"
+                   style={{ borderTop: '1px solid var(--surface-border)' }}>
+                <Group gap={4} wrap="nowrap" style={{ minWidth: 0, overflow: 'hidden' }}>
+                    <Badge size="xs" variant="dot" color={cat.cor} style={{ flexShrink: 0 }}>
+                        {cat.rotulo}
+                    </Badge>
+                    {(template.tags ?? []).slice(0, 2).map((tag) => (
+                        <Badge key={tag} size="xs" variant="outline" color="gray">
+                            {tag}
                         </Badge>
-                        {template.tags.slice(0, 2).map((tag) => (
-                            <Badge key={tag} size="xs" variant="outline" color="gray">
-                                {tag}
-                            </Badge>
-                        ))}
-                    </Group>
-                </Stack>
-            </Card>
-        </UnstyledButton>
+                    ))}
+                </Group>
+                <IconArrowRight size={15} style={{ color: 'var(--mantine-color-dimmed)', flexShrink: 0 }} />
+            </Group>
+        </Card>
     );
 }

@@ -2,8 +2,11 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import {
-    Alert, Badge, Button, Card, Code, Group, Paper, Stack, Text, Textarea, TextInput, Title,
+    Alert, Badge, Box, Button, Group, Paper, SimpleGrid, Skeleton, Stack, Text, Textarea, TextInput, ThemeIcon,
 } from '@mantine/core'
+import {
+    IconArrowLeft, IconCircleCheck, IconHeadset, IconInfoCircle, IconMessages, IconSend, IconUser, IconUserShare,
+} from '@tabler/icons-react'
 import { notifications } from '@mantine/notifications'
 import {
     linktorInboxApi,
@@ -12,6 +15,12 @@ import {
 } from '../services/linktor-inbox-api'
 import { ApiError } from '../services/api'
 import { confirmAction } from '../lib/confirm'
+import { formatInstant } from '../lib/format'
+import { PageHeader } from '../components/PageHeader'
+import { SectionCard } from '../components/SectionCard'
+import EmptyState from '../components/EmptyState'
+import { Meta } from '../components/Meta'
+import { canalDoLinktor } from '../components/linktor/canal'
 
 /**
  * Detail view of a single Linktor conversation.
@@ -22,7 +31,8 @@ import { confirmAction } from '../lib/confirm'
  * to a human operator, or mark it resolved.</p>
  */
 export default function LinktorConversationPage() {
-    const { t } = useTranslation()
+    const { t, i18n } = useTranslation()
+    const locale = i18n.resolvedLanguage ?? i18n.language
     const { id = '' } = useParams()
     const [conv, setConv]         = useState<LinktorConversation | null>(null)
     const [messages, setMessages] = useState<LinktorMessage[]>([])
@@ -98,89 +108,168 @@ export default function LinktorConversationPage() {
         })
     }
 
+    const resolved = status === 'resolved'
+    const channel = conv ? String(conv.channelType ?? conv.channelId ?? '') : ''
+    const canal = canalDoLinktor(channel)
+    const CanalIcon = canal.icon
+
     return (
-        <Stack gap="md" p="md" maw={900} data-testid="linktor-conversation">
-            <Group justify="space-between">
-                <Group align="baseline">
-                    <Title order={2}>{t('linktor.conversation.title')}</Title>
-                    <Code>{id.slice(0, 12)}</Code>
-                    <Badge color={status === 'resolved' ? 'green' :
-                                status === 'assigned' ? 'blue' : 'yellow'}>
-                        {t(`linktor.status.${status}`, { defaultValue: status })}
-                    </Badge>
-                </Group>
-                <Link to="/admin/linktor/inbox"><Button variant="default">{t('linktor.conversation.back')}</Button></Link>
-            </Group>
+        <Stack gap="lg" p="md" data-testid="linktor-conversation">
+            <PageHeader
+                icon={IconMessages}
+                accent="teal"
+                title={t('linktor.conversation.title')}
+                subtitle={t('linktor.conversation.subtitle')}
+                breadcrumbs={[
+                    { label: t('linktor.inbox.title'), to: '/admin/linktor/inbox' },
+                    { label: id.slice(0, 12) },
+                ]}
+                actions={
+                    <>
+                        <Badge size="lg" radius="sm" variant="dot" color={statusColor(status)}>
+                            {t(`linktor.status.${status}`, { defaultValue: status })}
+                        </Badge>
+                        <Button component={Link} to="/admin/linktor/inbox" variant="default"
+                                leftSection={<IconArrowLeft size={16} />}>
+                            {t('linktor.conversation.back')}
+                        </Button>
+                    </>
+                }
+            />
 
-            {error && <Alert color="red" title={t('linktor.config.title')}>{error}</Alert>}
-            {loading && <Text c="dimmed">{t('triggers.loading')}</Text>}
+            {error && <Alert color="red" variant="light" title={t('linktor.config.title')}>{error}</Alert>}
 
-            {!loading && (
-                <Paper withBorder p="md">
-                    <Stack gap="xs">
-                        {messages.length === 0 && (
-                            <Text c="dimmed">{t('linktor.conversation.noMessages')}</Text>
+            <Group align="flex-start" gap="lg" wrap="wrap">
+                {/* Transcript + composer */}
+                <Paper withBorder style={{ flex: '2 1 520px', minWidth: 0, overflow: 'hidden' }}>
+                    <Group justify="space-between" px="md" py="xs" wrap="nowrap"
+                           style={{ borderBottom: '1px solid var(--mantine-color-default-border)' }}>
+                        <Group gap={8} wrap="nowrap">
+                            <ThemeIcon size={26} radius="md" variant="light" color={canal.color} aria-hidden>
+                                <CanalIcon size={15} />
+                            </ThemeIcon>
+                            <Text size="sm" fw={600}>{channel || t('linktor.conversation.transcript')}</Text>
+                        </Group>
+                        <Text size="xs" c="dimmed">
+                            {t('linktor.conversation.messageCount', { count: messages.length })}
+                        </Text>
+                    </Group>
+
+                    <Box px="md" py="sm" mih={320} style={{ background: 'var(--bg3)' }}>
+                        {loading ? (
+                            <Stack gap="md" py="sm">
+                                <Skeleton height={44} width="55%" radius="lg" />
+                                <Skeleton height={44} width="45%" radius="lg" ml="auto" />
+                                <Skeleton height={44} width="60%" radius="lg" />
+                            </Stack>
+                        ) : messages.length === 0 ? (
+                            <EmptyState compact icon={<IconMessages />} accent="teal"
+                                        title={t('linktor.conversation.noMessages')}
+                                        description={t('linktor.conversation.noMessagesHint')} />
+                        ) : (
+                            <Stack gap="md" py="sm" role="log" aria-label={t('linktor.conversation.transcript')}>
+                                {messages.map((m, i) => {
+                                    const author = String(m.direction ?? m.senderType ?? 'user')
+                                    const content = String(m.content ?? m.text ?? '')
+                                    const at = String(m.createdAt ?? m.timestamp ?? '')
+                                    const mine = author === 'outbound' || author === 'agent'
+                                    return (
+                                        <Group key={i} gap="sm" align="flex-start" wrap="nowrap"
+                                               style={{ flexDirection: mine ? 'row-reverse' : 'row' }}>
+                                            <ThemeIcon size={30} radius="xl" aria-hidden
+                                                       variant={mine ? 'gradient' : 'light'}
+                                                       color={mine ? undefined : 'gray'}
+                                                       gradient={{ from: 'teal.4', to: 'cyan.7', deg: 135 }}>
+                                                {mine ? <IconHeadset size={16} /> : <IconUser size={16} />}
+                                            </ThemeIcon>
+                                            <Stack gap={4} maw="75%" align={mine ? 'flex-end' : 'flex-start'}
+                                                   style={{ minWidth: 0 }}>
+                                                <Group gap={6} wrap="nowrap">
+                                                    <Text size="xs" fw={600}>{author}</Text>
+                                                    {at && <Text size="xs" c="dimmed">{formatInstant(at, locale)}</Text>}
+                                                </Group>
+                                                <Box px="md" py="xs" style={mine ? {
+                                                    background: 'var(--mantine-color-teal-filled)',
+                                                    color: 'var(--mantine-color-white)',
+                                                    borderRadius: '16px 16px 4px 16px',
+                                                } : {
+                                                    background: 'var(--mantine-color-body)',
+                                                    border: '1px solid var(--mantine-color-default-border)',
+                                                    borderRadius: '16px 16px 16px 4px',
+                                                }}>
+                                                    <Text size="sm" lh={1.6} style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                                                        {content}
+                                                    </Text>
+                                                </Box>
+                                            </Stack>
+                                        </Group>
+                                    )
+                                })}
+                            </Stack>
                         )}
-                        {messages.map((m, i) => {
-                            const author = String(m.direction ?? m.senderType ?? 'user')
-                            const content = String(m.content ?? m.text ?? '')
-                            const at = String(m.createdAt ?? m.timestamp ?? '')
-                            const mine = author === 'outbound' || author === 'agent'
-                            return (
-                                <Paper key={i} withBorder radius="md"
-                                       p="xs"
-                                       style={{
-                                           alignSelf: mine ? 'flex-end' : 'flex-start',
-                                           maxWidth: '70%',
-                                           background: mine ? 'var(--mantine-color-blue-0)' : undefined,
-                                       }}>
-                                    <Text size="xs" c="dimmed">{author} · {at}</Text>
-                                    <Text>{content}</Text>
-                                </Paper>
-                            )
-                        })}
+                    </Box>
+
+                    <Stack gap="xs" p="md" style={{ borderTop: '1px solid var(--mantine-color-default-border)' }}>
+                        <Textarea
+                            size="sm"
+                            label={t('linktor.conversation.reply')}
+                            placeholder={resolved ? t('linktor.conversation.replyResolved') : t('linktor.conversation.replyPlaceholder')}
+                            value={draft}
+                            onChange={e => setDraft(e.currentTarget.value)}
+                            autosize minRows={2}
+                            disabled={busy || resolved}
+                            data-testid="lk-reply-input"
+                        />
+                        <Group justify="flex-end">
+                            <Button onClick={send} color="teal" leftSection={<IconSend size={15} />}
+                                    disabled={busy || !draft.trim() || resolved}
+                                    data-testid="lk-reply-send">{t('chat.send')}</Button>
+                        </Group>
                     </Stack>
                 </Paper>
-            )}
 
-            <Card withBorder>
-                <Stack>
-                    <Textarea
-                        label={t('linktor.conversation.reply')}
-                        value={draft}
-                        onChange={e => setDraft(e.currentTarget.value)}
-                        autosize minRows={2}
-                        disabled={busy || status === 'resolved'}
-                        data-testid="lk-reply-input"
-                    />
-                    <Group justify="flex-end">
-                        <Button onClick={send} disabled={busy || !draft.trim() || status === 'resolved'}
-                                data-testid="lk-reply-send">{t('chat.send')}</Button>
-                    </Group>
-                </Stack>
-            </Card>
+                {/* Side panel */}
+                <Stack gap="lg" style={{ flex: '1 1 300px', minWidth: 280 }}>
+                    <SectionCard icon={IconUserShare} accent="amber"
+                                 title={t('linktor.conversation.handoff')}
+                                 description={t('linktor.conversation.handoffHint')}>
+                        <Stack gap="sm">
+                            <TextInput
+                                size="sm"
+                                label={t('linktor.conversation.assignee')}
+                                placeholder={t('linktor.conversation.assigneePlaceholder')}
+                                value={assignee}
+                                onChange={e => setAssignee(e.currentTarget.value)}
+                                data-testid="lk-assignee"
+                            />
+                            <Group justify="flex-end" gap="sm">
+                                <Button color="green" variant="light" onClick={resolve}
+                                        leftSection={<IconCircleCheck size={15} />}
+                                        disabled={busy || resolved} data-testid="lk-resolve">
+                                    {t('linktor.conversation.markResolved')}
+                                </Button>
+                                <Button onClick={assign} disabled={busy} data-testid="lk-assign"
+                                        leftSection={<IconUserShare size={15} />}>
+                                    {t('linktor.conversation.assign')}
+                                </Button>
+                            </Group>
+                        </Stack>
+                    </SectionCard>
 
-            <Card withBorder>
-                <Stack>
-                    <Text fw={600}>{t('linktor.conversation.handoff')}</Text>
-                    <Group>
-                        <TextInput
-                            placeholder={t('linktor.conversation.assigneePlaceholder')}
-                            value={assignee}
-                            onChange={e => setAssignee(e.currentTarget.value)}
-                            style={{ flex: 1 }}
-                            data-testid="lk-assignee"
-                        />
-                        <Button variant="light" onClick={assign} disabled={busy} data-testid="lk-assign">
-                            {t('linktor.conversation.assign')}
-                        </Button>
-                        <Button color="green" variant="outline" onClick={resolve}
-                                disabled={busy || status === 'resolved'} data-testid="lk-resolve">
-                            {t('linktor.conversation.markResolved')}
-                        </Button>
-                    </Group>
+                    <SectionCard icon={IconInfoCircle} accent="teal" title={t('linktor.conversation.details')}>
+                        <SimpleGrid cols={2} spacing="md">
+                            <Meta label={t('linktor.inbox.columns.status')}
+                                  value={t(`linktor.status.${status}`, { defaultValue: status })} />
+                            <Meta label={t('linktor.inbox.columns.channel')} value={channel || '—'} />
+                            <Meta label={t('linktor.inbox.columns.updated')}
+                                  value={conv ? formatInstant(String(conv.updatedAt ?? conv.createdAt ?? ''), locale) : '—'} />
+                            <Meta label={t('linktor.inbox.columns.id')} value={id.slice(0, 12)} />
+                        </SimpleGrid>
+                    </SectionCard>
                 </Stack>
-            </Card>
+            </Group>
         </Stack>
     )
 }
+
+const statusColor = (s: string) => (s === 'resolved' ? 'green' : s === 'assigned' ? 'blue' : 'yellow')

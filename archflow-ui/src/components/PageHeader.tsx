@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import type { ComponentType, ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { Anchor, Breadcrumbs, Button, Group, Stack, Text, Title } from '@mantine/core'
 import { IconChevronLeft } from '@tabler/icons-react'
@@ -14,8 +14,14 @@ import { IconChevronLeft } from '@tabler/icons-react'
  *     breadcrumbs={[{ label: t('section'), to: '/x' }, { label: t('current') }]}
  *     backTo="/x"
  *     actions={<Button>…</Button>}
+ *     icon={IconTopologyRing} accent="blue"
  *   />
+ *
+ * `icon` + `accent` dão a cada tela uma identidade: um quadrado com degradê na
+ * cor da seção, ao lado do título (classes af-page-* em App.css).
  */
+export type Accent = 'blue' | 'teal' | 'violet' | 'amber' | 'rose' | 'green' | 'slate'
+
 export interface Crumb {
     label: string
     /** When set, the crumb is a link; the last/current crumb usually omits it. */
@@ -30,6 +36,10 @@ interface PageHeaderProps {
     backTo?: string
     backLabel?: string
     breadcrumbs?: Crumb[]
+    /** Ícone Tabler da tela, mostrado num quadrado com degradê ao lado do título. */
+    icon?: ComponentType<{ size?: number; stroke?: number }>
+    /** Cor do quadrado do ícone. Default 'blue'. */
+    accent?: Accent
 }
 
 export function PageHeader({
@@ -39,9 +49,11 @@ export function PageHeader({
     backTo,
     backLabel,
     breadcrumbs,
+    icon: Icon,
+    accent = 'blue',
 }: PageHeaderProps) {
     return (
-        <Stack gap="xs">
+        <Stack gap="xs" className="af-page-header">
             {breadcrumbs && breadcrumbs.length > 0 && (
                 <Breadcrumbs fz="sm">
                     {breadcrumbs.map((c, i) =>
@@ -73,11 +85,18 @@ export function PageHeader({
                 </Button>
             )}
 
-            <Group justify="space-between" align="flex-start" wrap="wrap" gap="sm">
-                <Stack gap={2} style={{ minWidth: 0 }}>
-                    <Title order={2}>{title}</Title>
-                    {subtitle && <Text size="sm" c="dimmed">{subtitle}</Text>}
-                </Stack>
+            <Group justify="space-between" align="center" wrap="wrap" gap="md">
+                <Group gap="md" wrap="nowrap" align="center" style={{ minWidth: 0, flex: '1 1 360px' }}>
+                    {Icon && (
+                        <span className="af-page-icon" data-accent={accent} aria-hidden>
+                            <Icon size={22} stroke={1.8} />
+                        </span>
+                    )}
+                    <Stack gap={2} style={{ minWidth: 0 }}>
+                        <Title order={2} className="af-page-title">{title}</Title>
+                        {subtitle && <Text size="sm" c="dimmed" maw={760}>{subtitle}</Text>}
+                    </Stack>
+                </Group>
                 {actions && <Group gap="sm">{actions}</Group>}
             </Group>
         </Stack>

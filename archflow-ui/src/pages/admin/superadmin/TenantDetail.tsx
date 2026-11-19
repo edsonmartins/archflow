@@ -1,6 +1,11 @@
-import { Text, Paper, Stack, Group, Button, Badge, LoadingOverlay, Alert } from '@mantine/core'
-import { IconAlertCircle } from '@tabler/icons-react'
+import { Text, Stack, Group, Button, Badge, LoadingOverlay, Alert, SimpleGrid, Box } from '@mantine/core'
+import {
+  IconAlertCircle, IconBuildingSkyscraper, IconId, IconCreditCard, IconChartBar, IconAlertTriangle,
+  IconPlayerPause, IconPlayerPlay, IconTrash,
+} from '@tabler/icons-react'
+import type { ReactNode } from 'react'
 import { PageHeader } from '../../../components/PageHeader'
+import { SectionCard } from '../../../components/SectionCard'
 import { StatusBadge } from '../../../components/StatusBadge'
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
@@ -9,6 +14,7 @@ import { notifications } from '@mantine/notifications'
 import { tenantApi, type TenantDetail as TenantDetailDto } from '../../../services/admin-api'
 import { UsageBar } from '../../../components/admin/UsageBar'
 import { confirmAction, confirmWithText } from '../../../lib/confirm'
+import { PLAN_COLORS, TENANT_STATUS_COLORS } from './tenantColors'
 
 export default function TenantDetail() {
   const { id } = useParams<{ id: string }>()
@@ -110,19 +116,33 @@ export default function TenantDetail() {
     })
   }
 
+  const suspended = tenant?.status === 'suspended'
+
   return (
-    <Stack gap="md" pos="relative">
+    <Stack gap="lg" p="md" pos="relative">
       <LoadingOverlay visible={loading || submitting} />
 
       <PageHeader
+        icon={IconBuildingSkyscraper}
+        accent="blue"
         title={tenant?.name ?? t('admin.superadmin.tenantDetail.title')}
-        subtitle={tenant?.id}
+        subtitle={tenant ? t('admin.superadmin.tenantDetail.subtitle', { id: tenant.id }) : undefined}
         backTo="/admin/tenants"
-        backLabel={t('admin.superadmin.tenantDetail.back')}
+        backLabel={t('common.back')}
         breadcrumbs={[
           { label: t('admin.layout.tenants'), to: '/admin/tenants' },
           { label: tenant?.name ?? t('admin.superadmin.tenantDetail.title') },
         ]}
+        actions={tenant && (
+          <Button
+            variant="light"
+            color={suspended ? 'teal' : 'orange'}
+            leftSection={suspended ? <IconPlayerPlay size={16} /> : <IconPlayerPause size={16} />}
+            onClick={handleStatusAction}
+          >
+            {suspended ? t('admin.superadmin.tenantDetail.activate') : t('admin.superadmin.tenantDetail.suspend')}
+          </Button>
+        )}
       />
 
       {error && (
@@ -132,68 +152,84 @@ export default function TenantDetail() {
       )}
 
       {tenant && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-          <Paper withBorder p="lg" radius="lg">
-            <Text fw={600} size="sm" mb="md">{t('admin.superadmin.tenantDetail.identity')}</Text>
-            <Stack gap="xs">
-              <InfoRow label={t('admin.superadmin.tenantDetail.name')} value={tenant.name} />
-              <InfoRow label={t('admin.superadmin.tenantDetail.tenantId')} value={tenant.id} mono />
-              <InfoRow label={t('admin.superadmin.tenantDetail.admin')} value={tenant.adminEmail} />
-              <InfoRow label={t('admin.superadmin.tenantDetail.sector')} value={tenant.sector} />
-              <InfoRow label={t('admin.superadmin.tenantDetail.created')} value={tenant.createdAt} />
-            </Stack>
-          </Paper>
+        <>
+          <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg">
+            <SectionCard icon={IconId} accent="blue"
+              title={t('admin.superadmin.tenantDetail.identity')}
+              description={t('admin.superadmin.tenantDetail.identityHint')}>
+              <SimpleGrid cols={{ base: 1, xs: 2 }} spacing="md" verticalSpacing="md">
+                <Prop label={t('admin.superadmin.tenantDetail.name')}>{tenant.name}</Prop>
+                <Prop label={t('admin.superadmin.tenantDetail.tenantId')}><Text size="sm" c="dimmed" truncate>{tenant.id}</Text></Prop>
+                <Prop label={t('admin.superadmin.tenantDetail.admin')}>{tenant.adminEmail}</Prop>
+                <Prop label={t('admin.superadmin.tenantDetail.sector')}>{tenant.sector}</Prop>
+                <Prop label={t('admin.superadmin.tenantDetail.created')}>{tenant.createdAt}</Prop>
+              </SimpleGrid>
+            </SectionCard>
 
-          <Paper withBorder p="lg" radius="lg">
-            <Text fw={600} size="sm" mb="md">{t('admin.superadmin.tenantDetail.planStatus')}</Text>
-            <Stack gap="xs">
-              <Group justify="space-between">
-                <Text size="xs" c="dimmed">{t('admin.superadmin.tenantDetail.plan')}</Text>
-                <Badge variant="light" color="blue" size="sm">{t(`admin.superadmin.tenants.plans.${tenant.plan}`, { defaultValue: tenant.plan })}</Badge>
-              </Group>
-              <Group justify="space-between">
-                <Text size="xs" c="dimmed">{t('admin.superadmin.tenantDetail.status')}</Text>
-                <StatusBadge
-                  status={tenant.status}
-                  color={tenant.status === 'suspended' ? 'red' : tenant.status === 'trial' ? 'orange' : 'green'}
-                  label={t(`admin.superadmin.tenants.statuses.${tenant.status}`, { defaultValue: tenant.status })}
-                />
-              </Group>
-              <Group justify="space-between">
-                <Text size="xs" c="dimmed">{t('admin.superadmin.tenantDetail.allowedModels')}</Text>
-                <Text size="xs" fw={500}>{tenant.allowedModels.join(', ') || '—'}</Text>
-              </Group>
-            </Stack>
-            <Group mt="md" gap="xs">
-              <Button size="xs" color={tenant.status === 'suspended' ? 'teal' : 'orange'} variant="light" onClick={handleStatusAction}>
-                {tenant.status === 'suspended' ? t('admin.superadmin.tenantDetail.activate') : t('admin.superadmin.tenantDetail.suspend')}
-              </Button>
-              <Button size="xs" color="red" variant="subtle" onClick={handleDelete}>
-                {t('admin.superadmin.tenantDetail.delete')}
-              </Button>
-            </Group>
-          </Paper>
+            <SectionCard icon={IconCreditCard} accent="teal"
+              title={t('admin.superadmin.tenantDetail.planStatus')}
+              description={t('admin.superadmin.tenantDetail.planStatusHint')}>
+              <SimpleGrid cols={{ base: 1, xs: 2 }} spacing="md" verticalSpacing="md">
+                <Prop label={t('admin.superadmin.tenantDetail.plan')}>
+                  <Badge variant="light" color={PLAN_COLORS[tenant.plan] ?? 'gray'} size="sm">
+                    {t(`admin.superadmin.tenants.plans.${tenant.plan}`, { defaultValue: tenant.plan })}
+                  </Badge>
+                </Prop>
+                <Prop label={t('admin.superadmin.tenantDetail.status')}>
+                  <StatusBadge
+                    status={tenant.status}
+                    color={TENANT_STATUS_COLORS[tenant.status] ?? 'gray'}
+                    label={t(`admin.superadmin.tenants.statuses.${tenant.status}`, { defaultValue: tenant.status })}
+                  />
+                </Prop>
+                <Box style={{ gridColumn: '1 / -1' }}>
+                  <Prop label={t('admin.superadmin.tenantDetail.allowedModels')}>
+                    {tenant.allowedModels.length > 0 ? (
+                      <Group gap={6}>
+                        {tenant.allowedModels.map((model) => (
+                          <Badge key={model} variant="default" size="sm" tt="none">{model}</Badge>
+                        ))}
+                      </Group>
+                    ) : '—'}
+                  </Prop>
+                </Box>
+              </SimpleGrid>
+            </SectionCard>
+          </SimpleGrid>
 
-          <Paper withBorder p="lg" radius="lg" style={{ gridColumn: '1 / -1' }}>
-            <Text fw={600} size="sm" mb="md">{t('admin.superadmin.tenantDetail.usage')}</Text>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+          <SectionCard icon={IconChartBar} accent="violet"
+            title={t('admin.superadmin.tenantDetail.usage')}
+            description={t('admin.superadmin.tenantDetail.usageHint')}>
+            <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="xl" verticalSpacing="lg">
               <UsageBar current={tenant.usage.executionsToday} limit={tenant.limits.executionsPerDay} label={t('admin.superadmin.tenantDetail.bars.execPerDay')} />
               <UsageBar current={tenant.usage.tokensThisMonth} limit={tenant.limits.tokensPerMonth} label={t('admin.superadmin.tenantDetail.bars.tokensPerMonth')} />
               <UsageBar current={tenant.usage.workflowCount} limit={tenant.limits.maxWorkflows} label={t('admin.superadmin.tenantDetail.bars.workflows')} />
               <UsageBar current={tenant.usage.userCount} limit={tenant.limits.maxUsers} label={t('admin.superadmin.tenantDetail.bars.users')} />
-            </div>
-          </Paper>
-        </div>
+            </SimpleGrid>
+          </SectionCard>
+
+          <SectionCard icon={IconAlertTriangle} accent="rose"
+            title={t('admin.superadmin.tenantDetail.dangerTitle')}
+            description={t('admin.superadmin.tenantDetail.dangerHint')}
+            actions={
+              <Button size="xs" color="red" variant="light" leftSection={<IconTrash size={14} />} onClick={handleDelete}>
+                {t('admin.superadmin.tenantDetail.delete')}
+              </Button>
+            }>
+            <Text size="sm" c="dimmed">{t('admin.superadmin.tenantDetail.dangerBody')}</Text>
+          </SectionCard>
+        </>
       )}
     </Stack>
   )
 }
 
-function InfoRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+/** Par rótulo/valor do cartão de propriedades. */
+function Prop({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <Group justify="space-between">
-      <Text size="xs" c="dimmed">{label}</Text>
-      <Text size="xs" fw={500} ff={mono ? 'monospace' : undefined}>{value}</Text>
-    </Group>
+    <Stack gap={4} style={{ minWidth: 0 }}>
+      <Text size="xs" fw={600} c="dimmed" tt="uppercase" style={{ letterSpacing: '0.06em' }}>{label}</Text>
+      {typeof children === 'string' ? <Text size="sm" fw={500} truncate>{children}</Text> : children}
+    </Stack>
   )
 }

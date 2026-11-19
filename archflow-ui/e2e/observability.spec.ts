@@ -204,10 +204,11 @@ test.describe('Admin observability surface', () => {
         await page.goto('/admin/observability/traces');
 
         // The UI truncates the trace id to its first 12 chars.
-        await expect(page.getByText('trace-aaaa-1', { exact: true }).first()).toBeVisible();
-        await expect(page.getByText('trace-bbbb-2', { exact: true }).first()).toBeVisible();
+        // The list is a VTable: its rows are read and clicked through the accessible mirror.
+        await expect(page.getByText('trace-aaaa-1', { exact: true }).first()).toBeAttached();
+        await expect(page.getByText('trace-bbbb-2', { exact: true }).first()).toBeAttached();
 
-        await page.getByText('trace-aaaa-1', { exact: true }).first().click();
+        await page.getByText('trace-aaaa-1', { exact: true }).first().dispatchEvent('click');
         await expect(page).toHaveURL(/\/traces\/trace-aaaa-1111$/);
         await expect(page.getByRole('heading', { name: /Trace trace-aaaa-1/ })).toBeVisible();
         await expect(page.getByText('flow.execute').first()).toBeVisible();
@@ -222,7 +223,7 @@ test.describe('Admin observability surface', () => {
 
         await expect(page.getByText('Latency (ms)').first()).toBeVisible();
         await expect(page.getByText('flows.started')).toBeVisible();
-        await expect(page.getByText('flow.duration')).toBeVisible();
+        await expect(page.getByText('flow.duration')).toBeAttached();
     });
 
     test('audit log lists entries and exposes CSV export link', async ({ page }) => {
@@ -231,9 +232,9 @@ test.describe('Admin observability surface', () => {
 
         await page.goto('/admin/observability/audit');
 
-        await expect(page.getByText('WORKFLOW_EXECUTE')).toBeVisible();
-        await expect(page.getByText('LOGIN_SUCCESS')).toBeVisible();
-        await expect(page.getByText('alice')).toBeVisible();
+        await expect(page.getByText('WORKFLOW_EXECUTE')).toBeAttached();
+        await expect(page.getByText('LOGIN_SUCCESS')).toBeAttached();
+        await expect(page.getByText('alice')).toBeAttached();
 
         const exportLink = page.getByTestId('audit-export');
         await expect(exportLink).toHaveAttribute('href', /\/admin\/observability\/audit\/export/);

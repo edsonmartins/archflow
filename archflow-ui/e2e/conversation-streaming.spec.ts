@@ -152,11 +152,13 @@ test.describe('Conversations streaming surface', () => {
         await page.goto('/conversations');
 
         await expect(page.getByRole('heading', { name: 'Conversations' })).toBeVisible();
-        await expect(page.getByText(conversation.id.slice(0, 8))).toBeVisible();
-        await expect(page.getByText('order_tracking', { exact: false })).toBeVisible();
+        const row = page.getByTestId(`conv-row-${conversation.id}`);
+        await expect(row).toBeAttached();
+        await expect(row).toContainText(conversation.id.slice(0, 8));
+        await expect(row).toContainText('order_tracking');
 
         // Click the first row -> opens detail
-        await page.getByText(conversation.id.slice(0, 8)).click();
+        await row.dispatchEvent('click');
         await expect(page).toHaveURL(/\/conversations\/conv-streaming-1$/);
     });
 

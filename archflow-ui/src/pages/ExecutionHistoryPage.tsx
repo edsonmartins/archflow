@@ -1,12 +1,18 @@
-import { Stack, Group, Title, Select, Text, Table, Button } from '@mantine/core';
-import { useEffect, useState } from 'react';
+import { Stack, Select, Button, SimpleGrid } from '@mantine/core';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import {
+    IconAlertTriangle, IconCircleCheck, IconFilter, IconHistory, IconLoader2, IconPlayerPlay,
+} from '@tabler/icons-react';
 import { useWorkflowStore } from '../stores/workflow-store';
-import { DataTable, clickableRow, tabularNums } from '../components/DataTable';
-import { StatusBadge } from '../components/StatusBadge';
+import { PageHeader } from '../components/PageHeader';
+import { SectionCard } from '../components/SectionCard';
+import { StatCard } from '../components/admin/StatCard';
+import { VxTable, colunaApagada, colunaStatus, type Registro, type VxColumn } from '../components/VTable';
+import { selo } from '../components/VTable/tokens';
 import { EXECUTION_STATUS_COLOR } from '../lib/executionStatus';
-import { formatDuration } from '../lib/format';
+import { formatDuration, formatInstant } from '../lib/format';
 
 export default function ExecutionHistoryPage() {
     const { t, i18n } = useTranslation();
@@ -21,84 +27,101 @@ export default function ExecutionHistoryPage() {
     // separate effects used to fire).
     useEffect(() => { fetchExecutions(filterWorkflow || undefined); }, [filterWorkflow, fetchExecutions]);
 
-    return (
-        <Stack gap="md" p="md">
-            <Group justify="space-between" wrap="wrap">
-                <Title order={2}>{t('executions.title')}</Title>
-                <Select
-                    aria-label={t('executions.allWorkflows')}
-                    placeholder={t('executions.allWorkflows')}
-                    value={filterWorkflow || null}
-                    onChange={(v) => setFilterWorkflow(v ?? '')}
-                    data={workflows.map(w => ({ value: w.id, label: w.name }))}
-                    clearable
-                    w={240}
-                    size="sm"
-                />
-            </Group>
+    const counts = useMemo(() => ({
+        completed: executions.filter((e) => e.status === 'COMPLETED').length,
+        failed: executions.filter((e) => e.status === 'FAILED').length,
+        running: executions.filter((e) => e.status === 'RUNNING').length,
+    }), [executions]);
 
-            <DataTable
-                columns={6}
-                minWidth={820}
-                striped
-                highlightOnHover
-                loading={loading}
-                error={error}
-                onRetry={() => fetchExecutions(filterWorkflow || undefined)}
-                isEmpty={executions.length === 0}
-                emptyMessage={t('executions.empty')}
-                emptyAction={
-                    <Button variant="light" size="xs" onClick={() => navigate('/workflows')}>
-                        {t('executions.emptyCta')}
-                    </Button>
-                }
-                head={
-                    <Table.Tr>
-                        <Table.Th>{t('executions.cols.id')}</Table.Th>
-                        <Table.Th>{t('executions.cols.workflow')}</Table.Th>
-                        <Table.Th>{t('executions.cols.status')}</Table.Th>
-                        <Table.Th>{t('executions.cols.started')}</Table.Th>
-                        <Table.Th>{t('executions.cols.duration')}</Table.Th>
-                        <Table.Th>{t('executions.cols.error')}</Table.Th>
-                    </Table.Tr>
+    const colunas = useMemo((): VxColumn[] => [
+        colunaApagada({ field: 'id', title: t('executions.cols.id'), width: 200,
+            fieldFormat: (r: Registro) => `${String(r.id).slice(0, 16)}…` }),
+        { field: 'workflowName', title: t('executions.cols.workflow'), width: 'auto', minWidth: 220,
+            style: { fontWeight: 600 } },
+        colunaStatus(
+            { field: 'status', title: t('executions.cols.status'), width: 160,
+                fieldFormat: (r: Registro) => t(`executions.statuses.${r.status}`, { defaultValue: String(r.status) }) },
+            (r) => EXECUTION_STATUS_COLOR[r.status as string] ?? 'gray',
+        ),
+        colunaApagada({ field: 'startedAt', title: t('executions.cols.started'), width: 210,
+            fieldFormat: (r: Registro) => formatInstant(r.startedAt as string, locale) }),
+        colunaApagada({ field: 'duration', title: t('executions.cols.duration'), width: 120,
+            fieldFormat: (r: Registro) => (r.status === 'RUNNING' ? '…' : formatDuration(r.duration as number)) }),
+        { field: 'error', title: t('executions.cols.error'), width: 'auto', minWidth: 220,
+            fieldFormat: (r: Registro) => (r.error ? String(r.error) : ''),
+            style: () => ({ color: selo('red').tinta, fontSize: 12 }) } as VxColumn,
+    ], [t, locale]);
+
+    const total = executions.length;
+
+    return (
+        <Stack gap="lg" p="md">
+            <PageHeader
+                icon={IconHistory}
+                accent="violet"
+                title={t('executions.title')}
+                subtitle={t('executions.subtitle')}
+            />
+
+            <SimpleGrid cols={{ base: 1, xs: 2, md: 4 }} spacing="md">
+                <StatCard label={t('executions.stats.total')} value={total} icon={IconPlayerPlay} accent="violet"
+                          hint={filterWorkflow ? t('executions.hints.filtered') : t('executions.hints.total')} />
+                <StatCard label={t('executions.stats.completed')} value={counts.completed} icon={IconCircleCheck}
+                          accent="teal"
+                          hint={total > 0
+                              ? t('executions.hints.successRate', { pct: Math.round((counts.completed / total) * 100) })
+                              : t('executions.hints.none')} />
+                <StatCard label={t('executions.stats.failed')} value={counts.failed} icon={IconAlertTriangle}
+                          accent="rose" color={counts.failed > 0 ? 'red' : undefined}
+                          hint={counts.failed > 0 ? t('executions.hints.failed') : t('executions.hints.failedNone')} />
+                <StatCard label={t('executions.stats.running')} value={counts.running} icon={IconLoader2}
+                          accent="blue" color={counts.running > 0 ? 'blue' : undefined}
+                          hint={t('executions.hints.running')} />
+            </SimpleGrid>
+
+            <SectionCard
+                flush
+                icon={IconPlayerPlay}
+                accent="violet"
+                title={t('executions.listTitle')}
+                description={t('executions.listHint')}
+                actions={
+                    <Select
+                        aria-label={t('executions.allWorkflows')}
+                        placeholder={t('executions.allWorkflows')}
+                        leftSection={<IconFilter size={14} />}
+                        value={filterWorkflow || null}
+                        onChange={(v) => setFilterWorkflow(v ?? '')}
+                        data={workflows.map(w => ({ value: w.id, label: w.name }))}
+                        clearable
+                        searchable
+                        w={260}
+                        size="sm"
+                    />
                 }
             >
-                {executions.map((exec) => {
-                    const isRunning = exec.status === 'RUNNING';
-                    return (
-                        <Table.Tr key={exec.id} {...clickableRow(() => navigate(`/executions/${exec.id}`))}>
-                            <Table.Td>
-                                <Text size="xs" ff="DM Mono, monospace" c="dimmed">
-                                    {exec.id.slice(0, 16)}…
-                                </Text>
-                            </Table.Td>
-                            <Table.Td><Text size="sm" fw={500}>{exec.workflowName}</Text></Table.Td>
-                            <Table.Td>
-                                <StatusBadge
-                                    status={exec.status}
-                                    color={EXECUTION_STATUS_COLOR[exec.status] ?? 'gray'}
-                                    label={t(`executions.statuses.${exec.status}`, { defaultValue: exec.status })}
-                                />
-                            </Table.Td>
-                            <Table.Td>
-                                <Text size="xs" c="dimmed">
-                                    {new Date(exec.startedAt).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}
-                                </Text>
-                            </Table.Td>
-                            <Table.Td>
-                                <Text size="xs" ff="DM Mono, monospace" style={tabularNums}>
-                                    {isRunning ? '…' : formatDuration(exec.duration)}
-                                </Text>
-                            </Table.Td>
-                            <Table.Td>
-                                <Text size="xs" c="red" lineClamp={1} title={exec.error ?? undefined}>
-                                    {exec.error ?? ''}
-                                </Text>
-                            </Table.Td>
-                        </Table.Tr>
-                    );
-                })}
-            </DataTable>
+                <VxTable
+                    legenda={t('executions.listTitle')}
+                    records={executions as unknown as Record<string, unknown>[]}
+                    columns={colunas}
+                    loading={loading}
+                    error={error}
+                    onRetry={() => fetchExecutions(filterWorkflow || undefined)}
+                    onRowClick={(r) => navigate(`/executions/${r.id}`)}
+                    emptyMessage={t('executions.empty')}
+                    emptyDescription={t('executions.emptyHint')}
+                    emptyIcon={<IconPlayerPlay />}
+                    emptyAccent="violet"
+                    emptyAction={
+                        <Button variant="light" size="xs" onClick={() => navigate('/workflows')}>
+                            {t('executions.emptyCta')}
+                        </Button>
+                    }
+                    maxHeight={640}
+                    testid="executions-table"
+                    rowTestId={(r) => `exec-row-${r.id}`}
+                />
+            </SectionCard>
         </Stack>
     );
 }

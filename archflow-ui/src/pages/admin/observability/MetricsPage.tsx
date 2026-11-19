@@ -1,28 +1,28 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Alert, Badge, Code, Group, Select, SimpleGrid, Skeleton, Stack, Text } from '@mantine/core';
 import {
-    Alert,
-    Badge,
-    Card,
-    Center,
-    Code,
-    Group,
-    Loader,
-    Paper,
-    Select,
-    SimpleGrid,
-    Stack,
-    Table,
-    Text,
-    Title,
-} from '@mantine/core';
-import { IconAlertCircle, IconChartLine } from '@tabler/icons-react';
-import { LineChart } from '@mantine/charts';
+    IconAlertCircle,
+    IconArrowDown,
+    IconArrowUp,
+    IconChartHistogram,
+    IconChartLine,
+    IconDatabaseOff,
+    IconGauge,
+    IconMathAvg,
+    IconNumbers,
+    IconPointFilled,
+} from '@tabler/icons-react';
+import { AreaChart } from '@mantine/charts';
 import {
     observabilityApi,
     type MetricSeriesDto,
     type MetricsSnapshotDto,
 } from '../../../services/observability-api';
+import EmptyState from '../../../components/EmptyState';
+import { SectionCard } from '../../../components/SectionCard';
+import { StatCard } from '../../../components/admin/StatCard';
+import { VxTable, colunaApagada, type Registro, type VxColumn } from '../../../components/VTable';
 
 /** Format a bucket timestamp to a short HH:mm label; fall back to raw. */
 function formatBucket(bucket: string, locale: string): string {
@@ -69,142 +69,216 @@ export default function MetricsPage() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [metric, bucket]);
 
+    const fmt = (v: number) => v.toLocaleString(locale, { maximumFractionDigits: 2 });
+    const metricLabel = t(`admin.observability.metrics.metricValues.${metric}`, { defaultValue: metric });
+
+    const histogramColumns = useMemo((): VxColumn[] => {
+        const num = (v: unknown) => (v as number).toFixed(2);
+        return [
+            { field: 'name', title: t('admin.observability.metrics.histCols.metric'), width: 'auto', minWidth: 220,
+              style: { fontWeight: 600 } },
+            { field: 'count', title: t('admin.observability.metrics.histCols.count'), width: 110 },
+            colunaApagada({ field: 'min', title: t('admin.observability.metrics.histCols.min'), width: 120,
+              fieldFormat: (r: Registro) => num(r.min) }),
+            colunaApagada({ field: 'max', title: t('admin.observability.metrics.histCols.max'), width: 120,
+              fieldFormat: (r: Registro) => num(r.max) }),
+            { field: 'mean', title: t('admin.observability.metrics.histCols.mean'), width: 120,
+              fieldFormat: (r: Registro) => num(r.mean) },
+            colunaApagada({ field: 'median', title: t('admin.observability.metrics.histCols.median'), width: 120,
+              fieldFormat: (r: Registro) => num(r.median) }),
+        ];
+    }, [t]);
+
     if (loading) {
         return (
-            <Center py="xl">
-                <Loader size="sm" />
-            </Center>
+            <Stack gap="lg" aria-busy="true">
+                <SimpleGrid cols={{ base: 1, xs: 2, md: 4 }} spacing="md">
+                    {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} height={128} radius="md" />)}
+                </SimpleGrid>
+                <Skeleton height={320} radius="md" />
+            </Stack>
         );
     }
 
     if (error) {
         return (
-            <Alert color="red" icon={<IconAlertCircle size={16} />}>
+            <Alert color="red" variant="light" icon={<IconAlertCircle size={16} />}>
                 {error}
             </Alert>
         );
     }
 
-    return (
-        <Stack gap="md">
-            <Group wrap="wrap" gap="sm" align="flex-end">
-                <Select
-                    label={t('admin.observability.metrics.metric')}
-                    data={METRIC_VALUES.map((v) => ({ value: v, label: t(`admin.observability.metrics.metricValues.${v}`) }))}
-                    value={metric}
-                    onChange={(v) => v && setMetric(v)}
-                    w={200}
-                    data-testid="metric-select"
-                />
-                <Select
-                    label={t('admin.observability.metrics.bucket')}
-                    data={BUCKET_VALUES.map((v) => ({ value: v, label: t(`admin.observability.metrics.bucketValues.${v}`) }))}
-                    value={bucket}
-                    onChange={(v) => v && setBucket(v)}
-                    w={140}
-                    data-testid="bucket-select"
-                />
-            </Group>
+    const values = series?.values ?? [];
+    const hasSamples = !!series && series.buckets.length > 0;
+    const last = values.length ? values[values.length - 1] : null;
+    const avg = values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
+    const peak = values.length ? Math.max(...values) : null;
+    const low = values.length ? Math.min(...values) : null;
+    const histogramRows = snapshot
+        ? Object.entries(snapshot.stats).map(([name, stats]) => ({ name, ...stats }))
+        : [];
 
-            <Card withBorder radius="md" padding="md">
-                <Group justify="space-between" mb="sm">
-                    <Group gap={6}>
-                        <IconChartLine size={16} />
-                        <Title order={5}>
-                            {t(`admin.observability.metrics.metricValues.${metric}`, { defaultValue: metric })}
-                        </Title>
-                    </Group>
-                    {series && (
-                        <Badge variant="light">
-                            {t('admin.observability.metrics.buckets', { count: series.buckets.length })}
-                        </Badge>
-                    )}
-                </Group>
-                {series && series.buckets.length > 0 ? (
-                    <LineChart
-                        h={240}
+    return (
+        <Stack gap="lg">
+            <SimpleGrid cols={{ base: 1, xs: 2, md: 4 }} spacing="md">
+                <StatCard
+                    label={t('admin.observability.metrics.stats.last')}
+                    value={last === null ? '—' : fmt(last)}
+                    icon={IconPointFilled}
+                    accent="green"
+                    hint={metricLabel}
+                />
+                <StatCard
+                    label={t('admin.observability.metrics.stats.avg')}
+                    value={avg === null ? '—' : fmt(avg)}
+                    icon={IconMathAvg}
+                    accent="teal"
+                    hint={t('admin.observability.metrics.stats.window')}
+                />
+                <StatCard
+                    label={t('admin.observability.metrics.stats.peak')}
+                    value={peak === null ? '—' : fmt(peak)}
+                    icon={IconArrowUp}
+                    accent="amber"
+                    hint={t('admin.observability.metrics.stats.window')}
+                />
+                <StatCard
+                    label={t('admin.observability.metrics.stats.low')}
+                    value={low === null ? '—' : fmt(low)}
+                    icon={IconArrowDown}
+                    accent="blue"
+                    hint={t('admin.observability.metrics.stats.window')}
+                />
+            </SimpleGrid>
+
+            <SectionCard
+                icon={IconChartLine}
+                accent="green"
+                // A real heading for the chart: it names what the axes show, and screen readers jump by it.
+                title={<span role="heading" aria-level={3}>{metricLabel}</span>}
+                description={t('admin.observability.metrics.chartHint')}
+                actions={
+                    <>
+                        {series && (
+                            <Badge variant="light" color="green">
+                                {t('admin.observability.metrics.buckets', { count: series.buckets.length })}
+                            </Badge>
+                        )}
+                        <Select
+                            size="xs"
+                            aria-label={t('admin.observability.metrics.metric')}
+                            data={METRIC_VALUES.map((v) => ({ value: v, label: t(`admin.observability.metrics.metricValues.${v}`) }))}
+                            value={metric}
+                            onChange={(v) => v && setMetric(v)}
+                            allowDeselect={false}
+                            w={190}
+                            data-testid="metric-select"
+                        />
+                        <Select
+                            size="xs"
+                            aria-label={t('admin.observability.metrics.bucket')}
+                            data={BUCKET_VALUES.map((v) => ({ value: v, label: t(`admin.observability.metrics.bucketValues.${v}`) }))}
+                            value={bucket}
+                            onChange={(v) => v && setBucket(v)}
+                            allowDeselect={false}
+                            w={110}
+                            data-testid="bucket-select"
+                        />
+                    </>
+                }
+            >
+                {hasSamples ? (
+                    <AreaChart
+                        h={260}
                         data={series.buckets.map((b, i) => ({
                             bucket: formatBucket(b, locale),
                             value: series.values[i] ?? 0,
                         }))}
                         dataKey="bucket"
-                        series={[{
-                            name: 'value',
-                            label: t(`admin.observability.metrics.metricValues.${metric}`, { defaultValue: metric }),
-                            color: 'teal.6',
-                        }]}
+                        series={[{ name: 'value', label: metricLabel, color: 'green.6' }]}
                         curveType="monotone"
+                        withGradient
+                        fillOpacity={0.22}
+                        strokeWidth={2}
                         withDots={series.values.length <= 24}
-                        withLegend
-                        tickLine="xy"
-                        gridAxis="xy"
+                        tickLine="none"
+                        gridAxis="y"
+                        strokeDasharray="4 4"
                         valueFormatter={(v) => v.toLocaleString(locale)}
                     />
                 ) : (
-                    <Text size="sm" c="dimmed">
-                        {t('admin.observability.metrics.noSamples')}
-                    </Text>
+                    <EmptyState
+                        compact
+                        accent="green"
+                        icon={<IconChartLine />}
+                        title={t('admin.observability.metrics.noSamples')}
+                    />
                 )}
-            </Card>
+            </SectionCard>
 
             {snapshot && (
-                <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
-                    <Paper withBorder p="md" radius="md">
-                        <Title order={5} mb="xs">{t('admin.observability.metrics.counters')}</Title>
-                        <KeyValueTable map={snapshot.counters} format={(v) => String(v)} emptyLabel={t('admin.observability.metrics.noData')} />
-                    </Paper>
-                    <Paper withBorder p="md" radius="md">
-                        <Title order={5} mb="xs">{t('admin.observability.metrics.gauges')}</Title>
-                        <KeyValueTable map={snapshot.values} format={(v) => v.toFixed(2)} emptyLabel={t('admin.observability.metrics.noData')} />
-                    </Paper>
-                    <Paper withBorder p="md" radius="md" style={{ gridColumn: '1 / -1' }}>
-                        <Title order={5} mb="xs">{t('admin.observability.metrics.histograms')}</Title>
-                        {Object.keys(snapshot.stats).length === 0 ? (
-                            <Text size="sm" c="dimmed">{t('admin.observability.metrics.noHistograms')}</Text>
-                        ) : (
-                            <Table striped highlightOnHover>
-                                <Table.Thead>
-                                    <Table.Tr>
-                                        <Table.Th>{t('admin.observability.metrics.histCols.metric')}</Table.Th>
-                                        <Table.Th>{t('admin.observability.metrics.histCols.count')}</Table.Th>
-                                        <Table.Th>{t('admin.observability.metrics.histCols.min')}</Table.Th>
-                                        <Table.Th>{t('admin.observability.metrics.histCols.max')}</Table.Th>
-                                        <Table.Th>{t('admin.observability.metrics.histCols.mean')}</Table.Th>
-                                        <Table.Th>{t('admin.observability.metrics.histCols.median')}</Table.Th>
-                                    </Table.Tr>
-                                </Table.Thead>
-                                <Table.Tbody>
-                                    {Object.entries(snapshot.stats).map(([name, stats]) => (
-                                        <Table.Tr key={name}>
-                                            <Table.Td><Code>{name}</Code></Table.Td>
-                                            <Table.Td>{stats.count}</Table.Td>
-                                            <Table.Td>{stats.min.toFixed(2)}</Table.Td>
-                                            <Table.Td>{stats.max.toFixed(2)}</Table.Td>
-                                            <Table.Td>{stats.mean.toFixed(2)}</Table.Td>
-                                            <Table.Td>{stats.median.toFixed(2)}</Table.Td>
-                                        </Table.Tr>
-                                    ))}
-                                </Table.Tbody>
-                            </Table>
-                        )}
-                    </Paper>
-                </SimpleGrid>
+                <>
+                    <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
+                        <SectionCard
+                            icon={IconNumbers}
+                            accent="green"
+                            title={t('admin.observability.metrics.counters')}
+                            description={t('admin.observability.metrics.countersHint')}
+                        >
+                            <KeyValueList map={snapshot.counters} format={(v) => fmt(v)} emptyLabel={t('admin.observability.metrics.noData')} />
+                        </SectionCard>
+                        <SectionCard
+                            icon={IconGauge}
+                            accent="teal"
+                            title={t('admin.observability.metrics.gauges')}
+                            description={t('admin.observability.metrics.gaugesHint')}
+                        >
+                            <KeyValueList map={snapshot.values} format={(v) => v.toFixed(2)} emptyLabel={t('admin.observability.metrics.noData')} />
+                        </SectionCard>
+                    </SimpleGrid>
+
+                    <SectionCard
+                        flush
+                        icon={IconChartHistogram}
+                        accent="green"
+                        title={t('admin.observability.metrics.histograms')}
+                        description={t('admin.observability.metrics.histogramsHint')}
+                    >
+                        <VxTable
+                            legenda={t('admin.observability.metrics.histograms')}
+                            records={histogramRows as unknown as Registro[]}
+                            columns={histogramColumns}
+                            emptyMessage={t('admin.observability.metrics.noHistograms')}
+                            emptyIcon={<IconChartHistogram />}
+                            emptyAccent="green"
+                            testid="metrics-histograms"
+                        />
+                    </SectionCard>
+                </>
             )}
         </Stack>
     );
 }
 
-function KeyValueTable<T>({ map, format, emptyLabel }: { map: Record<string, T>; format: (v: T) => string; emptyLabel: string }) {
+function KeyValueList({ map, format, emptyLabel }: {
+    map: Record<string, number>; format: (v: number) => string; emptyLabel: string;
+}) {
     const entries = Object.entries(map);
     if (entries.length === 0) {
-        return <Text size="sm" c="dimmed">{emptyLabel}</Text>;
+        return <EmptyState compact accent="slate" icon={<IconDatabaseOff />} title={emptyLabel} />;
     }
     return (
-        <Stack gap={4}>
-            {entries.map(([key, value]) => (
-                <Group key={key} justify="space-between">
-                    <Code style={{ fontSize: 11 }}>{key}</Code>
-                    <Text size="sm" fw={500}>{format(value)}</Text>
+        <Stack gap={0}>
+            {entries.map(([key, value], i) => (
+                <Group
+                    key={key}
+                    justify="space-between"
+                    wrap="nowrap"
+                    py={8}
+                    style={i > 0 ? { borderTop: '1px solid var(--surface-border)' } : undefined}
+                >
+                    <Code style={{ fontSize: 12 }}>{key}</Code>
+                    <Text size="sm" fw={600} style={{ fontVariantNumeric: 'tabular-nums' }}>{format(value)}</Text>
                 </Group>
             ))}
         </Stack>

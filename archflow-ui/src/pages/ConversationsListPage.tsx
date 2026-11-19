@@ -1,26 +1,28 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { Button, Group, Select, SimpleGrid, Stack, TextInput } from '@mantine/core';
 import {
-    Badge,
-    Button,
-    Group,
-    Select,
-    Stack,
-    Table,
-    Text,
-    TextInput,
-    Title,
-} from '@mantine/core';
-import { IconPlus, IconRefresh, IconSearch } from '@tabler/icons-react';
+    IconAlertTriangle,
+    IconMessages,
+    IconMessageCircle,
+    IconPlus,
+    IconRefresh,
+    IconSearch,
+    IconUserQuestion,
+    IconBolt,
+} from '@tabler/icons-react';
 import {
     conversationApi,
     type Conversation,
     type ConversationListParams,
     type ConversationStatus,
 } from '../services/conversation-api';
-import { DataTable, clickableRow, tabularNums } from '../components/DataTable';
-import { StatusBadge } from '../components/StatusBadge';
+import { PageHeader } from '../components/PageHeader';
+import { SectionCard } from '../components/SectionCard';
+import { StatCard } from '../components/admin/StatCard';
+import { VxTable, colunaApagada, colunaDupla, colunaStatus, type VxColumn } from '../components/VTable';
+import { selo } from '../components/VTable/tokens';
 
 const STATUS_VALUES: ConversationListParams['status'][] =
     ['ALL', 'ACTIVE', 'AWAITING_HUMAN', 'SUSPENDED', 'ESCALATED', 'CLOSED', 'COMPLETED', 'CANCELLED'];
@@ -38,6 +40,7 @@ const STATUS_COLOR: Record<ConversationStatus, string> = {
 export default function ConversationsListPage() {
     const navigate = useNavigate();
     const { t, i18n } = useTranslation();
+    const locale = i18n.resolvedLanguage ?? i18n.language;
     const [conversations, setConversations] = useState<Conversation[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -72,103 +75,152 @@ export default function ConversationsListPage() {
         load();
     }, [load]);
 
+    const counts = useMemo(() => {
+        const by = (...s: ConversationStatus[]) => conversations.filter((c) => s.includes(c.status)).length;
+        return {
+            active: by('ACTIVE'),
+            waiting: by('AWAITING_HUMAN', 'SUSPENDED'),
+            escalated: by('ESCALATED'),
+        };
+    }, [conversations]);
+
+    const colunas = useMemo((): VxColumn[] => [
+        colunaDupla(
+            { field: 'id', title: t('conversations.table.id'), width: 'auto', minWidth: 220 },
+            (r) => (r.title ? String(r.title) : String(r.id).slice(0, 8)),
+            (r) => (r.title ? String(r.id).slice(0, 8) : (r.lastMessage as string | undefined)),
+        ),
+        colunaDupla(
+            { field: 'userId', title: t('conversations.table.user'), width: 200 },
+            (r) => String(r.userId ?? '—'),
+            (r) => (r.channel as string | undefined) ?? undefined,
+        ),
+        { field: 'persona', title: t('conversations.table.persona'), width: 180,
+          fieldFormat: (r) => String(r.persona ?? '—'),
+          style: () => ({ color: selo('grape').tinta, fontWeight: 600 }) },
+        colunaStatus(
+            { field: 'status', title: t('conversations.table.status'), width: 190,
+              fieldFormat: (r) => t(`conversations.statuses.${r.status}`, { defaultValue: String(r.status) }) },
+            (r) => STATUS_COLOR[r.status as ConversationStatus] ?? 'gray',
+        ),
+        colunaApagada({ field: 'updatedAt', title: t('conversations.table.updated'), width: 140,
+          fieldFormat: (r) => formatRelative(r.updatedAt as string, t, locale) }),
+        colunaApagada({ field: 'messageCount', title: t('conversations.table.messages'), width: 120,
+          fieldFormat: (r) => (r.messageCount === undefined || r.messageCount === null ? '—' : String(r.messageCount)),
+          style: { textAlign: 'right' } }),
+    ], [t, locale]);
+
+    const filtering = search.trim() !== '' || status !== 'ALL';
+
     return (
-        <Stack p="md" gap="md">
-            <Group justify="space-between">
-                <Title order={2}>{t('conversations.title')}</Title>
-                <Group gap="xs">
-                    <Button
-                        leftSection={<IconRefresh size={16} />}
-                        variant="subtle"
-                        size="sm"
-                        onClick={() => load()}
-                    >
-                        {t('common.refresh')}
-                    </Button>
-                    <Button
-                        leftSection={<IconPlus size={16} />}
-                        size="sm"
-                        onClick={() => {
-                            void conversationApi
-                                .createConversation()
-                                .then(({ id }) => navigate(`/conversations/${id}`));
-                        }}
-                    >
-                        {t('conversations.new', 'Nova conversa')}
-                    </Button>
-                </Group>
-            </Group>
+        <Stack gap="lg" p="md">
+            <PageHeader
+                icon={IconMessages}
+                accent="teal"
+                title={t('conversations.title')}
+                subtitle={t('conversations.subtitle')}
+                actions={
+                    <>
+                        <Button
+                            leftSection={<IconRefresh size={16} />}
+                            variant="default"
+                            onClick={() => load()}
+                        >
+                            {t('common.refresh')}
+                        </Button>
+                        <Button
+                            leftSection={<IconPlus size={16} />}
+                            onClick={() => {
+                                void conversationApi
+                                    .createConversation()
+                                    .then(({ id }) => navigate(`/conversations/${id}`));
+                            }}
+                        >
+                            {t('conversations.new', 'Nova conversa')}
+                        </Button>
+                    </>
+                }
+            />
 
-            <Group gap="sm" wrap="wrap">
-                <TextInput
-                    placeholder={t('conversations.search')}
-                    leftSection={<IconSearch size={14} />}
-                    value={search}
-                    onChange={(e) => setSearch(e.currentTarget.value)}
-                    style={{ flex: 1, minWidth: 240 }}
+            <SimpleGrid cols={{ base: 1, xs: 2, md: 4 }} spacing="md">
+                <StatCard
+                    label={t('conversations.stats.total')}
+                    value={loading && conversations.length === 0 ? '—' : conversations.length}
+                    icon={IconMessageCircle}
+                    accent="teal"
+                    hint={t('conversations.stats.totalHint')}
                 />
-                <Select
-                    placeholder={t('conversations.status')}
-                    data={STATUS_VALUES.map((v) => ({ value: String(v), label: t(`conversations.statuses.${v}`) }))}
-                    value={String(status)}
-                    onChange={(v) => setStatus((v as ConversationListParams['status']) ?? 'ALL')}
-                    w={180}
+                <StatCard
+                    label={t('conversations.stats.active')}
+                    value={counts.active}
+                    icon={IconBolt}
+                    accent="green"
+                    hint={t('conversations.stats.activeHint')}
                 />
-            </Group>
+                <StatCard
+                    label={t('conversations.stats.waiting')}
+                    value={counts.waiting}
+                    color={counts.waiting > 0 ? 'orange' : undefined}
+                    icon={IconUserQuestion}
+                    accent="amber"
+                    hint={t('conversations.stats.waitingHint')}
+                />
+                <StatCard
+                    label={t('conversations.stats.escalated')}
+                    value={counts.escalated}
+                    color={counts.escalated > 0 ? 'red' : undefined}
+                    icon={IconAlertTriangle}
+                    accent="rose"
+                    hint={t('conversations.stats.escalatedHint')}
+                />
+            </SimpleGrid>
 
-            <DataTable
-                columns={7}
-                minWidth={760}
-                striped
-                highlightOnHover
-                loading={loading}
-                error={error}
-                onRetry={() => load()}
-                isEmpty={conversations.length === 0}
-                emptyMessage={t('conversations.empty')}
-                head={
-                    <Table.Tr>
-                        <Table.Th>{t('conversations.table.id')}</Table.Th>
-                        <Table.Th>{t('conversations.table.user')}</Table.Th>
-                        <Table.Th>{t('conversations.table.channel')}</Table.Th>
-                        <Table.Th>{t('conversations.table.persona')}</Table.Th>
-                        <Table.Th>{t('conversations.table.status')}</Table.Th>
-                        <Table.Th>{t('conversations.table.updated')}</Table.Th>
-                        <Table.Th>{t('conversations.table.messages')}</Table.Th>
-                    </Table.Tr>
+            <SectionCard
+                flush
+                icon={IconMessages}
+                accent="teal"
+                title={t('conversations.listTitle')}
+                description={t('conversations.listHint')}
+                actions={
+                    <Group gap="xs" wrap="wrap">
+                        <TextInput
+                            size="sm"
+                            placeholder={t('conversations.search')}
+                            aria-label={t('conversations.search')}
+                            leftSection={<IconSearch size={14} />}
+                            value={search}
+                            onChange={(e) => setSearch(e.currentTarget.value)}
+                            w={300}
+                        />
+                        <Select
+                            size="sm"
+                            placeholder={t('conversations.status')}
+                            aria-label={t('conversations.status')}
+                            data={STATUS_VALUES.map((v) => ({ value: String(v), label: t(`conversations.statuses.${v}`) }))}
+                            value={String(status)}
+                            onChange={(v) => setStatus((v as ConversationListParams['status']) ?? 'ALL')}
+                            w={210}
+                        />
+                    </Group>
                 }
             >
-                {conversations.map((c) => (
-                    <Table.Tr key={c.id} {...clickableRow(() => navigate(`/conversations/${c.id}`))}>
-                        <Table.Td>
-                            <Text size="xs" ff="DM Mono, monospace">
-                                {c.id.slice(0, 8)}
-                            </Text>
-                        </Table.Td>
-                        <Table.Td>{c.userId ?? '—'}</Table.Td>
-                        <Table.Td>{c.channel ?? '—'}</Table.Td>
-                        <Table.Td>
-                            {c.persona ? (
-                                <Badge size="xs" variant="outline" color="grape">
-                                    {c.persona}
-                                </Badge>
-                            ) : (
-                                '—'
-                            )}
-                        </Table.Td>
-                        <Table.Td>
-                            <StatusBadge
-                                size="xs"
-                                status={c.status}
-                                color={STATUS_COLOR[c.status] ?? 'gray'}
-                                label={t(`conversations.statuses.${c.status}`, { defaultValue: c.status })}
-                            />
-                        </Table.Td>
-                        <Table.Td>{formatRelative(c.updatedAt, t, i18n.resolvedLanguage ?? i18n.language)}</Table.Td>
-                        <Table.Td style={tabularNums}>{c.messageCount ?? '—'}</Table.Td>
-                    </Table.Tr>
-                ))}
-            </DataTable>
+                <VxTable
+                    legenda={t('conversations.title')}
+                    records={conversations as unknown as Record<string, unknown>[]}
+                    columns={colunas}
+                    rowHeight={58}
+                    loading={loading}
+                    error={error}
+                    onRetry={() => load()}
+                    onRowClick={(r) => navigate(`/conversations/${r.id}`)}
+                    emptyMessage={t('conversations.empty')}
+                    emptyDescription={filtering ? t('conversations.emptyFiltered') : t('conversations.emptyHint')}
+                    emptyIcon={<IconMessages />}
+                    emptyAccent="teal"
+                    testid="conversations-table"
+                    rowTestId={(r) => `conv-row-${r.id}`}
+                />
+            </SectionCard>
         </Stack>
     );
 }

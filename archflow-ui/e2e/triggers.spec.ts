@@ -89,10 +89,13 @@ test.describe('Scheduled triggers', () => {
 
         await page.goto('/admin/triggers');
         await expect(page.getByTestId('triggers-page')).toBeVisible();
-        await expect(page.getByText('Nightly digest')).toBeVisible();
+        // The table is a VTable canvas: rows are read (and clicked) through
+        // its visually-hidden accessible mirror, so assert attachment, not visibility.
+        const row = page.getByTestId('trigger-trg-abc12345');
+        await expect(row).toBeAttached();
+        await expect(row).toContainText('Nightly digest');
 
-        await page.getByTestId('trigger-trg-abc12345')
-            .getByRole('button', { name: 'Fire now' }).click();
+        await row.getByRole('button', { name: 'Fire now' }).dispatchEvent('click');
         await expect(page.getByText(/Submitted invocation/)).toBeVisible();
     });
 

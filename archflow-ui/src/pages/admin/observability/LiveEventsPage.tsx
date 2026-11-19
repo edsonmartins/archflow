@@ -1,27 +1,27 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Alert, Badge, Box, Button, Grid, Group, TextInput } from '@mantine/core';
 import {
-    Alert,
-    Badge,
-    Button,
-    Code,
-    Group,
-    Paper,
-    ScrollArea,
-    Stack,
-    Table,
-    Text,
-    TextInput,
-    Title,
-} from '@mantine/core';
-import { IconAlertCircle, IconPlayerPause, IconPlayerPlay, IconTrash } from '@tabler/icons-react';
+    IconAlertCircle,
+    IconBraces,
+    IconPlayerPause,
+    IconPlayerPlay,
+    IconPlugConnected,
+    IconPlugConnectedX,
+    IconRadar2,
+    IconTrash,
+} from '@tabler/icons-react';
 import { ArchflowEventStream, type ArchflowEvent, type StreamStatus } from '../../../services/event-stream';
 import { JsonViewer } from '../../../components/JsonViewer';
+import EmptyState from '../../../components/EmptyState';
+import { SectionCard } from '../../../components/SectionCard';
+import { VxTable, colunaApagada, colunaStatus, type Registro, type VxColumn } from '../../../components/VTable';
 
 /**
  * Live SSE event viewer for debugging. Reuses {@link ArchflowEventStream}
  * from P0 — the user types a (tenantId, sessionId) and sees every frame
- * arriving in real time. Scrollback is capped at 500 entries.
+ * arriving in real time. Scrollback is capped at 500 entries. Clicking an
+ * event opens its payload in the side panel.
  */
 export default function LiveEventsPage() {
     const { t, i18n } = useTranslation();
@@ -72,6 +72,7 @@ export default function LiveEventsPage() {
         if (!canAttach) return;
         setError(null);
         setEvents([]);
+        setExpandedId(null);
         setAttached({ tenantId: tenantId.trim(), sessionId: sessionId.trim() });
     };
 
@@ -89,148 +90,181 @@ export default function LiveEventsPage() {
         return counts;
     }, [events]);
 
+    const rows = useMemo(
+        () => events.map((e) => ({
+            id: e.envelope.id,
+            timestamp: e.envelope.timestamp,
+            domain: e.envelope.domain,
+            type: e.envelope.type,
+            payload: JSON.stringify(e.data),
+        })),
+        [events],
+    );
+
+    const columns = useMemo((): VxColumn[] => [
+        colunaApagada({ field: 'timestamp', title: t('admin.observability.live.cols.time'), width: 110,
+          fieldFormat: (r: Registro) => formatTime(r.timestamp as string, locale) }),
+        colunaStatus({ field: 'domain', title: t('admin.observability.live.cols.domain'), width: 150 }, () => 'teal'),
+        { field: 'type', title: t('admin.observability.live.cols.type'), width: 200, style: { fontWeight: 600 } },
+        colunaApagada({ field: 'payload', title: t('admin.observability.live.cols.payload'), width: 'auto', minWidth: 220 }),
+    ], [t, locale]);
+
+    const selectedEvent = events.find((e) => e.envelope.id === expandedId) ?? null;
+
     return (
-        <Stack gap="sm">
-            <Paper withBorder p="md" radius="md">
+        <>
+            <SectionCard
+                icon={IconPlugConnected}
+                accent="green"
+                title={t('admin.observability.live.connection')}
+                description={t('admin.observability.live.connectionHint')}
+                actions={
+                    <Badge size="lg" variant="dot" color={statusColor(status)} data-testid="live-status">
+                        {status}
+                    </Badge>
+                }
+            >
                 <Group gap="sm" wrap="wrap" align="flex-end">
                     <TextInput
+                        size="sm"
                         label={t('admin.observability.live.tenantId')}
                         value={tenantId}
                         onChange={(e) => setTenantId(e.currentTarget.value)}
-                        w={200}
+                        w={220}
                         placeholder={t('admin.observability.live.tenantPlaceholder')}
                         disabled={!!attached}
                         data-testid="live-tenant"
                     />
                     <TextInput
+                        size="sm"
                         label={t('admin.observability.live.sessionId')}
                         value={sessionId}
                         onChange={(e) => setSessionId(e.currentTarget.value)}
-                        w={260}
+                        w={280}
                         placeholder={t('admin.observability.live.sessionPlaceholder')}
                         disabled={!!attached}
                         data-testid="live-session"
                     />
-                    {attached ? (
-                        <>
+                    <Group gap="xs" ml="auto">
+                        {attached ? (
+                            <>
+                                <Button
+                                    variant="default"
+                                    leftSection={paused ? <IconPlayerPlay size={14} /> : <IconPlayerPause size={14} />}
+                                    onClick={() => setPaused((p) => !p)}
+                                    data-testid="live-toggle"
+                                >
+                                    {paused ? t('admin.observability.live.resume') : t('admin.observability.live.pause')}
+                                </Button>
+                                <Button
+                                    variant="default"
+                                    leftSection={<IconTrash size={14} />}
+                                    onClick={() => {
+                                        setEvents([]);
+                                        setExpandedId(null);
+                                    }}
+                                >
+                                    {t('admin.observability.live.clear')}
+                                </Button>
+                                <Button
+                                    color="red"
+                                    variant="light"
+                                    leftSection={<IconPlugConnectedX size={14} />}
+                                    onClick={handleDetach}
+                                >
+                                    {t('admin.observability.live.detach')}
+                                </Button>
+                            </>
+                        ) : (
                             <Button
-                                variant="default"
-                                leftSection={paused ? <IconPlayerPlay size={14} /> : <IconPlayerPause size={14} />}
-                                onClick={() => setPaused((p) => !p)}
-                                data-testid="live-toggle"
+                                color="green"
+                                leftSection={<IconPlugConnected size={14} />}
+                                disabled={!canAttach}
+                                onClick={handleAttach}
+                                data-testid="live-attach"
                             >
-                                {paused ? t('admin.observability.live.resume') : t('admin.observability.live.pause')}
+                                {t('admin.observability.live.attach')}
                             </Button>
-                            <Button
-                                variant="default"
-                                leftSection={<IconTrash size={14} />}
-                                onClick={() => setEvents([])}
-                            >
-                                {t('admin.observability.live.clear')}
-                            </Button>
-                            <Button color="red" variant="light" onClick={handleDetach}>
-                                {t('admin.observability.live.detach')}
-                            </Button>
-                        </>
-                    ) : (
-                        <Button disabled={!canAttach} onClick={handleAttach} data-testid="live-attach">
-                            {t('admin.observability.live.attach')}
-                        </Button>
-                    )}
-                    <Badge size="lg" variant="dot" color={statusColor(status)} data-testid="live-status">
-                        {status}
-                    </Badge>
+                        )}
+                    </Group>
                 </Group>
-            </Paper>
+            </SectionCard>
 
             {error && (
-                <Alert color="red" icon={<IconAlertCircle size={16} />}>
+                <Alert color="red" variant="light" icon={<IconAlertCircle size={16} />}>
                     {error}
                 </Alert>
             )}
 
-            <Paper withBorder p="md" radius="md">
-                <Group justify="space-between" mb="xs">
-                    <Title order={5}>{t('admin.observability.live.eventFeed')}</Title>
-                    <Group gap={6}>
-                        {Object.entries(domainCounts).map(([domain, count]) => (
-                            <Badge key={domain} size="xs" variant="light">
-                                {domain}: {count}
-                            </Badge>
-                        ))}
-                    </Group>
-                </Group>
-                <ScrollArea h={420} role="log" aria-live="polite" aria-relevant="additions" aria-label={t('admin.observability.live.eventFeed')}>
-                    <Table striped highlightOnHover>
-                        <Table.Thead>
-                            <Table.Tr>
-                                <Table.Th>{t('admin.observability.live.cols.time')}</Table.Th>
-                                <Table.Th>{t('admin.observability.live.cols.domain')}</Table.Th>
-                                <Table.Th>{t('admin.observability.live.cols.type')}</Table.Th>
-                                <Table.Th>{t('admin.observability.live.cols.payload')}</Table.Th>
-                            </Table.Tr>
-                        </Table.Thead>
-                        <Table.Tbody>
-                            {events.map((e) => (
-                                <Fragment key={e.envelope.id}>
-                                    <Table.Tr
-                                        onClick={() => setExpandedId((cur) => (cur === e.envelope.id ? null : e.envelope.id))}
-                                        style={{ cursor: 'pointer' }}
-                                        aria-expanded={expandedId === e.envelope.id}
-                                    >
-                                        <Table.Td>
-                                            <Text size="xs" c="dimmed">
-                                                {formatTime(e.envelope.timestamp, locale)}
-                                            </Text>
-                                        </Table.Td>
-                                        <Table.Td>
-                                            <Badge size="xs" variant="outline">
-                                                {e.envelope.domain}
-                                            </Badge>
-                                        </Table.Td>
-                                        <Table.Td>
-                                            <Code style={{ fontSize: 11 }}>{e.envelope.type}</Code>
-                                        </Table.Td>
-                                        <Table.Td>
-                                            <Text
-                                                size="xs"
-                                                ff="DM Mono, monospace"
-                                                style={{
-                                                    maxWidth: 440,
-                                                    overflow: 'hidden',
-                                                    textOverflow: 'ellipsis',
-                                                    whiteSpace: 'nowrap',
-                                                }}
-                                            >
-                                                {JSON.stringify(e.data)}
-                                            </Text>
-                                        </Table.Td>
-                                    </Table.Tr>
-                                    {expandedId === e.envelope.id && (
-                                        <Table.Tr>
-                                            <Table.Td colSpan={4}>
-                                                <JsonViewer value={e.data} autoExpandDepth={2} />
-                                            </Table.Td>
-                                        </Table.Tr>
-                                    )}
-                                </Fragment>
-                            ))}
-                            {events.length === 0 && (
-                                <Table.Tr>
-                                    <Table.Td colSpan={4}>
-                                        <Text size="sm" c="dimmed" ta="center" py="md">
-                                            {attached
-                                                ? t('admin.observability.live.waiting')
-                                                : t('admin.observability.live.attachHint')}
-                                        </Text>
-                                    </Table.Td>
-                                </Table.Tr>
-                            )}
-                        </Table.Tbody>
-                    </Table>
-                </ScrollArea>
-            </Paper>
-        </Stack>
+            <Grid gap="md">
+                <Grid.Col span={{ base: 12, lg: 8 }}>
+                    <SectionCard
+                        flush
+                        h="100%"
+                        icon={IconRadar2}
+                        accent="green"
+                        title={t('admin.observability.live.eventFeed')}
+                        description={t('admin.observability.live.eventFeedHint')}
+                        actions={
+                            Object.keys(domainCounts).length > 0 && (
+                                <Group gap={6}>
+                                    {Object.entries(domainCounts).map(([domain, count]) => (
+                                        <Badge key={domain} size="sm" variant="light" color="teal">
+                                            {domain}: {count}
+                                        </Badge>
+                                    ))}
+                                </Group>
+                            )
+                        }
+                    >
+                        <Box
+                            role="log"
+                            aria-live="polite"
+                            aria-relevant="additions"
+                            aria-label={t('admin.observability.live.eventFeed')}
+                        >
+                            <VxTable
+                                legenda={t('admin.observability.live.eventFeed')}
+                                records={rows as unknown as Registro[]}
+                                columns={columns}
+                                maxHeight={440}
+                                onRowClick={(r) => setExpandedId((cur) => (cur === r.id ? null : (r.id as string)))}
+                                emptyMessage={attached
+                                    ? t('admin.observability.live.waiting')
+                                    : t('admin.observability.live.attachHint')}
+                                emptyIcon={<IconRadar2 />}
+                                emptyAccent="green"
+                                testid="live-events"
+                            />
+                        </Box>
+                    </SectionCard>
+                </Grid.Col>
+                <Grid.Col span={{ base: 12, lg: 4 }}>
+                    <SectionCard
+                        h="100%"
+                        icon={IconBraces}
+                        accent="teal"
+                        title={t('admin.observability.live.payload')}
+                        description={selectedEvent
+                            ? selectedEvent.envelope.type
+                            : t('admin.observability.live.payloadHint')}
+                    >
+                        {selectedEvent ? (
+                            <Box style={{ maxHeight: 400, overflow: 'auto' }}>
+                                <JsonViewer value={selectedEvent.data} autoExpandDepth={2} />
+                            </Box>
+                        ) : (
+                            <EmptyState
+                                compact
+                                accent="teal"
+                                icon={<IconBraces />}
+                                title={t('admin.observability.live.noSelection')}
+                            />
+                        )}
+                    </SectionCard>
+                </Grid.Col>
+            </Grid>
+        </>
     );
 }
 

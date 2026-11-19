@@ -1,4 +1,5 @@
 import { ActionIcon, Stack, Text, Tooltip } from '@mantine/core';
+import { useTranslation } from 'react-i18next';
 import { IconMicrophone, IconMicrophoneOff, IconPlayerStop } from '@tabler/icons-react';
 import type { RealtimeStatus } from '../../services/realtime-client';
 
@@ -18,14 +19,15 @@ const STATUS_COLOR: Record<RealtimeStatus, string> = {
     error: 'red',
 };
 
-const STATUS_LABEL: Record<RealtimeStatus, string> = {
-    idle: 'Tap to start',
-    requesting_mic: 'Requesting microphone…',
-    connecting: 'Connecting…',
-    recording: 'Listening — tap to stop',
-    speaking: 'Agent speaking…',
-    closed: 'Tap to start',
-    error: 'Error — tap to retry',
+/** i18n key under `voicePlayground.mic` for the hint shown under the button. */
+const STATUS_LABEL_KEY: Record<RealtimeStatus, string> = {
+    idle: 'start',
+    requesting_mic: 'requesting',
+    connecting: 'connecting',
+    recording: 'listening',
+    speaking: 'speaking',
+    closed: 'start',
+    error: 'retry',
 };
 
 /**
@@ -36,6 +38,8 @@ const STATUS_LABEL: Record<RealtimeStatus, string> = {
  * the realtime client.
  */
 export default function MicButton({ status, onStart, onStop }: MicButtonProps) {
+    const { t } = useTranslation();
+    const label = t(`voicePlayground.mic.${STATUS_LABEL_KEY[status]}`);
     const active = status === 'recording' || status === 'speaking';
     const busy = status === 'requesting_mic' || status === 'connecting';
     const color = STATUS_COLOR[status];
@@ -47,13 +51,13 @@ export default function MicButton({ status, onStart, onStop }: MicButtonProps) {
 
     return (
         <Stack align="center" gap="xs">
-            <Tooltip label={STATUS_LABEL[status]}>
+            <Tooltip label={label}>
                 <ActionIcon
-                    aria-label="Toggle voice session"
+                    aria-label={t('voicePlayground.mic.toggle')}
                     data-testid="mic-button"
                     data-status={status}
                     size={96}
-                    radius="xl"
+                    radius={999}
                     variant="filled"
                     color={color}
                     onClick={handleClick}
@@ -61,7 +65,7 @@ export default function MicButton({ status, onStart, onStop }: MicButtonProps) {
                         position: 'relative',
                         boxShadow: active
                             ? `0 0 0 8px var(--mantine-color-${color}-1), 0 0 0 16px var(--mantine-color-${color}-0)`
-                            : '0 4px 12px rgba(0,0,0,0.12)',
+                            : `0 0 0 8px var(--mantine-color-${color}-light), 0 6px 18px var(--mantine-color-${color}-light)`,
                         transition: 'box-shadow 0.2s',
                         animation: active ? 'archflow-mic-pulse 1.6s ease-in-out infinite' : undefined,
                     }}
@@ -76,7 +80,7 @@ export default function MicButton({ status, onStart, onStop }: MicButtonProps) {
                 </ActionIcon>
             </Tooltip>
             <Text size="sm" c="dimmed" data-testid="mic-status-label">
-                {STATUS_LABEL[status]}
+                {label}
             </Text>
 
             {/* Pulse keyframes injected once per page render. Cheap enough not to need a stylesheet. */}

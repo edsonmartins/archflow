@@ -1,19 +1,19 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { Button, SimpleGrid, Stack, Text } from '@mantine/core';
 import {
-    Button, Card, Group, SimpleGrid, Stack, Table, Text, Title,
-} from '@mantine/core';
-import {
-    IconPlus, IconSparkles, IconTemplate, IconTopologyRing, IconShieldCheck,
+    IconPlus, IconSparkles, IconTemplate, IconTopologyRing, IconShieldCheck, IconLayoutDashboard,
+    IconBolt, IconAlertTriangle, IconPlayerPlay, IconArrowRight,
 } from '@tabler/icons-react';
 import { useWorkflowStore } from '../stores/workflow-store';
 import { useTenantStore } from '../stores/useTenantStore';
 import { approvalApi } from '../services/approval-api';
 import { StatCard } from '../components/admin/StatCard';
-import { StatusBadge } from '../components/StatusBadge';
-import { DataTable, clickableRow, tabularNums } from '../components/DataTable';
 import { OptionCard } from '../components/OptionCard';
+import { PageHeader } from '../components/PageHeader';
+import { SectionCard } from '../components/SectionCard';
+import { VxTable, colunaStatus, colunaApagada, type VxColumn } from '../components/VTable';
 import { EXECUTION_STATUS_COLOR } from '../lib/executionStatus';
 import { formatDuration, formatInstant } from '../lib/format';
 
@@ -52,120 +52,145 @@ export default function DashboardPage() {
     const failedRuns = executions.filter((e) => e.status === 'FAILED').length;
     const recent = executions.slice(0, 5);
 
+    const colunas = useMemo((): VxColumn[] => [
+        { field: 'workflowName', title: t('executions.cols.workflow'), width: 'auto', minWidth: 220,
+          style: { fontWeight: 600 } },
+        colunaStatus(
+            { field: 'status', title: t('executions.cols.status'), width: 160,
+              fieldFormat: (r) => t(`executions.statuses.${r.status}`, { defaultValue: String(r.status) }) },
+            (r) => EXECUTION_STATUS_COLOR[r.status as keyof typeof EXECUTION_STATUS_COLOR] ?? 'gray',
+        ),
+        colunaApagada({ field: 'startedAt', title: t('executions.cols.started'), width: 220,
+          fieldFormat: (r) => formatInstant(r.startedAt as string, locale) }),
+        colunaApagada({ field: 'duration', title: t('executions.cols.duration'), width: 120,
+          fieldFormat: (r) => (r.status === 'RUNNING' ? '…' : formatDuration(r.duration as number)) }),
+    ], [t, locale]);
+
     return (
-        <Stack gap="md" p="md" data-testid="dashboard">
-            <Group justify="space-between" wrap="wrap">
-                <Title order={2}>{t('dashboard.title')}</Title>
-                <Group gap="sm">
-                    <Button
-                        leftSection={<IconPlus size={16} />}
-                        onClick={() => navigate('/workflows?new=1')}
-                        data-testid="dashboard-new"
-                    >
-                        {t('workflows.newWorkflow')}
-                    </Button>
-                    <Button
-                        variant="light"
-                        color="grape"
-                        leftSection={<IconSparkles size={16} />}
-                        onClick={() => navigate('/workflows?new=ai')}
-                    >
-                        {t('workflows.createModal.ai')}
-                    </Button>
-                    <Button
-                        variant="light"
-                        leftSection={<IconTemplate size={16} />}
-                        onClick={() => navigate('/templates')}
-                    >
-                        {t('workflows.browseTemplates')}
-                    </Button>
-                </Group>
-            </Group>
+        <Stack gap="lg" p="md" data-testid="dashboard">
+            <PageHeader
+                icon={IconLayoutDashboard}
+                accent="blue"
+                title={t('dashboard.title')}
+                subtitle={t('dashboard.subtitle')}
+                actions={
+                    <>
+                        <Button
+                            variant="light"
+                            color="grape"
+                            leftSection={<IconSparkles size={16} />}
+                            onClick={() => navigate('/workflows?new=ai')}
+                        >
+                            {t('workflows.createModal.ai')}
+                        </Button>
+                        <Button
+                            variant="default"
+                            leftSection={<IconTemplate size={16} />}
+                            onClick={() => navigate('/templates')}
+                        >
+                            {t('workflows.browseTemplates')}
+                        </Button>
+                        <Button
+                            leftSection={<IconPlus size={16} />}
+                            onClick={() => navigate('/workflows?new=1')}
+                            data-testid="dashboard-new"
+                        >
+                            {t('workflows.newWorkflow')}
+                        </Button>
+                    </>
+                }
+            />
 
             <SimpleGrid cols={{ base: 1, xs: 2, md: 4 }} spacing="md">
-                <StatCard label={t('dashboard.stats.workflows')} value={workflows.length} />
-                <StatCard label={t('dashboard.stats.active')} value={activeWorkflows} color="teal" />
+                <StatCard
+                    label={t('dashboard.stats.workflows')}
+                    value={workflows.length}
+                    icon={IconTopologyRing}
+                    accent="blue"
+                    hint={t('dashboard.hints.workflows', { count: activeWorkflows })}
+                />
+                <StatCard
+                    label={t('dashboard.stats.active')}
+                    value={activeWorkflows}
+                    icon={IconBolt}
+                    accent="teal"
+                    hint={t('dashboard.hints.active')}
+                />
                 <StatCard
                     label={t('dashboard.stats.failedRuns')}
                     value={failedRuns}
                     color={failedRuns > 0 ? 'red' : undefined}
+                    icon={IconAlertTriangle}
+                    accent="rose"
+                    hint={failedRuns > 0
+                        ? t('dashboard.hints.failedRuns', { count: RECENT_EXECUTIONS_LIMIT })
+                        : t('dashboard.hints.failedNone')}
                 />
                 <StatCard
                     label={t('dashboard.stats.pendingApprovals')}
                     value={pendingApprovals ?? '—'}
                     color={pendingApprovals ? 'orange' : undefined}
+                    icon={IconShieldCheck}
+                    accent="amber"
+                    hint={t('dashboard.hints.pendingApprovals')}
                 />
             </SimpleGrid>
 
-            <Card withBorder radius="md" padding="md">
-                <Group justify="space-between" mb="sm">
-                    <Text fw={600}>{t('dashboard.recentExecutions')}</Text>
-                    <Button variant="subtle" size="xs" onClick={() => navigate('/executions')}>
+            <SectionCard
+                flush
+                icon={IconPlayerPlay}
+                accent="violet"
+                title={t('dashboard.recentExecutions')}
+                description={t('dashboard.recentExecutionsHint')}
+                actions={
+                    <Button variant="subtle" size="xs" rightSection={<IconArrowRight size={14} />}
+                            onClick={() => navigate('/executions')}>
                         {t('dashboard.seeAll')}
                     </Button>
-                </Group>
-                <DataTable
-                    columns={4}
-                    minWidth={560}
-                    highlightOnHover
+                }
+            >
+                <VxTable
+                    legenda={t('dashboard.recentExecutions')}
+                    records={recent as unknown as Record<string, unknown>[]}
+                    columns={colunas}
                     loading={loading && executions.length === 0}
-                    isEmpty={recent.length === 0}
+                    onRowClick={(r) => navigate(`/executions/${r.id}`)}
                     emptyMessage={t('executions.empty')}
+                    emptyIcon={<IconPlayerPlay />}
+                    emptyAccent="violet"
                     emptyAction={
                         <Button variant="light" size="xs" onClick={() => navigate('/workflows')}>
                             {t('executions.emptyCta')}
                         </Button>
                     }
-                    head={
-                        <Table.Tr>
-                            <Table.Th>{t('executions.cols.workflow')}</Table.Th>
-                            <Table.Th>{t('executions.cols.status')}</Table.Th>
-                            <Table.Th>{t('executions.cols.started')}</Table.Th>
-                            <Table.Th>{t('executions.cols.duration')}</Table.Th>
-                        </Table.Tr>
-                    }
-                >
-                    {recent.map((exec) => (
-                        <Table.Tr key={exec.id} {...clickableRow(() => navigate(`/executions/${exec.id}`))}>
-                            <Table.Td><Text size="sm" fw={500}>{exec.workflowName}</Text></Table.Td>
-                            <Table.Td>
-                                <StatusBadge
-                                    status={exec.status}
-                                    color={EXECUTION_STATUS_COLOR[exec.status] ?? 'gray'}
-                                    label={t(`executions.statuses.${exec.status}`, { defaultValue: exec.status })}
-                                />
-                            </Table.Td>
-                            <Table.Td>
-                                <Text size="xs" c="dimmed">
-                                    {formatInstant(exec.startedAt, locale)}
-                                </Text>
-                            </Table.Td>
-                            <Table.Td>
-                                <Text size="xs" ff="DM Mono, monospace" style={tabularNums}>
-                                    {exec.status === 'RUNNING' ? '…' : formatDuration(exec.duration)}
-                                </Text>
-                            </Table.Td>
-                        </Table.Tr>
-                    ))}
-                </DataTable>
-            </Card>
+                    testid="dashboard-recent"
+                    rowTestId={(r) => `exec-row-${r.id}`}
+                />
+            </SectionCard>
 
-            <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
-                <OptionCard
-                    icon={<IconTopologyRing size={20} />}
-                    title={t('dashboard.shortcuts.workflows')}
-                    description={t('dashboard.shortcuts.workflowsHint', { count: workflows.length })}
-                    onClick={() => navigate('/workflows')}
-                    testId="dashboard-workflows"
-                />
-                <OptionCard
-                    icon={<IconShieldCheck size={20} />}
-                    title={t('dashboard.shortcuts.approvals')}
-                    description={t('dashboard.shortcuts.approvalsHint', { count: pendingApprovals ?? 0 })}
-                    onClick={() => navigate('/approvals')}
-                    testId="dashboard-approvals"
-                />
-            </SimpleGrid>
+            <Stack gap="xs">
+                <Text size="xs" fw={600} c="dimmed" tt="uppercase" style={{ letterSpacing: '0.06em' }}>
+                    {t('dashboard.quickActions')}
+                </Text>
+                <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+                    <OptionCard
+                        icon={<IconTopologyRing size={20} />}
+                        color="archBlue"
+                        title={t('dashboard.shortcuts.workflows')}
+                        description={t('dashboard.shortcuts.workflowsHint', { count: workflows.length })}
+                        onClick={() => navigate('/workflows')}
+                        testId="dashboard-workflows"
+                    />
+                    <OptionCard
+                        icon={<IconShieldCheck size={20} />}
+                        color="orange"
+                        title={t('dashboard.shortcuts.approvals')}
+                        description={t('dashboard.shortcuts.approvalsHint', { count: pendingApprovals ?? 0 })}
+                        onClick={() => navigate('/approvals')}
+                        testId="dashboard-approvals"
+                    />
+                </SimpleGrid>
+            </Stack>
         </Stack>
     );
 }

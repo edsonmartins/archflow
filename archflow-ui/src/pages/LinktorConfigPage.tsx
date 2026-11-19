@@ -1,12 +1,15 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
-    Alert, Button, Card, Group, NumberInput, Paper, PasswordInput, Stack, Switch,
-    Text, TextInput, Title,
+    Alert, Badge, Button, Code, Group, NumberInput, Paper, PasswordInput, SimpleGrid, Skeleton, Stack, Switch,
+    Text, TextInput,
 } from '@mantine/core'
+import { IconDeviceFloppy, IconInfoCircle, IconKey, IconPlugConnected, IconTerminal2 } from '@tabler/icons-react'
 import { notifications } from '@mantine/notifications'
 import { linktorApi, type LinktorConfig } from '../services/linktor-api'
 import { ApiError } from '../services/api'
+import { PageHeader } from '../components/PageHeader'
+import { SectionCard } from '../components/SectionCard'
 
 const DEFAULT: LinktorConfig = {
     enabled: false,
@@ -56,71 +59,119 @@ export default function LinktorConfigPage() {
         }
     }
 
+    const installSegments = t('linktor.config.installHint').split(/<code>|<\/code>/)
+
     return (
-        <Stack gap="md" p="md" maw={760} data-testid="linktor-config">
-            <Title order={2}>{t('linktor.config.title')}</Title>
-            <Alert color="blue" variant="light">
+        <Stack gap="lg" p="md" data-testid="linktor-config">
+            <PageHeader
+                icon={IconPlugConnected}
+                accent="teal"
+                title={t('linktor.config.title')}
+                subtitle={t('linktor.config.subtitle')}
+                actions={!loading && (
+                    <Badge size="lg" radius="sm" variant="dot" color={cfg.enabled ? 'green' : 'gray'}>
+                        {cfg.enabled ? t('linktor.config.statusEnabled') : t('linktor.config.statusDisabled')}
+                    </Badge>
+                )}
+            />
+
+            <Alert color="blue" variant="light" icon={<IconInfoCircle size={16} />} maw={980}>
                 {t('linktor.config.info')}
             </Alert>
 
-            {loading ? <Text c="dimmed">{t('triggers.loading')}</Text> : (
-                <Paper withBorder p="md"><Stack>
-                    <Switch
-                        checked={cfg.enabled}
-                        onChange={e => setCfg({ ...cfg, enabled: e.currentTarget.checked })}
-                        label={t('linktor.config.enable')}
-                        data-testid="linktor-enabled"
-                    />
-                    <TextInput
-                        label={t('linktor.config.baseUrl')}
-                        value={cfg.apiBaseUrl}
-                        onChange={e => setCfg({ ...cfg, apiBaseUrl: e.currentTarget.value })}
-                        placeholder="http://localhost:8081/api/v1"
-                        description={t('linktor.config.baseUrlHint')}
-                        data-testid="linktor-base-url"
-                    />
-                    <PasswordInput
-                        label={t('linktor.config.apiKey')}
-                        value={cfg.apiKey}
-                        onChange={e => setCfg({ ...cfg, apiKey: e.currentTarget.value })}
-                        description={t('linktor.config.apiKeyHint')}
-                        data-testid="linktor-api-key"
-                    />
-                    <PasswordInput
-                        label={t('linktor.config.accessToken')}
-                        value={cfg.accessToken}
-                        onChange={e => setCfg({ ...cfg, accessToken: e.currentTarget.value })}
-                        description={t('linktor.config.accessTokenHint')}
-                    />
-                    <TextInput
-                        label={t('linktor.config.mcpCommand')}
-                        value={cfg.mcpCommand}
-                        onChange={e => setCfg({ ...cfg, mcpCommand: e.currentTarget.value })}
-                        placeholder="linktor-mcp"
-                        description={t('linktor.config.mcpCommandHint')}
-                        data-testid="linktor-mcp-command"
-                    />
-                    <NumberInput
-                        label={t('linktor.config.timeout')}
-                        value={cfg.timeoutSeconds}
-                        onChange={v => setCfg({ ...cfg, timeoutSeconds: Number(v) })}
-                        min={5} max={300}
-                    />
-                    <Group justify="flex-end">
-                        <Button onClick={save} loading={saving} data-testid="linktor-save">{t('common.save')}</Button>
-                    </Group>
-                </Stack></Paper>
-            )}
-
-            <Card withBorder>
-                <Stack gap="xs">
-                    <Text size="sm" fw={600}>{t('linktor.config.installTitle')}</Text>
-                    <Text size="sm" c="dimmed">
-                        {t('linktor.config.installHint').split(/<code>|<\/code>/).map((seg, i) =>
-                            i % 2 === 1 ? <code key={i}>{seg}</code> : <span key={i}>{seg}</span>)}
-                    </Text>
+            {loading ? (
+                <Stack gap="lg" maw={980}>
+                    <Skeleton height={260} radius="md" />
+                    <Skeleton height={160} radius="md" />
                 </Stack>
-            </Card>
+            ) : (
+                <Stack gap="lg" maw={980}>
+                    <SectionCard icon={IconKey} accent="teal"
+                                 title={t('linktor.config.connectionTitle')}
+                                 description={t('linktor.config.connectionHint')}>
+                        <Stack gap="md">
+                            <Paper p="sm" radius="md" style={{ background: 'var(--mantine-color-default-hover)' }}>
+                                <Switch
+                                    checked={cfg.enabled}
+                                    onChange={e => setCfg({ ...cfg, enabled: e.currentTarget.checked })}
+                                    label={t('linktor.config.enable')}
+                                    description={t('linktor.config.enableHint')}
+                                    color="teal"
+                                    data-testid="linktor-enabled"
+                                />
+                            </Paper>
+                            <TextInput
+                                size="sm"
+                                label={t('linktor.config.baseUrl')}
+                                value={cfg.apiBaseUrl}
+                                onChange={e => setCfg({ ...cfg, apiBaseUrl: e.currentTarget.value })}
+                                placeholder="http://localhost:8081/api/v1"
+                                description={t('linktor.config.baseUrlHint')}
+                                data-testid="linktor-base-url"
+                            />
+                            <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+                                <PasswordInput
+                                    size="sm"
+                                    label={t('linktor.config.apiKey')}
+                                    value={cfg.apiKey}
+                                    onChange={e => setCfg({ ...cfg, apiKey: e.currentTarget.value })}
+                                    description={t('linktor.config.apiKeyHint')}
+                                    data-testid="linktor-api-key"
+                                />
+                                <PasswordInput
+                                    size="sm"
+                                    label={t('linktor.config.accessToken')}
+                                    value={cfg.accessToken}
+                                    onChange={e => setCfg({ ...cfg, accessToken: e.currentTarget.value })}
+                                    description={t('linktor.config.accessTokenHint')}
+                                />
+                            </SimpleGrid>
+                        </Stack>
+                    </SectionCard>
+
+                    <SectionCard icon={IconTerminal2} accent="slate"
+                                 title={t('linktor.config.mcpTitle')}
+                                 description={t('linktor.config.mcpHint')}>
+                        <Stack gap="md">
+                            <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="md">
+                                <TextInput
+                                    size="sm"
+                                    style={{ gridColumn: 'span 2' }}
+                                    label={t('linktor.config.mcpCommand')}
+                                    value={cfg.mcpCommand}
+                                    onChange={e => setCfg({ ...cfg, mcpCommand: e.currentTarget.value })}
+                                    placeholder="linktor-mcp"
+                                    description={t('linktor.config.mcpCommandHint')}
+                                    data-testid="linktor-mcp-command"
+                                />
+                                <NumberInput
+                                    size="sm"
+                                    label={t('linktor.config.timeout')}
+                                    value={cfg.timeoutSeconds}
+                                    onChange={v => setCfg({ ...cfg, timeoutSeconds: Number(v) })}
+                                    min={5} max={300}
+                                />
+                            </SimpleGrid>
+                            <Paper p="sm" radius="md" style={{ background: 'var(--mantine-color-default-hover)' }}>
+                                <Text size="xs" fw={600} c="dimmed" tt="uppercase" mb={4} style={{ letterSpacing: '0.06em' }}>
+                                    {t('linktor.config.installTitle')}
+                                </Text>
+                                <Text size="sm" c="dimmed" lh={1.7}>
+                                    {installSegments.map((seg, i) =>
+                                        i % 2 === 1 ? <Code key={i}>{seg}</Code> : <span key={i}>{seg}</span>)}
+                                </Text>
+                            </Paper>
+                        </Stack>
+                    </SectionCard>
+
+                    <Group justify="flex-end">
+                        <Button onClick={save} loading={saving} leftSection={<IconDeviceFloppy size={16} />}
+                                data-testid="linktor-save">
+                            {t('common.save')}
+                        </Button>
+                    </Group>
+                </Stack>
+            )}
         </Stack>
     )
 }

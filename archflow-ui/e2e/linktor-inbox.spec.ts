@@ -74,10 +74,10 @@ test.describe('Linktor inbox', () => {
 
         await page.goto('/admin/linktor/inbox', { waitUntil: 'commit' });
         await expect(page.getByRole('heading', { name: 'Linktor Inbox' })).toBeVisible({ timeout: 30_000 });
-        await expect(page.getByTestId('lk-conv-conv-1')).toBeVisible({ timeout: 30_000 });
-        await expect(page.getByText('Hi, I need help with my order')).toBeVisible({ timeout: 30_000 });
+        await expect(page.getByTestId('lk-conv-conv-1')).toBeAttached({ timeout: 30_000 });
+        await expect(page.getByTestId('lk-conv-conv-1')).toContainText('Hi, I need help with my order');
 
-        await page.getByTestId('lk-conv-conv-1').click();
+        await page.getByTestId('lk-conv-conv-1').dispatchEvent('click');
         await expect(page.getByTestId('linktor-conversation')).toBeVisible();
         await expect(page.getByText('Hello! How can I assist?')).toBeVisible();
     });

@@ -1,15 +1,17 @@
-import { AppShell, NavLink, Group } from '@mantine/core'
+import { AppShell, Group } from '@mantine/core'
 import {
   IconBuilding, IconUsers, IconKey, IconSettings, IconChartBar,
   IconTopologyRing, IconPlayerPlay,
   IconActivity,
   IconBook2, IconPlug, IconClockPlay, IconInbox, IconMessageCog,
-  IconLockAccess,
+  IconLockAccess, IconArrowLeft,
 } from '@tabler/icons-react'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useTenantStore } from '../../stores/useTenantStore'
 import { ImpersonationBanner } from './ImpersonationBanner'
+import { SidebarBrand, SidebarGroup, SidebarItem, SidebarSeparator, SidebarUser } from '../layout/Sidebar'
+import { useAuthStore } from '../../stores/auth-store'
 
 interface AdminNavItem {
   key: string
@@ -56,30 +58,40 @@ export default function AdminLayout() {
   const location = useLocation()
   const { t } = useTranslation()
   const { currentRole, impersonating } = useTenantStore()
+  const { user, logout } = useAuthStore()
+  const handleLogout = async () => {
+    await logout()
+    navigate('/login')
+  }
 
   const isSuperadminView = currentRole === 'superadmin' && !impersonating
   const navItems = isSuperadminView ? SUPERADMIN_NAV : TENANT_NAV
 
+  const roleLabel = isSuperadminView ? t('admin.layout.superadmin') : t('admin.layout.workspace')
+  // O texto traduzido traz a seta ("← Back to app"); no item a seta já é o ícone.
+  const backLabel = t('admin.layout.backToApp').replace(/^\s*←\s*/, '')
+  const item = (it: AdminNavItem) => (
+    <SidebarItem
+      key={it.path}
+      icon={it.icon}
+      label={t(`admin.layout.${it.key}`)}
+      active={isActive(it, location.pathname)}
+      onClick={() => navigate(it.path)}
+    />
+  )
+
   return (
+    // Mesma sidebar do app (peças em layout/Sidebar): painel marinho em altura
+    // inteira, logo oficial no topo — a Administração não deve parecer outro produto.
     <AppShell
-      navbar={{ width: 240, breakpoint: 'sm' }}
+      layout="alt"
+      navbar={{ width: 232, breakpoint: 'sm' }}
       header={{ height: impersonating ? 92 : 52 }}
       padding="md"
     >
       <AppShell.Header>
         <Group h={52} px="md" justify="space-between">
-          <Group gap={8}>
-            <svg viewBox="0 0 22 22" fill="none" width="22" height="22"><rect width="22" height="22" rx="5" fill="#2563EB" opacity=".12"/><circle cx="5.5" cy="11" r="2.2" fill="#2563EB"/><circle cx="16.5" cy="6" r="2.2" fill="#2563EB"/><circle cx="16.5" cy="16" r="2.2" fill="#2563EB"/><path d="M7.5 10.3L14.4 7" stroke="#2563EB" strokeWidth="1.2" strokeLinecap="round"/><path d="M7.5 11.7L14.4 15" stroke="#2563EB" strokeWidth="1.2" strokeLinecap="round"/></svg>
-            <span style={{ fontSize: 15, fontWeight: 600, letterSpacing: '-0.2px' }}>{t('admin.layout.admin')}</span>
-            <span style={{
-              fontSize: 10, fontWeight: 600, letterSpacing: '0.06em',
-              textTransform: 'uppercase', padding: '2px 8px', borderRadius: 4,
-              background: isSuperadminView ? 'var(--purple-l)' : 'var(--green-l)',
-              color: isSuperadminView ? 'var(--purple)' : 'var(--green)',
-            }}>
-              {isSuperadminView ? t('admin.layout.superadmin') : t('admin.layout.workspace')}
-            </span>
-          </Group>
+          <span style={{ fontSize: 15, fontWeight: 600, letterSpacing: '-0.2px' }}>{t('admin.layout.admin')}</span>
           <span
             onClick={() => navigate('/')}
             style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: 'var(--text3)', cursor: 'pointer' }}
@@ -88,62 +100,60 @@ export default function AdminLayout() {
         <ImpersonationBanner />
       </AppShell.Header>
 
-      <AppShell.Navbar p="xs">
-        {navItems.map(item => (
-          <NavLink
-            key={item.path}
-            label={t(`admin.layout.${item.key}`)}
-            leftSection={<item.icon size={18} />}
-            active={isActive(item, location.pathname)}
-            onClick={() => navigate(item.path)}
-            variant="light"
-          />
-        ))}
-
-        {!isSuperadminView && (
-          <>
-            <div style={{ borderTop: '1px solid var(--color-border-tertiary)', margin: '8px 0' }} />
-            <span style={{
-              fontSize: 10, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase',
-              color: 'var(--color-text-tertiary)', padding: '0 10px 4px',
-            }}>
-              {t('admin.layout.integrations')}
+      <AppShell.Navbar p={10} className="af-sidebar">
+        <SidebarBrand
+          alt={t('common.appName')}
+          tag={
+            <span className="af-sidebar-role" data-variant={isSuperadminView ? 'superadmin' : 'workspace'}>
+              {roleLabel}
             </span>
-            {TENANT_TOOLS_NAV.map(item => (
-              <NavLink
-                key={item.path}
-                label={t(`admin.layout.${item.key}`)}
-                leftSection={<item.icon size={18} />}
-                active={isActive(item, location.pathname)}
-                onClick={() => navigate(item.path)}
-                variant="light"
-              />
-            ))}
-          </>
-        )}
+          }
+        />
+        <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', margin: '0 -10px', padding: '0 10px' }}>
+          {/* Sem título no primeiro grupo: a etiqueta ao lado do logo já diz qual é. */}
+          <div style={{ height: 8 }} />
+          {navItems.map(item)}
 
-        {isSuperadminView && (
-          <>
-            <div style={{ borderTop: '1px solid var(--color-border-tertiary)', margin: '8px 0' }} />
-            <NavLink
-              label={t('admin.layout.workflows')}
-              leftSection={<IconTopologyRing size={18} />}
-              onClick={() => navigate('/workflows')}
-              variant="subtle"
-              c="dimmed"
-            />
-            <NavLink
-              label={t('admin.layout.executions')}
-              leftSection={<IconPlayerPlay size={18} />}
-              onClick={() => navigate('/executions')}
-              variant="subtle"
-              c="dimmed"
-            />
-          </>
+          {!isSuperadminView && (
+            <>
+              <SidebarGroup label={t('admin.layout.integrations')} />
+              {TENANT_TOOLS_NAV.map(item)}
+            </>
+          )}
+
+          {isSuperadminView && (
+            <>
+              <SidebarSeparator />
+              <SidebarItem
+                icon={IconTopologyRing}
+                label={t('admin.layout.workflows')}
+                onClick={() => navigate('/workflows')}
+                dimmed
+              />
+              <SidebarItem
+                icon={IconPlayerPlay}
+                label={t('admin.layout.executions')}
+                onClick={() => navigate('/executions')}
+                dimmed
+              />
+            </>
+          )}
+        </div>
+
+        <div style={{ paddingTop: 8, marginTop: 8, borderTop: '1px solid var(--sb-divider)' }}>
+          <SidebarItem icon={IconArrowLeft} label={backLabel} onClick={() => navigate('/')} dimmed />
+        </div>
+        {user && (
+          <SidebarUser
+            name={user.name || user.username}
+            detail={user.email || undefined}
+            logoutLabel={t('header.logout')}
+            onLogout={handleLogout}
+          />
         )}
       </AppShell.Navbar>
 
-      <AppShell.Main>
+      <AppShell.Main className="af-main">
         <Outlet />
       </AppShell.Main>
     </AppShell>

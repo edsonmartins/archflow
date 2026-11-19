@@ -1,14 +1,15 @@
 import {
-  Table, Badge, Text, Paper, Stack, Group, Button, ActionIcon,
-  Tooltip, Modal, TextInput, Select, CopyButton, LoadingOverlay, Alert,
+  Text, Paper, Stack, Group, Button, Modal, TextInput, Select, CopyButton, LoadingOverlay, Alert,
 } from '@mantine/core'
-import { IconPlus, IconCopy, IconTrash, IconCheck, IconAlertCircle } from '@tabler/icons-react'
-import { useEffect, useState } from 'react'
+import { IconPlus, IconCopy, IconCheck, IconAlertCircle, IconKey, IconAlertTriangle } from '@tabler/icons-react'
+import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { notifications } from '@mantine/notifications'
 import { apiKeyApi, type ApiKey } from '../../../services/admin-api'
 import { confirmAction } from '../../../lib/confirm'
 import { PageHeader } from '../../../components/PageHeader'
+import { SectionCard } from '../../../components/SectionCard'
+import { VxTable, colunaAcoes, colunaApagada, colunaStatus, type VxColumn } from '../../../components/VTable'
 
 const TYPE_COLOR: Record<string, string> = {
   production: 'green', staging: 'yellow', web_component: 'blue',
@@ -38,12 +39,13 @@ export default function ApiKeys() {
 
   useEffect(() => {
     void load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const handleCreate = async () => {
     if (!keyType || !keyName) return
     try {
-      const created = await apiKeyApi.create({ name: keyName, type: keyType as any })
+      const created = await apiKeyApi.create({ name: keyName, type: keyType as ApiKey['type'] })
       setKeys((prev) => [...prev, created])
       setNewKey(created.fullKey)
       notifications.show({ title: t('admin.tenant.apiKeys.created'), message: t('admin.tenant.apiKeys.createdHint'), color: 'teal' })
@@ -68,14 +70,46 @@ export default function ApiKeys() {
     })
   }
 
+  const copyMasked = async (key: ApiKey) => {
+    try {
+      await navigator.clipboard.writeText(key.maskedKey)
+      notifications.show({ title: t('admin.tenant.apiKeys.copied'), message: key.name, color: 'teal' })
+    } catch {
+      // Sem permissão de área de transferência: a chave mascarada continua visível na linha.
+    }
+  }
+
+  const colunas = useMemo((): VxColumn[] => [
+    { field: 'name', title: t('admin.tenant.apiKeys.columns.name'), width: 'auto', minWidth: 200,
+      style: { fontWeight: 600 } },
+    colunaStatus(
+      { field: 'type', title: t('admin.tenant.apiKeys.columns.type'), width: 170,
+        fieldFormat: (r) => t(`admin.tenant.apiKeys.types.${r.type}`, { defaultValue: String(r.type) }) },
+      (r) => TYPE_COLOR[r.type as string] ?? 'gray',
+    ),
+    colunaApagada({ field: 'maskedKey', title: t('admin.tenant.apiKeys.columns.key'), width: 220 }),
+    colunaApagada({ field: 'createdAt', title: t('admin.tenant.apiKeys.columns.created'), width: 140 }),
+    colunaApagada({ field: 'lastUsedAt', title: t('admin.tenant.apiKeys.columns.lastUsed'), width: 140,
+      fieldFormat: (r) => (r.lastUsedAt as string | null) ?? '—' }),
+    colunaAcoes([
+      { nome: 'copy', icone: 'copy', rotulo: t('admin.tenant.apiKeys.copy') },
+      { nome: 'revoke', icone: 'trash', rotulo: t('admin.tenant.apiKeys.revoke'), cor: 'red' },
+    ]),
+  ], [t])
+
+  const openCreate = () => { setCreateOpen(true); setNewKey(null); setKeyName('') }
+
   return (
-    <Stack gap="md" pos="relative">
-      <LoadingOverlay visible={loading} />
+    <Stack gap="lg" p="md" pos="relative">
+      <LoadingOverlay visible={loading && keys.length > 0} />
 
       <PageHeader
+        icon={IconKey}
+        accent="slate"
         title={t('admin.tenant.apiKeys.title')}
+        subtitle={t('admin.tenant.apiKeys.subtitle')}
         actions={
-          <Button leftSection={<IconPlus size={16} />} onClick={() => { setCreateOpen(true); setNewKey(null); setKeyName('') }}>
+          <Button leftSection={<IconPlus size={16} />} onClick={openCreate}>
             {t('admin.tenant.apiKeys.create')}
           </Button>
         }
@@ -87,55 +121,36 @@ export default function ApiKeys() {
         </Alert>
       )}
 
-      <Paper withBorder radius="lg" style={{ overflow: 'hidden' }}>
-        <Table striped highlightOnHover>
-          <Table.Thead>
-            <Table.Tr>
-              <Table.Th>{t('admin.tenant.apiKeys.columns.name')}</Table.Th>
-              <Table.Th>{t('admin.tenant.apiKeys.columns.type')}</Table.Th>
-              <Table.Th>{t('admin.tenant.apiKeys.columns.key')}</Table.Th>
-              <Table.Th>{t('admin.tenant.apiKeys.columns.created')}</Table.Th>
-              <Table.Th>{t('admin.tenant.apiKeys.columns.lastUsed')}</Table.Th>
-              <Table.Th w={80}>{t('admin.tenant.apiKeys.columns.actions')}</Table.Th>
-            </Table.Tr>
-          </Table.Thead>
-          <Table.Tbody>
-            {keys.map(k => {
-              const color = TYPE_COLOR[k.type] ?? 'gray'
-              const typeLabel = t(`admin.tenant.apiKeys.types.${k.type}`, { defaultValue: k.type })
-              return (
-                <Table.Tr key={k.id}>
-                  <Table.Td><Text size="sm" fw={500}>{k.name}</Text></Table.Td>
-                  <Table.Td><Badge color={color} size="sm" variant="light">{typeLabel}</Badge></Table.Td>
-                  <Table.Td>
-                    <Group gap={4}>
-                      <Text size="xs" ff="monospace" c="dimmed">{k.maskedKey}</Text>
-                      <CopyButton value={k.maskedKey}>
-                        {({ copied, copy }) => (
-                          <Tooltip label={copied ? t('admin.tenant.apiKeys.copied') : t('admin.tenant.apiKeys.copy')}>
-                            <ActionIcon variant="subtle" size="xs" onClick={copy} color={copied ? 'teal' : 'gray'}>
-                              {copied ? <IconCheck size={12} /> : <IconCopy size={12} />}
-                            </ActionIcon>
-                          </Tooltip>
-                        )}
-                      </CopyButton>
-                    </Group>
-                  </Table.Td>
-                  <Table.Td><Text size="xs" c="dimmed">{k.createdAt}</Text></Table.Td>
-                  <Table.Td><Text size="xs" c="dimmed">{k.lastUsedAt ?? '—'}</Text></Table.Td>
-                  <Table.Td>
-                    <Tooltip label={t('admin.tenant.apiKeys.revoke')}>
-                      <ActionIcon variant="subtle" color="red" size="sm" onClick={() => void handleRevoke(k)}>
-                        <IconTrash size={14} />
-                      </ActionIcon>
-                    </Tooltip>
-                  </Table.Td>
-                </Table.Tr>
-              )
-            })}
-          </Table.Tbody>
-        </Table>
-      </Paper>
+      <SectionCard
+        flush
+        icon={IconKey}
+        accent="slate"
+        title={t('admin.tenant.apiKeys.listTitle')}
+        description={t('admin.tenant.apiKeys.listHint')}
+      >
+        <VxTable
+          legenda={t('admin.tenant.apiKeys.listTitle')}
+          records={keys as unknown as Record<string, unknown>[]}
+          columns={colunas}
+          loading={loading && keys.length === 0}
+          onIconClick={(nome, r) => {
+            const key = r as unknown as ApiKey
+            if (nome === 'copy') void copyMasked(key)
+            else handleRevoke(key)
+          }}
+          emptyMessage={t('admin.tenant.apiKeys.emptyTitle')}
+          emptyDescription={t('admin.tenant.apiKeys.emptyHint')}
+          emptyIcon={<IconKey />}
+          emptyAccent="slate"
+          emptyAction={
+            <Button variant="light" size="xs" leftSection={<IconPlus size={14} />} onClick={openCreate}>
+              {t('admin.tenant.apiKeys.create')}
+            </Button>
+          }
+          testid="api-key-list"
+          rowTestId={(r) => `api-key-row-${r.id}`}
+        />
+      </SectionCard>
 
       <Modal opened={createOpen} onClose={() => setCreateOpen(false)} title={t('admin.tenant.apiKeys.createTitle')} centered>
         <Stack gap="md">
@@ -154,7 +169,9 @@ export default function ApiKeys() {
                   </CopyButton>
                 </Group>
               </Paper>
-              <Text size="xs" c="red">{t('admin.tenant.apiKeys.storeWarning')}</Text>
+              <Alert color="orange" variant="light" icon={<IconAlertTriangle size={16} />}>
+                {t('admin.tenant.apiKeys.storeWarning')}
+              </Alert>
               <Button onClick={() => setCreateOpen(false)}>{t('admin.tenant.apiKeys.done')}</Button>
             </>
           ) : (

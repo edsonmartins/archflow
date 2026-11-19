@@ -6,6 +6,13 @@ const createdWorkflowId = 'wf-from-template';
 async function mockApi(page: Page) {
     await installApiRouter(page, [
         ...authHandlers(adminUser, { loginShape: 'token' }),
+        // Keep the gallery hermetic: without this the request reaches whatever backend the dev server
+        // proxies to, and its catalog (different ids/categories) replaces the bundled one mid-test.
+        async ({ path, method, route }) => {
+            if (path !== '/templates' || method !== 'GET') return false;
+            await fulfillJson(route, { message: 'not mocked' }, 404);
+            return true;
+        },
         async ({ path, method, request, route }) => {
             if (path !== '/workflows' || method !== 'POST') return false;
             const body = request.postDataJSON() as Record<string, unknown>;

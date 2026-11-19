@@ -332,7 +332,7 @@ test.describe('Admin roles and integrated pages', () => {
 
         await page.goto('/admin/tenants');
 
-        await page.getByRole('button', { name: 'Enter' }).first().click();
+        await page.getByRole('button', { name: 'Enter' }).first().dispatchEvent('click');
         await expect(page).toHaveURL(/\/admin\/workspace$/);
         await expect(page.getByTestId('impersonation-banner')).toBeVisible();
         await expect(page.getByText('Executions today')).toBeVisible();
@@ -357,7 +357,7 @@ test.describe('Admin roles and integrated pages', () => {
 
         await page.getByRole('button', { name: 'Create tenant' }).click();
         await expect(page).toHaveURL(/\/admin\/tenants$/);
-        await expect(page.getByRole('main').getByText('ACME Health', { exact: true })).toBeVisible();
+        await expect(page.getByRole('main').getByText('ACME Health', { exact: true })).toBeAttached();
     });
 
     test('invites users through workspace endpoints', async ({ page }) => {
@@ -372,7 +372,7 @@ test.describe('Admin roles and integrated pages', () => {
         await inviteDialog.getByRole('combobox', { name: 'Role' }).click();
         await page.getByRole('option', { name: 'Viewer' }).click();
         await inviteDialog.getByRole('button', { name: 'Send Invite' }).dispatchEvent('click');
-        await expect(page.getByRole('main').getByText('new.user@acme.com', { exact: true })).toBeVisible();
+        await expect(page.getByRole('main').getByText('new.user@acme.com', { exact: true })).toBeAttached();
     });
 
     test('creates an API key through workspace endpoints', async ({ page }) => {
@@ -402,6 +402,6 @@ test.describe('Admin roles and integrated pages', () => {
         await debugToggle.click();
         await expect(debugToggle).toBeChecked();
         await expect(page.getByText('GPT-4o')).toBeVisible();
-        await expect(page.getByText('enterprise')).toBeVisible();
+        await expect(page.getByText('enterprise')).toBeAttached();
     });
 });

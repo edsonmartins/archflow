@@ -47,10 +47,10 @@ export default function ToolCallBlock({ call, defaultOpen = false }: ToolCallBlo
             withBorder
             radius="md"
             p="xs"
-            style={(theme) => ({
-                backgroundColor: theme.colors.dark[0],
-                borderColor: theme.colors[statusColor][2],
-            })}
+            style={{
+                backgroundColor: 'var(--mantine-color-default)',
+                borderLeft: `3px solid var(--mantine-color-${statusColor}-filled)`,
+            }}
         >
             <Group
                 justify="space-between"
@@ -63,7 +63,7 @@ export default function ToolCallBlock({ call, defaultOpen = false }: ToolCallBlo
                     <ActionIcon size="xs" variant="subtle" aria-label={t('chat.toolCall.toggle')}>
                         {open ? <IconChevronDown size={14} /> : <IconChevronRight size={14} />}
                     </ActionIcon>
-                    <IconTool size={14} />
+                    <IconTool size={14} color={`var(--mantine-color-${statusColor}-text)`} />
                     <Text size="sm" fw={500} truncate>
                         {call.name}
                     </Text>
@@ -90,7 +90,7 @@ export default function ToolCallBlock({ call, defaultOpen = false }: ToolCallBlo
                 </Group>
 
                 {typeof call.durationMs === 'number' && call.durationMs >= 0 && (
-                    <Text size="xs" c="dimmed" style={{ fontFamily: 'DM Mono, monospace' }}>
+                    <Text size="xs" c="dimmed" style={{ fontFamily: 'var(--font-mono)' }}>
                         {formatDuration(call.durationMs)}
                     </Text>
                 )}
