@@ -71,6 +71,13 @@
         "searchTooltip": "Buscar em tudo",
         "searchPlaceholder": "Buscar páginas e workflows...",
         "searchNothing": "Nada encontrado",
+        "short": {
+            "executions": "Execuções",
+            "conversations": "Conversas",
+            "dynamicFlow": "Dinâmico",
+            "aguiRunner": "AG-UI",
+            "admin": "Admin"
+        },
         "groups": {
             "build": "Construir",
             "run": "Executar",
