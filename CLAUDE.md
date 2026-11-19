@@ -99,7 +99,9 @@ Adapters are discovered via SPI at runtime.
 `archflow.llm.provider-preferences.{zdr,data-collection,required}` → `ProviderPreferences`
 (`archflow-model`), sent as `provider: {zdr, data_collection}` by `LLMProviderHub.parametrosDoCorpo`
 (blocking **and** streaming — one `customParameters` map with `reasoning`, because the builder
-replaces the map) and by `HttpDecisionProvider` (only to `openrouter.ai` hosts). Never to other
+replaces the map), by `HttpDecisionProvider` and by `LangChain4jDecisionProvider` (via the builders'
+`customParameters`, since langchain4j 1.23; same host rule, `HttpDecisionProvider.ehOpenRouter`) — only
+to `openrouter.ai` hosts. Never to other
 providers (unknown field → 400). `required=true` makes an OpenRouter model/decision fail before any
 request leaves. Deployment-level on purpose: no node can switch it off. Tests read the raw body at a
 local server (`PreferenciaDeProvedorNoCorpoTest`) — asserting on the resolved config proves nothing.

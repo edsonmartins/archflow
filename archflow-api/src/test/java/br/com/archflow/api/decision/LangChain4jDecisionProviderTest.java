@@ -6,6 +6,7 @@ import br.com.archflow.decision.DecisionException;
 import br.com.archflow.decision.DecisionRequest;
 import br.com.archflow.decision.DecisionResult;
 import br.com.archflow.decision.Question;
+import br.com.archflow.model.config.ProviderPreferences;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpServer;
@@ -48,6 +49,7 @@ class LangChain4jDecisionProviderTest {
     private volatile String resposta = RESPOSTA;
     private final List<String> corpos = new CopyOnWriteArrayList<>();
     private final List<String> autorizacoes = new CopyOnWriteArrayList<>();
+    private final List<String> outrosCorpos = new CopyOnWriteArrayList<>();
     private final AtomicInteger chamadas = new AtomicInteger();
     private volatile int[] status = {200};
 
@@ -62,6 +64,16 @@ class LangChain4jDecisionProviderTest {
             byte[] corpo = (s == 200 ? resposta : "{\"error\":\"x\"}").getBytes(StandardCharsets.UTF_8);
             troca.getResponseHeaders().add("Content-Type", "application/json");
             troca.sendResponseHeaders(s, corpo.length);
+            troca.getResponseBody().write(corpo);
+            troca.close();
+        });
+        // Qualquer outro caminho (a Decisions API da OpenAI): guarda o corpo e responde erro — os testes
+        // de ZDR do backend openai só olham o que saiu.
+        server.createContext("/", troca -> {
+            outrosCorpos.add(new String(troca.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            byte[] corpo = "{\"error\":{\"message\":\"x\"}}".getBytes(StandardCharsets.UTF_8);
+            troca.getResponseHeaders().add("Content-Type", "application/json");
+            troca.sendResponseHeaders(400, corpo.length);
             troca.getResponseBody().write(corpo);
             troca.close();
         });
@@ -219,5 +231,82 @@ class LangChain4jDecisionProviderTest {
         DecisionResult r = new LangChain4jDecisionProvider().decide(p, real);
 
         assertThat(((Answer.Choice) r.answers().get("time")).choice()).isEqualTo("acesso");
+    }
+
+    // ── Preferência de provedor (ZDR) ────────────────────────────────
+
+    private static final ProviderPreferences ZDR = new ProviderPreferences(true, "deny");
+
+    @Test
+    @DisplayName("ZDR: o corpo enviado ao OpenRouter traz provider {zdr, data_collection}, e só isso")
+    void zdrNoCorpo() throws Exception {
+        new LangChain4jDecisionProvider(ZDR, false, uri -> true).decide(pedido(), chamada(Map.of()));
+
+        JsonNode corpo = JSON.readTree(corpos.get(0));
+        assertThat(JSON.convertValue(corpo.get("provider"), Map.class))
+                .as("ProviderPreferences tem additionalProperties: false — nada além dos dois campos")
+                .isEqualTo(Map.of("zdr", true, "data_collection", "deny"));
+        assertThat(corpo.get("model").asText()).as("o resto do corpo segue igual").isEqualTo("jev-1.13");
+        assertThat(corpo.get("questions").size()).isEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("ZDR: o backend openai apontado ao OpenRouter também leva o campo")
+    void zdrNoBackendOpenAi() throws Exception {
+        assertThatThrownBy(() -> new LangChain4jDecisionProvider(ZDR, false, uri -> true)
+                .decide(pedido(), chamada(Map.of("backend", "openai", "maxRetries", 0))))
+                .isInstanceOf(DecisionException.class);
+
+        assertThat(outrosCorpos).hasSize(1);
+        assertThat(JSON.convertValue(JSON.readTree(outrosCorpos.get(0)).get("provider"), Map.class))
+                .isEqualTo(Map.of("zdr", true, "data_collection", "deny"));
+    }
+
+    @Test
+    @DisplayName("ZDR: servidor que não é do OpenRouter não recebe o campo")
+    void zdrSoNoOpenRouter() throws Exception {
+        new LangChain4jDecisionProvider(ZDR, false, uri -> false).decide(pedido(), chamada(Map.of()));
+
+        assertThat(JSON.readTree(corpos.get(0)).has("provider")).isFalse();
+    }
+
+    @Test
+    @DisplayName("ZDR: required sem preferência falha antes de enviar, sem repetir")
+    void zdrObrigatorio() {
+        assertThatThrownBy(() -> new LangChain4jDecisionProvider(ProviderPreferences.NONE, true, uri -> true)
+                .decide(pedido(), chamada(Map.of())))
+                .isInstanceOf(DecisionException.class)
+                .hasMessageContaining("provider-preferences.required")
+                .satisfies(e -> assertThat(((DecisionException) e).retryable()).isFalse());
+        assertThat(chamadas.get()).as("nenhuma requisição pode chegar ao servidor").isZero();
+    }
+
+    @Test
+    @DisplayName("ZDR: nenhuma opção do nó desliga a preferência")
+    void zdrNaoSeDesligaPeloNo() throws Exception {
+        new LangChain4jDecisionProvider(ZDR, false, uri -> true)
+                .decide(pedido(), chamada(Map.of("provider", Map.of("zdr", false), "zdr", false)));
+
+        assertThat(JSON.readTree(corpos.get(0)).get("provider").get("zdr").asBoolean()).isTrue();
+    }
+
+    @Test
+    @DisplayName("ZDR: desligado, o corpo é byte a byte o do construtor sem preferência")
+    void zdrControle() throws Exception {
+        new LangChain4jDecisionProvider(ProviderPreferences.NONE, false, uri -> true)
+                .decide(pedido(), chamada(Map.of()));
+        new LangChain4jDecisionProvider().decide(pedido(), chamada(Map.of()));
+
+        assertThat(corpos).hasSize(2);
+        assertThat(corpos.get(0)).isEqualTo(corpos.get(1)).doesNotContain("\"provider\"");
+    }
+
+    @Test
+    @DisplayName("ZDR: a regra de host é a mesma do http-decisions")
+    void zdrMesmaRegraDeHost() {
+        assertThat(br.com.archflow.decision.HttpDecisionProvider.ehOpenRouter(
+                java.net.URI.create("https://openrouter.ai/api"))).isTrue();
+        assertThat(br.com.archflow.decision.HttpDecisionProvider.ehOpenRouter(
+                java.net.URI.create("http://127.0.0.1:8080"))).isFalse();
     }
 }

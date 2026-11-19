@@ -80,8 +80,12 @@ public final class HttpDecisionProvider implements DecisionProvider {
         this.aceitaPreferencias = aceitaPreferencias;
     }
 
-    /** O host é o do OpenRouter — {@code /api/v1/systemone} e {@code /api/alpha/decisions}. */
-    static boolean ehOpenRouter(URI uri) {
+    /**
+     * O host é o do OpenRouter — {@code /api/v1/systemone} e {@code /api/alpha/decisions}. Público
+     * porque o provedor {@code langchain4j-decisions} aplica a mesma regra: um lugar só decide quem
+     * recebe a preferência.
+     */
+    public static boolean ehOpenRouter(URI uri) {
         String host = uri.getHost();
         return host != null && (host.equalsIgnoreCase("openrouter.ai")
                 || host.toLowerCase(java.util.Locale.ROOT).endsWith(".openrouter.ai"));

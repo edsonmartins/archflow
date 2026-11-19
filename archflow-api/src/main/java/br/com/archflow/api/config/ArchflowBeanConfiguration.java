@@ -1532,7 +1532,8 @@ public class ArchflowBeanConfiguration {
                         llmProviderPreferences, preferencesRequired))
                 .register(new br.com.archflow.api.decision.LlmDecisionProvider(
                         llmConfigResolver, platformDefaultLLMConfig))
-                .register(new br.com.archflow.api.decision.LangChain4jDecisionProvider());
+                .register(new br.com.archflow.api.decision.LangChain4jDecisionProvider(
+                        llmProviderPreferences, preferencesRequired));
     }
 
     /**

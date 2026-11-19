@@ -190,7 +190,7 @@ resposta — o fluxo segue pela escalada em vez de seguir confiante. `FAIL` lan�
 | id | o que é | chave | calibrado |
 |---|---|---|---|
 | `http-decisions` | qualquer serviço no protocolo `POST {model, state, questions} → {answers, usage}`: **Decisions API do OpenRouter** (padrão) e a API do próprio fabricante. O serviço é escolhido por `endpoint` e `model`. | sim (`keyRef`, padrão `openrouter`) | sim |
-| `langchain4j-decisions` | qualquer `DecisionModel` da **langchain4j** (1.22+): `backend: typesafe` (TypeSafe, ou o que fala o mesmo protocolo — o OpenRouter é `baseUrl: https://openrouter.ai/api`) ou `backend: openai` (a **Decisions API da OpenAI**, `gpt-6-luna`). Traz a repetição, os listeners e o cliente HTTP da langchain4j. O custo em USD **não** vem (só os tokens). | sim (`keyRef`: `typesafe` ou `openai`, conforme o backend) | sim |
+| `langchain4j-decisions` | qualquer `DecisionModel` da **langchain4j** (1.22+): `backend: typesafe` (TypeSafe, ou o que fala o mesmo protocolo — o OpenRouter é `baseUrl: https://openrouter.ai/api`) ou `backend: openai` (a **Decisions API da OpenAI**, `gpt-6-luna`). Traz a repetição, os listeners e o cliente HTTP da langchain4j. O custo em USD **não** vem (só os tokens). Com `baseUrl` do OpenRouter, leva a preferência de provedor (`provider: {zdr, data_collection}`) e respeita `required`, como o `http-decisions`. | sim (`keyRef`: `typesafe` ou `openai`, conforme o backend) | sim |
 | `llm` | um LLM qualquer da plataforma como classificador (reserva, ou para começar sem modelo de decisão). Estado cercado como conteúdo não confiável. | a do próprio LLM (por tenant) | **não** |
 | `rules` | regras determinísticas (texto ou `re:regex`) — o primeiro degrau da cascata | não | sim |
 
