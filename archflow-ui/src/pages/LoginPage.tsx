@@ -9,14 +9,14 @@ import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '../stores/auth-store';
 import LanguageSwitcher from '../components/layout/LanguageSwitcher';
-import { NodeIcon } from '../components/FlowCanvas/nodeIcons';
 import brandLogo from '../assets/brand/logo-dark-bg.png';
 import brandMark from '../assets/brand/mark.png';
+import LoginArchitecture from './LoginArchitecture';
 
 /**
  * Login em duas colunas: à esquerda o painel da marca (marinho da sidebar com
- * as manchas de luz do logo, um mini-fluxo com os ícones reais dos nós e três
- * destaques); à direita o formulário, sobre o mesmo degradê em malha da paleta
+ * as manchas de luz do logo, o diagrama animado da arquitetura — canais →
+ * agente → ferramentas, com os LLMs embaixo — e três destaques); à direita o formulário, sobre o mesmo degradê em malha da paleta
  * do editor. Abaixo de 960 px o painel some e o símbolo sobe para o formulário.
  *
  * Contrato dos E2E: rótulos "Username"/"Password", botão "Sign in" e o slogan
@@ -48,16 +48,9 @@ export default function LoginPage() {
 
                 <div className="af-login-hero-body">
                     <Text className="af-login-tagline" mb={14}>{t('login.tagline')}</Text>
-                    <Title order={1} className="af-login-headline" mb={40}>{t('login.heroTitle')}</Title>
+                    <Title order={1} className="af-login-headline" mb={28}>{t('login.heroTitle')}</Title>
 
-                    <MiniFlow
-                        steps={[
-                            { id: 'input', label: t('login.flowInput') },
-                            { id: 'agent', label: t('login.flowAgent') },
-                            { id: 'decision', label: t('login.flowDecision') },
-                            { id: 'output', label: t('login.flowOutput') },
-                        ]}
-                    />
+                    <LoginArchitecture />
 
                     <ul className="af-login-features">
                         <Feature icon={IconSchema} title={t('login.featureFlowsTitle')} desc={t('login.featureFlowsDesc')} />
@@ -162,22 +155,5 @@ function Feature({ icon: Icon, title, desc }: { icon: ComponentType<{ size?: num
                 <span className="af-login-feature-desc">{desc}</span>
             </span>
         </li>
-    );
-}
-
-/** Quatro cartões de nó ligados por um traço — os mesmos ícones do editor. */
-function MiniFlow({ steps }: { steps: { id: string; label: string }[] }) {
-    return (
-        <div className="af-login-flow" aria-hidden>
-            {steps.map((s, i) => (
-                <div key={s.id} className="af-login-flow-step">
-                    <div className="af-login-flow-card">
-                        <NodeIcon componentId={s.id} imageSize={30} />
-                        <span>{s.label}</span>
-                    </div>
-                    {i < steps.length - 1 && <span className="af-login-flow-link" />}
-                </div>
-            ))}
-        </div>
     );
 }
