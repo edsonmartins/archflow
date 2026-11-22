@@ -553,6 +553,14 @@ body {
     radial-gradient(28% 22% at 34% 92%, rgba(250, 204, 21, 0.30) 0%, transparent 72%),
     radial-gradient(22% 20% at 92% 88%, rgba(124, 58, 237, 0.50) 0%, transparent 72%);
   filter: blur(24px);
+  animation: af-login-drift 26s ease-in-out infinite alternate;
+}
+@keyframes af-login-drift {
+  from { transform: translate3d(-3%, -2%, 0) rotate(0deg); }
+  to   { transform: translate3d(3%, 3%, 0) rotate(8deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .af-login-glow { animation: none; }
 }
 /* Pontos do canvas, bem leves, para lembrar o editor. */
 .af-login-hero::after {
@@ -573,8 +581,8 @@ body {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  max-width: 640px;
-  padding: 40px 0;
+  max-width: 800px;
+  padding: 32px 0;
 }
 .af-login-tagline {
   font-size: 12px !important;
@@ -584,6 +592,7 @@ body {
   color: #7DD3FC !important;
 }
 .af-login-headline {
+  max-width: 640px;
   color: #fff !important;
   font-size: clamp(28px, 2.6vw, 40px) !important;
   line-height: 1.15 !important;
@@ -591,41 +600,15 @@ body {
   letter-spacing: -0.01em;
 }
 
-/* Mini-fluxo: cartões de vidro ligados por traço com gradiente. */
-.af-login-flow {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  row-gap: 12px;
-  margin-bottom: 44px;
+.af-login-features {
+  list-style: none;
+  margin: 28px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 20px;
 }
-.af-login-flow-step { display: flex; align-items: center; }
-.af-login-flow-step:nth-child(even) { transform: translateY(14px); }
-.af-login-flow-card {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px 8px 8px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.07);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  box-shadow: 0 8px 24px rgba(2, 6, 23, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.08);
-  backdrop-filter: blur(6px);
-  color: #fff;
-  font-size: 13px;
-  font-weight: 600;
-  white-space: nowrap;
-}
-.af-login-flow-link {
-  width: 26px;
-  height: 2px;
-  border-radius: 2px;
-  background: linear-gradient(90deg, rgba(96, 165, 250, 0.9), rgba(45, 212, 191, 0.9));
-  box-shadow: 0 0 10px rgba(45, 212, 191, 0.5);
-}
-
-.af-login-features { list-style: none; margin: 0; padding: 0; display: grid; gap: 18px; }
-.af-login-feature { display: flex; align-items: flex-start; gap: 14px; }
+.af-login-feature { display: flex; align-items: flex-start; gap: 12px; }
 .af-login-feature-icon {
   width: 36px;
   height: 36px;
@@ -666,6 +649,18 @@ body {
   box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.18);
 }
 .af-login-submit { box-shadow: 0 8px 20px rgba(37, 99, 235, 0.28); }
+
+/* Tela baixa ou banner estreito: as descrições saem para o diagrama caber sem rolagem. */
+@media (max-height: 860px), (max-width: 1280px) {
+  .af-login-feature-desc { display: none; }
+  .af-login-hero { padding-top: 28px; padding-bottom: 24px; }
+  .af-login-hero-body { padding: 20px 0; }
+}
+@media (max-height: 700px) {
+  .af-login-hero-body { padding: 12px 0; }
+  .af-login-headline { font-size: 28px !important; margin-bottom: 16px !important; }
+  .af-login-features { margin-top: 16px; }
+}
 
 @media (max-width: 960px) {
   .af-login { grid-template-columns: 1fr; }
