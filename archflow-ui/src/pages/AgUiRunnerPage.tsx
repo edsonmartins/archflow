@@ -8,6 +8,15 @@ import { PageHeader } from '../components/PageHeader'
 import { SectionCard } from '../components/SectionCard'
 import EmptyState from '../components/EmptyState'
 import { runAgUiWorkflow, type AgUiEvent } from '../services/agui-client'
+import { runOutcomeOf, type RunOutcome } from '../lib/runOutcome'
+
+/** Chave i18n (agui.outcome.*) e cor do badge para cada desfecho. */
+const RUNNER_OUTCOME: Record<RunOutcome, 'finished' | 'failed' | 'cancelled' | 'paused' | 'unknown'> = {
+    completed: 'finished', failed: 'failed', cancelled: 'cancelled', paused: 'paused', unknown: 'unknown',
+}
+const OUTCOME_COLOR: Record<string, string> = {
+    finished: 'teal', failed: 'red', error: 'red', cancelled: 'gray', paused: 'yellow', unknown: 'gray',
+}
 
 /** Colour per AG-UI event type for the live log. */
 const EVENT_COLOR: Record<string, string> = {
@@ -63,8 +72,13 @@ export default function AgUiRunnerPage() {
         setRunning(false)
     }
 
-    const last = events[events.length - 1]?.type
-    const outcome = last === 'RUN_FINISHED' ? 'finished' : last === 'RUN_ERROR' ? 'error' : null
+    // O desfecho vem do result.status do RUN_FINISHED, não só do tipo: um fluxo FAILED (passo sem
+    // chave de API) ou PAUSED (aprovação humana) também termina com RUN_FINISHED.
+    const lastEvent = events[events.length - 1]
+    const outcome = !lastEvent ? null
+        : lastEvent.type === 'RUN_ERROR' ? 'error'
+        : lastEvent.type === 'RUN_FINISHED' ? RUNNER_OUTCOME[runOutcomeOf(lastEvent)]
+        : null
 
     return (
         <Stack p="md" gap="lg">
@@ -118,7 +132,7 @@ export default function AgUiRunnerPage() {
                             </Badge>
                         )}
                         {!running && outcome && (
-                            <Badge variant="light" color={outcome === 'finished' ? 'teal' : 'red'}>
+                            <Badge variant="light" color={OUTCOME_COLOR[outcome]} data-testid="agui-outcome">
                                 {t(`agui.outcome.${outcome}`)}
                             </Badge>
                         )}
@@ -171,7 +185,10 @@ export default function AgUiRunnerPage() {
                                     <Text size="xs" c="dimmed" w={32} ta="right" style={{ flexShrink: 0 }}>
                                         {i + 1}
                                     </Text>
-                                    <Badge size="sm" variant="light" color={EVENT_COLOR[event.type] ?? 'gray'}
+                                    <Badge size="sm" variant="light"
+                                           color={event.type === 'RUN_FINISHED'
+                                               ? OUTCOME_COLOR[RUNNER_OUTCOME[runOutcomeOf(event)]]
+                                               : EVENT_COLOR[event.type] ?? 'gray'}
                                            w={190} style={{ flexShrink: 0 }}>
                                         {event.type}
                                     </Badge>

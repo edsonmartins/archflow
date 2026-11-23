@@ -16,6 +16,8 @@ import { OptionCard } from '../components/OptionCard';
 import { PageHeader, type Accent } from '../components/PageHeader';
 import { StatCard } from '../components/admin/StatCard';
 import EmptyState from '../components/EmptyState';
+import { RunInputModal } from '../components/RunInputModal';
+import { toExecuteBody } from '../lib/runInput';
 
 const STATUS_COLOR: Record<string, string> = {
     active: 'teal',
@@ -66,7 +68,12 @@ export default function WorkflowListPage() {
         await workflowApi.setStatus(id, currentStatus === 'active' ? 'draft' : 'active');
         await fetchWorkflows();
     };
-    const handleExecute = async (id: string) => { try { const eid = await executeWorkflow(id); navigate(`/executions?id=${eid}`); } catch { /* surfaced via store error state */ } };
+    // Rodar pede a entrada antes (RunInputModal); sem ela o fluxo rodava sempre sem input.
+    const [runId, setRunId] = useState<string | null>(null);
+    const handleExecute = async (id: string, inputText: string) => {
+        setRunId(null);
+        try { const eid = await executeWorkflow(id, toExecuteBody(inputText)); navigate(`/executions/${encodeURIComponent(eid)}`); } catch { /* surfaced via store error state */ }
+    };
 
     // Creation offers three paths (modal): blank canvas, template gallery,
     // or AI generation (blank workflow + the editor's AI prompt pre-opened).
@@ -283,7 +290,7 @@ export default function WorkflowListPage() {
                                         color="violet"
                                         leftSection={<IconPlayerPlay size={14} />}
                                         aria-label={t('workflows.actions.execute')}
-                                        onClick={() => handleExecute(w.id)}
+                                        onClick={() => setRunId(w.id)}
                                     >
                                         {t('workflows.actions.run')}
                                     </Button>
@@ -292,6 +299,15 @@ export default function WorkflowListPage() {
                         );
                     })}
                 </SimpleGrid>
+            )}
+
+            {runId && (
+                <RunInputModal
+                    workflowId={runId}
+                    opened
+                    onClose={() => setRunId(null)}
+                    onConfirm={(text) => { void handleExecute(runId, text); }}
+                />
             )}
 
             <Modal opened={!!deleteId} onClose={() => setDeleteId(null)} title={t('workflows.deleteModal.title')} centered>

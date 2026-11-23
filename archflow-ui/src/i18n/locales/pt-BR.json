@@ -298,6 +298,7 @@
         "savedAt": "Salvo às {{time}}",
         "savedRelative": "Salvo {{time}}",
         "untitled": "Fluxo sem título",
+        "renameHint": "Clique para renomear",
         "loadingYaml": "Carregando YAML…",
         "emptyTitle": "Nenhum fluxo carregado",
         "emptyHint": "Crie um novo fluxo ou carregue um existente para começar",
@@ -318,6 +319,10 @@
             "execFailedMsg": "O workflow terminou com erro",
             "execStopped": "Execução interrompida",
             "execStoppedMsg": "A execução foi cancelada",
+            "execPaused": "Execução pausada",
+            "execPausedMsg": "O fluxo está aguardando uma aprovação humana (veja em Aprovações)",
+            "execUnknown": "Execução terminou",
+            "execUnknownMsg": "Status final: {{status}}",
             "execStartError": "Não foi possível iniciar a execução"
         },
         "unsavedChanges": "Alterações não salvas",
@@ -396,6 +401,10 @@
             "toggleProperties": "Alternar painel de propriedades",
             "fields": {
                 "nodeName": "Nome do nó",
+                "nodeId": "Id do nó",
+                "nodeIdHint": "A saída do passo fica sob o id, não sob o nome. Use nas expressões:",
+                "upstreamRefs": "Saídas dos nós anteriores",
+                "upstreamRefsHint": "Clique para inserir a referência na expressão.",
                 "catalogOffline": "Catálogo offline — exibindo apenas componentes embutidos",
                 "assistantType": "Tipo de assistente",
                 "agentType": "Tipo de agente",
@@ -481,6 +490,8 @@
                 "minScore": "Score mín. (0..1)",
                 "approvalTitle": "Título da aprovação",
                 "decisionProvider": "Provedor de decisão",
+                "decisionRules": "Regras (JSON)",
+                "decisionRulesHint": "Por pergunta. choice: { \"<pergunta>\": { \"match\": { \"<opção>\": [\"palavra\", \"re:regex\"] }, \"otherwise\": \"<opção>\" } }. score: as chaves são o índice do nível e o otherwise é um número, ex.: { \"<pergunta>\": { \"match\": { \"2\": [\"fora do ar\"], \"1\": [\"lento\"] }, \"otherwise\": 0 } }. noul: { \"<pergunta>\": { \"matchAny\": [\"palavra\", \"re:regex\"] } }. Sem otherwise, nada casar é erro; cair no otherwise tem confiança 0.",
                 "decisionModel": "Modelo",
                 "decisionModelHint": "Fixe a versão em produção (ex.: typesafe/jev-1.13); um alias como ~typesafe/jev-latest pode mudar sozinho.",
                 "decisionQuestions": "Perguntas (JSON)",
@@ -1484,6 +1495,16 @@
             "llms": "LLMs · OpenAI · Anthropic · Gemini · Ollama"
         }
     },
+    "runInput": {
+        "title": "Entrada da execução",
+        "subtitle": "Um objeto JSON vira variáveis do contexto (uma por chave); qualquer outro texto chega ao fluxo como input. Pode ficar vazio.",
+        "placeholder": "{\"cliente\": \"ACME\"}  ou  texto livre",
+        "asEmpty": "Sem entrada: o fluxo roda sem variáveis iniciais.",
+        "asVariables": "Objeto JSON: variáveis {{keys}}.",
+        "asText": "Texto: chega ao fluxo como input.",
+        "cancel": "Cancelar",
+        "run": "Executar"
+    },
     "executionDetail": {
         "subtitle": "Execução de {{workflow}}",
         "loadFailed": "Não foi possível carregar esta execução",
@@ -1524,7 +1545,9 @@
             "errorLabel": "Erro",
             "startedAt": "Iniciado em",
             "finishedAt": "Terminado em",
-            "toggle": "Alternar detalhes do passo"
+            "toggle": "Alternar detalhes do passo",
+            "notExecuted": "Não executado",
+            "outputLabel": "Saída"
         },
         "rerun": "Executar novamente",
         "rerunStarted": "Nova execução iniciada",
@@ -1606,7 +1629,11 @@
         "streaming": "transmitindo",
         "outcome": {
             "finished": "concluído",
-            "error": "erro"
+            "error": "erro",
+            "failed": "falhou",
+            "cancelled": "cancelado",
+            "paused": "pausado",
+            "unknown": "status desconhecido"
         },
         "eventCount_one": "{{count}} evento",
         "eventCount_other": "{{count}} eventos",
@@ -1616,6 +1643,12 @@
         "empty": "Execute um workflow para ver seus eventos AG-UI chegando."
     },
     "copilot": {
+        "errors": {
+            "generateFailed": "Não foi possível gerar o fluxo",
+            "runFailed": "O copilot não conseguiu responder",
+            "apiKeyHint": "Configure a chave de LLM da plataforma.",
+            "unknown": "Erro desconhecido na execução do agente."
+        },
         "tryHint": "Abra a barra lateral (canto inferior direito) e experimente um destes",
         "exampleTitles": {
             "context": "Lê a tela",

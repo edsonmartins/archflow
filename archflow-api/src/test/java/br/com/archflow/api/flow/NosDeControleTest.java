@@ -142,4 +142,69 @@ class NosDeControleTest {
         assertThat(DefaultFlowStepFactory.conditionForBranch("s", "switch", "a'b"))
                 .isEqualTo("${s.branch} == 'ab'");
     }
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> saida(ExecutionContext c, String id) {
+        return (Map<String, Object>) c.get(id).orElseThrow();
+    }
+
+    private FlowStep switchDe(String expressao) {
+        return factory.create(Map.of("id", "rota", "type", "SWITCH", "componentId", "switch",
+                "configuration", Map.of("switchExpression", expressao, "switchCases", "AUTO\nESCALATE"),
+                "connections", List.of(
+                        Map.of("targetId", "a", "branch", "ESCALATE"),
+                        Map.of("targetId", "b", "branch", "default"))));
+    }
+
+    @Test
+    @DisplayName("switch com raiz inexistente (rótulo em vez do id) segue 'default', mas avisa o caminho")
+    void switchComRaizNaoResolvida() {
+        ExecutionContext c = ctx();
+        // O motor gravou a saída da decisão sob o id do nó; o usuário escreveu o rótulo.
+        c.set("node-1712345678901", Map.of("route", "ESCALATE"));
+        FlowStep passo = switchDe("${triagem.route}");
+
+        var resultado = passo.execute(c).join();
+
+        assertThat(resultado.getStatus()).as("não muda o desfecho")
+                .isEqualTo(br.com.archflow.model.enums.StepStatus.COMPLETED);
+        Map<String, Object> saida = saida(c, "rota");
+        assertThat(saida.get("branch")).isEqualTo("default");
+        assertThat(saida).doesNotContainKey("error");
+        assertThat((String) saida.get("warning"))
+                .contains("caminho não resolvido: triagem.route")
+                .contains("'triagem'");
+        assertThat(passo.getConnections().stream().map(a -> segue(a, c)).toList())
+                .containsExactly(false, true);
+    }
+
+    @Test
+    @DisplayName("condition com raiz inexistente segue 'false' e avisa; raiz presente com campo ausente não avisa")
+    void conditionComRaizNaoResolvida() {
+        ExecutionContext c = ctx();
+        FlowStep passo = condicao("${triagem.route} == 'ESCALATE'");
+        passo.execute(c).join();
+        Map<String, Object> saida = saida(c, "decide");
+        assertThat(saida.get("branch")).isEqualTo("false");
+        assertThat((String) saida.get("warning")).contains("caminho não resolvido: triagem.route");
+
+        ExecutionContext c2 = ctx();
+        c2.set("triagem", Map.of("route", "AUTO"));
+        condicao("${triagem.confianca} > 0.5").execute(c2).join();
+        assertThat(saida(c2, "decide")).as("a raiz existe: campo opcional não é aviso")
+                .doesNotContainKey("warning");
+    }
+
+    @Test
+    @DisplayName("referência pelo id resolve e não gera aviso; chave com ponto guardada inteira também vale")
+    void semAvisoQuandoResolve() {
+        ExecutionContext c = ctx();
+        c.set("node-1712345678901", Map.of("route", "ESCALATE"));
+        switchDe("${node-1712345678901.route}").execute(c).join();
+        assertThat(saida(c, "rota")).containsEntry("branch", "ESCALATE").doesNotContainKey("warning");
+
+        ExecutionContext c2 = ctx();
+        c2.set("a.b", "AUTO");
+        switchDe("${a.b}").execute(c2).join();
+        assertThat(saida(c2, "rota")).containsEntry("branch", "AUTO").doesNotContainKey("warning");
+    }
 }

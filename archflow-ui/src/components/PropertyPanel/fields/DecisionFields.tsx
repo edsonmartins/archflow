@@ -57,6 +57,10 @@ const PROVIDERS = [
   { value: 'rules',          label: 'rules (deterministic)' },
 ]
 
+function semChave(obj: Record<string, unknown>, chave: string): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(obj).filter(([k]) => k !== chave))
+}
+
 /** Config of the `decision` node: typed questions answered by a pluggable decision provider. */
 export function DecisionFields({ nodeData, update }: FieldProps) {
   const { t } = useTranslation()
@@ -66,18 +70,42 @@ export function DecisionFields({ nodeData, update }: FieldProps) {
     update('thresholds', { ...thresholds, [key]: typeof v === 'number' ? v : Number(v) })
   const gate = getConfig(nodeData, 'gate', [] as string[])
   const consensus = getConfig(nodeData, 'consensus', {} as { models?: unknown; onDisagree?: string })
+  const provider = getConfig(nodeData, 'provider', 'http-decisions')
+  // O motor entrega ao provedor `providerOptions.<id>` (DecisionComponent.tentar), e o `rules` lê dali
+  // `rules`: daí o caminho providerOptions.rules.rules. Grava mesclando, para não apagar as opções de
+  // outros provedores (degraus da cascata, reservas) nem outras chaves do próprio `rules`.
+  const providerOptions = getConfig(nodeData, 'providerOptions', {} as Record<string, unknown>)
+  const rulesOptions = (providerOptions.rules ?? {}) as Record<string, unknown>
+  const setRules = (v: unknown) => {
+    // Campo esvaziado: remove a chave em vez de gravar `rules: undefined` (que deixaria `rules: {}`
+    // no JSON salvo). Para o motor dá no mesmo — sem regras é "sem regras para a pergunta" —, mas o
+    // documento volta a ser o de antes de alguém mexer no campo.
+    const novoRules = v === undefined ? semChave(rulesOptions, 'rules') : { ...rulesOptions, rules: v }
+    update('providerOptions', Object.keys(novoRules).length > 0
+      ? { ...providerOptions, rules: novoRules }
+      : semChave(providerOptions, 'rules'))
+  }
 
   return (
     <>
       <Select
         label={f('decisionProvider')}
-        value={getConfig(nodeData, 'provider', 'http-decisions')}
+        value={provider}
         onChange={v => update('provider', v ?? 'http-decisions')}
         data={PROVIDERS}
         size="xs"
         allowDeselect={false}
         styles={FIELD_STYLES}
       />
+      {provider === 'rules' && (
+        <JsonField
+          label={f('decisionRules')}
+          hint={f('decisionRulesHint')}
+          value={rulesOptions.rules}
+          onValid={setRules}
+          minRows={6}
+        />
+      )}
       <TextInput
         label={f('decisionModel')}
         value={getConfig(nodeData, 'model', '')}

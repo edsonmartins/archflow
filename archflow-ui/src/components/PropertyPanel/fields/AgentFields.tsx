@@ -25,6 +25,10 @@ export function AgentFields({ nodeData, update, isAssistant }: AgentFieldsProps)
   const { providers, patterns, personas, governance } = useWorkflowConfig()
   const catalog = useCatalog()
   const f = (key: string, opts?: Record<string, unknown>) => t(`editor.properties.fields.${key}`, opts)
+  // llm-chat / llm-streaming são uma chamada de chat a um provider (adapter SPI), não um agente MCP: não
+  // têm tipo de agente, estratégia ReAct, laço de iterações, governança de ferramentas nem servidores MCP.
+  // Mostrar esses campos fazia o usuário configurar coisas que o nó ignora — então ficam só os de chat.
+  const isChat = nodeData.nodeType === 'llm-chat' || nodeData.nodeType === 'llm-streaming'
 
   // Derived state for agent nodes
   const providerId = getConfig(nodeData, 'provider', providers[0]?.id ?? 'anthropic')
@@ -51,7 +55,7 @@ export function AgentFields({ nodeData, update, isAssistant }: AgentFieldsProps)
     <>
         <>
           {/* Concrete agent / assistant type from the catalog */}
-          {(() => {
+          {!isChat && (() => {
             const typedItems = isAssistant ? catalog.assistants : catalog.agents
             const configKey = isAssistant ? 'assistantTypeId' : 'agentTypeId'
             if (typedItems.length === 0) return null
@@ -74,7 +78,8 @@ export function AgentFields({ nodeData, update, isAssistant }: AgentFieldsProps)
           })()}
 
           {/* Gap 1: Agent pattern */}
-          <div>
+          {!isChat && (
+          <div data-testid="agent-fields-strategy">
             <Select
               label={f('executionStrategy')}
               value={getConfig(nodeData, 'agentPattern', 'react')}
@@ -87,6 +92,7 @@ export function AgentFields({ nodeData, update, isAssistant }: AgentFieldsProps)
               {patterns.find(p => p.id === getConfig(nodeData, 'agentPattern', 'react'))?.description}
             </Text>
           </div>
+          )}
 
           {/* Gap 2: Provider */}
           <Select
@@ -194,6 +200,7 @@ export function AgentFields({ nodeData, update, isAssistant }: AgentFieldsProps)
           />
 
           {/* Max iterations */}
+          {!isChat && (
           <NumberInput
             label={f('maxIterations')}
             value={getConfig(nodeData, 'maxIterations', 10)}
@@ -203,10 +210,12 @@ export function AgentFields({ nodeData, update, isAssistant }: AgentFieldsProps)
             size="xs"
             styles={FIELD_STYLES}
           />
+          )}
 
-          <Divider my={4} />
+          {!isChat && <Divider my={4} />}
 
           {/* ── Advanced accordion ───────────────────────────── */}
+          {!isChat && (
           <Accordion variant="contained" radius="sm" styles={{ control: { fontSize: 12, padding: '6px 10px' }, content: { padding: '8px 10px' } }}>
             <Accordion.Item value="advanced">
               <Accordion.Control>{f('advanced')}</Accordion.Control>
@@ -395,6 +404,7 @@ export function AgentFields({ nodeData, update, isAssistant }: AgentFieldsProps)
               </Accordion.Panel>
             </Accordion.Item>
           </Accordion>
+          )}
         </>
     </>
   )

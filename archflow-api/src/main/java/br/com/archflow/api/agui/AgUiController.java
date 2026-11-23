@@ -2,6 +2,7 @@ package br.com.archflow.api.agui;
 
 import br.com.archflow.agent.streaming.ArchflowEvent;
 import br.com.archflow.agent.streaming.EventStreamRegistry;
+import br.com.archflow.api.flow.RunInputSeeding;
 import br.com.archflow.api.flow.WorkflowDeserializer;
 import br.com.archflow.api.web.workflow.WorkflowRuntimeStore;
 import br.com.archflow.engine.api.FlowEngine;
@@ -158,13 +159,13 @@ public class AgUiController {
         }
     }
 
-    private void seedInput(ExecutionContext ctx, RunAgentInput input) {
+    static void seedInput(ExecutionContext ctx, RunAgentInput input) {
         if (input == null) {
             return;
         }
         if (input.state() != null) {
-            input.state().forEach(ctx::set);
-            ctx.set("input", input.state());
+            // Mesma regra do POST /api/workflows/{id}/execute (ver RunInputSeeding).
+            RunInputSeeding.seedVariables(ctx, input.state());
         }
         if (input.messages() != null && !input.messages().isEmpty()) {
             Object content = input.messages().get(input.messages().size() - 1).get("content");

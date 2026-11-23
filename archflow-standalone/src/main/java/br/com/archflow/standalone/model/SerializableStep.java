@@ -109,7 +109,13 @@ public class SerializableStep implements FlowStep {
      * UI (chaves: provider, model, temperature, maxTokens, timeout,
      * additionalConfig). Campos ausentes ficam vazios e são herdados na cadeia
      * de resolução.
+     *
+     * <p>{@code @JsonIgnore}: é derivado de {@code configuration}, não um campo do documento. Sem isso
+     * o Jackson o serializava como {@code llmpatch: {empty: ...}} (o {@code isEmpty()} do record vira
+     * propriedade) e a aba Código mostrava — e o Salvar YAML regravava — um bloco que ninguém escreveu.
+     * Nada lê {@code llmpatch} do JSON/YAML: quem precisa do patch chama este método.
      */
+    @com.fasterxml.jackson.annotation.JsonIgnore
     @Override
     public LLMConfigPatch getLLMPatch() {
         return LLMConfigPatch.fromMap(configuration != null ? configuration : Map.of());

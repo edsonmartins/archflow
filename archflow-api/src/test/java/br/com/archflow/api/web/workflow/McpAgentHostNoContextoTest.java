@@ -116,4 +116,20 @@ class McpAgentHostNoContextoTest {
         assertThatCode(() -> assertThat(McpAgentHost.from(contextoDaExecucao(Map.of()))).isEmpty())
                 .doesNotThrowAnyException();
     }
+
+    /**
+     * A mesma entrada tem de chegar igual pelo REST e pelo AG-UI: o objeto sem chave "input" também
+     * vira o input (é o que a decisão julga). Antes o REST só criava as variáveis soltas.
+     */
+    @Test
+    @DisplayName("objeto sem 'input' vira o input; o host continua protegido")
+    void objetoViraInput() {
+        Map<String, Object> entrada = Map.of("message", "meu boleto venceu");
+
+        ExecutionContext ctx = contextoDaExecucao(entrada);
+
+        assertThat(ctx.get("message")).contains("meu boleto venceu");
+        assertThat(ctx.get("input")).contains(entrada);
+        assertThat(McpAgentHost.from(ctx)).contains(host);
+    }
 }

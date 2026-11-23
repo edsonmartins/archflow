@@ -18,6 +18,7 @@ import { SubflowFields } from './PropertyPanel/fields/SubflowFields'
 import { SkillsFields } from './PropertyPanel/fields/SkillsFields'
 import { DecisionFields } from './PropertyPanel/fields/DecisionFields'
 import { ExecutionLogs, OutputPreview } from './PropertyPanel/fields/ExecutionPanels'
+import { NodeIdField, UpstreamRefs } from './PropertyPanel/fields/NodeReferences'
 
 // ── Embedding model catalog (tiny, kept local) ──────────────────
 const EMBEDDING_MODELS = [
@@ -161,6 +162,13 @@ function NodeFields({ nodeId, nodeData }: { nodeId: string; nodeData: FlowNodeDa
   const isOrchestrate     = nodeData.nodeType === 'orchestrate'
 
   const update = (key: string, value: unknown) => updateNodeConfig(nodeId, key, value)
+  // A referência entra no fim da expressão já escrita; se o campo ainda mostra só o exemplo
+  // (nada gravado), substitui — colar ao lado de `${agent.confidence} > 0.8` daria lixo.
+  const insertRef = (key: string, snippet: string, replace = false) => {
+    const atual = nodeData.config?.[key]
+    const texto = typeof atual === 'string' ? atual : ''
+    update(key, replace || texto.trim() === '' ? snippet : `${texto.replace(/\s+$/, '')} ${snippet}`)
+  }
   // Shortcut for field translations; keeps JSX free of the long prefix.
   const f = (key: string, opts?: Record<string, unknown>) => t(`editor.properties.fields.${key}`, opts)
 
@@ -183,6 +191,9 @@ function NodeFields({ nodeId, nodeData }: { nodeId: string; nodeData: FlowNodeDa
         size="xs"
         styles={FIELD_STYLES}
       />
+
+      {/* Id só leitura: é por ele (e não pelo nome) que as expressões referenciam a saída */}
+      <NodeIdField nodeId={nodeId} />
 
       {/* ════════════════════════════════════════════════════════ */}
       {/*  AGENT FIELDS (extraído para fields/AgentFields)        */}
@@ -758,6 +769,7 @@ function NodeFields({ nodeId, nodeData }: { nodeId: string; nodeData: FlowNodeDa
             styles={MONO_INPUT}
             description={f('expressionHint')}
           />
+          <UpstreamRefs nodeId={nodeId} onInsert={s => insertRef('conditionExpression', s)} />
           <Text size="xs" c="dimmed" mt={2}>
             {f('errorBranchHint_pre')} <Badge size="xs" color="red" variant="outline">{f('errorBranchLabel')}</Badge> {f('errorBranchHint_post')}
           </Text>
@@ -777,6 +789,8 @@ function NodeFields({ nodeId, nodeData }: { nodeId: string; nodeData: FlowNodeDa
             styles={MONO_INPUT}
             description={f('switchExpressionHint')}
           />
+          {/* O switch compara um valor só: a referência substitui a expressão */}
+          <UpstreamRefs nodeId={nodeId} onInsert={s => insertRef('switchExpression', s, true)} />
           <Textarea
             label={f('switchCases')}
             value={getConfig(nodeData, 'switchCases', 'order_tracking\ncomplaint\nsales\ndefault')}

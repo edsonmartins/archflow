@@ -13,32 +13,22 @@ import {
 } from '@tabler/icons-react'
 import { executionApi, workflowApi, ApiError } from '../services/api'
 import { JsonViewer } from '../components/JsonViewer'
+import { RunInputModal } from '../components/RunInputModal'
+import { toExecuteBody } from '../lib/runInput'
 import { Meta } from '../components/Meta'
 import { PageHeader, type Accent } from '../components/PageHeader'
 import { SectionCard } from '../components/SectionCard'
 import { StatCard } from '../components/admin/StatCard'
 import EmptyState from '../components/EmptyState'
 import { formatDuration, formatInstant } from '../lib/format'
-import { EXECUTION_STATUS_COLOR } from '../lib/executionStatus'
+import { EXECUTION_STATUS_COLOR, isTerminalExecutionStatus } from '../lib/executionStatus'
+import { buildStepRows, parseStepOutput, type StepRecord, type StepRow } from '../lib/stepOutput'
 
 /** A materialized ExecutionPath node (design-0005 step 4). */
 interface PathNode {
     pathId: string
     status: string
     parallelBranches?: PathNode[] | null
-}
-
-/** Per-step record persisted by the backend StepRecordingListener. */
-interface StepRecord {
-    stepId: string
-    type?: string
-    stepIndex?: number
-    stepCount?: number
-    status: 'RUNNING' | 'COMPLETED' | 'FAILED' | 'SKIPPED' | string
-    startedAt?: string
-    finishedAt?: string
-    durationMs?: number
-    error?: string
 }
 
 const tabularNums = { fontVariantNumeric: 'tabular-nums' } as const
@@ -77,18 +67,37 @@ function PathTree({ nodes, depth = 0 }: { nodes: PathNode[]; depth?: number }) {
     )
 }
 
+/** Saída gravada do passo: árvore JSON recolhível quando é JSON, texto cru quando não. */
+function StepOutput({ raw }: { raw: string }) {
+    const { t } = useTranslation()
+    const value = parseStepOutput(raw)
+    return (
+        <Stack gap={2} data-testid="execution-step-output">
+            <Text size="xs" c="dimmed" tt="uppercase" style={{ letterSpacing: 0.5 }}>
+                {t('executionDetail.step.outputLabel')}
+            </Text>
+            {value !== null && typeof value === 'object'
+                ? <JsonViewer value={value} autoExpandDepth={1} />
+                : <Code block style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{String(raw)}</Code>}
+        </Stack>
+    )
+}
+
 /**
  * Collapsible per-step block in the ToolCallBlock visual language:
- * header with name + status + duration, expanding into timestamps and
- * error detail.
+ * header with name + status + duration, expanding into timestamps,
+ * output and error detail. Rows for workflow steps that never ran
+ * ("Não executado") render grayed out and do not expand.
  */
-function StepBlock({ step, locale }: { step: StepRecord; locale: string }) {
+function StepBlock({ step, locale }: { step: StepRow; locale: string }) {
     const { t } = useTranslation()
     const [open, setOpen] = useState(step.status === 'FAILED')
+    const notExecuted = step.notExecuted === true
 
-    const statusColor = EXECUTION_STATUS_COLOR[step.status] ?? 'gray'
+    const statusColor = notExecuted ? 'gray' : (EXECUTION_STATUS_COLOR[step.status] ?? 'gray')
     const statusLabel =
-        step.status === 'RUNNING' ? t('executionDetail.step.running')
+        notExecuted ? t('executionDetail.step.notExecuted')
+        : step.status === 'RUNNING' ? t('executionDetail.step.running')
         : step.status === 'COMPLETED' ? t('executionDetail.step.completed')
         : step.status === 'FAILED' ? t('executionDetail.step.failed')
         : step.status === 'SKIPPED' ? t('executionDetail.step.skipped')
@@ -96,25 +105,30 @@ function StepBlock({ step, locale }: { step: StepRecord; locale: string }) {
 
     return (
         <Paper withBorder radius="md" px="sm" py="xs" data-testid={`execution-step-${step.stepId}`}
-               style={{ borderLeft: `3px solid var(--mantine-color-${statusColor}-6)`, boxShadow: 'none' }}>
+               data-not-executed={notExecuted ? 'true' : undefined}
+               style={{ borderLeft: `3px solid var(--mantine-color-${statusColor}-${notExecuted ? 3 : 6})`,
+                   boxShadow: 'none', opacity: notExecuted ? 0.6 : undefined }}>
             <Group
                 justify="space-between"
                 wrap="nowrap"
                 gap="xs"
-                style={{ cursor: 'pointer' }}
-                onClick={() => setOpen((o) => !o)}
+                style={{ cursor: notExecuted ? 'default' : 'pointer' }}
+                onClick={notExecuted ? undefined : () => setOpen((o) => !o)}
             >
                 <Group gap={6} wrap="nowrap" style={{ minWidth: 0, flex: 1 }}>
-                    <ActionIcon size="xs" variant="subtle" aria-label={t('executionDetail.step.toggle')}>
-                        {open ? <IconChevronDown size={14} /> : <IconChevronRight size={14} />}
-                    </ActionIcon>
+                    {!notExecuted && (
+                        <ActionIcon size="xs" variant="subtle" aria-label={t('executionDetail.step.toggle')}>
+                            {open ? <IconChevronDown size={14} /> : <IconChevronRight size={14} />}
+                        </ActionIcon>
+                    )}
                     {typeof step.stepIndex === 'number' && (
                         <Text size="xs" c="dimmed" ff="monospace" style={tabularNums}>
                             {step.stepIndex + 1}{typeof step.stepCount === 'number' ? `/${step.stepCount}` : ''}
                         </Text>
                     )}
-                    <Text size="sm" fw={500} truncate>
-                        {step.stepId}
+                    <Text size="sm" fw={500} truncate c={notExecuted ? 'dimmed' : undefined}
+                          title={step.stepId} data-testid="execution-step-name">
+                        {step.label ? `${step.label} (${step.stepId})` : step.stepId}
                     </Text>
                     {step.type && (
                         <Badge size="xs" variant="outline" color="gray">{step.type}</Badge>
@@ -137,12 +151,13 @@ function StepBlock({ step, locale }: { step: StepRecord; locale: string }) {
                 )}
             </Group>
 
-            <Collapse expanded={open}>
+            <Collapse expanded={open && !notExecuted}>
                 <Stack gap={6} mt="xs" pl={28}>
                     <Group gap="xl">
                         <Meta label={t('executionDetail.step.startedAt')} value={formatInstant(step.startedAt, locale)} />
                         <Meta label={t('executionDetail.step.finishedAt')} value={formatInstant(step.finishedAt, locale)} />
                     </Group>
+                    {step.output != null && step.output !== '' && <StepOutput raw={step.output} />}
                     {step.error && (
                         <Stack gap={2}>
                             <Text size="xs" c="dimmed" tt="uppercase" style={{ letterSpacing: 0.5 }}>
@@ -193,12 +208,34 @@ export default function ExecutionDetailPage() {
         return () => clearInterval(timer)
     }, [status, load])
 
-    const handleRerun = async () => {
-        const workflowId = data?.workflowId as string | undefined
+    // Executar novamente pede a entrada antes (RunInputModal): sem ela o fluxo rodava sem input.
+    const [rerunInputOpen, setRerunInputOpen] = useState(false)
+    const rerunWorkflowId = data?.workflowId as string | undefined
+
+    // O documento do fluxo dá o nome de cada nó (o registro só tem o id "node-…") e a lista dos passos
+    // que não rodaram. É enfeite: se não carregar (fluxo apagado, sem permissão), a página segue com ids.
+    const [workflowSteps, setWorkflowSteps] = useState<unknown[] | null>(null)
+    useEffect(() => {
+        if (!rerunWorkflowId) return
+        let cancelled = false
+        void (async () => {
+            try {
+                const doc = await workflowApi.get(rerunWorkflowId)
+                if (!cancelled) setWorkflowSteps(Array.isArray(doc?.steps) ? doc.steps : null)
+            } catch {
+                if (!cancelled) setWorkflowSteps(null)
+            }
+        })()
+        return () => { cancelled = true }
+    }, [rerunWorkflowId])
+
+    const handleRerun = async (inputText: string) => {
+        const workflowId = rerunWorkflowId
+        setRerunInputOpen(false)
         if (!workflowId) return
         setRerunning(true)
         try {
-            const res = await workflowApi.execute(workflowId)
+            const res = await workflowApi.execute(workflowId, toExecuteBody(inputText))
             notifications.show({
                 title: t('executionDetail.rerunStarted'),
                 message: res.executionId,
@@ -234,12 +271,20 @@ export default function ExecutionDetailPage() {
                     <Button
                         leftSection={<IconPlayerPlay size={14} />}
                         loading={rerunning}
-                        onClick={handleRerun}
+                        onClick={() => setRerunInputOpen(true)}
                         disabled={!data.workflowId}
                         data-testid="execution-rerun"
                     >
                         {t('executionDetail.rerun')}
                     </Button>
+                    {rerunWorkflowId && (
+                        <RunInputModal
+                            workflowId={rerunWorkflowId}
+                            opened={rerunInputOpen}
+                            onClose={() => setRerunInputOpen(false)}
+                            onConfirm={(text) => { void handleRerun(text) }}
+                        />
+                    )}
                 </>
             ) : undefined}
         />
@@ -273,9 +318,11 @@ export default function ExecutionDetailPage() {
     )
 
     const paths = (data.executionPaths as PathNode[] | undefined) ?? []
-    const steps = ((data.steps as StepRecord[] | undefined) ?? [])
-        .slice()
-        .sort((a, b) => (a.stepIndex ?? 0) - (b.stepIndex ?? 0))
+    const steps = (data.steps as StepRecord[] | undefined) ?? []
+    // Enquanto não acabou, "sem registro" quer dizer "ainda não chegou lá" — inclusive numa pausa para
+    // aprovação humana (PAUSED/AWAITING_APPROVAL), em que os passos depois do portão ainda vão rodar.
+    // Por isso a lista é de status terminais, não "tudo menos RUNNING".
+    const stepRows = buildStepRows(steps, workflowSteps, isTerminalExecutionStatus(status))
     const execError = data.error as string | null | undefined
     const duration = data.duration as number | null | undefined
     const statusColor = EXECUTION_STATUS_COLOR[status] ?? 'gray'
@@ -344,13 +391,13 @@ export default function ExecutionDetailPage() {
                 description={t('executionDetail.stepsHint')}
                 data-testid="execution-steps"
             >
-                {steps.length === 0 ? (
+                {stepRows.length === 0 ? (
                     <EmptyState compact icon={<IconListDetails />} accent="violet"
                                 title={t('executionDetail.noStepsTitle')}
                                 description={t('executionDetail.noSteps')} />
                 ) : (
                     <Stack gap="xs">
-                        {steps.map((s) => (
+                        {stepRows.map((s) => (
                             <StepBlock key={s.stepId} step={s} locale={locale} />
                         ))}
                     </Stack>

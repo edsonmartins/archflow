@@ -41,6 +41,11 @@ interface FlowStore {
   /** Swaps the provisional execution id for the backend one WITHOUT resetting per-node state. */
   adoptExecutionId: (executionId: string) => void
   updateNodeStatus: (nodeId: string, status: NodeExecutionState) => void
+  /**
+   * Mescla campos no estado do nó (ex.: a saída lida do registro da execução) sem perder status,
+   * duração e erro que os eventos STEP_* já gravaram — o updateNodeStatus substitui o estado inteiro.
+   */
+  mergeNodeState:   (nodeId: string, patch: Partial<NodeExecutionState>) => void
   finishExecution:  () => void
   abortExecution:   () => void
 
@@ -124,6 +129,15 @@ export const useFlowStore = create<FlowStore>((set, get) => ({
       executionState: {
         ...state.executionState,
         [nodeId]: status,
+      },
+    })),
+
+  mergeNodeState: (nodeId, patch) =>
+    set(state => ({
+      executionState: {
+        ...state.executionState,
+        // Sem evento STEP_* para o nó, não inventa um status: fica idle com o que chegou.
+        [nodeId]: { ...(state.executionState[nodeId] ?? { status: 'idle' as const }), ...patch },
       },
     })),
 

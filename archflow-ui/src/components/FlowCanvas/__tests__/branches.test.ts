@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { branchOptions, nextFreeBranch } from '../branches'
+import { branchOptions, defaultBranch, nextFreeBranch } from '../branches'
 import { connectionsForStep, connectionsFromSteps } from '../workflowSerde'
 
 describe('branchOptions', () => {
@@ -79,5 +79,23 @@ describe('workflowSerde — condition and branch survive the round trip', () => 
   it('tolerates steps without connections', () => {
     expect(connectionsFromSteps(undefined)).toEqual([])
     expect(connectionsFromSteps([{ id: 'x' }])).toEqual([])
+  })
+})
+
+describe('defaultBranch', () => {
+  it('does not pre-assign a route to edges leaving a decision', () => {
+    // AUTO por padrão condicionaria o passo seguinte a `${id.route} == 'AUTO'` sem o usuário escolher.
+    expect(defaultBranch('decision', {}, [])).toBeUndefined()
+    expect(defaultBranch('decision', {}, ['AUTO'])).toBeUndefined()
+  })
+
+  it('keeps assigning the next free branch for condition and switch', () => {
+    expect(defaultBranch('condition', {}, [])).toBe('true')
+    expect(defaultBranch('condition', {}, ['true'])).toBe('false')
+    expect(defaultBranch('switch', { switchCases: 'a\nb' }, ['a'])).toBe('b')
+  })
+
+  it('gives no branch to nodes that do not branch', () => {
+    expect(defaultBranch('llm-chat', {}, [])).toBeUndefined()
   })
 })
