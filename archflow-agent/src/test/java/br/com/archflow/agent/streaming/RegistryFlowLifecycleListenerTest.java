@@ -137,6 +137,70 @@ class RegistryFlowLifecycleListenerTest {
             assertThat(events.get(0).getData("stepIndex")).isEqualTo(0);
             assertThat(events.get(0).getData("stepCount")).isEqualTo(1);
         }
+
+        @Test
+        @DisplayName("STEP_COMPLETED/FAILED/SKIPPED repeat the STEP_STARTED index, not the declaration position")
+        void finishedEventRepeatsStartedIndex() {
+            // Ordem de declaração diferente da de travessia (decision → switch → condition,
+            // com um ramo não visitado no meio) — o caso que dava 0,3,1 no fim para 0,1,2 no início.
+            FlowStep decision = stepWithId("decision");
+            FlowStep unused = stepWithId("ramo-nao-visitado");
+            FlowStep condition = stepWithId("condition");
+            FlowStep sw = stepWithId("switch");
+            lenient().when(flow.getSteps()).thenReturn(List.of(decision, condition, unused, sw));
+
+            var events = new CopyOnWriteArrayList<ArchflowEvent>();
+            streamRegistry.createEmitter("flow-1").onSend(events::add);
+
+            listener.onStepStarted(flow, decision, context, 0, 3);
+            listener.onStepCompleted(flow, decision, context, 5L);
+            listener.onStepStarted(flow, sw, context, 1, 3);
+            listener.onStepFailed(flow, sw, context, new RuntimeException("x"), 5L);
+            listener.onStepStarted(flow, condition, context, 2, 3);
+            listener.onStepSkipped(flow, condition, context);
+
+            assertThat(events).extracting(ArchflowEvent::getType).containsExactly(
+                    ArchflowEventType.STEP_STARTED, ArchflowEventType.STEP_COMPLETED,
+                    ArchflowEventType.STEP_STARTED, ArchflowEventType.STEP_FAILED,
+                    ArchflowEventType.STEP_STARTED, ArchflowEventType.STEP_SKIPPED);
+            assertThat(events).extracting(e -> e.getData("stepIndex"))
+                    .containsExactly(0, 0, 1, 1, 2, 2);
+        }
+
+        @Test
+        @DisplayName("finish without a recorded start falls back to the declaration position")
+        void finishWithoutStartFallsBackToDeclarationIndex() {
+            FlowStep first = stepWithId("a");
+            lenient().when(flow.getSteps()).thenReturn(List.of(first, step));
+            var events = new CopyOnWriteArrayList<ArchflowEvent>();
+            streamRegistry.createEmitter("flow-1").onSend(events::add);
+
+            listener.onStepCompleted(flow, step, context, 1L);
+
+            assertThat(events).hasSize(1);
+            assertThat(events.get(0).getData("stepIndex")).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("a new execution of the same flow does not reuse an index left by the previous one")
+        void flowEndForgetsStartedIndexes() {
+            lenient().when(flow.getSteps()).thenReturn(List.of(step));
+            listener.onStepStarted(flow, step, context, 7, 8);
+            listener.onFlowFailed(flow, context, new RuntimeException("cancelado"), 1L);
+
+            var events = new CopyOnWriteArrayList<ArchflowEvent>();
+            streamRegistry.createEmitter("flow-1").onSend(events::add);
+            listener.onStepCompleted(flow, step, context, 1L);
+
+            assertThat(events).hasSize(1);
+            assertThat(events.get(0).getData("stepIndex")).isEqualTo(0);
+        }
+
+        private FlowStep stepWithId(String id) {
+            FlowStep s = mock(FlowStep.class);
+            lenient().when(s.getId()).thenReturn(id);
+            return s;
+        }
     }
 
     @Nested

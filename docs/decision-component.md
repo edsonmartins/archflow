@@ -237,8 +237,11 @@ Sem a variável, esses casos são pulados. A chave nunca mora no repositório.
 ## Designer
 O nó `decision` está na paleta (categoria controle) com painel de propriedades: provedor, modelo, perguntas
 (JSON validado — só grava quando parseia), estado, `primary`/`gate`, limiares, `onError`, cascata,
-reserva e consenso. Ao ligar uma aresta a partir de um `decision`, `condition` ou `switch`, ela já recebe
-o **primeiro ramo livre**; ao selecioná-la dá para trocar o ramo ou escrever uma condição à mão.
+reserva e consenso. Ao ligar uma aresta a partir de um `condition` ou `switch`, ela já recebe o
+**primeiro ramo livre**. A partir de um `decision` não: a aresta nasce **incondicional** (segue qualquer
+que seja a rota) até que uma rota (`AUTO`/`REVIEW`/`ESCALATE`) seja escolhida no seletor da aresta — dar
+`AUTO` sozinho condicionava o próximo passo sem ninguém ter pedido. Ao selecionar a aresta dá para
+trocar o ramo ou escrever uma condição à mão.
 
 **Correção que veio junto:** o editor descartava a `condition` das arestas ao carregar e ao salvar —
 um fluxo aberto e salvo no designer perdia toda condição e passava a seguir todos os ramos. Agora

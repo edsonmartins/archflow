@@ -8,12 +8,19 @@ import br.com.archflow.model.flow.FlowStep;
 import br.com.archflow.model.flow.StepConnection;
 import br.com.archflow.model.flow.StepResult;
 import br.com.archflow.model.flow.StepType;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Os nós de controle do designer — {@code condition} e {@code switch} — como passos de verdade.
@@ -35,10 +42,24 @@ import java.util.concurrent.CompletableFuture;
  * <p>Uma expressão que não se avalia é <b>falsa</b> (modo estrito), e o ramo vira {@code false} com o
  * motivo no {@code error} da saída: seguir pelo "verdadeiro" porque a expressão quebrou seria agir
  * com confiança sem base.</p>
+ *
+ * <p>Um {@code ${raiz.campo}} cuja <b>raiz</b> não existe no contexto não muda o ramo (segue
+ * {@code false}/{@code default}, como sempre foi — fluxos em produção não mudam de desfecho), mas
+ * deixa de ser silencioso: a saída ganha {@code warning} com o caminho não resolvido. O caso típico é
+ * escrever o <i>rótulo</i> do nó ({@code ${triagem.route}}) quando o motor grava a saída pelo
+ * <i>id</i> ({@code node-1712345678901}); sem o aviso o fluxo termina COMPLETED sem ter feito nada.</p>
  */
 public final class ControlStep implements FlowStep {
 
     public enum Kind { CONDITION, SWITCH }
+
+    private static final Logger log = LoggerFactory.getLogger(ControlStep.class);
+
+    /** Mesmo formato de placeholder do {@link StateTemplate} e das condições das arestas. */
+    private static final Pattern VAR = Pattern.compile("\\$\\{([^}]+)}");
+
+    /** Um aviso por passo: o mesmo nó rodando em laço não deve inundar o log. */
+    private final AtomicBoolean avisou = new AtomicBoolean();
 
     private final String id;
     private final Kind kind;
@@ -99,8 +120,62 @@ public final class ControlStep implements FlowStep {
             saida.put("branch", kind == Kind.CONDITION ? "false" : "default");
             saida.put("error", e.getMessage() == null ? e.toString() : e.getMessage());
         }
+        avisarCaminhosNaoResolvidos(context, saida);
         context.set(id, saida);
         return CompletableFuture.completedFuture(SimpleStepResult.ok(id, saida, ms(start)));
+    }
+
+    /**
+     * Só diagnostica: não toca em {@code branch} nem em {@code error}. Uma raiz ausente quase sempre é
+     * referência ao rótulo em vez do id do nó — e a expressão "funciona", caindo no ramo padrão.
+     */
+    private void avisarCaminhosNaoResolvidos(ExecutionContext context, Map<String, Object> saida) {
+        String expressao = texto(config.get(kind == Kind.CONDITION ? "conditionExpression" : "switchExpression"));
+        if (expressao == null || context == null) {
+            return;
+        }
+        Set<String> ausentes = new LinkedHashSet<>();
+        Matcher m = VAR.matcher(expressao);
+        while (m.find()) {
+            String caminho = m.group(1).trim();
+            if (!caminho.isEmpty() && !raizExiste(caminho, context)) {
+                ausentes.add(caminho);
+            }
+        }
+        if (ausentes.isEmpty()) {
+            return;
+        }
+        List<String> motivos = new ArrayList<>();
+        for (String caminho : ausentes) {
+            String raiz = caminho.split("\\.", 2)[0];
+            motivos.add("caminho não resolvido: " + caminho + " (nenhum passo ou variável com o id '"
+                    + raiz + "')");
+        }
+        String aviso = String.join("; ", motivos)
+                + " — a saída de um passo fica sob o id do nó, não sob o rótulo";
+        saida.put("warning", aviso);
+        if (avisou.compareAndSet(false, true)) {
+            log.warn("{} '{}': {}; ramo '{}'", kind == Kind.CONDITION ? "condition" : "switch", id, aviso,
+                    saida.get("branch"));
+        }
+    }
+
+    /**
+     * A raiz existe se o caminho inteiro, ou algum prefixo dele, é uma chave do contexto — as duas
+     * resoluções ({@link StateTemplate} e {@link ConditionEvaluator}) aceitam {@code a.b} guardado
+     * como chave única. Raiz presente com campo ausente não é aviso: pode ser só um valor opcional.
+     */
+    private static boolean raizExiste(String caminho, ExecutionContext context) {
+        if (context.get(caminho).isPresent()) {
+            return true;
+        }
+        int idx = caminho.length();
+        while ((idx = caminho.lastIndexOf('.', idx - 1)) > 0) {
+            if (context.get(caminho.substring(0, idx)).isPresent()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private List<String> casos() {

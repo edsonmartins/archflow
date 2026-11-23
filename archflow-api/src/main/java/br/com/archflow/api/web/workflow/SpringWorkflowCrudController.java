@@ -2,6 +2,7 @@ package br.com.archflow.api.web.workflow;
 
 import br.com.archflow.api.agent.mcp.McpAgentHost;
 import br.com.archflow.api.audit.AuditTrail;
+import br.com.archflow.api.flow.RunInputSeeding;
 import br.com.archflow.api.flow.WorkflowDeserializer;
 import br.com.archflow.engine.api.FlowEngine;
 import br.com.archflow.observability.audit.AuditAction;
@@ -216,9 +217,9 @@ public class SpringWorkflowCrudController {
         ExecutionContext ctx = new DefaultExecutionContext(
                 null, "runner", executionId,
                 MessageWindowChatMemory.builder().maxMessages(20).build());
-        if (input != null) {
-            input.forEach(ctx::set);
-        }
+        // Cada chave vira variável e, sem chave "input", o objeto inteiro vira o input — a mesma regra
+        // do AG-UI, para a mesma entrada dar o mesmo resultado pelo editor e pela lista/API.
+        RunInputSeeding.seedVariables(ctx, input);
         // Depois do input, e não antes: quem escreve por último vence, e uma variável de entrada
         // chamada "mcp.host" seria dado de quem chama a API sobrescrevendo infraestrutura — o nó
         // passaria a falar com o servidor que ela apontasse.

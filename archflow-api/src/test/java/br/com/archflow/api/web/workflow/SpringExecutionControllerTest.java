@@ -110,4 +110,38 @@ class SpringExecutionControllerTest {
         assertThat(realStore.getExecution(id).get("status")).isEqualTo("FAILED");
         assertThat(realStore.getExecution(id).get("error")).isEqualTo("boom");
     }
+
+    @Test
+    void listOmitsStepOutputsButDetailKeepsThem() {
+        // A listagem é sondada pela UI; a saída (até 4 KB por passo) só serve ao detalhe.
+        Map<String, Object> stepWithOutput = new LinkedHashMap<>(Map.of(
+                "stepId", "node-a", "status", "COMPLETED", "output", "{\"x\":1}"));
+        Map<String, Object> stepWithout = new LinkedHashMap<>(Map.of("stepId", "node-b", "status", "COMPLETED"));
+        Map<String, Object> execution = new LinkedHashMap<>(Map.of(
+                "id", "e1", "status", "COMPLETED",
+                "steps", new java.util.ArrayList<>(java.util.List.of(stepWithOutput, stepWithout))));
+        when(store.executions(null, null)).thenReturn(java.util.List.of(execution));
+        when(store.getExecution("e1")).thenReturn(execution);
+
+        var listed = controller.list(null, null);
+
+        @SuppressWarnings("unchecked")
+        var listedSteps = (java.util.List<Map<String, Object>>) listed.get(0).get("steps");
+        assertThat(listedSteps).hasSize(2);
+        assertThat(listedSteps).allSatisfy(s -> assertThat(s).doesNotContainKey("output"));
+        assertThat(listedSteps.get(0)).containsEntry("stepId", "node-a").containsEntry("status", "COMPLETED");
+        // Copia, não muta: o registro do store (e o detalhe) continua com a saída.
+        assertThat(stepWithOutput).containsEntry("output", "{\"x\":1}");
+        @SuppressWarnings("unchecked")
+        var detailSteps = (java.util.List<Map<String, Object>>) controller.get("e1").getBody().get("steps");
+        assertThat(detailSteps.get(0)).containsEntry("output", "{\"x\":1}");
+    }
+
+    @Test
+    void listReturnsRecordsWithoutStepsUnchanged() {
+        Map<String, Object> execution = new LinkedHashMap<>(Map.of("id", "e1", "status", "RUNNING"));
+        when(store.executions("wf", 5)).thenReturn(java.util.List.of(execution));
+
+        assertThat(controller.list("wf", 5)).containsExactly(execution);
+    }
 }

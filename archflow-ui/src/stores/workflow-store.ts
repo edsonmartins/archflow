@@ -22,6 +22,12 @@ interface WorkflowState {
      * These defaults are the "flow" tier of the model inheritance chain.
      */
     patchFlowLlmConfig: (patch: Record<string, unknown>) => void;
+    /**
+     * Renomeia o currentWorkflow só em memória (metadata.name). Como o patchFlowLlmConfig, não chama o
+     * backend: o Salvar do editor grava o documento inteiro, e gravar aqui à parte poderia regravar uma
+     * cópia velha por cima de um YAML recém-salvo.
+     */
+    renameCurrent: (name: string) => void;
     clearCurrent: () => void;
     clearError: () => void;
 }
@@ -152,6 +158,18 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
                 currentWorkflow: {
                     ...state.currentWorkflow,
                     configuration: { ...cfg, llmConfig },
+                },
+            };
+        });
+    },
+
+    renameCurrent: (name) => {
+        set((state) => {
+            if (!state.currentWorkflow) return {};
+            return {
+                currentWorkflow: {
+                    ...state.currentWorkflow,
+                    metadata: { ...state.currentWorkflow.metadata, name },
                 },
             };
         });

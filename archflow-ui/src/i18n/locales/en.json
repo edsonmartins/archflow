@@ -298,6 +298,7 @@
         "savedAt": "Saved at {{time}}",
         "savedRelative": "Saved {{time}}",
         "untitled": "Untitled workflow",
+        "renameHint": "Click to rename",
         "loadingYaml": "Loading YAML…",
         "emptyTitle": "No workflow loaded",
         "emptyHint": "Create a new workflow or load an existing one to get started",
@@ -318,6 +319,10 @@
             "execFailedMsg": "The workflow ended with an error",
             "execStopped": "Execution stopped",
             "execStoppedMsg": "The run was cancelled",
+            "execPaused": "Execution paused",
+            "execPausedMsg": "The flow is waiting for a human approval (see Approvals)",
+            "execUnknown": "Execution ended",
+            "execUnknownMsg": "Final status: {{status}}",
             "execStartError": "Could not start execution"
         },
         "unsavedChanges": "Unsaved changes",
@@ -396,6 +401,10 @@
             "toggleProperties": "Toggle properties panel",
             "fields": {
                 "nodeName": "Node name",
+                "nodeId": "Node id",
+                "nodeIdHint": "The step output is stored under the id, not the name. Use in expressions:",
+                "upstreamRefs": "Upstream node outputs",
+                "upstreamRefsHint": "Click to insert the reference into the expression.",
                 "catalogOffline": "Offline catalog — showing built-in components only",
                 "assistantType": "Assistant type",
                 "agentType": "Agent type",
@@ -481,6 +490,8 @@
                 "minScore": "Min score (0..1)",
                 "approvalTitle": "Approval title",
                 "decisionProvider": "Decision provider",
+                "decisionRules": "Rules (JSON)",
+                "decisionRulesHint": "Per question. choice: { \"<question>\": { \"match\": { \"<option>\": [\"word\", \"re:regex\"] }, \"otherwise\": \"<option>\" } }. score: keys are the level index and otherwise is a number, e.g. { \"<question>\": { \"match\": { \"2\": [\"down\"], \"1\": [\"slow\"] }, \"otherwise\": 0 } }. noul: { \"<question>\": { \"matchAny\": [\"word\", \"re:regex\"] } }. Without otherwise, no match is an error; falling into otherwise has confidence 0.",
                 "decisionModel": "Model",
                 "decisionModelHint": "Pin the version in production (e.g. typesafe/jev-1.13); an alias like ~typesafe/jev-latest can change on its own.",
                 "decisionQuestions": "Questions (JSON)",
@@ -1484,6 +1495,16 @@
             "llms": "LLMs · OpenAI · Anthropic · Gemini · Ollama"
         }
     },
+    "runInput": {
+        "title": "Run input",
+        "subtitle": "A JSON object becomes context variables (one per key); any other text reaches the flow as input. Leave empty to run without input.",
+        "placeholder": "{\"customer\": \"ACME\"}  or  free text",
+        "asEmpty": "No input: the flow runs with no initial variables.",
+        "asVariables": "JSON object: variables {{keys}}.",
+        "asText": "Text: reaches the flow as input.",
+        "cancel": "Cancel",
+        "run": "Run"
+    },
     "executionDetail": {
         "subtitle": "Run of {{workflow}}",
         "loadFailed": "Could not load this execution",
@@ -1524,7 +1545,9 @@
             "errorLabel": "Error",
             "startedAt": "Started at",
             "finishedAt": "Finished at",
-            "toggle": "Toggle step details"
+            "toggle": "Toggle step details",
+            "notExecuted": "Not executed",
+            "outputLabel": "Output"
         },
         "rerun": "Run again",
         "rerunStarted": "New execution started",
@@ -1606,7 +1629,11 @@
         "streaming": "streaming",
         "outcome": {
             "finished": "finished",
-            "error": "error"
+            "error": "error",
+            "failed": "failed",
+            "cancelled": "cancelled",
+            "paused": "paused",
+            "unknown": "unknown status"
         },
         "eventCount_one": "{{count}} event",
         "eventCount_other": "{{count}} events",
@@ -1616,6 +1643,12 @@
         "empty": "Run a workflow to see its AG-UI events stream in."
     },
     "copilot": {
+        "errors": {
+            "generateFailed": "Could not generate the flow",
+            "runFailed": "The copilot could not reply",
+            "apiKeyHint": "Configure the platform's LLM key.",
+            "unknown": "Unknown error while running the agent."
+        },
         "tryHint": "Open the sidebar (bottom-right) and try one of these",
         "exampleTitles": {
             "context": "Reads the screen",

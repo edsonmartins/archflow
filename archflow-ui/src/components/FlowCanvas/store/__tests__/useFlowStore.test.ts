@@ -232,6 +232,25 @@ describe('useFlowStore', () => {
       expect(useFlowStore.getState().executionState.n1.status).toBe('running')
     })
 
+    it('mergeNodeState fills the output keeping status, duration and error', () => {
+      useFlowStore.getState().startExecution('exec-1')
+      useFlowStore.getState().updateNodeStatus('n1', { status: 'success', durationMs: 42 })
+      useFlowStore.getState().updateNodeStatus('n2', { status: 'error', durationMs: 7, error: 'boom' })
+
+      useFlowStore.getState().mergeNodeState('n1', { output: { answer: 1 } })
+      useFlowStore.getState().mergeNodeState('n2', { output: 'parcial' })
+
+      const s = useFlowStore.getState().executionState
+      expect(s.n1).toEqual({ status: 'success', durationMs: 42, output: { answer: 1 } })
+      expect(s.n2).toEqual({ status: 'error', durationMs: 7, error: 'boom', output: 'parcial' })
+    })
+
+    it('mergeNodeState on a node without STEP events does not invent a status', () => {
+      useFlowStore.getState().startExecution('exec-1')
+      useFlowStore.getState().mergeNodeState('n9', { output: 'x' })
+      expect(useFlowStore.getState().executionState.n9).toEqual({ status: 'idle', output: 'x' })
+    })
+
     it('finishExecution clears isExecuting', () => {
       useFlowStore.getState().startExecution('exec-1')
       useFlowStore.getState().finishExecution()

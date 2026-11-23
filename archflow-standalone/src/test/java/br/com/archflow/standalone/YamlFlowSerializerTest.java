@@ -174,4 +174,58 @@ class YamlFlowSerializerTest {
         assertThat(flow.getId()).isEqualTo("flow-sac");
         assertThat(flow.getMetadata().name()).isEqualTo("SAC Flow");
     }
+
+    /**
+     * {@code getLLMPatch()} é derivado ({@code configuration} do passo, {@code llmConfig} do fluxo) e
+     * {@code LLMConfigPatch.isEmpty()} é um predicado — nenhum dos dois é campo do documento. Sem
+     * {@code @JsonIgnore} o Jackson os tratava como propriedades e a aba Código mostrava blocos
+     * {@code llmpatch:} / {@code empty:} que o usuário não escreveu (e que voltavam gravados no JSON).
+     */
+    @Test
+    @DisplayName("YAML não expõe os derivados llmpatch/empty, e o round-trip preserva a config de LLM")
+    void yamlOmitsDerivedLlmPatch() throws IOException {
+        SerializableFlow original = createTestFlow();
+
+        String out = yaml.serialize(original);
+
+        assertThat(out.toLowerCase()).doesNotContain("llmpatch").doesNotContain("empty:");
+        assertThat(json.serialize(original).toLowerCase()).doesNotContain("llmpatch").doesNotContain("\"empty\"");
+
+        SerializableFlow restored = yaml.deserialize(out);
+        // O patch continua derivável dos campos reais — quem lê getLLMPatch() em runtime não perde nada.
+        assertThat(restored.getConfiguration().getLLMConfig().model()).isEqualTo("gpt-4o");
+        assertThat(restored.getConfiguration().getLLMPatch().model()).contains("gpt-4o");
+        SerializableStep step1 = (SerializableStep) restored.getSteps().get(0);
+        assertThat(step1.getLLMPatch().temperature()).hasValue(0.7);
+        assertThat(yaml.serialize(restored).toLowerCase()).doesNotContain("llmpatch").doesNotContain("empty:");
+    }
+
+    /** Documentos já gravados com o bloco espúrio continuam abrindo — e o bloco some na próxima escrita. */
+    @Test
+    @DisplayName("YAML antigo com llmpatch/empty ainda carrega e é limpo na reescrita")
+    void legacyYamlWithLlmPatchStillLoads() throws IOException {
+        String legacy = """
+                id: flow-sac
+                metadata:
+                  name: SAC Flow
+                  version: 1.0.0
+                configuration:
+                  timeout: 1000
+                  llmpatch:
+                    empty: true
+                steps:
+                  - id: s1
+                    type: llm-chat
+                    configuration:
+                      model: gpt-4o
+                    llmpatch:
+                      empty: false
+                """;
+
+        SerializableFlow flow = yaml.deserialize(legacy);
+
+        assertThat(flow.getSteps()).hasSize(1);
+        assertThat(((SerializableStep) flow.getSteps().get(0)).getLLMPatch().model()).contains("gpt-4o");
+        assertThat(yaml.serialize(flow).toLowerCase()).doesNotContain("llmpatch").doesNotContain("empty:");
+    }
 }

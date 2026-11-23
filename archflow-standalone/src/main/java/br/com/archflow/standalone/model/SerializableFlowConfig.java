@@ -2,8 +2,10 @@ package br.com.archflow.standalone.model;
 
 import br.com.archflow.model.config.FlowConfiguration;
 import br.com.archflow.model.config.LLMConfig;
+import br.com.archflow.model.config.LLMConfigPatch;
 import br.com.archflow.model.config.MonitoringConfig;
 import br.com.archflow.model.config.RetryPolicy;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.util.Set;
@@ -48,6 +50,17 @@ public class SerializableFlowConfig implements FlowConfiguration {
     @Override public RetryPolicy getRetryPolicy() { return retryPolicy; }
     @Override @JsonProperty("llmConfig") public LLMConfig getLLMConfig() { return llmConfig; }
     @Override public MonitoringConfig getMonitoringConfig() { return monitoringConfig; }
+
+    /**
+     * Mesmo comportamento do default de {@link FlowConfiguration} (deriva de {@code llmConfig}); o
+     * override existe só para o {@code @JsonIgnore}. O archflow-model não depende do Jackson, então a
+     * anotação não pode ficar na interface — sem ela o YAML ganhava um {@code llmpatch:} derivado.
+     */
+    @JsonIgnore
+    @Override
+    public LLMConfigPatch getLLMPatch() {
+        return FlowConfiguration.super.getLLMPatch();
+    }
 
     public void setTimeout(long timeout) { this.timeout = timeout; }
     public void setRetryPolicy(RetryPolicy retryPolicy) { this.retryPolicy = retryPolicy; }

@@ -34,7 +34,7 @@ import {
 } from './nodes/index'
 import { FlowEdge }      from './edges/FlowEdge'
 import { useFlowStore, type CanvasApi }  from './store/useFlowStore'
-import { branchOptions, nextFreeBranch } from './branches'
+import { defaultBranch } from './branches'
 import { NODE_CATEGORIES, NODE_TYPE_TO_CATEGORY } from './constants'
 import type { FlowNodeData, WorkflowData } from './types'
 import { CanvasOutline } from './CanvasOutline'
@@ -109,6 +109,12 @@ export interface FlowCanvasProps {
   onNodeSelect?: (nodeId: string | null, data: FlowNodeData | null) => void
   onWorkflowChange?: (workflow: WorkflowData) => void
   onExecutionRequest?: () => void
+  /**
+   * Quando falso, o canvas continua montado (estado e histórico intactos) mas não reage a atalhos de
+   * teclado globais. O editor mantém o canvas montado e oculto enquanto a aba Código está aberta —
+   * sem isso, Ctrl+Z/Ctrl+V/Delete digitados fora do textarea mexeriam num canvas que o usuário não vê.
+   */
+  keyboardActive?: boolean
 }
 
 // ── Componente ───────────────────────────────────────────────────
@@ -120,6 +126,7 @@ export function FlowCanvas({
   onNodeSelect,
   onWorkflowChange,
   onExecutionRequest,
+  keyboardActive = true,
 }: FlowCanvasProps) {
   const rfInstanceRef = useRef<ReactFlowInstance<Node<FlowNodeData>, Edge> | null>(null)
 
@@ -467,7 +474,7 @@ export function FlowCanvas({
 
   // ── Atalhos de teclado do canvas ────────────────────────────────
   useEffect(() => {
-    if (readonly) return
+    if (readonly || !keyboardActive) return
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null
       if (target?.closest('input, textarea, select, [contenteditable="true"]')) return
@@ -484,7 +491,7 @@ export function FlowCanvas({
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [readonly, undo, redo, copySelection, pasteClipboard, duplicateSelection])
+  }, [readonly, keyboardActive, undo, redo, copySelection, pasteClipboard, duplicateSelection])
 
   // ── Drop de nó da palette ──────────────────────────────────────
   const onDragOver = useCallback((event: React.DragEvent) => {
@@ -595,7 +602,7 @@ export function FlowCanvas({
           type: 'flow',
           animated: false,
         }}
-        deleteKeyCode={readonly ? null : ['Backspace', 'Delete']}
+        deleteKeyCode={readonly || !keyboardActive ? null : ['Backspace', 'Delete']}
         nodesDraggable={!readonly}
         nodesConnectable={!readonly}
         elementsSelectable={!readonly}
@@ -724,13 +731,12 @@ function minimapNodeColor(node: Node): string {
 
 /**
  * O ramo padrão de uma aresta nova: o primeiro ainda livre do nó de origem (true/false, os casos do
- * switch, AUTO/REVIEW/ESCALATE). Nó que não ramifica não ganha ramo.
+ * switch). A decisão e o nó que não ramifica não ganham ramo — ver {@link defaultBranch}.
  */
 function defaultEdgeData(sourceId: string, nodes: Node[], edges: Edge[]): { isErrorPath: boolean; branch?: string } {
   const source = nodes.find(n => n.id === sourceId)
   const data = source?.data as FlowNodeData | undefined
-  const options = branchOptions(String(data?.nodeType ?? ''), data?.config)
-  const branch = nextFreeBranch(options, edges.filter(e => e.source === sourceId)
+  const branch = defaultBranch(String(data?.nodeType ?? ''), data?.config, edges.filter(e => e.source === sourceId)
     .map(e => (e.data as { branch?: string } | undefined)?.branch))
   return branch ? { isErrorPath: false, branch } : { isErrorPath: false }
 }

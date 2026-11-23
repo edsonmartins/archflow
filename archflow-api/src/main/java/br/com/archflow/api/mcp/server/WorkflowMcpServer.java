@@ -1,5 +1,6 @@
 package br.com.archflow.api.mcp.server;
 
+import br.com.archflow.api.flow.RunInputSeeding;
 import br.com.archflow.api.flow.WorkflowDeserializer;
 import br.com.archflow.api.web.workflow.WorkflowRuntimeStore;
 import br.com.archflow.engine.api.FlowEngine;
@@ -103,7 +104,8 @@ public class WorkflowMcpServer extends AbstractMcpServer {
             ExecutionContext ctx = new DefaultExecutionContext(
                     null, "mcp", executionId,
                     MessageWindowChatMemory.builder().maxMessages(20).build());
-            arguments.arguments().forEach(ctx::set);
+            // Mesma regra do REST e do AG-UI: sem chave "input", os argumentos inteiros viram o input.
+            RunInputSeeding.seedVariables(ctx, arguments.arguments());
             run = flowEngine.execute(flow, ctx);
         } catch (RuntimeException e) {
             store.completeExecution(executionId, "FAILED", rootMessage(e));

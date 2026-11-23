@@ -11,6 +11,7 @@ import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -41,7 +42,35 @@ public class SpringExecutionController {
                                           @RequestParam(required = false) Integer limit) {
         // Filtering + limiting happen inside the store on the raw records, so a
         // bounded poll only deep-copies the survivors, not the whole history.
-        return store.executions(workflowId, limit);
+        return store.executions(workflowId, limit).stream()
+                .map(SpringExecutionController::withoutStepOutputs)
+                .toList();
+    }
+
+    /**
+     * A listagem é sondada pela UI e não mostra passos; a saída gravada de cada passo (até ~4 KB,
+     * ver {@code StepRecordingListener}) só serve ao detalhe. Sem tirá-la aqui, cada poll cresceria
+     * passos × 4 KB por execução. Copia em vez de mutar: o contrato do store não promete cópia.
+     */
+    @SuppressWarnings("unchecked")
+    static Map<String, Object> withoutStepOutputs(Map<String, Object> execution) {
+        if (!(execution.get("steps") instanceof List<?> steps)
+                || steps.stream().noneMatch(s -> s instanceof Map<?, ?> m && m.containsKey("output"))) {
+            return execution;
+        }
+        List<Object> trimmed = new ArrayList<>(steps.size());
+        for (Object step : steps) {
+            if (step instanceof Map<?, ?> m && m.containsKey("output")) {
+                Map<String, Object> copy = new LinkedHashMap<>((Map<String, Object>) m);
+                copy.remove("output");
+                trimmed.add(copy);
+            } else {
+                trimmed.add(step);
+            }
+        }
+        Map<String, Object> copy = new LinkedHashMap<>(execution);
+        copy.put("steps", trimmed);
+        return copy;
     }
 
     @GetMapping("/{id}")

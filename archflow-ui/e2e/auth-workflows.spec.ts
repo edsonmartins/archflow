@@ -249,8 +249,14 @@ test.describe('Auth and workflows', () => {
 
         await page.getByPlaceholder(/Search workflows/i).fill('');
 
+        // Execute asks for the run input first (RunInputModal), sends a JSON object as the variables,
+        // and opens the execution DETAIL — /executions?id=… used to land on the whole history.
         await page.getByRole('button', { name: 'Execute' }).first().click();
-        await expect(page).toHaveURL(/\/executions\?id=exec-wf-customer$/);
+        await page.getByTestId('run-input-text').fill('{"message": "my invoice is overdue"}');
+        const executeRequest = page.waitForRequest(r => /\/workflows\/wf-customer\/execute$/.test(r.url()) && r.method() === 'POST');
+        await page.getByTestId('run-input-confirm').click();
+        expect((await executeRequest).postDataJSON()).toEqual({ message: 'my invoice is overdue' });
+        await expect(page).toHaveURL(/\/executions\/exec-wf-customer$/);
 
         await page.goto('/workflows');
         await page.getByRole('button', { name: 'New Workflow' }).click();

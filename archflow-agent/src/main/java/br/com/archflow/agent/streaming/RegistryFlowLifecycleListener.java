@@ -9,6 +9,10 @@ import br.com.archflow.model.flow.FlowStep;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Map;
+import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
+
 /**
  * {@link FlowLifecycleListener} that updates the {@link RunningFlowsRegistry}
  * and broadcasts SSE events via the {@link EventStreamRegistry}.
@@ -30,6 +34,17 @@ public class RegistryFlowLifecycleListener implements FlowLifecycleListener {
 
     private final EventStreamRegistry streamRegistry;
     private final RunningFlowsRegistry runningFlowsRegistry;
+
+    /**
+     * Índice com que cada passo foi anunciado no STEP_STARTED, para o evento de fim
+     * repetir o mesmo número. O índice do início vem do contador de travessia do
+     * executor; recalcular no fim pela posição em {@code flow.getSteps()} dava outro
+     * número sempre que a ordem de declaração difere da de execução (ramos de
+     * decision/switch/condition) — o cliente não conseguia casar início e fim.
+     */
+    private final Map<StepKey, Integer> startedIndexes = new ConcurrentHashMap<>();
+
+    private record StepKey(String flowId, String stepId) {}
 
     public RegistryFlowLifecycleListener(EventStreamRegistry streamRegistry,
                                          RunningFlowsRegistry runningFlowsRegistry) {
@@ -59,6 +74,7 @@ public class RegistryFlowLifecycleListener implements FlowLifecycleListener {
         String tenantId = tenantIdOf(context);
         try {
             runningFlowsRegistry.flowEnded(flowId);
+            forgetStartedIndexes(flowId);
 
             ArchflowEvent event = FlowEvent.flowCompleted(flowId, tenantId, durationMs, flowId);
             safeBroadcast(flowId, event);
@@ -75,6 +91,7 @@ public class RegistryFlowLifecycleListener implements FlowLifecycleListener {
         String tenantId = tenantIdOf(context);
         try {
             runningFlowsRegistry.flowEnded(flowId);
+            forgetStartedIndexes(flowId);
 
             String msg = error != null ? error.getMessage() : "unknown";
             String type = error != null ? error.getClass().getSimpleName() : "unknown";
@@ -93,6 +110,9 @@ public class RegistryFlowLifecycleListener implements FlowLifecycleListener {
         String stepId = step.getId();
         try {
             runningFlowsRegistry.stepStarted(flowId, stepId, stepIndex);
+            if (stepId != null) {
+                startedIndexes.put(new StepKey(flowId, stepId), stepIndex);
+            }
 
             String stepName = step.getId(); // use ID as label — full name not always available
             ArchflowEvent event = FlowEvent.stepStarted(
@@ -110,7 +130,7 @@ public class RegistryFlowLifecycleListener implements FlowLifecycleListener {
         String flowId = flow.getId();
         try {
             // Registry update not needed — the flow stays active; next stepStarted will update
-            int stepIndex = currentStepIndex(flow, step);
+            int stepIndex = finishedStepIndex(flow, step);
             ArchflowEvent event = FlowEvent.stepCompleted(flowId, step.getId(),
                     stepIndex, durationMs, flowId);
             safeBroadcast(flowId, event);
@@ -125,7 +145,7 @@ public class RegistryFlowLifecycleListener implements FlowLifecycleListener {
                              Throwable error, long durationMs) {
         String flowId = flow.getId();
         try {
-            int stepIndex = currentStepIndex(flow, step);
+            int stepIndex = finishedStepIndex(flow, step);
             String msg = error != null ? error.getMessage() : "unknown";
             String type = error != null ? error.getClass().getSimpleName() : "unknown";
             ArchflowEvent event = FlowEvent.stepFailed(flowId, step.getId(),
@@ -141,7 +161,7 @@ public class RegistryFlowLifecycleListener implements FlowLifecycleListener {
     public void onStepSkipped(Flow flow, FlowStep step, ExecutionContext context) {
         String flowId = flow.getId();
         try {
-            int stepIndex = currentStepIndex(flow, step);
+            int stepIndex = finishedStepIndex(flow, step);
             ArchflowEvent event = FlowEvent.stepSkipped(flowId, step.getId(), stepIndex, flowId);
             safeBroadcast(flowId, event);
             safeAdminBroadcast(tenantIdOf(context), event);
@@ -186,6 +206,27 @@ public class RegistryFlowLifecycleListener implements FlowLifecycleListener {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    /**
+     * Índice do passo que terminou: o mesmo do STEP_STARTED correspondente. Só cai na
+     * posição em {@code flow.getSteps()} quando não houve início registrado (ex.: um
+     * chamador que anuncia o fim sem o início) — o comportamento anterior.
+     */
+    private int finishedStepIndex(Flow flow, FlowStep step) {
+        String stepId = step.getId();
+        if (stepId != null) {
+            Integer started = startedIndexes.remove(new StepKey(flow.getId(), stepId));
+            if (started != null) {
+                return started;
+            }
+        }
+        return currentStepIndex(flow, step);
+    }
+
+    /** Fim do fluxo: descarta índices de passos que nunca anunciaram o fim (evita vazamento). */
+    private void forgetStartedIndexes(String flowId) {
+        startedIndexes.keySet().removeIf(k -> Objects.equals(k.flowId(), flowId));
     }
 
     private int currentStepIndex(Flow flow, FlowStep step) {
