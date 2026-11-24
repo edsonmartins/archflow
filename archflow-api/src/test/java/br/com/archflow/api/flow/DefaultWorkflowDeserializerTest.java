@@ -38,6 +38,52 @@ class DefaultWorkflowDeserializerTest {
         assertThat(flow.getSteps().get(0)).isInstanceOf(ComponentStep.class);
     }
 
+    /**
+     * RCHFLW-12: o designer grava nota, quadro e separador em steps[] (é assim que eles reabrem), mas eles
+     * não são passos. Resolvê-los no catálogo derrubava o fluxo com "component not found: sticky-note".
+     */
+    @Test
+    void ignoresCanvasAnnotations() {
+        ComponentCatalog catalog = mock(ComponentCatalog.class);
+        WorkflowDeserializer comCatalogo = new DefaultWorkflowDeserializer(
+                new DefaultFlowStepFactory(catalog, mock(DynamicWorkflowService.class),
+                        mock(br.com.archflow.agent.streaming.EventStreamRegistry.class),
+                        mock(br.com.archflow.engine.core.StateManager.class), null));
+        Map<String, Object> json = Map.of(
+                "id", "wf1",
+                "steps", List.of(
+                        Map.of("id", "nota", "componentId", "sticky-note", "type", "STICKY-NOTE",
+                                "configuration", Map.of("text", "lembrar de revisar")),
+                        Map.of("id", "decide", "componentId", "condition", "type", "CONDITION",
+                                "configuration", Map.of("conditionExpression", "true")),
+                        Map.of("id", "quadro", "type", "GROUP-FRAME"),
+                        Map.of("id", "divisor", "componentId", "section-divider")));
+
+        Flow flow = comCatalogo.toFlow(json);
+
+        assertThat(flow.getSteps()).extracting(s -> s.getId()).containsExactly("decide");
+        org.mockito.Mockito.verifyNoInteractions(catalog);
+    }
+
+    /** Aresta até uma anotação (copiloto, YAML, API) some com ela; as demais ficam. */
+    @Test
+    void dropsEdgesThatTargetAnnotations() {
+        Flow flow = deserializer.toFlow(Map.of(
+                "id", "wf2",
+                "steps", List.of(
+                        Map.of("id", "a", "componentId", "condition", "type", "CONDITION",
+                                "configuration", Map.of("conditionExpression", "true"),
+                                "connections", List.of(
+                                        Map.of("sourceId", "a", "targetId", "nota"),
+                                        Map.of("sourceId", "a", "targetId", "b"))),
+                        Map.of("id", "nota", "componentId", "sticky-note"),
+                        Map.of("id", "b", "componentId", "condition", "type", "CONDITION",
+                                "configuration", Map.of("conditionExpression", "true")))));
+
+        assertThat(flow.getSteps()).extracting(s -> s.getId()).containsExactly("a", "b");
+        assertThat(flow.getSteps().get(0).getConnections()).extracting(c -> c.getTargetId()).containsExactly("b");
+    }
+
     @Test
     void toleratesMissingMetadataAndSteps() {
         Flow flow = deserializer.toFlow(Map.of());

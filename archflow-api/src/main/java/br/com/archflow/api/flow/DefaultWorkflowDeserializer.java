@@ -4,6 +4,7 @@ import br.com.archflow.model.flow.Flow;
 import br.com.archflow.model.flow.FlowMetadata;
 import br.com.archflow.model.flow.FlowStep;
 import br.com.archflow.model.config.LLMConfigPatch;
+import br.com.archflow.model.flow.CanvasAnnotation;
 import br.com.archflow.plugin.api.catalog.ComponentAccessPolicy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -12,6 +13,8 @@ import org.springframework.stereotype.Component;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Turns the stored workflow JSON ({@code { id, metadata, steps, configuration }})
@@ -61,8 +64,20 @@ public class DefaultWorkflowDeserializer implements WorkflowDeserializer {
         LLMConfigPatch flowPatch = LLMConfigPatch.fromMap(
                 asMap(configuration.get("llmConfig")));
 
-        List<FlowStep> steps = asList(json.get("steps")).stream()
+        // Anotações do canvas (nota, quadro, separador) ficam no documento para o designer, mas não são
+        // passos: resolvê-las no catálogo derrubava o fluxo com "component not found: sticky-note".
+        // Uma aresta que aponte para uma anotação (o canvas não a desenha, mas o copiloto, o YAML ou a API
+        // podem gravá-la) sai junto — senão o validador do motor recusaria o fluxo por alvo inexistente.
+        List<Map<String, Object>> nodes = asList(json.get("steps")).stream()
                 .map(DefaultWorkflowDeserializer::asMap)
+                .toList();
+        Set<String> anotacoes = nodes.stream()
+                .filter(CanvasAnnotation::isAnnotation)
+                .map(node -> str(node.get("id"), ""))
+                .collect(Collectors.toSet());
+        List<FlowStep> steps = nodes.stream()
+                .filter(node -> !CanvasAnnotation.isAnnotation(node))
+                .map(node -> semArestasPara(node, anotacoes))
                 .map(node -> stepFactory.create(node, componentPolicy, flowPatch))
                 .toList();
 
@@ -86,6 +101,23 @@ public class DefaultWorkflowDeserializer implements WorkflowDeserializer {
      * "component not found") em vez de rodar irrestrito. É opt-in porque a
      * escolha é de produto: quem liga precisa ter migrado os fluxos antes.
      */
+    /** O nó sem as arestas cujo alvo é uma anotação; o próprio nó quando não há nenhuma. */
+    private static Map<String, Object> semArestasPara(Map<String, Object> node, Set<String> anotacoes) {
+        if (anotacoes.isEmpty() || !(node.get("connections") instanceof List<?> arestas)) {
+            return node;
+        }
+        List<?> mantidas = arestas.stream()
+                .filter(a -> !(a instanceof Map<?, ?> m && m.get("targetId") != null
+                        && anotacoes.contains(m.get("targetId").toString())))
+                .toList();
+        if (mantidas.size() == arestas.size()) {
+            return node;
+        }
+        Map<String, Object> copia = new java.util.HashMap<>(node);
+        copia.put("connections", mantidas);
+        return copia;
+    }
+
     private ComponentAccessPolicy componentPolicyOf(Map<String, Object> json) {
         Object declared = asMap(json.get("configuration")).get("allowedComponents");
         if (!(declared instanceof List<?> ids)) {

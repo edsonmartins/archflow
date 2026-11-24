@@ -9,6 +9,7 @@ import br.com.archflow.observability.audit.AuditAction;
 import br.com.archflow.engine.persistence.FlowRepository;
 import br.com.archflow.model.engine.DefaultExecutionContext;
 import br.com.archflow.model.engine.ExecutionContext;
+import br.com.archflow.model.flow.CanvasAnnotation;
 import br.com.archflow.model.flow.Flow;
 import br.com.archflow.model.flow.FlowResult;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
@@ -264,7 +265,10 @@ public class SpringWorkflowCrudController {
         // ClassCastException through the controller and return 500. Fall
         // back to safe defaults instead.
         Map<String, Object> meta = asMap(wf.get("metadata"));
-        int stepCount = asList(wf.get("steps")).size();
+        // Anotações do canvas não são passos: "3 passos" não pode virar 4 por causa de uma nota.
+        int stepCount = (int) asList(wf.get("steps")).stream()
+                .filter(step -> !(step instanceof Map<?, ?> m && CanvasAnnotation.isAnnotation(m)))
+                .count();
         return Map.of(
                 "id", wf.getOrDefault("id", ""),
                 "name", meta.getOrDefault("name", "Untitled"),

@@ -35,7 +35,7 @@ import {
 import { FlowEdge }      from './edges/FlowEdge'
 import { useFlowStore, type CanvasApi }  from './store/useFlowStore'
 import { defaultBranch } from './branches'
-import { NODE_CATEGORIES, NODE_TYPE_TO_CATEGORY } from './constants'
+import { ANNOTATION_COMPONENT_IDS, NODE_CATEGORIES, NODE_TYPE_TO_CATEGORY } from './constants'
 import type { FlowNodeData, WorkflowData } from './types'
 import { CanvasOutline } from './CanvasOutline'
 import { AddNodeMenu } from './AddNodeMenu'
@@ -64,7 +64,6 @@ const edgeTypes = {
 
 // Annotation shapes are excluded from autolayout and from the
 // on-connection-drop menu — they are canvas furniture, not steps.
-const ANNOTATION_TYPES = new Set(['sticky-note', 'group-frame', 'section-divider'])
 
 const ANNOTATION_DEFAULT_SIZE: Record<string, { width: number; height: number }> = {
   'sticky-note':     { width: 220, height: 140 },
@@ -444,7 +443,7 @@ export function FlowCanvas({
 
   // ── Autolayout (dagre, LR) ──────────────────────────────────────
   const tidyUp = useCallback(() => {
-    const regular = localNodesRef.current.filter(n => !ANNOTATION_TYPES.has(n.type ?? ''))
+    const regular = localNodesRef.current.filter(n => !ANNOTATION_COMPONENT_IDS.has(n.type ?? ''))
     if (regular.length < 2) return
     pushHistory('tidy')
     const g = new dagre.graphlib.Graph()

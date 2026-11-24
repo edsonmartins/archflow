@@ -1,6 +1,7 @@
 package br.com.archflow.standalone.model;
 
 import br.com.archflow.model.config.FlowConfiguration;
+import br.com.archflow.model.flow.CanvasAnnotation;
 import br.com.archflow.model.flow.Flow;
 import br.com.archflow.model.flow.FlowMetadata;
 import br.com.archflow.model.flow.FlowStep;
@@ -42,6 +43,32 @@ public class SerializableFlow implements Flow {
                 ? SerializableFlowConfig.from(flow.getConfiguration())
                 : null;
         return new SerializableFlow(flow.getId(), flow.getMetadata(), steps, config);
+    }
+
+    /**
+     * O mesmo fluxo sem as anotações do canvas (nota, quadro, separador) — o que deve ser <b>executado</b>.
+     * O transporte (JSON/YAML) continua levando as anotações: é por ele que o designer as reabre. Mesma
+     * regra do deserializador do archflow-api ({@link CanvasAnnotation}).
+     */
+    public SerializableFlow withoutAnnotations() {
+        java.util.Set<String> anotacoes = steps.stream()
+                .filter(SerializableFlow::isAnnotation)
+                .map(SerializableStep::getId)
+                .collect(java.util.stream.Collectors.toSet());
+        if (anotacoes.isEmpty()) {
+            return this;
+        }
+        // Arestas que apontam para uma anotação saem junto: senão o motor recusaria o fluxo por alvo inexistente.
+        List<SerializableStep> executaveis = steps.stream()
+                .filter(step -> !isAnnotation(step))
+                .map(step -> step.withoutConnectionsTo(anotacoes))
+                .toList();
+        return new SerializableFlow(id, metadata, executaveis, configuration);
+    }
+
+    private static boolean isAnnotation(SerializableStep step) {
+        return CanvasAnnotation.isAnnotation(step.getComponentId())
+                || CanvasAnnotation.isAnnotation(step.getTypeAsText());
     }
 
     @Override public String getId() { return id; }

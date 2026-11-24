@@ -110,6 +110,22 @@ export const NODE_TYPE_TO_CATEGORY: Record<string, keyof typeof NODE_CATEGORIES>
   'section-divider':  'annotation',
 }
 
+/**
+ * Anotações do canvas: só visuais. Ficam em steps[] para sobreviver a salvar/reabrir, mas o motor as
+ * ignora (CanvasAnnotation.TYPES no archflow-model — um teste de espelho compara as duas listas).
+ */
+export const ANNOTATION_COMPONENT_IDS: ReadonlySet<string> = new Set(
+  Object.entries(NODE_TYPE_TO_CATEGORY).filter(([, category]) => category === 'annotation').map(([id]) => id),
+)
+
+/** O passo é anotação pelo componentId ou pelo type (o designer grava o type em maiúsculas). */
+export function isAnnotationStep(step: { componentId?: unknown; type?: unknown } | null | undefined): boolean {
+  if (!step) return false
+  return [step.componentId, step.type].some(
+    k => typeof k === 'string' && ANNOTATION_COMPONENT_IDS.has(k.trim().toLowerCase()),
+  )
+}
+
 // ── Palette completa (23 tipos do NodeRegistry) ──────────────────
 export const PALETTE_NODES = [
   // AI / Agents
