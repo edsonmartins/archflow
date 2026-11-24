@@ -86,6 +86,15 @@ public final class ComponentStep implements FlowStep {
 
     Map<String, Object> getConfiguration() { return configuration; }
 
+    /**
+     * {@code true} quando o passo tem o que executar: um componente já resolvido (adapter,
+     * mcp-agent, decisão) ou um que o catálogo encontra. É a mesma pergunta que o
+     * {@link #execute} faz antes de falhar com "component not found" — ver {@link NodeSupport}.
+     */
+    boolean resolvesComponent() {
+        return resolved != null || (catalog != null && catalog.getComponent(componentId).isPresent());
+    }
+
     @Override
     public CompletableFuture<StepResult> execute(ExecutionContext context) {
         long start = System.nanoTime();

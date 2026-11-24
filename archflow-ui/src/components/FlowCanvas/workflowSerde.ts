@@ -1,4 +1,4 @@
-import type { WorkflowConnection } from './types'
+import type { WorkflowConnection, WorkflowStep } from './types'
 
 /**
  * As conexões do documento do fluxo, de um lado e do outro.
@@ -47,4 +47,35 @@ export function connectionsForStep(stepId: string, connections: WorkflowConnecti
       ...(c.condition ? { condition: c.condition } : {}),
       ...(c.branch ? { branch: c.branch } : {}),
     }))
+}
+
+/** Um passo do documento canônico do fluxo: config em `configuration`, arestas dentro do passo. */
+export interface DocumentStep {
+  id:            string
+  type:          string
+  componentId:   string
+  label:         string
+  position:      { x: number; y: number }
+  configuration: Record<string, unknown>
+  connections:   RawConnection[]
+}
+
+/**
+ * Do formato do designer/template para o documento que o motor e o editor leem.
+ *
+ * Existe porque o clone de template gravava o formato do designer como estava — config em `config`
+ * e arestas num `connections` no topo — e ninguém lê esse formato: o editor abria os nós soltos e
+ * sem config, e o primeiro Salvar apagava a config de vez (RCHFLW-45). O `type` sai como veio (o
+ * roteamento de adapter casa por ele); o motor compara sem caixa.
+ */
+export function canvasToDocumentSteps(steps: WorkflowStep[], connections: WorkflowConnection[]): DocumentStep[] {
+  return steps.map(s => ({
+    id:            s.id,
+    type:          s.type,
+    componentId:   s.componentId,
+    label:         s.label,
+    position:      s.position,
+    configuration: { ...(s.config ?? {}) },
+    connections:   connectionsForStep(s.id, connections),
+  }))
 }

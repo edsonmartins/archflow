@@ -37,6 +37,11 @@ export interface WorkflowTemplate {
     connections: WorkflowConnection[];
     /** Optional default configuration variables exposed by the template. */
     variables?: Record<string, string>;
+    /**
+     * Tipos de nó deste template que o motor ainda não executa (a execução falharia neles com
+     * "component not found"). Vazio = tudo roda; ausente = não verificado (sem backend).
+     */
+    unsupportedNodeTypes?: string[];
 }
 
 const TEMPLATES: WorkflowTemplate[] = [
