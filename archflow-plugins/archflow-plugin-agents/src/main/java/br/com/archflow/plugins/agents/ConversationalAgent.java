@@ -154,8 +154,23 @@ public class ConversationalAgent implements AIAgent, ComponentPlugin {
                         "defaultOperation", "generateResponse"
                 ),
                 Set.of("agent", "conversational", "customer-service"),
-                // keywords — para roteamento por query em linguagem natural
-                Set.of("chat", "conversation", "support", "help", "talk", "customer", "sales", "question")
+                // keywords — para roteamento por query em linguagem natural, em pt-BR e en (RCHFLW-109).
+                // Uma entrada por coisa que o agente faz, com as formas das duas línguas: o roteador conta a
+                // entrada como casada quando qualquer palavra dela está na query, então o score mede
+                // conceitos casados, e listar um plural ou um verbo não enfraquece o agente. Cada termo
+                // vem de uma operação, de um tipo de tarefa ou da descrição acima — nada que ele não faça.
+                // São as 8 entradas em inglês de antes, com o português ao lado: o score de uma query em
+                // inglês não muda. Sem "redigir" nem "relatório": o agente responde a um pedido, não
+                // escreve documentos.
+                Set.of(
+                        "chat",
+                        "conversation conversa conversar",              // tipo de tarefa conversation
+                        "support suporte atendimento",                  // tipo support, customer service
+                        "help ajuda ajudar",
+                        "talk falar",
+                        "customer cliente clientes",                    // customer service
+                        "sales venda vendas",                           // tipo sales
+                        "question pergunta perguntas duvida duvidas")   // tipo inquiry
         );
     }
 
