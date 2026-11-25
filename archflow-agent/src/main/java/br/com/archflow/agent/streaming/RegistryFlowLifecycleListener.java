@@ -170,6 +170,22 @@ public class RegistryFlowLifecycleListener implements FlowLifecycleListener {
         }
     }
 
+    @Override
+    public void onStepSuspended(Flow flow, FlowStep step, ExecutionContext context,
+                                long durationMs) {
+        String flowId = flow.getId();
+        try {
+            // Mesmo índice do STEP_STARTED: para o cliente, a suspensão fecha o início do passo.
+            int stepIndex = finishedStepIndex(flow, step);
+            ArchflowEvent event = FlowEvent.stepSuspended(flowId, step.getId(),
+                    stepIndex, durationMs, flowId);
+            safeBroadcast(flowId, event);
+            safeAdminBroadcast(tenantIdOf(context), event);
+        } catch (Exception e) {
+            log.warn("[{}] onStepSuspended listener error (swallowed)", flowId, e);
+        }
+    }
+
     // ----------------------------------------------------------------
     // Helpers
     // ----------------------------------------------------------------

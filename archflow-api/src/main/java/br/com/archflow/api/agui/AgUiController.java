@@ -8,6 +8,7 @@ import br.com.archflow.api.flow.WorkflowDeserializer;
 import br.com.archflow.api.web.workflow.WorkflowRuntimeStore;
 import br.com.archflow.engine.api.FlowEngine;
 import br.com.archflow.engine.core.StateManager;
+import br.com.archflow.engine.persistence.FlowRepository;
 import br.com.archflow.model.engine.DefaultExecutionContext;
 import br.com.archflow.model.flow.FlowState;
 import br.com.archflow.model.engine.ExecutionContext;
@@ -48,6 +49,7 @@ public class AgUiController {
     private final EventStreamRegistry streamRegistry;
     private final AgUiEventMapper mapper;
     private final StateManager stateManager;
+    private final FlowRepository flowRepository;
     private final ObjectMapper json;
 
     public AgUiController(WorkflowRuntimeStore store,
@@ -56,6 +58,7 @@ public class AgUiController {
                           EventStreamRegistry streamRegistry,
                           AgUiEventMapper mapper,
                           StateManager stateManager,
+                          FlowRepository flowRepository,
                           ObjectMapper jackson2ObjectMapper) {
         this.store = store;
         this.deserializer = deserializer;
@@ -63,6 +66,7 @@ public class AgUiController {
         this.streamRegistry = streamRegistry;
         this.mapper = mapper;
         this.stateManager = stateManager;
+        this.flowRepository = flowRepository;
         this.json = jackson2ObjectMapper;
     }
 
@@ -89,6 +93,10 @@ public class AgUiController {
         Map<String, Object> flowJson = new HashMap<>(workflow);
         flowJson.put("id", runId);
         Flow flow = deserializer.toFlow(flowJson);
+        // A retomada busca o fluxo no FlowRepository, como em /execute. Sem o registro, uma
+        // execução do editor que parasse num portão de aprovação nunca mais seguia: aprovar
+        // consumia o pedido e a retomada falhava sem ninguém ver (RCHFLW-59).
+        flowRepository.save(flow);
 
         ExecutionContext ctx = new DefaultExecutionContext(
                 tenantId, "ag-ui", runId,

@@ -1,6 +1,9 @@
 package br.com.archflow.api.flow;
 
 import br.com.archflow.model.engine.ExecutionContext;
+import br.com.archflow.model.engine.ExecutionKeys;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.Map;
 
@@ -16,17 +19,29 @@ import java.util.Map;
  *
  * <p>Um {@code input} explícito vence: {@code {"input": "texto"}} continua chegando como o texto, não
  * como o mapa que o contém.</p>
+ *
+ * <p>As chaves do motor ({@link ExecutionKeys#reservadaAoMotor}) são descartadas: quem dispara a
+ * execução não pode semear a decisão de um portão, o histórico de quem aprovou nem o checkpoint de
+ * passos concluídos — qualquer um dos três deixava o chamador passar pelo portão sem pedido na fila.</p>
  */
 public final class RunInputSeeding {
 
     public static final String INPUT_KEY = "input";
 
+    private static final Logger log = LoggerFactory.getLogger(RunInputSeeding.class);
+
     private RunInputSeeding() {
     }
 
-    public static void seedVariables(ExecutionContext ctx, Map<String, Object> variables) {
-        if (ctx == null || variables == null) {
+    public static void seedVariables(ExecutionContext ctx, Map<String, Object> entrada) {
+        if (ctx == null || entrada == null) {
             return;
+        }
+        Map<String, Object> variables = ExecutionKeys.semChavesDoMotor(entrada);
+        if (variables.size() != entrada.size()) {
+            // Só os nomes: o valor é o que o chamador tentou forjar e não precisa ir para o log.
+            log.warn("Entrada da execução trazia chaves reservadas ao motor; ignoradas: {}",
+                    entrada.keySet().stream().filter(ExecutionKeys::reservadaAoMotor).toList());
         }
         variables.forEach(ctx::set);
         // Objeto vazio é "sem entrada", não uma entrada "{}": é o corpo padrão de um cliente MCP sem argumentos e

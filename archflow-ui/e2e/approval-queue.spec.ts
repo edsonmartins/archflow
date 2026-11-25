@@ -121,7 +121,7 @@ test.describe('Approval queue', () => {
         await page.goto('/approvals', { waitUntil: 'commit' });
         await page.getByTestId('approval-row-req-approval-1').dispatchEvent('click');
 
-        await expect(page).toHaveURL(/\/approvals\/req-approval-1$/);
+        await expect(page).toHaveURL(/\/approvals\/req-approval-1(\?flowId=[^/]*)?$/);
         // UI truncates the request id to its first 12 chars.
         await expect(page.getByRole('heading', { name: /Approval req-approval/ })).toBeVisible();
         // Proposal is rendered by the JsonViewer tree as `key: "value"`.

@@ -1,5 +1,7 @@
 package br.com.archflow.api.web.workflow;
 
+import br.com.archflow.model.tenant.DefaultTenant;
+
 import br.com.archflow.api.config.GlobalExceptionHandler;
 import br.com.archflow.api.workflow.InvalidYamlException;
 import br.com.archflow.api.workflow.WorkflowYamlBridge;
@@ -73,7 +75,7 @@ class WorkflowYamlErrorShapeTest {
         doc.put("id", "wf-1");
         doc.put("metadata", Map.of("name", "Teste", "version", "1.0.0"));
         doc.put("steps", List.of());
-        store.putWorkflow("wf-1", doc);
+        store.putWorkflow(DefaultTenant.ID, "wf-1", doc);
         mvc = MockMvcBuilders.standaloneSetup(new SpringWorkflowYamlController(store, bridge))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();

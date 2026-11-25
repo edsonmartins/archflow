@@ -184,4 +184,6 @@ export const EXECUTION_STATUS_COLORS = {
   success: { border: 'var(--green)',   bg: 'var(--green-l)', text: 'var(--green-text)' },
   error:   { border: 'var(--red)',     bg: 'var(--red-l)',   text: 'var(--red-text)' },
   skipped: { border: 'var(--gray)',    bg: 'var(--gray-l)',  text: 'var(--text3)' },
+  // Portão de aprovação à espera de uma pessoa: nem concluído (verde) nem rodando (âmbar).
+  awaiting: { border: 'var(--purple)', bg: 'var(--purple-l)', text: 'var(--purple-text)' },
 } as const

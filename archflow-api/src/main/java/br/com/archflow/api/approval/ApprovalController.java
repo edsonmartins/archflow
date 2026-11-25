@@ -41,4 +41,14 @@ public interface ApprovalController {
      * @return Detalhes da aprovação
      */
     ApprovalResponse getApproval(String requestId);
+
+    /**
+     * Como {@link #getApproval(String)}, mas também encontra um pedido já decidido quando se sabe
+     * de qual execução ele é — e então devolve quem decidiu, quando e o comentário.
+     *
+     * @param flowId execução que emitiu o pedido (opcional)
+     */
+    default ApprovalResponse getApproval(String requestId, String flowId) {
+        return getApproval(requestId);
+    }
 }

@@ -163,8 +163,13 @@ public class DefaultFlowExecutor implements FlowExecutor {
      *   <li><b>Legado</b> (nenhuma conexão): executa a lista de steps em ordem.</li>
      * </ul>
      *
-     * <p>Entre steps o {@link FlowControl} é consultado: stop → CANCELLED,
-     * pause → PAUSED (o estado corrente permanece no contexto para resume).
+     * <p>O {@link FlowControl} é consultado entre steps <b>e ao fim da travessia</b>:
+     * stop → CANCELLED, pause → PAUSED (o estado corrente permanece no contexto para
+     * resume). A consulta final não é redundante: o sinal costuma chegar DURANTE um
+     * step (o nó de aprovação pede a pausa de dentro dele; um cancelamento chega
+     * enquanto o step roda). Se esse step era o último, a fila esvazia e, sem a
+     * consulta final, o fluxo terminava COMPLETED — a aprovação sumia da fila e o
+     * cancelamento já confirmado ao chamador virava sucesso (RCHFLW-14).
      */
     private Traversal traverse(Flow flow, ExecutionContext context, FlowControl control) {
         List<FlowStep> steps = flow.getSteps() != null ? flow.getSteps() : List.of();
@@ -203,13 +208,9 @@ public class DefaultFlowExecutor implements FlowExecutor {
         int totalSteps = steps.size();
 
         while (!queue.isEmpty()) {
-            if (control.isStopRequested()) {
-                logger.info("Fluxo " + flow.getId() + " cancelado; interrompendo travessia");
-                return new Traversal(results, ExecutionStatus.CANCELLED);
-            }
-            if (control.isPauseRequested()) {
-                logger.info("Fluxo " + flow.getId() + " pausado; suspendendo travessia");
-                return new Traversal(results, ExecutionStatus.PAUSED);
+            Optional<ExecutionStatus> signalled = controlSignal(flow, control);
+            if (signalled.isPresent()) {
+                return new Traversal(results, signalled.get());
             }
 
             FlowStep step = queue.poll();
@@ -240,6 +241,15 @@ public class DefaultFlowExecutor implements FlowExecutor {
                 recordCompletedStep(context, step.getId());
             }
 
+            // O step suspendeu o fluxo (portão de aprovação à espera de uma pessoa): a travessia
+            // para AQUI, sem enfileirar os alvos e sem marcar o step como concluído — na retomada
+            // ele roda de novo, encontra a decisão e conclui com ela. Parar já, e não no topo da
+            // próxima volta, também vale quando ele é o último step. Um cancelamento pedido no
+            // meio do caminho continua vencendo a pausa.
+            if (result.getStatus() == StepStatus.PAUSED) {
+                return new Traversal(results, controlSignal(flow, control).orElse(ExecutionStatus.PAUSED));
+            }
+
             if (!graphMode) {
                 if (result.getStatus().isError()) {
                     unhandledFailure = true;
@@ -259,8 +269,30 @@ public class DefaultFlowExecutor implements FlowExecutor {
             }
         }
 
+        // A fila esvaziou, mas um sinal levantado durante o último step ainda vale.
+        Optional<ExecutionStatus> signalled = controlSignal(flow, control);
+        if (signalled.isPresent()) {
+            return new Traversal(results, signalled.get());
+        }
         return new Traversal(results,
                 unhandledFailure ? ExecutionStatus.FAILED : ExecutionStatus.COMPLETED);
+    }
+
+    /**
+     * Status imposto pelo sinal de controle, se houver. Um único lugar para as duas
+     * consultas (topo do laço e fim da travessia) não divergirem na prioridade:
+     * stop vence pause, e ambos vencem o status calculado pelos steps.
+     */
+    private static Optional<ExecutionStatus> controlSignal(Flow flow, FlowControl control) {
+        if (control.isStopRequested()) {
+            logger.info("Fluxo " + flow.getId() + " cancelado; interrompendo travessia");
+            return Optional.of(ExecutionStatus.CANCELLED);
+        }
+        if (control.isPauseRequested()) {
+            logger.info("Fluxo " + flow.getId() + " pausado; suspendendo travessia");
+            return Optional.of(ExecutionStatus.PAUSED);
+        }
+        return Optional.empty();
     }
 
     private static List<StepConnection> connectionsOf(FlowStep step) {
@@ -362,6 +394,7 @@ public class DefaultFlowExecutor implements FlowExecutor {
                 case COMPLETED -> handleSuccess(execution, result);
                 case FAILED -> handleFailure(execution, result);
                 case SKIPPED -> handleSkipped(execution, result);
+                case PAUSED -> handleSuspended(execution, result);
                 default -> logger.warning("Status não tratado: " + result.getStatus());
             }
 
@@ -396,6 +429,17 @@ public class DefaultFlowExecutor implements FlowExecutor {
 
     private void handleSkipped(StepExecution execution, StepResult result) {
         logger.info("Step " + result.getStepId() + " ignorado");
+    }
+
+    /**
+     * Step que suspendeu o fluxo: a saída (no portão de aprovação, o {@code requestId}) vai para
+     * o contexto como a de um step concluído, para o detalhe da execução mostrar qual pedido está
+     * aberto. Não é conclusão — quem decide isso é {@code traverse}, que não o marca concluído.
+     */
+    private void handleSuspended(StepExecution execution, StepResult result) {
+        logger.info("Step " + result.getStepId() + " suspendeu o fluxo");
+        execution.getContext().set("step." + result.getStepId() + ".output",
+                result.getOutput().orElse(null));
     }
 
     /**
@@ -471,6 +515,10 @@ public class DefaultFlowExecutor implements FlowExecutor {
             long durationMs = (System.nanoTime() - startNs) / 1_000_000;
             if (result.getStatus() == StepStatus.SKIPPED) {
                 safeLifecycle(() -> lifecycleListener.onStepSkipped(flow, step, context));
+            } else if (result.getStatus() == StepStatus.PAUSED) {
+                // Suspensão não é conclusão: pelo caminho de "concluído" o portão de aprovação
+                // aparecia como ✓ no canvas e no registro enquanto esperava a decisão (RCHFLW-32).
+                safeLifecycle(() -> lifecycleListener.onStepSuspended(flow, step, context, durationMs));
             } else if (result.getStatus().isError()) {
                 Throwable cause = result.getErrors().isEmpty() ? null
                         : new RuntimeException(result.getErrors().get(0).message());

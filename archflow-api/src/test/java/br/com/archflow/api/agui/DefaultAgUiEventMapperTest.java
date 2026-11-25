@@ -33,6 +33,23 @@ class DefaultAgUiEventMapperTest {
         });
     }
 
+    /**
+     * O portão de aprovação à espera fecha o STEP_STARTED (cliente AG-UI genérico não fica com um
+     * passo aberto), mas com um status próprio — é ele que o editor lê como "aguardando aprovação"
+     * em vez de ✓ (RCHFLW-32).
+     */
+    @Test
+    void mapsSuspendedStepToFinishedWithItsOwnStatus() {
+        List<AgUiEvent> suspended = mapper.toAgUi(event(ArchflowDomain.FLOW, ArchflowEventType.STEP_SUSPENDED,
+                Map.of("stepId", "gate", "stepIndex", 1, "durationMs", 7L)));
+        assertThat(suspended).singleElement().satisfies(e -> {
+            assertThat(e.getType()).isEqualTo("STEP_FINISHED");
+            assertThat(e.getFields()).containsEntry("status", "STEP_SUSPENDED")
+                    .containsEntry("stepId", "gate")
+                    .containsEntry("stepIndex", 1);
+        });
+    }
+
     @Test
     void mapsMessageToTextBracket() {
         List<AgUiEvent> events = mapper.toAgUi(event(ArchflowDomain.CHAT, ArchflowEventType.MESSAGE, Map.of("content", "hello")));

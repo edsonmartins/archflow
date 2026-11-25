@@ -151,7 +151,7 @@ class TenantDaRequisicaoNaExecucaoTest {
 
     private String executarPeloAgUi(String xTenantId) throws Exception {
         AgUiController controller = new AgUiController(store, deserializer, engine,
-                new EventStreamRegistry(), new DefaultAgUiEventMapper(), stateManager, new ObjectMapper());
+                new EventStreamRegistry(), new DefaultAgUiEventMapper(), stateManager, flowRepository, new ObjectMapper());
         String workflowId = fluxoDo(xTenantId);
         naRequisicao(xTenantId, () -> controller.run(workflowId,
                 new RunAgentInput(List.of(), Map.of(), List.of(), List.of(), null, null)));

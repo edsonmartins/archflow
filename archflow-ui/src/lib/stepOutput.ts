@@ -16,12 +16,20 @@ export interface StepRecord {
   type?: string
   stepIndex?: number
   stepCount?: number
-  status: 'RUNNING' | 'COMPLETED' | 'FAILED' | 'SKIPPED' | string
+  /**
+   * PAUSED: portão de aprovação à espera da decisão (não concluiu). REJECTED: portão recusado, por
+   * alguém ou pelo prazo — gravado pela fila de Aprovações, com `decidedBy`.
+   */
+  status: 'RUNNING' | 'COMPLETED' | 'FAILED' | 'SKIPPED' | 'PAUSED' | 'REJECTED' | string
   startedAt?: string
   finishedAt?: string
+  /** Quando o portão suspendeu o fluxo para esperar a decisão. */
+  suspendedAt?: string
   durationMs?: number
   error?: string
   output?: string
+  /** Quem recusou o portão (só em REJECTED). */
+  decidedBy?: string
 }
 
 /** Status sintético das linhas de passos do fluxo que não têm registro nesta execução. */

@@ -6,6 +6,7 @@ import br.com.archflow.engine.api.FlowEngine;
 import br.com.archflow.engine.core.StateManager;
 import br.com.archflow.model.engine.DefaultExecutionContext;
 import br.com.archflow.model.engine.ExecutionContext;
+import br.com.archflow.model.engine.ExecutionKeys;
 import br.com.archflow.model.flow.FlowResult;
 import br.com.archflow.model.flow.FlowState;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
@@ -84,14 +85,34 @@ public class SpringExecutionController {
         if (execution == null) {
             return ResponseEntity.notFound().build();
         }
-        // Enrich with the materialized dynamic tree, if any (design-0005 step 4).
         FlowState state = stateManager.loadState(id);
-        if (state != null && state.getExecutionPaths() != null && !state.getExecutionPaths().isEmpty()) {
-            Map<String, Object> enriched = new LinkedHashMap<>(execution);
-            enriched.put("executionPaths", state.getExecutionPaths());
-            return ResponseEntity.ok(enriched);
+        if (state == null) {
+            return ResponseEntity.ok(execution);
         }
-        return ResponseEntity.ok(execution);
+        Map<String, Object> enriched = new LinkedHashMap<>(execution);
+        // Enrich with the materialized dynamic tree, if any (design-0005 step 4).
+        if (state.getExecutionPaths() != null && !state.getExecutionPaths().isEmpty()) {
+            enriched.put("executionPaths", state.getExecutionPaths());
+        }
+        // Quem decidiu cada portão, lido do estado durável que o motor gravou sob o lock da
+        // decisão — não do registro, que é diagnóstico. Sem isto nenhuma tela respondia "quem
+        // autorizou isto" (RCHFLW-38).
+        Object approvals = state.getVariables() != null
+                ? state.getVariables().get(ExecutionKeys.APPROVAL_HISTORY) : null;
+        if (approvals instanceof java.util.Collection<?> decided && !decided.isEmpty()) {
+            enriched.put("approvals", decided);
+        }
+        // O pedido ainda aberto, para o detalhe levar direto à fila de Aprovações.
+        if (ExecutionKeys.aguardaDecisaoHumana(state)) {
+            Map<String, Object> pending = new LinkedHashMap<>();
+            pending.put("requestId", String.valueOf(state.getVariables().get(ExecutionKeys.APPROVAL_REQUEST_ID)));
+            Object stepId = state.getVariables().get(ExecutionKeys.APPROVAL_STEP_ID);
+            if (stepId != null) {
+                pending.put("stepId", String.valueOf(stepId));
+            }
+            enriched.put("pendingApproval", pending);
+        }
+        return ResponseEntity.ok(enriched);
     }
 
     /**
@@ -140,6 +161,13 @@ public class SpringExecutionController {
         if (state.getStatus() == null || state.getStatus().isFinal()) {
             return ResponseEntity.status(409).body(
                     Map.<String, Object>of("error", "execution is in a final state and cannot be resumed"));
+        }
+        // Um portão à espera só sai pela fila de aprovações. O motor também recusa, mas de
+        // forma assíncrona: o callback abaixo marcaria o registro FAILED com o pedido ainda
+        // aberto na fila. Aqui ele nem chega a ser tocado.
+        if (ExecutionKeys.aguardaDecisaoHumana(state)) {
+            return ResponseEntity.status(409).body(Map.<String, Object>of(
+                    "error", "execution is awaiting a human decision; decide it in the approval queue"));
         }
 
         ExecutionContext ctx = new DefaultExecutionContext(

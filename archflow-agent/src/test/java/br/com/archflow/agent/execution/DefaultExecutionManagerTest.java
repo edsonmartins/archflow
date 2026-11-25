@@ -81,6 +81,87 @@ class DefaultExecutionManagerTest {
         assertThat(results).isEmpty();
     }
 
+    /**
+     * Uma aprovação decidida enquanto a travessia original desenrola registra a retomada sob o
+     * mesmo flowId. Quando a original termina, ela não pode levar junto o controle da retomada —
+     * senão o próximo portão (pauseFlow) e o cancelar (stopFlow) não acham a quem sinalizar.
+     */
+    @Test
+    @DisplayName("a execução que termina não remove o controle da que a sucedeu no mesmo flowId")
+    void finishingRunKeepsTheSuccessorsControl() throws Exception {
+        java.util.concurrent.CountDownLatch originalEntered = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch releaseOriginal = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch resumeEntered = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch releaseResume = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();
+        FlowExecutor executor = new FlowExecutor() {
+            @Override
+            public FlowResult execute(Flow flow, ExecutionContext context) {
+                throw new UnsupportedOperationException();
+            }
+
+            @Override
+            public FlowResult execute(Flow flow, ExecutionContext context,
+                                      br.com.archflow.engine.execution.FlowControl control) {
+                try {
+                    if (calls.incrementAndGet() == 1) {
+                        originalEntered.countDown();
+                        releaseOriginal.await();
+                        return resultOf(ExecutionStatus.PAUSED, context);
+                    }
+                    resumeEntered.countDown();
+                    releaseResume.await();
+                    return resultOf(control.isPauseRequested() ? ExecutionStatus.PAUSED
+                            : ExecutionStatus.COMPLETED, context);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException(e);
+                }
+            }
+        };
+        ParallelExecutor parallel = new ParallelExecutor() {
+            @Override public List<StepResult> executeParallel(List<FlowStep> steps, ExecutionContext ctx) {
+                return List.of();
+            }
+            @Override public void awaitCompletion() {}
+        };
+        DefaultExecutionManager mgr = new DefaultExecutionManager(executor, parallel,
+                Executors.newSingleThreadExecutor());
+        Flow flow = stubFlow("f-gate");
+
+        var pool = Executors.newFixedThreadPool(2);
+        try {
+            var original = pool.submit(() -> mgr.executeFlow(flow, createCtx("f-gate")));
+            originalEntered.await();
+            var resumed = pool.submit(() -> mgr.executeFlow(flow, createCtx("f-gate")));
+            resumeEntered.await();
+
+            releaseOriginal.countDown();
+            original.get(5, java.util.concurrent.TimeUnit.SECONDS);
+
+            // O segundo portão da retomada pede a pausa depois que a original saiu
+            mgr.pauseFlow("f-gate");
+            releaseResume.countDown();
+
+            assertThat(resumed.get(5, java.util.concurrent.TimeUnit.SECONDS).getStatus())
+                    .as("o pedido de pausa tem de chegar ao controle da retomada")
+                    .isEqualTo(ExecutionStatus.PAUSED);
+        } finally {
+            releaseOriginal.countDown();
+            releaseResume.countDown();
+            pool.shutdownNow();
+        }
+    }
+
+    private static FlowResult resultOf(ExecutionStatus status, ExecutionContext context) {
+        return new FlowResult() {
+            @Override public ExecutionStatus getStatus() { return status; }
+            @Override public Optional<Object> getOutput() { return Optional.empty(); }
+            @Override public ExecutionMetrics getMetrics() { return context.getMetrics(); }
+            @Override public List<ExecutionError> getErrors() { return List.of(); }
+        };
+    }
+
     // ── helpers ─────────────────────────────────────────────────
 
     private ExecutionContext createCtx(String flowId) {

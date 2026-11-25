@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { runOutcomeOf } from '../runOutcome'
+import { nodeStatusOfStepFinished, runOutcomeOf } from '../runOutcome'
 
 describe('runOutcomeOf', () => {
   it.each([
@@ -18,5 +18,22 @@ describe('runOutcomeOf', () => {
     [{ type: 'STEP_FINISHED' }, 'unknown'],
   ])('%j → %s', (event, expected) => {
     expect(runOutcomeOf(event)).toBe(expected)
+  })
+})
+
+describe('nodeStatusOfStepFinished', () => {
+  // O portão de aprovação à espera fecha o passo com STEP_SUSPENDED: era pintado com ✓ (RCHFLW-32).
+  it('STEP_SUSPENDED é aguardando, não sucesso', () => {
+    expect(nodeStatusOfStepFinished('STEP_SUSPENDED')).toBe('awaiting')
+  })
+
+  it.each([
+    ['STEP_COMPLETED', 'success'],
+    ['STEP_FAILED', 'error'],
+    ['STEP_SKIPPED', 'skipped'],
+    // Servidor AG-UI genérico, sem status: conclusão, como antes
+    [undefined, 'success'],
+  ])('%s → %s', (status, expected) => {
+    expect(nodeStatusOfStepFinished(status)).toBe(expected)
   })
 })

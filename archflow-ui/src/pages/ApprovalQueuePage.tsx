@@ -56,6 +56,7 @@ export default function ApprovalQueuePage() {
             (it) =>
                 it.requestId.toLowerCase().includes(q) ||
                 it.flowId.toLowerCase().includes(q) ||
+                (it.title ?? '').toLowerCase().includes(q) ||
                 (it.description ?? '').toLowerCase().includes(q),
         );
     }, [items, search]);
@@ -72,10 +73,12 @@ export default function ApprovalQueuePage() {
     }, [items]);
 
     const colunas = useMemo((): VxColumn[] => [
+        // O título do nó (quando há) é o nome do pedido; a descrição vai embaixo. Sem título, a
+        // descrição é o nome e o id do pedido vai embaixo, como antes.
         colunaDupla(
             { field: 'description', title: t('approvals.table.description'), width: 'auto', minWidth: 300 },
-            (r) => String(r.description ?? '—'),
-            (r) => String(r.requestId).slice(0, 12),
+            (r) => String(r.title ?? r.description ?? '—'),
+            (r) => (r.title && r.description ? String(r.description) : String(r.requestId).slice(0, 12)),
         ),
         colunaDupla(
             { field: 'flowId', title: t('approvals.table.flow'), width: 230 },
@@ -92,7 +95,10 @@ export default function ApprovalQueuePage() {
         colunaAcoes([{ nome: 'review', icone: 'eye', rotulo: t('approvals.review') }]),
     ], [t]);
 
-    const open = (r: Record<string, unknown>) => navigate(`/approvals/${r.requestId}`);
+    // A execução vai junto: se o pedido for decidido enquanto o link está aberto (ou for reaberto
+    // depois), o detalhe ainda mostra quem decidiu em vez de "não encontrado".
+    const open = (r: Record<string, unknown>) =>
+        navigate(`/approvals/${r.requestId}?flowId=${encodeURIComponent(String(r.flowId ?? ''))}`);
 
     return (
         <Stack gap="lg" p="md">

@@ -232,4 +232,124 @@ class InMemoryWorkflowRuntimeStoreTest {
         assertThat(store.getExecution(null, "exec-demo-001")).containsEntry("tenantId", DefaultTenant.ID);
         assertThat(store.workflows("acme")).extracting(wf -> wf.get("id")).containsExactly("wf-acme");
     }
+
+    // A fila de aprovações e quem disparou a execução escrevem o fim dela; o status velho que
+    // chega por último não pode apagar o desfecho (RCHFLW-40, decisão de um aprovador automático).
+
+    @Test
+    @DisplayName("PAUSED ou CANCELLED tardio não apaga COMPLETED, FAILED nem STOPPED")
+    void lateStatusDoesNotOverwriteAnOutcome() {
+        var store = new InMemoryWorkflowRuntimeStore();
+        for (String outcome : List.of("COMPLETED", "FAILED", "STOPPED")) {
+            for (String late : List.of("PAUSED", "CANCELLED")) {
+                String id = String.valueOf(store.createExecution(DefaultTenant.ID, "wf-1", "Flow").get("id"));
+                store.completeExecution(id, outcome, "motivo de " + outcome);
+                Object completedAt = store.getExecution(DefaultTenant.ID, id).get("completedAt");
+
+                store.completeExecution(id, late, null);
+
+                var record = store.getExecution(DefaultTenant.ID, id);
+                assertThat(record.get("status")).as("%s depois de %s", late, outcome).isEqualTo(outcome);
+                assertThat(record.get("error")).isEqualTo("motivo de " + outcome);
+                assertThat(record.get("completedAt")).isEqualTo(completedAt);
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("na ordem certa nada é barrado: o desfecho vence o PAUSED e o CANCELLED anteriores")
+    void outcomeAfterPauseOrCancelIsWritten() {
+        var store = new InMemoryWorkflowRuntimeStore();
+        String paused = String.valueOf(store.createExecution(DefaultTenant.ID, "wf-1", "Flow").get("id"));
+        store.completeExecution(paused, "PAUSED", null);
+        store.completeExecution(paused, "STOPPED", "Rejected at approval gate 'gate' by diretor");
+        String cancelled = String.valueOf(store.createExecution(DefaultTenant.ID, "wf-1", "Flow").get("id"));
+        store.completeExecution(cancelled, "CANCELLED", null);
+        store.completeExecution(cancelled, "STOPPED", "Rejected");
+
+        assertThat(store.getExecution(DefaultTenant.ID, paused).get("status")).isEqualTo("STOPPED");
+        assertThat(store.getExecution(DefaultTenant.ID, cancelled).get("status")).isEqualTo("STOPPED");
+    }
+
+    @Test
+    @DisplayName("retomada passa por markResumed: depois dela o portão seguinte grava PAUSED")
+    void resumedExecutionCanPauseAgain() {
+        var store = new InMemoryWorkflowRuntimeStore();
+        String id = String.valueOf(store.createExecution(DefaultTenant.ID, "wf-1", "Flow").get("id"));
+        store.completeExecution(id, "COMPLETED", null);
+
+        store.markResumed(id);
+        store.completeExecution(id, "PAUSED", null);
+
+        assertThat(store.getExecution(DefaultTenant.ID, id).get("status")).isEqualTo("PAUSED");
+    }
+
+    @Test
+    @DisplayName("regra compartilhada pelos stores: só PAUSED/CANCELLED sobre desfecho é velho")
+    void staleStatusRule() {
+        assertThat(WorkflowRuntimeStore.isStaleStatus("STOPPED", "PAUSED")).isTrue();
+        assertThat(WorkflowRuntimeStore.isStaleStatus("COMPLETED", "CANCELLED")).isTrue();
+        assertThat(WorkflowRuntimeStore.isStaleStatus("FAILED", "PAUSED")).isTrue();
+        assertThat(WorkflowRuntimeStore.isStaleStatus("RUNNING", "PAUSED")).isFalse();
+        assertThat(WorkflowRuntimeStore.isStaleStatus("RUNNING", "CANCELLED")).isFalse();
+        assertThat(WorkflowRuntimeStore.isStaleStatus("PAUSED", "PAUSED")).isFalse();
+        assertThat(WorkflowRuntimeStore.isStaleStatus("CANCELLED", "STOPPED")).isFalse();
+        assertThat(WorkflowRuntimeStore.isStaleStatus("STOPPED", "FAILED")).isFalse();
+        assertThat(WorkflowRuntimeStore.isStaleStatus(null, "PAUSED")).isFalse();
+    }
+
+    // O portão grava PAUSED depois que o step devolve, mas o pedido já está na fila: uma decisão
+    // rápida grava o desfecho do passo antes, e o PAUSED velho não pode apagá-lo.
+
+    @Test
+    @DisplayName("PAUSED tardio não apaga o desfecho do passo (REJECTED com o decisor, COMPLETED...)")
+    @SuppressWarnings("unchecked")
+    void lateStepPauseDoesNotOverwriteTheStepOutcome() {
+        var store = new InMemoryWorkflowRuntimeStore();
+        for (String outcome : List.of("REJECTED", "COMPLETED", "FAILED", "SKIPPED")) {
+            String id = String.valueOf(store.createExecution(DefaultTenant.ID, "wf-1", "Flow").get("id"));
+            store.recordStep(id, "gate", Map.of("status", "RUNNING"));
+            store.recordStep(id, "gate", Map.of("status", outcome, "decidedBy", "maria"));
+
+            store.recordStep(id, "gate", Map.of("status", "PAUSED", "suspendedAt", "2026-11-24T12:00:00Z"));
+
+            var steps = (List<Map<String, Object>>) store.getExecution(DefaultTenant.ID, id).get("steps");
+            assertThat(steps).hasSize(1);
+            assertThat(steps.get(0).get("status")).as("PAUSED depois de %s", outcome).isEqualTo(outcome);
+            assertThat(steps.get(0).get("decidedBy")).isEqualTo("maria");
+            assertThat(steps.get(0)).doesNotContainKey("suspendedAt");
+        }
+    }
+
+    @Test
+    @DisplayName("na ordem certa o portão pausa, e a mesma etapa pausa de novo depois de recomeçar")
+    @SuppressWarnings("unchecked")
+    void stepPauseInOrderIsWritten() {
+        var store = new InMemoryWorkflowRuntimeStore();
+        String id = String.valueOf(store.createExecution(DefaultTenant.ID, "wf-1", "Flow").get("id"));
+        store.recordStep(id, "gate", Map.of("status", "RUNNING"));
+        store.recordStep(id, "gate", Map.of("status", "PAUSED"));
+        var steps = (List<Map<String, Object>>) store.getExecution(DefaultTenant.ID, id).get("steps");
+        assertThat(steps.get(0).get("status")).isEqualTo("PAUSED");
+
+        // O mesmo portão num laço: concluído, recomeça (RUNNING) e pausa outra vez.
+        store.recordStep(id, "gate", Map.of("status", "COMPLETED"));
+        store.recordStep(id, "gate", Map.of("status", "RUNNING"));
+        store.recordStep(id, "gate", Map.of("status", "PAUSED"));
+        assertThat(steps.get(0).get("status")).isEqualTo("PAUSED");
+    }
+
+    @Test
+    @DisplayName("regra de passo compartilhada pelos stores: só PAUSED sobre desfecho do passo é velho")
+    void staleStepStatusRule() {
+        assertThat(WorkflowRuntimeStore.isStaleStepStatus("REJECTED", "PAUSED")).isTrue();
+        assertThat(WorkflowRuntimeStore.isStaleStepStatus("COMPLETED", "PAUSED")).isTrue();
+        assertThat(WorkflowRuntimeStore.isStaleStepStatus("FAILED", "PAUSED")).isTrue();
+        assertThat(WorkflowRuntimeStore.isStaleStepStatus("SKIPPED", "PAUSED")).isTrue();
+        assertThat(WorkflowRuntimeStore.isStaleStepStatus("RUNNING", "PAUSED")).isFalse();
+        assertThat(WorkflowRuntimeStore.isStaleStepStatus(null, "PAUSED")).isFalse();
+        assertThat(WorkflowRuntimeStore.isStaleStepStatus("REJECTED", "RUNNING")).isFalse();
+        assertThat(WorkflowRuntimeStore.isStaleStepStatus("PAUSED", "COMPLETED")).isFalse();
+        assertThat(WorkflowRuntimeStore.isStaleStepStatus("COMPLETED", null)).isFalse();
+    }
 }

@@ -3,10 +3,13 @@ package br.com.archflow.engine.execution;
 /**
  * Sinal cooperativo de controle de uma execução de fluxo.
  *
- * <p>O executor consulta este sinal entre steps: {@code isStopRequested}
- * encerra a travessia com status CANCELLED e {@code isPauseRequested}
- * a suspende com status PAUSED (o estado corrente fica no
- * {@code ExecutionContext} para posterior resume).
+ * <p>O executor consulta este sinal entre steps e ao fim da travessia:
+ * {@code isStopRequested} encerra a travessia com status CANCELLED e
+ * {@code isPauseRequested} a suspende com status PAUSED (o estado corrente fica
+ * no {@code ExecutionContext} para posterior resume). A consulta ao fim existe
+ * porque o sinal pode ser levantado durante o último step — um nó de aprovação
+ * como último passo, ou um cancelamento enquanto ele roda — e não pode se perder
+ * só porque não havia próximo step.
  */
 public interface FlowControl {
 

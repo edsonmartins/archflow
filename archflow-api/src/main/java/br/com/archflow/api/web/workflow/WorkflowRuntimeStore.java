@@ -3,6 +3,7 @@ package br.com.archflow.api.web.workflow;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Runtime store dos workflows do designer: documentos de workflow (JSON-like
@@ -109,8 +110,39 @@ public interface WorkflowRuntimeStore {
     /** Marks a resumed execution RUNNING again (counterpart of completeExecution). */
     void markResumed(String id);
 
-    /** Marks a running execution terminal (status + completedAt + optional error). */
+    /**
+     * Marks a running execution terminal (status + completedAt + optional error).
+     *
+     * <p>Ignorada — status, {@code completedAt} e erro ficam como estão — quando
+     * {@link #isStaleStatus} diz que ela apagaria um desfecho já gravado.</p>
+     */
     void completeExecution(String id, String status, String error);
+
+    /**
+     * {@code true} quando gravar {@code incoming} sobre {@code current} trocaria um desfecho
+     * conhecido (COMPLETED, FAILED, STOPPED) por um status velho (PAUSED, CANCELLED).
+     *
+     * <p>Duas mãos escrevem o fim de uma execução com aprovação: quem a disparou (/execute,
+     * AG-UI, MCP) grava o status em que a travessia original desenrolou, e a fila de aprovações
+     * grava o desfecho da decisão (RCHFLW-40). Quando a decisão chega antes de a travessia
+     * original terminar de desenrolar — um aprovador automático decide em milissegundos —, o
+     * callback de quem disparou chega por último com PAUSED (o portão pausou) ou CANCELLED (a
+     * recusa parou a travessia viva) e apagava o STOPPED com o motivo que a fila tinha gravado:
+     * o registro divergia para sempre do {@code FlowState}. Na outra ordem não há o que barrar:
+     * o desfecho chega depois e vence.</p>
+     *
+     * <p>A regra é restrita a propósito. Nenhum caminho legítimo grava PAUSED sobre um desfecho:
+     * toda retomada passa antes por {@link #markResumed} (fila e {@code /resume}), que volta o
+     * registro a RUNNING. E CANCELLED sobre um desfecho é o cancelar que perdeu a corrida para o
+     * fim da execução — o motor já não tinha o que cancelar, e o registro passaria a dizer algo
+     * que o estado não diz. COMPLETED, FAILED ou STOPPED sobre outro desfecho seguem gravados
+     * como antes.</p>
+     */
+    static boolean isStaleStatus(Object current, String incoming) {
+        return current != null
+                && Set.of("COMPLETED", "FAILED", "STOPPED").contains(String.valueOf(current))
+                && Set.of("PAUSED", "CANCELLED").contains(incoming);
+    }
 
     /** Records the wall-clock duration of an execution (set by the lifecycle listener). */
     void recordDuration(String id, long durationMs);
@@ -119,6 +151,9 @@ public interface WorkflowRuntimeStore {
      * Appends/updates a per-step record inside the execution's {@code steps}
      * list, keyed by {@code stepId}. No-op when the execution is unknown or
      * {@code stepId} is {@code null}.
+     *
+     * <p>Ignorado por inteiro — o passo fica como está — quando {@link #isStaleStepStatus} diz que
+     * o patch apagaria o desfecho já gravado do passo.</p>
      */
     void recordStep(String executionId, String stepId, Map<String, Object> patch);
 
@@ -131,5 +166,26 @@ public interface WorkflowRuntimeStore {
         public WorkflowOwnershipException(String workflowId) {
             super("Workflow " + workflowId + " belongs to another tenant");
         }
+    }
+
+    /**
+     * {@code true} quando gravar o status {@code incoming} sobre o {@code current} de um passo
+     * trocaria um desfecho dele (COMPLETED, FAILED, SKIPPED, REJECTED) por PAUSED.
+     *
+     * <p>É a mesma corrida de {@link #isStaleStatus}, no nível do passo. O portão de aprovação grava
+     * PAUSED depois que o step devolve, mas o pedido já está na fila desde o
+     * {@code requestApproval}: um aprovador automático que decide nesse intervalo faz a fila gravar
+     * REJECTED com quem recusou (ou a retomada gravar RUNNING/COMPLETED) antes, e o PAUSED velho
+     * chegava por último — a execução STOPPED e o portão "aguardando aprovação" para sempre, sem
+     * o decisor.</p>
+     *
+     * <p>Nenhum caminho legítimo grava PAUSED sobre um desfecho: toda execução de um passo começa
+     * pelo {@code onStepStarted}, que grava RUNNING — inclusive o mesmo portão de novo num laço.
+     * Qualquer outro status segue gravado como antes.</p>
+     */
+    static boolean isStaleStepStatus(Object current, Object incoming) {
+        return current != null
+                && "PAUSED".equals(incoming)
+                && Set.of("COMPLETED", "FAILED", "SKIPPED", "REJECTED").contains(String.valueOf(current));
     }
 }

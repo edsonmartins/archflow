@@ -284,7 +284,8 @@
                 "running": "executando",
                 "success": "concluído",
                 "error": "falhou",
-                "skipped": "pulado"
+                "skipped": "pulado",
+                "awaiting": "aguardando aprovação"
             }
         },
         "save": "Salvar",
@@ -492,6 +493,7 @@
                 "topKRetrieval": "Top-K recuperação",
                 "minScore": "Score mín. (0..1)",
                 "approvalTitle": "Título da aprovação",
+                "approvalTitleHint": "Nome do pedido na fila de Aprovações.",
                 "decisionProvider": "Provedor de decisão",
                 "decisionRules": "Regras (JSON)",
                 "decisionRulesHint": "Por pergunta. choice: { \"<pergunta>\": { \"match\": { \"<opção>\": [\"palavra\", \"re:regex\"] }, \"otherwise\": \"<opção>\" } }. score: as chaves são o índice do nível e o otherwise é um número, ex.: { \"<pergunta>\": { \"match\": { \"2\": [\"fora do ar\"], \"1\": [\"lento\"] }, \"otherwise\": 0 } }. noul: { \"<pergunta>\": { \"matchAny\": [\"palavra\", \"re:regex\"] } }. Sem otherwise, nada casar é erro; cair no otherwise tem confiança 0.",
@@ -521,16 +523,15 @@
                 "decisionOnDisagree": "Se discordarem",
                 "decisionRoutesHint": "Ligue arestas a partir deste nó e escolha o ramo de cada uma: AUTO, REVIEW ou ESCALATE.",
                 "approvalDescription": "Descrição exibida para o revisor",
-                "approvalDescriptionHint": "Explique o que o humano está decidindo. Variáveis como {{agent.decision}} são resolvidas do contexto.",
+                "approvalDescriptionHint": "Explique o que o revisor está decidindo. O texto vai como está, sem substituição de variáveis.",
                 "proposalPayload": "Payload da proposta (JSON)",
-                "proposalPayloadHint": "Mostrado ao revisor junto com a descrição. Suporta substituição {{mustache}}.",
+                "proposalPayloadHint": "O que o revisor avalia (e pode editar antes de aprovar). JSON válido vira objeto; outro texto vai como está. Vazio: a saída do passo anterior.",
                 "timeoutMin": "Timeout (minutos)",
+                "timeoutMinHint": "Vencido o prazo, o pedido é recusado. Vazio: o prazo global do servidor (archflow.approval.timeout).",
+                "timeoutMinPlaceholder": "prazo global",
                 "onTimeout": "Em caso de timeout",
-                "onTimeoutOptions": {
-                    "reject": "Rejeitar (padrão)",
-                    "approve": "Aprovação automática",
-                    "escalate": "Escalar para canal de fallback"
-                },
+                "onTimeoutAlwaysReject": "Recusar — sempre. Prazo vencido quer dizer que ninguém olhou, e isso nunca vira aprovação.",
+                "onTimeoutLegacy": "Este nó tem \"{{value}}\" gravado como ação no prazo vencido. A opção foi removida e o motor a ignora: o pedido vencido é recusado.",
                 "conversationIdSource": "Origem do id da conversa",
                 "conversationIdHint": "Expressão avaliada contra o contexto de execução. Padrão usa conversationId do trigger Linktor anterior.",
                 "messageText": "Texto da mensagem",
@@ -626,7 +627,8 @@
                     "noOutput": "Sem saída disponível",
                     "nodeStarted": "[{{ts}}] Nó iniciado",
                     "completedIn": "[{{ts}}] Concluído em {{ms}}ms",
-                    "running": "[{{ts}}] Executando..."
+                    "running": "[{{ts}}] Executando...",
+                    "awaiting": "[{{ts}}] Aguardando decisão na fila de Aprovações"
                 }
             }
         }
@@ -668,7 +670,8 @@
             "COMPLETED": "Concluída",
             "FAILED": "Falhou",
             "PAUSED": "Pausada",
-            "CANCELLED": "Cancelada"
+            "CANCELLED": "Cancelada",
+            "STOPPED": "Encerrada"
         }
     },
     "triggers": {
@@ -1539,6 +1542,23 @@
         "loadFailed": "Não foi possível carregar esta execução",
         "openWorkflow": "Abrir no editor",
         "errorTitle": "A execução falhou",
+        "stoppedTitle": "A execução foi encerrada sem concluir",
+        "approvals": {
+            "title": "Decisões humanas",
+            "hint": "Quem decidiu cada portão de aprovação, lido do estado durável do motor",
+            "step": "Portão",
+            "decidedBy": "Decidido por",
+            "decidedAt": "Quando",
+            "comment": "Comentário",
+            "approved": "Aprovado",
+            "rejected": "Recusado",
+            "timeout": "Recusado pelo prazo (ninguém decidiu)"
+        },
+        "pendingApproval": {
+            "title": "Aguardando decisão humana",
+            "text": "O portão {{step}} espera uma decisão na fila de Aprovações.",
+            "open": "Abrir na fila de Aprovações"
+        },
         "stepsHint": "Na ordem de execução; etapas com falha já abrem expandidas",
         "noStepsTitle": "Nenhuma etapa registrada",
         "dynamicTreeHint": "Caminhos percorridos pela orquestração dinâmica",
@@ -1548,6 +1568,7 @@
         },
         "hints": {
             "live": "Atualizando a cada 2 s",
+            "paused": "Aguardando — atualiza sozinha quando retomar",
             "finished": "Terminou {{when}}",
             "started": "Começou {{when}}",
             "steps": "Registradas pelo motor",
@@ -1576,6 +1597,9 @@
             "finishedAt": "Terminado em",
             "toggle": "Alternar detalhes do passo",
             "notExecuted": "Não executado",
+            "awaiting": "Aguardando aprovação",
+            "rejected": "Recusado",
+            "decidedBy": "Decidido por",
             "outputLabel": "Saída"
         },
         "rerun": "Executar novamente",
@@ -2096,7 +2120,7 @@
             "requestHint": "De onde vem esta decisão",
             "proposalHint": "O que o fluxo fará se for aprovado",
             "proposalEditHint": "Edite o JSON — ele substitui a proposta ao aprovar",
-            "decisionHint": "Registrada com sua identidade e comentário",
+            "decisionHint": "Registrada em nome de quem está autenticado, com o seu comentário",
             "comment": "Comentário",
             "heading": "Aprovação {{id}}",
             "tenant": "Tenant",
@@ -2113,6 +2137,12 @@
             "reject": "Rejeitar",
             "cancelEdit": "Cancelar edição",
             "decisionSubmitted": "Decisão enviada",
+            "decidedMsg": "{{decision}} · registrado em nome de {{who}}",
+            "decidedTitle": "Decisão registrada",
+            "decidedHint": "Este pedido já foi decidido — lido do estado durável do motor",
+            "decidedBy": "Decidido por",
+            "decidedAt": "Quando",
+            "decidedComment": "Comentário",
             "submitFailed": "Falha ao enviar decisão",
             "invalidJson": "Payload editado não é um JSON válido"
         },

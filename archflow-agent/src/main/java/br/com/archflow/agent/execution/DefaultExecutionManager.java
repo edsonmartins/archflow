@@ -44,23 +44,26 @@ public class DefaultExecutionManager implements ExecutionManager {
         String flowId = flow.getId();
         logger.info("Iniciando execução do fluxo: " + flowId);
 
+        // Registra controle de execução
+        ExecutionControl control = new ExecutionControl(flowId);
         try {
-            // Registra controle de execução
-            ExecutionControl control = new ExecutionControl(flowId);
             activeExecutions.put(flowId, control);
 
             // Executa o fluxo passando o sinal cooperativo de pause/cancel —
             // é ele que faz pauseFlow/stopFlow interromperem a travessia
             FlowResult result = flowExecutor.execute(flow, context, control);
 
-            // Remove controle ao finalizar
-            activeExecutions.remove(flowId);
+            // Remove só o PRÓPRIO controle: uma aprovação decidida enquanto esta
+            // travessia desenrolava já registrou o da retomada sob o mesmo flowId.
+            // Um remove(key) o apagaria, e o próximo portão (pauseFlow) e o cancelar
+            // (stopFlow) da retomada não achariam mais a quem sinalizar.
+            activeExecutions.remove(flowId, control);
 
             return result;
 
         } catch (Exception e) {
             logger.severe("Erro executando fluxo " + flowId + ": " + e.getMessage());
-            activeExecutions.remove(flowId);
+            activeExecutions.remove(flowId, control);
             
             // Cria erro de execução
             ExecutionError error = ExecutionError.fromException(

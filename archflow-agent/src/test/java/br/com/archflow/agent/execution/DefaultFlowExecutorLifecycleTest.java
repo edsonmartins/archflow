@@ -113,6 +113,46 @@ class DefaultFlowExecutorLifecycleTest {
     }
 
     // ----------------------------------------------------------------
+    // Suspended step (human approval gate) — RCHFLW-32
+    // ----------------------------------------------------------------
+
+    @Test
+    @DisplayName("step PAUSED dispara onStepSuspended, não onStepCompleted, e não roda os seguintes")
+    void suspendedStep_firesSuspendedNotCompleted() {
+        // O portão de aprovação suspende o fluxo: pelo caminho de "concluído" ele aparecia ✓
+        // no canvas e no registro enquanto ninguém tinha decidido nada.
+        FlowStep gate = fakeStep("gate", StepStatus.PAUSED);
+        FlowStep next = fakeStep("next", StepStatus.COMPLETED);
+        Flow flow = fakeFlow("f10", List.of(gate, next));
+        DefaultFlowExecutor executor = new DefaultFlowExecutor(
+                Thread.currentThread().getContextClassLoader(), metrics, listener);
+        ExecutionContext context = ctx("f10");
+
+        var result = executor.execute(flow, context);
+
+        assertThat(listener.events).containsExactly("STEP_STARTED:gate:0/2", "STEP_SUSPENDED:gate");
+        assertThat(result.getStatus().name()).isEqualTo("PAUSED");
+        // Não concluído: na retomada o portão roda de novo e encontra a decisão.
+        assertThat(context.get(DefaultFlowExecutor.COMPLETED_STEPS_KEY)).isEmpty();
+        // A saída (o requestId, no portão real) fica no contexto para o detalhe da execução.
+        assertThat(context.get("step.gate.output")).hasValue("out-gate");
+    }
+
+    @Test
+    @DisplayName("step PAUSED como último passo também termina PAUSED")
+    void suspendedLastStep_endsPaused() {
+        FlowStep gate = fakeStep("gate", StepStatus.PAUSED);
+        Flow flow = fakeFlow("f11", List.of(gate));
+        DefaultFlowExecutor executor = new DefaultFlowExecutor(
+                Thread.currentThread().getContextClassLoader(), metrics, listener);
+
+        var result = executor.execute(flow, ctx("f11"));
+
+        assertThat(result.getStatus().name()).isEqualTo("PAUSED");
+        assertThat(listener.events).containsExactly("STEP_STARTED:gate:0/1", "STEP_SUSPENDED:gate");
+    }
+
+    // ----------------------------------------------------------------
     // Step index and count accuracy
     // ----------------------------------------------------------------
 
@@ -282,6 +322,11 @@ class DefaultFlowExecutorLifecycleTest {
         @Override
         public void onStepSkipped(Flow flow, FlowStep step, ExecutionContext ctx) {
             events.add("STEP_SKIPPED:" + step.getId());
+        }
+
+        @Override
+        public void onStepSuspended(Flow flow, FlowStep step, ExecutionContext ctx, long durationMs) {
+            events.add("STEP_SUSPENDED:" + step.getId());
         }
     }
 }

@@ -86,7 +86,7 @@ test.describe('Approval edit mode', () => {
             tenantId: 'default',
             decision: 'EDITED',
             editedPayload: { amount: 130, currency: 'BRL', approved: true },
-            responderId: 'me',
+            // Sem responderId: o decisor é o usuário autenticado, resolvido pelo servidor (RCHFLW-38).
         });
         await expect(page).toHaveURL(/\/approvals$/);
     });

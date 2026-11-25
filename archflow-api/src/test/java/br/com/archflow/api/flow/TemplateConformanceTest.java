@@ -1,5 +1,7 @@
 package br.com.archflow.api.flow;
 
+import br.com.archflow.model.tenant.DefaultTenant;
+
 import br.com.archflow.api.orchestration.DynamicWorkflowService;
 import br.com.archflow.api.template.dto.InstallTemplateRequest;
 import br.com.archflow.api.template.dto.TemplateResponse;
@@ -196,7 +198,7 @@ class TemplateConformanceTest {
                 new InstallTemplateRequest("Meu SAC", Map.of("knowledgeBaseId", "docs-sac", "responseLanguage", "pt")));
 
         String workflowId = (String) created.getBody().get("workflowId");
-        Map<String, Object> stored = store.getWorkflow(workflowId);
+        Map<String, Object> stored = store.getWorkflow(DefaultTenant.ID, workflowId);
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> steps = (List<Map<String, Object>>) stored.get("steps");
         assertThat(steps).hasSize(10);

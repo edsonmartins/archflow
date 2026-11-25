@@ -284,7 +284,8 @@
                 "running": "running",
                 "success": "completed",
                 "error": "failed",
-                "skipped": "skipped"
+                "skipped": "skipped",
+                "awaiting": "awaiting approval"
             }
         },
         "save": "Save",
@@ -492,6 +493,7 @@
                 "topKRetrieval": "Top-K retrieval",
                 "minScore": "Min score (0..1)",
                 "approvalTitle": "Approval title",
+                "approvalTitleHint": "Name of the request in the Approvals queue.",
                 "decisionProvider": "Decision provider",
                 "decisionRules": "Rules (JSON)",
                 "decisionRulesHint": "Per question. choice: { \"<question>\": { \"match\": { \"<option>\": [\"word\", \"re:regex\"] }, \"otherwise\": \"<option>\" } }. score: keys are the level index and otherwise is a number, e.g. { \"<question>\": { \"match\": { \"2\": [\"down\"], \"1\": [\"slow\"] }, \"otherwise\": 0 } }. noul: { \"<question>\": { \"matchAny\": [\"word\", \"re:regex\"] } }. Without otherwise, no match is an error; falling into otherwise has confidence 0.",
@@ -521,16 +523,15 @@
                 "decisionOnDisagree": "On disagreement",
                 "decisionRoutesHint": "Connect edges from this node and pick their branch: AUTO, REVIEW or ESCALATE.",
                 "approvalDescription": "Description shown to the reviewer",
-                "approvalDescriptionHint": "Explain what the human is deciding on. Variables like {{agent.decision}} are resolved from context.",
+                "approvalDescriptionHint": "Explain what the reviewer is deciding. The text is sent as is, with no variable substitution.",
                 "proposalPayload": "Proposal payload (JSON)",
-                "proposalPayloadHint": "Shown to the reviewer alongside the description. Supports {{mustache}} substitution.",
+                "proposalPayloadHint": "What the reviewer assesses (and may edit before approving). Valid JSON becomes an object; other text is sent as is. Empty: the previous step's output.",
                 "timeoutMin": "Timeout (minutes)",
+                "timeoutMinHint": "When the deadline passes, the request is rejected. Empty: the server's global deadline (archflow.approval.timeout).",
+                "timeoutMinPlaceholder": "global deadline",
                 "onTimeout": "On timeout",
-                "onTimeoutOptions": {
-                    "reject": "Reject (default)",
-                    "approve": "Auto-approve",
-                    "escalate": "Escalate to fallback channel"
-                },
+                "onTimeoutAlwaysReject": "Reject — always. An expired deadline means nobody looked, and that never becomes an approval.",
+                "onTimeoutLegacy": "This node has \"{{value}}\" saved as its on-timeout action. That option was removed and the engine ignores it: the expired request is rejected.",
                 "conversationIdSource": "Conversation id source",
                 "conversationIdHint": "Expression resolved against the execution context. Default uses conversationId from the upstream Linktor trigger.",
                 "messageText": "Message text",
@@ -626,7 +627,8 @@
                     "noOutput": "No output available",
                     "nodeStarted": "[{{ts}}] Node started",
                     "completedIn": "[{{ts}}] Completed in {{ms}}ms",
-                    "running": "[{{ts}}] Running..."
+                    "running": "[{{ts}}] Running...",
+                    "awaiting": "[{{ts}}] Awaiting a decision in the Approvals queue"
                 }
             }
         }
@@ -668,7 +670,8 @@
             "COMPLETED": "Completed",
             "FAILED": "Failed",
             "PAUSED": "Paused",
-            "CANCELLED": "Cancelled"
+            "CANCELLED": "Cancelled",
+            "STOPPED": "Stopped"
         }
     },
     "triggers": {
@@ -1539,6 +1542,23 @@
         "loadFailed": "Could not load this execution",
         "openWorkflow": "Open in editor",
         "errorTitle": "The execution failed",
+        "stoppedTitle": "The execution was stopped before completing",
+        "approvals": {
+            "title": "Human decisions",
+            "hint": "Who decided each approval gate, read from the engine's durable state",
+            "step": "Gate",
+            "decidedBy": "Decided by",
+            "decidedAt": "When",
+            "comment": "Comment",
+            "approved": "Approved",
+            "rejected": "Rejected",
+            "timeout": "Rejected by the deadline (nobody decided)"
+        },
+        "pendingApproval": {
+            "title": "Awaiting a human decision",
+            "text": "Gate {{step}} is waiting for a decision in the Approvals queue.",
+            "open": "Open in the Approvals queue"
+        },
         "stepsHint": "In execution order; failed steps open expanded",
         "noStepsTitle": "No steps recorded",
         "dynamicTreeHint": "Paths taken by the dynamic orchestration",
@@ -1548,6 +1568,7 @@
         },
         "hints": {
             "live": "Refreshing every 2 s",
+            "paused": "Waiting — refreshes on its own when it resumes",
             "finished": "Finished {{when}}",
             "started": "Started {{when}}",
             "steps": "Recorded by the engine",
@@ -1576,6 +1597,9 @@
             "finishedAt": "Finished at",
             "toggle": "Toggle step details",
             "notExecuted": "Not executed",
+            "awaiting": "Awaiting approval",
+            "rejected": "Rejected",
+            "decidedBy": "Decided by",
             "outputLabel": "Output"
         },
         "rerun": "Run again",
@@ -2096,7 +2120,7 @@
             "requestHint": "Where this decision comes from",
             "proposalHint": "What the flow will do if approved",
             "proposalEditHint": "Edit the JSON — it replaces the proposal when approved",
-            "decisionHint": "Recorded with your identity and comment",
+            "decisionHint": "Recorded as the signed-in user, with your comment",
             "comment": "Comment",
             "heading": "Approval {{id}}",
             "tenant": "Tenant",
@@ -2113,6 +2137,12 @@
             "reject": "Reject",
             "cancelEdit": "Cancel edit",
             "decisionSubmitted": "Decision submitted",
+            "decidedMsg": "{{decision}} · recorded as {{who}}",
+            "decidedTitle": "Recorded decision",
+            "decidedHint": "This request has already been decided — read from the engine's durable state",
+            "decidedBy": "Decided by",
+            "decidedAt": "When",
+            "decidedComment": "Comment",
             "submitFailed": "Failed to submit decision",
             "invalidJson": "Edited payload is not valid JSON"
         },

@@ -32,6 +32,15 @@ public final class SimpleStepResult implements StepResult {
     }
 
     /**
+     * O passo suspendeu o fluxo e <b>não</b> concluiu ({@link StepStatus#PAUSED}): a travessia para
+     * nele, ele não entra nos passos concluídos e roda de novo na retomada. É o que o portão de
+     * aprovação devolve enquanto espera a decisão.
+     */
+    public static SimpleStepResult suspended(String stepId, Object output, long elapsedMs) {
+        return new SimpleStepResult(stepId, StepStatus.PAUSED, output, elapsedMs, List.of());
+    }
+
+    /**
      * Falha do passo, com o motivo em <b>ambos</b> os lugares onde alguém o procura.
      *
      * <h2>O que motivou</h2>

@@ -168,6 +168,26 @@ class RegistryFlowLifecycleListenerTest {
         }
 
         @Test
+        @DisplayName("STEP_SUSPENDED (portão aguardando) fecha o STEP_STARTED com o mesmo índice")
+        void suspendedEventRepeatsStartedIndex() {
+            FlowStep first = stepWithId("a");
+            lenient().when(flow.getSteps()).thenReturn(List.of(first, step));
+            var events = new CopyOnWriteArrayList<ArchflowEvent>();
+            streamRegistry.createEmitter("flow-1").onSend(events::add);
+
+            listener.onStepStarted(flow, step, context, 0, 2);
+            listener.onStepSuspended(flow, step, context, 9L);
+
+            // Um evento próprio, não STEP_COMPLETED: é ele que o AG-UI e o canvas leem como
+            // "aguardando aprovação" em vez de ✓ (RCHFLW-32).
+            assertThat(events).extracting(ArchflowEvent::getType).containsExactly(
+                    ArchflowEventType.STEP_STARTED, ArchflowEventType.STEP_SUSPENDED);
+            assertThat(events.get(1).getData("stepIndex")).isEqualTo(0);
+            assertThat(events.get(1).getData("stepId")).isEqualTo("step-1");
+            assertThat(events.get(1).getData("durationMs")).isEqualTo(9L);
+        }
+
+        @Test
         @DisplayName("finish without a recorded start falls back to the declaration position")
         void finishWithoutStartFallsBackToDeclarationIndex() {
             FlowStep first = stepWithId("a");

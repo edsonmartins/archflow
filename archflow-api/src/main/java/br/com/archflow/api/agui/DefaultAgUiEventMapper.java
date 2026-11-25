@@ -32,7 +32,10 @@ public class DefaultAgUiEventMapper implements AgUiEventMapper {
                             "stepId", data.get("stepId"),
                             "stepIndex", data.get("stepIndex"),
                             "stepCount", data.get("stepCount"))));
-            case STEP_COMPLETED, STEP_FAILED, STEP_SKIPPED -> List.of(AgUiEvent.of("STEP_FINISHED",
+            // STEP_SUSPENDED (portão de aprovação à espera) também fecha o STEP_STARTED, para um
+            // cliente AG-UI genérico não ficar com um passo aberto; o status distinto é o que
+            // impede o editor de pintar o portão como concluído enquanto ninguém decidiu.
+            case STEP_COMPLETED, STEP_FAILED, STEP_SKIPPED, STEP_SUSPENDED -> List.of(AgUiEvent.of("STEP_FINISHED",
                     fields("stepName", str(data, "stepId", "step"), "status", event.getType().name(),
                             "stepId", data.get("stepId"),
                             "stepIndex", data.get("stepIndex"),

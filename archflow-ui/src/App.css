@@ -50,6 +50,7 @@
   --amber-text: #92400E;
   --green-text: #065F46;
   --red-text:   #991B1B;
+  --purple-text: #5B21B6;
 
   /* Node category colors */
   --cat-agent:   #2563EB; --cat-agent-l:   #DBEAFE;
@@ -106,6 +107,7 @@
   --amber-text: #FCD34D;
   --green-text: #6EE7B7;
   --red-text:   #FCA5A5;
+  --purple-text: #C4B5FD;
 }
 
 /* Hover state for the drop-connection node menu (AddNodeMenu). */
