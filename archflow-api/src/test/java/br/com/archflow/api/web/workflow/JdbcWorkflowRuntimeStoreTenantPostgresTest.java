@@ -109,7 +109,7 @@ class JdbcWorkflowRuntimeStoreTenantPostgresTest {
         store.putWorkflow("globex", "wf-globex", new LinkedHashMap<>(Map.of("id", "wf-globex")));
         var versao = store.publishWorkflow("acme", "wf-acme", "v1");
         store.deployWorkflow("acme", "wf-acme", "PRODUCTION", versao.id());
-        String execucao = String.valueOf(store.createExecution("acme", "wf-acme", "A", versao.id()).get("id"));
+        String execucao = String.valueOf(store.createExecution("acme", "wf-acme", "A", versao).get("id"));
         store.recordStep(execucao, "s1", Map.of("status", "COMPLETED"));
         store.completeExecution(execucao, "COMPLETED", null);
 

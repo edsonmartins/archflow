@@ -69,7 +69,7 @@
         "admin": "Admin",
         "dashboard": "Home",
         "searchTooltip": "Search everywhere",
-        "searchPlaceholder": "Search pages and workflows...",
+        "searchPlaceholder": "Search pages, workflows, executions, conversations and templates...",
         "searchNothing": "Nothing found",
         "short": {
             "executions": "Runs",
@@ -292,7 +292,7 @@
         "saveYaml": "Save YAML",
         "canvas": "Canvas",
         "code": "Code",
-        "run": "Run",
+        "runDraft": "Run draft",
         "stop": "Stop",
         "back": "Back to list",
         "saved": "Saved",
@@ -1561,7 +1561,12 @@
         "asVariables": "JSON object: variables {{keys}}.",
         "asText": "Text: reaches the flow as input.",
         "cancel": "Cancel",
-        "run": "Run"
+        "run": "Run",
+        "target": {
+            "draft": "Runs the draft (the flow as it is in the editor), not the published version.",
+            "unpublished": "No version published to production: runs the saved draft.",
+            "published": "Runs published version v{{number}} (production), not the draft."
+        }
     },
     "executionDetail": {
         "subtitle": "Run of {{workflow}}",
@@ -1633,7 +1638,11 @@
         "rerunFailed": "Could not start a new execution",
         "rawJson": "Raw JSON",
         "showRaw": "Show raw JSON",
-        "hideRaw": "Hide raw JSON"
+        "hideRaw": "Hide raw JSON",
+        "version": {
+            "draft": "Ran the draft",
+            "published": "Ran published v{{number}}"
+        }
     },
     "marketplace": {
         "title": "Marketplace",
@@ -1754,7 +1763,29 @@
             "run": "\"Run the workflow wf-demo-001\" — it executes it and opens Executions (runWorkflow).",
             "status": "\"Show a status saying: all good\" — it shows a notification (showStatus)."
         },
-        "hint": "Direct AG-UI connection (no Node runtime): the Java backend is the security boundary."
+        "hint": "Direct AG-UI connection (no Node runtime): the Java backend is the security boundary.",
+        "chat": {
+            "inputPlaceholder": "Type a message...",
+            "startTranscribe": "Transcribe",
+            "cancelTranscribe": "Cancel",
+            "finishTranscribe": "Finish",
+            "addAttachments": "Add attachments",
+            "tools": "Tools",
+            "copyCode": "Copy",
+            "copyCodeCopied": "Copied",
+            "copyMessage": "Copy",
+            "thumbsUp": "Good response",
+            "thumbsDown": "Bad response",
+            "readAloud": "Read aloud",
+            "regenerate": "Regenerate",
+            "editMessage": "Edit",
+            "disclaimer": "AI can make mistakes. Please verify important information.",
+            "toggleOpen": "Open chat",
+            "toggleClose": "Close chat",
+            "openThreads": "Open threads",
+            "headerTitle": "Copilot",
+            "welcome": "How can I help you today?"
+        }
     },
     "templates": {
         "catalog": "Catalog",

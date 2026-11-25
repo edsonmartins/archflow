@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AppShell, Group, Badge, ActionIcon, Tooltip, Kbd } from '@mantine/core';
-import { Spotlight, spotlight, type SpotlightActionData, type SpotlightActionGroupData } from '@mantine/spotlight';
+import { spotlight, type SpotlightActionGroupData } from '@mantine/spotlight';
 import { HttpAgent } from '@ag-ui/client';
-import { CopilotKitProvider, CopilotSidebar } from '@copilotkit/react-core/v2';
+import { CopilotKitProvider } from '@copilotkit/react-core/v2';
 import '@copilotkit/react-core/v2/styles.css';
 import CopilotAppOperator from '../copilot/CopilotAppOperator';
 import CopilotGenerateBridge from '../copilot/CopilotGenerateBridge';
+import AppCopilotSidebar from '../copilot/AppCopilotSidebar';
 import {
     IconTopologyRing,
     IconPlayerPlay,
@@ -32,11 +33,11 @@ import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '../../stores/auth-store';
 import { useTenantStore } from '../../stores/useTenantStore';
 import { approvalTenantParam } from '../../lib/approvalTenant';
-import { useWorkflowStore } from '../../stores/workflow-store';
 import { useColorScheme } from '../../App';
 import { approvalApi } from '../../services/approval-api';
 import { authFetch } from '../../services/api';
 import LanguageSwitcher from './LanguageSwitcher';
+import GlobalSearch from './GlobalSearch';
 import { SidebarBrand, SidebarGroup, SidebarItem, SidebarUser } from './Sidebar';
 
 // Labels come from t() at render time so switching languages updates
@@ -132,11 +133,8 @@ export default function AppLayout() {
         navigate('/login');
     };
 
-    // ── Global search (⌘K) — navigation + workflows ─────────────────
-    const { workflows, fetchWorkflows } = useWorkflowStore();
-    useEffect(() => { fetchWorkflows().catch(() => { /* opportunistic */ }); }, [fetchWorkflows]);
-
-    const spotlightActions = useMemo<(SpotlightActionGroupData | SpotlightActionData)[]>(() => {
+    // ── Global search (⌘K) — as páginas do menu; os dados (fluxos, execuções…) vêm do GlobalSearch ──
+    const spotlightActions = useMemo<SpotlightActionGroupData[]>(() => {
         const nav: SpotlightActionGroupData[] = NAV_GROUPS.map((group) => ({
             group: t(group.key),
             actions: group.items.map((item) => ({
@@ -157,20 +155,8 @@ export default function AppLayout() {
                 }],
             });
         }
-        if (workflows.length > 0) {
-            nav.push({
-                group: t('nav.workflows'),
-                actions: workflows.slice(0, 30).map((w) => ({
-                    id: `wf-${w.id}`,
-                    label: w.name,
-                    description: w.description || undefined,
-                    onClick: () => navigate(`/editor/${w.id}`),
-                    leftSection: <IconTopologyRing size={18} />,
-                })),
-            });
-        }
         return nav;
-    }, [t, navigate, isAdmin, workflows]);
+    }, [t, navigate, isAdmin]);
 
     const toggleTheme = () => {
         setColorScheme(dark ? 'light' : 'dark');
@@ -319,23 +305,14 @@ export default function AppLayout() {
                 )}
             </AppShell.Navbar>
 
-            <Spotlight
-                actions={spotlightActions}
-                shortcut="mod + k"
-                highlightQuery
-                searchProps={{
-                    leftSection: <IconSearch size={18} />,
-                    placeholder: t('nav.searchPlaceholder'),
-                }}
-                nothingFound={t('nav.searchNothing')}
-            />
+            <GlobalSearch pageActions={spotlightActions} />
 
             <AppShell.Main className="af-main">
                 <CopilotKitProvider agents__unsafe_dev_only={{ archflow: copilotAgent }}>
                     <CopilotAppOperator />
                     <CopilotGenerateBridge />
                     <Outlet />
-                    <CopilotSidebar agentId="archflow" defaultOpen={false} />
+                    <AppCopilotSidebar />
                 </CopilotKitProvider>
             </AppShell.Main>
         </AppShell>

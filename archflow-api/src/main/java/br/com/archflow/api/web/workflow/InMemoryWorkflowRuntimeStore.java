@@ -333,15 +333,7 @@ public class InMemoryWorkflowRuntimeStore implements WorkflowRuntimeStore {
     }
 
     public Map<String, Object> createExecution(
-            String tenantId, String workflowId, String workflowName, String workflowVersionId) {
-        var execution = createExecution(tenantId, workflowId, workflowName);
-        synchronized (execution) {
-            execution.put("workflowVersionId", workflowVersionId);
-        }
-        return execution;
-    }
-
-    public Map<String, Object> createExecution(String tenantId, String workflowId, String workflowName) {
+            String tenantId, String workflowId, String workflowName, WorkflowVersionRecord version) {
         var executionId = "exec-" + UUID.randomUUID().toString().substring(0, 8);
         var startedAt = Instant.now().toString();
         var execution = new LinkedHashMap<String, Object>();
@@ -354,8 +346,14 @@ public class InMemoryWorkflowRuntimeStore implements WorkflowRuntimeStore {
         execution.put("completedAt", null);
         execution.put("duration", null);
         execution.put("error", null);
+        // Antes de publicar o registro no mapa: ninguém o vê sem a marca do que rodou.
+        WorkflowRuntimeStore.recordRanVersion(execution, version);
         executions.put(executionId, execution);
         return execution;
+    }
+
+    public Map<String, Object> createExecution(String tenantId, String workflowId, String workflowName) {
+        return createExecution(tenantId, workflowId, workflowName, null);
     }
 
     /**

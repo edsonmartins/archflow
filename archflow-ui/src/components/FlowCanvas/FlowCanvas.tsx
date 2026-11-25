@@ -73,6 +73,9 @@ const ANNOTATION_DEFAULT_SIZE: Record<string, { width: number; height: number }>
   'section-divider': { width: 480, height: 36  },
 }
 
+/** Passo, em px do fluxo, entre o original e cada colagem (e entre colagens seguidas). */
+const PASTE_OFFSET = 32
+
 interface CanvasSnapshot {
   nodes: Node<FlowNodeData>[]
   edges: Edge[]
@@ -515,7 +518,11 @@ export function FlowCanvas({
   }, [connectMenu, pushHistory, setNodes, setEdges])
 
   // ── Copiar / colar / duplicar seleção ──────────────────────────
-  const clipboardRef = useRef<CanvasSnapshot | null>(null)
+  // `pastes` conta as colagens desde a última cópia: cada colagem cai PASTE_OFFSET adiante da anterior.
+  // Com o deslocamento fixo em relação ao original, duas colagens caíam na mesma posição, uma em cima da
+  // outra, e pareciam uma só (RCHFLW-93). O Ctrl+D (copia + cola) segue a mesma regra: copiar zera a
+  // conta, então a duplicata fica a um passo do nó duplicado.
+  const clipboardRef = useRef<(CanvasSnapshot & { pastes: number }) | null>(null)
 
   const copySelection = useCallback(() => {
     let selected = localNodesRef.current.filter(n => n.selected)
@@ -531,6 +538,7 @@ export function FlowCanvas({
     clipboardRef.current = {
       nodes: selected,
       edges: localEdgesRef.current.filter(e => ids.has(e.source) && ids.has(e.target)),
+      pastes: 0,
     }
     return true
   }, [])
@@ -539,22 +547,26 @@ export function FlowCanvas({
     const clip = clipboardRef.current
     if (!clip?.nodes.length) return
     pushHistory('paste')
-    const stamp = Date.now()
+    clip.pastes += 1
+    const offset = PASTE_OFFSET * clip.pastes
+    // newNodeId, e não node-<Date.now()>-<i>: duas colagens no mesmo milissegundo davam o mesmo id.
+    const taken = new Set(localNodesRef.current.map(n => n.id))
     const idMap = new Map<string, string>()
-    const newNodes = clip.nodes.map((n, i) => {
-      const nid = `node-${stamp}-${i}`
+    const newNodes = clip.nodes.map(n => {
+      const nid = newNodeId(taken)
+      taken.add(nid)
       idMap.set(n.id, nid)
       return {
         ...n,
         id: nid,
-        position: { x: n.position.x + 32, y: n.position.y + 32 },
+        position: { x: n.position.x + offset, y: n.position.y + offset },
         selected: true,
         data: { ...n.data, config: { ...n.data.config } },
       }
     })
     const newEdges = clip.edges.map((e, i) => ({
       ...e,
-      id: `e-${stamp}-${i}`,
+      id: `e-${idMap.get(e.source)}-${idMap.get(e.target)}-${i}`,
       source: idMap.get(e.source)!,
       target: idMap.get(e.target)!,
       selected: false,

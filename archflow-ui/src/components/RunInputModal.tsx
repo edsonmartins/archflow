@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Button, Group, Modal, Stack, Text, Textarea } from '@mantine/core'
 import { IconPlayerPlay } from '@tabler/icons-react'
 import { loadLastRunInput, parseRunInput, saveLastRunInput } from '../lib/runInput'
+import { productionRunTarget, type RunTarget } from '../lib/runTarget'
 
 /**
  * "Entrada da execução": pedido antes de Executar (editor), Rodar (lista) e Executar novamente.
@@ -10,20 +11,39 @@ import { loadLastRunInput, parseRunInput, saveLastRunInput } from '../lib/runInp
  * <p>Sem ele, essas três ações rodavam o fluxo sem nenhuma entrada e um fluxo que lê
  * <code>${input}</code> não tinha como ser testado pela UI. O modal só coleta o texto — quem chama
  * converte para o formato do seu caminho (REST ou AG-UI), via <code>lib/runInput</code>.</p>
+ *
+ * <p>{@code runs} diz o que o caminho de quem chama executa (RCHFLW-89): {@code 'draft'} no editor (o
+ * rascunho), {@code 'production'} na lista e no Executar novamente (a versão publicada em produção, com o
+ * número dela, ou o rascunho quando não há versão lá). O modal é a última tela antes de rodar nos três
+ * caminhos — é aqui que o usuário precisa ler qual versão vai executar.</p>
  */
 export function RunInputModal({
     workflowId,
     opened,
     onClose,
     onConfirm,
+    runs,
 }: {
     workflowId: string
     opened: boolean
     onClose: () => void
     onConfirm: (text: string) => void
+    runs?: 'draft' | 'production'
 }) {
     const { t } = useTranslation()
     const [text, setText] = useState('')
+    const [productionTarget, setProductionTarget] = useState<RunTarget | null>(null)
+
+    // A cada abertura, porque uma publicação pode ter acontecido desde a última. Até a resposta chegar
+    // (ou se ela falhar) a linha não aparece: melhor não dizer nada do que dizer a versão errada.
+    useEffect(() => {
+        setProductionTarget(null)
+        if (!opened || runs !== 'production') return
+        let cancelled = false
+        void productionRunTarget(workflowId).then((target) => { if (!cancelled) setProductionTarget(target) })
+        return () => { cancelled = true }
+    }, [opened, runs, workflowId])
+    const target: RunTarget | null = runs === 'draft' ? { kind: 'draft' } : productionTarget
 
     // Recarrega a cada abertura: o padrão é a última entrada usada neste fluxo, nesta sessão.
     useEffect(() => {
@@ -45,6 +65,13 @@ export function RunInputModal({
     return (
         <Modal opened={opened} onClose={onClose} title={t('runInput.title')} size="lg" centered>
             <Stack gap="sm">
+                {target && (
+                    <Text size="sm" fw={500} data-testid="run-input-target" data-target={target.kind}>
+                        {target.kind === 'published'
+                            ? t('runInput.target.published', { number: target.number })
+                            : t(`runInput.target.${target.kind}`)}
+                    </Text>
+                )}
                 <Text size="sm" c="dimmed">{t('runInput.subtitle')}</Text>
                 <Textarea
                     data-testid="run-input-text"
