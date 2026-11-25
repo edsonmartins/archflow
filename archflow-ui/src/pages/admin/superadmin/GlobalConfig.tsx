@@ -127,7 +127,8 @@ export default function GlobalConfig() {
         ) : (
           <Stack gap={0}>
             {models.map((m, index) => (
-              <Fragment key={m.id}>
+              // O mesmo id pode existir em dois providers (gpt-4o na OpenAI e na Azure).
+              <Fragment key={`${m.provider}:${m.id}`}>
                 {index > 0 && <Divider />}
                 <Group justify="space-between" wrap="nowrap" gap="md" py="sm" data-testid={`model-row-${m.id}`}>
                   <Stack gap={2} style={{ minWidth: 0, flex: 1 }}>
@@ -138,9 +139,10 @@ export default function GlobalConfig() {
                       </Badge>
                     </Group>
                     <Text size="xs" c="dimmed" truncate>
-                      {m.provider} · {t('admin.superadmin.globalConfig.costLine', {
+                      {m.provider} · {m.id}
+                      {m.costInputPer1M != null && m.costOutputPer1M != null && ` · ${t('admin.superadmin.globalConfig.costLine', {
                         input: m.costInputPer1M.toFixed(2), output: m.costOutputPer1M.toFixed(2),
-                      })}
+                      })}`}
                     </Text>
                   </Stack>
                   <Switch

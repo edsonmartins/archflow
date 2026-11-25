@@ -116,4 +116,55 @@ class ImpersonationFilterTest {
         verify(req).setAttribute(eq(ImpersonationFilter.ATTR_TENANT_ID), attrValue.capture());
         assertThat(attrValue.getValue()).isEqualTo("tenant_acme");
     }
+
+    @Test
+    @DisplayName("X-Tenant-Id diferente do tenant do JWT é ignorado — fica o do token")
+    void tenantHeaderCannotOverrideJwtTenant() throws Exception {
+        // A chave de LLM é por tenant: aceitar o header deixaria o tenant_a rodar na chave do tenant_b.
+        ImpersonationFilter filter = new ImpersonationFilter(false);
+        HttpServletRequest req = mock(HttpServletRequest.class);
+        HttpServletResponse resp = mock(HttpServletResponse.class);
+        FilterChain chain = mock(FilterChain.class);
+        when(req.getHeader(ImpersonationFilter.HEADER_TENANT)).thenReturn("tenant_b");
+        when(req.getAttribute(JwtAuthenticationFilter.ATTR_TENANT)).thenReturn("tenant_a");
+        when(req.getRequestURI()).thenReturn("/api/agents/qp/quote");
+
+        filter.doFilter(req, resp, chain);
+
+        verify(req, never()).setAttribute(ImpersonationFilter.ATTR_TENANT_ID, "tenant_b");
+        verify(chain, times(1)).doFilter(req, resp);
+    }
+
+    @Test
+    @DisplayName("X-Tenant-Id igual ao tenant do JWT segue aceito")
+    void tenantHeaderMatchingJwtIsAccepted() throws Exception {
+        ImpersonationFilter filter = new ImpersonationFilter(false);
+        HttpServletRequest req = mock(HttpServletRequest.class);
+        HttpServletResponse resp = mock(HttpServletResponse.class);
+        FilterChain chain = mock(FilterChain.class);
+        when(req.getHeader(ImpersonationFilter.HEADER_TENANT)).thenReturn("tenant_a");
+        when(req.getAttribute(JwtAuthenticationFilter.ATTR_TENANT)).thenReturn("tenant_a");
+
+        filter.doFilter(req, resp, chain);
+
+        verify(req).setAttribute(ImpersonationFilter.ATTR_TENANT_ID, "tenant_a");
+    }
+
+    @Test
+    @DisplayName("superadmin com JWT de outro tenant continua impersonando")
+    void superadminImpersonationStillOverridesJwtTenant() throws Exception {
+        ImpersonationFilter filter = new ImpersonationFilter(true);
+        HttpServletRequest req = mock(HttpServletRequest.class);
+        HttpServletResponse resp = mock(HttpServletResponse.class);
+        FilterChain chain = mock(FilterChain.class);
+        when(req.getHeader(ImpersonationFilter.HEADER_IMPERSONATE)).thenReturn("tenant_b");
+        when(req.getAttribute(JwtAuthenticationFilter.ATTR_TENANT)).thenReturn("tenant_a");
+        when(req.getAttribute(JwtAuthenticationFilter.ATTR_ROLES)).thenReturn(List.of("superadmin"));
+        when(req.getRequestURI()).thenReturn("/api/admin/workspace");
+        when(req.getMethod()).thenReturn("GET");
+
+        filter.doFilter(req, resp, chain);
+
+        verify(req).setAttribute(ImpersonationFilter.ATTR_TENANT_ID, "tenant_b");
+    }
 }

@@ -224,8 +224,27 @@ simulado e, opcionalmente, contra o serviço real (abaixo).
 
 ## Chaves
 `DecisionKeys` resolve a chave pela referência do provedor (`openrouter`): primeiro a **do tenant** (o
-mesmo `TenantKeyResolver` das chaves de LLM) e, na falta dela, `archflow.decision.keys.<ref>` (env
-`ARCHFLOW_DECISION_KEYS_OPENROUTER`). Nunca do documento do fluxo.
+mesmo `TenantKeyResolver` das chaves de LLM, `archflow.llm.tenant-keys.<tenant>.<ref>`), depois
+`archflow.decision.keys.<ref>` (env `ARCHFLOW_DECISION_KEYS_OPENROUTER`) e, por fim, a chave de LLM da
+plataforma (`archflow.llm.keys.<ref>`, ou `archflow.llm.api-key` quando `<ref>` é o
+`archflow.llm.provider`). Nunca do documento do fluxo.
+
+O destino também não é livre: com a chave em mãos, um `options.endpoint` (`http-decisions`) ou
+`options.baseUrl` (`langchain4j-decisions`) só é aceito se for o endereço oficial do fornecedor da
+chave, o `archflow.llm.base-url` ou um item de `archflow.llm.allowed-base-urls`. Fora disso a tentativa
+falha com `[LLM-HOST]` (não repetível — a rota escala ou o `fallbacks` é tentado) e nada sai.
+
+"Fornecedor da chave" é o `keyRef`. Quando ele é um provider de LLM (`openrouter`, `openai`), vale o
+endereço oficial dele — a chave da OpenAI não vai para o OpenRouter. Quando não é (o `typesafe`, padrão
+do `langchain4j-decisions`, ou uma referência do operador), valem também `https://api.typesafe.ai` e o
+OpenRouter (`https`), que é a configuração documentada acima: `backend: typesafe` com
+`baseUrl: https://openrouter.ai/api` e a chave em `ARCHFLOW_DECISION_KEYS_TYPESAFE` continua funcionando.
+
+O modelo também segue o cadastro do tenant: quando o tenant da execução tem `allowedModels` preenchido,
+o `model` de cada tentativa do `http-decisions`/`langchain4j-decisions` (inclusive os degraus de
+`cascade` e os votos de `consensus`) precisa estar na lista, ou a tentativa falha com `[LLM-MODELO]`
+(não repetível) antes de qualquer requisição. Lista vazia ou "nenhum tenant" não restringem. O provedor
+`llm` passa pelo resolver de LLM, que aplica a mesma regra.
 
 ## Testes contra o serviço real (opcional)
 ```bash

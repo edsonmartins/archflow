@@ -346,30 +346,32 @@ test.describe('Real backend smoke', () => {
     await expect(page.getByText('LLM Models')).toBeVisible();
     await expect(page.getByText('Plan Defaults')).toBeVisible();
     await expect(page.getByText('Feature Toggles')).toBeVisible();
-    await expect(page.getByText('GPT-4o')).toBeVisible();
+    // Catálogo sem ARCHFLOW_LLM_MODELS = a lista do código (RCHFLW-79): o gpt-4o aparece na OpenAI, na
+    // Azure e no OpenRouter, todos ligados; o "gpt-3.5-turbo desligado" era do catálogo de exemplo.
+    await expect(page.getByText('GPT-4o', { exact: true }).first()).toBeVisible();
 
     const modelResponse = await request.get(`${API_BASE}/admin/global/models`);
     const modelsBefore = await modelResponse.json();
-    const gpt35Before = modelsBefore.find((model: { id: string; status: string }) => model.id === 'gpt-3.5-turbo');
-    expect(gpt35Before?.status).toBe('deprecated');
+    const o3Before = modelsBefore.find((model: { id: string; status: string }) => model.id === 'o3-mini');
+    expect(o3Before?.status).toBe('active');
 
-    const gpt35Switch = page.getByLabel('Enable GPT-3.5 Turbo');
-    await gpt35Switch.evaluate((element: HTMLInputElement) => element.click());
+    const o3Switch = page.getByLabel('Enable o3-mini');
+    await o3Switch.evaluate((element: HTMLInputElement) => element.click());
     await expect.poll(async () => {
       const response = await request.get(`${API_BASE}/admin/global/models`);
       const models = await response.json();
-      return models.find((model: { id: string; status: string }) => model.id === 'gpt-3.5-turbo')?.status;
-    }).toBe('active');
+      return models.find((model: { id: string; status: string }) => model.id === 'o3-mini')?.status;
+    }).toBe('deprecated');
 
-    const restoreModelResponse = await request.put(`${API_BASE}/admin/global/models/gpt-3.5-turbo`, {
-      data: { active: false },
+    const restoreModelResponse = await request.put(`${API_BASE}/admin/global/models/o3-mini`, {
+      data: { active: true },
     });
     expect(restoreModelResponse.ok()).toBeTruthy();
     await expect.poll(async () => {
       const response = await request.get(`${API_BASE}/admin/global/models`);
       const models = await response.json();
-      return models.find((model: { id: string; status: string }) => model.id === 'gpt-3.5-turbo')?.status;
-    }).toBe('deprecated');
+      return models.find((model: { id: string; status: string }) => model.id === 'o3-mini')?.status;
+    }).toBe('active');
 
     const togglesBefore = await request.get(`${API_BASE}/admin/global/toggles`);
     const toggleBodyBefore = await togglesBefore.json();

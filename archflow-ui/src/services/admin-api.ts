@@ -150,10 +150,12 @@ export const apiKeyApi = {
 export interface LLMModel {
   id:            string
   name:          string
+  /** Id do provider (`openrouter`, `openai`...). */
   provider:      string
   status:        'active' | 'beta' | 'deprecated'
-  costInputPer1M:  number
-  costOutputPer1M: number
+  /** `null` = custo não informado (nunca um zero inventado; zero é "grátis"). */
+  costInputPer1M:  number | null
+  costOutputPer1M: number | null
 }
 
 export interface PlanDefaults {
@@ -175,7 +177,10 @@ export interface GlobalFeatureToggles {
 
 export const globalConfigApi = {
   getModels:    () => request<LLMModel[]>('GET', '/admin/global/models'),
-  toggleModel:  (id: string, active: boolean) => request<void>('PUT', `/admin/global/models/${id}`, { active }),
+  // Id do OpenRouter tem barra (openai/gpt-6-luna): cada segmento é codificado, a barra fica (o servidor
+  // captura o resto do caminho; %2F seria recusado pelo firewall do Spring Security).
+  toggleModel:  (id: string, active: boolean) =>
+    request<void>('PUT', `/admin/global/models/${id.split('/').map(encodeURIComponent).join('/')}`, { active }),
   getPlanDefaults: () => request<PlanDefaults[]>('GET', '/admin/global/plans'),
   updatePlanDefaults: (plan: PlanType, data: Partial<PlanDefaults>) =>
     request<void>('PUT', `/admin/global/plans/${plan}`, data),

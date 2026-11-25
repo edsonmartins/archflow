@@ -42,4 +42,21 @@ public final class TenantContext {
         }
         return DEFAULT_TENANT;
     }
+
+    /**
+     * O tenant do JWT validado na requisição atual ({@link JwtAuthenticationFilter#ATTR_TENANT}),
+     * ignorando impersonação e headers. Vazio sem requisição, sem auth ou sem o claim.
+     *
+     * <p>Para quem aceita um tenant vindo do cliente (corpo da requisição) e precisa confrontá-lo
+     * com o que o token garante.
+     */
+    public static java.util.Optional<String> authenticatedTenantId() {
+        RequestAttributes attrs = RequestContextHolder.getRequestAttributes();
+        if (attrs instanceof ServletRequestAttributes sra
+                && sra.getRequest().getAttribute(JwtAuthenticationFilter.ATTR_TENANT) instanceof String s
+                && !s.isBlank()) {
+            return java.util.Optional.of(s.trim());
+        }
+        return java.util.Optional.empty();
+    }
 }

@@ -29,6 +29,8 @@ vi.mock('../useWorkflowConfig', () => ({
     loading: false,
   }),
 }))
+// Sem rede no teste: a lista de providers com adapter de chat é coberta em AgentFields.provider.test.ts.
+vi.mock('../useChatProviders', () => ({ useChatProviders: () => null }))
 vi.mock('../useCatalog', () => ({
   useCatalog: () => ({
     agents: [{ id: 'mcp-agent', displayName: 'MCP Agent', kind: 'agent', description: '' }],

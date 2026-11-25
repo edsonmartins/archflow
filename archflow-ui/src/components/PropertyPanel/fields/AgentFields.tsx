@@ -1,13 +1,34 @@
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   Select, TextInput, Textarea, NumberInput, Divider,
   Accordion, Switch, TagsInput, Badge, Text,
+  type ComboboxItem, type OptionsFilter,
 } from '@mantine/core'
 import type { FlowNodeData } from '../../FlowCanvas/types'
 import { FIELD_STYLES, MONO_INPUT } from '../fieldStyles'
 import { useWorkflowConfig } from '../useWorkflowConfig'
 import { useCatalog } from '../useCatalog'
-import { getConfig, dedupeByValue, findProvider, findModel, ctxLabel } from './helpers'
+import { useChatProviders } from '../useChatProviders'
+import { useWorkflowStore } from '../../../stores/workflow-store'
+import type { ProviderInfo } from '../../../services/workflow-config-api'
+import { getConfig, dedupeByValue, findModel, ctxLabel, INHERIT } from './helpers'
+
+function texto(v: unknown): string {
+  return typeof v === 'string' ? v.trim() : ''
+}
+
+/**
+ * Busca do seletor de modelo pelo nome OU pelo id: o catálogo mostra o nome ("GPT-4o (OpenRouter)"),
+ * mas quem conhece o provider digita o id ("openai/gpt-4o") — e, sem isto, o id existente não
+ * aparecia e o painel ofereceu "usar o id" para um modelo que já estava na lista.
+ */
+const filtrarModelos: OptionsFilter = ({ options, search }) => {
+  const q = search.trim().toLowerCase()
+  if (!q) return options
+  return (options as ComboboxItem[]).filter(o =>
+    o.label.toLowerCase().includes(q) || o.value.toLowerCase().includes(q))
+}
 
 interface AgentFieldsProps {
   nodeData: FlowNodeData
@@ -30,13 +51,97 @@ export function AgentFields({ nodeData, update, isAssistant }: AgentFieldsProps)
   // Mostrar esses campos fazia o usuário configurar coisas que o nó ignora — então ficam só os de chat.
   const isChat = nodeData.nodeType === 'llm-chat' || nodeData.nodeType === 'llm-streaming'
 
-  // Derived state for agent nodes
-  const providerId = getConfig(nodeData, 'provider', providers[0]?.id ?? 'anthropic')
-  const modelId    = getConfig(nodeData, 'model', providers[0]?.models[0]?.id ?? 'claude-sonnet-4-6')
-  const provider   = findProvider(providers, providerId)
-  const model      = findModel(providers, providerId, modelId)
-  const maxTemp    = model?.maxTemperature ?? 2.0
-  const ctxWindow  = model?.contextWindow ?? 128000
+  const chatProviders = useChatProviders()
+  const currentWorkflow = useWorkflowStore(s => s.currentWorkflow)
+
+  // O que está GRAVADO no nó — sem fallback para providers[0]/models[0]. Antes o painel mostrava
+  // "OpenAI / GPT-4o" num nó sem provider e não gravava nada: o usuário via uma escolha que o
+  // documento não tinha, e o backend rodava (ou falhava) com outra coisa (RCHFLW-16).
+  const providerId = texto(nodeData.config?.provider)
+  const modelId    = texto(nodeData.config?.model)
+
+  // Nós de chat só executam com provider que tenha adapter de chat no servidor (RCHFLW-43). Os
+  // agentes passam pelo provider-hub, que fala com todos — para eles a lista é a inteira.
+  // Tenant com restrição de modelos (RCHFLW-79): o servidor manda allowCustomModel=false. Aí só vale a
+  // lista — catálogo ativo ∩ permitidos do tenant — e a execução recusa qualquer outro id.
+  const restrito = providers.some(p => p.allowCustomModel === false)
+  const chatIds = isChat && chatProviders ? new Set(chatProviders.map(c => c.id)) : null
+  const offered: ProviderInfo[] = chatIds
+    ? [
+        ...providers.filter(p => chatIds.has(p.id)),
+        // Adapter de chat que o enum de providers não conhece (plugin): entra, sem modelos sugeridos.
+        ...chatProviders!.filter(c => !providers.some(p => p.id === c.id)).map(c => ({
+          id: c.id, displayName: c.displayName || c.id, requiresApiKey: true, supportsStreaming: false,
+          group: 'Cloud' as const, models: [], allowCustomModel: !restrito,
+        })),
+      ]
+    : providers
+  // Com restrição, um provider sem nenhum modelo permitido não leva a lugar nenhum: sai do dropdown (o
+  // gravado no nó continua aparecendo, como "extra").
+  const selectable = restrito ? offered.filter(p => p.models.length > 0) : offered
+
+  // "Padrão do fluxo (x)" quando o fluxo declara configuration.llmConfig.provider; senão, o da plataforma.
+  const flowLlm = ((currentWorkflow?.configuration ?? {}) as Record<string, unknown>).llmConfig as
+    Record<string, unknown> | undefined
+  const flowProvider = texto(flowLlm?.provider)
+  const platformProvider = providers.find(p => p.platformDefault)
+  const inheritLabel = flowProvider
+    ? f('inheritFlow', { provider: flowProvider })
+    : platformProvider ? f('inheritPlatformNamed', { provider: platformProvider.displayName }) : f('inheritPlatform')
+
+  // Sem provider no nó, os modelos sugeridos são os do provider herdado (fluxo, senão plataforma): o nó
+  // pode herdar o provider e escolher o modelo, e a lista certa é a desse provider.
+  const effectiveProviderId = providerId || flowProvider || platformProvider?.id || ''
+  const provider   = offered.find(p => p.id === effectiveProviderId)
+  const model      = findModel(offered, effectiveProviderId, modelId)
+  // 0 = o servidor não conhece o número (id que só o catálogo da plataforma tem): usa o teto genérico.
+  const maxTemp    = model?.maxTemperature || 2.0
+  const ctxWindow  = model?.contextWindow || 128000
+  // Um provider gravado que este servidor não executa em nó de chat (ex.: "gemini" de antes do filtro).
+  const providerSemAdapter = chatIds !== null && providerId !== '' && !chatIds.has(providerId)
+
+  // Modelo: lista do catálogo, e id livre só sem restrição.
+  const allowCustom = provider ? provider.allowCustomModel !== false : !restrito
+  const modelOptions = provider?.models ?? []
+  const modelProibido = modelId !== '' && !allowCustom && !modelOptions.some(m => m.id === modelId)
+
+  // O que um nó SEM modelo herda — a regra do backend: nos nós de chat (ChatNodeDefaults) o modelo do
+  // fluxo, senão o da plataforma, e só quando o provider do nó é o herdado (outro provider fica com o
+  // default do adapter, que ninguém escolheu); nos agentes o resolver põe o do fluxo por cima do da
+  // plataforma. Num tenant restrito, herdar um modelo fora da lista — ou nenhum — falha na execução com
+  // [LLM-MODELO]; sem este aviso o nó parecia válido no painel. `undefined` = não se sabe (servidor que
+  // não manda o defaultModel): aí não se acusa nada.
+  const modeloHerdado = ((): string | undefined => {
+    if (modelId !== '') return undefined
+    const flowModel = texto(flowLlm?.model)
+    const inheritedProvider = flowProvider || platformProvider?.id || ''
+    if (isChat && providerId !== '' && providerId !== inheritedProvider) return ''
+    if (flowModel !== '') return flowModel
+    if (isChat && inheritedProvider !== platformProvider?.id) return ''
+    return platformProvider?.defaultModel ? platformProvider.defaultModel.trim() : undefined
+  })()
+  const permitidos = new Set(providers.flatMap(p => p.models.map(m => m.id)))
+  const herdadoProibido = restrito && modeloHerdado !== undefined
+    && (modeloHerdado === '' || !permitidos.has(modeloHerdado))
+  const [buscaModelo, setBuscaModelo] = useState('')
+
+  // Temperatura e teto de tokens: mostra o que está GRAVADO, ou vazio com o herdado no placeholder.
+  // Antes o campo mostrava 0.7 / 4096 sem gravar, e o nó rodava com o llmConfig do fluxo (ou o
+  // default do adapter — 2048 no OpenRouter): o painel dizia uma coisa e a execução fazia outra.
+  const numero = (key: string): number | '' => {
+    const v = nodeData.config?.[key]
+    return typeof v === 'number' && Number.isFinite(v) ? v : ''
+  }
+  const herdado = (key: string): string => {
+    const v = flowLlm?.[key]
+    return typeof v === 'number' ? f('inheritFlowValue', { value: v }) : f('modelDefault')
+  }
+  // Campo apagado = herdar: remove a chave. Gravar '' fazia o adapter receber um texto onde lê um
+  // número. Texto parcial ("0.") não é gravado — espera o número.
+  const gravarNumero = (key: string) => (v: number | string) => {
+    if (typeof v === 'number') update(key, v)
+    else if (v === '') update(key, undefined)
+  }
 
   // Persona selector options ("custom" = free-text system prompt)
   const personaOptions = [
@@ -94,47 +199,96 @@ export function AgentFields({ nodeData, update, isAssistant }: AgentFieldsProps)
           </div>
           )}
 
-          {/* Gap 2: Provider */}
-          <Select
-            label={f('provider')}
-            value={providerId}
-            onChange={v => {
-              update('provider', v)
-              const firstModel = providers.find(p => p.id === v)?.models[0]
-              if (firstModel) update('model', firstModel.id)
-            }}
-            size="xs"
-            data={(() => {
-              const groups = new Map<string, { value: string; label: string }[]>()
-              // Mantine 9 rejects duplicate option values — guard against a
-              // catalog that lists the same provider id more than once.
-              const seen = new Set<string>()
-              providers.forEach(p => {
-                if (seen.has(p.id)) return
-                seen.add(p.id)
-                if (!groups.has(p.group)) groups.set(p.group, [])
-                groups.get(p.group)!.push({ value: p.id, label: p.displayName })
-              })
-              return Array.from(groups.entries()).map(([group, items]) => ({ group, items }))
-            })()}
-            styles={FIELD_STYLES}
-          />
-
-          {/* Gap 2: Model (filtered by provider) */}
-          <div>
+          {/* Gap 2: Provider — "herdar" é uma opção explícita, e o que aparece é o que está gravado */}
+          <div data-testid="agent-fields-provider">
             <Select
-              label={f('model')}
-              value={modelId}
-              onChange={v => update('model', v)}
+              label={f('provider')}
+              value={providerId || INHERIT}
+              // Clicar na opção já escolhida não pode desmarcá-la: vazio aqui significa "herdar", e o nó
+              // perderia o provider sem o usuário pedir. Herdar é a opção explícita do topo da lista.
+              allowDeselect={false}
+              onChange={v => {
+                if (!v || v === INHERIT) {
+                  // Herdar = remover as chaves; modelo de outro provider não pode ficar para trás.
+                  update('provider', undefined)
+                  update('model', undefined)
+                  return
+                }
+                update('provider', v)
+                update('model', offered.find(p => p.id === v)?.models[0]?.id)
+              }}
               size="xs"
-              data={dedupeByValue((provider?.models ?? []).map(m => ({
-                value: m.id,
-                label: `${m.name}`,
-              })))}
+              data={(() => {
+                const groups = new Map<string, { value: string; label: string }[]>()
+                // Mantine 9 rejects duplicate option values — guard against a
+                // catalog that lists the same provider id more than once.
+                const seen = new Set<string>([INHERIT])
+                selectable.forEach(p => {
+                  if (seen.has(p.id)) return
+                  seen.add(p.id)
+                  if (!groups.has(p.group)) groups.set(p.group, [])
+                  groups.get(p.group)!.push({ value: p.id, label: p.displayName })
+                })
+                const extra = providerId && !seen.has(providerId)
+                  ? [{ value: providerId, label: providerSemAdapter ? f('noChatAdapter', { provider: providerId }) : providerId }]
+                  : []
+                return [
+                  { value: INHERIT, label: inheritLabel },
+                  ...Array.from(groups.entries()).map(([group, items]) => ({ group, items })),
+                  ...extra,
+                ]
+              })()}
               styles={FIELD_STYLES}
             />
-            {model && (
+            {!providerId && (
+              <Text size="xs" c="dimmed" mt={4} lh={1.4}>{f('inheritHint')}</Text>
+            )}
+            {providerSemAdapter && (
+              <Text size="xs" c="red" mt={4} lh={1.4}>{f('noChatAdapterHint')}</Text>
+            )}
+          </div>
+
+          {/* Gap 2: Model — catálogo da plataforma ∩ permitidos do tenant (RCHFLW-79), com busca */}
+          <div data-testid="agent-fields-model">
+            <Select
+              label={f('model')}
+              value={modelId || INHERIT}
+              allowDeselect={false}
+              onChange={v => update('model', !v || v === INHERIT ? undefined : v)}
+              size="xs"
+              searchable
+              searchValue={buscaModelo}
+              onSearchChange={setBuscaModelo}
+              filter={filtrarModelos}
+              nothingFoundMessage={f('modelNothingFound')}
+              data={(() => {
+                const base = dedupeByValue([
+                  { value: INHERIT, label: f('modelDefault') },
+                  ...modelOptions.map(m => ({ value: m.id, label: m.name || m.id })),
+                  // Um modelo gravado fora da lista (YAML/API) aparece como está, em vez de sumir — marcado
+                  // quando o tenant não o permite.
+                  ...(modelId ? [{ value: modelId, label: modelProibido ? f('modelNotAllowed', { model: modelId }) : modelId }] : []),
+                ])
+                // Id livre: só sem restrição, e só quando o texto não é uma opção (nem o rótulo da escolhida,
+                // que o Mantine põe na busca ao selecionar).
+                const digitado = buscaModelo.trim()
+                const novo = allowCustom && digitado !== '' && digitado !== INHERIT
+                  && !base.some(o => o.value === digitado || o.label === digitado)
+                return novo ? [...base, { value: digitado, label: f('useCustomModel', { model: digitado }) }] : base
+              })()}
+              styles={FIELD_STYLES}
+            />
+            {model && model.contextWindow > 0 && (
               <Badge size="xs" variant="light" color="gray" mt={4}>{ctxLabel(model.contextWindow)}</Badge>
+            )}
+            {modelProibido ? (
+              <Text size="xs" c="red" mt={4} lh={1.4}>{f('modelNotAllowedHint')}</Text>
+            ) : herdadoProibido ? (
+              <Text size="xs" c="red" mt={4} lh={1.4}>
+                {modeloHerdado ? f('modelInheritedNotAllowed', { model: modeloHerdado }) : f('modelInheritedMissing')}
+              </Text>
+            ) : (
+              <Text size="xs" c="dimmed" mt={4} lh={1.4}>{allowCustom ? f('modelSearchHint') : f('modelRestrictedHint')}</Text>
             )}
           </div>
 
@@ -177,8 +331,9 @@ export function AgentFields({ nodeData, update, isAssistant }: AgentFieldsProps)
           {/* Temperature */}
           <NumberInput
             label={f('temperature')}
-            value={getConfig(nodeData, 'temperature', 0.7)}
-            onChange={v => update('temperature', v)}
+            value={numero('temperature')}
+            placeholder={herdado('temperature')}
+            onChange={gravarNumero('temperature')}
             min={0}
             max={maxTemp}
             step={0.1}
@@ -190,8 +345,9 @@ export function AgentFields({ nodeData, update, isAssistant }: AgentFieldsProps)
           {/* Gap 3: Max tokens */}
           <NumberInput
             label={f('maxTokens')}
-            value={getConfig(nodeData, 'maxTokens', 4096)}
-            onChange={v => update('maxTokens', v)}
+            value={numero('maxTokens')}
+            placeholder={herdado('maxTokens')}
+            onChange={gravarNumero('maxTokens')}
             min={1}
             max={ctxWindow}
             step={256}

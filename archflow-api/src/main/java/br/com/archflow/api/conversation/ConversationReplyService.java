@@ -80,8 +80,13 @@ public class ConversationReplyService {
             List<ConversationMessage> history = conversationService.getMessages(conversationId);
             String prompt = buildPrompt(history);
 
-            ChatModel model = llmConfigResolver.resolveModel(
-                    LLMResolutionRequest.builder(platformDefault).build());
+            // O tenant da conversa (atributo da requisição, ancorado no JWT) entra na resolução: escolhe
+            // a chave dele (antes da da plataforma) e aplica os modelos permitidos (RCHFLW-79). Sem ele o
+            // resolver tratava toda resposta como "nenhum tenant" e a restrição não valia aqui. O
+            // FALLBACK_TENANT é só o canal de broadcast, não um tenant de verdade.
+            ChatModel model = llmConfigResolver.resolveModel(LLMResolutionRequest.builder(platformDefault)
+                    .tenantId(FALLBACK_TENANT.equals(tenantId) ? null : tenantId)
+                    .build());
             String replyText = model.chat(prompt);
 
             ConversationMessage assistant = ConversationMessage.assistant(conversationId, replyText);

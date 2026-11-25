@@ -100,9 +100,16 @@ Adapters are discovered via SPI at runtime.
 (`archflow-model`), sent as `provider: {zdr, data_collection}` by `LLMProviderHub.parametrosDoCorpo`
 (blocking **and** streaming — one `customParameters` map with `reasoning`, because the builder
 replaces the map), by `HttpDecisionProvider` and by `LangChain4jDecisionProvider` (via the builders'
-`customParameters`, since langchain4j 1.23; same host rule, `HttpDecisionProvider.ehOpenRouter`) — only
+`customParameters`, since langchain4j 1.23; same host rule, `HttpDecisionProvider.ehOpenRouter`) and by
+`OpenRouterChatAdapter` for workflow `llm-chat`/`llm-streaming`/`chat` nodes (see the bridge below) — only
 to `openrouter.ai` hosts. Never to other
-providers (unknown field → 400). `required=true` makes an OpenRouter model/decision fail before any
+providers (unknown field → 400). **The two layers decide "is this OpenRouter?" differently:** the hub
+(and `DefaultLLMConfigResolver`'s `required` check) goes by *provider* (`provider == OPENROUTER`, any
+host), decisions and nodes by *host*. So that one deployment fronting OpenRouter with a gateway
+(`archflow.llm.provider=openrouter` + `archflow.llm.base-url=https://gw…`) gives nodes the same guarantee
+as agents, that base-url is treated as OpenRouter on the node path too
+(`OpenRouterChatAdapter.isOpenRouterDestination`, scheme+host+port). Decisions do not get it: their
+endpoint is not `archflow.llm.base-url`. `required=true` makes an OpenRouter model/decision fail before any
 request leaves. Deployment-level on purpose: no node can switch it off. Tests read the raw body at a
 local server (`PreferenciaDeProvedorNoCorpoTest`) — asserting on the resolved config proves nothing.
 
@@ -127,7 +134,69 @@ the two interfaces are nearly identical, so it is thin. Things to keep in mind w
 - **The adapter cache is per tenant.** The key comes from `TenantKeyResolver` and the tenant is only
   known at execute time; one shared configured adapter would hand one tenant's key to another.
 - **Secrets do not live in the workflow JSON.** The resolver wins over an inline `apiKey` left in a
-  node — governance must not be overridable by a forgotten field.
+  node — governance must not be overridable by a forgotten field. The default bean is
+  `PropertyTenantKeyResolver` (was `NOOP`): `archflow.llm.tenant-keys.<tenant>.<provider>` →
+  `archflow.llm.keys.<provider>` (env `ARCHFLOW_LLM_KEYS_OPENROUTER`) → `archflow.llm.api-key` only when
+  the provider is `archflow.llm.provider`; a tenant without its own key falls back to the platform key.
+  The adapter bridge, the agent hub and `decisionKeys` all read it (decision puts
+  `archflow.decision.keys.<ref>` between tenant and platform). No key anywhere → `[LLM-CHAVE]` naming
+  the properties. `TenantKeyResolver.isNoTenant` is the one list of "no tenant" sentinels. Tenant ids are
+  matched exactly (no lowercase retry — `ACME` must not get `acme`'s key). Adapters that read the key
+  elsewhere are mapped in `LangChainAdapterComponent.KEY_PROPERTY_BY_ADAPTER` (`openai:embedding` →
+  `openai.api.key`); the missing-key error only applies to `chat` and mapped adapters.
+- **The tenant that picks the key comes from the JWT.** `ImpersonationFilter` ignores an `X-Tenant-Id`
+  that differs from the JWT `tenantId` claim, and `QpAgentController` answers 403 to a body `tenantId`
+  that differs from it — otherwise a tenant_a user would run on tenant_b's own key. Only a superadmin
+  `X-Impersonate-Tenant` overrides it.
+- **OpenRouter preferences on adapter nodes travel in the body (RCHFLW-41).** The bridge always strips
+  `provider.preferences` / `provider.preferences.required` / `provider.preferences.openrouter-urls` from the
+  node config (a node must not switch them off, nor declare its own host "OpenRouter") and, for
+  `openrouter:chat`, puts the deployment's `ProviderPreferences` + `required` there, plus
+  `archflow.llm.base-url` as an OpenRouter URL when `archflow.llm.provider=openrouter`
+  (`DefaultFlowStepFactory.openRouterUrls`). `OpenRouterChatAdapter` adds `provider{zdr,data_collection}`
+  via `customParameters` to every builder whose destination is OpenRouter
+  (`OpenRouterChatAdapter.isOpenRouterDestination`: an `openrouter.ai` host — `ProviderPreferences.
+  isOpenRouterHost`, which `HttpDecisionProvider.ehOpenRouter` delegates to — or that declared gateway):
+  main, per-context and fallback model; an Ollama fallback or any other host gets nothing. `required=true` with no preference fails `[LLM-ZDR]` before
+  the adapter/model exists. `PreferenciaDoNoOpenRouterNoCorpoTest` (adapter) and
+  `ZdrDoNoLlmChatNoFioTest` (designer node, end to end) read the raw body through a local proxy for the
+  `openrouter.ai` host.
+- **Nor does the key's destination.** A governed key (resolver or platform) only goes to the provider's
+  official base URL, `archflow.llm.base-url` or `archflow.llm.allowed-base-urls` (`BaseUrlPolicy`). A node
+  `base.url`/`baseUrl`/`endpoint` (adapter), a patch `baseUrl` (hub) or a decision `options.endpoint`/
+  `baseUrl` (`DecisionEndpointGuard`) elsewhere fails with `[LLM-HOST]` before any request. An inline key
+  the node brought itself is not governed and may go wherever the node says. A decision `keyRef` that is
+  not an `LLMProvider` (`typesafe`, the `langchain4j-decisions` default) has no official URL there, so the
+  guard also accepts `https` to `api.typesafe.ai` and to OpenRouter (the documented
+  `baseUrl: https://openrouter.ai/api`); a `keyRef` that is an `LLMProvider` stays with its own host.
+- **A chat node without a provider inherits** (`ChatNodeDefaults`, same chain as `mcp-agent`): node →
+  flow `configuration.llmConfig` → platform `archflow.llm.provider/model` (bean
+  `platformDefaultLLMConfig`, injected into `DefaultFlowStepFactory`). The designer writes
+  `componentId: "llm-chat"` — that is the node type, not a provider; only a `componentId` that is not a
+  node type counts as the legacy provider. An inherited model only goes to the provider it came with
+  (a node that picks `anthropic` does not get `openai/gpt-6-luna`); the node's own model always wins.
+  Runtime-only: nothing is written back into the document. A chat node whose provider has no chat
+  adapter still falls to the catalog, but the "component not found" says why and lists the adapters.
+  The panel shows "Padrão do fluxo/da plataforma" as an explicit option that removes the keys, and a
+  chat node only offers `GET /api/catalog/chat-providers` (agents keep the full provider-hub list).
+- **The designer's chat node runs.** No designer field writes `operation`, so the engine sends
+  `execute`; the bridge turns it (or absent) into `generate` for chat adapters, and a non-text input
+  (run variables map, previous step's object) into the message text (`input`/`message`/`text`/`prompt`,
+  else JSON). `systemPrompt` (also written by the persona) reaches the model as a `SystemMessage`
+  through `ChatTurn` (`archflow-langchain4j-core`) — never stored in the chat memory, so the window
+  cannot evict it and the next node does not inherit it.
+- **Not `chat` by default.** The chat memory is ONE window for the whole execution: defaulting to
+  `chat` made node B resend node A's conversation (and A's answer twice), shipped A's input to B's
+  provider even when it is a different one, and let parallel branches write the same
+  (non-thread-safe) window. Sharing the conversation is an explicit `operation: chat` on the node;
+  `ChatTurn.chat` reads/appends the window under its monitor.
+- **Variables don't pick the model.** Every run-input key becomes a context variable, and the
+  OpenRouter adapter honours `llm.model` (and `archflow.llm.resolved`, with its own apiKey/baseUrl).
+  The bridge hands chat adapters a `ChatNodeContext` that hides both — otherwise
+  `{"llm.model": "x"}` on `POST /execute` chose any model on the governed key. A chat node's
+  `temperature`/`maxTokens` blank text (a cleared panel field) is absent (inherits), numeric text
+  becomes a number, anything else fails at execution naming the field (never at deserialization). The
+  panel shows those two as saved-or-empty, with the flow `llmConfig` value as placeholder.
 - **Chat memory lives only inside one execution.** The chat adapters read and write
   `ExecutionContext.getChatMemory()` (a 20-message window). `FlowStateChatMemory` is the
   `MemoryRestorer` wired in `FlowEngineFactory`: `CheckpointingLifecycleListener` captures the window
@@ -216,6 +285,19 @@ Test structure follows Arrange-Act-Assert pattern within `src/test/java`.
 - **Component scope**: a workflow may declare `configuration.allowedComponents` in its JSON. `DefaultWorkflowDeserializer` turns it into a `ComponentAccessPolicy` and every step resolves through a `ScopedComponentCatalog`, so a node cannot reach a component outside the list — the `ORCHESTRATE` path inherits the same scope, otherwise the restriction would be bypassable by delegation. **Absent means unrestricted** (historic behaviour). A deployment that wants the guarantee everywhere sets `archflow.components.require-allowlist=true`, which makes an absent list deny everything (fail closed) — opt-in because it requires the flows to have been migrated first
 - **Untrusted input boundaries**: three, all fenced with `UntrustedContentFence` (`br.com.archflow.api.trust`) — MCP tool results (`McpAgentRunner`); everything the browser sends to `AgUiAgentController` (`useAgentContext` values and `role:tool` messages); and **recovered context** handed to the agent loop (`Options.comContextoRecuperado` — in VendaX, the customer memory the Core sends in `VendaxInvoke.memoria`, and the sellers' free-text `nota` fields that `RoteiroDeAbordagem` lifts out of the CPA dossier, leaving a `notaRef` behind — the rest of that payload is Core-computed and goes unfenced). The user's own turn is never fenced; they are the principal. In the agent loop the fence rule is always in the system message.
 - **Recovered context goes in the user turn, not the system prompt.** It changes per customer, and the system prompt + tool catalog are the prefix the provider caches (PR #48); a variable block there would defeat the cache on every call. Customer memory is owned by the VendaX Core (its RFC-014: the Core writes and reads Brain Sentry); archflow only fences what it receives — see ADR-0005
+- **Model catalog** (RCHFLW-79): one catalog — `ARCHFLOW_LLM_MODELS` (`archflow.llm.models`, ids of the
+  platform provider in its own format) or, without it, the `LLMProvider` enum — seeds the superadmin global
+  catalog (`GlobalConfigControllerImpl`; the store only lends the **status**, ids come from the seed). The node
+  selector (`GET /api/workflow/providers`) = active catalog ∩ the request tenant's `allowedModels`, with
+  `allowCustomModel` (free id) only when the tenant has no restriction. Empty list = whole catalog, never
+  "nothing". `TenantModelPolicy` enforces it at run time in both LLM layers (`DefaultLLMConfigResolver` on the
+  final model of the chain, `LangChainAdapterComponent` on every execute, fallback model included) and on the
+  `http-decisions`/`langchain4j-decisions` providers (`DecisionEndpointGuard`, every tier of
+  cascade/consensus — the `llm` provider already goes through the resolver); the no-tenant sentinels are
+  unrestricted. The resolver only sees the tenant it is given: conversation replies, AG-UI and the dynamic
+  orchestrator now pass theirs (request/execution tenant; a body `tenantId` that differs from the JWT is a
+  403), so a caller that builds `LLMResolutionRequest` without `tenantId` is unrestricted and on the platform
+  key — do not drop it. Tenants are still in memory (`TenantControllerImpl`)
 - **Approval timeout**: `archflow.approval.timeout` (default `PT24H`, `PT0S` disables) plus `ApprovalTimeoutSweeper`. The timeout decision is always REJECTED — "nobody looked" must never become "go ahead"
 - **Human gate inside the agent loop** (distinct from the graph-edge gate above): `ToolApprovalPolicy` can require a decision for a tool. The loop then suspends **before executing it** — asking after the call is notification, not approval — persists `McpAgentState` in a `McpAgentStateStore` (in-memory for dev, `JdbcMcpAgentStateStore` + migration V6_5 for prod) and returns a suspended `Result`. `McpAgentRunner.resume` continues from there; the decision is consumed once. Two details that are not optional: the fence nonce is part of the state (a new one would stop matching the rule already in the persisted system message) and so is the iteration count (otherwise repeated suspensions escape `maxIterations`). **`McpAgentState` is the durability boundary** — it is what an external orchestrator would persist instead of the table, so adopting one swaps the custodian, not the loop
 - **Tool interception**: `ComponentStep` invokes components through a `ToolInterceptorChain` when one is configured; `beforeExecute` can abort. The default bean carries only additive interceptors (logging, metrics) — adding caching or guardrails there would change existing flows' behaviour

@@ -15,7 +15,8 @@ import java.util.Map;
  * tool-calling contra o VendaX Core (MCP) e devolve o resultado + o quote.
  *
  * <p>{@code POST /api/agents/qp/quote}. O {@code tenantId} do corpo é opcional;
- * quando ausente, usa o tenant da requisição ({@link TenantContext}).
+ * quando ausente, usa o tenant da requisição ({@link TenantContext}). Com um JWT
+ * que traz {@code tenantId}, um corpo que nomeia outro tenant é recusado (403).
  */
 @RestController
 @RequestMapping("/api/agents/qp")
@@ -28,10 +29,16 @@ public class QpAgentController {
     }
 
     @PostMapping("/quote")
-    public ResponseEntity<QpAgentService.QpResult> quote(@RequestBody QpAgentService.QpRequest body) {
-        String tenantId = body.tenantId() != null && !body.tenantId().isBlank()
-                ? body.tenantId()
-                : TenantContext.currentTenantId();
+    public ResponseEntity<?> quote(@RequestBody QpAgentService.QpRequest body) {
+        String doCorpo = body.tenantId() != null && !body.tenantId().isBlank() ? body.tenantId().trim() : null;
+        var doToken = TenantContext.authenticatedTenantId();
+        if (doCorpo != null && doToken.isPresent() && !doToken.get().equals(doCorpo)) {
+            // O tenant escolhe a chave de LLM (chave do tenant antes da da plataforma): aceitar o do
+            // corpo contra o do token deixaria um usuário do tenant A rodar na chave do tenant B.
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(Map.of("error", "tenantId do corpo difere do tenant do token"));
+        }
+        String tenantId = doCorpo != null ? doCorpo : TenantContext.currentTenantId();
         var request = new QpAgentService.QpRequest(
                 tenantId, body.clienteRef(), body.vendedorRef(),
                 body.modoEntrada(), body.entrada(), body.itensJaNoPedido());

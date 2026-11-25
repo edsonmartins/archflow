@@ -4,13 +4,23 @@ import java.util.List;
 
 public record GlobalConfigDto() {
 
+    /**
+     * Um modelo do catálogo da plataforma.
+     *
+     * @param id              id no formato do provider ({@code openai/gpt-4o} no OpenRouter)
+     * @param provider        id do provider ({@code openrouter}, {@code openai}...)
+     * @param status          {@code active}, {@code beta} ou {@code deprecated} — só o último sai do
+     *                        seletor dos nós
+     * @param costInputPer1M  custo declarado; {@code null} quando ninguém o informou (nunca zero
+     *                        inventado — zero é "grátis")
+     */
     public record LLMModelDto(
             String id,
             String name,
             String provider,
             String status,
-            double costInputPer1M,
-            double costOutputPer1M
+            Double costInputPer1M,
+            Double costOutputPer1M
     ) {}
 
     public record ToggleModelRequest(boolean active) {}

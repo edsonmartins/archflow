@@ -9,6 +9,7 @@ import { useTranslation } from 'react-i18next'
 import { tenantApi } from '../../../services/admin-api'
 import { PageHeader } from '../../../components/PageHeader'
 import { SectionCard } from '../../../components/SectionCard'
+import { AllowedModelsInput } from './AllowedModelsInput'
 
 export default function TenantNew() {
   const navigate = useNavigate()
@@ -23,6 +24,8 @@ export default function TenantNew() {
   const [tokenLimit, setTokenLimit] = useState<number>(5000000)
   const [maxWorkflows, setMaxWorkflows] = useState<number>(20)
   const [maxUsers, setMaxUsers] = useState<number>(10)
+  // Vazio = todo o catálogo ativo (RCHFLW-79); antes a criação nem tinha o campo.
+  const [allowedModels, setAllowedModels] = useState<string[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -44,6 +47,7 @@ export default function TenantNew() {
           maxWorkflows,
           maxUsers,
         },
+        allowedModels,
       })
       notifications.show({ title: t('admin.superadmin.tenantNew.created'), message: t('admin.superadmin.tenantNew.createdMsg', { name }), color: 'teal' })
       navigate('/admin/tenants')
@@ -116,6 +120,8 @@ export default function TenantNew() {
                   <NumberInput size="sm" label={t('admin.superadmin.tenantNew.form.maxWorkflows')}   value={maxWorkflows} onChange={v => setMaxWorkflows(Number(v))} min={1} />
                   <NumberInput size="sm" label={t('admin.superadmin.tenantNew.form.maxUsers')}       value={maxUsers}     onChange={v => setMaxUsers(Number(v))}     min={1} />
                 </SimpleGrid>
+                <AllowedModelsInput value={allowedModels} onChange={setAllowedModels}
+                  label={t('admin.superadmin.tenantNew.form.allowedModels')} />
               </Stack>
             </SectionCard>
           </Stack>
@@ -136,6 +142,8 @@ export default function TenantNew() {
               <SummaryRow label={t('admin.superadmin.tenantNew.summaryRows.tokensMo')}   value={tokenLimit.toLocaleString(locale)} />
               <SummaryRow label={t('admin.superadmin.tenantNew.summaryRows.workflows')}  value={String(maxWorkflows)} />
               <SummaryRow label={t('admin.superadmin.tenantNew.summaryRows.users')}      value={String(maxUsers)} />
+              <SummaryRow label={t('admin.superadmin.tenantNew.summaryRows.models')}
+                value={allowedModels.length === 0 ? t('admin.superadmin.tenantDetail.allowedModelsAll') : String(allowedModels.length)} />
             </Stack>
             <Group justify="flex-end" gap="xs" mt="lg">
               <Button variant="default" onClick={() => navigate('/admin/tenants')}>{t('common.cancel')}</Button>

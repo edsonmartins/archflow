@@ -26,7 +26,9 @@ async function getJson<T>(path: string): Promise<T> {
 export interface ProviderModel {
   id:             string
   name:           string
+  /** 0 = desconhecido (id do catálogo que o código do servidor não conhece). */
   contextWindow:  number
+  /** 0 = desconhecido. */
   maxTemperature: number
 }
 
@@ -36,7 +38,20 @@ export interface ProviderInfo {
   requiresApiKey:    boolean
   supportsStreaming: boolean
   group:             'Cloud' | 'Local'
+  /** Catálogo ativo da plataforma ∩ modelos permitidos do tenant (RCHFLW-79). */
   models:            ProviderModel[]
+  /**
+   * `false` quando o tenant tem restrição de modelos: só a lista vale (a execução recusa o resto).
+   * Ausente (servidor antigo, fallback offline) = id livre permitido.
+   */
+  allowCustomModel?: boolean
+  /** O provider do `archflow.llm.provider` — o que um nó sem provider (e sem padrão no fluxo) herda. */
+  platformDefault?:  boolean
+  /**
+   * O `archflow.llm.model`, só no provider da plataforma: o modelo que um nó sem modelo herda quando o
+   * fluxo não diz um. Ausente/nulo = o servidor não informou (não se sabe o que se herda).
+   */
+  defaultModel?:     string | null
 }
 
 export interface AgentPatternInfo {

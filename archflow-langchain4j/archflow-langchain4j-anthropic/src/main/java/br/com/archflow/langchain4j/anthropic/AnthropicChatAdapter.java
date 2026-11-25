@@ -1,14 +1,12 @@
 package br.com.archflow.langchain4j.anthropic;
 
+import br.com.archflow.langchain4j.core.chat.ChatTurn;
 import br.com.archflow.langchain4j.core.security.ConfigSecrets;
 import br.com.archflow.langchain4j.core.spi.ChatModelProvider;
 import br.com.archflow.langchain4j.core.spi.LangChainAdapter;
 import br.com.archflow.model.engine.ExecutionContext;
-import dev.langchain4j.data.message.AiMessage;
-import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.anthropic.AnthropicChatModel;
 import dev.langchain4j.model.chat.ChatModel;
-import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.memory.ChatMemory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -183,18 +181,18 @@ public class AnthropicChatAdapter implements LangChainAdapter, ChatModelProvider
             throw new IllegalStateException("Adapter not configured. Call configure() first.");
         }
 
-        return doExecute(current, operation, input, context);
+        return doExecute(current, ChatTurn.systemPromptOf(this.config), operation, input, context);
     }
 
-    private Object doExecute(ChatModel model, String operation, Object input, ExecutionContext context)
-            throws Exception {
+    private Object doExecute(ChatModel model, String systemPrompt, String operation, Object input,
+                             ExecutionContext context) throws Exception {
             try {
                 if ("generate".equals(operation)) {
                     if (!(input instanceof String)) {
                         throw new IllegalArgumentException("Input must be a string for 'generate' operation");
                     }
-                    // LangChain4j 1.10.0: ChatModel.chat(String) retorna String diretamente
-                    return model.chat((String) input);
+                    // O prompt de sistema do nó vai na frente (ChatTurn) — antes era descartado.
+                    return ChatTurn.generate(model, systemPrompt, (String) input);
                 }
 
                 if ("chat".equals(operation)) {
@@ -207,15 +205,7 @@ public class AnthropicChatAdapter implements LangChainAdapter, ChatModelProvider
                         throw new IllegalStateException("Chat memory not available in context");
                     }
 
-                    // LangChain4j 1.10.0: Usa ChatModel.chat() com mensagens da memória
-                    UserMessage userMessage = UserMessage.from((String) input);
-                    memory.add(userMessage);
-
-                    // ChatModel.chat(List<ChatMessage>) retorna ChatResponse
-                    ChatResponse response = model.chat(memory.messages());
-                    memory.add(response.aiMessage());
-
-                    return response.aiMessage().text();
+                    return ChatTurn.chat(model, systemPrompt, memory, (String) input);
                 }
 
                 throw new IllegalArgumentException("Unsupported operation: " + operation);

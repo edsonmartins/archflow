@@ -118,6 +118,18 @@ describe('useFlowStore', () => {
       expect(useFlowStore.getState().selectedNodeData?.config.model).toBeUndefined()
     })
 
+    it('undefined removes the key (a field goes back to inheriting)', () => {
+      useFlowStore.getState().setNodes([
+        makeNode('n1', { config: { provider: 'openrouter', model: 'openai/gpt-6-luna', systemPrompt: 'x' } }),
+      ])
+
+      useFlowStore.getState().updateNodeConfig('n1', 'provider', undefined)
+      useFlowStore.getState().updateNodeConfig('n1', 'model', undefined)
+
+      const config = useFlowStore.getState().nodes[0].data.config
+      expect(Object.keys(config)).toEqual(['systemPrompt'])
+    })
+
     it('handles non-existent node id gracefully', () => {
       useFlowStore.getState().setNodes([makeNode('n1')])
       useFlowStore.getState().updateNodeConfig('nope', 'model', 'gpt-4o')

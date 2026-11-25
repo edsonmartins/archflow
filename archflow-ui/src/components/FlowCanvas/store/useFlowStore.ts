@@ -232,11 +232,15 @@ export const useFlowStore = create<FlowStore>((set, get) => ({
     set(state => {
       const nodes = state.nodes.map(n => {
         if (n.id !== nodeId) return n
+        const config: Record<string, unknown> = { ...n.data.config, [key]: value }
+        // undefined = "tire a chave": é como um campo volta a herdar (ex.: provider → padrão da
+        // plataforma). Guardar a chave com undefined/null deixaria o documento dizendo outra coisa.
+        if (value === undefined) delete config[key]
         return {
           ...n,
           data: {
             ...n.data,
-            config: { ...n.data.config, [key]: value },
+            config,
           },
         }
       })

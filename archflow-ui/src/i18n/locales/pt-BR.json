@@ -394,6 +394,7 @@
             "flowDefaults": {
                 "title": "Padrões do fluxo",
                 "hint": "Padrões de modelo herdados por todos os passos. Selecione um nó para sobrescrever.",
+                "savedGroup": "Gravado no fluxo",
                 "inheritHint": "Deixe um campo no valor padrão para herdar da plataforma."
             },
             "tabs": {
@@ -415,6 +416,22 @@
                 "executionStrategy": "Estratégia de execução",
                 "provider": "Provedor",
                 "model": "Modelo",
+                "inheritFlow": "Padrão do fluxo ({{provider}})",
+                "inheritPlatform": "Padrão da plataforma",
+                "modelDefault": "Padrão",
+                "inheritFlowValue": "Padrão do fluxo ({{value}})",
+                "inheritHint": "Sem provedor escolhido, o nó usa o provedor e o modelo padrão do fluxo (configuration.llmConfig) ou da plataforma (archflow.llm.provider/model).",
+                "noChatAdapter": "{{provider}} (sem adapter de chat)",
+                "noChatAdapterHint": "Este provedor não tem adapter de chat neste servidor — o nó vai falhar. Escolha outro ou o padrão.",
+                "inheritPlatformNamed": "Padrão da plataforma ({{provider}})",
+                "useCustomModel": "Usar o id \"{{model}}\"",
+                "modelNotAllowed": "{{model}} (não permitido)",
+                "modelNotAllowedHint": "Este tenant não permite este modelo — a execução vai falhar. Escolha um da lista.",
+                "modelInheritedNotAllowed": "O modelo herdado ({{model}}) não é permitido para este tenant — a execução vai falhar. Escolha um modelo da lista.",
+                "modelInheritedMissing": "Nada define o modelo herdado (iria o padrão do provider) e este tenant só permite os modelos da lista — a execução vai falhar. Escolha um.",
+                "modelRestrictedHint": "Este tenant só pode usar os modelos da lista (definidos pelo administrador da plataforma).",
+                "modelSearchHint": "Digite para buscar no catálogo ou para usar outro id do provedor.",
+                "modelNothingFound": "Nenhum modelo do catálogo",
                 "persona": "Persona",
                 "systemPrompt": "System prompt",
                 "systemPromptPlaceholder": "Você é um assistente útil...",
@@ -1045,6 +1062,13 @@
                 "plan": "Plano",
                 "status": "Status",
                 "allowedModels": "Modelos permitidos",
+                "allowedModelsAll": "Todos os modelos do catálogo",
+                "allowedModelsHint": "Vazio: o tenant usa todo o catálogo ativo e pode digitar outro id. Preenchido: só estes modelos — no editor e na execução.",
+                "allowedModelsPlaceholder": "Todos os modelos do catálogo",
+                "allowedModelsCatalogFailed": "Não foi possível carregar o catálogo de modelos",
+                "editModels": "Editar",
+                "saveModels": "Salvar",
+                "modelsSaved": "Modelos permitidos atualizados",
                 "name": "Nome",
                 "tenantId": "ID do tenant",
                 "admin": "Admin",
@@ -1084,7 +1108,8 @@
                     "execPerDay": "Execuções/dia",
                     "tokensPerMonth": "Tokens/mês",
                     "maxWorkflows": "Máx. fluxos",
-                    "maxUsers": "Máx. usuários"
+                    "maxUsers": "Máx. usuários",
+                    "allowedModels": "Modelos permitidos"
                 },
                 "plans": {
                     "trial": "Trial (30 dias)",
@@ -1100,7 +1125,8 @@
                     "exec": "Exec/dia",
                     "tokensMo": "Tokens/mês",
                     "workflows": "Fluxos",
-                    "users": "Usuários"
+                    "users": "Usuários",
+                    "models": "Modelos"
                 },
                 "createBtn": "Criar tenant"
             },

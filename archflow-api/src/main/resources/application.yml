@@ -116,6 +116,29 @@ archflow:
     #   ARCHFLOW_LLM_PROVIDER_PREFERENCES_ZDR=true
     #   ARCHFLOW_LLM_PROVIDER_PREFERENCES_DATA_COLLECTION=deny
     #   ARCHFLOW_LLM_PROVIDER_PREFERENCES_REQUIRED=true   # OpenRouter sem preferência → o modelo não é criado
+    # Vale também para o nó llm-chat/llm-streaming/chat com provider openrouter (RCHFLW-41): modelo
+    # principal, por contexto e fallback, desde que o destino seja openrouter.ai. O nó não as desliga.
+    #
+    # Chaves de API (RCHFLW-17) — nunca no JSON do fluxo. Ordem: chave do tenant → chave da plataforma
+    # para o provider → archflow.llm.api-key (só quando o provider é o archflow.llm.provider). Valem
+    # para nós llm-chat (adapters), agentes e nó `decision` (este com archflow.decision.keys.<ref> no meio).
+    #   ARCHFLOW_LLM_KEYS_OPENROUTER=sk-or-...            # = archflow.llm.keys.openrouter
+    #   ARCHFLOW_LLM_TENANTKEYS_ACME_OPENROUTER=sk-or-... # tenant "acme" (id simples, chega em minúsculas)
+    # Tenant com '_', '-' ou maiúsculas no id: use colchetes, com o valor vindo do ambiente:
+    # tenant-keys:
+    #   "[tenant_a]":
+    #     openrouter: ${TENANT_A_OPENROUTER_KEY:}
+    #
+    # Destinos que podem receber uma chave governada (RCHFLW-42): além do endereço oficial do provider
+    # e do archflow.llm.base-url, só os desta lista (URLs ou hosts; host sem esquema = só https). Um
+    # base.url/baseUrl/endpoint de nó fora dela falha antes de qualquer requisição.
+    #   ARCHFLOW_LLM_ALLOWED_BASE_URLS=https://gateway.acme.com/v1,proxy.acme.com
+    #
+    # Catálogo de modelos da plataforma (RCHFLW-79): ids do archflow.llm.provider, no formato dele,
+    # separados por vírgula. Semeia o catálogo global (o superadmin liga/desliga por cima); o seletor dos
+    # nós lista o que está ligado ∩ os "modelos permitidos" do tenant, e a execução recusa um modelo fora
+    # da lista de um tenant restrito ([LLM-MODELO]). Sem a variável, vale a lista do código (LLMProvider).
+    #   ARCHFLOW_LLM_MODELS=openai/gpt-6-luna,google/gemma-4-31b-it:free,nvidia/nemotron-3-ultra-550b-a55b:free
 
 logging:
   level:

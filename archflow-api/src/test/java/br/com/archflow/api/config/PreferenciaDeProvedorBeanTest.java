@@ -1,5 +1,6 @@
 package br.com.archflow.api.config;
 
+import br.com.archflow.api.decision.LangChain4jDecisionProvider;
 import br.com.archflow.decision.DecisionCall;
 import br.com.archflow.decision.DecisionException;
 import br.com.archflow.decision.DecisionProvider;
@@ -69,7 +70,9 @@ class PreferenciaDeProvedorBeanTest {
     void decisaoUsaOProvedorConfigurado() {
         DecisionProviders providers = config.decisionProviders(mock(LLMConfigResolver.class),
                 ResolvedLLMConfig.builder().provider("openrouter").model("m").build(),
-                ProviderPreferences.NONE, true);
+                ProviderPreferences.NONE, true,
+                br.com.archflow.langchain4j.provider.BaseUrlPolicy.officialOnly(),
+                br.com.archflow.langchain4j.provider.TenantModelPolicy.UNRESTRICTED);
         DecisionProvider http = providers.find(HttpDecisionProvider.ID).orElseThrow();
 
         DecisionRequest pedido = new DecisionRequest(Map.of("x", 1),
@@ -78,5 +81,35 @@ class PreferenciaDeProvedorBeanTest {
                 new DecisionCall("t", "typesafe/jev-1.14", "k", Duration.ofSeconds(1), Map.of())))
                 .isInstanceOf(DecisionException.class)
                 .hasMessageContaining("provider-preferences.required");
+    }
+
+    /**
+     * RCHFLW-79: os dois provedores de decisão que mandam o {@code model} do nó com a chave governada
+     * precisam conferir os permitidos do tenant — senão um nó de decisão contorna a restrição que chat e
+     * agentes respeitam. A recusa sai antes de qualquer rede (o endpoint padrão é o do OpenRouter).
+     */
+    @Test
+    @DisplayName("http-decisions e langchain4j-decisions do bean recusam modelo fora dos permitidos do tenant")
+    void decisaoConfereOsModelosDoTenant() {
+        br.com.archflow.langchain4j.provider.TenantModelPolicy acmeRestrito = tenant -> "acme".equals(tenant)
+                ? java.util.Optional.of(List.of("google/gemma-4-31b-it:free"))
+                : java.util.Optional.empty();
+        DecisionProviders providers = config.decisionProviders(mock(LLMConfigResolver.class),
+                ResolvedLLMConfig.builder().provider("openrouter").model("m").build(),
+                ProviderPreferences.NONE, false,
+                br.com.archflow.langchain4j.provider.BaseUrlPolicy.officialOnly(), acmeRestrito);
+        DecisionRequest pedido = new DecisionRequest(Map.of("x", 1),
+                List.of(new Question.YesNo("ok", "Ok?", null, null)));
+
+        for (String id : List.of(HttpDecisionProvider.ID, LangChain4jDecisionProvider.ID)) {
+            DecisionProvider p = providers.find(id).orElseThrow();
+            assertThatThrownBy(() -> p.decide(pedido, new DecisionCall("acme", "openai/gpt-6-luna", "k",
+                    Duration.ofSeconds(1), Map.of("keyRef", "openrouter"))))
+                    .as(id)
+                    .isInstanceOf(DecisionException.class)
+                    .hasMessageContaining("[LLM-MODELO]")
+                    .hasMessageContaining("openai/gpt-6-luna")
+                    .satisfies(e -> assertThat(((DecisionException) e).retryable()).isFalse());
+        }
     }
 }

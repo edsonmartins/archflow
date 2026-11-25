@@ -128,7 +128,7 @@ const TEMPLATES: WorkflowTemplate[] = [
             { id: 's2', type: 'tool', componentId: 'tool', label: 'Static lint', category: 'tool', position: { x: 280, y: 120 }, config: { name: 'lint_diff' } },
             { id: 's3', type: 'tool', componentId: 'tool', label: 'Security scan', category: 'tool', position: { x: 280, y: 320 }, config: { name: 'sast_diff' } },
             { id: 's4', type: 'merge', componentId: 'merge', label: 'Merge findings', category: 'data', position: { x: 520, y: 220 }, config: {} },
-            { id: 's5', type: 'llm-chat', componentId: 'llm-chat', label: 'LLM review', category: 'agent', position: { x: 740, y: 220 }, config: { model: 'gpt-4o', rubric: 'code_review' } },
+            { id: 's5', type: 'llm-chat', componentId: 'llm-chat', label: 'LLM review', category: 'agent', position: { x: 740, y: 220 }, config: { rubric: 'code_review' } },
             { id: 's6', type: 'output', componentId: 'output', label: 'Markdown comment', category: 'io', position: { x: 960, y: 220 }, config: {} },
         ],
         connections: [
@@ -190,7 +190,7 @@ const TEMPLATES: WorkflowTemplate[] = [
             { id: 's2', type: 'tool', componentId: 'tool', label: 'Web search', category: 'tool', position: { x: 280, y: 220 }, config: { name: 'web_search' } },
             { id: 's3', type: 'map', componentId: 'map', label: 'Fetch top N', category: 'data', position: { x: 520, y: 220 }, config: { topN: 5 } },
             { id: 's4', type: 'tool', componentId: 'tool', label: 'Extract text', category: 'tool', position: { x: 760, y: 220 }, config: { name: 'extract_text' } },
-            { id: 's5', type: 'llm-chat', componentId: 'llm-chat', label: 'Compile report', category: 'agent', position: { x: 1000, y: 220 }, config: { model: 'gpt-4o', format: 'markdown' } },
+            { id: 's5', type: 'llm-chat', componentId: 'llm-chat', label: 'Compile report', category: 'agent', position: { x: 1000, y: 220 }, config: { format: 'markdown' } },
             { id: 's6', type: 'output', componentId: 'output', label: 'Report', category: 'io', position: { x: 1240, y: 220 }, config: {} },
         ],
         connections: [

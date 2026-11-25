@@ -12,6 +12,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -33,7 +34,9 @@ public class TenantControllerImpl implements TenantController {
      */
     public TenantControllerImpl(boolean seedDemoData) {
         if (seedDemoData) {
-            var limits = new TenantLimitsDto(500, 5_000_000, 20, 10, List.of("gpt-4o", "claude-sonnet-4-6"), List.of("hitl", "brainSentry"));
+            // Ids do catálogo da plataforma (lista do código, RCHFLW-79): "claude-sonnet-4-6" não existia nele.
+            var limits = new TenantLimitsDto(500, 5_000_000, 20, 10,
+                    List.of("gpt-4o", "claude-sonnet-4-20250514"), List.of("hitl", "brainSentry"));
             var usage = new TenantUsageDto(340, 4_200_000, 12, 5);
             tenants.put("tenant_rio_quality", new TenantDto("tenant_rio_quality", "Rio Quality", "enterprise", "active",
                     "admin@rioquality.com.br", "Food Distribution", limits, usage, limits.allowedModels(), "2025-06"));
@@ -67,10 +70,14 @@ public class TenantControllerImpl implements TenantController {
         var limits = request.limits() != null ? request.limits() :
                 new TenantLimitsDto(100, 1_000_000, 5, 3, List.of(), List.of());
         var usage = new TenantUsageDto(0, 0, 0, 0);
+        // A lista que vale é a de cima (allowedModels); a de limits é aceita só quando a de cima não veio,
+        // para um cliente da API que só preencheu os limites não perder a restrição.
+        List<String> allowed = request.allowedModels() != null ? request.allowedModels()
+                : request.limits() != null ? request.limits().allowedModels() : null;
         var tenant = new TenantDto(request.tenantId(), request.name(), request.plan(),
                 "trial".equals(request.plan()) ? "trial" : "active",
                 request.adminEmail(), request.sector(), limits, usage,
-                request.allowedModels() != null ? request.allowedModels() : List.of(),
+                normalizeModels(allowed),
                 Instant.now().toString().substring(0, 7));
         tenants.put(request.tenantId(), tenant);
         auditTrail.record(AuditAction.CREATE, "tenant", request.tenantId(), true, null,
@@ -111,11 +118,43 @@ public class TenantControllerImpl implements TenantController {
                     update.sector() != null ? update.sector() : existing.sector(),
                     update.limits() != null ? update.limits() : existing.limits(),
                     existing.usage(),
-                    update.allowedModels() != null ? update.allowedModels() : existing.allowedModels(),
+                    update.allowedModels() != null
+                            ? normalizeModels(update.allowedModels()) : existing.allowedModels(),
                     existing.createdAt());
         });
         auditTrail.record(AuditAction.UPDATE, "tenant", tenantId, true, null, null);
         return updated;
+    }
+
+    /**
+     * Os modelos que o tenant pode usar (RCHFLW-79) — o recorte do catálogo da plataforma que o
+     * seletor dos nós mostra e que a execução confere ({@code TenantModelPolicy}).
+     *
+     * @return vazio quando o tenant não tem restrição: lista vazia, ou tenant sem cadastro aqui (um
+     *         tenant que só existe no produto — VendaX — ou o SYSTEM das execuções sem tenant). Vazio
+     *         é "o catálogo inteiro", nunca "nada".
+     */
+    public Optional<List<String>> allowedModels(String tenantId) {
+        if (tenantId == null) {
+            return Optional.empty();
+        }
+        TenantDto tenant = tenants.get(tenantId);
+        if (tenant == null || tenant.allowedModels() == null || tenant.allowedModels().isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.of(List.copyOf(tenant.allowedModels()));
+    }
+
+    /** Aparado, sem vazios nem repetidos: um {@code " gpt-4o"} vindo do formulário não pode virar outro id. */
+    static List<String> normalizeModels(List<String> models) {
+        if (models == null) {
+            return List.of();
+        }
+        return models.stream()
+                .filter(m -> m != null && !m.isBlank())
+                .map(String::trim)
+                .distinct()
+                .toList();
     }
 
     @Override

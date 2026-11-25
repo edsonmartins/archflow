@@ -86,9 +86,9 @@ public final class HttpDecisionProvider implements DecisionProvider {
      * recebe a preferência.
      */
     public static boolean ehOpenRouter(URI uri) {
-        String host = uri.getHost();
-        return host != null && (host.equalsIgnoreCase("openrouter.ai")
-                || host.toLowerCase(java.util.Locale.ROOT).endsWith(".openrouter.ai"));
+        // A regra mora em ProviderPreferences: o adapter de chat do OpenRouter (nós de fluxo) também
+        // a aplica e não depende deste módulo.
+        return ProviderPreferences.isOpenRouterHost(uri);
     }
 
     @Override
