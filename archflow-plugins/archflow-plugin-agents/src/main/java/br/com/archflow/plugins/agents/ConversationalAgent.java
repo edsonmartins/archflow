@@ -32,6 +32,14 @@ public class ConversationalAgent implements AIAgent, ComponentPlugin {
     private static final double DEFAULT_ESCALATION_THRESHOLD = 0.5;
     private static final int DEFAULT_MAX_CONTEXT_MESSAGES = 10;
 
+    /**
+     * Ordem importa: o primeiro é o tipo padrão (o que {@code execute("executeTask", ...)} usa) e é o que
+     * {@link #supportedTaskTypes()} declara a quem despacha sem conhecer o agente (RCHFLW-61).
+     */
+    private static final List<String> SUPPORTED_TASK_TYPES = List.of(
+            "conversation", "inquiry", "complaint", "sales", "support"
+    );
+
     private Map<String, Object> config;
     private boolean initialized = false;
 
@@ -220,13 +228,18 @@ public class ConversationalAgent implements AIAgent, ComponentPlugin {
     }
 
     @Override
+    public List<String> supportedTaskTypes() {
+        return SUPPORTED_TASK_TYPES;
+    }
+
+    @Override
     public Result executeTask(Task task, ExecutionContext context) {
         if (task == null) {
             return Result.failure("Task cannot be null");
         }
 
         String taskType = task.type();
-        if (!Set.of("conversation", "inquiry", "complaint", "sales", "support").contains(taskType)) {
+        if (!SUPPORTED_TASK_TYPES.contains(taskType)) {
             return Result.failure("Unsupported task type: " + taskType
                     + ". Supported: conversation, inquiry, complaint, sales, support");
         }

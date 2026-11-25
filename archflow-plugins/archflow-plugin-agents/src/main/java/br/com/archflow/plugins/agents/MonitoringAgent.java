@@ -25,7 +25,11 @@ public class MonitoringAgent implements AIAgent, ComponentPlugin {
     private static final String COMPONENT_ID = "monitoring-agent";
     private static final String VERSION = "1.0.0";
 
-    private static final Set<String> SUPPORTED_TASK_TYPES = Set.of(
+    /**
+     * Ordem importa: o primeiro é o tipo padrão (o que {@code execute("executeTask", ...)} usa) e é o que
+     * {@link #supportedTaskTypes()} declara a quem despacha sem conhecer o agente (RCHFLW-61).
+     */
+    private static final List<String> SUPPORTED_TASK_TYPES = List.of(
             "monitor", "health_check", "analyze_metrics"
     );
 
@@ -284,6 +288,11 @@ public class MonitoringAgent implements AIAgent, ComponentPlugin {
     }
 
     // ── AIAgent contract ────────────────────────────────────────────────
+
+    @Override
+    public List<String> supportedTaskTypes() {
+        return SUPPORTED_TASK_TYPES;
+    }
 
     @Override
     public Result executeTask(Task task, ExecutionContext context) {

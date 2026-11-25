@@ -198,21 +198,39 @@
             "rounds": "Rodadas",
             "roundsHint": "Ciclos decompor → verificar",
             "confirmed": "Confirmados",
-            "confirmedHint": "Resultados aprovados na verificação"
+            "confirmedHint": "Resultados aprovados na verificação",
+            "failed": "Falhas",
+            "failedHint": "Subtarefas que não chegaram à verificação",
+            "tokens": "Tokens gastos",
+            "tokensHint": "Informados pelo planejador e pelos agentes",
+            "tokensBudgetHint": "Informados pelo planejador e pelos agentes, de {{budget}} do orçamento",
+            "tokensUnknownHint_one": "{{count}} chamada não informou uso: o total é um piso",
+            "tokensUnknownHint_other": "{{count}} chamadas não informaram uso: o total é um piso"
         },
+        "budgetExhaustedTitle": "Orçamento esgotado",
+        "budgetExhaustedHint": "A execução parou de despachar subtarefas e rodadas ao atingir {{budget}} tokens.",
         "noConfirmed": "Nada confirmado",
         "noConfirmedHint": "Os verificadores rejeitaram todos os resultados candidatos.",
+        "noConfirmedAllFailedHint": "Nenhum resultado chegou à verificação: todas as subtarefas falharam antes.",
+        "noConfirmedNoSubtasksHint": "O planejador não gerou nenhuma subtarefa.",
+        "noConfirmedBudgetHint_one": "{{count}} subtarefa planejada não foi despachada: o orçamento acabou antes.",
+        "noConfirmedBudgetHint_other": "{{count}} subtarefas planejadas não foram despachadas: o orçamento acabou antes.",
+        "noConfirmedBudgetBeforePlanningHint": "O orçamento acabou antes do planejamento: nenhuma subtarefa foi planejada.",
+        "failuresTitle": "{{failed}} de {{total}} subtarefas falharam antes da verificação",
+        "failuresHint": "Motivos informados pelo worker, agrupados:",
         "traceHint_one": "{{count}} evento",
         "traceHint_other": "{{count}} eventos",
         "traceCols": {
             "round": "Rodada",
             "type": "Evento",
             "verdict": "Veredito",
+            "agent": "Agente",
             "detail": "Detalhe"
         },
         "verdict": {
             "confirmed": "confirmado",
-            "rejected": "rejeitado"
+            "rejected": "rejeitado",
+            "failed": "falhou"
         },
         "resultsHint": "Resultados confirmados e o trace da execução",
         "running": "Executando — decompondo, distribuindo e verificando…",

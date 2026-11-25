@@ -6,6 +6,7 @@ import br.com.archflow.agent.streaming.ArchflowEvent;
 import br.com.archflow.agent.streaming.ArchflowEventType;
 import br.com.archflow.agent.streaming.EventStreamRegistry;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -40,6 +41,62 @@ public final class StreamingOrchestrationListener implements OrchestrationListen
     @Override
     public void onPlanned(int round, List<?> items) {
         emit(ArchflowEventType.PROGRESS, Map.of("phase", "planned", "round", round, "items", items));
+    }
+
+    /**
+     * PROGRESS com {@code phase=failed}, e não ERROR: a falha é de uma subtarefa, não do fluxo — quem lê
+     * o feed não pode tomá-la como o fim da execução. O motivo vai junto (RCHFLW-61).
+     */
+    @Override
+    public void onWorkerFailed(int round, Object subtask, String error) {
+        emit(ArchflowEventType.PROGRESS, Map.of("phase", "failed", "round", round,
+                "subtask", String.valueOf(subtask), "error", String.valueOf(error)));
+    }
+
+    /**
+     * PROGRESS com {@code phase=dispatched}: qual componente atendeu a subtarefa, o score do roteador e se
+     * deu certo (RCHFLW-64). {@code componentId} e {@code score} vão {@code null} quando nenhum agente
+     * casou — por isso um {@link HashMap}, que aceita nulos, e não {@code Map.of}.
+     */
+    @Override
+    public void onDispatched(int round, Object subtask, String componentId, Double score, boolean success) {
+        Map<String, Object> data = new HashMap<>();
+        data.put("phase", "dispatched");
+        data.put("round", round);
+        data.put("subtask", String.valueOf(subtask));
+        data.put("componentId", componentId);
+        data.put("score", score);
+        data.put("success", success);
+        emit(ArchflowEventType.PROGRESS, data);
+    }
+
+    /** PROGRESS com {@code phase=usage-unknown}: esse gasto não entrou no orçamento (RCHFLW-62). */
+    @Override
+    public void onUsageUnknown(int round, Object subtask, String source) {
+        Map<String, Object> data = new HashMap<>();
+        data.put("phase", "usage-unknown");
+        data.put("round", round);
+        data.put("subtask", subtask == null ? null : String.valueOf(subtask));
+        data.put("source", source);
+        emit(ArchflowEventType.PROGRESS, data);
+    }
+
+    /** PROGRESS com {@code phase=budget-exhausted}: a execução parou de despachar por orçamento (RCHFLW-62). */
+    @Override
+    public void onBudgetExhausted(int round, long spentTokens, Long maxTokens) {
+        Map<String, Object> data = new HashMap<>();
+        data.put("phase", "budget-exhausted");
+        data.put("round", round);
+        data.put("spentTokens", spentTokens);
+        data.put("maxTokens", maxTokens);
+        emit(ArchflowEventType.PROGRESS, data);
+    }
+
+    /** PROGRESS com {@code phase=not-dispatched}: a subtarefa planejada não saiu, e por quê (RCHFLW-62). */
+    @Override
+    public void onNotDispatched(int round, Object subtask, String reason) {
+        emit(ArchflowEventType.PROGRESS, Map.of("phase", "not-dispatched", "round", round,
+                "subtask", String.valueOf(subtask), "reason", String.valueOf(reason)));
     }
 
     @Override

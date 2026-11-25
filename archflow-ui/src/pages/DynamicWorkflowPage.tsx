@@ -1,19 +1,66 @@
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
-    Alert, Button, Code, Grid, Group, Loader, NumberInput, SimpleGrid, Stack, Text, Textarea,
+    Alert, Button, Code, Grid, Group, List, Loader, NumberInput, SimpleGrid, Stack, Text, Textarea,
 } from '@mantine/core'
 import {
-    IconAdjustmentsHorizontal, IconAlertCircle, IconCircleCheck, IconListDetails, IconPlayerPlay,
-    IconRepeat, IconSitemap, IconTarget,
+    IconAdjustmentsHorizontal, IconAlertCircle, IconAlertTriangle, IconCircleCheck, IconCoins,
+    IconListDetails, IconPlayerPlay, IconRepeat, IconSitemap, IconTarget,
 } from '@tabler/icons-react'
 import { PageHeader } from '../components/PageHeader'
 import { SectionCard } from '../components/SectionCard'
 import { StatCard } from '../components/admin/StatCard'
 import EmptyState from '../components/EmptyState'
 import { VxTable, colunaApagada, colunaStatus, type VxColumn } from '../components/VTable'
-import { orchestrationApi, type DynamicWorkflowResponse } from '../services/orchestration-api'
+import {
+    orchestrationApi, type DynamicWorkflowResponse, type SubtaskFailure,
+} from '../services/orchestration-api'
 import { mensagemDoErro } from '../lib/errorMessage'
+
+/**
+ * Os motivos distintos de falha, com quantas subtarefas falharam por cada um, na ordem em que
+ * apareceram. Oito subtarefas recusadas pelo mesmo motivo viram uma linha, não oito (RCHFLW-61).
+ */
+function motivosDeFalha(failures: SubtaskFailure[]): { error: string; count: number }[] {
+    const porMotivo = new Map<string, number>()
+    for (const f of failures) {
+        porMotivo.set(f.error, (porMotivo.get(f.error) ?? 0) + 1)
+    }
+    return [...porMotivo].map(([error, count]) => ({ error, count }))
+}
+
+/**
+ * Por que nada foi confirmado. A tela dizia sempre "os verificadores rejeitaram", inclusive quando
+ * nenhuma subtarefa tinha chegado à verificação (RCHFLW-61) — a explicação precisa seguir o que houve.
+ * O orçamento vem antes de "o planejador não gerou nada": com o planejamento gastando o teto, nada é
+ * despachado (subtasks = 0) e a frase seria falsa; com teto 0 o planejador nem roda (RCHFLW-62).
+ */
+function motivoSemConfirmados(result: DynamicWorkflowResponse): [string, Record<string, unknown>?] {
+    if (result.subtasks === 0) {
+        if ((result.notDispatched ?? 0) > 0) {
+            return ['dynamicWorkflow.noConfirmedBudgetHint', { count: result.notDispatched }]
+        }
+        if (result.budgetExhausted && result.rounds === 0) {
+            return ['dynamicWorkflow.noConfirmedBudgetBeforePlanningHint']
+        }
+        return ['dynamicWorkflow.noConfirmedNoSubtasksHint']
+    }
+    if (result.failedCount >= result.subtasks) return ['dynamicWorkflow.noConfirmedAllFailedHint']
+    return ['dynamicWorkflow.noConfirmedHint']
+}
+
+/**
+ * O que acompanha o total de tokens: quantas chamadas não informaram uso (o total vira piso) ou, sem
+ * isso, de quanto era o orçamento. Antes a tela não dizia nada sobre gasto (RCHFLW-62).
+ */
+function dicaDeTokens(
+    result: DynamicWorkflowResponse,
+    budget: number | undefined,
+): [string, Record<string, unknown>?] {
+    if (result.usageUnknown > 0) return ['dynamicWorkflow.stats.tokensUnknownHint', { count: result.usageUnknown }]
+    if (budget != null) return ['dynamicWorkflow.stats.tokensBudgetHint', { budget }]
+    return ['dynamicWorkflow.stats.tokensHint']
+}
 
 /**
  * No-code surface for ADR-0002 dynamic workflows: compose a goal + policy in a
@@ -34,6 +81,8 @@ export default function DynamicWorkflowPage() {
     const [running, setRunning] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const [result, setResult] = useState<DynamicWorkflowResponse | null>(null)
+    // O orçamento da execução mostrada — o campo pode mudar depois, e o aviso fala do que valeu nela.
+    const [ranBudget, setRanBudget] = useState<number | undefined>(undefined)
 
     const num = (v: number | string): number | undefined =>
         v === '' || v === null ? undefined : Number(v)
@@ -42,6 +91,7 @@ export default function DynamicWorkflowPage() {
         setRunning(true)
         setError(null)
         try {
+            const budget = num(budgetTokens)
             const res = await orchestrationApi.run({
                 goal: goal.trim(),
                 decomposePrompt: decomposePrompt.trim() || undefined,
@@ -49,8 +99,9 @@ export default function DynamicWorkflowPage() {
                 voters: num(voters),
                 maxRounds: num(maxRounds),
                 concurrency: num(concurrency),
-                budgetTokens: num(budgetTokens),
+                budgetTokens: budget,
             })
+            setRanBudget(budget)
             setResult(res)
         } catch (e) {
             setError(mensagemDoErro(e))
@@ -64,15 +115,22 @@ export default function DynamicWorkflowPage() {
             fieldFormat: (r) => `r${r.round}` }),
         { field: 'type', title: t('dynamicWorkflow.traceCols.type'), width: 170, style: { fontWeight: 600 } },
         colunaStatus(
+            // Uma linha "failed" não tem veredito (nada foi verificado), mas é falha: sai como tal.
             { field: 'confirmed', title: t('dynamicWorkflow.traceCols.verdict'), width: 150,
-              fieldFormat: (r) => (r.confirmed == null ? ''
+              fieldFormat: (r) => (r.type === 'failed' ? t('dynamicWorkflow.verdict.failed')
+                  : r.confirmed == null ? ''
                   : r.confirmed ? t('dynamicWorkflow.verdict.confirmed') : t('dynamicWorkflow.verdict.rejected')) },
             (r) => (r.confirmed ? 'teal' : 'red'),
         ),
+        // Qual agente do catálogo atendeu a subtarefa (RCHFLW-64): sem isto o escopo de sub-agentes
+        // não era auditável pela tela. Vazio nas linhas que não são de uma subtarefa.
+        { field: 'componentId', title: t('dynamicWorkflow.traceCols.agent'), width: 180,
+          fieldFormat: (r) => (r.componentId == null ? '' : String(r.componentId)) },
         { field: 'detail', title: t('dynamicWorkflow.traceCols.detail'), width: 'auto', minWidth: 260 },
     ], [t])
 
     const trace = result?.trace ?? []
+    const failures = result?.failures ?? []
 
     return (
         <Stack p="md" gap="lg">
@@ -167,7 +225,7 @@ export default function DynamicWorkflowPage() {
 
                         {result ? (
                             <Stack gap="lg" data-testid="dw-result">
-                                <SimpleGrid cols={{ base: 1, xs: 2 }} spacing="md">
+                                <SimpleGrid cols={{ base: 1, xs: 2, md: 4 }} spacing="md">
                                     <StatCard
                                         label={t('dynamicWorkflow.stats.rounds')}
                                         value={result.rounds}
@@ -182,7 +240,55 @@ export default function DynamicWorkflowPage() {
                                         accent="teal"
                                         hint={t('dynamicWorkflow.stats.confirmedHint')}
                                     />
+                                    <StatCard
+                                        label={t('dynamicWorkflow.stats.failed')}
+                                        value={`${result.failedCount}/${result.subtasks}`}
+                                        icon={IconAlertTriangle}
+                                        accent={result.failedCount > 0 ? 'rose' : 'slate'}
+                                        hint={t('dynamicWorkflow.stats.failedHint')}
+                                    />
+                                    <StatCard
+                                        label={t('dynamicWorkflow.stats.tokens')}
+                                        // Com uso não informado o total é um piso: "≥" em vez de um número
+                                        // que parece completo (RCHFLW-62).
+                                        value={`${result.usageUnknown > 0 ? '≥ ' : ''}${result.tokensSpent}`}
+                                        icon={IconCoins}
+                                        accent={result.budgetExhausted ? 'rose' : 'violet'}
+                                        hint={t(...dicaDeTokens(result, ranBudget))}
+                                    />
                                 </SimpleGrid>
+
+                                {result.budgetExhausted && (
+                                    <Alert
+                                        color="orange"
+                                        variant="light"
+                                        icon={<IconCoins size={16} />}
+                                        title={t('dynamicWorkflow.budgetExhaustedTitle')}
+                                        data-testid="dw-budget-exhausted"
+                                    >
+                                        {t('dynamicWorkflow.budgetExhaustedHint', { budget: ranBudget ?? '—' })}
+                                    </Alert>
+                                )}
+
+                                {failures.length > 0 && (
+                                    <Alert
+                                        color={result.failedCount >= result.subtasks ? 'red' : 'orange'}
+                                        variant="light"
+                                        icon={<IconAlertTriangle size={16} />}
+                                        title={t('dynamicWorkflow.failuresTitle',
+                                            { failed: result.failedCount, total: result.subtasks })}
+                                        data-testid="dw-failures"
+                                    >
+                                        <Text size="sm" mb={4}>{t('dynamicWorkflow.failuresHint')}</Text>
+                                        <List size="sm" spacing={2}>
+                                            {motivosDeFalha(failures).map(({ error, count }) => (
+                                                <List.Item key={error}>
+                                                    <Text span size="sm" fw={600}>{count}×</Text> {error}
+                                                </List.Item>
+                                            ))}
+                                        </List>
+                                    </Alert>
+                                )}
 
                                 <SectionCard
                                     icon={IconCircleCheck}
@@ -196,7 +302,7 @@ export default function DynamicWorkflowPage() {
                                             accent="teal"
                                             icon={<IconCircleCheck />}
                                             title={t('dynamicWorkflow.noConfirmed')}
-                                            description={t('dynamicWorkflow.noConfirmedHint')}
+                                            description={t(...motivoSemConfirmados(result))}
                                         />
                                     ) : (
                                         <Stack gap="xs">

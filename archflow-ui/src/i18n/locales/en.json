@@ -198,21 +198,39 @@
             "rounds": "Rounds",
             "roundsHint": "Decompose → verify loops run",
             "confirmed": "Confirmed",
-            "confirmedHint": "Results that passed verification"
+            "confirmedHint": "Results that passed verification",
+            "failed": "Failures",
+            "failedHint": "Subtasks that never reached verification",
+            "tokens": "Tokens spent",
+            "tokensHint": "Reported by the planner and the agents",
+            "tokensBudgetHint": "Reported by the planner and the agents, out of a {{budget}} budget",
+            "tokensUnknownHint_one": "{{count}} call did not report usage: the total is a lower bound",
+            "tokensUnknownHint_other": "{{count}} calls did not report usage: the total is a lower bound"
         },
+        "budgetExhaustedTitle": "Budget exhausted",
+        "budgetExhaustedHint": "The run stopped dispatching subtasks and rounds on reaching {{budget}} tokens.",
         "noConfirmed": "Nothing confirmed",
         "noConfirmedHint": "The verifiers rejected every candidate result.",
+        "noConfirmedAllFailedHint": "No result reached verification: every subtask failed before it.",
+        "noConfirmedNoSubtasksHint": "The planner produced no subtasks.",
+        "noConfirmedBudgetHint_one": "{{count}} planned subtask was not dispatched: the budget ran out first.",
+        "noConfirmedBudgetHint_other": "{{count}} planned subtasks were not dispatched: the budget ran out first.",
+        "noConfirmedBudgetBeforePlanningHint": "The budget ran out before planning: no subtask was planned.",
+        "failuresTitle": "{{failed}} of {{total}} subtasks failed before verification",
+        "failuresHint": "Reasons reported by the worker, grouped:",
         "traceHint_one": "{{count}} event",
         "traceHint_other": "{{count}} events",
         "traceCols": {
             "round": "Round",
             "type": "Event",
             "verdict": "Verdict",
+            "agent": "Agent",
             "detail": "Detail"
         },
         "verdict": {
             "confirmed": "confirmed",
-            "rejected": "rejected"
+            "rejected": "rejected",
+            "failed": "failed"
         },
         "resultsHint": "Confirmed results and the execution trace",
         "running": "Running — decomposing, fanning out and verifying…",
