@@ -9,10 +9,11 @@ import {
     IconMessageCircle, IconPlugConnectedX, IconAlertCircle,
 } from '@tabler/icons-react'
 import {
+    conversaEncerrada,
     linktorInboxApi,
-    type LinktorChannel,
+    type CanalDoInbox,
+    type ConversaDoInbox,
     type LinktorContact,
-    type LinktorConversation,
 } from '../services/linktor-inbox-api'
 import { mensagemDoErro } from '../lib/errorMessage'
 import { formatInstant } from '../lib/format'
@@ -20,10 +21,13 @@ import { PageHeader } from '../components/PageHeader'
 import { SectionCard } from '../components/SectionCard'
 import { StatCard } from '../components/admin/StatCard'
 import EmptyState from '../components/EmptyState'
-import { VxTable, colunaApagada, colunaDupla, colunaStatus, type VxColumn } from '../components/VTable'
+import { VxTable, colunaApagada, colunaDupla, colunaStatus, type Registro, type VxColumn } from '../components/VTable'
 import { canalDoLinktor } from '../components/linktor/canal'
 
-const statusColor = (s: string) => (s === 'resolved' ? 'green' : s === 'assigned' ? 'blue' : 'yellow')
+/** Status do Linktor: open, pending, resolved, closed. */
+const statusColor = (s: string) => (conversaEncerrada(s) ? 'green' : s === 'pending' ? 'blue' : 'yellow')
+/** A tabela entrega o registro genérico; as linhas já vêm traduzidas pela camada de serviço. */
+const conversa = (r: Registro) => r as unknown as ConversaDoInbox
 
 /**
  * Admin inbox proxying Linktor conversations / contacts / channels.
@@ -40,9 +44,9 @@ export default function LinktorInboxPage() {
     const locale = i18n.resolvedLanguage ?? i18n.language
     const navigate = useNavigate()
     const [tab, setTab]               = useState<'conversations' | 'contacts' | 'channels'>('conversations')
-    const [conversations, setC]       = useState<LinktorConversation[]>([])
+    const [conversations, setC]       = useState<ConversaDoInbox[]>([])
     const [contacts, setContacts]     = useState<LinktorContact[]>([])
-    const [channels, setChannels]     = useState<LinktorChannel[]>([])
+    const [channels, setChannels]     = useState<CanalDoInbox[]>([])
     const [loading, setLoading]       = useState(true)
     const [error, setError]           = useState<string | null>(null)
 
@@ -62,31 +66,40 @@ export default function LinktorInboxPage() {
     useEffect(() => { reload(tab) }, [tab]) // eslint-disable-line react-hooks/exhaustive-deps
 
     const counts = useMemo(() => {
-        const by = (s: string) => conversations.filter(c => String(c.status ?? 'open') === s).length
-        return { open: by('open'), assigned: by('assigned'), resolved: by('resolved') }
+        // "Atribuída" não é status no Linktor: é a conversa ainda em andamento com um usuário atribuído.
+        const abertas = conversations.filter(c => !conversaEncerrada(c.status))
+        return {
+            open: abertas.filter(c => !c.atribuidaA).length,
+            assigned: abertas.filter(c => c.atribuidaA).length,
+            resolved: conversations.length - abertas.length,
+        }
     }, [conversations])
 
     const colunasConversas = useMemo((): VxColumn[] => [
         colunaDupla(
-            { field: 'lastMessagePreview', title: t('linktor.inbox.columns.lastMessage'), width: 'auto', minWidth: 300 },
-            (r) => (typeof r.lastMessagePreview === 'string' && r.lastMessagePreview ? r.lastMessagePreview : '—'),
-            (r) => String(r.id ?? '').slice(0, 10),
+            { field: 'contato', title: t('linktor.inbox.columns.contact'), width: 240 },
+            (r) => conversa(r).contato ?? '—',
+            (r) => conversa(r).id.slice(0, 10),
         ),
+        { field: 'ultimaMensagem', title: t('linktor.inbox.columns.lastMessage'), width: 'auto', minWidth: 260,
+          fieldFormat: (r) => conversa(r).ultimaMensagem ?? '—' },
         colunaStatus(
             { field: 'status', title: t('linktor.inbox.columns.status'), width: 150,
               fieldFormat: (r) => {
-                  const s = String(r.status ?? '') || 'open'
+                  const s = conversa(r).status
                   return t(`linktor.status.${s}`, { defaultValue: s })
               } },
-            (r) => statusColor(String(r.status ?? '')),
+            (r) => statusColor(conversa(r).status),
         ),
         colunaStatus(
-            { field: 'channelType', title: t('linktor.inbox.columns.channel'), width: 160,
-              fieldFormat: (r) => String(r.channelType ?? r.channelId ?? '') },
-            (r) => canalDoLinktor(String(r.channelType ?? '')).color,
+            { field: 'canalNome', title: t('linktor.inbox.columns.channel'), width: 180,
+              fieldFormat: (r) => conversa(r).canalNome ?? conversa(r).canalTipo ?? '—' },
+            (r) => canalDoLinktor(conversa(r).canalTipo).color,
         ),
-        colunaApagada({ field: 'updatedAt', title: t('linktor.inbox.columns.updated'), width: 210,
-          fieldFormat: (r) => formatInstant(String(r.updatedAt ?? r.createdAt ?? ''), locale) }),
+        { field: 'naoLidas', title: t('linktor.inbox.columns.unread'), width: 110,
+          fieldFormat: (r) => String(conversa(r).naoLidas) },
+        colunaApagada({ field: 'atualizadaEm', title: t('linktor.inbox.columns.updated'), width: 210,
+          fieldFormat: (r) => formatInstant(conversa(r).atualizadaEm, locale) }),
     ], [t, locale])
 
     const colunasContatos = useMemo((): VxColumn[] => [
@@ -168,13 +181,13 @@ export default function LinktorInboxPage() {
                         columns={colunasConversas}
                         rowHeight={58}
                         loading={loading}
-                        onRowClick={(r) => navigate(`/admin/linktor/inbox/${encodeURIComponent(String(r.id ?? ''))}`)}
+                        onRowClick={(r) => navigate(`/admin/linktor/inbox/${encodeURIComponent(r.id)}`)}
                         emptyMessage={t('linktor.inbox.emptyConversations')}
                         emptyDescription={t('linktor.inbox.emptyConversationsHint')}
                         emptyIcon={<IconMessages />}
                         emptyAccent="teal"
                         testid="lk-conversations"
-                        rowTestId={(r) => `lk-conv-${String(r.id ?? '')}`}
+                        rowTestId={(r) => `lk-conv-${r.id}`}
                     />
                 </SectionCard>
             )}
@@ -210,19 +223,19 @@ export default function LinktorInboxPage() {
                 ) : (
                     <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="md">
                         {channels.map(ch => {
-                            const id = String(ch.id ?? '')
-                            const type = String(ch.type ?? '')
-                            const status = String(ch.status ?? '')
+                            const type = ch.tipo
+                            // connection_status do Linktor: connected, connecting, disconnected, error.
+                            const status = ch.conexao ?? ''
                             const { icon: Icon, color } = canalDoLinktor(type)
-                            const up = /active|connected|online|enabled/i.test(status)
+                            const up = status === 'connected'
                             return (
-                                <Paper key={id} withBorder p="md">
+                                <Paper key={ch.id} withBorder p="md">
                                     <Group gap="md" wrap="nowrap">
                                         <ThemeIcon size={42} radius="md" variant="light" color={color} aria-hidden>
                                             <Icon size={22} />
                                         </ThemeIcon>
                                         <Stack gap={4} style={{ minWidth: 0, flex: 1 }}>
-                                            <Text fw={600} truncate>{String(ch.name ?? id)}</Text>
+                                            <Text fw={600} truncate>{ch.nome}</Text>
                                             <Group gap={6}>
                                                 {type && <Badge size="xs" variant="light" color={color} radius="sm">{type}</Badge>}
                                                 {status && (

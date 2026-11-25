@@ -2155,8 +2155,10 @@
             "columns": {
                 "id": "ID",
                 "status": "Status",
+                "contact": "Contact",
                 "channel": "Channel",
                 "lastMessage": "Last message",
+                "unread": "Unread",
                 "updated": "Updated",
                 "name": "Name",
                 "email": "Email",
@@ -2171,6 +2173,7 @@
             "noMessagesHint": "The history appears here as soon as the first message arrives.",
             "replyPlaceholder": "Write a reply…",
             "replyResolved": "This conversation is resolved.",
+            "replyClosed": "This conversation is closed.",
             "handoffHint": "Assign to an operator or close the conversation",
             "assignee": "Operator",
             "details": "Details",
@@ -2180,7 +2183,24 @@
             "reply": "Reply",
             "sendFailed": "Send failed",
             "handoff": "Hand off to human",
-            "assigneePlaceholder": "Target user id (leave blank to return to queue)",
+            "assigneePlaceholder": "Linktor user id",
+            "assigneeChoose": "Choose the operator",
+            "usersForbidden": "Linktor does not let this API key list users: the list requires the admin or owner role. Enter the Linktor user id.",
+            "usersFailed": "Could not load the Linktor operators ({{error}}). Enter the Linktor user id.",
+            "usersEmpty": "Linktor returned no users. Enter the Linktor user id.",
+            "usersUnauthorized": "Linktor did not accept the credentials (HTTP 401): the API key is invalid or expired. Review it in the Linktor settings; meanwhile, enter the Linktor user id.",
+            "userStatus": {
+                "active": "active",
+                "inactive": "inactive",
+                "suspended": "suspended"
+            },
+            "sender": {
+                "contato": "Customer",
+                "operador": "Operator",
+                "bot": "Bot",
+                "sistema": "System",
+                "desconhecido": "Unknown sender"
+            },
             "assign": "Assign",
             "assigned": "Assigned",
             "assignedMsg": "Conversation handed off to {{assignee}}",
@@ -2192,8 +2212,10 @@
         },
         "status": {
             "open": "open",
+            "pending": "pending",
             "assigned": "assigned",
-            "resolved": "resolved"
+            "resolved": "resolved",
+            "closed": "closed"
         }
     },
     "chat": {

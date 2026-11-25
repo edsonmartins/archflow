@@ -14,14 +14,10 @@ import java.io.IOException;
  * operator by calling Linktor's
  * {@code POST /conversations/{id}/assign} endpoint.
  *
- * <p>Assignment semantics:
- * <ul>
- *   <li>If {@code targetUserId} is provided, Linktor assigns directly
- *       to that user.</li>
- *   <li>If it is {@code null} we pass an empty userId — Linktor
- *       interprets that as "return to queue" which triggers the
- *       routing rules configured in the platform.</li>
- * </ul>
+ * <p>O Linktor atribui a um usuário ({@code user_id} obrigatório) e não tem "devolver à fila": não
+ * existe rota de desatribuição, e um {@code user_id} vazio é recusado com 400. Sem
+ * {@code targetUserId} o canal falha antes de chamar o Linktor, dizendo por quê — antes mandava um id
+ * vazio, prometendo um roteamento que o Linktor não faz.</p>
  */
 public class LinktorEscalationChannel implements EscalationChannel {
 
@@ -40,12 +36,16 @@ public class LinktorEscalationChannel implements EscalationChannel {
 
     @Override
     public void escalate(EscalationRequest request) {
-        String userId = request.targetUserId() != null ? request.targetUserId() : "";
+        String userId = request.targetUserId();
+        if (userId == null || userId.isBlank()) {
+            throw new EscalationException("Linktor escalate needs targetUserId for conversation="
+                    + request.conversationId() + ": Linktor assigns to a user (user_id) and has no "
+                    + "return-to-queue");
+        }
         try {
             client.assignConversation(request.conversationId(), userId);
             log.info("Escalated conversation {} to user='{}' reason='{}'",
-                    request.conversationId(), userId.isBlank() ? "<queue>" : userId,
-                    request.reason());
+                    request.conversationId(), userId, request.reason());
         } catch (IOException | IllegalStateException e) {
             throw new EscalationException(
                     "Linktor escalate failed for conversation=" + request.conversationId()

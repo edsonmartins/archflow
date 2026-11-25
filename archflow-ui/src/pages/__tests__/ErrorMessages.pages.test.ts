@@ -104,11 +104,14 @@ describe('Dynamic Workflow — erro do backend', () => {
 describe('Conversa do Linktor — erro do backend', () => {
     const CONVERSA = /\/admin\/linktor\/inbox\/conversations\/c-1$/
     const MENSAGENS = /\/admin\/linktor\/inbox\/conversations\/c-1\/messages/
+    const USUARIOS = /\/admin\/linktor\/inbox\/users$/
 
     it('o alerta do carregamento mostra a frase, não o JSON', async () => {
         rede([
             { caminho: CONVERSA, status: 503, corpo: { error: 'Linktor apiBaseUrl is not configured' } },
             { caminho: MENSAGENS, status: 503, corpo: { error: 'Linktor apiBaseUrl is not configured' } },
+            // A página também pede os operadores (RCHFLW-112); aqui o que está em teste é o alerta da conversa.
+            { caminho: USUARIOS, status: 200, corpo: [] },
         ])
         const ui = await render('/admin/linktor/conversation/c-1', '/admin/linktor/conversation/:id',
             LinktorConversationPage)

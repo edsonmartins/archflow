@@ -3,8 +3,10 @@ package br.com.archflow.api.linktor.publisher;
 import br.com.archflow.api.linktor.LinktorHttpClient;
 import br.com.archflow.engine.lifecycle.FlowLifecycleListener;
 import br.com.archflow.model.engine.ExecutionContext;
+import br.com.archflow.model.enums.ExecutionStatus;
 import br.com.archflow.model.flow.Flow;
 import br.com.archflow.model.flow.FlowResult;
+import br.com.archflow.model.tenant.DefaultTenant;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -12,7 +14,8 @@ import java.util.Optional;
 
 /**
  * Bridges archflow flow executions to Linktor conversations: whenever
- * a flow completes and its {@link ExecutionContext} carries a
+ * a flow completes ({@link ExecutionStatus#COMPLETED} — paused, cancelled
+ * and failed runs never publish) and its {@link ExecutionContext} carries a
  * {@code conversationId}, we post the flow's output text as a new
  * Linktor message in that conversation.
  *
@@ -44,14 +47,24 @@ public class LinktorFlowPublisher implements FlowLifecycleListener {
     @Override
     public void onFlowCompleted(Flow flow, ExecutionContext context, FlowResult result, long durationMs) {
         if (context == null || result == null) return;
+        // O motor chama onFlowCompleted para todo resultado que volta sem exceção: PAUSED, CANCELLED e
+        // FAILED também, com a saída do último passo que rodou. Publicar nesses casos mandava ao cliente
+        // um rascunho intermediário (cancelamento no meio do fluxo), ou a mesma resposta duas vezes
+        // (pausa e depois a retomada). Só o fluxo concluído responde na conversa.
+        if (result.getStatus() != ExecutionStatus.COMPLETED) {
+            log.debug("Flow {} ended {}; not publishing to Linktor", flow.getId(), result.getStatus());
+            return;
+        }
 
-        Object autoFlag = context.get(CTX_AUTO_PUBLISH);
+        // ExecutionContext.get devolve Optional. Testar o Optional com instanceof String nunca casava: o
+        // publicador saía calado em toda execução, mesmo com o conversationId na entrada (RCHFLW-112).
+        Object autoFlag = context.get(CTX_AUTO_PUBLISH).orElse(null);
         if (autoFlag instanceof Boolean b && !b) {
             // Caller opted out — leave the conversation untouched.
             return;
         }
 
-        Object convId = context.get(CTX_CONVERSATION_ID);
+        Object convId = context.get(CTX_CONVERSATION_ID).orElse(null);
         if (!(convId instanceof String conversationId) || conversationId.isBlank()) {
             return;
         }
@@ -63,7 +76,9 @@ public class LinktorFlowPublisher implements FlowLifecycleListener {
         }
 
         try {
-            client.sendMessage(conversationId, text);
+            // O tenant da execução, não o da thread: o motor roda fora de requisição, e a configuração
+            // do Linktor é por tenant.
+            client.sendMessageForTenant(DefaultTenant.orDefault(context.getTenantId()), conversationId, text);
             log.info("Published flow output to Linktor conversation={} chars={}",
                     conversationId, text.length());
         } catch (Exception e) {
@@ -75,7 +90,7 @@ public class LinktorFlowPublisher implements FlowLifecycleListener {
 
     @SuppressWarnings("unchecked")
     private String resolveReplyText(ExecutionContext context, FlowResult result) {
-        Object override = context.get(CTX_REPLY_TEXT);
+        Object override = context.get(CTX_REPLY_TEXT).orElse(null);
         if (override instanceof String s && !s.isBlank()) return s;
 
         Optional<Object> output = result.getOutput();
