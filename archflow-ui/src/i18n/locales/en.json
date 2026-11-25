@@ -172,6 +172,8 @@
         "rollbackComplete": "Version restored",
         "rollbackFailed": "Could not restore version",
         "ingestionQueued": "Document queued for indexing",
+        "ingestionAlreadyPresent": "This content is already in this base",
+        "ingestionReprocessing": "Document queued for indexing again",
         "ingestionComplete": "Indexing completed",
         "ingestionFailed": "Indexing failed",
         "uploadFailed": "Document upload failed",

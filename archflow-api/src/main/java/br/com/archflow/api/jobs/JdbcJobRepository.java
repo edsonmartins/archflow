@@ -237,6 +237,29 @@ public class JdbcJobRepository implements JobRepository {
     }
 
     @Override
+    public JobRecord reopen(String tenantId, String id, int additionalAttempts,
+                            Map<String, Object> payload) {
+        // O WHERE no estado é o que torna a reabertura segura com dois reenvios simultâneos: só um
+        // UPDATE pega a linha FAILED/CANCELLED, e a contagem diz a cada chamador se foi ele. O
+        // attempt não volta a zero porque job_attempts tem (job_id, attempt_no) como chave; o teto
+        // cresce a partir da tentativa em que parou. cancel_requested volta a FALSE, senão o claim
+        // cancelaria o job na hora.
+        String json;
+        try {
+            json = mapper.writeValueAsString(payload);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to serialize payload of job " + id, e);
+        }
+        int updated = executeCount("""
+                UPDATE jobs SET status='QUEUED', payload=?, progress=0, message='Queued for retry',
+                    error=NULL, max_attempts=attempt+?, cancel_requested=FALSE, worker_id=NULL,
+                    completed_at=NULL, lease_until=NULL, updated_at=?
+                 WHERE tenant_id=? AND id=? AND status IN ('FAILED','CANCELLED')
+                """, json, additionalAttempts, Timestamp.from(Instant.now()), tenantId, id);
+        return updated == 1 ? find(tenantId, id) : null;
+    }
+
+    @Override
     public JobRecord findById(String id) {
         return queryOne("SELECT * FROM jobs WHERE id = ?", id);
     }

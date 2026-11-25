@@ -62,6 +62,10 @@ linguagem natural.
 - **Classes:** `ComponentQueryRouter`, `DefaultComponentQueryRouter`.
 - **Ordem de matching:** keywords > capabilities > tags > texto livre,
   sobre os `ComponentMetadata` registrados no `ComponentCatalog`.
+- **Tokens (RCHFLW-109):** query e metadados passam pelo mesmo `tokenize`, que dobra
+  os acentos antes de quebrar ("análise" = "analise") e descarta as palavras
+  funcionais de pt-BR e en (`FUNCTION_WORDS`: "de", "com", "the", "of"...). Os
+  agentes embutidos declaram `keywords` em pt-BR e en, uma entrada por conceito.
 
 ## Realtime / Voz (`archflow-langchain4j-realtime`)
 

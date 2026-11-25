@@ -176,6 +176,24 @@ public class InMemoryJobRepository implements JobRepository {
         return updated;
     }
 
+    @Override
+    public synchronized JobRecord reopen(String tenantId, String id, int additionalAttempts,
+                                         Map<String, Object> payload) {
+        JobRecord job = find(tenantId, id);
+        if (job == null
+                || (job.status() != JobStatus.FAILED && job.status() != JobStatus.CANCELLED)) {
+            return null;
+        }
+        // Mesmas regras do JdbcJobRepository: attempt segue de onde parou e o teto cresce.
+        JobRecord reopened = new JobRecord(job.id(), job.tenantId(), job.workspaceId(), job.type(),
+                JobStatus.QUEUED, Map.copyOf(payload), 0, "Queued for retry", job.attempt(),
+                job.attempt() + additionalAttempts, job.idempotencyKey(), false, null, null,
+                job.createdAt(), job.startedAt(), null, Instant.now());
+        jobs.put(id, reopened);
+        leases.remove(id);
+        return reopened;
+    }
+
     private static JobRecord copy(JobRecord job, JobStatus status, int progress,
                                   String message, int attempt, String workerId,
                                   Instant startedAt, Instant completedAt, String error) {

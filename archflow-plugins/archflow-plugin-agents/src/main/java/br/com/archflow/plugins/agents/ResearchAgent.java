@@ -68,7 +68,26 @@ public class ResearchAgent implements AIAgent, ComponentPlugin {
                         )
                 ),
                 Map.of(),
-                Set.of("agent", "research", "reference")
+                Set.of("agent", "research", "reference"),
+                // keywords — para roteamento por query em linguagem natural, em pt-BR e en (RCHFLW-109).
+                // Uma entrada por coisa que o agente faz, com as formas das duas línguas: o roteador conta a
+                // entrada como casada quando qualquer palavra dela está na query, então o score mede
+                // conceitos casados, e listar um plural ou um verbo não enfraquece o agente. Cada termo
+                // vem de uma operação, de um tipo de tarefa ou da descrição acima — nada que ele não faça.
+                // Sem "recomendar": o agente decompõe, compara e sintetiza, mas não escolhe por ninguém. Uma
+                // recomendação que cite a comparação ("com base na comparação") ainda casa por "comparação";
+                // é casamento incidental, aceito porque tirar o substantivo faria errar "Fazer a comparação".
+                Set.of(
+                        "research pesquisa pesquisar investigar",       // tipo research
+                        "planning planejar planejamento",               // planActions
+                        "scope escopo",                                 // define_scope
+                        "gather levantar levantamento coletar coleta",  // gather_info, "Collect data for each item"
+                        "sources fontes",                               // "Identify information sources"
+                        "criteria critério critérios",                  // "Identify comparison criteria"
+                        "compare comparar comparação comparativo",      // tipo compare
+                        "matrix matriz",                                // "Generate comparison matrix"
+                        "summarize resumir resumo",                     // tipo summarize
+                        "report relatório síntese sintetizar")          // synthesize → structured_report
         );
     }
 

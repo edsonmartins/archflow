@@ -123,4 +123,62 @@ class ComponentQueryRouterTest {
             assertThat(ranked.get(0).score()).isGreaterThan(ranked.get(1).score());
         }
     }
+
+    /**
+     * RCHFLW-109: o que é um token. Subtarefas em português não casavam com nenhum termo acentuado (o split
+     * só conhecia {@code [a-z0-9]}) e casavam com qualquer descrição que tivesse "de" ou "com".
+     */
+    @Nested
+    @DisplayName("tokenize")
+    class Tokenize {
+
+        @Test
+        @DisplayName("folds diacritics before splitting, so an accented word stays one token")
+        void foldsDiacriticsBeforeSplitting() {
+            // Antes: "an", "lise", "relat", "rio", "pre", "os".
+            assertThat(DefaultComponentQueryRouter.tokenize("Análise do relatório de preços"))
+                    .containsExactlyInAnyOrder("analise", "relatorio", "precos");
+            assertThat(DefaultComponentQueryRouter.tokenize("CRITÉRIOS, Comparação; previsão"))
+                    .containsExactlyInAnyOrder("criterios", "comparacao", "previsao");
+        }
+
+        @Test
+        @DisplayName("an accented keyword matches the query written with or without the accent")
+        void accentedKeywordMatchesEitherSpelling() {
+            register("analista", "Analista", "x", ComponentType.AGENT, Set.of(), Set.of(), Set.of("análise"));
+
+            assertThat(router.route("Fazer a análise")).get()
+                    .extracting(ComponentQueryRouter.ScoredComponent::componentId).isEqualTo("analista");
+            assertThat(router.route("fazer a analise")).get()
+                    .extracting(ComponentQueryRouter.ScoredComponent::componentId).isEqualTo("analista");
+        }
+
+        @Test
+        @DisplayName("function words alone give no token and no score")
+        void functionWordsAloneScoreNothing() {
+            register("x", "De com para", "de com para the of for", ComponentType.AGENT,
+                    Set.of("com"), Set.of("de"), Set.of("para"));
+
+            assertThat(DefaultComponentQueryRouter.tokenize("de com para os das pelo")).isEmpty();
+            assertThat(router.rank("de com para")).isEmpty();
+            assertThat(router.rank("the of for and")).isEmpty();
+        }
+
+        @Test
+        @DisplayName("sharing only function words is not a match")
+        void sharingOnlyFunctionWordsIsNotAMatch() {
+            // Era o caso do mcp-agent: descrição em português, casada com toda subtarefa por "de"/"com"/"um".
+            register("mcp", "MCP Agent", "Executa o laço contra um servidor MCP, com allowlist e política de "
+                    + "confiança", ComponentType.AGENT, Set.of("mcp", "tools"), Set.of(), Set.of());
+
+            assertThat(router.rank("Calcular o custo total de um transporte com desconto")).isEmpty();
+        }
+
+        @Test
+        @DisplayName("domain words survive: only the closed list of function words is dropped")
+        void domainWordsSurvive() {
+            assertThat(DefaultComponentQueryRouter.tokenize("Coletar dados de custo total por fornecedor"))
+                    .containsExactlyInAnyOrder("coletar", "dados", "custo", "total", "fornecedor");
+        }
+    }
 }

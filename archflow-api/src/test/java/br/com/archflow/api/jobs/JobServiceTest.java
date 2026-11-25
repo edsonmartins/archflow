@@ -82,4 +82,50 @@ class JobServiceTest {
         assertThat(cancelled.status()).isEqualTo(JobStatus.CANCELLED);
         assertThat(claimed.id()).isEqualTo(second.id());
     }
+
+    @Test
+    void reopenGivesAFailedJobANewAttemptBudget() {
+        JobRecord submitted = service.submit(
+                "tenant", null, "INGEST", Map.of("fileId", "file-1"), "same", 1);
+        service.claim("worker-1");
+        service.fail(submitted.id(), "permanent");
+
+        assertThat(service.reopen("tenant-b", submitted.id(), 2, Map.of())).isNull();
+        JobRecord reopened = service.reopen("tenant", submitted.id(), 2, Map.of("fileId", "file-2"));
+        JobRecord again = service.reopen("tenant", submitted.id(), 2, Map.of("fileId", "file-3"));
+        JobRecord claimed = service.claim("worker-2");
+        JobRecord retry = service.fail(submitted.id(), "again");
+
+        assertThat(reopened.status()).isEqualTo(JobStatus.QUEUED);
+        assertThat(reopened.error()).isNull();
+        assertThat(reopened.completedAt()).isNull();
+        assertThat(reopened.maxAttempts()).isEqualTo(3);
+        assertThat(reopened.payload()).as("a nova tentativa leva a entrada nova")
+                .containsEntry("fileId", "file-2");
+        assertThat(again).as("o segundo chamador sabe que não foi ele quem reabriu").isNull();
+        assertThat(claimed.payload()).containsEntry("fileId", "file-2");
+        assertThat(claimed.id()).isEqualTo(submitted.id());
+        assertThat(claimed.attempt()).as("a numeração continua").isEqualTo(2);
+        assertThat(retry.status()).as("ainda resta uma tentativa").isEqualTo(JobStatus.QUEUED);
+        assertThat(service.findByIdempotencyKey("tenant", "INGEST", "same").id())
+                .isEqualTo(submitted.id());
+    }
+
+    @Test
+    void reopenClearsTheCancellationAndLeavesOtherStatesAlone() {
+        JobRecord cancelled = service.submit("tenant", null, "INGEST", Map.of(), null, 3);
+        service.cancel("tenant", cancelled.id());
+        JobRecord done = service.submit("tenant", null, "INGEST", Map.of(), null, 3);
+
+        JobRecord reopened = service.reopen("tenant", cancelled.id(), 3, Map.of());
+        JobRecord stillQueued = service.reopen("tenant", done.id(), 3, Map.of("x", "y"));
+
+        assertThat(reopened.status()).isEqualTo(JobStatus.QUEUED);
+        assertThat(reopened.cancelRequested()).isFalse();
+        assertThat(stillQueued).isNull();
+        assertThat(service.get("tenant", done.id())).isEqualTo(done);
+        assertThat(java.util.List.of(service.claim("w1").id(), service.claim("w2").id()))
+                .as("o claim não descarta o job reaberto como cancelado")
+                .contains(cancelled.id());
+    }
 }
