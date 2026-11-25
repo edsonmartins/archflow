@@ -3,6 +3,7 @@ package br.com.archflow.api.knowledge;
 import javax.sql.DataSource;
 import java.sql.ResultSet;
 import java.sql.Timestamp;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -102,6 +103,19 @@ public class JdbcKnowledgeRepository implements KnowledgeRepository {
         } catch (Exception e) {
             throw failure("list knowledge documents", e);
         }
+    }
+
+    public void deleteQueuedDocument(String tenantId, String id) {
+        execute("DELETE FROM knowledge_documents WHERE tenant_id=? AND id=? AND status='QUEUED'",
+                tenantId, id);
+    }
+
+    public boolean requeueDocument(String tenantId, String id, String fileId) {
+        return execute("""
+                UPDATE knowledge_documents SET status='QUEUED', file_id=?, chunk_count=0, error=NULL,
+                    updated_at=?
+                 WHERE tenant_id=? AND id=? AND status IN ('QUEUED','PROCESSING','FAILED')
+                """, fileId, Timestamp.from(Instant.now()), tenantId, id) == 1;
     }
 
     public void replaceChunks(String tenantId, String documentId, List<DocumentChunk> chunks) {

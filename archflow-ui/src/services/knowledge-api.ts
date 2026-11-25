@@ -51,9 +51,17 @@ export interface SearchHit {
     score: number
 }
 
+/**
+ * O que o envio fez. A deduplicação é por conteúdo na base: o mesmo conteúdo devolve o documento
+ * que já existe (ALREADY_PRESENT) ou, se a indexação dele falhou ou foi cancelada, reprocessa esse
+ * documento (REPROCESSING). Só QUEUED é um documento novo.
+ */
+export type IngestionOutcome = 'QUEUED' | 'ALREADY_PRESENT' | 'REPROCESSING'
+
 export interface IngestionSubmission {
     document: KnowledgeDocument
     job: Job
+    outcome: IngestionOutcome
 }
 
 export const knowledgeApi = {

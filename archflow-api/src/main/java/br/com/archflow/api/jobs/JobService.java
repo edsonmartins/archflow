@@ -39,8 +39,30 @@ public class JobService {
         return repository.list(tenantId, blankToNull(type));
     }
 
+    public JobRecord findByIdempotencyKey(String tenantId, String type, String idempotencyKey) {
+        String key = blankToNull(idempotencyKey);
+        return type == null || key == null ? null
+                : repository.findByIdempotencyKey(tenantId, type.trim(), key);
+    }
+
     public JobRecord cancel(String tenantId, String id) {
         return repository.requestCancel(tenantId, id);
+    }
+
+    /**
+     * Nova tentativa de um job FAILED ou CANCELLED, sem criar outro: a chave de idempotência é
+     * única, então um job novo para o mesmo trabalho precisaria de outra chave e deixaria de ser
+     * achado por ela. O {@code payload} substitui o anterior, porque o trabalho pode precisar de
+     * uma entrada nova (o reenvio de um arquivo cujo blob original sumiu). Devolve o job reaberto,
+     * ou {@code null} quando nada mudou: job de outro estado ou já reaberto por outro chamador.
+     */
+    public JobRecord reopen(String tenantId, String id, int additionalAttempts,
+                            Map<String, Object> payload) {
+        if (additionalAttempts < 1 || additionalAttempts > 20) {
+            throw new IllegalArgumentException("additionalAttempts must be between 1 and 20");
+        }
+        if (payload == null) throw new IllegalArgumentException("payload cannot be null");
+        return repository.reopen(tenantId, id, additionalAttempts, payload);
     }
 
     public JobRecord claim(String workerId) {

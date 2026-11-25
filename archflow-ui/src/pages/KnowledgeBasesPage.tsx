@@ -178,8 +178,19 @@ export default function KnowledgeBasesPage() {
                 ...current,
                 [submission.document.id]: submission.job.id,
             }))
-            notifications.show({ color: 'blue', title: t('knowledge.ingestionQueued'),
-                message: file.name })
+            // Um job reaberto mantém o id: sem isto o fim do reprocessamento não recarregaria a
+            // lista nem avisaria, porque o id já constava como concluído.
+            completedJobs.current.delete(submission.job.id)
+            // Fora do QUEUED o servidor devolveu um documento que já existia e pode ter apagado
+            // duplicados antigos que nunca foram processados; a lista é recarregada para refletir.
+            if (submission.outcome !== 'QUEUED') void loadDetail(selectedId, true)
+            notifications.show({
+                color: submission.outcome === 'ALREADY_PRESENT' ? 'yellow' : 'blue',
+                title: t(submission.outcome === 'ALREADY_PRESENT' ? 'knowledge.ingestionAlreadyPresent'
+                    : submission.outcome === 'REPROCESSING' ? 'knowledge.ingestionReprocessing'
+                        : 'knowledge.ingestionQueued'),
+                message: file.name,
+            })
         } catch (failure) {
             notifications.show({ color: 'red', title: t('knowledge.uploadFailed'),
                 message: failure instanceof Error ? failure.message : String(failure) })

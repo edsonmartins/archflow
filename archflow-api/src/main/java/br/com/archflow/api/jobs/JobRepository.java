@@ -1,6 +1,7 @@
 package br.com.archflow.api.jobs;
 
 import java.util.List;
+import java.util.Map;
 import java.time.Duration;
 import java.util.Set;
 
@@ -37,4 +38,15 @@ public interface JobRepository {
     JobRecord fail(String id, String error);
 
     JobRecord requestCancel(String tenantId, String id);
+
+    /**
+     * Devolve à fila um job terminal que falhou ou foi cancelado, com {@code additionalAttempts}
+     * tentativas a mais e {@code payload} no lugar do anterior. É condicional ao estado: devolve o
+     * job reaberto, ou {@code null} quando nada mudou (job inexistente, de outro tenant ou fora de
+     * FAILED/CANCELLED, por exemplo porque outro chamador já o reabriu). O chamador precisa saber
+     * se foi ele quem reabriu; um job "como está" não diz isso. Mantém o id e a chave de
+     * idempotência, que é única por tenant e tipo; o histórico de {@code job_attempts} continua
+     * numerado a partir da última tentativa.
+     */
+    JobRecord reopen(String tenantId, String id, int additionalAttempts, Map<String, Object> payload);
 }

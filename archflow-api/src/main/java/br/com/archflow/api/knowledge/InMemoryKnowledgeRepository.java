@@ -42,6 +42,27 @@ public class InMemoryKnowledgeRepository implements KnowledgeRepository {
                 .sorted(Comparator.comparing(KnowledgeDocument::createdAt).reversed()).toList();
     }
 
+    public void deleteQueuedDocument(String tenantId, String id) {
+        KnowledgeDocument document = findDocument(tenantId, id);
+        if (document != null && "QUEUED".equals(document.status())) documents.remove(id, document);
+    }
+
+    public boolean requeueDocument(String tenantId, String id, String fileId) {
+        var changed = new java.util.concurrent.atomic.AtomicBoolean();
+        // computeIfPresent é atômico por chave: o teste do estado e a troca não se intercalam com
+        // o saveDocument do worker, como o WHERE do JdbcKnowledgeRepository.
+        documents.computeIfPresent(id, (key, document) -> {
+            if (!document.tenantId().equals(tenantId)
+                    || !List.of("QUEUED", "PROCESSING", "FAILED").contains(document.status())) {
+                return document;
+            }
+            changed.set(true);
+            return new KnowledgeDocument(document.id(), tenantId, document.knowledgeBaseId(), fileId,
+                    "QUEUED", 0, null, document.createdAt(), java.time.Instant.now());
+        });
+        return changed.get();
+    }
+
     public void replaceChunks(String tenantId, String documentId, List<DocumentChunk> replacement) {
         KnowledgeDocument document = findDocument(tenantId, documentId);
         if (document == null) throw new IllegalArgumentException("Document not found");
