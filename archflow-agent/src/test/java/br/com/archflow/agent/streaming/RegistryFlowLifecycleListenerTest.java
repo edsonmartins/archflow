@@ -46,7 +46,7 @@ class RegistryFlowLifecycleListenerTest {
         lenient().when(flow.getSteps()).thenReturn(List.of());
         lenient().when(step.getId()).thenReturn("step-1");
         lenient().when(context.getState()).thenReturn(null);
-        lenient().when(context.get("tenantId")).thenReturn(java.util.Optional.of("tenant-x"));
+        lenient().when(context.getTenantId()).thenReturn("tenant-x");
     }
 
     @Nested
@@ -115,6 +115,63 @@ class RegistryFlowLifecycleListenerTest {
             assertThat(flowEvents.get(0).getType()).isEqualTo(ArchflowEventType.FLOW_STARTED);
             assertThat(adminEvents).hasSize(1);
             assertThat(adminEvents.get(0).getType()).isEqualTo(ArchflowEventType.FLOW_STARTED);
+        }
+
+        /**
+         * RCHFLW-50: o stream SSE só abre {@code tenant:sessão}. Sem esta entrega, a tela de eventos
+         * ao vivo conectava na execução e só recebia o {@code connected}.
+         */
+        @Test
+        @DisplayName("fluxo e passos chegam ao canal tenant:execução, com o tenant do contexto")
+        void deliversToTheExecutionTenantChannel() {
+            var tenantEvents = new CopyOnWriteArrayList<ArchflowEvent>();
+            var otherTenant = new CopyOnWriteArrayList<ArchflowEvent>();
+            streamRegistry.createEmitter("tenant-x", "flow-1").onSend(tenantEvents::add);
+            streamRegistry.createEmitter("tenant-y", "flow-1").onSend(otherTenant::add);
+            when(result.getStatus()).thenReturn(ExecutionStatus.COMPLETED);
+
+            listener.onFlowStarted(flow, context, 1);
+            listener.onStepStarted(flow, step, context, 0, 1);
+            listener.onStepCompleted(flow, step, context, 5L);
+            listener.onFlowCompleted(flow, context, result, 10L);
+
+            assertThat(tenantEvents).extracting(ArchflowEvent::getType).containsExactly(
+                    ArchflowEventType.FLOW_STARTED, ArchflowEventType.STEP_STARTED,
+                    ArchflowEventType.STEP_COMPLETED, ArchflowEventType.FLOW_COMPLETED);
+            assertThat(otherTenant).as("a mesma execução vista de outro tenant").isEmpty();
+        }
+
+        /**
+         * A variável "tenantId" é dado de entrada de quem chama a API. Lida dela, o chamador
+         * escolheria em que tenant os eventos (e a linha do Running) apareceriam.
+         */
+        @Test
+        @DisplayName("a variável 'tenantId' do input não escolhe o canal nem o tenant do Running")
+        void inputVariableDoesNotPickTheTenant() {
+            var victim = new CopyOnWriteArrayList<ArchflowEvent>();
+            var real = new CopyOnWriteArrayList<ArchflowEvent>();
+            streamRegistry.createEmitter("tenant-vitima", "flow-1").onSend(victim::add);
+            streamRegistry.createEmitter("__admin__:tenant-vitima").onSend(victim::add);
+            streamRegistry.createEmitter("tenant-x", "flow-1").onSend(real::add);
+            lenient().when(context.get("tenantId")).thenReturn(java.util.Optional.of("tenant-vitima"));
+
+            listener.onFlowStarted(flow, context, 1);
+
+            assertThat(victim).isEmpty();
+            assertThat(real).hasSize(1);
+            assertThat(runningRegistry.find("flow-1").orElseThrow().tenantId()).isEqualTo("tenant-x");
+        }
+
+        /** O canal do tenant é entrega extra: os ouvintes globais (protobuf) não veem o evento de novo. */
+        @Test
+        @DisplayName("ouvintes globais recebem o evento só pelos broadcasts de antes")
+        void tenantDeliveryDoesNotRenotifyGlobalListeners() {
+            var global = new CopyOnWriteArrayList<ArchflowEvent>();
+            streamRegistry.addGlobalListener(global::add);
+
+            listener.onFlowStarted(flow, context, 1);
+
+            assertThat(global).as("canal do fluxo + canal admin, como antes do RCHFLW-50").hasSize(2);
         }
 
         @Test
@@ -282,7 +339,7 @@ class RegistryFlowLifecycleListenerTest {
         @Test
         @DisplayName("null tenantId is handled gracefully — no admin broadcast")
         void nullTenantIdHandled() {
-            when(context.get("tenantId")).thenReturn(java.util.Optional.empty());
+            when(context.getTenantId()).thenReturn(null);
             assertThatCode(() -> listener.onFlowStarted(flow, context, 2))
                     .doesNotThrowAnyException();
         }

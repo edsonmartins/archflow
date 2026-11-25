@@ -14,14 +14,29 @@ import java.util.Map;
  * {@code OrchestrateStep}) to the per-tenant SSE feed (design-0005 step 3): each
  * plan/verify/round/converge transition is broadcast to the run's {@code
  * executionId} channel so the dynamic subtask tree streams live.
+ *
+ * <p>Também é entregue no canal {@code tenantId:executionId}, a mesma regra dos eventos de fluxo e de
+ * passo ({@code RegistryFlowLifecycleListener}, RCHFLW-50): é o único canal de execução que o stream
+ * SSE deixa assinar, e só para o próprio tenant. O tenant é o do contexto da execução.
  */
 public final class StreamingOrchestrationListener implements OrchestrationListener {
 
     private final EventStreamRegistry registry;
+    private final String tenantId;
     private final String executionId;
 
+    /**
+     * Sem tenant: só o canal nu {@code executionId}, como antes do RCHFLW-50. Mantido para quem já
+     * constrói o listener assim (testes e a frente de orquestração); o nó {@code orchestrate} usa o
+     * construtor com o tenant da execução.
+     */
     public StreamingOrchestrationListener(EventStreamRegistry registry, String executionId) {
+        this(registry, null, executionId);
+    }
+
+    public StreamingOrchestrationListener(EventStreamRegistry registry, String tenantId, String executionId) {
         this.registry = registry;
+        this.tenantId = tenantId;
         this.executionId = executionId;
     }
 
@@ -29,12 +44,18 @@ public final class StreamingOrchestrationListener implements OrchestrationListen
         if (registry == null || executionId == null) {
             return;
         }
-        registry.broadcast(executionId, ArchflowEvent.builder()
+        ArchflowEvent event = ArchflowEvent.builder()
                 .domain(ArchflowDomain.FLOW)
                 .type(type)
+                .tenantId(tenantId)
                 .executionId(executionId)
                 .data(data)
-                .build());
+                .build();
+        registry.broadcast(executionId, event);
+        if (tenantId != null) {
+            // deliver, não broadcast: os ouvintes globais já receberam o evento acima.
+            registry.deliver(EventStreamRegistry.tenantChannel(tenantId, executionId), event);
+        }
     }
 
     @Override

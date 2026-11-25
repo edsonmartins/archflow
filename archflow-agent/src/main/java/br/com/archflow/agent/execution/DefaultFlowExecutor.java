@@ -226,6 +226,9 @@ public class DefaultFlowExecutor implements FlowExecutor {
 
             StepResult result = executeStepWithRetry(step, context, flow, stepIndex++, steps.size(), control);
             results.add(result);
+            if (cancelledDuring(flow, result, control)) {
+                return new Traversal(results, ExecutionStatus.CANCELLED, Optional.empty());
+            }
             if (isCompletion(result)) {
                 recordCompletedStep(context, step.getId());
             }
@@ -454,6 +457,9 @@ public class DefaultFlowExecutor implements FlowExecutor {
                         : refuse(step, missingInput, stepIndex++);
                 results.add(result);
                 reached.add(step.getId());
+                if (cancelledDuring(flow, result, control)) {
+                    return new Traversal(results, ExecutionStatus.CANCELLED, Optional.empty());
+                }
                 if (isCompletion(result)) {
                     recordCompletedStep(context, step.getId());
                 }
@@ -664,6 +670,23 @@ public class DefaultFlowExecutor implements FlowExecutor {
             return Optional.of(ExecutionStatus.PAUSED);
         }
         return Optional.empty();
+    }
+
+    /**
+     * O cancelamento chegou enquanto o step rodava (RCHFLW-54): o resultado dele é descartado — não
+     * entra no checkpoint de concluídos, não resolve arestas e não vira a saída do fluxo — e nenhum
+     * step seguinte roda. O step não é interrompido no meio (a interrupção é cooperativa); quem
+     * pediu para parar não pode receber como saída o que ele pediu para não acontecer. O portão de
+     * aprovação que suspendeu fica de fora: o ramo do PAUSED já dá a vitória ao cancelamento e
+     * mantém o {@code {requestId}} como saída, que a fila de aprovações usa.
+     */
+    private static boolean cancelledDuring(Flow flow, StepResult result, FlowControl control) {
+        if (result.getStatus() == StepStatus.PAUSED || !control.isStopRequested()) {
+            return false;
+        }
+        logger.info("Fluxo " + flow.getId() + " cancelado durante o step " + result.getStepId()
+                + "; resultado descartado e travessia interrompida");
+        return true;
     }
 
     private static List<StepConnection> connectionsOf(FlowStep step) {

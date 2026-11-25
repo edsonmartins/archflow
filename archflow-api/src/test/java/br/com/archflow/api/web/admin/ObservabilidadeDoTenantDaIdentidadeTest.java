@@ -11,6 +11,9 @@ import br.com.archflow.api.config.ImpersonationFilter;
 import br.com.archflow.api.config.JwtAuthenticationFilter;
 import br.com.archflow.api.config.TenantAccessDeniedHandler;
 import br.com.archflow.api.config.TenantScope;
+import br.com.archflow.engine.api.FlowEngine;
+import br.com.archflow.engine.exceptions.FlowEngineException;
+import br.com.archflow.engine.exceptions.FlowNotFoundException;
 import br.com.archflow.observability.audit.AuditAction;
 import br.com.archflow.observability.audit.AuditEvent;
 import br.com.archflow.observability.audit.InMemoryAuditRepository;
@@ -33,7 +36,11 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -57,6 +64,7 @@ class ObservabilidadeDoTenantDaIdentidadeTest {
     private final JwtService jwtService = new JwtService(SECRET);
     private final ObjectMapper json = new ObjectMapper();
     private RunningFlowsRegistry running;
+    private FlowEngine engine;
     private InMemoryTraceStore traces;
     private InMemoryAuditRepository audit;
     private MetricsCollector metricas;
@@ -67,6 +75,7 @@ class ObservabilidadeDoTenantDaIdentidadeTest {
         traces = new InMemoryTraceStore(100);
         audit = new InMemoryAuditRepository();
         running = new RunningFlowsRegistry();
+        engine = mock(FlowEngine.class);
         Instant agora = Instant.now();
         traces.record(InMemoryTraceStore.trace("trace-a", "tenant-a", null, "flow", "exec-a",
                 agora.minusSeconds(30), 100, "OK", null, Map.of(), List.of()));
@@ -84,7 +93,7 @@ class ObservabilidadeDoTenantDaIdentidadeTest {
     }
 
     private MockMvc montar(boolean authLigada) {
-        ObservabilityService service = new ObservabilityService(metricas, traces, audit, null, running);
+        ObservabilityService service = new ObservabilityService(metricas, traces, audit, null, running, engine);
         var controller = new SpringObservabilityController(new ObservabilityControllerImpl(service),
                 new TenantScope(authLigada));
         var builder = MockMvcBuilders.standaloneSetup(controller)
@@ -257,19 +266,44 @@ class ObservabilidadeDoTenantDaIdentidadeTest {
             assertThat(running.find("run-b")).isPresent();
             // Mesma resposta para "de outro tenant" e "não está rodando": não revela ids alheios.
             assertThat(foraDoTenant.replace("run-b", "X")).isEqualTo(naoRodando.replace("nao-existe", "X"));
+            verify(engine, never()).cancel(anyString());
+        }
+
+        /**
+         * RCHFLW-72: o 204 vem do cancelamento no motor, não de tirar a linha da lista. A linha fica
+         * até o fluxo parar de fato — quem a tira é o listener do motor.
+         */
+        @Test
+        @DisplayName("cancel da própria → 204 no motor; o admin com 'all' cancela a de outro tenant")
+        void cancelPermitido() throws Exception {
+            como(token("tenant-a", "EDITOR"), post("/api/admin/observability/running/run-a/cancel"))
+                    .andExpect(status().isNoContent());
+            como(token("tenant-a", "ADMIN"),
+                    post("/api/admin/observability/running/run-b/cancel").param("tenantId", "all"))
+                    .andExpect(status().isNoContent());
+
+            verify(engine).cancel("run-a");
+            verify(engine).cancel("run-b");
+            assertThat(running.find("run-a")).isPresent();
+            assertThat(running.find("run-b")).isPresent();
         }
 
         @Test
-        @DisplayName("cancel da própria execução → 200; o admin com 'all' cancela a de outro tenant")
-        void cancelPermitido() throws Exception {
-            como(token("tenant-a", "EDITOR"), post("/api/admin/observability/running/run-a/cancel"))
-                    .andExpect(status().isOk());
-            como(token("tenant-a", "ADMIN"),
-                    post("/api/admin/observability/running/run-b/cancel").param("tenantId", "all"))
-                    .andExpect(status().isOk());
+        @DisplayName("listada, mas o motor já não a tem (terminou antes do cancelar) → 404, mesma resposta")
+        void listadaMasNaoRodaNoMotor() throws Exception {
+            doThrow(new FlowEngineException("Error canceling flow: run-a", new FlowNotFoundException("run-a")))
+                    .when(engine).cancel("run-a");
 
-            assertThat(running.find("run-a")).isEmpty();
-            assertThat(running.find("run-b")).isEmpty();
+            String resposta = como(token("tenant-a", "EDITOR"),
+                    post("/api/admin/observability/running/run-a/cancel"))
+                    .andExpect(status().isNotFound())
+                    .andReturn().getResponse().getContentAsString();
+            String naoRodando = como(token("tenant-a", "EDITOR"),
+                    post("/api/admin/observability/running/nao-existe/cancel"))
+                    .andExpect(status().isNotFound())
+                    .andReturn().getResponse().getContentAsString();
+
+            assertThat(resposta.replace("run-a", "X")).isEqualTo(naoRodando.replace("nao-existe", "X"));
         }
     }
 

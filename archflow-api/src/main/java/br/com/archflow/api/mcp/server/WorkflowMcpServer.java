@@ -1,5 +1,6 @@
 package br.com.archflow.api.mcp.server;
 
+import br.com.archflow.api.agent.mcp.McpAgentHost;
 import br.com.archflow.api.flow.RunInputSeeding;
 import br.com.archflow.api.flow.WorkflowDeserializer;
 import br.com.archflow.api.web.workflow.WorkflowRuntimeStore;
@@ -57,13 +58,30 @@ public class WorkflowMcpServer extends AbstractMcpServer {
     private final FlowEngine flowEngine;
     private final FlowRepository flowRepository;
     private final ObjectMapper json;
+    /** Host de MCP dos nós {@code mcp-agent}; nulo = instalação sem MCP (o nó falha dizendo isso). */
+    private final McpAgentHost mcpAgentHost;
 
     public WorkflowMcpServer(WorkflowRuntimeStore store,
                              WorkflowDeserializer deserializer,
                              FlowEngine flowEngine,
                              FlowRepository flowRepository,
                              ObjectMapper json) {
+        this(store, deserializer, flowEngine, flowRepository, json, null);
+    }
+
+    /**
+     * @param mcpAgentHost o mesmo host que o {@code POST /execute} injeta: sem ele, um fluxo com nó
+     *                     {@code mcp-agent} chamado como tool MCP falhava com "nenhum McpAgentHost no
+     *                     contexto" (RCHFLW-48), embora rodasse pela lista
+     */
+    public WorkflowMcpServer(WorkflowRuntimeStore store,
+                             WorkflowDeserializer deserializer,
+                             FlowEngine flowEngine,
+                             FlowRepository flowRepository,
+                             ObjectMapper json,
+                             McpAgentHost mcpAgentHost) {
         super("archflow", "1.0.0", McpModel.ServerCapabilities.toolsOnly());
+        this.mcpAgentHost = mcpAgentHost;
         this.store = Objects.requireNonNull(store, "store");
         this.deserializer = Objects.requireNonNull(deserializer, "deserializer");
         this.flowEngine = Objects.requireNonNull(flowEngine, "flowEngine");
@@ -143,6 +161,9 @@ public class WorkflowMcpServer extends AbstractMcpServer {
                     MessageWindowChatMemory.builder().maxMessages(20).build());
             // Mesma regra do REST e do AG-UI: sem chave "input", os argumentos inteiros viram o input.
             RunInputSeeding.seedVariables(ctx, arguments.arguments());
+            // Depois dos argumentos, como no REST: um argumento com a chave do host não pode apontar
+            // o nó para outro servidor MCP.
+            McpAgentHost.inject(ctx, mcpAgentHost);
             run = flowEngine.execute(flow, ctx);
         } catch (RuntimeException e) {
             store.completeExecution(executionId, "FAILED", rootMessage(e));

@@ -2,6 +2,7 @@ package br.com.archflow.api.agui;
 
 import br.com.archflow.agent.streaming.ArchflowEvent;
 import br.com.archflow.agent.streaming.EventStreamRegistry;
+import br.com.archflow.api.agent.mcp.McpAgentHost;
 import br.com.archflow.api.config.TenantContext;
 import br.com.archflow.api.flow.RunInputSeeding;
 import br.com.archflow.api.flow.WorkflowDeserializer;
@@ -16,6 +17,9 @@ import br.com.archflow.model.flow.Flow;
 import br.com.archflow.model.flow.FlowResult;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
+import jakarta.annotation.PreDestroy;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -24,10 +28,15 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
 import static br.com.archflow.api.agui.AgUiEvent.fields;
@@ -52,6 +61,14 @@ public class AgUiController {
     private final FlowRepository flowRepository;
     private final ObjectMapper json;
 
+    /**
+     * Relógio único do batimento, daemon como o da rota de streaming ({@code InvocacaoEmFluxo}): só
+     * escreve comentários SSE e não pode segurar o processo no shutdown.
+     */
+    private final ScheduledThreadPoolExecutor relogio = novoRelogio();
+    /** Intervalo do batimento; zero ou negativo desliga. */
+    private volatile Duration batimento = Duration.ofSeconds(15);
+
     public AgUiController(WorkflowRuntimeStore store,
                           WorkflowDeserializer deserializer,
                           FlowEngine flowEngine,
@@ -70,10 +87,42 @@ public class AgUiController {
         this.json = jackson2ObjectMapper;
     }
 
+    /**
+     * Sem batimento, uma conexão fechada durante um passo longo só é notada na próxima escrita — e
+     * um passo de LLM não escreve nada até terminar. É o comentário periódico que revela a
+     * desconexão a tempo de cancelar (RCHFLW-54). {@code PT0S} desliga.
+     */
+    @Autowired(required = false)
+    public void setBatimento(@Value("${archflow.agui.heartbeat:PT15S}") Duration batimento) {
+        this.batimento = batimento != null ? batimento : Duration.ZERO;
+    }
+
+    /** Host de MCP dos nós {@code mcp-agent}; nulo = instalação sem MCP (o nó falha dizendo isso). */
+    private volatile McpAgentHost mcpAgentHost;
+
+    /**
+     * O mesmo host que o {@code POST /execute} injeta (RCHFLW-48): sem ele, o Executar do editor
+     * falhava no nó {@code mcp-agent} com "nenhum McpAgentHost no contexto", e o mesmo fluxo rodava
+     * pela lista. Por setter, como o batimento, para não mudar o construtor de quem já o monta.
+     */
+    @Autowired
+    public void setMcpAgentHost(McpAgentHost mcpAgentHost) {
+        this.mcpAgentHost = mcpAgentHost;
+    }
+
+    @PreDestroy
+    public void close() {
+        relogio.shutdownNow();
+    }
+
+    /** O emissor da resposta. Um ponto só para o teste trocar a conexão por uma que ele controla. */
+    SseEmitter novoEmissor() {
+        return new SseEmitter(0L); // no server-side timeout; closed on run completion
+    }
+
     @PostMapping(value = "/workflows/{id}", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter run(@PathVariable String id, @RequestBody(required = false) RunAgentInput input) {
-        SseEmitter sse = new SseEmitter(0L); // no server-side timeout; closed on run completion
-        Object sendLock = new Object();      // engine may broadcast from parallel threads
+        SseEmitter sse = novoEmissor();
 
         // Tenant da requisição, lido aqui, na thread do servlet — a execução segue em outra thread,
         // onde não há requisição. O mesmo valor filtra o workflow (de outro tenant = não encontrado,
@@ -81,7 +130,8 @@ public class AgUiController {
         String tenantId = TenantContext.currentTenantId();
         var workflow = store.getWorkflow(tenantId, id);
         if (workflow == null) {
-            emit(sse, sendLock, AgUiEvent.of("RUN_ERROR", fields("message", "workflow not found: " + id)));
+            Conexao semRun = new Conexao(sse, null);
+            semRun.emitir(AgUiEvent.of("RUN_ERROR", fields("message", "workflow not found: " + id)));
             sse.complete();
             return sse;
         }
@@ -102,34 +152,58 @@ public class AgUiController {
                 tenantId, "ag-ui", runId,
                 MessageWindowChatMemory.builder().maxMessages(20).build());
         seedInput(ctx, input);
+        // Depois do input, como no REST: uma variável de entrada com a chave do host não pode apontar
+        // o nó para outro servidor MCP.
+        McpAgentHost.inject(ctx, mcpAgentHost);
+
+        Conexao conexao = new Conexao(sse, runId);
 
         // Tee the hub into this response, filtered to this run. The lifecycle
         // listener broadcasts each event twice (flow-scoped + admin-scoped) and
-        // both reach global listeners, so dedup by event id.
+        // both reach global listeners, so dedup by event id. (The tenant-scoped
+        // channel is a deliver, not a broadcast: it does not reach this listener.)
         java.util.Set<String> seen = java.util.concurrent.ConcurrentHashMap.newKeySet();
         Consumer<ArchflowEvent> listener = ev -> {
             if (runId.equals(ev.getExecutionId()) && seen.add(ev.getId())) {
                 for (AgUiEvent agUi : mapper.toAgUi(ev)) {
-                    emit(sse, sendLock, agUi);
+                    conexao.emitir(agUi);
                 }
             }
         };
+        conexao.listener = listener;
         streamRegistry.addGlobalListener(listener);
-        sse.onError(t -> cleanup(listener, runId));
-        sse.onTimeout(() -> cleanup(listener, runId));
+        // O cliente saiu: Parar do editor (abort do fetch), aba fechada, rede. onCompletion também
+        // dispara no nosso próprio complete() do fim do run — a Conexao distingue os dois.
+        sse.onCompletion(conexao::clienteSaiu);
+        sse.onError(t -> conexao.clienteSaiu());
+        sse.onTimeout(conexao::clienteSaiu);
 
         // Controller owns the RUN_* bracket (it knows threadId/runId).
-        emit(sse, sendLock, AgUiEvent.of("RUN_STARTED", fields("threadId", threadId, "runId", runId)));
-        emit(sse, sendLock, AgUiEvent.of("STATE_SNAPSHOT",
+        conexao.emitir(AgUiEvent.of("RUN_STARTED", fields("threadId", threadId, "runId", runId)));
+        conexao.emitir(AgUiEvent.of("STATE_SNAPSHOT",
                 fields("snapshot", Map.of("status", "RUNNING", "executionPaths", List.of()))));
 
+        // A conexão caiu antes de o motor receber o fluxo: o cancelar não teria o que parar (o motor
+        // ainda não o conhece) e a execução rodaria inteira sem ninguém olhando. Não começa.
+        if (conexao.cancelada.get()) {
+            streamRegistry.removeGlobalListener(listener);
+            store.completeExecution(runId, "CANCELLED", null);
+            sse.complete();
+            return sse;
+        }
+
+        conexao.iniciarBatimento();
         flowEngine.execute(flow, ctx).whenComplete((result, err) -> {
-            synchronized (sendLock) {
+            // Daqui em diante, uma escrita que falha ou o onCompletion do nosso complete() não é
+            // pedido de parar: a execução já terminou (e, num portão de aprovação, a retomada pode
+            // estar rodando sob o mesmo id — cancelar a mataria).
+            conexao.encerrar();
+            synchronized (conexao) {
                 // Final shared-state snapshot: the materialized dynamic tree (D9).
                 if (err == null) {
                     FlowState state = stateManager.loadState(runId);
                     if (state != null && state.getExecutionPaths() != null) {
-                        writeQuietly(sse, AgUiEvent.of("STATE_SNAPSHOT", fields("snapshot",
+                        conexao.escrever(AgUiEvent.of("STATE_SNAPSHOT", fields("snapshot",
                                 Map.of("status", statusOf(result, null),
                                         "executionPaths", state.getExecutionPaths()))));
                     }
@@ -138,7 +212,7 @@ public class AgUiController {
                         ? AgUiEvent.of("RUN_ERROR", fields("runId", runId, "message", errorOf(err)))
                         : AgUiEvent.of("RUN_FINISHED", fields("threadId", threadId, "runId", runId,
                                 "result", Map.of("status", statusOf(result, null))));
-                writeQuietly(sse, terminal);
+                conexao.escrever(terminal);
             }
             streamRegistry.removeGlobalListener(listener);
             store.completeExecution(runId, statusOf(result, err), errorOf(err));
@@ -150,27 +224,111 @@ public class AgUiController {
 
     // ── helpers ──────────────────────────────────────────────────────────────
 
-    private void emit(SseEmitter sse, Object lock, AgUiEvent event) {
-        synchronized (lock) {
-            writeQuietly(sse, event);
+    /**
+     * Uma resposta AG-UI em andamento. Serializa as escritas (o motor pode transmitir de threads
+     * paralelas) e transforma a saída do cliente em cancelamento da execução (RCHFLW-54).
+     *
+     * <p>Antes só {@code onError}/{@code onTimeout} cancelavam e a falha de escrita era engolida: o
+     * servidor não sabia do Parar até escrever o próximo evento, e durante um passo longo nada era
+     * escrito. O passo ia até o fim, com custo e efeitos, e a execução terminava COMPLETED.</p>
+     */
+    private final class Conexao {
+        private final SseEmitter sse;
+        /** {@code null} quando não há execução (workflow não encontrado). */
+        private final String runId;
+        /** A execução terminou: o que vier depois (inclusive o nosso complete) não é desconexão. */
+        private final AtomicBoolean encerrada = new AtomicBoolean();
+        /** O cliente saiu enquanto a execução existia. */
+        private final AtomicBoolean cancelada = new AtomicBoolean();
+        private volatile Consumer<ArchflowEvent> listener;
+        private volatile ScheduledFuture<?> tarefaBatimento;
+
+        Conexao(SseEmitter sse, String runId) {
+            this.sse = sse;
+            this.runId = runId;
+        }
+
+        void emitir(AgUiEvent event) {
+            synchronized (this) {
+                escrever(event);
+            }
+        }
+
+        /** Escreve sob o lock de quem chama; uma escrita que falha é o cliente que saiu. */
+        void escrever(AgUiEvent event) {
+            try {
+                sse.send(SseEmitter.event().data(json.writeValueAsString(event), MediaType.APPLICATION_JSON));
+            } catch (Exception clienteSaiu) {
+                clienteSaiu();
+            }
+        }
+
+        void iniciarBatimento() {
+            long passo = batimento.toMillis();
+            if (passo <= 0) {
+                return;
+            }
+            tarefaBatimento = relogio.scheduleWithFixedDelay(this::batimento, passo, passo, TimeUnit.MILLISECONDS);
+        }
+
+        private void batimento() {
+            synchronized (this) {
+                if (encerrada.get()) {
+                    return;
+                }
+                try {
+                    // Comentário SSE: o cliente (agui-client) só lê frames com "data:", então ignora.
+                    sse.send(SseEmitter.event().comment("batimento"));
+                } catch (Exception clienteSaiu) {
+                    clienteSaiu();
+                }
+            }
+        }
+
+        void encerrar() {
+            encerrada.set(true);
+            pararBatimento();
+        }
+
+        private void pararBatimento() {
+            ScheduledFuture<?> tarefa = tarefaBatimento;
+            if (tarefa != null) {
+                tarefa.cancel(false);
+            }
+        }
+
+        /**
+         * O cliente saiu antes do fim: cancela a execução no motor, o mesmo pedido do
+         * {@code POST /api/executions/{id}/cancel}. O passo em curso termina (cooperativo, sem
+         * interromper a thread), o resultado dele é descartado, nenhum passo seguinte roda e o
+         * {@code whenComplete} grava CANCELLED, o status que o motor devolve.
+         */
+        void clienteSaiu() {
+            if (runId == null || encerrada.get() || !cancelada.compareAndSet(false, true)) {
+                return;
+            }
+            pararBatimento();
+            Consumer<ArchflowEvent> l = listener;
+            if (l != null) {
+                streamRegistry.removeGlobalListener(l);
+            }
+            try {
+                flowEngine.cancel(runId);
+            } catch (RuntimeException naoAtiva) {
+                // Já terminou. Antes do execute o run() checa a flag; entre o execute e o registro
+                // no motor (espera do semáforo) o motor guarda o pedido e a execução não roda passo.
+            }
         }
     }
 
-    private void writeQuietly(SseEmitter sse, AgUiEvent event) {
-        try {
-            sse.send(SseEmitter.event().data(json.writeValueAsString(event), MediaType.APPLICATION_JSON));
-        } catch (Exception ignored) {
-            // client gone / stream closed — the whenComplete cleanup handles the rest
-        }
-    }
-
-    private void cleanup(Consumer<ArchflowEvent> listener, String runId) {
-        streamRegistry.removeGlobalListener(listener);
-        try {
-            flowEngine.cancel(runId);
-        } catch (RuntimeException ignored) {
-            // not active / already done
-        }
+    private static ScheduledThreadPoolExecutor novoRelogio() {
+        var executor = new ScheduledThreadPoolExecutor(1, tarefa -> {
+            Thread t = new Thread(tarefa, "batimento-ag-ui");
+            t.setDaemon(true);
+            return t;
+        });
+        executor.setRemoveOnCancelPolicy(true);
+        return executor;
     }
 
     static void seedInput(ExecutionContext ctx, RunAgentInput input) {

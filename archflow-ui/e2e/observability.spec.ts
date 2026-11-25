@@ -142,6 +142,19 @@ const metricSeries = [
     },
 ];
 
+const executions = [
+    {
+        id: 'exec-live-1',
+        workflowId: 'wf-sac',
+        workflowName: 'SAC',
+        status: 'RUNNING',
+        startedAt: '2026-04-11T10:00:00.000Z',
+        completedAt: null,
+        duration: null,
+        error: null,
+    },
+];
+
 async function mockApi(page: Page) {
     await installApiRouter(page, [
         ...authHandlers(superadminUser, { loginShape: 'token' }),
@@ -173,6 +186,12 @@ async function mockApi(page: Page) {
         async ({ path, method, route }) => {
             if (path !== '/admin/observability/audit' || method !== 'GET') return false;
             await fulfillJson(route, audit);
+            return true;
+        },
+        // Live events escolhe a execução desta lista (RCHFLW-50).
+        async ({ path, method, route }) => {
+            if (path !== '/executions' || method !== 'GET') return false;
+            await fulfillJson(route, executions);
             return true;
         },
     ]);
@@ -249,6 +268,21 @@ test.describe('Admin observability surface', () => {
         await expect(page.getByTestId('live-status')).toHaveText('idle');
         await expect(page.getByTestId('live-attach')).toBeDisabled();
 
+        // Sem tenant nem sessão livres por padrão: escolhe-se a execução (RCHFLW-50).
+        await expect(page.getByTestId('live-tenant')).toHaveCount(0);
+        await page.getByTestId('live-execution').click();
+        await page.getByRole('option', { name: /exec-live-1/ }).click();
+        await expect(page.getByTestId('live-attach')).toBeEnabled();
+    });
+
+    test('live events free channel still accepts a typed tenant and session', async ({ page }) => {
+        await mockApi(page);
+        await authenticateAsSuperadmin(page);
+
+        await page.goto('/admin/observability/live');
+
+        await page.getByTestId('live-free-channel').check();
+        await expect(page.getByTestId('live-attach')).toBeDisabled();
         await page.getByTestId('live-tenant').fill('acme');
         await page.getByTestId('live-session').fill('conv-1');
         await expect(page.getByTestId('live-attach')).toBeEnabled();

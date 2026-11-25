@@ -106,9 +106,18 @@ public class EventStreamRegistry {
      * @return Emitter criado e registrado
      */
     public EventStreamEmitter createEmitter(String tenantId, String sessionId) {
-        String tenantScopedId = tenantId + ":" + sessionId;
-        EventStreamEmitter emitter = new EventStreamEmitter(tenantScopedId);
+        EventStreamEmitter emitter = new EventStreamEmitter(tenantChannel(tenantId, sessionId));
         return register(emitter);
+    }
+
+    /**
+     * O canal isolado por tenant, {@code tenantId:sessionId} — o que {@link #createEmitter(String,
+     * String)} assina. Um ponto só para o formato: quem publica no canal de uma execução (os eventos
+     * de fluxo, os da orquestração) e quem assina têm de montar a mesma chave, senão a tela conecta e
+     * não recebe nada (RCHFLW-50).
+     */
+    public static String tenantChannel(String tenantId, String sessionId) {
+        return tenantId + ":" + sessionId;
     }
 
     /**
@@ -235,7 +244,23 @@ public class EventStreamRegistry {
             }
         }
 
-        List<EventStreamEmitter> execEmitters = getEmitters(executionId);
+        return deliver(executionId, event);
+    }
+
+    /**
+     * Entrega um evento só aos emitters de um canal, <b>sem</b> avisar os ouvintes globais.
+     *
+     * <p>É para o produtor que publica o mesmo evento em mais de um canal: os ouvintes globais
+     * (o publicador protobuf, o tee do AG-UI) já o receberam no {@link #broadcast} do canal
+     * principal, e um segundo {@code broadcast} os faria processar o mesmo evento outra vez — no
+     * publicador protobuf, uma mensagem duplicada para quem consome o barramento.</p>
+     *
+     * @param channel canal (ex.: {@code tenantId + ":" + executionId})
+     * @param event   evento a entregar
+     * @return número de emitters que receberam o evento
+     */
+    public int deliver(String channel, ArchflowEvent event) {
+        List<EventStreamEmitter> execEmitters = getEmitters(channel);
         int sent = 0;
 
         for (EventStreamEmitter emitter : execEmitters) {
@@ -245,7 +270,7 @@ public class EventStreamRegistry {
                     sent++;
                 } catch (Exception e) {
                     log.warn("[{}] Failed to send event to emitter {}",
-                            executionId, emitter.getEmitterId(), e);
+                            channel, emitter.getEmitterId(), e);
                 }
             }
         }

@@ -378,12 +378,14 @@ public class ArchflowBeanConfiguration {
             InMemoryTraceStore traceStore,
             EventStreamRegistry eventStreamRegistry,
             RunningFlowsRegistry runningFlowsRegistry,
-            org.springframework.beans.factory.ObjectProvider<AuditRepository> auditRepository) {
+            org.springframework.beans.factory.ObjectProvider<AuditRepository> auditRepository,
+            br.com.archflow.engine.api.FlowEngine flowEngine) {
         // AuditRepository é opcional: presente quando archflow.persistence.jdbc.enabled=true
         // (JdbcAuditRepository) — aí as consultas de auditoria da observabilidade passam a
         // ler do banco em vez de ficarem vazias. ObjectProvider evita exigir o bean.
+        // O FlowEngine é o que faz o "Parar" do Running parar de fato (RCHFLW-72).
         return new ObservabilityService(metricsCollector, traceStore, auditRepository.getIfAvailable(),
-                eventStreamRegistry, runningFlowsRegistry);
+                eventStreamRegistry, runningFlowsRegistry, flowEngine);
     }
 
     // =========================================================================
@@ -782,7 +784,9 @@ public class ArchflowBeanConfiguration {
             br.com.archflow.agent.metrics.MetricsCollector metricsCollector,
             br.com.archflow.api.admin.observability.impl.TraceStoreRecorder traceStoreRecorder,
             br.com.archflow.api.usage.RegistroDeUso registroDeUso,
-            @Value("${archflow.flow.strict-conditions:false}") boolean strictConditions) {
+            @Value("${archflow.flow.strict-conditions:false}") boolean strictConditions,
+            org.springframework.beans.factory.ObjectProvider<br.com.archflow.api.agent.mcp.McpAgentHost>
+                    mcpAgentHost) {
         // Registered before create(): the factory snapshots process-wide
         // listeners into the engine's composite lifecycle listener.
         br.com.archflow.engine.lifecycle.FlowLifecycleListeners.register(
@@ -791,9 +795,14 @@ public class ArchflowBeanConfiguration {
         // retomada e MCP passam pelo motor, e só o VendaX punha contador no contexto.
         br.com.archflow.engine.lifecycle.FlowLifecycleListeners.register(
                 new br.com.archflow.api.usage.RegistroDeUsoListener(registroDeUso));
+        // A retomada (fila de aprovações, /resume) ganha o host de MCP como o /execute (RCHFLW-48): a
+        // chave dele é transient, não volta do checkpoint, e o nó mcp-agent depois de um portão
+        // falhava só depois que o humano aprovou. ObjectProvider, resolvido a cada retomada: o
+        // host depende do runner, e o motor não deve forçar essa cadeia na própria criação.
         return br.com.archflow.api.flow.FlowEngineFactory.create(
                 flowRepository, eventStreamRegistry, runningFlowsRegistry, stateManager,
-                metricsCollector, traceStoreRecorder, 16, 3_600_000L, 8, strictConditions);
+                metricsCollector, traceStoreRecorder, 16, 3_600_000L, 8, strictConditions,
+                ctx -> br.com.archflow.api.agent.mcp.McpAgentHost.inject(ctx, mcpAgentHost.getIfAvailable()));
     }
 
     /**
@@ -834,9 +843,11 @@ public class ArchflowBeanConfiguration {
             br.com.archflow.api.flow.WorkflowDeserializer workflowDeserializer,
             br.com.archflow.engine.api.FlowEngine flowEngine,
             br.com.archflow.engine.persistence.FlowRepository flowRepository,
-            com.fasterxml.jackson.databind.ObjectMapper jackson2ObjectMapper) {
+            com.fasterxml.jackson.databind.ObjectMapper jackson2ObjectMapper,
+            br.com.archflow.api.agent.mcp.McpAgentHost mcpAgentHost) {
         return new br.com.archflow.api.mcp.server.WorkflowMcpServer(
-                runtimeStore, workflowDeserializer, flowEngine, flowRepository, jackson2ObjectMapper);
+                runtimeStore, workflowDeserializer, flowEngine, flowRepository, jackson2ObjectMapper,
+                mcpAgentHost);
     }
 
     // =========================================================================

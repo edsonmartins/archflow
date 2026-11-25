@@ -2,6 +2,7 @@ package br.com.archflow.engine.core;
 
 import br.com.archflow.engine.exceptions.FlowEngineException;
 import br.com.archflow.engine.exceptions.FlowNotFoundException;
+import br.com.archflow.engine.lifecycle.FlowLifecycleListener;
 import br.com.archflow.engine.persistence.FlowRepository;
 import br.com.archflow.engine.validation.FlowValidator;
 import br.com.archflow.model.engine.ExecutionContext;
@@ -452,6 +453,90 @@ class DefaultFlowEngineConcurrencyTest {
             Thread.sleep(50);
             assertThat(engine.getActiveFlows()).doesNotContain("flow-1");
             assertThat(engine.getAvailablePermits()).isEqualTo(2);
+        }
+
+        /**
+         * RCHFLW-54: com o motor cheio, a submissão espera o semáforo fora de activeExecutions. O
+         * cancel nessa janela lançava "não encontrado", quem pediu tratava como "já terminou" e o
+         * fluxo depois rodava inteiro, terminando COMPLETED por cima do CANCELLED.
+         */
+        @Test
+        @DisplayName("cancel enquanto a submissão espera o semáforo: nenhum passo roda e termina CANCELLED")
+        void cancelWhileWaitingForPermit() throws Exception {
+            engine = new DefaultFlowEngine(
+                    executionManager, flowRepository, stateManager, flowValidator,
+                    null, null, 1, 30_000);
+
+            Flow ocupando = createMockFlow("flow-1");
+            Flow esperando = createMockFlow("flow-2");
+            CountDownLatch running = new CountDownLatch(1);
+            CountDownLatch allowFinish = new CountDownLatch(1);
+            when(executionManager.executeFlow(eq(ocupando), any(ExecutionContext.class)))
+                    .thenAnswer(inv -> {
+                        running.countDown();
+                        allowFinish.await();
+                        return successResult();
+                    });
+
+            CompletableFuture<FlowResult> primeiro = engine.execute(ocupando, contexto("flow-1"));
+            assertThat(running.await(5, TimeUnit.SECONDS)).isTrue();
+            CompletableFuture<FlowResult> segundo = engine.execute(esperando, contexto("flow-2"));
+            Thread.sleep(100); // a segunda está bloqueada no tryAcquire
+            assertThat(engine.getActiveFlows()).doesNotContain("flow-2");
+
+            assertThatCode(() -> engine.cancel("flow-2")).doesNotThrowAnyException();
+
+            allowFinish.countDown();
+            primeiro.get(5, TimeUnit.SECONDS);
+            FlowResult resultado = segundo.get(5, TimeUnit.SECONDS);
+
+            assertThat(resultado.getStatus()).isEqualTo(ExecutionStatus.CANCELLED);
+            assertThat(resultado.getOutput()).isEmpty();
+            verify(executionManager, never()).executeFlow(eq(esperando), any());
+            verify(stateManager).saveState(eq("flow-2"), argThat(s -> s.getStatus() == FlowStatus.STOPPED));
+            assertThat(engine.getAvailablePermits()).isEqualTo(1);
+        }
+
+        /**
+         * A outra metade da janela: já em activeExecutions, mas o executor ainda não registrou o
+         * controle — o stopFlow não teria a quem sinalizar. O motor checa antes de entregar a travessia.
+         */
+        @Test
+        @DisplayName("cancel entre o registro e o início da travessia: o executor não é chamado")
+        void cancelBeforeTraversalStarts() throws Exception {
+            FlowLifecycleListener cancelaAoComecar = new FlowLifecycleListener() {
+                @Override
+                public void onFlowStarted(Flow flow, ExecutionContext context, int stepCount) {
+                    engine.cancel(flow.getId());
+                }
+            };
+            engine = new DefaultFlowEngine(
+                    executionManager, flowRepository, stateManager, flowValidator,
+                    null, null, 2, 30_000, cancelaAoComecar);
+            Flow flow = createMockFlow("flow-3");
+
+            FlowResult resultado = engine.execute(flow, contexto("flow-3")).get(5, TimeUnit.SECONDS);
+
+            assertThat(resultado.getStatus()).isEqualTo(ExecutionStatus.CANCELLED);
+            verify(executionManager, never()).executeFlow(any(), any());
+            assertThat(engine.getActiveFlows()).doesNotContain("flow-3");
+        }
+
+        @Test
+        @DisplayName("cancel de id que nunca foi submetido continua sendo não encontrado")
+        void cancelUnknownStillNotFound() {
+            engine = new DefaultFlowEngine(
+                    executionManager, flowRepository, stateManager, flowValidator,
+                    null, null, 2, 30_000);
+
+            assertThatThrownBy(() -> engine.cancel("nunca-existiu"))
+                    .hasRootCauseInstanceOf(FlowNotFoundException.class);
+        }
+
+        private ExecutionContext contexto(String flowId) {
+            return new br.com.archflow.model.engine.DefaultExecutionContext(
+                    "tenant-a", "teste", flowId,
+                    dev.langchain4j.memory.chat.MessageWindowChatMemory.builder().maxMessages(20).build());
         }
     }
 }

@@ -7,7 +7,7 @@ import {
 import { PageHeader } from '../components/PageHeader'
 import { SectionCard } from '../components/SectionCard'
 import EmptyState from '../components/EmptyState'
-import { runAgUiWorkflow, type AgUiEvent } from '../services/agui-client'
+import { runAgUiWorkflow, type AgUiEvent, type StopAgUiRun, type StopOutcome } from '../services/agui-client'
 import { runOutcomeOf, type RunOutcome } from '../lib/runOutcome'
 import { parseRunInput, toAgUiRunInput } from '../lib/runInput'
 
@@ -49,7 +49,10 @@ export default function AgUiRunnerPage() {
     const [inputText, setInputText] = useState('')
     const [events, setEvents] = useState<AgUiEvent[]>([])
     const [running, setRunning] = useState(false)
-    const cancelRef = useRef<(() => void) | null>(null)
+    // Desfecho do último Parar: `failed` = a execução pode seguir rodando; `byDisconnect` = sem
+    // permissão para cancelar pela API, a desconexão é que para (ver StopOutcome).
+    const [stopOutcome, setStopOutcome] = useState<StopOutcome | null>(null)
+    const cancelRef = useRef<StopAgUiRun | null>(null)
     const viewportRef = useRef<HTMLDivElement>(null)
 
     // Console behaviour: keep the newest event in view while the stream grows.
@@ -60,6 +63,7 @@ export default function AgUiRunnerPage() {
 
     const run = () => {
         setEvents([])
+        setStopOutcome(null)
         setRunning(true)
         cancelRef.current = runAgUiWorkflow(
             workflowId.trim(),
@@ -73,9 +77,13 @@ export default function AgUiRunnerPage() {
         )
     }
 
+    // Parar também cancela no servidor (o abort sozinho não chegava a ele durante um passo longo,
+    // RCHFLW-54); se o cancelamento falhar, a página diz, em vez de mostrar só "parado".
     const stop = () => {
-        cancelRef.current?.()
+        const parar = cancelRef.current
+        cancelRef.current = null
         setRunning(false)
+        void (parar ? parar() : Promise.resolve<StopOutcome>('stopped')).then(setStopOutcome)
     }
 
     // O desfecho vem do result.status do RUN_FINISHED, não só do tipo: um fluxo FAILED (passo sem
@@ -135,10 +143,21 @@ export default function AgUiRunnerPage() {
                         styles={{ input: { fontFamily: 'var(--font-mono)', fontSize: 12.5 } }}
                         data-testid="agui-input"
                     />
+                    {stopOutcome === 'failed' && (
+                        <Text size="sm" c="red" role="alert" data-testid="agui-stop-error">
+                            {t('agui.stopError')}
+                        </Text>
+                    )}
+                    {stopOutcome === 'byDisconnect' && (
+                        <Text size="sm" c="orange" role="status" data-testid="agui-stop-by-disconnect">
+                            {t('agui.stopByDisconnect')}
+                        </Text>
+                    )}
                     <Group justify="space-between" align="center" gap="sm" wrap="wrap">
                         <Text size="xs" c="dimmed" data-testid="agui-input-hint">{inputHint}</Text>
                         {running ? (
-                            <Button color="red" leftSection={<IconPlayerStop size={16} />} onClick={stop}>
+                            <Button color="red" leftSection={<IconPlayerStop size={16} />} onClick={stop}
+                                    data-testid="agui-stop">
                                 {t('agui.stop')}
                             </Button>
                         ) : (

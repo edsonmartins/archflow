@@ -89,7 +89,8 @@ public final class OrchestrateStep implements FlowStep {
             // Stream the dynamic subtask tree live (SSE) and materialize it as
             // ExecutionPaths on the FlowState so it's persisted/inspectable.
             OrchestrationListener streaming = streamRegistry != null
-                    ? new StreamingOrchestrationListener(streamRegistry, context.getSessionId())
+                    ? new StreamingOrchestrationListener(
+                            streamRegistry, context.getTenantId(), context.getSessionId())
                     : OrchestrationListener.NOOP;
             FlowState state = context.getState();
             OrchestrationListener listener = state != null

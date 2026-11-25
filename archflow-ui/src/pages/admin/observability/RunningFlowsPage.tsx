@@ -1,9 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ActionIcon, Badge, Button, Group, Modal, Stack, Text, Tooltip } from '@mantine/core';
 import { IconPlayerPlay, IconRefresh } from '@tabler/icons-react';
+import { notifications } from '@mantine/notifications';
 import { RunningFlowDto, observabilityApi } from '../../../services/observability-api';
 import { SectionCard } from '../../../components/SectionCard';
+import { mensagemDoErro } from '../../../lib/errorMessage';
+import { ApiError } from '../../../services/api';
 import {
     VxTable, colunaAcoes, colunaApagada, colunaBarra, colunaStatus, type Registro, type VxColumn,
 } from '../../../components/VTable';
@@ -47,12 +50,19 @@ export default function RunningFlowsPage() {
     const [tick, setTick] = useState(0);
     const [confirmCancel, setConfirmCancel] = useState<string | null>(null);
     const [cancelling, setCancelling] = useState(false);
+    // Cancelamentos aceitos pelo servidor cujo fluxo ainda termina o passo em curso: o motor descarta
+    // o resultado e não roda o seguinte, mas a entrada do registro só sai quando o passo acaba. Sem
+    // isto a linha sumia e voltava no poll seguinte, parecendo um cancelar que falhou.
+    const cancelados = useRef(new Set<string>());
 
     // Fetch from backend
     const fetchFlows = useCallback(async () => {
         try {
             const data = await observabilityApi.listRunningFlows();
-            setFlows(data);
+            const listados = new Set(data.map((f) => f.flowId));
+            // O servidor já não lista: o fluxo parou de fato, a marca pode sair.
+            for (const id of cancelados.current) if (!listados.has(id)) cancelados.current.delete(id);
+            setFlows(data.filter((f) => !cancelados.current.has(f.flowId)));
         } catch {
             // Gracefully handle unreachable backend
         } finally {
@@ -73,14 +83,27 @@ export default function RunningFlowsPage() {
         return () => clearInterval(timer);
     }, []);
 
+    // A linha só sai quando o servidor aceitou o cancelamento. Antes o erro era engolido e a linha
+    // sumia do mesmo jeito: o operador achava que tinha parado uma execução que seguia rodando
+    // (RCHFLW-72).
     const handleCancelConfirm = async () => {
         if (!confirmCancel) return;
+        const flowId = confirmCancel;
         setCancelling(true);
         try {
-            await observabilityApi.cancelRunningFlow(confirmCancel);
-            setFlows((prev) => prev.filter((f) => f.flowId !== confirmCancel));
-        } catch {
-            // Ignore — next poll will reconcile
+            await observabilityApi.cancelRunningFlow(flowId);
+            cancelados.current.add(flowId);
+            setFlows((prev) => prev.filter((f) => f.flowId !== flowId));
+        } catch (e) {
+            notifications.show({
+                color: 'red',
+                title: t('admin.observability.running.cancelFailed'),
+                // 404 é o caso comum (terminou entre a listagem e o cancelar); a frase do servidor vem
+                // em inglês, então a tela diz no idioma dela.
+                message: e instanceof ApiError && e.status === 404
+                    ? t('admin.observability.running.cancelNotRunning')
+                    : mensagemDoErro(e, t('admin.observability.running.cancelFailedMsg')),
+            });
         } finally {
             setCancelling(false);
             setConfirmCancel(null);

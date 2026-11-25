@@ -16,6 +16,9 @@ import br.com.archflow.api.admin.observability.ObservabilityDtos.PersonaStatDto;
 import br.com.archflow.api.admin.observability.ObservabilityDtos.TraceDetailDto;
 import br.com.archflow.api.admin.observability.ObservabilityDtos.TraceSummaryDto;
 import br.com.archflow.api.audit.AuditTrail;
+import br.com.archflow.engine.api.FlowEngine;
+import br.com.archflow.engine.exceptions.FlowException;
+import br.com.archflow.engine.exceptions.FlowNotFoundException;
 import br.com.archflow.observability.audit.AuditEvent;
 import br.com.archflow.observability.audit.AuditRepository;
 
@@ -58,6 +61,11 @@ public class ObservabilityService {
     private final AuditRepository auditRepository;
     private final EventStreamRegistry eventStreamRegistry;
     private final RunningFlowsRegistry runningFlowsRegistry;
+    /**
+     * Quem para a execução de fato. Sem ele o cancelar do Running só tirava a linha da lista e o
+     * fluxo seguia até o fim, com todos os efeitos (RCHFLW-72).
+     */
+    private final FlowEngine flowEngine;
 
     public ObservabilityService(
             MetricsCollector metricsCollector,
@@ -73,11 +81,22 @@ public class ObservabilityService {
             AuditRepository auditRepository,
             EventStreamRegistry eventStreamRegistry,
             RunningFlowsRegistry runningFlowsRegistry) {
+        this(metricsCollector, traceStore, auditRepository, eventStreamRegistry, runningFlowsRegistry, null);
+    }
+
+    public ObservabilityService(
+            MetricsCollector metricsCollector,
+            InMemoryTraceStore traceStore,
+            AuditRepository auditRepository,
+            EventStreamRegistry eventStreamRegistry,
+            RunningFlowsRegistry runningFlowsRegistry,
+            FlowEngine flowEngine) {
         this.metricsCollector = metricsCollector;
         this.traceStore = traceStore != null ? traceStore : new InMemoryTraceStore();
         this.auditRepository = auditRepository;
         this.eventStreamRegistry = eventStreamRegistry;
         this.runningFlowsRegistry = runningFlowsRegistry;
+        this.flowEngine = flowEngine;
     }
 
     public InMemoryTraceStore traceStore() {
@@ -293,12 +312,20 @@ public class ObservabilityService {
     }
 
     /**
-     * Requests cancellation of a running flow after validating tenant ownership.
+     * Cancela no motor uma execução em andamento, depois de validar o dono.
+     *
+     * <p>O pedido vai ao {@link FlowEngine#cancel}, o mesmo de {@code POST /api/executions/{id}/cancel}:
+     * o passo em curso termina (a interrupção é cooperativa), o resultado dele é descartado e nenhum
+     * passo seguinte roda. A linha do Running não sai aqui: sai quando o fluxo para de fato, pelo
+     * {@code RegistryFlowLifecycleListener}. Tirá-la antes era o defeito — a lista dizia "parado"
+     * enquanto o fluxo seguia rodando, agora invisível (RCHFLW-72).</p>
      *
      * @param callerTenantId  authenticated caller's tenant
      * @param flowId          flow to cancel
-     * @throws IllegalArgumentException if the flow is not currently running
+     * @throws IllegalArgumentException if the flow is not currently running (no registry entry, or
+     *                                  the engine no longer has it active)
      * @throws SecurityException        if the caller's tenant does not own the flow
+     * @throws IllegalStateException    if this service was built without a {@link FlowEngine}
      */
     public void cancelFlow(String callerTenantId, String flowId) {
         if (runningFlowsRegistry == null) {
@@ -315,12 +342,31 @@ public class ObservabilityService {
                     + " owned by " + active.tenantId());
         }
 
-        // The actual cancellation signal is delivered via the engine.
-        // This service layer only handles validation; the HTTP adapter should
-        // call FlowEngine.cancel(flowId) directly or via a dedicated CancelService.
-        // We remove from registry here as an optimistic update; the lifecycle
-        // listener will also remove it when the flow actually stops.
-        runningFlowsRegistry.flowEnded(flowId);
+        // Sem motor não há como parar: responder 200 seria repetir o defeito (a tela diria "parado"
+        // e o fluxo seguiria). Falha explícita, que a tela mostra como erro.
+        if (flowEngine == null) {
+            throw new IllegalStateException("Cancelamento indisponível: a observabilidade não tem um FlowEngine");
+        }
+        try {
+            flowEngine.cancel(flowId);
+        } catch (FlowException e) {
+            // O registro ainda listava a execução, mas o motor já não a tem ativa: terminou entre a
+            // leitura e o cancelar. Para quem chamou é "não está rodando" — o mesmo 404. O
+            // DefaultFlowEngine embrulha o FlowNotFoundException; outro motor pode lançá-lo direto.
+            if (causedByNotFound(e)) {
+                throw new IllegalArgumentException("Flow not running: " + flowId, e);
+            }
+            throw e;
+        }
+    }
+
+    private static boolean causedByNotFound(Throwable error) {
+        for (Throwable t = error; t != null; t = t.getCause() == t ? null : t.getCause()) {
+            if (t instanceof FlowNotFoundException) {
+                return true;
+            }
+        }
+        return false;
     }
 
     // ── helpers ───────────────────────────────────────────────────
