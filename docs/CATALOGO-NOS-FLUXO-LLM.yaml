@@ -143,9 +143,21 @@ propertySchemas:
     skillResource: { type: string, when: "skillsOperation=read" }
     skillsOutputVar: { type: string, default: skillsResult }
   condition:
-    conditionExpression: { type: string, default: "${agent.confidence} > 0.8" }
+    conditionExpression:
+      type: string
+      required: true
+      example: "${<id do nó decision>.route} == 'AUTO'"
+      description: >-
+        Gramática do ConditionEvaluator: operando op operando (==, !=, >, >=, <, <=, contains), unidos por && ou ||,
+        sem parênteses. Cada operando é ${caminho}, texto entre aspas, número ou true/false — nunca palavra solta.
+        O caminho começa pelo id (não o rótulo) de um passo anterior; a saída de llm-chat é texto, sem campos.
+        Recusada antes do 1º passo quando foge disso (RCHFLW-116, docs/decision-component.md).
   switch:
-    switchExpression: { type: string, default: "${agent.intent}" }
+    switchExpression:
+      type: string
+      required: true
+      example: "${<id do nó decision>.decision}"
+      description: "Template com ao menos um ${caminho}, pelas mesmas regras de caminho do conditionExpression"
     switchCases: { type: string, description: "Um caso por linha, incluindo default quando necessário" }
   loop:
     loopCollection: { type: string, default: "${input.items}" }

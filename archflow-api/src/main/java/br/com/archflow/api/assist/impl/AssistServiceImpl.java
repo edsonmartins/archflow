@@ -10,6 +10,7 @@ import br.com.archflow.api.assist.dto.NlToFlowResponse;
 import br.com.archflow.api.assist.dto.SuggestMappingRequest;
 import br.com.archflow.api.assist.dto.SuggestMappingResponse;
 import br.com.archflow.api.catalog.dto.CatalogItemDto;
+import br.com.archflow.engine.execution.ControlExpressionRules;
 import br.com.archflow.langchain4j.provider.LLMConfigResolver;
 import br.com.archflow.langchain4j.provider.LLMResolutionRequest;
 import br.com.archflow.model.config.ResolvedLLMConfig;
@@ -20,8 +21,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Implementação de {@link AssistService}.
@@ -81,7 +85,74 @@ public class AssistServiceImpl implements AssistService {
     public NlToFlowResponse nlToFlow(NlToFlowRequest request) {
         String prompt = buildNlToFlowPrompt(request, serverCatalog);
         String raw = chat(prompt);
-        return parseNlToFlow(raw);
+        return comAvisosDeExpressao(parseNlToFlow(raw));
+    }
+
+    /**
+     * O rascunho com cada expressão de condition/switch recusada pela regra do motor dita em
+     * {@code observacoes} (RCHFLW-116). O modelo pode errar a expressão, e o rascunho que chega a quem o
+     * converte não pode carregar em silêncio uma condição que o {@code ExecutableNodesValidator} vai recusar
+     * só ao executar. Vai em {@code observacoes}, e não num campo novo, porque o formato é o contrato do
+     * Mentors (ver {@link NlToFlowResponse}); {@code lacunas} é outra coisa (capacidade sem plugin).
+     */
+    static NlToFlowResponse comAvisosDeExpressao(NlToFlowResponse r) {
+        List<String> avisos = avisosDeExpressao(r.workflow().steps());
+        if (avisos.isEmpty()) {
+            return r;
+        }
+        String modelo = r.observacoes() == null || r.observacoes().isBlank() ? "" : r.observacoes().trim() + "\n";
+        return new NlToFlowResponse(r.workflow(), r.lacunas(), modelo + String.join("\n", avisos));
+    }
+
+    /**
+     * Um aviso por step de controle com expressão recusada. No rascunho o id do passo é o {@code name}
+     * (é o que vira {@code id} na conversão, ver {@link NlToFlowResponse}); os campos esperados da Entrada
+     * vêm de {@code parameters.ioFields}, como no documento.
+     */
+    static List<String> avisosDeExpressao(List<NlToFlowResponse.Step> steps) {
+        Set<String> ids = new HashSet<>();
+        Set<String> texto = new HashSet<>();
+        Set<String> campos = new HashSet<>();
+        for (NlToFlowResponse.Step st : steps) {
+            if (st.name() == null) {
+                continue;
+            }
+            ids.add(st.name());
+            String tipo = st.nodeType() == null ? "" : st.nodeType().trim().toLowerCase(Locale.ROOT);
+            if (ControlExpressionRules.TEXT_OUTPUT_NODE_TYPES.contains(tipo)) {
+                texto.add(st.name());
+            }
+            if ("input".equals(tipo) && st.parameters() != null
+                    && st.parameters().get("ioFields") instanceof List<?> lista) {
+                lista.forEach(c -> {
+                    if (c instanceof String campo && !campo.isBlank()) {
+                        campos.add(campo.trim());
+                    }
+                });
+            }
+        }
+        ControlExpressionRules.FlowRefs refs = new ControlExpressionRules.FlowRefs(ids, texto, campos);
+        List<String> avisos = new ArrayList<>();
+        for (NlToFlowResponse.Step st : steps) {
+            String tipo = st.nodeType() == null ? "" : st.nodeType().trim().toLowerCase(Locale.ROOT);
+            String campo = switch (tipo) {
+                case "condition" -> "conditionExpression";
+                case "switch" -> "switchExpression";
+                default -> null;
+            };
+            if (campo == null || st.parameters() == null || !(st.parameters().get(campo) instanceof String expr)) {
+                continue;
+            }
+            List<ControlExpressionRules.Finding> achados = "condition".equals(tipo)
+                    ? ControlExpressionRules.checkCondition(expr, refs)
+                    : ControlExpressionRules.checkSwitch(expr, refs);
+            if (!achados.isEmpty()) {
+                avisos.add("Aviso do archflow: o step \"" + st.name() + "\", campo " + campo
+                        + ", será recusado ao executar: " + String.join("; ",
+                        achados.stream().map(ControlExpressionRules.Finding::message).toList()));
+            }
+        }
+        return avisos;
     }
 
     /**
@@ -394,6 +465,7 @@ public class AssistServiceImpl implements AssistService {
 
         if ((r.catalogo() == null || r.catalogo().isEmpty()) && serverCatalog != null) {
             appendServerCatalogForFlow(sb, serverCatalog);
+            appendRegrasDeExpressao(sb, serverCatalog.executableNodeTypes());
         } else {
             sb.append("CATÁLOGO de plugins disponíveis:\n");
             appendCatalogo(sb, r.catalogo());
@@ -490,6 +562,25 @@ public class AssistServiceImpl implements AssistService {
         if (componentes.isEmpty() && tipos.isEmpty()) {
             sb.append("(catálogo vazio — nenhum plugin disponível)\n");
         }
+    }
+
+    /**
+     * A gramática das expressões dos nós condition/switch, quando o catálogo os oferece (RCHFLW-116). Sem ela o
+     * modelo escrevia {@code ticket.urgente == true}: sem {@code ${}}, lendo um campo que nenhum passo produz, e
+     * o ramo nunca mudava. As regras são as do {@code ConditionEvaluator} e do {@code ControlExpressionRules}.
+     */
+    private static void appendRegrasDeExpressao(StringBuilder sb, List<String> tipos) {
+        if (!tipos.contains("condition") && !tipos.contains("switch")) {
+            return;
+        }
+        sb.append("Expressões dos nós condition e switch (recusadas antes de executar se fugirem disto): ")
+          .append("'parameters.conditionExpression' é operando op operando, com op ==, !=, >, >=, <, <= ou ")
+          .append("contains, unidos por && ou ||, sem parênteses; cada operando é ${caminho}, texto entre aspas ")
+          .append("('urgente'), número ou true/false — nunca palavra solta. 'parameters.switchExpression' é um ")
+          .append("texto com ao menos um ${caminho}. O caminho começa pelo 'name' de um step anterior: ${<name>} ")
+          .append("é a saída dele, ${<name>.<campo>} um campo dela. A saída de um llm-chat é o texto da resposta, ")
+          .append("sem campos. Para classificar, prefira um step decision e leia ${<name>.decision} ou ")
+          .append("${<name>.route} (AUTO, REVIEW ou ESCALATE).\n");
     }
 
     private static void appendProps(StringBuilder sb, List<String> props) {

@@ -79,6 +79,15 @@ public final class ControlStep implements FlowStep {
     @Override public List<StepConnection> getConnections() { return connections; }
     @Override public LLMConfigPatch getLLMPatch() { return LLMConfigPatch.empty(); }
 
+    /** Condição ou switch — o {@link ExecutableNodesValidator} confere a expressão antes do 1º passo. */
+    Kind kind() { return kind; }
+
+    /** A chave do campo da expressão no nó, como o designer a grava. */
+    String expressionField() { return kind == Kind.CONDITION ? "conditionExpression" : "switchExpression"; }
+
+    /** A expressão do nó, ou {@code null} quando falta (aí quem recusa é o próprio passo, ao executar). */
+    String expression() { return texto(config.get(expressionField())); }
+
     @Override
     public CompletableFuture<StepResult> execute(ExecutionContext context) {
         long start = System.nanoTime();

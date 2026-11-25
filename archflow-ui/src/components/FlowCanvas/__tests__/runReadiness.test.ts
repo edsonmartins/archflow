@@ -33,7 +33,7 @@ describe('runReadiness', () => {
   it('campos que o motor exige e o nó não tem impedem o run, nomeando nó e campo', () => {
     const blockers = runBlockers([
       { id: 'c', label: 'Urgente?', componentId: 'condition', type: 'condition', config: {} },
-      { id: 's', label: 'Rota', componentId: 'switch', type: 'switch', config: { switchExpression: '${a.b}', switchCases: '  ' } },
+      { id: 's', label: 'Rota', componentId: 'switch', type: 'switch', config: { switchExpression: '${d.route}', switchCases: '  ' } },
       { id: 'd', label: 'Triagem', componentId: 'decision', type: 'decision', config: { questions: {} } },
     ])
 
@@ -46,6 +46,46 @@ describe('runReadiness', () => {
     expect(runBlockersMessage(t, blockers)).toBe('editor.notif.runBlockedMissing['
       + '"Urgente?" → editor.properties.fields.expression, "Rota" → editor.properties.fields.switchCases, '
       + '"Triagem" → editor.properties.fields.decisionQuestions]')
+  })
+
+  // RCHFLW-116: a condição que o "Gerar com IA" montou mandava o pedido urgente para o ramo errado, em silêncio.
+  it('expressão fora do formato do avaliador ou lendo passo inexistente impede o run, nomeando nó e campo', () => {
+    const blockers = runBlockers([
+      { id: 'a', label: 'Receber Ticket', componentId: 'input', type: 'input' },
+      { id: 'b', label: 'Classificar Assunto', componentId: 'llm-chat', type: 'llm-chat', config: {} },
+      { id: 'c', label: 'É Urgente?', componentId: 'condition', type: 'condition',
+        config: { conditionExpression: 'ticket.urgente == true' } },
+      { id: 's', label: 'Rota', componentId: 'switch', type: 'switch',
+        config: { switchExpression: '${Triagem.route}', switchCases: 'AUTO' } },
+      // A anotação não é passo: o id dela não vale como referência.
+      { id: 'n', componentId: 'sticky-note', type: 'sticky-note' },
+      { id: 'd', label: 'Lê nota', componentId: 'condition', type: 'condition',
+        config: { conditionExpression: "${n.text} == 'x'" } },
+    ])
+
+    expect(hasRunBlockers(blockers)).toBe(true)
+    expect(blockers.missing).toEqual([])
+    expect(blockers.invalidExpressions).toEqual([
+      { id: 'c', label: 'É Urgente?', labelKey: 'editor.properties.fields.expression',
+        problem: 'BARE_OPERAND', fragment: 'ticket.urgente' },
+      { id: 's', label: 'Rota', labelKey: 'editor.properties.fields.switchExpression',
+        problem: 'UNKNOWN_STEP', fragment: 'Triagem.route' },
+      { id: 'd', label: 'Lê nota', labelKey: 'editor.properties.fields.expression',
+        problem: 'UNKNOWN_STEP', fragment: 'n.text' },
+    ])
+    expect(runBlockersMessage(t, blockers)).toBe('editor.notif.runBlockedInvalidExpression['
+      + '"É Urgente?" → editor.properties.fields.expression: editor.notif.expressionProblem.BARE_OPERAND[ticket.urgente|ticket]; '
+      + '"Rota" → editor.properties.fields.switchExpression: editor.notif.expressionProblem.UNKNOWN_STEP[Triagem.route|Triagem]; '
+      + '"Lê nota" → editor.properties.fields.expression: editor.notif.expressionProblem.UNKNOWN_STEP[n.text|n]]')
+  })
+
+  it('cada motivo de expressão recusada tem texto no pt-BR', () => {
+    const problems = (ptBR as any).editor.notif.expressionProblem
+    for (const code of ['MALFORMED', 'BARE_OPERAND', 'UNKNOWN_STEP', 'TEXT_OUTPUT_FIELD', 'NO_REFERENCE']) {
+      expect(problems[code]).toContain('{{fragment}}')
+    }
+    // A chave a declarar na Entrada é a raiz do caminho: sem o {{root}}, o aviso não diria qual.
+    expect(problems.UNKNOWN_STEP).toContain('{{root}}')
   })
 
   it('fluxo executável não tem bloqueio: Entrada, LLM, Condição preenchida, llm-streaming e anotação', () => {

@@ -391,7 +391,15 @@
             "execStartError": "Não foi possível iniciar a execução",
             "runBlocked": "Execução impedida",
             "runBlockedNotExecutable": "Ainda não suportado na execução: {{nodes}}. Remova ou troque esses nós para executar.",
-            "runBlockedMissing": "Campo obrigatório vazio: {{fields}}."
+            "runBlockedMissing": "Campo obrigatório vazio: {{fields}}.",
+            "runBlockedInvalidExpression": "Expressão que o motor não avalia: {{fields}}.",
+            "expressionProblem": {
+                "MALFORMED": "«{{fragment}}» não segue a gramática do avaliador (operando operador operando, unidos por && ou ||)",
+                "BARE_OPERAND": "«{{fragment}}» não é um valor — escreva a referência como ${…} ou o texto entre aspas ('…'); sem ${}, o ramo nunca muda",
+                "UNKNOWN_STEP": "«{{fragment}}» não é a saída de nenhum passo do fluxo — use o id do nó, não o rótulo; se «{{root}}» é uma chave do JSON de entrada, declare-a em «Campos de entrada esperados» do nó Entrada",
+                "TEXT_OUTPUT_FIELD": "«{{fragment}}» lê um campo da saída de um LLM Chat, que é só o texto da resposta — compare o texto (contains) ou classifique com um nó Decisão",
+                "NO_REFERENCE": "«{{fragment}}» não lê nenhum ${…}: o valor é sempre o mesmo e o ramo nunca muda"
+            }
         },
         "unsavedChanges": "Alterações não salvas",
         "palette": {
@@ -455,7 +463,8 @@
             "startedMsg": "Os nós vão aparecendo no canvas conforme o copilot trabalha.",
             "done": "Fluxo montado pelo copilot",
             "doneMsg": "Confira os nós e as ligações no canvas.",
-            "promptTemplate": "Monte um workflow no canvas do editor para o objetivo a seguir. Crie cada nó com a ferramenta addNode, usando os tipos de nó disponíveis e um rótulo curto e descritivo; o addNode devolve o id do nó criado. Configure cada nó com o que o objetivo pede (prompt e modelo de um llm-chat, expressão de um condition…), no parâmetro config do addNode ou com configureNode, usando só as chaves de config listadas para o tipo do nó. Depois ligue os nós em ordem lógica com connectNodes, usando exatamente os ids devolvidos pelo addNode (nunca invente ids). Para corrigir um nó que você criou ou uma ligação errada, use removeNode/removeEdge em vez de criar outro nó; não remova nós que já estavam no fluxo, a menos que o objetivo peça (o usuário terá de confirmar). Ao terminar, responda com um resumo curto do fluxo montado. Objetivo: {{goal}}"
+            "doneInvalid": "Fluxo montado, mas ainda não executa",
+            "promptTemplate": "Monte um workflow no canvas do editor para o objetivo a seguir. Crie cada nó com a ferramenta addNode, usando os tipos de nó disponíveis e um rótulo curto e descritivo; o addNode devolve o id do nó criado. Configure cada nó com o que o objetivo pede (prompt e modelo de um llm-chat, expressão de um condition…), no parâmetro config do addNode ou com configureNode, usando só as chaves de config listadas para o tipo do nó. Depois ligue os nós em ordem lógica com connectNodes, usando exatamente os ids devolvidos pelo addNode (nunca invente ids). Para corrigir um nó que você criou ou uma ligação errada, use removeNode/removeEdge em vez de criar outro nó; não remova nós que já estavam no fluxo, a menos que o objetivo peça (o usuário terá de confirmar). Para classificar e ramificar, prefira um nó decision e escolha o ramo de cada ligação com o branch do connectNodes; a expressão de um condition ou switch lê a saída de um nó anterior pelo id dele (${id.campo}), nunca uma palavra solta, e siga as regras de ramificação do contexto — uma expressão recusada pela ferramenta deve ser corrigida, não deixada para trás. Para pôr um nó antes de outro já existente, use addNode com insertBefore. Ao terminar, responda com um resumo curto do fluxo montado. Objetivo: {{goal}}"
         },
         "properties": {
             "title": "Propriedades",

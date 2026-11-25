@@ -39,6 +39,7 @@ import static org.mockito.Mockito.when;
 class AssistDoArchflowTest {
 
     private final List<String> prompts = new ArrayList<>();
+    private String resposta = "{\"workflow\":{\"steps\":[],\"links\":[]},\"lacunas\":[],\"diagnostico\":\"x\"}";
     private ServerFlowCatalog serverCatalog;
     private AssistServiceImpl assist;
 
@@ -54,7 +55,7 @@ class AssistDoArchflowTest {
         ChatModel model = mock(ChatModel.class);
         when(model.chat(anyString())).thenAnswer(inv -> {
             prompts.add(inv.getArgument(0));
-            return "{\"workflow\":{\"steps\":[],\"links\":[]},\"lacunas\":[],\"diagnostico\":\"x\"}";
+            return resposta;
         });
         LLMConfigResolver resolver = mock(LLMConfigResolver.class);
         when(resolver.resolveModel(any())).thenReturn(model);
@@ -76,6 +77,33 @@ class AssistDoArchflowTest {
         // Só o que executa: um tipo da paleta sem execução não entra como opção de nó.
         assertThat(serverCatalog.nonExecutableNodeTypes()).contains("transform");
         assertThat(prompt).doesNotContain("plugin=transform,");
+    }
+
+    @Test
+    @DisplayName("nl-to-flow ensina a gramática das expressões e avisa da condição que o motor recusaria")
+    void nlToFlowCondicaoGeradaComAviso() {
+        resposta = """
+                {"workflow":{"steps":[
+                  {"name":"receber","component":"input","nodeType":"input","parameters":{}},
+                  {"name":"classificar","component":"llm-chat","nodeType":"llm-chat","parameters":{}},
+                  {"name":"urgente","component":"condition","nodeType":"condition",
+                   "parameters":{"conditionExpression":"ticket.urgente == true"}},
+                  {"name":"ok","component":"condition","nodeType":"condition",
+                   "parameters":{"conditionExpression":"${classificar} contains 'URGENTE'"}}],
+                 "links":[]},"lacunas":[],"observacoes":"rascunho"}
+                """;
+
+        var r = assist.nlToFlow(new NlToFlowRequest("rotear urgentes para um humano", null, "pt-BR"));
+
+        assertThat(prompts.getFirst())
+                .contains("cada operando é ${caminho}, texto entre aspas")
+                .contains("O caminho começa pelo 'name' de um step anterior");
+        // O rascunho segue o contrato (os steps como vieram); o aviso diz o step, o campo e o motivo.
+        assertThat(r.workflow().steps()).hasSize(4);
+        assertThat(r.observacoes()).startsWith("rascunho\n")
+                .contains("o step \"urgente\", campo conditionExpression, será recusado ao executar")
+                .contains("«ticket.urgente» não é um valor")
+                .doesNotContain("\"ok\"");
     }
 
     @Test

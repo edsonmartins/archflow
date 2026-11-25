@@ -129,6 +129,25 @@ describe('WorkflowEditor — Executar impedido', () => {
     expect(runMock).not.toHaveBeenCalled()
   })
 
+  // RCHFLW-116: a condição gerada pelo assistente não usa ${} e lê uma variável que nenhum passo produz.
+  it('Condição fora do formato do avaliador: não salva, não abre a entrada e o aviso nomeia o nó e o campo', async () => {
+    await clickRun([
+      step('a', 'input', 'Receber Ticket'),
+      step('c', 'condition', 'É Urgente?', { conditionExpression: 'ticket.urgente == true' }),
+      step('d', 'output', 'Saída'),
+    ])
+
+    expect(showMock).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'editor.notif.runBlocked',
+      message: 'editor.notif.runBlockedInvalidExpression["É Urgente?" → editor.properties.fields.expression: '
+        + 'editor.notif.expressionProblem.BARE_OPERAND[ticket.urgente|ticket]]',
+      color: 'red',
+    }))
+    expect(within(document.body).queryByTestId('run-input-confirm')).toBeNull()
+    expect(workflowApiMock.update).not.toHaveBeenCalled()
+    expect(runMock).not.toHaveBeenCalled()
+  })
+
   it('fluxo que executa (Entrada → Condição preenchida → Saída) segue para o pedido de entrada', async () => {
     await clickRun([
       step('a', 'input', 'Entrada'),

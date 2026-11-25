@@ -1,6 +1,7 @@
 import type { TFunction } from 'i18next'
 import { isAnnotationStep, isNotExecutableNode } from './constants'
 import { CONNECTION_FIELD_BY_BACKEND, NODE_TYPES_WITHOUT_DEFAULT_OPERATION, knowledgeBaseOf } from './dataNodeKeys'
+import { invalidControlExpressions, type ExpressionProblem } from './controlExpressions'
 
 /**
  * O que impede o Executar do editor de começar (RCHFLW-11, RCHFLW-92): nós de tipo sem execução e campos que
@@ -129,6 +130,11 @@ export interface RunBlockers {
   notExecutable: { id: string; label: string; type: string }[]
   /** Campos obrigatórios vazios: o nó e a chave i18n do rótulo do campo. */
   missing: { id: string; label: string; labelKey: string }[]
+  /**
+   * Expressões de condition/switch que o motor não avalia ou que leem um passo inexistente (RCHFLW-116) — o
+   * servidor recusa o mesmo antes do primeiro passo. Opcional: quem monta um RunBlockers à mão não precisa dele.
+   */
+  invalidExpressions?: { id: string; label: string; labelKey: string; problem: ExpressionProblem; fragment: string }[]
 }
 
 /** Vazio para o motor: ausente, texto em branco, lista ou objeto sem nada. */
@@ -146,7 +152,12 @@ function kindOf(step: RunCandidateStep): string {
 }
 
 export function runBlockers(steps: RunCandidateStep[]): RunBlockers {
-  const result: RunBlockers = { notExecutable: [], missing: [] }
+  const result: RunBlockers = { notExecutable: [], missing: [], invalidExpressions: [] }
+  const runnable = steps.filter(step => !isAnnotationStep(step))
+  for (const inv of invalidControlExpressions(runnable)) {
+    const labelKey = REQUIRED_NODE_FIELDS[inv.field === 'conditionExpression' ? 'condition' : 'switch'][0].labelKey
+    for (const f of inv.findings) result.invalidExpressions!.push({ id: inv.id, label: inv.label, labelKey, ...f })
+  }
   for (const step of steps) {
     if (isAnnotationStep(step)) continue
     const label = step.label?.trim() || step.id
@@ -174,6 +185,7 @@ export function runBlockers(steps: RunCandidateStep[]): RunBlockers {
 
 export function hasRunBlockers(blockers: RunBlockers): boolean {
   return blockers.notExecutable.length > 0 || blockers.missing.length > 0
+    || (blockers.invalidExpressions?.length ?? 0) > 0
 }
 
 /** A mensagem do aviso, nomeando cada nó (e o campo): é o que o usuário precisa para corrigir. */
@@ -187,6 +199,13 @@ export function runBlockersMessage(t: TFunction, blockers: RunBlockers): string 
   if (blockers.missing.length > 0) {
     parts.push(t('editor.notif.runBlockedMissing', {
       fields: blockers.missing.map(m => `"${m.label}" → ${t(m.labelKey)}`).join(', '),
+    }))
+  }
+  if (blockers.invalidExpressions?.length) {
+    parts.push(t('editor.notif.runBlockedInvalidExpression', {
+      fields: blockers.invalidExpressions.map(m => `"${m.label}" → ${t(m.labelKey)}: `
+        + t(`editor.notif.expressionProblem.${m.problem}`, { fragment: m.fragment, root: m.fragment.split('.')[0] }))
+        .join('; '),
     }))
   }
   return parts.join(' ')

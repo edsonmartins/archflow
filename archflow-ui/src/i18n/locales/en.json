@@ -391,7 +391,15 @@
             "execStartError": "Could not start execution",
             "runBlocked": "Run blocked",
             "runBlockedNotExecutable": "Not yet supported at run time: {{nodes}}. Remove or replace these nodes to run.",
-            "runBlockedMissing": "Required field is empty: {{fields}}."
+            "runBlockedMissing": "Required field is empty: {{fields}}.",
+            "runBlockedInvalidExpression": "Expression the engine cannot evaluate: {{fields}}.",
+            "expressionProblem": {
+                "MALFORMED": "«{{fragment}}» is not in the evaluator grammar (operand operator operand, joined by && or ||)",
+                "BARE_OPERAND": "«{{fragment}}» is not a value — write the reference as ${…} or quote the text ('…'); without ${} the branch never changes",
+                "UNKNOWN_STEP": "«{{fragment}}» is not the output of any step in the flow — use the node id, not its label; if «{{root}}» is a key of the run input JSON, declare it in «Expected input fields» of the Input node",
+                "TEXT_OUTPUT_FIELD": "«{{fragment}}» reads a field of an LLM Chat output, which is only the reply text — compare the text (contains) or classify with a Decision node",
+                "NO_REFERENCE": "«{{fragment}}» reads no ${…}: the value never changes and neither does the branch"
+            }
         },
         "unsavedChanges": "Unsaved changes",
         "palette": {
@@ -455,7 +463,8 @@
             "startedMsg": "Nodes will appear on the canvas as the copilot works.",
             "done": "Copilot finished building the flow",
             "doneMsg": "Check the nodes and connections on the canvas.",
-            "promptTemplate": "Build a workflow on the editor canvas for the following goal. Create each node with the addNode tool, using the available node types and a short descriptive label; addNode returns the id of the created node. Configure each node with what the goal asks for (prompt and model of an llm-chat, expression of a condition…), in the addNode config parameter or with configureNode, using only the config keys listed for that node type. Then connect the nodes in a logical order with connectNodes, using exactly the ids returned by addNode (never invent ids). To fix a node you created or a wrong edge, use removeNode/removeEdge instead of adding another node; do not remove nodes that were already in the flow unless the goal asks for it (the user will have to confirm). When you are done, reply with a short summary of the flow. Goal: {{goal}}"
+            "doneInvalid": "Flow built, but it does not run yet",
+            "promptTemplate": "Build a workflow on the editor canvas for the following goal. Create each node with the addNode tool, using the available node types and a short descriptive label; addNode returns the id of the created node. Configure each node with what the goal asks for (prompt and model of an llm-chat, expression of a condition…), in the addNode config parameter or with configureNode, using only the config keys listed for that node type. Then connect the nodes in a logical order with connectNodes, using exactly the ids returned by addNode (never invent ids). To fix a node you created or a wrong edge, use removeNode/removeEdge instead of adding another node; do not remove nodes that were already in the flow unless the goal asks for it (the user will have to confirm). To classify and branch, prefer a decision node and pick each edge's branch with the connectNodes branch; a condition or switch expression reads the output of an earlier node by its id (${id.field}), never a bare word, and follows the branching rules in the context — fix an expression the tool refuses instead of leaving it behind. To put a node before an existing one, use addNode with insertBefore. When you are done, reply with a short summary of the flow. Goal: {{goal}}"
         },
         "properties": {
             "title": "Properties",

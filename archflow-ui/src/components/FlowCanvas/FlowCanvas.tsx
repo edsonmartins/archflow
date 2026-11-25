@@ -35,7 +35,7 @@ import {
 } from './nodes/index'
 import { FlowEdge }      from './edges/FlowEdge'
 import { useFlowStore, type CanvasApi }  from './store/useFlowStore'
-import { defaultBranch } from './branches'
+import { branchOptions, defaultBranch } from './branches'
 import { ANNOTATION_COMPONENT_IDS, NODE_CATEGORIES, NODE_TYPE_TO_CATEGORY } from './constants'
 import type { FlowNodeData, WorkflowData } from './types'
 import { CanvasOutline } from './CanvasOutline'
@@ -345,21 +345,53 @@ export function FlowCanvas({
         }
         return id
       },
-      connectNodes: (sourceId, targetId) => {
+      connectNodes: (sourceId, targetId, branch) => {
         // Só passos ligam: anotações não têm handles, e a aresta numa delas ficaria invisível e sem efeito.
         const ids = new Set(localNodesRef.current.filter(n => !ANNOTATION_COMPONENT_IDS.has(n.type ?? '')).map(n => n.id))
         if (!ids.has(sourceId) || !ids.has(targetId)) return false
+        // O ramo pedido tem de ser do nó de origem: um "AUTO" numa condição viraria uma aresta que nunca segue.
+        if (branch !== undefined && !(api.branchesOf(sourceId) ?? []).includes(branch)) return false
         pushHistory('connect')
         const edge: Edge = {
           id: `e-${sourceId}-${targetId}-${Date.now()}`,
           source: sourceId, target: targetId, type: 'flow', animated: false,
-          data: defaultEdgeData(sourceId, localNodesRef.current, localEdgesRef.current),
+          data: branch !== undefined
+            ? { isErrorPath: false, branch }
+            : defaultEdgeData(sourceId, localNodesRef.current, localEdgesRef.current),
         }
         // Mesmo motivo do addNode: o ramo padrão (true/false…) do connect seguinte depende das arestas já
         // criadas neste lote, e o snapshot de undo também.
         localEdgesRef.current = addEdge(edge, localEdgesRef.current)
         setEdges(eds => addEdge(edge, eds))
         return true
+      },
+      branchesOf: (nodeId) => {
+        const node = localNodesRef.current.find(n => n.id === nodeId)
+        return node ? branchOptions(String(node.data?.nodeType ?? ''), node.data?.config) : null
+      },
+      insertBefore: (nodeId, targetId) => {
+        const current = localNodesRef.current
+        if (nodeId === targetId || !current.some(n => n.id === nodeId) || !current.some(n => n.id === targetId)) {
+          return null
+        }
+        pushHistory('connect')
+        // As arestas que chegavam ao alvo passam a chegar ao nó novo, com o mesmo data (ramo, condição, caminho de
+        // erro): "aprovação antes da resposta do LLM" põe a aprovação no ramo em que o LLM estava, não ao lado.
+        const retarget = (eds: Edge[]) => eds.map(e => {
+          if (e.target !== targetId || e.source === nodeId) return e
+          return { ...e, target: nodeId, targetHandle: undefined }
+        })
+        const before = localEdgesRef.current
+        const rewired = before.filter(e => e.target === targetId && e.source !== nodeId).length
+        const moved = retarget(before)
+        const edge: Edge = {
+          id: `e-${nodeId}-${targetId}-${Date.now()}`,
+          source: nodeId, target: targetId, type: 'flow', animated: false,
+          data: defaultEdgeData(nodeId, current, moved),
+        }
+        localEdgesRef.current = addEdge(edge, moved)
+        setEdges(eds => addEdge(edge, retarget(eds)))
+        return rewired
       },
       listNodes: () => localNodesRef.current.map(n => ({
         id: n.id,
@@ -443,7 +475,7 @@ export function FlowCanvas({
         const sourceId = renamed.get(op.sourceId) ?? op.sourceId
         const targetId = renamed.get(op.targetId) ?? op.targetId
         // Falhava calado: o usuário via os nós soltos sem saber que uma ligação pedida se perdeu.
-        if (!api.connectNodes(sourceId, targetId)) {
+        if (!api.connectNodes(sourceId, targetId, op.branch)) {
           notifications.show({
             color: 'red',
             message: tRef.current('copilot.errors.queuedConnectFailed', { source: sourceId, target: targetId }),
