@@ -93,6 +93,25 @@ public class JwtService {
     }
 
     /**
+     * Um access token com a claim {@code tenantId} — o tenant em que o usuário age. Sem tenant
+     * ({@code null}), o token sai sem a claim e pertence ao tenant padrão, como os de antes.
+     *
+     * <p>Nome próprio, e não uma sobrecarga de {@link #generateAccessToken}: com os papéis em
+     * varargs, {@code (id, nome, tenant, papel)} e {@code (id, nome, papel, papel)} seriam a mesma
+     * chamada.
+     */
+    public String generateTenantAccessToken(String userId, String username, String tenantId, String[] roles) {
+        if (tenantId == null || tenantId.isBlank()) {
+            return generateAccessToken(userId, username, roles);
+        }
+        return generateToken(userId, username, accessTokenExpirationMs, Map.of(
+                "type", "access",
+                "roles", roles,
+                "tenantId", tenantId
+        ));
+    }
+
+    /**
      * Generates a refresh token for a user.
      *
      * @param userId The user ID

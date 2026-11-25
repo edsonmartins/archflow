@@ -174,12 +174,13 @@ class ArchflowClientTest {
     }
 
     @Test
-    @DisplayName("a chave de API vai no cabeçalho X-API-Key")
-    void sendsApiKeyHeader() {
+    @DisplayName("a chave de API vai em Authorization: Bearer — o único cabeçalho em que o servidor a reconhece")
+    void sendsApiKeyAsBearer() {
         client.list();
 
         assertThat(received.get(0).headers())
-                .containsEntry("X-api-key", "chave-de-teste");
+                .containsEntry("Authorization", "Bearer chave-de-teste")
+                .doesNotContainKey("X-api-key");
     }
 
     @Test

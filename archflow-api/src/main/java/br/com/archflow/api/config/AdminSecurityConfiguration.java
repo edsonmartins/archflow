@@ -13,8 +13,12 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 @Configuration
 public class AdminSecurityConfiguration implements WebMvcConfigurer {
 
-    /** Paths que exigem role ADMIN/SUPERADMIN. */
-    static final String[] ADMIN_PATHS = {"/api/admin/global/**", "/api/admin/tenants/**"};
+    /**
+     * Paths que exigem role ADMIN/SUPERADMIN. O workspace entrou com RCHFLW-85: convidar, trocar papel
+     * e remover passaram a mudar o acesso real do login — aberto a qualquer autenticado, um
+     * visualizador se promoveria a ADMIN.
+     */
+    static final String[] ADMIN_PATHS = {"/api/admin/global/**", "/api/admin/tenants/**", "/api/admin/workspace/**"};
 
     private final boolean authEnabled;
 

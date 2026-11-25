@@ -131,6 +131,9 @@ public class ProductionReadinessGuard implements SmartInitializingSingleton {
         checkBean(br.com.archflow.api.knowledge.KnowledgeRepository.class,
                 br.com.archflow.api.knowledge.InMemoryKnowledgeRepository.class,
                 "KnowledgeRepository — bases e documentos", violations);
+        checkBean(br.com.archflow.api.usage.RepositorioDeUso.class,
+                br.com.archflow.api.usage.InMemoryRepositorioDeUso.class,
+                "RepositorioDeUso — consumo de modelo medido por tenant (uso e faturamento)", violations);
         checkQuartz(violations);
 
         // Stores de observabilidade/rascunho: a perda degrada visibilidade,

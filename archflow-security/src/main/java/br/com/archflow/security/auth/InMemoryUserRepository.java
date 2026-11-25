@@ -6,10 +6,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.LocalDateTime;
-import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * In-memory implementation of UserRepository.
@@ -20,9 +21,10 @@ public class InMemoryUserRepository implements UserRepository {
 
     private static final Logger log = LoggerFactory.getLogger(InMemoryUserRepository.class);
 
-    private final Map<String, User> usersById = new HashMap<>();
-    private final Map<String, User> usersByUsername = new HashMap<>();
-    private final Map<String, User> usersByEmail = new HashMap<>();
+    // Concorrentes: a tela de usuários do workspace convida, aceita e remove enquanto o login lê.
+    private final Map<String, User> usersById = new ConcurrentHashMap<>();
+    private final Map<String, User> usersByUsername = new ConcurrentHashMap<>();
+    private final Map<String, User> usersByEmail = new ConcurrentHashMap<>();
 
     /**
      * Creates an empty repository — no default users. Callers that need a
@@ -71,8 +73,17 @@ public class InMemoryUserRepository implements UserRepository {
         return Optional.ofNullable(usersById.get(id));
     }
 
+    /**
+     * Sincronizado, e recusando um nome de login de outro usuário ({@link DuplicateUserException}): é a
+     * regra do {@code UNIQUE(username)} da tabela. Sem ela, dois convites simultâneos do mesmo e-mail
+     * deixavam dois usuários, e o segundo tomava o nome do primeiro no índice.
+     */
     @Override
-    public User save(User user) {
+    public synchronized User save(User user) {
+        User holder = user.getUsername() == null ? null : usersByUsername.get(user.getUsername());
+        if (holder != null && !holder.getId().equals(user.getId())) {
+            throw new DuplicateUserException("A user with the username " + user.getUsername() + " already exists");
+        }
         if (user.getId() == null) {
             user.setId("user-" + UUID.randomUUID());
             user.setCreatedAt(LocalDateTime.now());
@@ -99,8 +110,24 @@ public class InMemoryUserRepository implements UserRepository {
         return user;
     }
 
+    /** Sob o mesmo monitor de {@link #save}: conferir e limpar o hash é uma operação só. */
     @Override
-    public void delete(User user) {
+    public synchronized boolean consumeInvitation(String userId, String invitationTokenHash, String passwordHash) {
+        User user = userId == null ? null : usersById.get(userId);
+        if (user == null || invitationTokenHash == null
+                || !invitationTokenHash.equals(user.getInvitationTokenHash())) {
+            return false;
+        }
+        user.setPasswordHash(passwordHash);
+        user.setEnabled(true);
+        user.setInvitationTokenHash(null);
+        user.setInvitationExpiresAt(null);
+        user.setUpdatedAt(LocalDateTime.now());
+        return true;
+    }
+
+    @Override
+    public synchronized void delete(User user) {
         usersById.remove(user.getId());
         usersByUsername.remove(user.getUsername());
         if (user.getEmail() != null) {
@@ -116,6 +143,11 @@ public class InMemoryUserRepository implements UserRepository {
     @Override
     public boolean existsByEmail(String email) {
         return usersByEmail.containsKey(email);
+    }
+
+    @Override
+    public List<User> findAll() {
+        return List.copyOf(usersById.values());
     }
 
     /**

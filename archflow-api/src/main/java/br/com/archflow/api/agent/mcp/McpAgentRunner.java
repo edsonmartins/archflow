@@ -103,6 +103,8 @@ public class McpAgentRunner {
     private final Duration prazoDoCusto;
     private final ObjectMapper mapper = new ObjectMapper();
     private static final ObjectMapper USAGE_JSON = new ObjectMapper();
+    /** Onde o consumo de cada execução fica medido, por tenant; {@code null} desliga (RCHFLW-75). */
+    private volatile br.com.archflow.api.usage.RegistroDeUso registroDeUso;
 
     public McpAgentRunner(LLMConfigResolver llmConfigResolver, ResolvedLLMConfig platformDefault) {
         this(llmConfigResolver, platformDefault, null, 0);
@@ -256,10 +258,27 @@ public class McpAgentRunner {
                 new Options(policy, trustPolicy, ToolApprovalPolicy.none(), maxIterations));
     }
 
+    /**
+     * Liga o registro do consumo: no fim de cada execução do laço, o total do contador vai para o
+     * {@link br.com.archflow.api.usage.RegistroDeUso} do tenant (RCHFLW-75).
+     */
+    public void setRegistroDeUso(br.com.archflow.api.usage.RegistroDeUso registroDeUso) {
+        this.registroDeUso = registroDeUso;
+    }
+
+    /**
+     * Com o registro ligado, toda execução tem contador. Sem ele o laço pulava a contagem quando quem
+     * chamou não passava um (playground, QP, AG-UI): o gasto existia e não ficava em lugar nenhum.
+     */
+    private Options comContador(Options options) {
+        return options.uso() == null && registroDeUso != null ? options.comUso(new ContadorDeUso()) : options;
+    }
+
     /** Executa o laço com as três políticas explícitas. */
     public Result run(String tenantId, String systemPrompt, String userMessage,
                       McpClient client, Options options) {
         Objects.requireNonNull(options, "options é obrigatória").validate();
+        options = comContador(options);
 
         Session session = new Session(
                 java.util.UUID.randomUUID().toString(),
@@ -351,6 +370,7 @@ public class McpAgentRunner {
                          Map<String, Object> editedArguments,
                          McpClient client, Options options) {
         Objects.requireNonNull(options, "options é obrigatória").validate();
+        options = comContador(options);
         McpAgentState state = requireStore().findByRequestId(requestId)
                 .orElseThrow(() -> new java.util.NoSuchElementException(
                         "Nenhum laço suspenso para a aprovação " + requestId));
@@ -404,6 +424,14 @@ public class McpAgentRunner {
                     && !options.uso().aguardarCustosPendentes(prazoDoCusto)) {
                 log.info("Consultas de custo da geração não terminaram em {} ms; o turno segue sem custo",
                         prazoDoCusto.toMillis());
+            }
+            // Depois da espera pelo custo, para o registro levar o que chegou. É o total acumulado
+            // do contador: num fluxo, o motor relata o mesmo contador de novo no fim e a linha é
+            // substituída, não somada.
+            br.com.archflow.api.usage.RegistroDeUso registro = registroDeUso;
+            if (registro != null && options.uso() != null) {
+                registro.registrar(session.tenantId, null, br.com.archflow.api.usage.LancamentoDeUso.ORIGEM_AGENTE,
+                        options.uso());
             }
         }
     }

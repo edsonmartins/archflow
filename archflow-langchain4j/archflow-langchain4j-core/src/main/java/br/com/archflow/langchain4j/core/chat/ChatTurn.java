@@ -1,15 +1,19 @@
 package br.com.archflow.langchain4j.core.chat;
 
+import br.com.archflow.model.engine.ExecutionContext;
+import br.com.archflow.model.engine.ModelUsageListener;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.memory.ChatMemory;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.response.ChatResponse;
+import dev.langchain4j.model.output.TokenUsage;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Uma volta de chat dos adapters ({@code generate} / {@code chat}), com o prompt de sistema do nó.
@@ -53,6 +57,51 @@ public final class ChatTurn {
     }
 
     /**
+     * {@code generate} relatando o consumo ao {@link ModelUsageListener} do contexto (RCHFLW-75). Sem
+     * ouvinte é exatamente o {@link #generate(ChatModel, String, String)}; com ele, a volta sem prompt
+     * vai como lista de uma {@link UserMessage} — a mesma requisição de {@code chat(String)}, mas com a
+     * resposta inteira, de onde sai o uso.
+     *
+     * @param provider  o provedor do adapter ({@code openai}…)
+     * @param modelName o modelo pedido, sem o provedor
+     */
+    public static String generate(ChatModel model, String systemPrompt, String input,
+                                  ExecutionContext context, String provider, String modelName) {
+        Optional<ModelUsageListener> listener = ModelUsageListener.from(context);
+        if (listener.isEmpty()) {
+            return generate(model, systemPrompt, input);
+        }
+        List<ChatMessage> messages = systemPrompt == null ? List.of(UserMessage.from(input))
+                : List.of(SystemMessage.from(systemPrompt), UserMessage.from(input));
+        ChatResponse response = model.chat(messages);
+        report(listener.get(), provider, modelName, response);
+        return response.aiMessage().text();
+    }
+
+    /** {@code chat} relatando o consumo ao {@link ModelUsageListener} do contexto, se houver. */
+    public static String chat(ChatModel model, String systemPrompt, ChatMemory memory, String input,
+                              ExecutionContext context, String provider, String modelName) {
+        Optional<ModelUsageListener> listener = ModelUsageListener.from(context);
+        ChatResponse response = chatResponse(model, systemPrompt, memory, input);
+        listener.ifPresent(l -> report(l, provider, modelName, response));
+        return response.aiMessage().text();
+    }
+
+    /**
+     * Relata o uso da resposta. O rótulo é {@code provider/modelo} pedido, a mesma chave do laço de
+     * agente e da tabela de preços. Resposta sem uso conta o turno com tokens nulos — "não informado",
+     * não zero.
+     */
+    private static void report(ModelUsageListener listener, String provider, String modelName, ChatResponse response) {
+        TokenUsage usage = response.tokenUsage();
+        String label = modelName == null || modelName.isBlank() ? null
+                : provider == null || provider.isBlank() ? modelName : provider + "/" + modelName;
+        listener.onModelCall(provider, label,
+                usage == null || usage.inputTokenCount() == null ? null : usage.inputTokenCount().longValue(),
+                usage == null || usage.outputTokenCount() == null ? null : usage.outputTokenCount().longValue());
+    }
+
+    /**
      * {@code chat}: a volta com a memória da execução.
      *
      * <p>A mensagem do usuário e a resposta só entram na memória <b>depois</b> que o modelo
@@ -70,6 +119,10 @@ public final class ChatTurn {
      * não perde mensagem nem intercala a pergunta de um nó com a resposta do outro.
      */
     public static String chat(ChatModel model, String systemPrompt, ChatMemory memory, String input) {
+        return chatResponse(model, systemPrompt, memory, input).aiMessage().text();
+    }
+
+    private static ChatResponse chatResponse(ChatModel model, String systemPrompt, ChatMemory memory, String input) {
         UserMessage user = UserMessage.from(input);
         List<ChatMessage> messages = new ArrayList<>();
         if (systemPrompt != null) {
@@ -90,6 +143,6 @@ public final class ChatTurn {
             memory.add(user);
             memory.add(response.aiMessage());
         }
-        return response.aiMessage().text();
+        return response;
     }
 }

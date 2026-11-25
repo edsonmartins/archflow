@@ -94,6 +94,12 @@ public class JdbcPersistenceConfiguration {
     }
 
     @Bean
+    public br.com.archflow.api.usage.RepositorioDeUso repositorioDeUso(DataSource dataSource) {
+        log.info("JDBC persistence ativo: consumo de modelo durável (JdbcRepositorioDeUso)");
+        return new br.com.archflow.api.usage.JdbcRepositorioDeUso(dataSource);
+    }
+
+    @Bean
     public ApiKeyService.ApiKeyRepository apiKeyRepository(DataSource dataSource) {
         log.info("JDBC persistence ativo: ApiKeyRepository durável (JdbcApiKeyRepository)");
         return new JdbcApiKeyRepository(dataSource);

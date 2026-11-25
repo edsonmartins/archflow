@@ -294,6 +294,18 @@ public class ArchflowBeanConfiguration {
     }
 
     /**
+     * Os usuários do workspace sobre o mesmo repositório do login (RCHFLW-85). O convite vale
+     * {@code archflow.security.invitation.ttl} até ser aceito.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public br.com.archflow.security.auth.WorkspaceUserService workspaceUserService(
+            UserRepository userRepository, PasswordService passwordService,
+            @Value("${archflow.security.invitation.ttl:PT72H}") java.time.Duration invitationTtl) {
+        return new br.com.archflow.security.auth.WorkspaceUserService(userRepository, passwordService, invitationTtl);
+    }
+
+    /**
      * Default in-memory API key repository — bean próprio (não mais embutido
      * no apiKeyService) para que deployments possam sobrescrevê-lo com uma
      * implementação durável e o ProductionReadinessGuard consiga detectá-lo.
@@ -307,8 +319,9 @@ public class ArchflowBeanConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public ApiKeyService apiKeyService(ApiKeyService.ApiKeyRepository apiKeyRepository) {
-        return new ApiKeyService(apiKeyRepository);
+    public ApiKeyService apiKeyService(ApiKeyService.ApiKeyRepository apiKeyRepository,
+                                       UserRepository userRepository) {
+        return new ApiKeyService(apiKeyRepository, userRepository);
     }
 
     // =========================================================================
@@ -412,16 +425,50 @@ public class ArchflowBeanConfiguration {
         return new TenantControllerImpl(seedDemoData);
     }
 
+    /**
+     * O workspace com dados reais (RCHFLW-85/75): usuários do login, chaves do {@code ApiKeyService},
+     * uso medido e plano/limites do cadastro do tenant. Não há mais dado de demonstração aqui — o
+     * {@code archflow.admin.seedDemoData} não semeia usuários nem chaves.
+     */
     @Bean
     @ConditionalOnMissingBean
     public WorkspaceControllerImpl workspaceControllerImpl(
             @Value("${archflow.admin.tenantFallback:}") String tenantFallback,
-            @Value("${archflow.admin.seedDemoData:false}") boolean seedDemoData) {
+            br.com.archflow.security.auth.WorkspaceUserService workspaceUserService,
+            br.com.archflow.api.web.workflow.WorkflowRuntimeStore runtimeStore,
+            br.com.archflow.api.usage.RegistroDeUso registroDeUso,
+            ApiKeyService apiKeyService,
+            TenantControllerImpl tenantControllerImpl) {
         // The fallback is intentionally empty by default so production
         // deployments fail loud when the X-Tenant-Id header / security
-        // filter is not wired. Dev profiles should set both props.
+        // filter is not wired. Dev profiles should set it.
         String fallback = (tenantFallback == null || tenantFallback.isBlank()) ? null : tenantFallback;
-        return new WorkspaceControllerImpl(fallback, seedDemoData);
+        return new WorkspaceControllerImpl(fallback, workspaceUserService, runtimeStore, registroDeUso,
+                apiKeyService, tenantControllerImpl);
+    }
+
+    /**
+     * O uso que a lista de tenants e o relatório de uso mostram é o medido (RCHFLW-75): execuções de
+     * hoje e workflows do runtime store, tokens do {@code RegistroDeUso}, usuários do login. Antes, a
+     * lista mostrava o número de demonstração do seed ou zeros que nada atualizava, e o relatório
+     * devolvia sempre uma lista vazia.
+     */
+    @Bean
+    public org.springframework.beans.factory.SmartInitializingSingleton usoMedidoNasTelasDeAdmin(
+            TenantControllerImpl tenantControllerImpl,
+            GlobalConfigControllerImpl globalConfigControllerImpl,
+            br.com.archflow.api.usage.RegistroDeUso registroDeUso,
+            br.com.archflow.api.web.workflow.WorkflowRuntimeStore runtimeStore,
+            br.com.archflow.security.auth.WorkspaceUserService workspaceUserService) {
+        java.time.Clock relogio = java.time.Clock.systemDefaultZone();
+        return () -> {
+            tenantControllerImpl.setUsoMedido(tenantId -> new br.com.archflow.api.admin.dto.TenantDto.TenantUsageDto(
+                    WorkspaceControllerImpl.executionsToday(runtimeStore, tenantId, relogio),
+                    registroDeUso.doTenantNoMes(tenantId, registroDeUso.mesAtual()).tokens(),
+                    runtimeStore.workflows(tenantId).size(),
+                    workspaceUserService.listUsers(tenantId).size()));
+            globalConfigControllerImpl.setUso(registroDeUso, tenantControllerImpl::findTenant);
+        };
     }
 
     @Bean
@@ -720,11 +767,16 @@ public class ArchflowBeanConfiguration {
             br.com.archflow.api.web.workflow.WorkflowRuntimeStore runtimeStore,
             br.com.archflow.agent.metrics.MetricsCollector metricsCollector,
             br.com.archflow.api.admin.observability.impl.TraceStoreRecorder traceStoreRecorder,
+            br.com.archflow.api.usage.RegistroDeUso registroDeUso,
             @Value("${archflow.flow.strict-conditions:false}") boolean strictConditions) {
         // Registered before create(): the factory snapshots process-wide
         // listeners into the engine's composite lifecycle listener.
         br.com.archflow.engine.lifecycle.FlowLifecycleListeners.register(
                 new br.com.archflow.api.flow.StepRecordingListener(runtimeStore));
+        // Toda travessia ganha um contador de uso e o relata no fim (RCHFLW-75): editor, lista,
+        // retomada e MCP passam pelo motor, e só o VendaX punha contador no contexto.
+        br.com.archflow.engine.lifecycle.FlowLifecycleListeners.register(
+                new br.com.archflow.api.usage.RegistroDeUsoListener(registroDeUso));
         return br.com.archflow.api.flow.FlowEngineFactory.create(
                 flowRepository, eventStreamRegistry, runningFlowsRegistry, stateManager,
                 metricsCollector, traceStoreRecorder, 16, 3_600_000L, 8, strictConditions);
@@ -1319,7 +1371,8 @@ public class ArchflowBeanConfiguration {
             br.com.archflow.agent.metrics.MetricsCollector metricsCollector,
             br.com.archflow.api.agent.mcp.McpAgentStateStore mcpAgentStateStore,
             @Value("${archflow.agent.tool-catalog.warn-tokens:4000}") int catalogWarnTokens,
-            @Value("${archflow.llm.custo-da-geracao.prazo:PT2S}") java.time.Duration prazoDoCusto) {
+            @Value("${archflow.llm.custo-da-geracao.prazo:PT2S}") java.time.Duration prazoDoCusto,
+            br.com.archflow.api.usage.RegistroDeUso registroDeUso) {
         // Mesmo coletor do engine e do ObservabilityService: latência e taxa de
         // falha por tool aparecem junto das métricas de fluxo, não num silo.
         //
@@ -1329,9 +1382,13 @@ public class ArchflowBeanConfiguration {
         br.com.archflow.api.agent.mcp.CustoDaGeracao custoDaGeracao =
                 prazoDoCusto == null || prazoDoCusto.isZero() || prazoDoCusto.isNegative()
                         ? null : br.com.archflow.api.agent.mcp.CustoDaGeracao.openRouter(prazoDoCusto);
-        return new br.com.archflow.api.agent.mcp.McpAgentRunner(
+        var runner = new br.com.archflow.api.agent.mcp.McpAgentRunner(
                 llmConfigResolver, platformDefaultLLMConfig, metricsCollector, catalogWarnTokens,
                 mcpAgentStateStore, custoDaGeracao, prazoDoCusto);
+        // O consumo de toda execução do laço fica medido por tenant (RCHFLW-75) — invoke, VendaX,
+        // playground e os nós de agente dos fluxos.
+        runner.setRegistroDeUso(registroDeUso);
+        return runner;
     }
 
     /** Referência sob a qual a configuração legada do VendaX é semeada. */
@@ -1532,6 +1589,30 @@ public class ArchflowBeanConfiguration {
                 "Preços de modelo (centavos de real por milhão de tokens) declarados para: {}",
                 tabela.modelos().isEmpty() ? "nenhum — o custo sairá nulo" : tabela.modelos());
         return tabela;
+    }
+
+    /**
+     * Onde o consumo medido fica, quando não há banco: em memória, some no restart. Com
+     * {@code archflow.persistence.jdbc.enabled=true} o {@code JdbcPersistenceConfiguration} põe o
+     * durável no lugar.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(name = JDBC_ENABLED, havingValue = "false", matchIfMissing = true)
+    public br.com.archflow.api.usage.RepositorioDeUso repositorioDeUso() {
+        return new br.com.archflow.api.usage.InMemoryRepositorioDeUso();
+    }
+
+    /**
+     * O consumo de modelo medido por tenant (RCHFLW-75): o que o detalhe da execução e as telas de
+     * uso mostram. O custo é o da mesma {@code TabelaDePrecos} do VendaX.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public br.com.archflow.api.usage.RegistroDeUso registroDeUso(
+            br.com.archflow.api.usage.RepositorioDeUso repositorioDeUso,
+            br.com.archflow.api.agent.mcp.TabelaDePrecos tabelaDePrecos) {
+        return new br.com.archflow.api.usage.RegistroDeUso(repositorioDeUso, tabelaDePrecos);
     }
 
     /** Roteia o invoke do Core: fluxo quando a definição traz um, senão o caminho por nome. */

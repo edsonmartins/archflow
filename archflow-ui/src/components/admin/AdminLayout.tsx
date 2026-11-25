@@ -4,7 +4,7 @@ import {
   IconTopologyRing, IconPlayerPlay,
   IconActivity,
   IconBook2, IconPlug, IconClockPlay, IconInbox, IconMessageCog,
-  IconLockAccess, IconArrowLeft,
+  IconArrowLeft,
 } from '@tabler/icons-react'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
@@ -31,8 +31,8 @@ const SUPERADMIN_NAV: AdminNavItem[] = [
 const TENANT_NAV: AdminNavItem[] = [
   { key: 'overview',   icon: IconChartBar,  path: '/admin/workspace', exact: true },
   { key: 'users',      icon: IconUsers,     path: '/admin/workspace/users' },
-  { key: 'apiKeys',    icon: IconKey,       path: '/admin/workspace/keys' },
-  { key: 'scopedKeys', icon: IconLockAccess, path: '/admin/workspace/api-keys' },
+  // Uma tela só de chaves: a do ApiKeyService. A antiga (/keys) guardava chaves em memória (RCHFLW-85).
+  { key: 'apiKeys',    icon: IconKey,       path: '/admin/workspace/api-keys' },
 ]
 
 // Tenant-level integration tools. These routes existed but had no nav

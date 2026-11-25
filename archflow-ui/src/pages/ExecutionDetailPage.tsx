@@ -10,7 +10,7 @@ import {
     IconAlertCircle, IconAlertTriangle, IconBraces, IconChevronDown, IconChevronRight, IconCheck,
     IconCircleCheck, IconCircleDashed, IconClock, IconGavel, IconHourglass, IconListDetails, IconLoader2,
     IconMinus, IconPlayerPause, IconPlayerPlay, IconPlayerStop, IconSitemap, IconTimeline, IconTopologyRing,
-    IconX,
+    IconX, IconCoins,
 } from '@tabler/icons-react'
 import { executionApi, workflowApi, ApiError } from '../services/api'
 import { JsonViewer } from '../components/JsonViewer'
@@ -22,6 +22,7 @@ import { SectionCard } from '../components/SectionCard'
 import { StatCard } from '../components/admin/StatCard'
 import EmptyState from '../components/EmptyState'
 import { formatDuration, formatInstant } from '../lib/format'
+import { formatReais, formatUsd } from '../lib/usageFormat'
 import { EXECUTION_STATUS_COLOR, executionPollIntervalMs, isTerminalExecutionStatus } from '../lib/executionStatus'
 import { buildStepRows, parseStepOutput, type StepRecord, type StepRow } from '../lib/stepOutput'
 
@@ -81,6 +82,40 @@ const STEP_STATUS_COLOR: Record<string, string> = {
 }
 
 /** Uma decisão do histórico durável do motor (`__archflow.approvalHistory`). */
+/**
+ * O consumo de modelo da execução, como `GET /api/executions/{id}` o devolve em `usage` (RCHFLW-75).
+ * `costReais` nulo = sem preço declarado para o modelo — a tela diz "sem preço", nunca R$ 0.
+ */
+interface ExecutionUsage {
+    inputTokens: number
+    outputTokens: number
+    costCents: number | null
+    costReais: number | null
+    declaredCostUsd: number | null
+    withoutPrice: number
+}
+
+/** Tokens e custo da execução. Sem `usage` (nada chamou modelo, ou ainda não terminou) não aparece. */
+function UsageCard({ usage, locale }: { usage: ExecutionUsage; locale: string }) {
+    const { t } = useTranslation()
+    const cost = usage.costReais == null ? t('usage.noPrice') : formatReais(usage.costReais, locale)
+    return (
+        <SectionCard icon={IconCoins} accent="teal" title={t('executionDetail.usage.title')}
+                     description={t('executionDetail.usage.hint')}>
+            <Group gap="xl" data-testid="execution-usage">
+                <Meta label={t('executionDetail.usage.inputTokens')} value={usage.inputTokens.toLocaleString(locale)} />
+                <Meta label={t('executionDetail.usage.outputTokens')} value={usage.outputTokens.toLocaleString(locale)} />
+                <Meta label={t('executionDetail.usage.cost')}
+                      value={usage.costReais != null && usage.withoutPrice > 0
+                          ? `${cost} · ${t('usage.withoutPriceCount', { count: usage.withoutPrice })}` : cost} />
+                {usage.declaredCostUsd != null && (
+                    <Meta label={t('executionDetail.usage.declaredCost')} value={formatUsd(usage.declaredCostUsd, locale)} />
+                )}
+            </Group>
+        </SectionCard>
+    )
+}
+
 interface ApprovalDecision {
     stepId?: string
     requestId?: string
@@ -420,6 +455,7 @@ export default function ExecutionDetailPage() {
     const workflowName = String(data.workflowName ?? data.workflowId ?? '—')
     const decisions = Array.isArray(data.approvals) ? (data.approvals as ApprovalDecision[]) : []
     const pendingApproval = data.pendingApproval as { requestId?: string; stepId?: string } | undefined
+    const usage = data.usage as ExecutionUsage | undefined
     const stepLabels = new Map(stepRows.filter((r) => r.label).map((r) => [r.stepId, r.label as string]))
 
     return (
@@ -469,6 +505,8 @@ export default function ExecutionDetailPage() {
                     ) : undefined}
                 />
             </SimpleGrid>
+
+            {usage && <UsageCard usage={usage} locale={locale} />}
 
             {/* STOPPED é a recusa no portão de aprovação (por alguém ou pelo prazo): o texto diz quem
                 recusou e por quê, e não é uma falha — não pode vir sob "A execução falhou". */}

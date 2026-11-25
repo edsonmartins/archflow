@@ -1,6 +1,6 @@
 import { Stack, Select, Button, SimpleGrid, Alert } from '@mantine/core'
 import {
-  IconDownload, IconAlertCircle, IconReceipt, IconPlayerPlay, IconCoins, IconCurrencyDollar,
+  IconDownload, IconAlertCircle, IconReceipt, IconPlayerPlay, IconCoins, IconCurrencyReal,
   IconBuildingSkyscraper, IconCalendar,
 } from '@tabler/icons-react'
 import { useEffect, useMemo, useState } from 'react'
@@ -10,15 +10,17 @@ import { StatCard } from '../../../components/admin/StatCard'
 import { PageHeader } from '../../../components/PageHeader'
 import { SectionCard } from '../../../components/SectionCard'
 import { VxTable, colunaBarra, colunaDupla, type VxColumn } from '../../../components/VTable'
+import { compactTokens as millions, formatReais, recentMonths } from '../../../lib/usageFormat'
 
-/** Tokens compactos: 4.3M, 50K, 900 — `0.0M` escondia os tenants pequenos. */
-const millions = (n: number) =>
-  n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1_000 ? `${Math.round(n / 1_000)}K` : String(n)
-
+/**
+ * Uso e faturamento (RCHFLW-75): o consumo medido de cada tenant no mês. Custo em reais pela tabela de
+ * preços do servidor; tenant sem nenhum preço declarado mostra "sem preço", nunca R$ 0.
+ */
 export default function UsageBilling() {
   const { t, i18n } = useTranslation()
   const locale = i18n.resolvedLanguage ?? i18n.language
-  const [month, setMonth] = useState<string | null>('2026-04')
+  const months = useMemo(() => recentMonths(), [])
+  const [month, setMonth] = useState<string | null>(months[0])
   const [rows, setRows] = useState<TenantUsageRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -49,8 +51,10 @@ export default function UsageBilling() {
   const totals = useMemo(() => {
     const executions = rows.reduce((sum, row) => sum + row.executions, 0)
     const tokens = rows.reduce((sum, row) => sum + row.tokensInput + row.tokensOutput, 0)
-    const cost = rows.reduce((sum, row) => sum + row.estimatedCost, 0)
-    return { executions, tokens, cost }
+    const priced = rows.filter((row) => row.costReais != null)
+    const cost = priced.length === 0 ? null : priced.reduce((sum, row) => sum + (row.costReais ?? 0), 0)
+    const withoutPrice = rows.reduce((sum, row) => sum + row.executionsWithoutPrice, 0)
+    return { executions, tokens, cost, withoutPrice }
   }, [rows])
 
   const colunas = useMemo((): VxColumn[] => [
@@ -68,8 +72,14 @@ export default function UsageBilling() {
       fieldFormat: (r) => millions(Number(r.tokensInput)) },
     { field: 'tokensOutput', title: t('admin.superadmin.usage.columns.tokensOut'), width: 130,
       fieldFormat: (r) => millions(Number(r.tokensOutput)) },
-    { field: 'estimatedCost', title: t('admin.superadmin.usage.columns.cost'), width: 130,
-      fieldFormat: (r) => `$${Number(r.estimatedCost).toFixed(2)}`, style: { fontWeight: 600 } },
+    { field: 'costReais', title: t('admin.superadmin.usage.columns.cost'), width: 190,
+      fieldFormat: (r) => {
+        const cost = r.costReais == null ? t('usage.noPrice') : formatReais(Number(r.costReais), locale)
+        const without = Number(r.executionsWithoutPrice)
+        return r.costReais != null && without > 0
+          ? `${cost} · ${t('usage.withoutPriceCount', { count: without })}` : cost
+      },
+      style: { fontWeight: 600 } },
     colunaBarra({ field: 'percentOfTotal', title: t('admin.superadmin.usage.columns.percent'), width: 170 }),
   ], [t, locale])
 
@@ -82,7 +92,7 @@ export default function UsageBilling() {
         subtitle={t('admin.superadmin.usage.subtitle')}
         actions={
           <>
-            <Select size="sm" w={150} data={['2026-04', '2026-03', '2026-02', '2026-01']}
+            <Select size="sm" w={150} data={months}
               leftSection={<IconCalendar size={14} />}
               aria-label={t('admin.superadmin.usage.month')}
               value={month} onChange={setMonth} allowDeselect={false} />
@@ -108,8 +118,13 @@ export default function UsageBilling() {
           icon={IconPlayerPlay} accent="violet" hint={t('admin.superadmin.usage.hints.executions', { month })} />
         <StatCard label={t('admin.superadmin.usage.stats.tokens')} value={millions(totals.tokens)}
           icon={IconCoins} accent="teal" hint={t('admin.superadmin.usage.hints.tokens')} />
-        <StatCard label={t('admin.superadmin.usage.stats.cost')} value={`$${totals.cost.toFixed(2)}`}
-          icon={IconCurrencyDollar} accent="amber" hint={t('admin.superadmin.usage.hints.cost')} />
+        <StatCard label={t('admin.superadmin.usage.stats.cost')}
+          value={totals.executions === 0 ? formatReais(0, locale)
+            : totals.cost == null ? t('usage.noPrice') : formatReais(totals.cost, locale)}
+          icon={IconCurrencyReal} accent="amber"
+          hint={totals.withoutPrice > 0
+            ? t('usage.withoutPriceCount', { count: totals.withoutPrice })
+            : t('admin.superadmin.usage.hints.cost')} />
         <StatCard label={t('admin.superadmin.usage.stats.tenants')} value={String(rows.length)}
           icon={IconBuildingSkyscraper} accent="blue" hint={t('admin.superadmin.usage.hints.tenants')} />
       </SimpleGrid>

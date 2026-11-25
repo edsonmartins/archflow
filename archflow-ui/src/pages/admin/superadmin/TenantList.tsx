@@ -15,6 +15,7 @@ import {
   VxTable, colunaAcoes, colunaApagada, colunaBarra, colunaDupla, colunaStatus, type VxColumn,
 } from '../../../components/VTable'
 import { PLAN_COLORS, TENANT_STATUS_COLORS } from './tenantColors'
+import { compactTokens } from '../../../lib/usageFormat'
 
 type TenantRow = {
   id: string
@@ -35,7 +36,6 @@ function tokenPct(tenant: TenantRow): number | null {
   return Math.min(Math.round((used / limit) * 100), 100)
 }
 
-const millions = (n: number) => `${(n / 1_000_000).toFixed(1)}M`
 
 export default function TenantList() {
   const navigate = useNavigate()
@@ -120,7 +120,7 @@ export default function TenantList() {
         fieldFormat: (r) => {
           const row = r as unknown as TenantRow & { tokenPct: number | null }
           if (row.tokenPct === null) return '—'
-          return `${row.tokenPct}% · ${millions(row.usage!.tokensThisMonth)}`
+          return `${row.tokenPct}% · ${compactTokens(row.usage!.tokensThisMonth)}`
         } },
       (r) => {
         const pct = r.tokenPct as number | null
@@ -158,7 +158,7 @@ export default function TenantList() {
           icon={IconCircleCheck} accent="green" hint={t('admin.superadmin.tenants.hints.active')} />
         <StatCard label={t('admin.superadmin.tenants.stats.executionsToday')} value={stats?.executionsToday ?? '—'}
           icon={IconPlayerPlay} accent="violet" hint={t('admin.superadmin.tenants.hints.executionsToday')} />
-        <StatCard label={t('admin.superadmin.tenants.stats.tokensMonth')} value={stats ? millions(stats.tokensThisMonth) : '—'}
+        <StatCard label={t('admin.superadmin.tenants.stats.tokensMonth')} value={stats ? compactTokens(stats.tokensThisMonth) : '—'}
           icon={IconCoins} accent="teal" hint={t('admin.superadmin.tenants.hints.tokensMonth')} />
         <StatCard label={t('admin.superadmin.tenants.stats.trial')} value={stats?.totalTrial ?? '—'}
           color={stats?.totalTrial ? 'orange' : undefined}
