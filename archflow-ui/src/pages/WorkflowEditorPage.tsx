@@ -31,7 +31,9 @@ import { useWorkflowStore }  from '../stores/workflow-store'
 import { workflowYamlApi }   from '../services/workflow-yaml-api'
 import type { FlowNodeData, WorkflowData } from '../components/FlowCanvas/types'
 import { NODE_TYPE_TO_CATEGORY } from '../components/FlowCanvas/constants'
-import { connectionsForStep, connectionsFromSteps } from '../components/FlowCanvas/workflowSerde'
+import {
+  canvasToDocumentSteps, connectionsFromSteps,
+} from '../components/FlowCanvas/workflowSerde'
 
 /**
  * Floating chevron button that sits flush to the canvas edge and
@@ -101,7 +103,10 @@ function toWorkflowData(detail: any): WorkflowData {
     // first). Only do this when a distinct `label` is present: pre-schema saves
     // stored the DISPLAY NAME in `operation`, so folding a label-less step's
     // `operation` would make the factory run a bogus operation.
-    const config = { ...(step.configuration ?? {}) }
+    // O documento aceita `config` como sinônimo de `configuration`: o motor e o YAML leem os dois
+    // (SerializableStep tem @JsonAlias("config")) e a DSL grava `config`. O editor lê os dois do mesmo
+    // jeito; `configuration` vence quando os dois existem.
+    const config = { ...(step.config ?? {}), ...(step.configuration ?? {}) }
     if (step.operation && step.label && config.operation == null) config.operation = step.operation
     return {
       id:          step.id ?? `step-${i}`,
@@ -209,18 +214,10 @@ export function WorkflowEditor() {
     const snapshot = useFlowStore.getState().getCanvasSnapshot()
     const merged = {
       ...current,
-      steps: snapshot.steps.map(s => ({
-        id:            s.id,
-        type:          s.type?.toUpperCase(),
-        componentId:   s.componentId,
-        // Display name goes into `label`; `operation` is reserved for the
-        // execution operation (backend: DefaultFlowStepFactory) and comes
-        // from the node config when the user sets one.
-        label:         s.label,
-        position:      s.position,
-        configuration: s.config ?? {},
-        connections:   connectionsForStep(s.id, snapshot.connections),
-      })),
+      // O mesmo mapeamento do clone de template (RCHFLW-45), para os dois não divergirem. Display name
+      // vai em `label`; `operation` é a operação de execução (DefaultFlowStepFactory) e vem da config.
+      steps: canvasToDocumentSteps(snapshot.steps, snapshot.connections)
+        .map(s => ({ ...s, type: s.type?.toUpperCase() })),
     }
     await updateWorkflow(current.id, merged)
     canvasBaselineRef.current = canvasSnapshotKey(snapshot)

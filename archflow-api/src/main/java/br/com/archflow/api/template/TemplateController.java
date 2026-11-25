@@ -4,6 +4,7 @@ import br.com.archflow.api.template.dto.InstallTemplateRequest;
 import br.com.archflow.api.template.dto.TemplateResponse;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * REST controller for workflow templates.
@@ -45,6 +46,20 @@ public interface TemplateController {
      * @throws TemplateNotFoundException if the template doesn't exist
      */
     Object installTemplate(String templateId, InstallTemplateRequest request);
+
+    /**
+     * Os passos do documento canônico do template ({@code steps[].connections}), com os parâmetros
+     * informados sobre os defaults. O default ignora os parâmetros e devolve os passos da
+     * descrição; quem tem a definição do template sobrescreve.
+     *
+     * @param templateId The template ID
+     * @param parameters parâmetros de quem instala (pode ser {@code null})
+     * @return os passos, prontos para {@code steps} do workflow gravado
+     */
+    default List<Map<String, Object>> templateSteps(String templateId, Map<String, Object> parameters) {
+        List<Map<String, Object>> steps = getTemplate(templateId).steps();
+        return steps != null ? steps : List.of();
+    }
 
     /**
      * Previews a template without installing it.

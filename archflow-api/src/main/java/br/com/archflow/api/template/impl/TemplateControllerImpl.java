@@ -3,12 +3,14 @@ package br.com.archflow.api.template.impl;
 import br.com.archflow.api.template.TemplateController;
 import br.com.archflow.api.template.dto.InstallTemplateRequest;
 import br.com.archflow.api.template.dto.TemplateResponse;
+import br.com.archflow.template.TemplateDocument;
 import br.com.archflow.template.TemplateMetadata;
 import br.com.archflow.template.WorkflowTemplate;
 import br.com.archflow.template.WorkflowTemplateRegistry;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Default implementation of {@link TemplateController}.
@@ -51,6 +53,18 @@ public class TemplateControllerImpl implements TemplateController {
         return template.createInstance(request.name(), request.parameters());
     }
 
+    /**
+     * Os passos do template com os parâmetros de quem instala sobre os defaults — o mesmo
+     * conversor que alimenta {@code steps} da resposta, para o install e o clone da galeria
+     * gravarem o mesmo grafo.
+     */
+    @Override
+    public List<Map<String, Object>> templateSteps(String templateId, Map<String, Object> parameters) {
+        WorkflowTemplate template = registry.getTemplate(templateId)
+                .orElseThrow(() -> new TemplateNotFoundException(templateId));
+        return TemplateDocument.steps(template.getDefinition(), parameters);
+    }
+
     @Override
     public TemplateResponse previewTemplate(String templateId) {
         return getTemplate(templateId);
@@ -85,7 +99,9 @@ public class TemplateControllerImpl implements TemplateController {
                 meta.id(), meta.displayName(), meta.description(),
                 meta.category(), meta.version(), meta.author(),
                 meta.icon(), meta.complexity(), meta.tags(),
-                params, meta.stepCount()
+                params, meta.stepCount(),
+                TemplateDocument.steps(template.getDefinition()),
+                null
         );
     }
 }
