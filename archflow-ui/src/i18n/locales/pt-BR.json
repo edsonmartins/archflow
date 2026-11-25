@@ -594,7 +594,7 @@
                 "serverConnection": "Conexão do servidor",
                 "serverConnectionPlaceholder": "nome-da-conexao",
                 "serverConnectionHint": "Credenciais e endereço ficam no servidor, em {{value}}. O fluxo guarda só o nome.",
-                "jdbcMemoryNotConnected": "A memória JDBC ainda não recebe um DataSource no fluxo: a execução falha. Use o backend redis.",
+                "jdbcMemoryNeedsServerJdbc": "A memória JDBC grava no banco do servidor: só executa com a persistência JDBC do servidor ligada (archflow.persistence.jdbc.enabled=true). Sem ela, a execução falha dizendo isso; nesse caso, use o backend redis.",
                 "operationNotInPanel": "Operação (operation — o painel ainda não tem esse campo)",
                 "localModelPath": "Caminho do modelo local (local.model.path — o painel ainda não tem esse campo)",
                 "localVocabPath": "Caminho do vocabulário local (local.vocab.path — o painel ainda não tem esse campo)",

@@ -1,0 +1,12 @@
+-- chat_messages.tenant_id com a largura do tenant da execução (RCHFLW-119).
+--
+-- A V3_1 nasceu com VARCHAR(36), a largura de um UUID, mas o tenant não é um UUID: é o id que o
+-- operador escolhe, e as tabelas que carregam o mesmo tenant da execução (agent_invocations, jobs,
+-- stored_files, knowledge_*) aceitam até 128. Enquanto o nó Memória jdbc não recebia banco, a
+-- largura nunca era testada. Agora que ele grava em fluxo, um tenant com mais de 36 caracteres
+-- derrubava o passo no INSERT com "value too long for type character varying(36)".
+--
+-- Alargar um VARCHAR no PostgreSQL só muda o catálogo, sem reescrever a tabela nem as linhas já
+-- gravadas, e nenhum valor existente deixa de caber. Por isso é uma migração nova e não uma edição
+-- da V3_1, que já está aplicada nos bancos e tem checksum no histórico do Flyway.
+ALTER TABLE chat_messages ALTER COLUMN tenant_id TYPE VARCHAR(128);

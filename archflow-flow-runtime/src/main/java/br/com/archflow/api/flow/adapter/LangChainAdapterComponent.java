@@ -746,10 +746,10 @@ public final class LangChainAdapterComponent implements AIComponent {
         }
         Object name = properties.remove(store + DesignerAdapterKeys.CONNECTION_SUFFIX);
         if ("memory".equals(adapterType) && "jdbc".equals(store)) {
-            // O adapter JDBC espera um objeto DataSource, que não vem de JSON nem de uma string de conexão.
-            throw new IllegalStateException("[ADAPTER-CONEXAO] Nó " + componentId() + ": a memória JDBC precisa "
-                    + "de um DataSource do servidor, e o nó de fluxo ainda não recebe um. Escolha o backend redis "
-                    + "(conexão em " + AdapterConnections.PREFIX + "redis.<nome>.host).");
+            // O adapter JDBC espera um objeto DataSource, que não vem de JSON nem de uma string de conexão: é o banco
+            // da persistência JDBC do servidor (RCHFLW-119). Sem ela, falha aqui dizendo o que ligar.
+            properties.put("datasource", connections.memoryDataSource(componentId()));
+            return;
         }
         if (AdapterConnections.needsConnection(store)) {
             properties.putAll(connections.resolve(componentId(), store, texto(name),

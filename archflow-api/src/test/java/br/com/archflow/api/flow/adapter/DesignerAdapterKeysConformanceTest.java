@@ -242,14 +242,55 @@ class DesignerAdapterKeysConformanceTest {
     }
 
     @Test
-    @DisplayName("número inválido diz o campo do painel; memória JDBC diz que não recebe DataSource")
+    @DisplayName("número inválido diz o campo do painel; memória JDBC sem persistência JDBC diz o que ligar")
     void mensagensClaras() {
         assertThatThrownBy(() -> effective("vectorstore", Map.of("vectorBackend", "pgvector",
                 "pgDatasource", "principal", "pgDimensions", "muitas")))
                 .hasMessageContaining("'pgDimensions'");
+        // Sem banco do servidor, nada de cair em outro backend: a falha diz a propriedade a ligar.
         assertThatThrownBy(() -> effective("memory", Map.of("memoryBackend", "jdbc")))
                 .hasMessageContaining("memória JDBC")
-                .hasMessageContaining("DataSource");
+                .hasMessageContaining("persistência JDBC do servidor não está ligada")
+                .hasMessageContaining("archflow.persistence.jdbc.enabled=true")
+                .hasMessageContaining("ARCHFLOW_PERSISTENCE_JDBC_ENABLED");
+    }
+
+    @Test
+    @DisplayName("fora do servidor (standalone, SDK), a memória JDBC diz que só roda no servidor, sem mandar ligar nada")
+    void memoriaJdbcForaDoServidor() {
+        Map<String, Object> designer = Map.of("memoryBackend", "jdbc");
+        String provider = DesignerAdapterKeys.providerOf("memory", designer, "rag");
+        // O PortableFlowStepFactory do standalone e do runner embutido do SDK monta o nó com
+        // AdapterConnections.NONE.
+        LangChainAdapterComponent semServidor = new LangChainAdapterComponent(provider, "memory",
+                DesignerAdapterKeys.translate("memory", provider, designer), KEYS, null, null, false, List.of(),
+                null, AdapterConnections.NONE);
+
+        assertThatThrownBy(() -> semServidor.effectiveProperties("acme"))
+                .hasMessageContaining("memória JDBC")
+                .hasMessageContaining("este runtime não tem um")
+                .hasMessageContaining("Execute este fluxo no servidor archflow")
+                // Ali não há essa propriedade para ligar, nem conexão redis do servidor a escolher.
+                .hasMessageNotContaining("não está ligada. Ligue")
+                .hasMessageNotContaining("backend redis");
+    }
+
+    @Test
+    @DisplayName("RCHFLW-119: a memória JDBC recebe o banco do servidor, e o JSON do nó não escolhe outro")
+    void memoriaJdbcRecebeOBancoDoServidor() {
+        javax.sql.DataSource banco = new org.h2.jdbcx.JdbcDataSource();
+        AdapterConnections comBanco = AdapterConnections.of(k -> (String) SERVER.get(k), () -> banco);
+        Map<String, Object> designer = Map.of("memoryBackend", "jdbc", "memoryMaxMessages", 7,
+                // Um "datasource" escrito à mão no nó não vira o banco: só o servidor o entrega.
+                "datasource", "jdbc:postgresql://banco-de-quem-edita/x");
+        String provider = DesignerAdapterKeys.providerOf("memory", designer, "rag");
+        Map<String, Object> props = new LangChainAdapterComponent(provider, "memory",
+                DesignerAdapterKeys.translate("memory", provider, designer), KEYS, null, null, false, List.of(),
+                null, comBanco).effectiveProperties("acme");
+
+        assertThat(provider).isEqualTo("jdbc");
+        assertThat(props.get("datasource")).isSameAs(banco);
+        assertThat(props).containsEntry("memory.maxMessages", 7);
     }
 
     /** O componente como o factory o monta para um nó do designer: o tipo do nó decide a operação padrão. */

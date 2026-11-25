@@ -218,14 +218,17 @@ describe('PropertyPanel — nós de dados com e sem base', () => {
     expect(updateNodeConfig).toHaveBeenCalledWith('n1', 'knowledgeBaseId', 'kb-2')
   })
 
-  it('memória redis pede a conexão do servidor; JDBC avisa que não roda', async () => {
+  it('memória redis pede a conexão do servidor; JDBC diz que precisa da persistência JDBC do servidor', async () => {
     const view = await mount(h(PropertyPanel, { nodeId: 'n1', nodeData: data('memory', { memoryBackend: 'redis' }) }))
     fireEvent.change(view.getByLabelText(/editor\.properties\.fields\.serverConnection/), { target: { value: 'cache' } })
     expect(updateNodeConfig).toHaveBeenCalledWith('n1', 'redisConnection', 'cache')
 
     await act(async () => { root?.unmount() }); container.remove()
     const jdbc = await mount(h(PropertyPanel, { nodeId: 'n1', nodeData: data('memory', { memoryBackend: 'jdbc' }) }))
-    expect(jdbc.getByTestId('memory-jdbc-not-connected')).toBeTruthy()
+    // RCHFLW-119: o jdbc executa com o banco do servidor; antes o aviso dizia que nunca rodava.
+    expect(jdbc.getByTestId('memory-jdbc-needs-server-persistence').textContent)
+      .toBe('editor.properties.fields.jdbcMemoryNeedsServerJdbc')
+    expect(jdbc.queryByTestId('memory-jdbc-not-connected')).toBeNull()
   })
 
   it('RCHFLW-115: a memória tem o campo Operação (add/get/clear) e grava em operation', async () => {

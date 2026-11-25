@@ -497,9 +497,11 @@ function NodeFields({ nodeId, nodeData, readOnly }: { nodeId: string; nodeData: 
           {storedChoice(nodeData, 'memoryBackend') === 'redis' && (
             <ServerConnectionField nodeData={nodeData} update={update} backend="redis" />
           )}
+          {/* O jdbc grava no banco da persistência JDBC do servidor (RCHFLW-119): o painel não sabe se ela está
+              ligada, então diz a condição — sem ela, a execução falha dizendo o mesmo. */}
           {storedChoice(nodeData, 'memoryBackend') === 'jdbc' && (
-            <Alert color="orange" variant="light" p="xs" data-testid="memory-jdbc-not-connected">
-              <Text size="xs">{f('jdbcMemoryNotConnected')}</Text>
+            <Alert color="blue" variant="light" p="xs" data-testid="memory-jdbc-needs-server-persistence">
+              <Text size="xs">{f('jdbcMemoryNeedsServerJdbc')}</Text>
             </Alert>
           )}
           <NumberInput

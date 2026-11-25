@@ -3,8 +3,7 @@ package br.com.archflow.api.flow;
 import br.com.archflow.agent.persistence.InMemoryFlowRepository;
 import br.com.archflow.api.orchestration.DynamicWorkflowService;
 import br.com.archflow.engine.api.FlowEngine;
-import br.com.archflow.langchain4j.core.spi.LangChainAdapter;
-import br.com.archflow.langchain4j.core.spi.LangChainAdapterFactory;
+import br.com.archflow.api.flow.adapter.AdapterConnections;
 import br.com.archflow.langchain4j.memory.jdbc.JdbcMemoryAdapter;
 import br.com.archflow.model.engine.DefaultExecutionContext;
 import br.com.archflow.model.enums.ExecutionStatus;
@@ -16,11 +15,14 @@ import org.h2.jdbcx.JdbcDataSource;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.support.StaticListableBeanFactory;
+import org.springframework.mock.env.MockEnvironment;
 
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.Statement;
+import javax.sql.DataSource;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -38,15 +40,15 @@ import static org.mockito.Mockito.mock;
  * <p>Antes o painel não tinha o campo Operação e o nó falhava sempre ("diga a operação em 'operation'"). Só o campo
  * não bastava: os adapters de memória exigem um {@code ChatMessage} ("Input must be a ChatMessage") e devolvem
  * {@code null} no {@code add}, que as variáveis da execução recusam. O backend é o {@link JdbcMemoryAdapter} de
- * verdade, com a tabela da migração dele, num H2 — o provider {@code jdbc} do servidor ainda não recebe um
- * DataSource no fluxo (o painel avisa), então o teste registra o mesmo adapter sob outro nome, com o banco
- * entregue pela factory.</p>
+ * verdade, com a tabela da migração dele, num H2, recebendo o banco pelo caminho do servidor
+ * ({@link DefaultFlowStepFactory#setServerConnections}, RCHFLW-119). O mesmo, em PostgreSQL com as migrações do
+ * Flyway, está em {@code MemoriaJdbcDoFluxoPostgresTest}.</p>
  */
 @DisplayName("nó Memória do designer: add e get executam")
 class MemoriaDoDesignerExecutaTest {
 
-    /** Provider de teste registrado via SPI em {@code src/test/resources/META-INF/services}. */
-    static final String BACKEND = "memoria-h2-teste";
+    /** O backend {@code jdbc} do servidor — antes da RCHFLW-119 ele não recebia banco e o teste usava um substituto. */
+    static final String BACKEND = "jdbc";
 
     private static final JdbcDataSource BANCO = new JdbcDataSource();
 
@@ -91,8 +93,11 @@ class MemoriaDoDesignerExecutaTest {
         documento.put("id", flowId);
         documento.put("metadata", Map.of("name", "Memória"));
         documento.put("steps", List.of(passos));
-        Flow flow = new DefaultWorkflowDeserializer(new DefaultFlowStepFactory(new DefaultComponentCatalog(),
-                mock(DynamicWorkflowService.class), null, null, null)).toFlow(documento);
+        DefaultFlowStepFactory factory = new DefaultFlowStepFactory(new DefaultComponentCatalog(),
+                mock(DynamicWorkflowService.class), null, null, null);
+        factory.setServerConnections(new MockEnvironment()
+                .withProperty(AdapterConnections.JDBC_PERSISTENCE_PROPERTY, "true"), banco(BANCO));
+        Flow flow = new DefaultWorkflowDeserializer(factory).toFlow(documento);
         FlowEngine engine = FlowEngineFactory.create(new InMemoryFlowRepository(), null, null,
                 new InMemoryStateManager());
         DefaultExecutionContext ctx = new DefaultExecutionContext("acme", "u1", flow.getId(),
@@ -174,24 +179,10 @@ class MemoriaDoDesignerExecutaTest {
         return out;
     }
 
-    /** O {@link JdbcMemoryAdapter} de verdade, com o DataSource do H2 que o servidor ainda não entrega ao nó. */
-    public static final class MemoriaH2Factory implements LangChainAdapterFactory {
-
-        @Override
-        public String getProvider() {
-            return BACKEND;
-        }
-
-        @Override
-        public boolean supports(String type) {
-            return "memory".equals(type);
-        }
-
-        @Override
-        public LangChainAdapter createAdapter(Map<String, Object> properties) {
-            Map<String, Object> props = new HashMap<>(properties);
-            props.put("datasource", BANCO);
-            return new JdbcMemoryAdapter.Factory().createAdapter(props);
-        }
+    /** O {@code ObjectProvider<DataSource>} que o Spring injeta, com o banco do teste. */
+    static org.springframework.beans.factory.ObjectProvider<DataSource> banco(DataSource dataSource) {
+        StaticListableBeanFactory beans = new StaticListableBeanFactory();
+        beans.addBean("dataSource", dataSource);
+        return beans.getBeanProvider(DataSource.class);
     }
 }

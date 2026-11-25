@@ -594,7 +594,7 @@
                 "serverConnection": "Server connection",
                 "serverConnectionPlaceholder": "connection-name",
                 "serverConnectionHint": "Credentials and address live on the server, under {{value}}. The flow stores only the name.",
-                "jdbcMemoryNotConnected": "JDBC memory does not receive a DataSource in flows yet: the run fails. Use the redis backend.",
+                "jdbcMemoryNeedsServerJdbc": "JDBC memory writes to the server's database: it only runs with the server's JDBC persistence on (archflow.persistence.jdbc.enabled=true). Without it, the run fails saying so; in that case, use the redis backend.",
                 "operationNotInPanel": "Operation (operation — not in the panel yet)",
                 "localModelPath": "Local model path (local.model.path — not in the panel yet)",
                 "localVocabPath": "Local vocabulary path (local.vocab.path — not in the panel yet)",
