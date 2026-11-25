@@ -12,7 +12,10 @@ import { useCatalog } from '../useCatalog'
 import { useChatProviders } from '../useChatProviders'
 import { useWorkflowStore } from '../../../stores/workflow-store'
 import type { ProviderInfo } from '../../../services/workflow-config-api'
-import { getConfig, dedupeByValue, findModel, ctxLabel, INHERIT } from './helpers'
+import {
+  getConfig, dedupeByValue, findModel, ctxLabel, INHERIT,
+  numberUpdater, storedChoice, storedFlag, storedNumber, storedText,
+} from './helpers'
 
 function texto(v: unknown): string {
   return typeof v === 'string' ? v.trim() : ''
@@ -46,6 +49,9 @@ export function AgentFields({ nodeData, update, isAssistant }: AgentFieldsProps)
   const { providers, patterns, personas, governance } = useWorkflowConfig()
   const catalog = useCatalog()
   const f = (key: string, opts?: Record<string, unknown>) => t(`editor.properties.fields.${key}`, opts)
+  // Só o gravado, com o exemplo no placeholder (RCHFLW-92): os campos do laço de agente não têm execução no
+  // servidor (RCHFLW-11), então nenhum valor aqui é "padrão" de nada.
+  const ex = (value: unknown) => f('exampleValue', { value: String(value) })
   // llm-chat / llm-streaming são uma chamada de chat a um provider (adapter SPI), não um agente MCP: não
   // têm tipo de agente, estratégia ReAct, laço de iterações, governança de ferramentas nem servidores MCP.
   // Mostrar esses campos fazia o usuário configurar coisas que o nó ignora — então ficam só os de chat.
@@ -148,6 +154,7 @@ export function AgentFields({ nodeData, update, isAssistant }: AgentFieldsProps)
     { value: '__custom__', label: t('common.customFreeText') },
     ...personas.map(p => ({ value: p.id, label: p.label })),
   ]
+  // '__custom__' não é um valor de exibição: é a opção "sem persona" (prompt livre), o mesmo que nada gravado.
   const personaId = getConfig(nodeData, 'personaId', '__custom__')
 
   // Governance profile selector
@@ -168,15 +175,15 @@ export function AgentFields({ nodeData, update, isAssistant }: AgentFieldsProps)
               <div>
                 <Select
                   label={isAssistant ? f('assistantType') : f('agentType')}
-                  value={getConfig<string | null>(nodeData, configKey, null) ?? typedItems[0].id}
-                  onChange={v => update(configKey, v)}
+                  value={storedChoice(nodeData, configKey)}
+                  onChange={v => update(configKey, v ?? undefined)}
                   size="xs"
                   data={typedItems.map(a => ({ value: a.id, label: a.displayName }))}
                   styles={FIELD_STYLES}
                   searchable
                 />
                 <Text size="xs" c="dimmed" mt={4} lh={1.4}>
-                  {typedItems.find(a => a.id === getConfig<string | null>(nodeData, configKey, typedItems[0].id))?.description}
+                  {typedItems.find(a => a.id === storedChoice(nodeData, configKey))?.description}
                 </Text>
               </div>
             )
@@ -187,14 +194,14 @@ export function AgentFields({ nodeData, update, isAssistant }: AgentFieldsProps)
           <div data-testid="agent-fields-strategy">
             <Select
               label={f('executionStrategy')}
-              value={getConfig(nodeData, 'agentPattern', 'react')}
-              onChange={v => update('agentPattern', v)}
+              value={storedChoice(nodeData, 'agentPattern')}
+              onChange={v => update('agentPattern', v ?? undefined)}
               size="xs"
               data={patterns.map(p => ({ value: p.id, label: p.label }))}
               styles={FIELD_STYLES}
             />
             <Text size="xs" c="dimmed" mt={4} lh={1.4}>
-              {patterns.find(p => p.id === getConfig(nodeData, 'agentPattern', 'react'))?.description}
+              {patterns.find(p => p.id === storedChoice(nodeData, 'agentPattern'))?.description}
             </Text>
           </div>
           )}
@@ -359,8 +366,9 @@ export function AgentFields({ nodeData, update, isAssistant }: AgentFieldsProps)
           {!isChat && (
           <NumberInput
             label={f('maxIterations')}
-            value={getConfig(nodeData, 'maxIterations', 10)}
-            onChange={v => update('maxIterations', v)}
+            value={storedNumber(nodeData, 'maxIterations')}
+            placeholder={ex(10)}
+            onChange={numberUpdater(update, 'maxIterations')}
             min={1}
             max={50}
             size="xs"
@@ -380,8 +388,9 @@ export function AgentFields({ nodeData, update, isAssistant }: AgentFieldsProps)
                   {/* Gap 4: Timeout */}
                   <NumberInput
                     label={f('timeoutSec')}
-                    value={getConfig(nodeData, 'timeout', 120)}
-                    onChange={v => update('timeout', v)}
+                    value={storedNumber(nodeData, 'timeout')}
+                    placeholder={ex(120)}
+                    onChange={numberUpdater(update, 'timeout')}
                     min={1}
                     max={3600}
                     size="xs"
@@ -391,8 +400,8 @@ export function AgentFields({ nodeData, update, isAssistant }: AgentFieldsProps)
                   {/* Gap 5: Memory backend */}
                   <Select
                     label={f('memoryBackend')}
-                    value={getConfig(nodeData, 'memoryBackend', 'in-memory')}
-                    onChange={v => update('memoryBackend', v)}
+                    value={storedChoice(nodeData, 'memoryBackend')}
+                    onChange={v => update('memoryBackend', v ?? undefined)}
                     size="xs"
                     data={[
                       { value: 'in-memory', label: f('memoryOptions.in-memory') },
@@ -402,17 +411,18 @@ export function AgentFields({ nodeData, update, isAssistant }: AgentFieldsProps)
                     styles={FIELD_STYLES}
                   />
 
-                  {getConfig(nodeData, 'memoryBackend', 'in-memory') === 'redis' && (
+                  {storedChoice(nodeData, 'memoryBackend') === 'redis' && (
                     <TextInput
                       label={f('redisUrl')}
-                      value={getConfig(nodeData, 'redisUrl', 'redis://localhost:6379')}
+                      value={storedText(nodeData, 'redisUrl')}
+                      placeholder={ex('redis://localhost:6379')}
                       onChange={e => update('redisUrl', e.currentTarget.value)}
                       size="xs"
                       styles={MONO_INPUT}
                     />
                   )}
 
-                  {getConfig(nodeData, 'memoryBackend', 'in-memory') === 'jdbc' && (
+                  {storedChoice(nodeData, 'memoryBackend') === 'jdbc' && (
                     <TextInput
                       label={f('jdbcDatasource')}
                       value={getConfig(nodeData, 'jdbcDatasource', '')}
@@ -472,8 +482,9 @@ export function AgentFields({ nodeData, update, isAssistant }: AgentFieldsProps)
                   <NumberInput
                     label={f('escalationThreshold')}
                     description={f('escalationHint')}
-                    value={getConfig(nodeData, 'escalationThreshold', 0.5)}
-                    onChange={v => update('escalationThreshold', v)}
+                    value={storedNumber(nodeData, 'escalationThreshold')}
+                    placeholder={ex(0.5)}
+                    onChange={numberUpdater(update, 'escalationThreshold')}
                     min={0}
                     max={1}
                     step={0.05}
@@ -483,8 +494,9 @@ export function AgentFields({ nodeData, update, isAssistant }: AgentFieldsProps)
                   />
                   <NumberInput
                     label={f('maxToolExecutions')}
-                    value={getConfig(nodeData, 'maxToolExecutions', 10)}
-                    onChange={v => update('maxToolExecutions', v)}
+                    value={storedNumber(nodeData, 'maxToolExecutions')}
+                    placeholder={ex(10)}
+                    onChange={numberUpdater(update, 'maxToolExecutions')}
                     min={1}
                     max={100}
                     size="xs"
@@ -492,7 +504,7 @@ export function AgentFields({ nodeData, update, isAssistant }: AgentFieldsProps)
                   />
                   <Switch
                     label={f('humanEscalation')}
-                    checked={getConfig(nodeData, 'humanEscalation', false)}
+                    checked={storedFlag(nodeData, 'humanEscalation')}
                     onChange={e => update('humanEscalation', e.currentTarget.checked)}
                     size="xs"
                     styles={{ label: { fontSize: 12 } }}
@@ -527,8 +539,8 @@ export function AgentFields({ nodeData, update, isAssistant }: AgentFieldsProps)
                   />
                   <Select
                     label={f('transport')}
-                    value={getConfig(nodeData, 'mcpTransport', 'stdio')}
-                    onChange={v => update('mcpTransport', v)}
+                    value={storedChoice(nodeData, 'mcpTransport')}
+                    onChange={v => update('mcpTransport', v ?? undefined)}
                     size="xs"
                     data={[
                       { value: 'stdio', label: f('transportOptions.stdio') },
@@ -536,7 +548,7 @@ export function AgentFields({ nodeData, update, isAssistant }: AgentFieldsProps)
                     ]}
                     styles={FIELD_STYLES}
                   />
-                  {getConfig(nodeData, 'mcpTransport', 'stdio') === 'stdio' && (
+                  {storedChoice(nodeData, 'mcpTransport') === 'stdio' && (
                     <TextInput
                       label={f('command')}
                       value={getConfig(nodeData, 'mcpCommand', '')}
@@ -546,7 +558,7 @@ export function AgentFields({ nodeData, update, isAssistant }: AgentFieldsProps)
                       styles={MONO_INPUT}
                     />
                   )}
-                  {getConfig(nodeData, 'mcpTransport', 'stdio') === 'sse' && (
+                  {storedChoice(nodeData, 'mcpTransport') === 'sse' && (
                     <TextInput
                       label={f('serverUrl')}
                       value={getConfig(nodeData, 'mcpUrl', '')}

@@ -10,6 +10,7 @@ import {
   NODE_CONFIG_KEYS, COPILOT_NODE_TYPES, JSON_SHAPES, REDACTED, validateNodeConfig, parseConfigArg, visibleConfig,
   applyConfig, configKeysSummary,
 } from '../nodeConfigKeys'
+import { NODE_TYPE_TO_CATEGORY, NOT_EXECUTABLE_NODE_TYPES } from '../../FlowCanvas/constants'
 
 const components = resolve(__dirname, '..', '..')
 const read = (...p: string[]) => readFileSync(resolve(components, ...p), 'utf-8')
@@ -18,13 +19,27 @@ const panelSources = [
   ...readdirSync(resolve(components, 'PropertyPanel', 'fields'))
     .filter(f => f.endsWith('.tsx'))
     .map(f => read('PropertyPanel', 'fields', f)),
+  // As chaves que o painel grava por constante (base de conhecimento, conexão do servidor por backend) moram aqui.
+  read('FlowCanvas', 'dataNodeKeys.ts'),
 ].join('\n')
 const annotationSources = ['StickyNote.tsx', 'GroupFrame.tsx', 'SectionDivider.tsx']
   .map(f => read('FlowCanvas', 'nodes', f)).join('\n')
 
 describe('nodeConfigKeys — concorda com o painel de propriedades', () => {
-  it('todo tipo da paleta tem entrada, e nenhuma entrada é de tipo fora dela', () => {
-    expect(Object.keys(NODE_CONFIG_KEYS).sort()).toEqual([...COPILOT_NODE_TYPES].sort())
+  // A tabela cobre todo tipo que o designer conhece, não só os que o copiloto cria: ele ainda configura um nó
+  // sem execução (RCHFLW-11) ou um llm-streaming (RCHFLW-57) que já esteja no canvas.
+  it('todo tipo do designer tem entrada, e nenhuma entrada é de tipo fora dele', () => {
+    expect(Object.keys(NODE_CONFIG_KEYS).sort()).toEqual(Object.keys(NODE_TYPE_TO_CATEGORY).sort())
+  })
+
+  it('o copiloto só cria tipos da paleta que executam (RCHFLW-11, RCHFLW-57)', () => {
+    expect(COPILOT_NODE_TYPES).toEqual(expect.arrayContaining(['input', 'output', 'llm-chat', 'condition', 'decision']))
+    expect(COPILOT_NODE_TYPES.filter(t => NOT_EXECUTABLE_NODE_TYPES.has(t))).toEqual([])
+    expect(COPILOT_NODE_TYPES).not.toContain('llm-streaming')
+    // Sem 'operation' (que o copiloto não tem como gravar) eles nunca rodam.
+    expect(COPILOT_NODE_TYPES).not.toContain('memory')
+    expect(COPILOT_NODE_TYPES).not.toContain('vector-store')
+    expect(COPILOT_NODE_TYPES).toEqual(expect.arrayContaining(['vector-search', 'embedding', 'rag']))
   })
 
   it('toda chave da tabela é gravada pelo painel (ou lida pelo próprio nó, nas anotações)', () => {
@@ -169,8 +184,10 @@ describe('nodeConfigKeys — credenciais não saem do canvas para o provedor do 
       jdbcDatasource: `jdbc:postgresql://db:5432/app?user=app&password=${REDACTED}`,
       model: 'gpt-4o-mini',
     })
-    expect(visibleConfig('vector-search', { vectorRedisUrl: 'rediss://default:pw@r:6380/0' }))
-      .toEqual({ vectorRedisUrl: `rediss://${REDACTED}@r:6380/0` })
+    // vectorRedisUrl de um fluxo antigo nem é mais chave do nó (RCHFLW-56: a conexão é do servidor, por nome) —
+    // não chega ao agente; o nome da conexão chega, porque não é credencial.
+    expect(visibleConfig('vector-search', { vectorRedisUrl: 'rediss://default:pw@r:6380/0', redisConnection: 'cache' }))
+      .toEqual({ redisConnection: 'cache' })
     // Gravado pelo usuário no JSON do nó (o copiloto não pode gravar isto, mas pode ver).
     expect(visibleConfig('decision', {
       providerOptions: { 'http-decisions': { endpoint: 'https://u:p@h/api', headers: { Authorization: 'Bearer x' } } },

@@ -50,6 +50,41 @@ public class DefaultFlowStepFactory implements FlowStepFactory {
     private br.com.archflow.decision.DecisionKeys decisionKeys =
             br.com.archflow.decision.DecisionKeys.NONE;
 
+    // Bases de conhecimento (RCHFLW-55). Resolvido na execução: sem o bean (testes, standalone) o nó com
+    // base falha dizendo que as bases não estão disponíveis, em vez de cair no adapter.
+    private java.util.function.Supplier<br.com.archflow.api.knowledge.KnowledgeService> knowledgeService = () -> null;
+
+    /** O serviço da tela de Conhecimento, para os nós {@code vector-search}/{@code rag} com uma base escolhida. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setKnowledgeService(
+            ObjectProvider<br.com.archflow.api.knowledge.KnowledgeService> knowledgeService) {
+        if (knowledgeService != null) {
+            this.knowledgeService = knowledgeService::getIfAvailable;
+        }
+    }
+
+    /** O mesmo, com o serviço já em mãos (testes). */
+    public void useKnowledgeService(br.com.archflow.api.knowledge.KnowledgeService service) {
+        this.knowledgeService = () -> service;
+    }
+
+    // Conexões dos adapters de dados por nome (RCHFLW-56): archflow.adapters.<provider>.<nome>.<campo>.
+    private br.com.archflow.api.flow.adapter.AdapterConnections adapterConnections =
+            br.com.archflow.api.flow.adapter.AdapterConnections.NONE;
+
+    /** As conexões vêm das propriedades do servidor — nunca do JSON do nó. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setEnvironment(org.springframework.core.env.Environment environment) {
+        if (environment != null) {
+            this.adapterConnections = br.com.archflow.api.flow.adapter.AdapterConnections.of(environment::getProperty);
+        }
+    }
+
+    public void setAdapterConnections(br.com.archflow.api.flow.adapter.AdapterConnections connections) {
+        this.adapterConnections = connections != null
+                ? connections : br.com.archflow.api.flow.adapter.AdapterConnections.NONE;
+    }
+
     /** Provedores e chaves do nó de decisão, entregues pelo host (ver {@code ArchflowBeanConfiguration}). */
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     public void setDecisionSupport(br.com.archflow.decision.DecisionProviders providers,
@@ -212,11 +247,23 @@ public class DefaultFlowStepFactory implements FlowStepFactory {
                     flowEngine == null ? null : flowEngine::getObject);
         }
 
+        // Entrada e Saída do designer repassam a entrada (RCHFLW-11): antes caíam no catálogo e o
+        // fluxo Entrada → Saída falhava com "component not found: input".
+        if ("input".equals(kind) || "output".equals(kind)) {
+            return new PassThroughStep(id, connections);
+        }
+
         // componentId, falling back to the node "type" (the designer often uses
         // the component type as the node type, e.g. "llm-chat").
         Object componentId = node.get("componentId");
         if (componentId == null) {
             componentId = node.get("type");
+        }
+
+        // Busca vetorial / RAG com uma Base de conhecimento escolhida (RCHFLW-55): busca pelo serviço da tela
+        // de Conhecimento, no tenant da execução — o adapter lia uma tabela que a ingestão nunca preenche.
+        if (KnowledgeNodeComponent.NODE_TYPES.contains(kind) && KnowledgeNodeComponent.baseIdOf(config) != null) {
+            return knowledgeStep(id, kind, config, node, connections, policy, scopedCatalog, flowPatch);
         }
 
         // Nó de chat (llm-chat / llm-streaming / chat): o provider é o do nó ou o herdado do fluxo e
@@ -252,8 +299,15 @@ public class DefaultFlowStepFactory implements FlowStepFactory {
         // Só entra aqui quando o registry REALMENTE tem aquele provider para
         // aquele tipo — qualquer outra coisa cai no catálogo, então nenhum
         // workflow existente muda de comportamento.
-        String providerId = str(config.get("provider"),
-                componentId == null ? null : componentId.toString());
+        // Nos nós de dados (embedding, memória, vector store, RAG) o painel escolhe o provider em outro campo
+        // (vectorBackend, embeddingProvider, memoryBackend) e grava chaves que o adapter não lê: a tradução é
+        // da DesignerAdapterKeys (RCHFLW-56). O documento salvo não muda.
+        String adapterType = AdapterNodeTypes.adapterTypeFor(type);
+        boolean dataNode = adapterType != null && !"chat".equals(adapterType);
+        String legacyProvider = componentId == null ? null : componentId.toString();
+        String providerId = dataNode
+                ? br.com.archflow.api.flow.adapter.DesignerAdapterKeys.providerOf(adapterType, config, legacyProvider)
+                : str(config.get("provider"), legacyProvider);
         if (notFoundHint == null && AdapterNodeTypes.isAdapterNode(type, providerId)) {
             if (!policy.isAllowed(providerId)) {
                 // Fora do escopo do fluxo: cai no ComponentStep normal, que não
@@ -262,13 +316,19 @@ public class DefaultFlowStepFactory implements FlowStepFactory {
                 return new ComponentStep(id, StepType.TOOL, providerId, operationOf(config, node),
                         connections, scopedCatalog, interceptors, null, config);
             }
+            Map<String, Object> adapterConfig = dataNode
+                    ? br.com.archflow.api.flow.adapter.DesignerAdapterKeys.translate(adapterType, providerId, config)
+                    : config;
             LangChainAdapterComponent adapter = new LangChainAdapterComponent(
-                    providerId, AdapterNodeTypes.adapterTypeFor(type), config, tenantKeyResolver,
+                    providerId, adapterType, adapterConfig, tenantKeyResolver,
                     baseUrlPolicy, providerPreferences, providerPreferencesRequired, openRouterUrls(),
-                    modelPolicy);
+                    modelPolicy, adapterConnections, type);
             return new ComponentStep(id, StepType.TOOL, adapter.componentId(),
                     operationOf(config, node), connections, scopedCatalog, interceptors, adapter,
                     config);
+        }
+        if (notFoundHint == null && dataNode) {
+            notFoundHint = semAdapterDeDados(kind, adapterType, providerId, legacyProvider);
         }
 
         // Componentes do catálogo são singletons. O mcp-agent carrega config
@@ -306,6 +366,15 @@ public class DefaultFlowStepFactory implements FlowStepFactory {
                     operationOf(config, node), connections, scopedCatalog, interceptors, decision,
                     config);
         }
+        // Tipo da paleta que o motor ainda não executa (RCHFLW-11): o passo carrega o tipo para a
+        // validação do início da execução recusar o fluxo nomeando o nó, em vez de rodar até ele e
+        // falhar com "component not found". Decide só a lista, sem perguntar ao catálogo: o designer
+        // não conhece os plugins carregados e marca o nó (e bloqueia o Executar) pela mesma lista — se
+        // um componente com id "custom" isentasse o nó aqui, o editor recusaria um fluxo que o servidor
+        // roda. Os tipos da paleta são, por isso, ids reservados: um plugin registra com outro id.
+        if (NodesWithoutExecution.contains(kind)) {
+            return new UnsupportedNodeStep(id, kind, str(node.get("label"), null), connections);
+        }
         // Componente do catálogo: sem operação no nó, passa null e o passo usa a operação padrão do
         // componente (CatalogComponents) — nenhum embutido declara o "execute" que valia antes.
         return new ComponentStep(
@@ -329,6 +398,67 @@ public class DefaultFlowStepFactory implements FlowStepFactory {
             return componentId.trim();
         }
         return null;
+    }
+
+    /**
+     * Um nó {@code vector-search}/{@code rag} com base de conhecimento. O RAG resolve o chat como um nó de
+     * chat ({@code llmProvider}, senão o do fluxo e o da plataforma) e o executa pela mesma ponte governada;
+     * sem chat possível, o motivo vai para a execução — abrir o fluxo não falha.
+     */
+    private FlowStep knowledgeStep(String id, String kind, Map<String, Object> config, Map<String, Object> node,
+                                   List<StepConnection> connections, ComponentAccessPolicy policy,
+                                   ComponentCatalog scopedCatalog, LLMConfigPatch flowPatch) {
+        if (!policy.isAllowed(KnowledgeNodeComponent.COMPONENT_ID)) {
+            return new ComponentStep(id, StepType.TOOL, KnowledgeNodeComponent.COMPONENT_ID,
+                    operationOf(config, node), connections, scopedCatalog, interceptors, null, config,
+                    "a base de conhecimento ('" + KnowledgeNodeComponent.COMPONENT_ID
+                            + "') não está em configuration.allowedComponents");
+        }
+        br.com.archflow.model.ai.AIComponent generator = null;
+        String problem = null;
+        boolean rag = "rag".equals(kind);
+        if (rag) {
+            String llm = config.get("llmProvider") instanceof String p && !p.isBlank() ? p.trim() : null;
+            Optional<ChatNodeDefaults.Resolution> chat =
+                    ChatNodeDefaults.resolve(Map.of(), llm, flowPatch, platformDefaultLLM);
+            if (chat.isPresent() && AdapterNodeTypes.isAdapterNode("llm-chat", chat.get().provider())) {
+                String chatProvider = chat.get().provider();
+                if (policy.isAllowed(chatProvider)) {
+                    generator = new LangChainAdapterComponent(chatProvider, "chat", chat.get().config(),
+                            tenantKeyResolver, baseUrlPolicy, providerPreferences, providerPreferencesRequired,
+                            openRouterUrls(), modelPolicy);
+                } else {
+                    problem = "o provider '" + chatProvider + "' não está em configuration.allowedComponents";
+                }
+            } else {
+                problem = semAdapterDeChat(chat.orElse(null));
+            }
+        }
+        KnowledgeNodeComponent component = new KnowledgeNodeComponent(id,
+                rag ? KnowledgeNodeComponent.Mode.RAG : KnowledgeNodeComponent.Mode.SEARCH,
+                config, knowledgeService, generator, problem);
+        return new ComponentStep(id, StepType.TOOL, KnowledgeNodeComponent.COMPONENT_ID,
+                operationOf(config, node), connections, scopedCatalog, interceptors, component, config);
+    }
+
+    /**
+     * Por que um nó de dados não foi para um adapter: o backend não foi escolhido, ou o escolhido não tem
+     * adapter deste tipo. O prefixo "component not found" fica, como no chat.
+     */
+    private static String semAdapterDeDados(String kind, String adapterType, String providerId,
+                                            String legacyProvider) {
+        String field = br.com.archflow.api.flow.adapter.DesignerAdapterKeys.providerField(adapterType);
+        String disponiveis = String.join(", ", new java.util.TreeSet<>(
+                br.com.archflow.langchain4j.core.spi.LangChainRegistry.getProvidersOfType(adapterType)));
+        boolean escolheu = providerId != null && !providerId.isBlank() && !providerId.equals(legacyProvider);
+        String base = KnowledgeNodeComponent.NODE_TYPES.contains(kind)
+                ? " Ou escolha uma Base de conhecimento no nó." : "";
+        if (!escolheu) {
+            return "o nó não escolheu o backend" + (field == null ? "" : " (campo '" + field + "')")
+                    + " (disponíveis: " + (disponiveis.isEmpty() ? "nenhum" : disponiveis) + ")." + base;
+        }
+        return "o backend '" + providerId + "' não tem adapter de " + adapterType + " neste servidor (disponíveis: "
+                + (disponiveis.isEmpty() ? "nenhum" : disponiveis) + ")." + base;
     }
 
     /** Por que um nó de chat não foi para um adapter — o que a falha diz depois de "component not found". */

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { NumberInput, Select, Text, TextInput, Textarea } from '@mantine/core'
 import { FIELD_STYLES, MONO_INPUT } from '../fieldStyles'
-import { getConfig } from './helpers'
+import { getConfig, storedChoice, storedNumber } from './helpers'
 import type { FieldProps } from './FieldProps'
 
 /**
@@ -11,13 +11,15 @@ import type { FieldProps } from './FieldProps'
  * pessoa estava escrevendo.
  */
 function JsonField({
-  label, hint, value, onValid, minRows = 4,
+  label, hint, value, onValid, minRows = 4, required = false,
 }: {
   label: string
   hint?: string
   value: unknown
   onValid: (v: unknown) => void
   minRows?: number
+  /** O motor recusa o nó sem o campo; o Executar do editor confere antes (runReadiness). */
+  required?: boolean
 }) {
   const { t } = useTranslation()
   const external = value === undefined ? '' : JSON.stringify(value, null, 2)
@@ -30,6 +32,7 @@ function JsonField({
   return (
     <Textarea
       label={label}
+      withAsterisk={required}
       description={hint}
       value={draft}
       onChange={e => {
@@ -65,12 +68,23 @@ function semChave(obj: Record<string, unknown>, chave: string): Record<string, u
 export function DecisionFields({ nodeData, update }: FieldProps) {
   const { t } = useTranslation()
   const f = (key: string) => t(`editor.properties.fields.${key}`)
+  // Padrões do motor, conferidos no DecisionComponent.initialize: RoutePolicy.DEFAULT (auto 0.9, review 0.5),
+  // provedor HttpDecisionProvider.ID, onError ESCALATE, acceptAt = thresholds.auto e consensus.onDisagree REVIEW.
+  // O painel mostra só o gravado e diz o padrão no placeholder — antes exibia estes valores como se estivessem no
+  // nó (RCHFLW-92).
+  const dflt = (value: unknown) => t('editor.properties.fields.defaultValue', { value: String(value) })
   const thresholds = getConfig(nodeData, 'thresholds', {} as { auto?: number; review?: number })
-  const setThreshold = (key: 'auto' | 'review', v: number | string) =>
-    update('thresholds', { ...thresholds, [key]: typeof v === 'number' ? v : Number(v) })
+  // Campo apagado tira o limiar (e o objeto, se vazio): o Number('') de antes gravava 0 — todo ramo virava AUTO.
+  const setThreshold = (key: 'auto' | 'review', v: number | string) => {
+    if (typeof v !== 'number' && v !== '') return
+    const next: Record<string, unknown> = { ...thresholds }
+    if (typeof v === 'number') next[key] = v
+    else delete next[key]
+    update('thresholds', Object.keys(next).length > 0 ? next : undefined)
+  }
   const gate = getConfig(nodeData, 'gate', [] as string[])
   const consensus = getConfig(nodeData, 'consensus', {} as { models?: unknown; onDisagree?: string })
-  const provider = getConfig(nodeData, 'provider', 'http-decisions')
+  const provider = storedChoice(nodeData, 'provider')
   // O motor entrega ao provedor `providerOptions.<id>` (DecisionComponent.tentar), e o `rules` lê dali
   // `rules`: daí o caminho providerOptions.rules.rules. Grava mesclando, para não apagar as opções de
   // outros provedores (degraus da cascata, reservas) nem outras chaves do próprio `rules`.
@@ -91,7 +105,8 @@ export function DecisionFields({ nodeData, update }: FieldProps) {
       <Select
         label={f('decisionProvider')}
         value={provider}
-        onChange={v => update('provider', v ?? 'http-decisions')}
+        placeholder={dflt('http-decisions')}
+        onChange={v => update('provider', v ?? undefined)}
         data={PROVIDERS}
         size="xs"
         allowDeselect={false}
@@ -120,6 +135,7 @@ export function DecisionFields({ nodeData, update }: FieldProps) {
         hint={f('decisionQuestionsHint')}
         value={getConfig(nodeData, 'questions', undefined as unknown)}
         onValid={v => update('questions', v)}
+        required
         minRows={8}
       />
       <JsonField
@@ -146,7 +162,8 @@ export function DecisionFields({ nodeData, update }: FieldProps) {
       />
       <NumberInput
         label={f('thresholdAuto')}
-        value={thresholds.auto ?? 0.9}
+        value={thresholds.auto ?? ''}
+        placeholder={dflt(0.9)}
         onChange={v => setThreshold('auto', v)}
         min={0} max={1} step={0.05} decimalScale={2}
         size="xs"
@@ -154,7 +171,8 @@ export function DecisionFields({ nodeData, update }: FieldProps) {
       />
       <NumberInput
         label={f('thresholdReview')}
-        value={thresholds.review ?? 0.5}
+        value={thresholds.review ?? ''}
+        placeholder={dflt(0.5)}
         onChange={v => setThreshold('review', v)}
         min={0} max={1} step={0.05} decimalScale={2}
         size="xs"
@@ -163,8 +181,9 @@ export function DecisionFields({ nodeData, update }: FieldProps) {
       />
       <Select
         label={f('decisionOnError')}
-        value={getConfig(nodeData, 'onError', 'ESCALATE')}
-        onChange={v => update('onError', v ?? 'ESCALATE')}
+        value={storedChoice(nodeData, 'onError')}
+        placeholder={dflt('ESCALATE')}
+        onChange={v => update('onError', v ?? undefined)}
         data={['ESCALATE', 'FAIL']}
         size="xs"
         allowDeselect={false}
@@ -175,8 +194,12 @@ export function DecisionFields({ nodeData, update }: FieldProps) {
       <Text size="xs" fw={600} mt={4}>{f('decisionAdvanced')}</Text>
       <NumberInput
         label={f('decisionAcceptAt')}
-        value={getConfig(nodeData, 'acceptAt', thresholds.auto ?? 0.9)}
-        onChange={v => update('acceptAt', typeof v === 'number' ? v : Number(v))}
+        value={storedNumber(nodeData, 'acceptAt')}
+        placeholder={dflt(thresholds.auto ?? 0.9)}
+        onChange={v => {
+          if (typeof v === 'number') update('acceptAt', v)
+          else if (v === '') update('acceptAt', undefined)
+        }}
         min={0} max={1} step={0.05} decimalScale={2}
         size="xs"
         styles={FIELD_STYLES}
@@ -201,8 +224,9 @@ export function DecisionFields({ nodeData, update }: FieldProps) {
       />
       <Select
         label={f('decisionOnDisagree')}
-        value={consensus.onDisagree ?? 'REVIEW'}
-        onChange={v => update('consensus', { ...consensus, onDisagree: v ?? 'REVIEW' })}
+        value={consensus.onDisagree ?? null}
+        placeholder={dflt('REVIEW')}
+        onChange={v => update('consensus', { ...consensus, onDisagree: v ?? undefined })}
         data={['REVIEW', 'ESCALATE']}
         size="xs"
         allowDeselect={false}

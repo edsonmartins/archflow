@@ -418,10 +418,24 @@ describe('RCHFLW-78 — addNode', () => {
     const result = await call('addNode', { nodeType: 'http-request', label: 'HTTP' })
 
     expect(result).toEqual(expect.objectContaining({
-      ok: false, error: 'unknown node type "http-request"', nodeTypes: expect.arrayContaining(['llm-chat', 'tool']),
+      ok: false, error: 'unknown node type "http-request"', nodeTypes: expect.arrayContaining(['llm-chat', 'input']),
     }))
     expect(useFlowStore.getState().nodes).toEqual([])
     expect(notificationsMock.show).not.toHaveBeenCalledWith(expect.objectContaining({ color: 'teal' }))
+  })
+
+  // RCHFLW-11: o "Gerar com IA" criava nós que o motor recusa; o agente precisa saber por quê para trocar o tipo.
+  it.each(['agent', 'tool', 'transform', 'llm-streaming'])('não cria nó %s, que não está entre os tipos que executam', async (nodeType) => {
+    await mountEditor()
+
+    const result = await call<{ ok: boolean; error: string; nodeTypes: string[] }>('addNode', { nodeType, label: 'X' })
+
+    expect(result.ok).toBe(false)
+    expect(result.nodeTypes).not.toContain(nodeType)
+    expect(result.error).toBe(nodeType === 'llm-streaming'
+      ? 'unknown node type "llm-streaming"'
+      : `node type "${nodeType}" is not yet supported at run time`)
+    expect(useFlowStore.getState().nodes).toEqual([])
   })
 
   it('aceita a config já na criação, validada contra as chaves do tipo', async () => {

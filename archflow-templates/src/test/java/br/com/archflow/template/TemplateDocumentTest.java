@@ -146,11 +146,11 @@ class TemplateDocumentTest {
         WorkflowTemplateDefinition def = new CustomerSupportTemplate().getDefinition();
 
         List<Map<String, Object>> defaults = TemplateDocument.steps(def);
-        assertThat(config(stepById(defaults, "kb-search")).get("vectorStoreId")).isEqualTo("");
+        assertThat(config(stepById(defaults, "kb-search")).get("knowledgeBaseId")).isEqualTo("");
 
         List<Map<String, Object>> installed = TemplateDocument.steps(def,
                 Map.of("knowledgeBaseId", "support-docs", "enableSentiment", false));
-        assertThat(config(stepById(installed, "kb-search")).get("vectorStoreId")).isEqualTo("support-docs");
+        assertThat(config(stepById(installed, "kb-search")).get("knowledgeBaseId")).isEqualTo("support-docs");
         assertThat(connections(stepById(installed, "response-generator")))
                 .extracting(c -> c.get("condition"))
                 .containsExactly("false == true", "false == false");

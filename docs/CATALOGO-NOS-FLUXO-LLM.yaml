@@ -78,33 +78,35 @@ propertySchemas:
     retryMultiplier: { type: number, default: 2.0, when: "onError=retry" }
     timeout: { type: integer, default: 30, description: "Segundos" }
   vector:
-    provider: { type: string, requiredForRuntime: true, enum: [pgvector, redis, pinecone] }
-    vectorBackend: { type: string, description: "Campo do editor; copie também para provider", enum: [pgvector, redis, pinecone, in-memory] }
-    topK: { type: integer, default: 5, when: "type=vector-search" }
-    pineconeApiKey: { type: string, secret: true, when: "provider=pinecone" }
-    pineconeEnvironment: { type: string, when: "provider=pinecone" }
-    pineconeIndex: { type: string, when: "provider=pinecone" }
-    pgDatasource: { type: string, when: "provider=pgvector" }
-    pgTableName: { type: string, default: embeddings, when: "provider=pgvector" }
-    pgDimensions: { type: integer, default: 1536, when: "provider=pgvector" }
-    vectorRedisUrl: { type: string, default: "redis://localhost:6379", when: "provider=redis" }
-    vectorRedisPrefix: { type: string, default: "vec:", when: "provider=redis" }
+    # RCHFLW-55/56: o provider vem de vectorBackend (ou provider explícito); as chaves do editor são traduzidas para as
+    # do adapter por DesignerAdapterKeys. Credencial/endereço vêm do servidor: archflow.adapters.<backend>.<nome>.*
+    knowledgeBaseId: { type: string, when: "type=vector-search", description: "Base de conhecimento do tenant da execução (KnowledgeService.search). Com ela o backend não é usado; vectorStoreId (templates antigos) também é lido" }
+    vectorBackend: { type: string, description: "Escolhe o adapter (vira provider)", enum: [pgvector, redis, pinecone] }
+    topK: { type: integer, when: "type=vector-search", description: "Com base: padrão 5 (1..50). Sem base: maxResults do pedido de busca" }
+    pgDatasource: { type: string, when: "vectorBackend=pgvector", description: "Nome da conexão: archflow.adapters.pgvector.<nome>.{jdbc-url,username,password}" }
+    pgTableName: { type: string, default: embeddings, when: "vectorBackend=pgvector" }
+    pgDimensions: { type: integer, required: true, when: "vectorBackend=pgvector" }
+    redisConnection: { type: string, when: "vectorBackend=redis", description: "Nome da conexão: archflow.adapters.redis.<nome>.{host,port}" }
+    vectorRedisPrefix: { type: string, default: "embedding:", when: "vectorBackend=redis" }
+    pineconeConnection: { type: string, when: "vectorBackend=pinecone", description: "Nome da conexão: archflow.adapters.pinecone.<nome>.{api-url,api-key}" }
+    pineconeIndex: { type: string, default: embeddings, when: "vectorBackend=pinecone" }
+    vectorDimensions: { type: integer, required: true, when: "vectorBackend in [redis, pinecone]" }
   embedding:
-    provider: { type: string, requiredForRuntime: true, enum: [openai, local] }
-    embeddingProvider: { type: string, description: "Campo do editor; copie também para provider", enum: [openai, local] }
-    embeddingModel: { type: string, default: text-embedding-3-small }
-    embeddingDimensions: { type: integer, default: 1536 }
+    embeddingProvider: { type: string, description: "Escolhe o adapter (vira provider); a chave vem do tenant (openai.api.key)", enum: [openai, local] }
+    embeddingModel: { type: string, default: text-embedding-ada-002, description: "openai.model; o padrão é o do OpenAiEmbeddingAdapter" }
+    embeddingDimensions: { type: integer, description: "Informativo para openai; local.dimension para local" }
   memory:
-    provider: { type: string, requiredForRuntime: true, enum: [jdbc, redis] }
-    memoryBackend: { type: string, description: "Campo do editor; copie também para provider", enum: [jdbc, redis] }
+    memoryBackend: { type: string, description: "Escolhe o adapter (vira provider). jdbc ainda não recebe DataSource no fluxo e falha", enum: [jdbc, redis] }
+    redisConnection: { type: string, when: "memoryBackend=redis", description: "Nome da conexão: archflow.adapters.redis.<nome>.{host,port}" }
     memoryMaxMessages: { type: integer, default: 100 }
+    operation: { type: string, required: true, enum: [add, get, clear], description: "Sem padrão; o painel ainda não tem o campo" }
   rag:
-    provider: { type: string, const: rag, requiredForRuntime: true }
-    embeddingProvider: { type: string, default: openai }
-    vectorBackend: { type: string, default: pgvector }
-    llmProvider: { type: string, default: openai }
-    retrieverMaxResults: { type: integer, default: 5 }
-    retrieverMinScore: { type: number, default: 0.7, minimum: 0, maximum: 1 }
+    knowledgeBaseId: { type: string, description: "Com base: busca no KnowledgeService e responde pelo chat do nó (llmProvider ou o herdado do fluxo/plataforma)" }
+    embeddingProvider: { type: string, when: "sem knowledgeBaseId", description: "embedding.provider do RagChainAdapter" }
+    vectorBackend: { type: string, when: "sem knowledgeBaseId", description: "vectorstore.provider; mesmas chaves/conexão do schema vector" }
+    llmProvider: { type: string, description: "languagemodel.provider; obrigatório sem knowledgeBaseId" }
+    retrieverMaxResults: { type: integer, description: "Padrão 5 com base, 2 no RagChainAdapter" }
+    retrieverMinScore: { type: number, minimum: 0, maximum: 1, description: "Padrão 0 com base, 0.7 no RagChainAdapter" }
   orchestrate:
     goal: { type: string, required: true }
     decomposePrompt: { type: string }
@@ -184,7 +186,9 @@ nodeTypes:
   - { type: agent, name: "Agente de IA", category: agent, propertySchema: agentModel, runtimeStatus: conditional, runtimeCondition: "componentId deve ser o id de um agente registrado; componentId=agent não é built-in" }
   - { type: assistant, name: "Assistente interativo", category: agent, propertySchema: agentModel, runtimeStatus: conditional, runtimeCondition: "componentId deve ser o id de um assistente registrado" }
   - { type: llm-chat, name: "Chat com LLM", category: agent, propertySchema: agentModel, runtimeStatus: conditional, runtimeCondition: "config.provider deve existir como provider chat SPI" }
-  - { type: llm-streaming, name: "Resposta LLM em streaming", category: agent, propertySchema: agentModel, runtimeStatus: conditional, runtimeCondition: "config.provider deve existir como provider chat SPI" }
+  # llm-streaming não faz streaming: executa o mesmo adapter de chat bloqueante do llm-chat (RCHFLW-57). Saiu da paleta;
+  # fica aqui só para os fluxos que já o têm. Gere llm-chat.
+  - { type: llm-streaming, name: "Alias do Chat com LLM (sem streaming)", category: agent, propertySchema: agentModel, runtimeStatus: conditional, runtimeCondition: "alias de llm-chat: a resposta chega inteira ao fim do passo; config.provider deve existir como provider chat SPI" }
   - { type: orchestrate, name: "Orquestração multiagente dinâmica", category: agent, propertySchema: orchestrate, runtimeStatus: executable, implementation: OrchestrateStep }
   - { type: condition, name: "Condição binária", category: control, propertySchema: condition, runtimeStatus: design_only }
   - { type: parallel, name: "Execução paralela", category: control, propertySchema: parallel, runtimeStatus: design_only }
@@ -198,15 +202,15 @@ nodeTypes:
   - { type: tool, name: "Ferramenta registrada", category: tool, propertySchema: tool, runtimeStatus: conditional, runtimeCondition: "componentId deve ser o id de uma ferramenta registrada" }
   - { type: function, name: "Função customizada", category: tool, propertySchema: tool, runtimeStatus: conditional, runtimeCondition: "requer plugin registrado com o componentId informado" }
   - { type: custom, name: "Componente customizado", category: tool, propertySchema: tool, runtimeStatus: conditional, runtimeCondition: "requer plugin registrado com o componentId informado" }
-  - { type: vector-search, name: "Busca semântica vetorial", category: vector, propertySchema: vector, runtimeStatus: conditional, runtimeCondition: "config.provider deve existir como provider vectorstore SPI" }
-  - { type: vector-store, name: "Armazenamento vetorial", category: vector, propertySchema: vector, runtimeStatus: conditional, runtimeCondition: "config.provider deve existir como provider vectorstore SPI" }
-  - { type: embedding, name: "Geração de embeddings", category: vector, propertySchema: embedding, runtimeStatus: conditional, runtimeCondition: "config.provider deve existir como provider embedding SPI" }
-  - { type: rag, name: "Cadeia RAG", category: vector, propertySchema: rag, runtimeStatus: conditional, runtimeCondition: "config.provider=rag e provider chain rag disponível" }
-  - { type: memory, name: "Memória conversacional", category: vector, propertySchema: memory, runtimeStatus: conditional, runtimeCondition: "config.provider deve existir como provider memory SPI" }
+  - { type: vector-search, name: "Busca semântica vetorial", category: vector, propertySchema: vector, runtimeStatus: conditional, runtimeCondition: "knowledgeBaseId (KnowledgeNodeComponent), ou vectorBackend com adapter vectorstore e a entrada vinda de um nó Embedding" }
+  - { type: vector-store, name: "Armazenamento vetorial", category: vector, propertySchema: vector, runtimeStatus: conditional, runtimeCondition: "vectorBackend com adapter vectorstore e operation explícita (search/remove/removeAll); sem operação padrão — nenhum adapter grava vetores, e o painel não tem campo de operação" }
+  - { type: embedding, name: "Geração de embeddings", category: vector, propertySchema: embedding, runtimeStatus: conditional, runtimeCondition: "embeddingProvider com adapter embedding; operação padrão embed, saída {vector, dimension}" }
+  - { type: rag, name: "Cadeia RAG", category: vector, propertySchema: rag, runtimeStatus: conditional, runtimeCondition: "knowledgeBaseId e um chat resolvível, ou os três providers do RagChainAdapter; operação padrão query" }
+  - { type: memory, name: "Memória conversacional", category: vector, propertySchema: memory, runtimeStatus: conditional, runtimeCondition: "memoryBackend redis com conexão do servidor e operation explícita (add/get/clear)" }
   - { type: prompt-template, name: "Template de prompt", category: io, propertySchema: prompt, runtimeStatus: design_only }
   - { type: prompt-chunk, name: "Bloco parcial de prompt", category: io, propertySchema: prompt, runtimeStatus: design_only }
-  - { type: input, name: "Entrada do workflow", category: io, propertySchema: io, runtimeStatus: design_only }
-  - { type: output, name: "Saída do workflow", category: io, propertySchema: io, runtimeStatus: design_only }
+  - { type: input, name: "Entrada do workflow", category: io, propertySchema: io, runtimeStatus: executable, implementation: PassThroughStep }
+  - { type: output, name: "Saída do workflow", category: io, propertySchema: io, runtimeStatus: executable, implementation: PassThroughStep }
   - { type: skills, name: "Operação sobre skills", category: knowledge, propertySchema: skills, runtimeStatus: design_only }
   - { type: approval, name: "Aprovação humana", category: control, propertySchema: approvalRuntime, editorPropertySchema: approvalEditor, runtimeStatus: executable, implementation: HumanApprovalStep }
   - { type: subflow, name: "Invocação de subfluxo", category: control, propertySchema: subflow, runtimeStatus: design_only }
@@ -322,7 +326,10 @@ knownGaps:
   - "O designer expõe 35 tipos, embora comentários antigos no código ainda mencionem 23."
   - "Nós genéricos caem em ComponentStep; sem componentId registrado, falham como component not found."
   - "Os campos toolId e agentId do painel não substituem componentId no DefaultFlowStepFactory."
-  - "embeddingProvider, vectorBackend e memoryBackend são campos do editor, mas o runtime seleciona adapters por config.provider."
+  - "A memória (memory) só roda com operation explícita, que o painel ainda não oferece; o backend jdbc não recebe DataSource no fluxo."
+  - "O Vector store (vector-store) não grava vetores: nenhum adapter de vector store tem operação de gravação, e sem operation explícita o nó falha. O editor bloqueia o Executar dele e da memória sem operation."
+  - "O embedding local exige local.model.path e local.vocab.path, que o painel não oferece."
+  - "As conexões archflow.adapters.<backend>.<nome>.* não são por tenant: qualquer fluxo que nomear uma conexão usa as credenciais do servidor. Em multi-tenant, declare só conexões compartilháveis; dados do tenant ficam na Base de conhecimento."
   - "Aprovação usa approvalDescription/approvalProposal no editor, enquanto o runtime lê description/proposal."
   - "Skills, subflow, mcp-tool, Linktor e nós estruturais têm UI, mas não possuem FlowStep dedicado na factory atual."
   - "Plugins externos podem acrescentar agentes, assistentes e ferramentas em tempo de execução; consulte /api/catalog para a lista efetiva da instalação."

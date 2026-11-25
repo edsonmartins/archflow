@@ -126,13 +126,45 @@ export function isAnnotationStep(step: { componentId?: unknown; type?: unknown }
   )
 }
 
+/**
+ * Tipos da paleta que o motor ainda não executa (RCHFLW-11). O nó continua podendo ser adicionado e salvo —
+ * fluxos que já os têm não quebram —, mas a paleta e o nó dizem "ainda não suportado na execução", o
+ * Executar do editor é impedido nomeando os nós e o copiloto não os cria. No servidor a execução é recusada
+ * no início, antes de qualquer passo.
+ *
+ * <p>Espelho de NodesWithoutExecution.TYPES no archflow-api: o NodesWithoutExecutionMirrorTest compara as duas
+ * listas e confere no factory de verdade que estes não executam e os outros tipos da paleta executam. Quando
+ * um tipo ganhar execução, sai daqui e de lá.</p>
+ *
+ * <p>A lista decide sozinha, nos dois lados: o designer não conhece os plugins carregados no servidor, então o
+ * motor também não isenta um componente do catálogo com um destes ids — são ids reservados para plugins.</p>
+ */
+export const NOT_EXECUTABLE_NODE_TYPES: ReadonlySet<string> = new Set([
+  'agent', 'assistant',
+  'parallel', 'loop', 'subflow',
+  'transform', 'map', 'filter', 'reduce', 'merge',
+  'tool', 'function', 'custom', 'mcp-tool',
+  'prompt-template', 'prompt-chunk',
+  'skills', 'linktor-send', 'linktor-escalate',
+])
+
+/**
+ * O nó é de um tipo sem execução. Vale o componentId e, sem ele, o type — a mesma regra do motor
+ * (DefaultFlowStepFactory.kindOf): um passo escrito à mão com type "agent" e componentId de um plugin roda.
+ */
+export function isNotExecutableNode(node: { componentId?: unknown; nodeType?: unknown; type?: unknown }): boolean {
+  const raw = [node.componentId, node.nodeType, node.type].find(k => typeof k === 'string' && k.trim() !== '')
+  return typeof raw === 'string' && NOT_EXECUTABLE_NODE_TYPES.has(raw.trim().toLowerCase())
+}
+
 // ── Palette completa (23 tipos do NodeRegistry) ──────────────────
 export const PALETTE_NODES = [
   // AI / Agents
   { componentId: 'agent',         label: 'Agent',          description: 'Autonomous AI agent',     category: 'agent'   as const },
   { componentId: 'assistant',     label: 'Assistant',      description: 'Interactive assistant',    category: 'agent'   as const },
   { componentId: 'llm-chat',      label: 'LLM Chat',       description: 'Language model call',      category: 'agent'   as const },
-  { componentId: 'llm-streaming', label: 'LLM Streaming',  description: 'Streaming LLM response',  category: 'agent'   as const },
+  // Sem 'llm-streaming': ele executa como o LLM Chat, sem streaming (RCHFLW-57). Fluxos que já o têm continuam
+  // rodando (alias no AdapterNodeTypes) e o painel diz isso; só deixa de ser oferecido.
   { componentId: 'orchestrate',   label: 'Orchestrate',    description: 'Dynamic multi-agent workflow', category: 'agent' as const },
   // Control flow
   { componentId: 'condition',     label: 'Condition',      description: 'Branch on condition',      category: 'control' as const },

@@ -2,13 +2,13 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Select, TextInput, Textarea, Text } from '@mantine/core'
 import { FIELD_STYLES, MONO_INPUT } from '../fieldStyles'
-import { getConfig } from './helpers'
+import { getConfig, storedText } from './helpers'
 import type { FieldProps } from './FieldProps'
 import { mcpApi } from '../../../services/mcp-api'
 
 export function McpToolFields({ nodeData, update }: FieldProps) {
   const { t } = useTranslation()
-  const f = (key: string) => t(`editor.properties.fields.${key}`)
+  const f = (key: string, opts?: Record<string, unknown>) => t(`editor.properties.fields.${key}`, opts)
   const [servers, setServers] = useState<string[]>([])
   const [tools, setTools]     = useState<{ name: string; description: string }[]>([])
   const [loading, setLoading] = useState(false)
@@ -60,7 +60,8 @@ export function McpToolFields({ nodeData, update }: FieldProps) {
       )}
       <Textarea
         label={f('argumentsJson')}
-        value={getConfig(nodeData, 'mcpArguments', '{}')}
+        value={storedText(nodeData, 'mcpArguments')}
+        placeholder={f('exampleValue', { value: '{}' })}
         onChange={e => update('mcpArguments', e.currentTarget.value)}
         autosize minRows={3}
         size="xs"
@@ -69,7 +70,8 @@ export function McpToolFields({ nodeData, update }: FieldProps) {
       />
       <TextInput
         label={f('outputVariable')}
-        value={getConfig(nodeData, 'mcpOutputVar', 'toolResult')}
+        value={storedText(nodeData, 'mcpOutputVar')}
+        placeholder={f('exampleValue', { value: 'toolResult' })}
         onChange={e => update('mcpOutputVar', e.currentTarget.value)}
         size="xs"
         styles={FIELD_STYLES}
