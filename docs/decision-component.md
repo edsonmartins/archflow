@@ -269,5 +269,10 @@ um fluxo aberto e salvo no designer perdia toda condição e passava a seguir to
 ## Limites conhecidos
 - Os nós `parallel`, `loop`, `merge`, `map`, `filter` e `reduce` do designer ainda não têm execução no
   runtime (só `condition`, `switch` e `decision` foram tratados).
-- No modo standalone (`archflow-standalone`) o `ControlStep` não é reconstruído a partir do YAML; o
-  nó `decision` e as arestas com `condition` resolvida são exportados normalmente.
+- No modo standalone (`archflow-standalone`) e no SDK embarcado o documento passa pela mesma fábrica do
+  servidor (`archflow-flow-runtime`, RCHFLW-37): `condition`, `switch` e `decision` executam lá também. Os
+  provedores `llm` e `langchain4j-decisions` são do servidor e não existem fora dele — ali só os embutidos
+  (`http-decisions`, `rules`) e os registrados por SPI; a chave vem de `ARCHFLOW_DECISION_KEYS_<REF>`. Um nó
+  que cite um provedor ausente ali (em `provider`, `fallbacks`, `cascade` ou `consensus.models`) recusa o fluxo
+  antes do primeiro passo — sem isso o `onError: ESCALATE` padrão faria o fluxo terminar COMPLETED pelo ramo
+  de escalada. No servidor nada muda: o provedor desconhecido continua virando ESCALATE com `error`.

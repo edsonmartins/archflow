@@ -88,10 +88,30 @@ Adapters are discovered via SPI at runtime.
 - **archflow-security** - JWT, RBAC, API keys, CORS (used by archflow-api)
 - **archflow-workflow-tool** - Workflow-as-Tool pattern
 - **archflow-templates** - Built-in workflow templates (registered via SPI)
-- **archflow-standalone** - Export/run workflows as standalone JARs (CLI, no server)
+- **archflow-flow-runtime** - The workflow-document materializer shared by the three runtimes (server,
+  standalone, SDK embedded), no Spring: `DefaultWorkflowDeserializer`, `PortableFlowStepFactory` and the
+  server-independent steps (`ControlStep`, `PassThroughStep`, `UnsupportedNodeStep`, `ComponentStep` +
+  `CatalogComponents`, the LangChain4j bridge `adapter/*`, the `decision` node, `allowedComponents` scope,
+  `ExecutableNodesValidator`, `RunInputSeeding`). The files kept their packages (`br.com.archflow.api.flow…`)
+  when they left archflow-api — do not "fix" the package. What needs the server (approval queue, ORCHESTRATE,
+  `mcp-agent`, Knowledge base) enters through `ServerNodes`, implemented by archflow-api's
+  `DefaultFlowStepFactory` (the Spring subclass). Without it the node becomes `ServerOnlyNodeStep` and
+  `ExecutableNodesValidator` refuses the flow **before the first step** ("o nó X precisa do servidor
+  archflow (motivo)") — no fallback. Same refusal, without `ServerNodes`, for a `decision` node citing a
+  provider not registered there and for a data node (vector store/embedding/memory/RAG) with no adapter and
+  no plugin component of its type; on the server those two still fail at execution, as before
+- **archflow-standalone** - Export/run workflows as standalone JARs (CLI, no server). `StandaloneRunner` and
+  `StandaloneFlowMaterializer` run the document through archflow-flow-runtime (same steps as the server);
+  LLM keys/destinations/default come **only from the environment** (`StandaloneEnvironment`:
+  `ARCHFLOW_API_KEY`/`ARCHFLOW_PROVIDER`/`ARCHFLOW_MODEL` and the server's `ARCHFLOW_LLM_*` names) — a key
+  written in a node is discarded (`setInlineApiKeys(false)`). Only the chat adapters (openai, anthropic,
+  openrouter) are on its classpath
 - **archflow-dsl** - Java DSL for authoring workflows in code, emitting the canonical document (JSON/YAML). Depends only on `archflow-model` + Jackson — no Spring, no engine
 - **archflow-decision** - Typed decisions (choice/score/yes-no) with confidence and route: neutral provider contract, generic HTTP provider, rules provider and the `decision` flow component. Depends only on `archflow-model` + Jackson — no Spring
-- **archflow-sdk-java** - `ArchflowClient` (REST) and `EmbeddedWorkflowRunner` (in-process). The `archflow-standalone` dependency is `optional`: only the embedded runner needs it, and it drags the whole engine along
+- **archflow-sdk-java** - `ArchflowClient` (REST) and `EmbeddedWorkflowRunner` (in-process, through
+  `StandaloneFlowMaterializer` — same steps and same up-front refusal as the standalone runner). The
+  `archflow-standalone` dependency is `optional`: only the embedded runner needs it, and it drags the whole
+  engine along
 - **archflow-conversation** - Suspend/resume wired to the server; guardrails/governance/episodic memory/summarizer are an OPT-IN library not yet called by the archflow-api execution path
 
 ### OpenRouter provider preferences (ZDR) travel in the request body
@@ -153,7 +173,7 @@ the two interfaces are nearly identical, so it is thin. Things to keep in mind w
   node config (a node must not switch them off, nor declare its own host "OpenRouter") and, for
   `openrouter:chat`, puts the deployment's `ProviderPreferences` + `required` there, plus
   `archflow.llm.base-url` as an OpenRouter URL when `archflow.llm.provider=openrouter`
-  (`DefaultFlowStepFactory.openRouterUrls`). `OpenRouterChatAdapter` adds `provider{zdr,data_collection}`
+  (`PortableFlowStepFactory.openRouterUrls`, archflow-flow-runtime). `OpenRouterChatAdapter` adds `provider{zdr,data_collection}`
   via `customParameters` to every builder whose destination is OpenRouter
   (`OpenRouterChatAdapter.isOpenRouterDestination`: an `openrouter.ai` host — `ProviderPreferences.
   isOpenRouterHost`, which `HttpDecisionProvider.ehOpenRouter` delegates to — or that declared gateway):
@@ -218,10 +238,14 @@ the two interfaces are nearly identical, so it is thin. Things to keep in mind w
 ### The workflow document has three readers — keep them in agreement
 
 The stored workflow JSON (`{id, metadata, configuration, steps[]}`) is parsed by
-`DefaultFlowStepFactory` (executes it), carried by the `Serializable*` POJOs of `archflow-standalone`
-(YAML bridge + standalone execution), and now written by `archflow-dsl`. Nothing in the compiler
-forces them to agree, so two tests do: `DslConformanceTest` runs DSL output through the *real*
-deserializer, and `AdapterNodeTypesMirrorTest` fails in both directions if the node-type lists drift.
+`DefaultWorkflowDeserializer` + `PortableFlowStepFactory` of `archflow-flow-runtime` (executes it — in the
+server, in the standalone runner and in the SDK's `EmbeddedWorkflowRunner`, since RCHFLW-37), carried by the
+`Serializable*` POJOs of `archflow-standalone` (YAML bridge / export **transport only** —
+`SerializableStep.execute` always fails; nothing executes it any more), and written by `archflow-dsl`.
+Nothing in the compiler forces them to agree, so tests do: `DslConformanceTest` runs DSL output through the
+*real* deserializer, `AdapterNodeTypesMirrorTest` fails in both directions if the node-type lists drift, and
+`StandaloneRunnerExecutionTest`/`EmbeddedWorkflowRunnerTest` execute real flows offline (they used to accept
+FAILED, which hid that *every* standalone run failed at the first step).
 
 Two traps that already bit:
 
@@ -303,7 +327,7 @@ Test structure follows Arrange-Act-Assert pattern within `src/test/java`.
 - **Human gate inside the agent loop** (distinct from the graph-edge gate above): `ToolApprovalPolicy` can require a decision for a tool. The loop then suspends **before executing it** — asking after the call is notification, not approval — persists `McpAgentState` in a `McpAgentStateStore` (in-memory for dev, `JdbcMcpAgentStateStore` + migration V6_5 for prod) and returns a suspended `Result`. `McpAgentRunner.resume` continues from there; the decision is consumed once. Two details that are not optional: the fence nonce is part of the state (a new one would stop matching the rule already in the persisted system message) and so is the iteration count (otherwise repeated suspensions escape `maxIterations`). **`McpAgentState` is the durability boundary** — it is what an external orchestrator would persist instead of the table, so adopting one swaps the custodian, not the loop
 - **Tool interception**: `ComponentStep` invokes components through a `ToolInterceptorChain` when one is configured; `beforeExecute` can abort. The default bean carries only additive interceptors (logging, metrics) — adding caching or guardrails there would change existing flows' behaviour
 - **Streaming invoke** (`br.com.archflow.api.agent.stream`, contract in `docs/streaming-invoke.md`): `POST /api/agents/invoke/stream` (SSE) + `/{key}/cancel`. The agent loop gets a `SaidaDeTexto` through `Options.comSaida` (or the `ExecutionContext`, transient key) and uses `StreamingChatModel` only when someone receives the text; without it the loop is the blocking one and the async route is untouched — keep it that way. Text of a turn is **held until the turn proves final** when tools are in the catalogue (deltas = final answer only). Only agent nodes with no outgoing edge get `transmitirTexto` (marked on the per-execution copy of the document). Absent `saidaSchema` means text output **on this route only** (the async route still returns ERROR — deliberate asymmetry). Delivery is exactly-once per key: `fim` written on the connection → no webhook; otherwise the webhook. Result store and in-flight registry are **in memory, per replica** (cancel on another replica → 404). Cancelling interrupts the execution thread under the registry lock — never interrupt a pooled thread outside `ExecucoesEmAndamento`
-- **Decision node** (`archflow-decision`, doc in `docs/decision-component.md`): `decision` component asks typed questions (choice/score/noul) of a pluggable `DecisionProvider` (`http-decisions` for OpenRouter's `/api/v1/systemone` and any compatible service, `langchain4j-decisions` wrapping any langchain4j `DecisionModel` (TypeSafe/OpenRouter, OpenAI Decisions API — a refused question becomes `Answer.Refused`: confidence 0, escalates), `llm`, `rules`; more via SPI) and returns `route` (AUTO/REVIEW/ESCALATE from the **minimum** confidence over `gate` questions) — edges branch on it (`${triagem.route} == 'ESCALATE'`), that is the only branching the engine has. A failure never becomes a guess: `onError: ESCALATE` returns route ESCALATE with `error`. The `llm` provider is **not calibrated**, so its confidence is capped (`maxConfidence`, default 0.89 → never AUTO unless the operator raises it). Keys come from `DecisionKeys` (tenant resolver, then `archflow.decision.keys.<ref>`), never from the node JSON. One instance per node (like `mcp-agent`) — created in `DefaultFlowStepFactory`. Also: `cascade` (next tier when the previous answered with low confidence, vs `fallbacks` = provider FAILED), `consensus` (other models vote in parallel; disagreement on `primary` lowers the route) and usage reported to `ContadorDeUso` through `DecisionUsageListener` (declared cost in USD → `Uso.declaredCostUsd`, separate from `costCents`). Edges may declare `branch` instead of a hand-written `condition` (rule in `BranchCondition`, archflow-model — shared by `DefaultFlowStepFactory` and the standalone `SerializableStep`, so the two readers cannot drift; a manual `condition` wins); `condition`/`switch` nodes are real steps now (`ControlStep`) that compute `branch`. **The designer used to drop edge `condition` on load/save** — `workflowSerde.ts` fixes it, keep the round trip tested. In the DSL the node is `Decision.node()` and the edges are `route(from, to, Decision.AUTO)`; `DslDecisionConformanceTest` executes the emitted document. When a `decision` node is the **last step** of a VendaX flow, `AgentFlowRunner` turns its output into the envelope of `DecisaoNoResult` (`decisao.<pergunta>.{valor, confianca, rota}`, `modelo`, `uso` in USD) — before that the Core got "o fluxo não devolveu um JSON"
+- **Decision node** (`archflow-decision`, doc in `docs/decision-component.md`): `decision` component asks typed questions (choice/score/noul) of a pluggable `DecisionProvider` (`http-decisions` for OpenRouter's `/api/v1/systemone` and any compatible service, `langchain4j-decisions` wrapping any langchain4j `DecisionModel` (TypeSafe/OpenRouter, OpenAI Decisions API — a refused question becomes `Answer.Refused`: confidence 0, escalates), `llm`, `rules`; more via SPI) and returns `route` (AUTO/REVIEW/ESCALATE from the **minimum** confidence over `gate` questions) — edges branch on it (`${triagem.route} == 'ESCALATE'`), that is the only branching the engine has. A failure never becomes a guess: `onError: ESCALATE` returns route ESCALATE with `error`. The `llm` provider is **not calibrated**, so its confidence is capped (`maxConfidence`, default 0.89 → never AUTO unless the operator raises it). Keys come from `DecisionKeys` (tenant resolver, then `archflow.decision.keys.<ref>`), never from the node JSON. One instance per node (like `mcp-agent`) — created in `PortableFlowStepFactory` (archflow-flow-runtime). Outside the server (standalone/SDK) a node citing a provider not registered there (`llm`, `langchain4j-decisions` are server-only) is refused before the first step (`ServerCapability.DECISION_PROVIDER`) — otherwise `onError: ESCALATE` would turn the missing provider into a normal ESCALATE route. Also: `cascade` (next tier when the previous answered with low confidence, vs `fallbacks` = provider FAILED), `consensus` (other models vote in parallel; disagreement on `primary` lowers the route) and usage reported to `ContadorDeUso` through `DecisionUsageListener` (declared cost in USD → `Uso.declaredCostUsd`, separate from `costCents`). Edges may declare `branch` instead of a hand-written `condition` (rule in `BranchCondition`, archflow-model — shared by `PortableFlowStepFactory` and the standalone `SerializableStep`, so the two readers cannot drift; a manual `condition` wins); `condition`/`switch` nodes are real steps now (`ControlStep`) that compute `branch`. **The designer used to drop edge `condition` on load/save** — `workflowSerde.ts` fixes it, keep the round trip tested. In the DSL the node is `Decision.node()` and the edges are `route(from, to, Decision.AUTO)`; `DslDecisionConformanceTest` executes the emitted document. When a `decision` node is the **last step** of a VendaX flow, `AgentFlowRunner` turns its output into the envelope of `DecisaoNoResult` (`decisao.<pergunta>.{valor, confianca, rota}`, `modelo`, `uso` in USD) — before that the Core got "o fluxo não devolveu um JSON"
 - **Tenant resolution** (RCHFLW-13/44): the request tenant is resolved once, on the server, by
   `ImpersonationFilter` into the `archflow.tenantId` attribute that `TenantContext.currentTenantId()` reads:
   verified impersonation (`X-Impersonate-Tenant`, flag + admin/superadmin role) → JWT `tenantId` claim

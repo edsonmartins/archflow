@@ -3,18 +3,24 @@ package br.com.archflow.sdk;
 import br.com.archflow.dsl.Nodes;
 import br.com.archflow.dsl.WorkflowDocument;
 import br.com.archflow.dsl.Workflows;
+import br.com.archflow.model.enums.ExecutionStatus;
 import br.com.archflow.model.flow.FlowResult;
 import br.com.archflow.model.flow.StepConnection;
 import br.com.archflow.standalone.FlowSerializer;
 import br.com.archflow.standalone.model.SerializableFlow;
+import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * A execução embarcada, e — mais importante — a conformidade com o
@@ -97,29 +103,125 @@ class EmbeddedWorkflowRunnerTest {
         assertThat(saida.getOperation()).isEqualTo("emit");
     }
 
+    /** Entrada → Condição → Saída: o ramo verdadeiro vai a "aceito", o falso a "recusado". */
+    private static WorkflowDocument triagem() {
+        return Workflows.define("triagem")
+                .named("Triagem embarcada")
+                .step("entrada", Nodes.component("input").labeled("Entrada"))
+                .step("decide", Nodes.component("condition").with("conditionExpression", "${input} == 'olá'"))
+                .step("aceito", Nodes.component("output").labeled("Aceito"))
+                .step("recusado", Nodes.component("output").labeled("Recusado"))
+                .edge("entrada", "decide")
+                .route("decide", "aceito", "true")
+                .route("decide", "recusado", "false")
+                .build();
+    }
+
     /**
-     * A execução de fato — que aqui termina em falha, porque nenhum componente
-     * chamado "input" está registrado neste classpath de teste.
+     * A execução de fato, com os passos do servidor (RCHFLW-37).
      *
-     * <p>O que se verifica não é o sucesso do fluxo (seria preciso um componente
-     * real), e sim que o runner <b>chega até o motor e volta com um resultado</b>
-     * em vez de estourar no caminho: documento → JSON → SerializableFlow →
-     * ArchFlowAgent → FlowResult.
+     * <p>Este teste aceitava FAILED, atribuindo a falha a "nenhum componente input registrado". O defeito
+     * era outro: o runner entregava ao motor o passo do transporte, que só sabia falhar — qualquer fluxo
+     * terminava FAILED no primeiro passo. Agora o resultado tem de ser COMPLETED, com a saída do ramo certo.
      */
     @Test
-    @DisplayName("executa de verdade e devolve um FlowResult, sem servidor")
+    @DisplayName("executa Entrada → Condição → Saída e termina COMPLETED com a saída do ramo escolhido")
     void runsAndReturnsAResult() {
         try (EmbeddedWorkflowRunner runner = EmbeddedWorkflowRunner.builder()
                 .agentId("teste")
                 .timeout(Duration.ofSeconds(30))
+                .environment(Map.of())
                 .build()) {
 
-            FlowResult result = runner.run(doc(), Map.of("input", "olá"));
+            FlowResult result = runner.run(triagem(), Map.of("input", "olá"));
 
-            assertThat(result)
-                    .as("o motor precisa devolver resultado mesmo quando o fluxo falha")
-                    .isNotNull();
-            assertThat(result.getStatus()).isNotNull();
+            assertThat(result.getStatus()).as(String.valueOf(result.getErrors()))
+                    .isEqualTo(ExecutionStatus.COMPLETED);
+            // Uma saída só: com os dois ramos percorridos viria o mapa das duas.
+            assertThat(result.getOutput()).hasValue("olá");
+        }
+    }
+
+    /**
+     * O nó {@code llm-chat} da DSL contra um servidor local no lugar do provedor: o adapter real, a chave do
+     * ambiente — nenhuma chamada externa.
+     */
+    @Test
+    @DisplayName("llm-chat roda embarcado com a chave do ambiente")
+    void llmChatAgainstALocalServer() throws Exception {
+        List<String> corpos = new CopyOnWriteArrayList<>();
+        List<String> autorizacoes = new CopyOnWriteArrayList<>();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/v1/chat/completions", troca -> {
+            corpos.add(new String(troca.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            autorizacoes.add(String.valueOf(troca.getRequestHeaders().getFirst("Authorization")));
+            byte[] resposta = """
+                    {"id":"c1","object":"chat.completion","created":1,"model":"m",
+                     "choices":[{"index":0,"message":{"role":"assistant","content":"oi, humano"},
+                     "finish_reason":"stop"}],
+                     "usage":{"prompt_tokens":1,"completion_tokens":2,"total_tokens":3}}
+                    """.getBytes(StandardCharsets.UTF_8);
+            troca.getResponseHeaders().add("Content-Type", "application/json");
+            troca.sendResponseHeaders(200, resposta.length);
+            troca.getResponseBody().write(resposta);
+            troca.close();
+        });
+        server.start();
+        String local = "http://127.0.0.1:" + server.getAddress().getPort() + "/v1";
+        // O destino vai no nó; a chave governada só sai para ele porque o ambiente o permite.
+        WorkflowDocument document = Workflows.define("conversa")
+                .step("entrada", Nodes.component("input"))
+                .step("chat", Nodes.llmChat("openrouter").with("model", "google/gemma-4-31b-it:free")
+                        .with("base.url", local))
+                .step("saida", Nodes.component("output"))
+                .edge("entrada", "chat")
+                .edge("chat", "saida")
+                .build();
+
+        try (EmbeddedWorkflowRunner runner = EmbeddedWorkflowRunner.builder()
+                .timeout(Duration.ofSeconds(30))
+                .environment(Map.of(
+                        "ARCHFLOW_LLM_KEYS_OPENROUTER", "chave-do-ambiente",
+                        "ARCHFLOW_LLM_ALLOWED_BASE_URLS", local))
+                .build()) {
+
+            FlowResult result = runner.run(document, Map.of("input", "olá"));
+
+            assertThat(result.getStatus()).as(String.valueOf(result.getErrors()))
+                    .isEqualTo(ExecutionStatus.COMPLETED);
+            assertThat(result.getOutput()).hasValue("oi, humano");
+            assertThat(corpos).singleElement().satisfies(corpo -> assertThat(corpo.replaceAll("\\s", ""))
+                    .contains("\"model\":\"google/gemma-4-31b-it:free\"")
+                    .contains("\"content\":\"olá\""));
+            assertThat(autorizacoes).singleElement().isEqualTo("Bearer chave-do-ambiente");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    /**
+     * Um nó que precisa do servidor não roda embarcado — e o runner diz isso antes do primeiro passo, em vez
+     * de executar o que vem antes e parar no meio.
+     */
+    @Test
+    @DisplayName("nó de aprovação falha antes do primeiro passo, dizendo que precisa do servidor")
+    void serverOnlyNodeFailsUpFront() {
+        WorkflowDocument document = Workflows.define("com-portao")
+                .step("entrada", Nodes.component("input"))
+                .step("portao", Nodes.approval().labeled("Revisão humana"))
+                .step("saida", Nodes.component("output"))
+                .edge("entrada", "portao")
+                .edge("portao", "saida")
+                .build();
+
+        try (EmbeddedWorkflowRunner runner = EmbeddedWorkflowRunner.builder()
+                .environment(Map.of())
+                .build()) {
+            assertThatThrownBy(() -> runner.run(document, Map.of("input", "olá")))
+                    .isInstanceOf(ArchflowClientException.class)
+                    .hasMessageContaining("o fluxo com-portao não pode rodar embarcado")
+                    .hasMessageContaining("o nó \"Revisão humana\" (portao) precisa do servidor archflow "
+                            + "(aprovação humana");
         }
     }
 

@@ -221,7 +221,7 @@ public br.com.archflow.plugin.api.catalog.ComponentCatalog componentCatalog() {
 A resolução `nome → executor` acontece em um único ponto, sem qualquer filtro:
 
 ```java
-// archflow-api/src/main/java/br/com/archflow/api/flow/ComponentStep.java:51-53
+// archflow-flow-runtime/src/main/java/br/com/archflow/api/flow/ComponentStep.java (antes em archflow-api)
 AIComponent component = catalog.getComponent(componentId).orElse(null);
 if (component == null) { ... "component not found: " + componentId ... }
 ```
@@ -355,7 +355,7 @@ transcript.append("\nAssistant: ").append(assistant)
 variáveis de contexto sem qualquer marcação:
 
 ```java
-// archflow-api/src/main/java/br/com/archflow/api/flow/ComponentStep.java:56-59
+// archflow-flow-runtime/src/main/java/br/com/archflow/api/flow/ComponentStep.java (antes em archflow-api)
 Object output = component.execute(operation, input, context);
 context.set(id, output);
 context.set(INPUT_KEY, output);

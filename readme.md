@@ -99,7 +99,15 @@ java -jar my-workflow.jar customer-support.json --input "Track order #123"
 - **Zero infrastructure**: No Spring Boot, no PostgreSQL, no Redis
 - **~19 MB JAR**: Includes flow engine, agent patterns, and LangChain4j runtime
 - **CLI interface**: `--input`, `--var key=value`, `--timeout`, `--threads`, `--plugins`
-- **Environment config**: `ARCHFLOW_API_KEY`, `ARCHFLOW_MODEL`, `ARCHFLOW_PROVIDER`
+- **Same steps as the server**: the file is materialized by the server's step factory (`archflow-flow-runtime`) —
+  input/output, condition/switch, decision, chat nodes (openai, anthropic, openrouter adapters) and plugin
+  components run the same way
+- **Server-only nodes refuse up front**: approval queue, orchestrate, `mcp-agent` and knowledge-base nodes, a
+  `decision` node citing a server-only provider (`llm`, `langchain4j-decisions`) and data nodes (vector store,
+  embedding, memory) without an adapter stop the run before the first step, naming the node and the reason
+- **Environment config** (the LLM key comes only from here, never from the workflow file): `ARCHFLOW_API_KEY`,
+  `ARCHFLOW_MODEL`, `ARCHFLOW_PROVIDER`, plus the server's `ARCHFLOW_LLM_KEYS_<PROVIDER>`, `ARCHFLOW_LLM_BASE_URL`
+  and `ARCHFLOW_LLM_ALLOWED_BASE_URLS`
 
 ---
 

@@ -42,6 +42,7 @@ implementation("br.com.archflow:archflow-sdk-java:1.5.0")
 | `archflow-sdk-java` | sim |
 | `archflow-model` | sim (dependência do dsl) |
 | `archflow-standalone` | **não** |
+| `archflow-flow-runtime` | **não** (dependência do standalone) |
 
 A ausência do `archflow-standalone` tem uma consequência concreta: o
 `EmbeddedWorkflowRunner` (seção 5) **não funciona** só com o que vem do Central.
@@ -304,6 +305,42 @@ try (EmbeddedWorkflowRunner runner = EmbeddedWorkflowRunner.builder()
 ```
 
 Exige `archflow-standalone` no classpath — ver a seção 1.
+
+**Os passos são os do servidor.** O documento é materializado pela mesma fábrica
+de passos do archflow-api (módulo `archflow-flow-runtime`): Entrada/Saída,
+`condition`/`switch`, `decision`, os nós de chat (`llm-chat`, com os adapters
+openai, anthropic e openrouter) e componentes de plugin executam aqui como lá.
+A entrada (`Map.of("input", "olá")`) vira variáveis pela mesma regra do servidor.
+
+**O que é do servidor não roda embarcado, e falha antes de começar.** Um nó de
+aprovação (`Nodes.approval()`), de orquestração, `mcp-agent` ou de busca/RAG
+com uma Base de conhecimento faz `run` lançar `ArchflowClientException` **antes
+do primeiro passo**, com a mensagem `o nó "X" (id) precisa do servidor archflow
+(motivo)`. Vale também para um nó `decision` que cite um provedor que só o
+servidor registra (`llm`, `langchain4j-decisions` — em `provider`, `fallbacks`,
+`cascade` ou `consensus`) e para um nó de dados (vector store, embedding,
+memória, RAG sem Base) sem adapter: o embarcado não traz os adapters de dados.
+Nenhum passo anterior roda, nenhuma chamada ao modelo sai. Para esses fluxos,
+publique e execute no servidor (5.1).
+
+As variáveis `tenantId`, `userId` e `sessionId` da entrada, quando presentes,
+viram o tenant, o usuário e a sessão do contexto da execução (sem elas: o tenant
+padrão e a sessão com o id do fluxo).
+
+**Chave de LLM só do ambiente.** A chave escrita num nó (`apiKey`, `api.key`,
+`fallback.api.key` do reserva do OpenRouter) é descartada. O runner lê as variáveis do processo:
+
+| variável | o que é |
+|---|---|
+| `ARCHFLOW_LLM_PROVIDER` (ou `ARCHFLOW_PROVIDER`) | provider padrão dos nós de chat que não dizem um |
+| `ARCHFLOW_LLM_MODEL` (ou `ARCHFLOW_MODEL`) | modelo desse provider |
+| `ARCHFLOW_LLM_API_KEY` (ou `ARCHFLOW_API_KEY`) | chave do provider padrão, e só dele |
+| `ARCHFLOW_LLM_KEYS_<PROVIDER>` | chave de um provider (`ARCHFLOW_LLM_KEYS_OPENAI`) |
+| `ARCHFLOW_LLM_BASE_URL` | endereço do provider padrão (um gateway) |
+| `ARCHFLOW_LLM_ALLOWED_BASE_URLS` | outros destinos que podem receber a chave (vírgulas) |
+| `ARCHFLOW_DECISION_KEYS_<REF>` | chave de um provedor do nó `decision` |
+
+O nome `ARCHFLOW_LLM_*` (o mesmo do servidor) vence quando os dois estão definidos.
 
 **Plugins não são carregados por default.** O `AgentConfig` do motor tem
 `pluginsPath` default `"plugins"`, e abrir um jar de plugin **executa o `onLoad`

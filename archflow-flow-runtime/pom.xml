@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>br.com.archflow</groupId>
+        <artifactId>archflow</artifactId>
+        <version>1.5.1</version>
+    </parent>
+
+    <artifactId>archflow-flow-runtime</artifactId>
+    <name>archflow-flow-runtime</name>
+    <description>Materializa o documento de workflow em passos executáveis, sem Spring: usado pelo servidor
+        (archflow-api), pelo runner standalone e pelo EmbeddedWorkflowRunner do SDK</description>
+
+    <!--
+      Por que este módulo existe (RCHFLW-37): a fábrica de passos morava no archflow-api, e o
+      archflow-api depende do archflow-standalone (ponte YAML). O standalone não podia usá-la, então
+      executava o SerializableStep cru, que só sabia falhar. Aqui ficam a materialização do documento
+      e os passos que não dependem do servidor; o que é do servidor (fila de aprovação, mcp-agent,
+      base de conhecimento, orquestração) entra pela interface ServerNodes, que o archflow-api
+      implementa. Sem ela, o nó é recusado antes do primeiro passo.
+
+      Os pacotes são os mesmos de antes (br.com.archflow.api.flow, ...adapter, ...decision): os
+      arquivos saíram do archflow-api sem mudar de pacote, para nenhum import do servidor mudar.
+    -->
+
+    <dependencies>
+        <dependency>
+            <groupId>br.com.archflow</groupId>
+            <artifactId>archflow-model</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- Validação do motor (FlowValidator) e o avaliador das condições (ConditionEvaluator). -->
+        <dependency>
+            <groupId>br.com.archflow</groupId>
+            <artifactId>archflow-core</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- ToolInterceptorChain, pela qual o ComponentStep invoca os componentes. -->
+        <dependency>
+            <groupId>br.com.archflow</groupId>
+            <artifactId>archflow-agent</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>br.com.archflow</groupId>
+            <artifactId>archflow-plugin-api</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>br.com.archflow</groupId>
+            <artifactId>archflow-decision</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- A SPI dos adapters (LangChainRegistry) e as políticas de chave/destino/modelo. -->
+        <dependency>
+            <groupId>br.com.archflow</groupId>
+            <artifactId>archflow-langchain4j-core</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>br.com.archflow</groupId>
+            <artifactId>archflow-langchain4j-provider-hub</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- A ponte do nó de chat decide pelo destino do OpenRouter (OpenRouterChatAdapter). -->
+        <dependency>
+            <groupId>br.com.archflow</groupId>
+            <artifactId>archflow-langchain4j-openrouter</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <version>2.17.0</version>
+        </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>
