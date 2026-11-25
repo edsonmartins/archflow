@@ -18,7 +18,10 @@ export interface TraceEntry {
     round: number
     detail: string
     confirmed: boolean | null
-    /** O componente que atendeu a subtarefa da linha (dispatched/failed/usage-unknown) — RCHFLW-64. */
+    /**
+     * O componente que atendeu a subtarefa da linha (dispatched/failed/usage-unknown) — RCHFLW-64 —, ou o que
+     * ficou fora do roteamento (excluded-from-routing, round 0, uma linha por componente) — RCHFLW-108.
+     */
     componentId?: string | null
 }
 

@@ -218,6 +218,9 @@
         "noConfirmedBudgetBeforePlanningHint": "O orçamento acabou antes do planejamento: nenhuma subtarefa foi planejada.",
         "failuresTitle": "{{failed}} de {{total}} subtarefas falharam antes da verificação",
         "failuresHint": "Motivos informados pelo worker, agrupados:",
+        "excludedTitle_one": "{{count}} agente do catálogo ficou fora do roteamento",
+        "excludedTitle_other": "{{count}} agentes do catálogo ficaram fora do roteamento",
+        "excludedHint": "Não rodam como sub-agente nesta configuração; nenhuma subtarefa é enviada a eles:",
         "traceHint_one": "{{count}} evento",
         "traceHint_other": "{{count}} eventos",
         "traceCols": {

@@ -218,6 +218,9 @@
         "noConfirmedBudgetBeforePlanningHint": "The budget ran out before planning: no subtask was planned.",
         "failuresTitle": "{{failed}} of {{total}} subtasks failed before verification",
         "failuresHint": "Reasons reported by the worker, grouped:",
+        "excludedTitle_one": "{{count}} catalog agent was left out of routing",
+        "excludedTitle_other": "{{count}} catalog agents were left out of routing",
+        "excludedHint": "They cannot run as a sub-agent in this configuration; no subtask is sent to them:",
         "traceHint_one": "{{count}} event",
         "traceHint_other": "{{count}} events",
         "traceCols": {

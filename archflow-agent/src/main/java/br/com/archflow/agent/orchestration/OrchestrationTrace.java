@@ -16,6 +16,9 @@ public final class OrchestrationTrace implements OrchestrationListener {
     /** Tipo da linha de {@link #onUsageUnknown} — contado na resposta do Labs (RCHFLW-62). */
     public static final String USAGE_UNKNOWN = "usage-unknown";
 
+    /** Tipo da linha de {@link #onExcludedFromRouting}: uma por componente fora do roteamento (RCHFLW-108). */
+    public static final String EXCLUDED_FROM_ROUTING = "excluded-from-routing";
+
     /** Tipo da linha de {@link #onNotDispatched}. */
     public static final String NOT_DISPATCHED = "not-dispatched";
 
@@ -41,6 +44,18 @@ public final class OrchestrationTrace implements OrchestrationListener {
      * dentro do fan-out, e o supervisor só relata a falha depois que o fan-out volta.
      */
     private final Map<String, String> agentBySubtask = new ConcurrentHashMap<>();
+
+    /**
+     * Uma linha por componente excluído, no round 0, com o componente na coluna "Agente" e o motivo no
+     * detalhe — para o Labs dizer por que um agente do catálogo nunca aparece nos despachos.
+     */
+    @Override
+    public void onExcludedFromRouting(List<SubAgentEligibility.Exclusion> excluded) {
+        for (SubAgentEligibility.Exclusion e : excluded) {
+            entries.add(new Entry(EXCLUDED_FROM_ROUTING, 0, e.componentId() + ": " + e.reason(), null,
+                    e.componentId()));
+        }
+    }
 
     @Override
     public void onPlanned(int round, List<?> items) {

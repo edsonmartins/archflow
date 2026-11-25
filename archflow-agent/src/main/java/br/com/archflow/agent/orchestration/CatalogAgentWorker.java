@@ -36,9 +36,9 @@ import java.util.Optional;
  *       ({@link AIAgent#supportedTaskTypes()}), com o texto em {@code description}, {@code request} e
  *       {@code query} — os nomes que os agentes leem. Agente que não declara tipo nenhum é recusado
  *       com esse motivo: adivinhar um tipo repetiria o defeito com outro nome;</li>
- *   <li>um componente {@code AGENT} que não é {@code AIAgent} (o {@code mcp-agent}) é executado pelo
+ *   <li>um componente {@code AGENT} que não é {@code AIAgent} é executado pelo
  *       {@link AIComponent#execute}, que é o caminho dele num fluxo, com a operação padrão que ele
- *       declara;</li>
+ *       declara. O {@code mcp-agent} era o caso concreto e não chega mais aqui — ver abaixo;</li>
  *   <li>toda falha sai como {@link Result#fail} com o id do componente e o motivo — nunca exceção
  *       solta nem sucesso vazio.</li>
  * </ul>
@@ -50,6 +50,14 @@ import java.util.Optional;
  * falha (ele pode ter gastado antes de falhar). Componente que rodou e não informou {@code tokensUsed}
  * gera {@link OrchestrationListener#onUsageUnknown} e debita zero: o aviso diz que o total é um piso, em
  * vez de um número inventado.
+ *
+ * <h2>Quem fica fora do roteamento (RCHFLW-108)</h2>
+ * O roteador pontua todo componente {@code AGENT}, inclusive os que não rodam como sub-agente — o
+ * {@code mcp-agent}, sem configuração de nó e sem host no {@link SubAgentContext}, era escolhido com score
+ * 0,05 e falhava em toda subtarefa. O worker percorre o ranking do roteador na ordem dele e fica com o
+ * primeiro que {@link SubAgentEligibility} deixa rodar: a ordem entre os elegíveis não muda e não há
+ * score mínimo novo. Quem foi excluído sai em {@link #excludedFromRouting()}, que o supervisor relata uma
+ * vez no início. Sem nenhum elegível pontuado, a subtarefa falha com "no agent matched", como antes.
  */
 public final class CatalogAgentWorker implements SubtaskWorker {
 
@@ -121,7 +129,11 @@ public final class CatalogAgentWorker implements SubtaskWorker {
     public Result<Object> apply(int round, String subtask) {
         Optional<ComponentQueryRouter.ScoredComponent> scored;
         try {
-            scored = router.route(subtask, ComponentType.AGENT);
+            // rank, e não route: o melhor do roteador pode ser um componente que não roda como sub-agente,
+            // e o seguinte no ranking é o que route teria devolvido sem ele (RCHFLW-108).
+            scored = router.rank(subtask, ComponentType.AGENT).stream()
+                    .filter(candidate -> SubAgentEligibility.canRunAsSubAgent(candidate.componentId()))
+                    .findFirst();
         } catch (RuntimeException e) {
             // Fora deste try a exceção subia ao orquestrador, que a convertia em falha sem o evento de
             // despacho: a subtarefa sumia do trace, do SSE e do estado (RCHFLW-64). Ninguém foi escolhido.
@@ -139,6 +151,15 @@ public final class CatalogAgentWorker implements SubtaskWorker {
             listener.onUsageUnknown(round, subtask, componentId);
         }
         return run.result();
+    }
+
+    /**
+     * Os agentes do catálogo (já recortado pelo escopo) que este worker nunca escolhe, e por quê. Lido do
+     * catálogo na hora, como o roteador faz a cada subtarefa.
+     */
+    @Override
+    public List<SubAgentEligibility.Exclusion> excludedFromRouting() {
+        return SubAgentEligibility.excludedIn(catalog);
     }
 
     private Run run(String componentId, String subtask) {

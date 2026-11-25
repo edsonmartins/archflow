@@ -235,3 +235,46 @@ describe('DynamicWorkflowPage — tokens, orçamento e agente', () => {
         expect(ui.queryByTestId('dw-budget-exhausted')).toBeNull()
     })
 })
+
+/**
+ * RCHFLW-108: o roteador mandava subtarefas ao mcp-agent, que não roda como sub-agente. Agora ele fica fora
+ * do roteamento, e a tela diz isso — quem não aparece nos despachos não some sem explicação.
+ */
+describe('DynamicWorkflowPage — componentes fora do roteamento', () => {
+    const MOTIVO = 'mcp-agent: não roda como sub-agente: precisa da configuração de um nó (systemPrompt, '
+        + 'servidor MCP, tools), que a instância do catálogo não tem, e do McpAgentHost, que o contexto de '
+        + 'sub-agente não repassa'
+
+    it('mostra quem ficou fora e por quê, e a linha do trace diz o agente', async () => {
+        const ui = await runWith({
+            confirmed: ['ok'], confirmedCount: 1, rounds: 1, subtasks: 2, failedCount: 1,
+            failures: [{ round: 1, subtask: 'Levantar preços', error: 'no agent matched subtask: Levantar preços' }],
+            tokensSpent: 0, usageUnknown: 0, budgetExhausted: false, notDispatched: 0,
+            trace: [
+                { type: 'excluded-from-routing', round: 0, detail: MOTIVO, confirmed: null, componentId: 'mcp-agent' },
+                { type: 'planned', round: 1, detail: '2 subtask(s)', confirmed: null },
+                { type: 'dispatched', round: 1, detail: 'research (score=0.30, success=true)', confirmed: null,
+                  componentId: 'research-agent' },
+            ],
+        })
+
+        const aviso = ui.getByTestId('dw-excluded')
+        expect(aviso.textContent).toContain('dynamicWorkflow.excludedTitle {"count":1}')
+        expect(aviso.textContent).toContain('dynamicWorkflow.excludedHint')
+        expect(within(aviso).getAllByRole('listitem').map(li => li.textContent)).toEqual([MOTIVO])
+
+        const linhas = ui.getAllByTestId('dw-trace-row').map(r => r.textContent ?? '')
+        expect(linhas[0]).toContain('excluded-from-routing')
+        expect(linhas[0]).toContain('| mcp-agent |')
+    })
+
+    it('sem componente excluído, não há aviso', async () => {
+        const ui = await runWith({
+            confirmed: ['ok'], confirmedCount: 1, rounds: 1, subtasks: 1, failedCount: 0, failures: [],
+            tokensSpent: 0, usageUnknown: 0, budgetExhausted: false, notDispatched: 0,
+            trace: [{ type: 'verified', round: 1, detail: 'ok', confirmed: true }],
+        })
+
+        expect(ui.queryByTestId('dw-excluded')).toBeNull()
+    })
+})

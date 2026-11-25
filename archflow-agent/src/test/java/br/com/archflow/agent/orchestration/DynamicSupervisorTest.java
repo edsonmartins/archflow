@@ -339,4 +339,96 @@ class DynamicSupervisorTest {
 
         assertThat(seen).containsExactly("1|a", "2|b");
     }
+
+    /**
+     * RCHFLW-108: quem o roteamento não escolhe é relatado UMA vez, no início, antes do primeiro
+     * planejamento — não por subtarefa, e não depois das falhas que explica.
+     */
+    @Test
+    void theRoutingExclusionsAreReportedOnceBeforeTheFirstPlanning() {
+        var excluded = List.of(new SubAgentEligibility.Exclusion("mcp-agent", "não roda como sub-agente"));
+        SubtaskWorker worker = new SubtaskWorker() {
+            @Override
+            public Result<Object> apply(int round, String subtask) {
+                return Result.success(subtask, Usage.ZERO);
+            }
+
+            @Override
+            public List<SubAgentEligibility.Exclusion> excludedFromRouting() {
+                return excluded;
+            }
+        };
+        List<String> events = new java.util.concurrent.CopyOnWriteArrayList<>();
+        OrchestrationListener listener = new OrchestrationListener() {
+            @Override
+            public void onExcludedFromRouting(List<SubAgentEligibility.Exclusion> e) {
+                events.add("excluded" + e);
+            }
+
+            @Override
+            public void onPlanned(int round, List<?> items) {
+                events.add("planned" + round);
+            }
+        };
+        AtomicInteger calls = new AtomicInteger();
+        Planner<String> planner = (goal, spec) -> calls.incrementAndGet() == 1 ? List.of("a") : List.of("a", "b");
+
+        new DynamicSupervisor(new DefaultOrchestrator(1)).run(Goal.of("audit"), config(5), planner, worker,
+                (finding, lens) -> true, BudgetLedger.unlimited(), listener);
+
+        assertThat(events).containsExactly("excluded" + excluded, "planned1", "planned2");
+    }
+
+    /**
+     * Um catálogo que lança em {@code listComponents} não derruba a execução no relato das exclusões: a
+     * falha continua saindo por subtarefa, do roteador, com linha de despacho no trace (RCHFLW-64), como
+     * antes da RCHFLW-108. Roteador e worker reais — é o {@code router.rank} que lista o catálogo de novo.
+     */
+    @Test
+    void aCatalogThatCannotBeListedStillFailsPerSubtaskInsteadOfAbortingTheRun() {
+        var catalog = org.mockito.Mockito.mock(br.com.archflow.plugin.api.catalog.ComponentCatalog.class);
+        org.mockito.Mockito.when(catalog.listComponents()).thenThrow(new IllegalStateException("catálogo fora"));
+        var trace = new OrchestrationTrace();
+        var worker = new CatalogAgentWorker(
+                new br.com.archflow.plugin.api.catalog.DefaultComponentQueryRouter(catalog), catalog,
+                org.mockito.Mockito.mock(br.com.archflow.model.engine.ExecutionContext.class), null, trace);
+
+        SupervisorResult result = new DynamicSupervisor(new DefaultOrchestrator(1)).run(Goal.of("audit"),
+                config(1), (goal, spec) -> List.of("compare freight suppliers"), worker, (finding, lens) -> true,
+                BudgetLedger.unlimited(), trace);
+
+        assertThat(result.failures()).singleElement().satisfies(f -> {
+            assertThat(f.subtask()).isEqualTo("compare freight suppliers");
+            assertThat(f.error()).contains("o roteador falhou").contains("catálogo fora");
+        });
+        assertThat(trace.entries()).anyMatch(e -> e.type().equals("dispatched"));
+        assertThat(trace.entries()).noneMatch(e -> e.type().equals(OrchestrationTrace.EXCLUDED_FROM_ROUTING));
+    }
+
+    /** Nada excluído, nada relatado: o trace de quem não exclui ninguém não ganha linha vazia. */
+    @Test
+    void aWorkerThatExcludesNothingReportsNoExclusion() {
+        var trace = new OrchestrationTrace();
+        SubtaskWorker worker = (round, subtask) -> Result.success(subtask, Usage.ZERO);
+
+        new DynamicSupervisor(new DefaultOrchestrator(1)).run(Goal.of("audit"), config(5),
+                (goal, spec) -> List.of("a"), worker, (finding, lens) -> true, BudgetLedger.unlimited(), trace);
+
+        assertThat(trace.entries()).noneMatch(e -> e.type().equals(OrchestrationTrace.EXCLUDED_FROM_ROUTING));
+    }
+
+    /** A linha do trace: uma por componente, no round 0, com o componente na coluna "Agente". */
+    @Test
+    void theTraceHasOneRowPerExcludedComponentWithItsReason() {
+        var trace = new OrchestrationTrace();
+
+        trace.onExcludedFromRouting(List.of(new SubAgentEligibility.Exclusion("mcp-agent", "sem host")));
+
+        assertThat(trace.entries()).singleElement().satisfies(e -> {
+            assertThat(e.type()).isEqualTo("excluded-from-routing");
+            assertThat(e.round()).isZero();
+            assertThat(e.componentId()).isEqualTo("mcp-agent");
+            assertThat(e.detail()).isEqualTo("mcp-agent: sem host");
+        });
+    }
 }

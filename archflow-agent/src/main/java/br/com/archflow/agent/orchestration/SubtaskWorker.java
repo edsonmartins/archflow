@@ -3,6 +3,8 @@ package br.com.archflow.agent.orchestration;
 import br.com.archflow.orchestration.Result;
 import br.com.archflow.orchestration.Worker;
 
+import java.util.List;
+
 /**
  * {@link Worker} da orquestração dinâmica que recebe a rodada junto com a subtarefa.
  *
@@ -16,6 +18,15 @@ public interface SubtaskWorker extends Worker<String, Object> {
 
     /** Executa {@code subtask}, planejada na rodada {@code round}. */
     Result<Object> apply(int round, String subtask);
+
+    /**
+     * Os componentes que este worker não escolhe para nenhuma subtarefa, com o motivo. O supervisor os
+     * relata uma vez, no início ({@link OrchestrationListener#onExcludedFromRouting}). Vazio por padrão:
+     * um worker que não roteia não exclui nada.
+     */
+    default List<SubAgentEligibility.Exclusion> excludedFromRouting() {
+        return List.of();
+    }
 
     /** Fora do supervisor não há rodada: vale 0. */
     @Override
