@@ -1,9 +1,12 @@
 package br.com.archflow.api.knowledge;
 
+import br.com.archflow.api.jobs.JobCancelledException;
 import br.com.archflow.api.jobs.JobContext;
 import br.com.archflow.api.jobs.JobHandler;
 import br.com.archflow.api.storage.FileStorageService;
 import br.com.archflow.api.storage.StoredFile;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -11,6 +14,8 @@ import java.util.Map;
 import java.util.UUID;
 
 public class DocumentIngestionHandler implements JobHandler {
+    private static final Logger log = LoggerFactory.getLogger(DocumentIngestionHandler.class);
+
     private final KnowledgeRepository repository;
     private final FileStorageService files;
     private final RecursiveTextChunker chunker;
@@ -83,8 +88,18 @@ public class DocumentIngestionHandler implements JobHandler {
             repository.saveDocument(withStatus(document, "READY", chunks.size(), null));
             context.progress(100, "Document ready");
         } catch (RuntimeException failure) {
-            repository.saveDocument(withStatus(document, "FAILED", 0,
-                    failure.getMessage() == null ? failure.toString() : failure.getMessage()));
+            String error = failure.getMessage() == null ? failure.toString() : failure.getMessage();
+            // Nem o JobWorker nem os stores registram a falha: sem esta linha o servidor não
+            // dizia nada e só o documento sabia o erro (RCHFLW-110). Vai a mensagem já limpa e a
+            // classe da causa raiz, sem a exceção: imprimir a cadeia levaria o INSERT do lote e o
+            // "Failing row contains" do Postgres, com o conteúdo do documento, para o log.
+            if (failure instanceof JobCancelledException) {
+                log.info("Ingestão do documento {} (tenant {}) cancelada", documentId, tenantId);
+            } else {
+                log.warn("Ingestão do documento {} (tenant {}) falhou: {} (causa raiz: {})", documentId,
+                        tenantId, error, FailureCause.of(failure).getClass().getName());
+            }
+            repository.saveDocument(withStatus(document, "FAILED", 0, error));
             throw failure;
         }
     }
