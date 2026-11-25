@@ -786,11 +786,17 @@ public class ArchflowBeanConfiguration {
             br.com.archflow.api.usage.RegistroDeUso registroDeUso,
             @Value("${archflow.flow.strict-conditions:false}") boolean strictConditions,
             org.springframework.beans.factory.ObjectProvider<br.com.archflow.api.agent.mcp.McpAgentHost>
-                    mcpAgentHost) {
+                    mcpAgentHost,
+            br.com.archflow.api.linktor.publisher.LinktorFlowPublisher linktorFlowPublisher) {
         // Registered before create(): the factory snapshots process-wide
         // listeners into the engine's composite lifecycle listener.
         br.com.archflow.engine.lifecycle.FlowLifecycleListeners.register(
                 new br.com.archflow.api.flow.StepRecordingListener(runtimeStore));
+        // O publicador do Linktor entra aqui, como parâmetro, e não no próprio bean (RCHFLW-112): ele se
+        // registrava ao nascer, e nada obrigava o Spring a criá-lo antes deste motor — que é declarado
+        // antes e fotografa o registro no create(). O motor nascia sem ele, e um fluxo com conversationId
+        // terminava COMPLETED sem publicar e sem log. A dependência explícita fixa a ordem.
+        br.com.archflow.engine.lifecycle.FlowLifecycleListeners.register(linktorFlowPublisher);
         // Toda travessia ganha um contador de uso e o relata no fim (RCHFLW-75): editor, lista,
         // retomada e MCP passam pelo motor, e só o VendaX punha contador no contexto.
         br.com.archflow.engine.lifecycle.FlowLifecycleListeners.register(
@@ -1189,19 +1195,15 @@ public class ArchflowBeanConfiguration {
      * {@code conversationId} has its final output automatically posted
      * as a Linktor message when the flow completes.
      *
-     * <p>Wire-up uses the process-wide
-     * {@link br.com.archflow.engine.lifecycle.FlowLifecycleListeners}
-     * registry: when {@link br.com.archflow.agent.ArchFlowAgent} builds
-     * its engine it snapshots this registry into a composite listener.</p>
+     * <p>Quem o liga ao motor é o bean {@code flowEngine}, que o recebe como parâmetro e o registra
+     * antes de criar o motor. Registrar aqui não bastava: o motor fotografa o registro ao nascer, e
+     * sem dependência entre os dois beans ele nascia primeiro (RCHFLW-112).</p>
      */
     @Bean
     @ConditionalOnMissingBean(br.com.archflow.api.linktor.publisher.LinktorFlowPublisher.class)
     public br.com.archflow.api.linktor.publisher.LinktorFlowPublisher linktorFlowPublisher(
             br.com.archflow.api.linktor.LinktorHttpClient linktorHttpClient) {
-        br.com.archflow.api.linktor.publisher.LinktorFlowPublisher publisher =
-                new br.com.archflow.api.linktor.publisher.LinktorFlowPublisher(linktorHttpClient);
-        br.com.archflow.engine.lifecycle.FlowLifecycleListeners.register(publisher);
-        return publisher;
+        return new br.com.archflow.api.linktor.publisher.LinktorFlowPublisher(linktorHttpClient);
     }
 
     @Bean

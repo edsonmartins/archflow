@@ -2153,8 +2153,10 @@
             "columns": {
                 "id": "ID",
                 "status": "Status",
+                "contact": "Contato",
                 "channel": "Canal",
                 "lastMessage": "Última mensagem",
+                "unread": "Não lidas",
                 "updated": "Atualizada",
                 "name": "Nome",
                 "email": "E-mail",
@@ -2169,6 +2171,7 @@
             "noMessagesHint": "O histórico aparece aqui assim que chegar a primeira mensagem.",
             "replyPlaceholder": "Escreva uma resposta…",
             "replyResolved": "Esta conversa está resolvida.",
+            "replyClosed": "Esta conversa está fechada.",
             "handoffHint": "Atribua a um operador ou encerre a conversa",
             "assignee": "Operador",
             "details": "Detalhes",
@@ -2178,7 +2181,24 @@
             "reply": "Resposta",
             "sendFailed": "Falha ao enviar",
             "handoff": "Transferir para humano",
-            "assigneePlaceholder": "ID do usuário alvo (vazio devolve à fila)",
+            "assigneePlaceholder": "ID do usuário no Linktor",
+            "assigneeChoose": "Escolha o operador",
+            "usersForbidden": "O Linktor não deixa esta chave de API listar os usuários: a lista exige papel admin ou owner. Informe o ID do usuário no Linktor.",
+            "usersFailed": "Não foi possível carregar os operadores do Linktor ({{error}}). Informe o ID do usuário no Linktor.",
+            "usersEmpty": "O Linktor não devolveu nenhum usuário. Informe o ID do usuário no Linktor.",
+            "usersUnauthorized": "O Linktor não aceitou as credenciais (HTTP 401): a chave de API é inválida ou expirou. Revise-a na configuração do Linktor; até lá, informe o ID do usuário no Linktor.",
+            "userStatus": {
+                "active": "ativo",
+                "inactive": "inativo",
+                "suspended": "suspenso"
+            },
+            "sender": {
+                "contato": "Cliente",
+                "operador": "Operador",
+                "bot": "Bot",
+                "sistema": "Sistema",
+                "desconhecido": "Remetente desconhecido"
+            },
             "assign": "Atribuir",
             "assigned": "Atribuída",
             "assignedMsg": "Conversa transferida para {{assignee}}",
@@ -2190,8 +2210,10 @@
         },
         "status": {
             "open": "aberta",
+            "pending": "pendente",
             "assigned": "atribuída",
-            "resolved": "resolvida"
+            "resolved": "resolvida",
+            "closed": "fechada"
         }
     },
     "chat": {

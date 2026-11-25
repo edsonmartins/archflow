@@ -45,7 +45,16 @@ public class LinktorConfigControllerImpl implements LinktorConfigController {
      * exposed through HTTP.
      */
     public LinktorConfigDto rawSnapshot() {
-        return resolve(TenantContext.currentTenantId());
+        return rawSnapshot(TenantContext.currentTenantId());
+    }
+
+    /**
+     * Como {@link #rawSnapshot()}, para um tenant explícito. Quem roda fora de uma requisição — o motor
+     * publicando a resposta de um fluxo — não tem de onde o {@link TenantContext} tirar o tenant, e leria
+     * a configuração do tenant padrão em vez da do dono da execução.
+     */
+    public LinktorConfigDto rawSnapshot(String tenantId) {
+        return resolve(tenantId);
     }
 
     @Override

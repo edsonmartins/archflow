@@ -1,6 +1,7 @@
 package br.com.archflow.api.web.linktor;
 
 import br.com.archflow.api.linktor.LinktorHttpClient;
+import br.com.archflow.api.linktor.LinktorHttpException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -91,12 +92,26 @@ public class SpringLinktorInboxController {
         return safe(client::listChannels);
     }
 
+    /**
+     * Usuários do Linktor, para a transferência escolher o operador pelo nome (o Linktor atribui por
+     * {@code user_id}, um UUID que ninguém sabe de cor). Uma chave de API não lista usuários — o Linktor
+     * exige papel admin/owner — e a recusa chega com {@code linktorStatus}, para a tela dizer isso e
+     * manter o campo de id.
+     */
+    @GetMapping("/users")
+    public ResponseEntity<?> users() {
+        return safe(client::listUsers);
+    }
+
     // ── helpers ──────────────────────────────────────────────────────
 
     /**
      * Single place for error translation: network/HTTP failures become
      * {@code 502 Bad Gateway} so the UI can distinguish them from a
      * 4xx on our own endpoint.
+     *
+     * <p>O status do Linktor vai em {@code linktorStatus}, e não como o status desta resposta: um 401
+     * do Linktor repassado como 401 faria a UI encerrar a sessão do archflow, que está válida.</p>
      */
     private <T> ResponseEntity<?> safe(IoCallable<T> body) {
         try {
@@ -104,6 +119,9 @@ public class SpringLinktorInboxController {
         } catch (IllegalStateException e) {
             return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
                     .body(Map.of("error", e.getMessage()));
+        } catch (LinktorHttpException e) {
+            return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                    .body(Map.of("error", e.getMessage(), "linktorStatus", e.status()));
         } catch (IOException e) {
             return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
                     .body(Map.of("error", e.getMessage()));
