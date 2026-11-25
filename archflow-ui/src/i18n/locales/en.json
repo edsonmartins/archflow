@@ -380,7 +380,7 @@
             "generate": "Generate",
             "started": "Copilot is building your flow",
             "startedMsg": "Nodes will appear on the canvas as the copilot works. Open the copilot sidebar to follow along.",
-            "promptTemplate": "Build a workflow on the editor canvas for the following goal. Use the addNode and connectNodes tools with the available node types, connect the nodes in a logical order, and give each node a short descriptive label. Goal: {{goal}}"
+            "promptTemplate": "Build a workflow on the editor canvas for the following goal. Create each node with the addNode tool, using the available node types and a short descriptive label; addNode returns the id of the created node. Configure each node with what the goal asks for (prompt and model of an llm-chat, expression of a condition…), in the addNode config parameter or with configureNode, using only the config keys listed for that node type. Then connect the nodes in a logical order with connectNodes, using exactly the ids returned by addNode (never invent ids). To fix a node you created or a wrong edge, use removeNode/removeEdge instead of adding another node; do not remove nodes that were already in the flow unless the goal asks for it (the user will have to confirm). When you are done, reply with a short summary of the flow. Goal: {{goal}}"
         },
         "properties": {
             "title": "Properties",
@@ -1644,10 +1644,17 @@
     },
     "copilot": {
         "errors": {
+            "queuedConnectFailed": "Connection requested from the copilot not applied: node {{source}} or {{target}} is not in the flow.",
             "generateFailed": "Could not generate the flow",
             "runFailed": "The copilot could not reply",
             "apiKeyHint": "Configure the platform's LLM key.",
             "unknown": "Unknown error while running the agent."
+        },
+        "confirmRemoveNode": {
+            "title": "Remove a node from your flow?",
+            "message": "The copilot wants to remove the node \"{{label}}\" ({{id}}), which was already in the flow, together with its edges.",
+            "confirm": "Remove",
+            "cancel": "Keep the node"
         },
         "tryHint": "Open the sidebar (bottom-right) and try one of these",
         "exampleTitles": {

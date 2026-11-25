@@ -10,6 +10,7 @@ import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
+import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
@@ -25,8 +26,11 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 import static br.com.archflow.api.agui.AgUiEvent.fields;
@@ -46,6 +50,11 @@ import static br.com.archflow.api.agui.AgUiEvent.fields;
  * (text-based tool loop + guardrails) can't stream user-facing tokens while still
  * parsing tool calls from the same text; native tool-calling + streaming is the
  * follow-up.
+ *
+ * <p>Uma requisição é uma chamada ao modelo; o laço de ferramentas fica no browser. Quando uma
+ * ferramenta do front tem {@code followUp} (addNode devolve o id do nó, e o agente precisa dele para o
+ * connectNodes), o CopilotKit executa o lote e faz OUTRO POST com o histórico — as chamadas do
+ * assistente e os resultados — que {@link #buildMessages} remonta como pares chamada/resultado.
  */
 @RestController
 @RequestMapping("/ag-ui")
@@ -53,6 +62,9 @@ public class AgUiAgentController {
 
     private static final String DEFAULT_SYSTEM_PROMPT =
             "You are the archflow assistant. Be concise and helpful.";
+
+    /** Resposta de uma chamada sem resultado (ferramenta que não devolve nada, ex.: navigateTo). */
+    private static final String NO_TOOL_RESULT = "(no result)";
 
     private final LLMConfigResolver llmConfigResolver;
     private final ResolvedLLMConfig platformDefault;
@@ -162,16 +174,40 @@ public class AgUiAgentController {
                 : DEFAULT_SYSTEM_PROMPT));
 
         if (input != null && input.messages() != null) {
+            Map<String, String> toolResults = toolResultsById(input.messages());
+            Set<String> answered = new HashSet<>();
             for (Map<String, Object> m : input.messages()) {
                 String role = String.valueOf(m.get("role"));
                 Object content = m.get("content");
                 String text = content == null ? "" : content.toString();
+                List<ToolExecutionRequest> calls = "assistant".equals(role) ? toolCallsOf(m) : List.of();
+                if (!calls.isEmpty()) {
+                    // A rodada de acompanhamento do CopilotKit (followUp) só serve se o modelo enxergar o que
+                    // pediu e o que voltou: era aqui que a mensagem do assistente com toolCalls (content vazio)
+                    // sumia e o resultado virava uma fala de usuário solta, sem dizer de qual chamada era — o
+                    // modelo recebia "node-…-1", "node-…-2" (na ordem INVERSA: o CopilotKit insere cada
+                    // resultado logo após a mensagem) e não sabia qual nó era qual para o connectNodes.
+                    messages.add(text.isBlank() ? AiMessage.from(calls) : AiMessage.from(text, calls));
+                    for (ToolExecutionRequest call : calls) {
+                        // Toda chamada precisa de resposta, ou o provedor recusa o histórico (OpenAI: 400).
+                        String result = toolResults.getOrDefault(call.id(), "");
+                        answered.add(call.id());
+                        messages.add(ToolExecutionResultMessage.from(call.id(), call.name(),
+                                fence.wrap(call.name(), result.isBlank() ? NO_TOOL_RESULT : result)));
+                    }
+                    continue;
+                }
+                if ("tool".equals(role) && answered.contains(String.valueOf(m.get("toolCallId")))) {
+                    continue;
+                }
                 if (text.isBlank()) {
                     continue;
                 }
                 if ("assistant".equals(role)) {
                     messages.add(AiMessage.from(text));
                 } else if ("tool".equals(role)) {
+                    // Resultado sem a chamada correspondente no histórico: sem o par, o provedor recusaria
+                    // um ToolExecutionResultMessage, então segue como dado cercado na fala do usuário.
                     // Resultado de tool do frontend: dado, não instrução.
                     messages.add(UserMessage.from(fence.wrap("frontend-tool", text)));
                 } else if (!"system".equals(role)) {
@@ -184,6 +220,43 @@ public class AgUiAgentController {
             messages.add(UserMessage.from("Hello"));
         }
         return messages;
+    }
+
+    /** Resultado das mensagens {@code role:tool} do histórico, pelo {@code toolCallId} da chamada. */
+    private static Map<String, String> toolResultsById(List<Map<String, Object>> history) {
+        Map<String, String> byId = new HashMap<>();
+        for (Map<String, Object> m : history) {
+            Object id = m.get("toolCallId");
+            if ("tool".equals(String.valueOf(m.get("role"))) && id != null) {
+                Object content = m.get("content");
+                byId.put(id.toString(), content == null ? "" : content.toString());
+            }
+        }
+        return byId;
+    }
+
+    /** Os {@code toolCalls} AG-UI ({id, function:{name, arguments}}) de uma mensagem do assistente. */
+    private static List<ToolExecutionRequest> toolCallsOf(Map<String, Object> message) {
+        if (!(message.get("toolCalls") instanceof List<?> raw)) {
+            return List.of();
+        }
+        List<ToolExecutionRequest> calls = new ArrayList<>();
+        for (Object item : raw) {
+            Map<String, Object> call = asMap(item);
+            Map<String, Object> function = asMap(call.get("function"));
+            Object id = call.get("id");
+            Object name = function.get("name");
+            if (id == null || name == null) {
+                continue;
+            }
+            Object args = function.get("arguments");
+            calls.add(ToolExecutionRequest.builder()
+                    .id(id.toString())
+                    .name(name.toString())
+                    .arguments(args == null ? "{}" : args.toString())
+                    .build());
+        }
+        return calls;
     }
 
     /**

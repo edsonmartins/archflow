@@ -133,8 +133,16 @@ export function WorkflowEditor() {
   const { t, i18n } = useTranslation()
 
   const {
-    currentWorkflow: current, fetchWorkflow: loadWorkflow, updateWorkflow, renameCurrent, loading: isSaving,
+    currentWorkflow: storedWorkflow, fetchWorkflow: loadWorkflow, updateWorkflow, renameCurrent, loading: isSaving,
   } = useWorkflowStore()
+  // Rota cujo fetch já respondeu. O store guarda o currentWorkflow depois que o editor desmonta: ao abrir
+  // /editor/B com A na memória, A apareceria (editável) até B chegar — a fila do copiloto (createFlow →
+  // addNode) era drenada nesse canvas de A e sumia quando B carregava, e um Salvar nessa janela gravava
+  // em A. Mesmo com o id certo a cópia guardada pode ser velha (é recarregada e o canvas remonta). Então,
+  // com id na rota, o editor só trata como aberto o fluxo da rota, e depois do fetch. Sem id (/editor, o
+  // item de menu) continua mostrando o último fluxo aberto.
+  const [loadedId, setLoadedId] = useState<string | null>(null)
+  const current = !id || (storedWorkflow?.id === id && loadedId === id) ? storedWorkflow : null
   // Timestamp (epoch millis) of the most recent successful save. Used
   // by the "saved N seconds ago" indicator in the toolbar.
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(null)
@@ -279,7 +287,9 @@ export function WorkflowEditor() {
     let cancelled = false
     const hadSameId = useWorkflowStore.getState().currentWorkflow?.id === id
     loadWorkflow(id).then(() => {
-      if (!cancelled && hadSameId) setCanvasRevision(v => v + 1)
+      if (cancelled) return
+      if (hadSameId) setCanvasRevision(v => v + 1)
+      setLoadedId(id)
     })
     return () => { cancelled = true }
   }, [id, loadWorkflow])
@@ -947,6 +957,7 @@ export function WorkflowEditor() {
                 onNodeSelect={handleNodeSelect}
                 onExecutionRequest={handleExecute}
                 keyboardActive={view === 'canvas'}
+                workflowId={current?.id}
               />
             ) : (
               <EmptyCanvas />

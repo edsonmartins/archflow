@@ -380,7 +380,7 @@
             "generate": "Gerar",
             "started": "O copilot está montando seu fluxo",
             "startedMsg": "Os nós vão aparecendo no canvas conforme o copilot trabalha. Abra a barra do copilot para acompanhar.",
-            "promptTemplate": "Monte um workflow no canvas do editor para o objetivo a seguir. Use as ferramentas addNode e connectNodes com os tipos de nó disponíveis, conecte os nós em ordem lógica e dê a cada nó um rótulo curto e descritivo. Objetivo: {{goal}}"
+            "promptTemplate": "Monte um workflow no canvas do editor para o objetivo a seguir. Crie cada nó com a ferramenta addNode, usando os tipos de nó disponíveis e um rótulo curto e descritivo; o addNode devolve o id do nó criado. Configure cada nó com o que o objetivo pede (prompt e modelo de um llm-chat, expressão de um condition…), no parâmetro config do addNode ou com configureNode, usando só as chaves de config listadas para o tipo do nó. Depois ligue os nós em ordem lógica com connectNodes, usando exatamente os ids devolvidos pelo addNode (nunca invente ids). Para corrigir um nó que você criou ou uma ligação errada, use removeNode/removeEdge em vez de criar outro nó; não remova nós que já estavam no fluxo, a menos que o objetivo peça (o usuário terá de confirmar). Ao terminar, responda com um resumo curto do fluxo montado. Objetivo: {{goal}}"
         },
         "properties": {
             "title": "Propriedades",
@@ -1644,10 +1644,17 @@
     },
     "copilot": {
         "errors": {
+            "queuedConnectFailed": "Conexão pedida ao copiloto não aplicada: o nó {{source}} ou {{target}} não existe no fluxo.",
             "generateFailed": "Não foi possível gerar o fluxo",
             "runFailed": "O copilot não conseguiu responder",
             "apiKeyHint": "Configure a chave de LLM da plataforma.",
             "unknown": "Erro desconhecido na execução do agente."
+        },
+        "confirmRemoveNode": {
+            "title": "Remover um nó do seu fluxo?",
+            "message": "O copiloto quer remover o nó \"{{label}}\" ({{id}}), que já estava no fluxo, junto com as ligações dele.",
+            "confirm": "Remover",
+            "cancel": "Manter o nó"
         },
         "tryHint": "Abra a barra lateral (canto inferior direito) e experimente um destes",
         "exampleTitles": {
