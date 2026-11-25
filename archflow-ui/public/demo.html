@@ -187,7 +187,7 @@
       <archflow-designer
         id="designer"
         workflow-id=""
-        api-base="http://localhost:8080/api"
+        api-base="/api"
         theme="dark"
         width="100%"
         height="500px">
@@ -208,10 +208,10 @@
 
   <!-- Load the Web Component -->
   <script type="module">
-    import { ArchflowDesigner } from './src/web-component/index.ts';
-
-    // Register the web component
-    customElements.define('archflow-designer', ArchflowDesigner);
+    // O mesmo bundle que o trecho de Publicar › Incorporar usa, servido na raiz pela imagem (RCHFLW-87).
+    // O módulo registra o <archflow-designer> sozinho ao ser importado — um customElements.define aqui
+    // lançaria "already been defined".
+    await import('/archflow-designer.js');
 
     // Get the designer element
     const designer = document.getElementById('designer');
