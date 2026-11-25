@@ -267,7 +267,10 @@ class DesignerAdapterKeysConformanceTest {
         assertThat(embedding.dataInput("embed", Map.of("input", "olá"))).isEqualTo("olá");
         assertThat(node("rag", "chain", Map.of(), "rag").dataOperation(null)).isEqualTo("query");
         assertThatThrownBy(() -> node("redis", "memory", Map.of(), "memory").dataOperation("execute"))
-                .hasMessageContaining("add, get ou clear");
+                .hasMessageContaining("add, get ou clear")
+                // RCHFLW-115: o painel tem o campo — a mensagem manda escolher nele, em vez de dizer que não existe.
+                .hasMessageContaining("escolha a Operação no painel")
+                .satisfies(e -> assertThat(e.getMessage()).doesNotContain("o painel ainda não tem esse campo"));
 
         var store = node("pgvector", "vectorstore",
                 DesignerAdapterKeys.translate("vectorstore", "pgvector", Map.of("topK", 2, "minScore", "0.5")),
@@ -306,6 +309,55 @@ class DesignerAdapterKeysConformanceTest {
         assertThatThrownBy(() -> new LangChainAdapterComponent("pgvector", "vectorstore", Map.of(), KEYS)
                 .dataOperation("execute"))
                 .hasMessageContaining("search, remove ou removeAll");
+    }
+
+    /** Os itens de {@code export const <nome> = [...]} do dataNodeKeys.ts. */
+    private static List<String> lista(String nome) throws Exception {
+        Matcher m = Pattern.compile(nome + "\\s*=\\s*\\[([^\\]]*)\\]").matcher(Files.readString(DATA_KEYS));
+        assertThat(m.find()).as("%s em dataNodeKeys.ts", nome).isTrue();
+        List<String> out = new java.util.ArrayList<>();
+        Matcher item = Pattern.compile("'([^']+)'").matcher(m.group(1));
+        while (item.find()) {
+            out.add(item.group(1));
+        }
+        return out;
+    }
+
+    @Test
+    @DisplayName("RCHFLW-115: a Operação e o Papel da memória no painel são os que a ponte e os adapters aceitam")
+    void operacaoEPapelDaMemoria() throws Exception {
+        assertThat(lista("MEMORY_OPERATIONS")).isEqualTo(LangChainAdapterComponent.MEMORY_OPERATIONS);
+        assertThat(String.join(", ", LangChainAdapterComponent.MEMORY_OPERATIONS.subList(0, 2)) + " ou "
+                + LangChainAdapterComponent.MEMORY_OPERATIONS.get(2))
+                .as("o que a recusa sugere")
+                .isEqualTo(LangChainAdapterComponent.OPERATIONS_BY_ADAPTER_TYPE.get("memory"));
+        assertThat(lista("MEMORY_ROLES")).isEqualTo(LangChainAdapterComponent.MEMORY_ROLES);
+        // O painel grava as duas chaves (o painelEspelhaATabela confere que a tabela as conhece).
+        assertThat(keys(section(Files.readString(PANEL), "MEMORY FIELDS"))).contains("operation", "memoryRole");
+
+        Map<String, Object> config = DesignerAdapterKeys.translate("memory", "redis", Map.of("memoryBackend", "redis",
+                "operation", "add", "memoryRole", "ai"));
+        assertThat(config).containsEntry("operation", "add").containsEntry(LangChainAdapterComponent.MEMORY_ROLE, "ai")
+                .doesNotContainKey("memoryRole");
+        var memoria = node("redis", "memory", config, "memory");
+        for (String role : LangChainAdapterComponent.MEMORY_ROLES) {
+            var noComPapel = node("redis", "memory", Map.of(LangChainAdapterComponent.MEMORY_ROLE, role), "memory");
+            assertThat(noComPapel.memoryMessage("oi").type().name()).isEqualToIgnoringCase(role);
+        }
+        assertThat(memoria.dataInput("add", Map.of("input", "resposta do modelo")))
+                .isEqualTo(dev.langchain4j.data.message.AiMessage.from("resposta do modelo"));
+        assertThatThrownBy(() -> node("redis", "memory", Map.of(), "memory").dataInput("add", "oi"))
+                .hasMessageContaining("Escolha o Papel da mensagem no painel");
+        assertThatThrownBy(() -> memoria.dataInput("add", " "))
+                .hasMessageContaining("não recebeu nada para guardar");
+
+        Object historico = LangChainAdapterComponent.dataOutput(List.of(
+                dev.langchain4j.data.message.UserMessage.from("oi"),
+                dev.langchain4j.data.message.AiMessage.from("olá")));
+        assertThat(historico).isInstanceOf(List.class);
+        assertThat((List<?>) historico).hasSize(2)
+                .allSatisfy(m -> assertThat(m).isInstanceOf(Map.class))
+                .extracting(m -> (Object) ((Map<?, ?>) m).get("type")).containsExactly("USER", "AI");
     }
 
     @Test

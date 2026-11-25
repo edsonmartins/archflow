@@ -1,1 +1,2 @@
 br.com.archflow.api.flow.adapter.LangChainAdapterBridgeTest$TestAdapterFactory
+br.com.archflow.api.flow.MemoriaDoDesignerExecutaTest$MemoriaH2Factory

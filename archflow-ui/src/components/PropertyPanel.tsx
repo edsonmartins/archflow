@@ -21,7 +21,7 @@ import { SubflowFields } from './PropertyPanel/fields/SubflowFields'
 import { SkillsFields } from './PropertyPanel/fields/SkillsFields'
 import { DecisionFields } from './PropertyPanel/fields/DecisionFields'
 import { KnowledgeBaseField } from './PropertyPanel/fields/KnowledgeBaseField'
-import { knowledgeBaseOf } from './FlowCanvas/dataNodeKeys'
+import { MEMORY_OPERATIONS, MEMORY_ROLES, knowledgeBaseOf } from './FlowCanvas/dataNodeKeys'
 import { ServerConnectionField, VectorStoreFields } from './PropertyPanel/fields/VectorStoreFields'
 import { ApprovalFields } from './PropertyPanel/fields/ApprovalFields'
 import { ExecutionLogs, OutputPreview } from './PropertyPanel/fields/ExecutionPanels'
@@ -153,8 +153,9 @@ function NodeFields({ nodeId, nodeData, readOnly }: { nodeId: string; nodeData: 
   const isEmbedding = nodeData.nodeType === 'embedding'
   const isRag       = nodeData.nodeType === 'rag'
   const isMemory    = ['memory', 'memory-store'].includes(nodeData.nodeType)
-  // Memória e Vector store não têm operação padrão no motor (LangChainAdapterComponent), e o painel não tem o
-  // campo: sem 'operation' escrita no nó, a execução sempre falha — o painel diz, e o Executar bloqueia.
+  // Memória e Vector store não têm operação padrão no motor (LangChainAdapterComponent). A Memória tem o campo
+  // Operação (RCHFLW-115); o Vector store ainda não: sem 'operation' escrita no nó, ele sempre falha — o painel diz,
+  // e o Executar bloqueia.
   const hasOperation = storedChoice(nodeData, 'operation') != null
   // O embedding local exige caminhos que o painel não tem (LocalEmbeddingAdapter.validate).
   const localEmbeddingIncomplete = storedChoice(nodeData, 'embeddingProvider') === 'local'
@@ -457,10 +458,31 @@ function NodeFields({ nodeId, nodeData, readOnly }: { nodeId: string; nodeData: 
       {/* ════════════════════════════════════════════════════════ */}
       {/*  MEMORY FIELDS                                         */}
       {/* ════════════════════════════════════════════════════════ */}
-      {isMemory && !hasOperation && (
-        <Alert color="orange" variant="light" p="xs" data-testid="memory-needs-operation">
-          <Text size="xs">{f('memoryNeedsOperation')}</Text>
-        </Alert>
+      {/* A operação é escolha do autor — o motor não tem padrão (guardar, ler ou limpar) e o Executar a exige.
+          As opções são as que os adapters de memória aceitam (LangChainAdapterComponent.MEMORY_OPERATIONS). */}
+      {isMemory && (
+        <Select
+          label={f('memoryOperation')}
+          withAsterisk
+          value={storedChoice(nodeData, 'operation')}
+          onChange={choose('operation')}
+          size="xs"
+          data={MEMORY_OPERATIONS.map(op => ({ value: op, label: f(`memoryOperationOptions.${op}`) }))}
+          description={f('memoryOperationHint')}
+          styles={FIELD_STYLES}
+        />
+      )}
+      {/* O add guarda a entrada como uma mensagem; os adapters exigem saber de quem ela é. */}
+      {isMemory && storedChoice(nodeData, 'operation') === 'add' && (
+        <Select
+          label={f('memoryRole')}
+          withAsterisk
+          value={storedChoice(nodeData, 'memoryRole')}
+          onChange={choose('memoryRole')}
+          size="xs"
+          data={MEMORY_ROLES.map(role => ({ value: role, label: f(`memoryRoleOptions.${role}`) }))}
+          styles={FIELD_STYLES}
+        />
       )}
       {isMemory && catalog.memories.length > 0 && (
         <>
