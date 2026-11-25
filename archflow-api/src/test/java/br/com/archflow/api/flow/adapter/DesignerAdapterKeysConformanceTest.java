@@ -55,7 +55,8 @@ class DesignerAdapterKeysConformanceTest {
     private static final Map<String, Object> SERVER = Map.of(
             "archflow.adapters.pgvector.principal.jdbc-url", "jdbc:postgresql://db.interno:5432/vetores",
             "archflow.adapters.pgvector.principal.username", "archflow",
-            "archflow.adapters.pgvector.principal.password", "s3nha",
+            // Valores fictícios de teste (falso positivo do scanner de segredos).
+            "archflow.adapters.pgvector.principal.password", "s3nha", // ggignore
             "archflow.adapters.redis.cache.host", "redis.interno",
             "archflow.adapters.redis.cache.port", "6380",
             "archflow.adapters.pinecone.pc.api-url", "https://idx.svc.pinecone.io",
@@ -215,7 +216,7 @@ class DesignerAdapterKeysConformanceTest {
         Map<String, Object> props = effective("vectorstore", Map.of("vectorBackend", "pgvector",
                 "pgDatasource", "principal", "pgDimensions", 8,
                 "pgvector.jdbcUrl", "jdbc:postgresql://servidor-de-quem-edita/x",
-                "pgvector.password", "da-mao", "vectorRedisUrl", "redis://:pw@fora:6379"));
+                "pgvector.password", "da-mao", "vectorRedisUrl", "redis://:pw@fora:6379")); // ggignore
 
         assertThat(props).containsEntry("pgvector.jdbcUrl", "jdbc:postgresql://db.interno:5432/vetores")
                 .containsEntry("pgvector.password", "s3nha")
