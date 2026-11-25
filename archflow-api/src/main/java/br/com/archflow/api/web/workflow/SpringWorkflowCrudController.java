@@ -2,6 +2,7 @@ package br.com.archflow.api.web.workflow;
 
 import br.com.archflow.api.agent.mcp.McpAgentHost;
 import br.com.archflow.api.audit.AuditTrail;
+import br.com.archflow.api.config.TenantContext;
 import br.com.archflow.api.flow.RunInputSeeding;
 import br.com.archflow.api.flow.WorkflowDeserializer;
 import br.com.archflow.engine.api.FlowEngine;
@@ -9,6 +10,7 @@ import br.com.archflow.observability.audit.AuditAction;
 import br.com.archflow.engine.persistence.FlowRepository;
 import br.com.archflow.model.engine.DefaultExecutionContext;
 import br.com.archflow.model.engine.ExecutionContext;
+import br.com.archflow.model.flow.CanvasAnnotation;
 import br.com.archflow.model.flow.Flow;
 import br.com.archflow.model.flow.FlowResult;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
@@ -25,6 +27,9 @@ import java.util.*;
  * <p>Serves the frontend's workflow list/editor. Stores workflow JSON documents
  * in memory — suitable for development and demos. In production, replace with
  * a database-backed implementation.
+ *
+ * <p>Tudo aqui age só dentro do tenant da requisição ({@link #tenant()}): um workflow de outro tenant
+ * responde 404, como se não existisse (RCHFLW-73).
  */
 @RestController
 @RequestMapping("/api/workflows")
@@ -52,9 +57,17 @@ public class SpringWorkflowCrudController {
         this.mcpAgentHost = mcpAgentHost;
     }
 
+    /**
+     * Tenant da requisição, resolvido no servidor (JWT, personificação verificada ou o padrão) — nunca
+     * do corpo. Lido no início de cada handler, na thread do servlet.
+     */
+    private static String tenant() {
+        return TenantContext.currentTenantId();
+    }
+
     @GetMapping
     public List<Map<String, Object>> list() {
-        return store.workflows().stream()
+        return store.workflows(tenant()).stream()
                 .map(this::toSummary)
                 .sorted(Comparator.comparing((Map<String, Object> m) ->
                         m.getOrDefault("updatedAt", "").toString()).reversed())
@@ -63,7 +76,7 @@ public class SpringWorkflowCrudController {
 
     @GetMapping("/{id}")
     public ResponseEntity<Map<String, Object>> get(@PathVariable String id) {
-        var wf = store.getWorkflow(id);
+        var wf = store.getWorkflow(tenant(), id);
         return wf != null ? ResponseEntity.ok(wf) : ResponseEntity.notFound().build();
     }
 
@@ -76,7 +89,7 @@ public class SpringWorkflowCrudController {
         created.put("updatedAt", Instant.now().toString());
         created.putIfAbsent("steps", List.of());
         created.putIfAbsent("configuration", Map.of());
-        store.putWorkflow(id, created);
+        store.putWorkflow(tenant(), id, created);
         auditTrail.record(AuditAction.CREATE, "workflow", id, true, null,
                 Map.of("name", workflowName(created)));
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
@@ -84,14 +97,15 @@ public class SpringWorkflowCrudController {
 
     @PutMapping("/{id}")
     public ResponseEntity<Map<String, Object>> update(@PathVariable String id, @RequestBody Map<String, Object> body) {
-        if (!store.hasWorkflow(id)) return ResponseEntity.notFound().build();
+        String tenantId = tenant();
+        if (!store.hasWorkflow(tenantId, id)) return ResponseEntity.notFound().build();
         var updated = new LinkedHashMap<>(body);
         updated.put("id", id);
         updated.put("updatedAt", Instant.now().toString());
         updated.putIfAbsent("status", "draft");
         updated.putIfAbsent("steps", List.of());
         updated.putIfAbsent("configuration", Map.of());
-        store.putWorkflow(id, updated);
+        store.putWorkflow(tenantId, id, updated);
         auditTrail.record(AuditAction.UPDATE, "workflow", id, true, null,
                 Map.of("name", workflowName(updated)));
         return ResponseEntity.ok(updated);
@@ -99,22 +113,24 @@ public class SpringWorkflowCrudController {
 
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> delete(@PathVariable String id) {
-        if (!store.hasWorkflow(id)) return ResponseEntity.notFound().build();
-        store.deleteWorkflow(id);
+        String tenantId = tenant();
+        if (!store.hasWorkflow(tenantId, id)) return ResponseEntity.notFound().build();
+        store.deleteWorkflow(tenantId, id);
         auditTrail.record(AuditAction.DELETE, "workflow", id, true, null, null);
         return ResponseEntity.noContent().build();
     }
 
     @GetMapping("/{id}/versions")
     public ResponseEntity<List<WorkflowVersionRecord>> versions(@PathVariable String id) {
-        if (!store.hasWorkflow(id)) return ResponseEntity.notFound().build();
-        return ResponseEntity.ok(store.workflowVersions(id));
+        String tenantId = tenant();
+        if (!store.hasWorkflow(tenantId, id)) return ResponseEntity.notFound().build();
+        return ResponseEntity.ok(store.workflowVersions(tenantId, id));
     }
 
     @GetMapping("/{id}/versions/{versionId}")
     public ResponseEntity<WorkflowVersionRecord> version(@PathVariable String id,
                                                           @PathVariable String versionId) {
-        var version = store.getWorkflowVersion(id, versionId);
+        var version = store.getWorkflowVersion(tenant(), id, versionId);
         return version != null ? ResponseEntity.ok(version) : ResponseEntity.notFound().build();
     }
 
@@ -130,9 +146,10 @@ public class SpringWorkflowCrudController {
         String environment = body == null
                 ? "PRODUCTION"
                 : Objects.toString(body.get("environment"), "PRODUCTION");
-        var version = store.publishWorkflow(id, comment);
+        String tenantId = tenant();
+        var version = store.publishWorkflow(tenantId, id, comment);
         if (version == null) return ResponseEntity.notFound().build();
-        var deployment = store.deployWorkflow(id, environment, version.id());
+        var deployment = store.deployWorkflow(tenantId, id, environment, version.id());
         auditTrail.record(AuditAction.UPDATE, "workflow", id, true, null,
                 Map.of("operation", "publish", "versionId", version.id(),
                         "environment", deployment.environment()));
@@ -148,7 +165,7 @@ public class SpringWorkflowCrudController {
             @PathVariable String environment,
             @RequestBody Map<String, Object> body) {
         String versionId = Objects.toString(body.get("versionId"), "");
-        var deployment = store.deployWorkflow(id, environment, versionId);
+        var deployment = store.deployWorkflow(tenant(), id, environment, versionId);
         if (deployment == null) return ResponseEntity.notFound().build();
         auditTrail.record(AuditAction.UPDATE, "workflow", id, true, null,
                 Map.of("operation", "deploy", "versionId", versionId,
@@ -159,7 +176,7 @@ public class SpringWorkflowCrudController {
     @GetMapping("/{id}/deployments/{environment}")
     public ResponseEntity<WorkflowDeploymentRecord> deployment(
             @PathVariable String id, @PathVariable String environment) {
-        var deployment = store.getDeployment(id, environment);
+        var deployment = store.getDeployment(tenant(), id, environment);
         return deployment != null
                 ? ResponseEntity.ok(deployment)
                 : ResponseEntity.notFound().build();
@@ -172,7 +189,8 @@ public class SpringWorkflowCrudController {
     @PatchMapping("/{id}/status")
     public ResponseEntity<Map<String, Object>> setStatus(@PathVariable String id,
                                                          @RequestBody Map<String, Object> body) {
-        var workflow = store.getWorkflow(id);
+        String tenantId = tenant();
+        var workflow = store.getWorkflow(tenantId, id);
         if (workflow == null) return ResponseEntity.notFound().build();
         String status = String.valueOf(body.get("status")).toLowerCase(Locale.ROOT);
         if (!VALID_STATUSES.contains(status)) {
@@ -182,7 +200,7 @@ public class SpringWorkflowCrudController {
         var updated = new LinkedHashMap<>(workflow);
         updated.put("status", status);
         updated.put("updatedAt", Instant.now().toString());
-        store.putWorkflow(id, updated);
+        store.putWorkflow(tenantId, id, updated);
         auditTrail.record(AuditAction.UPDATE, "workflow", id, true, null,
                 Map.of("status", status));
         return ResponseEntity.ok(updated);
@@ -191,18 +209,21 @@ public class SpringWorkflowCrudController {
     @PostMapping("/{id}/execute")
     public ResponseEntity<Map<String, Object>> execute(@PathVariable String id,
                                                         @RequestBody(required = false) Map<String, Object> input) {
-        var draft = store.getWorkflow(id);
+        // Um tenant só, do começo ao fim: o mesmo que filtra o workflow é o dono da execução e o do
+        // contexto do motor (estado, aprovações, chaves).
+        String tenantId = tenant();
+        var draft = store.getWorkflow(tenantId, id);
         if (draft == null) return ResponseEntity.notFound().build();
-        var deployment = store.getDeployment(id, "PRODUCTION");
+        var deployment = store.getDeployment(tenantId, id, "PRODUCTION");
         var version = deployment == null
                 ? null
-                : store.getWorkflowVersion(id, deployment.versionId());
+                : store.getWorkflowVersion(tenantId, id, deployment.versionId());
         // Compatibility window: legacy workflows without a deployment still run
         // their draft. Every new publish pins subsequent executions to a snapshot.
         var workflow = version == null ? draft : version.document();
         String workflowVersionId = version == null ? null : version.id();
 
-        var execution = store.createExecution(id, workflowName(workflow), workflowVersionId);
+        var execution = store.createExecution(tenantId, id, workflowName(workflow), version);
         String executionId = String.valueOf(execution.get("id"));
 
         // Deserialize the stored JSON into an executable Flow and submit it to the
@@ -214,8 +235,12 @@ public class SpringWorkflowCrudController {
         // Register the flow so a paused run can be resumed later (design-0005 step 5).
         flowRepository.save(flow);
 
+        // O tenant é o da requisição (JWT, personificação verificada ou o padrão), resolvido no
+        // servidor. Com null o motor gravava o estado — e as aprovações dele — num tenant que
+        // nenhuma fila consultava (RCHFLW-13). Uma chave "tenantId" no input continua sendo só
+        // variável: quem chama a API não escolhe o tenant pelo corpo.
         ExecutionContext ctx = new DefaultExecutionContext(
-                null, "runner", executionId,
+                tenantId, "runner", executionId,
                 MessageWindowChatMemory.builder().maxMessages(20).build());
         // Cada chave vira variável e, sem chave "input", o objeto inteiro vira o input — a mesma regra
         // do AG-UI, para a mesma entrada dar o mesmo resultado pelo editor e pela lista/API.
@@ -237,6 +262,10 @@ public class SpringWorkflowCrudController {
         body.put("status", "RUNNING");
         body.put("workflowId", id);
         body.put("workflowVersionId", workflowVersionId);
+        // Quem chama a API vê o que rodou (RCHFLW-89): o número da versão publicada, ou a marca do
+        // rascunho quando o fluxo ainda não tem versão em produção — os mesmos campos do registro.
+        body.put("workflowDraft", execution.get("workflowDraft"));
+        body.put("workflowVersionNumber", execution.get("workflowVersionNumber"));
         body.put("startedAt", execution.get("startedAt"));
         return ResponseEntity.ok(body);
     }
@@ -264,7 +293,10 @@ public class SpringWorkflowCrudController {
         // ClassCastException through the controller and return 500. Fall
         // back to safe defaults instead.
         Map<String, Object> meta = asMap(wf.get("metadata"));
-        int stepCount = asList(wf.get("steps")).size();
+        // Anotações do canvas não são passos: "3 passos" não pode virar 4 por causa de uma nota.
+        int stepCount = (int) asList(wf.get("steps")).stream()
+                .filter(step -> !(step instanceof Map<?, ?> m && CanvasAnnotation.isAnnotation(m)))
+                .count();
         return Map.of(
                 "id", wf.getOrDefault("id", ""),
                 "name", meta.getOrDefault("name", "Untitled"),

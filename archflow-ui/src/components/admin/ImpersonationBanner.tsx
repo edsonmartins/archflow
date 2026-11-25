@@ -33,10 +33,7 @@ export function ImpersonationBanner() {
         size="xs"
         variant="subtle"
         color="orange"
-        onClick={() => {
-          sessionStorage.removeItem('archflow_impersonate_tenant')
-          exitImpersonation()
-        }}
+        onClick={() => exitImpersonation()}
       >
         {t('admin.impersonation.back')}
       </Button>

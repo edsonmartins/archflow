@@ -7,6 +7,7 @@ import {
   type PersonaInfo,
   type ProviderInfo,
 } from '../../services/workflow-config-api'
+import { useTenantStore } from '../../stores/useTenantStore'
 
 /**
  * Fallback provider catalog used while the API call is in flight or
@@ -51,7 +52,7 @@ let personasCache: Promise<PersonaInfo[]> | null = null
 let governanceCache: Promise<GovernanceProfileInfo[]> | null = null
 let mcpServersCache: Promise<McpServerInfo[]> | null = null
 
-function fetchProviders(): Promise<ProviderInfo[]> {
+export function fetchProviders(): Promise<ProviderInfo[]> {
   if (!providersCache) {
     providersCache = workflowConfigApi.getProviders().catch(() => FALLBACK_PROVIDERS)
   }
@@ -90,6 +91,13 @@ export function resetWorkflowConfigCache() {
   governanceCache = null
   mcpServersCache = null
 }
+
+// O catálogo depende do tenant (modelos permitidos de cada um — RCHFLW-79): ao entrar ou sair da
+// impersonação pela própria interface, o cache montado com o tenant anterior mostraria os modelos dele
+// até recarregar a página. O próximo painel aberto busca de novo, já com o X-Impersonate-Tenant novo.
+useTenantStore.subscribe((state, prev) => {
+  if (state.impersonating?.id !== prev.impersonating?.id) resetWorkflowConfigCache()
+})
 
 export interface WorkflowConfigData {
   providers:   ProviderInfo[]

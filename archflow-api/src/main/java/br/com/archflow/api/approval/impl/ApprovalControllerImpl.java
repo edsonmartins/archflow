@@ -38,4 +38,20 @@ public class ApprovalControllerImpl implements ApprovalController {
     public ApprovalResponse getApproval(String requestId) {
         return service.getDetail(requestId);
     }
+
+    @Override
+    public ApprovalResponse getApproval(String requestId, String flowId) {
+        return service.getDetail(requestId, flowId);
+    }
+
+    @Override
+    public ApprovalResponse getApproval(String requestId, String flowId, String tenantScope) {
+        return service.getDetail(requestId, flowId, tenantScope);
+    }
+
+    @Override
+    public ApprovalResponse submitDecision(String requestId, ApprovalSubmitRequest request,
+                                           String tenantScope) {
+        return service.submitDecision(requestId, request, tenantScope);
+    }
 }

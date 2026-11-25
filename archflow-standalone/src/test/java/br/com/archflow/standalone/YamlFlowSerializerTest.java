@@ -228,4 +228,55 @@ class YamlFlowSerializerTest {
         assertThat(((SerializableStep) flow.getSteps().get(0)).getLLMPatch().model()).contains("gpt-4o");
         assertThat(yaml.serialize(flow).toLowerCase()).doesNotContain("llmpatch").doesNotContain("empty:");
     }
+
+    /**
+     * RCHFLW-12: nota, quadro e separador do designer ficam no documento (é assim que reabrem) e voltam
+     * intactos pelo YAML — mas o que se executa é o fluxo sem eles.
+     */
+    @Test
+    @DisplayName("anotações sobrevivem ao YAML e ficam fora do fluxo executado")
+    void anotacoesNoYamlForaDaExecucao() throws IOException {
+        String doc = """
+                id: flow-notas
+                metadata:
+                  name: Com notas
+                  version: 1.0.0
+                steps:
+                  - id: nota
+                    componentId: sticky-note
+                    type: STICKY-NOTE
+                    configuration:
+                      text: revisar o ramo AUTO
+                  - id: decide
+                    componentId: condition
+                    type: CONDITION
+                    configuration:
+                      conditionExpression: "true"
+                    connections:
+                      - sourceId: decide
+                        targetId: nota
+                  - id: quadro
+                    type: GROUP-FRAME
+                """;
+
+        SerializableFlow flow = yaml.deserialize(doc);
+        SerializableFlow devolta = yaml.deserialize(yaml.serialize(flow));
+
+        assertThat(devolta.getSteps()).extracting(s -> s.getId()).containsExactly("nota", "decide", "quadro");
+        assertThat(devolta.withoutAnnotations().getSteps()).extracting(s -> s.getId()).containsExactly("decide");
+        assertThat(devolta.withoutAnnotations().getId()).isEqualTo("flow-notas");
+        assertThat(devolta.withoutAnnotations().getSteps().get(0).getConnections())
+                .as("a aresta para a nota sai do fluxo executado").isEmpty();
+        assertThat(((SerializableStep) devolta.getSteps().get(1)).getConnections())
+                .as("e continua no documento").hasSize(1);
+
+        SerializableFlow soPassos = yaml.deserialize("""
+                id: flow-sem-notas
+                steps:
+                  - id: decide
+                    componentId: condition
+                    type: CONDITION
+                """);
+        assertThat(soPassos.withoutAnnotations()).as("sem anotações, nada a copiar").isSameAs(soPassos);
+    }
 }

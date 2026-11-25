@@ -59,8 +59,11 @@ COPY archflow-ui/ .
 # Mais heap para o Node: com o limite padrão (~2 GB no Node 18) o vite build já estourou
 # memória uma vez no CI (heap out of memory, exit 134 — RCHFLW-19).
 ENV NODE_OPTIONS=--max-old-space-size=4096
-# `pnpm run build` gera o SPA em dist-app/ (o web-component é `build:component`)
-RUN pnpm run build
+# `build:all` = `tsc -b` + o MESMO `vite build` do SPA (dist-app/, inalterado) + o web-component
+# `vite build --mode component` (dist/archflow-designer.{js,css,umd.cjs}). O trecho de
+# Publicar › Incorporar aponta para <origem>/archflow-designer.js; só com `pnpm run build` esse
+# arquivo nunca existia na imagem e o embed dava 404 (RCHFLW-87).
+RUN pnpm run build:all
 
 # ---- Stage 3: Runtime ----
 FROM eclipse-temurin:25-jre-alpine
@@ -74,6 +77,16 @@ COPY --from=backend-build /app/archflow-api/target/*.jar app.jar
 
 # Copy frontend build (SPA) to serve as static files
 COPY --from=frontend-build /app/dist-app/ /app/static/
+
+# Web-component <archflow-designer> na RAIZ do estático, ao lado do SPA: é a URL que o trecho de
+# Publicar › Incorporar usa (`${origin}/archflow-designer.js`, PublishModal.tsx) e de onde o
+# /demo.html o importa. Bundle ES autocontido (sem chunks, `process.env.NODE_ENV` já trocado no
+# vite.config — o navegador não tem `process`; CSS do Mantine embutido no shadow root), mais o CSS
+# do xyflow extraído no build (para quem quiser estilizar fora do shadow root).
+# Só esses dois arquivos: dist/ também recebe uma cópia de public/ (o vite copia publicDir no modo
+# lib), que não deve sobrescrever o que veio de dist-app/. O CORS desses caminhos (embed noutra
+# origem) é liberado para archflow.cors.allowed-origins em WebMvcConfiguration.EMBED_BUNDLE_PATHS.
+COPY --from=frontend-build /app/dist/archflow-designer.js /app/dist/archflow-designer.css /app/static/
 
 RUN chown -R archflow:archflow /app
 USER archflow

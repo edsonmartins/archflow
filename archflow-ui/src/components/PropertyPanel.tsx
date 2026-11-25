@@ -10,6 +10,7 @@ import { NodeIcon } from './FlowCanvas/nodeIcons'
 import { FIELD_STYLES, MONO_INPUT } from './PropertyPanel/fieldStyles'
 import { useWorkflowConfig } from './PropertyPanel/useWorkflowConfig'
 import { FlowDefaultsPanel } from './PropertyPanel/FlowDefaultsPanel'
+import { ReadOnlyFieldset } from './PropertyPanel/ReadOnlyFieldset'
 import { useCatalog } from './PropertyPanel/useCatalog'
 import { AgentFields } from './PropertyPanel/fields/AgentFields'
 import { getConfig } from './PropertyPanel/fields/helpers'
@@ -17,6 +18,7 @@ import { McpToolFields } from './PropertyPanel/fields/McpToolFields'
 import { SubflowFields } from './PropertyPanel/fields/SubflowFields'
 import { SkillsFields } from './PropertyPanel/fields/SkillsFields'
 import { DecisionFields } from './PropertyPanel/fields/DecisionFields'
+import { ApprovalFields } from './PropertyPanel/fields/ApprovalFields'
 import { ExecutionLogs, OutputPreview } from './PropertyPanel/fields/ExecutionPanels'
 import { NodeIdField, UpstreamRefs } from './PropertyPanel/fields/NodeReferences'
 
@@ -50,9 +52,15 @@ const EMBEDDING_MODELS = [
 interface PropertyPanelProps {
   nodeId:   string | null
   nodeData: FlowNodeData | null
+  /**
+   * Sem workflow:update (RCHFLW-74) o painel só mostra: o canvas só leitura ainda seleciona o nó (o
+   * React Flow chama onNodeClick mesmo com elementsSelectable=false) e, sem isto, os campos mudavam o
+   * canvas sem nada que gravasse — e o Executar do EXECUTOR rodava a versão gravada, descartando-os.
+   */
+  readOnly?: boolean
 }
 
-export function PropertyPanel({ nodeId, nodeData }: PropertyPanelProps) {
+export function PropertyPanel({ nodeId, nodeData, readOnly = false }: PropertyPanelProps) {
   const { t } = useTranslation()
   const { executionState } = useFlowStore()
   const execState = nodeId ? executionState[nodeId] : null
@@ -80,7 +88,7 @@ export function PropertyPanel({ nodeId, nodeData }: PropertyPanelProps) {
 
             <Tabs.Panel value="properties" style={{ flex: 1, overflow: 'hidden' }}>
               <ScrollArea style={{ height: '100%' }} p="md">
-                <NodeFields nodeId={nodeId} nodeData={nodeData} />
+                <NodeFields nodeId={nodeId} nodeData={nodeData} readOnly={readOnly} />
               </ScrollArea>
             </Tabs.Panel>
 
@@ -98,7 +106,7 @@ export function PropertyPanel({ nodeId, nodeData }: PropertyPanelProps) {
           </Tabs>
         </>
       ) : (
-        <FlowDefaultsPanel />
+        <FlowDefaultsPanel readOnly={readOnly} />
       )}
     </div>
   )
@@ -127,7 +135,7 @@ function NodeHeader({ nodeData }: { nodeData: FlowNodeData }) {
 }
 
 // ── Node Fields (all gaps implemented) ──────────────────────────
-function NodeFields({ nodeId, nodeData }: { nodeId: string; nodeData: FlowNodeData }) {
+function NodeFields({ nodeId, nodeData, readOnly }: { nodeId: string; nodeData: FlowNodeData; readOnly: boolean }) {
   const { t } = useTranslation()
   const { updateNodeConfig, updateNodeLabel } = useFlowStore()
   const { providers } = useWorkflowConfig()
@@ -184,16 +192,22 @@ function NodeFields({ nodeId, nodeData }: { nodeId: string; nodeData: FlowNodeDa
       )}
 
       {/* ── Common: Node name ─────────────────────────────────── */}
-      <TextInput
-        label={f('nodeName')}
-        value={nodeData.label}
-        onChange={e => updateNodeLabel(nodeId, e.currentTarget.value)}
-        size="xs"
-        styles={FIELD_STYLES}
-      />
+      <ReadOnlyFieldset readOnly={readOnly}>
+        <TextInput
+          label={f('nodeName')}
+          value={nodeData.label}
+          onChange={e => updateNodeLabel(nodeId, e.currentTarget.value)}
+          size="xs"
+          styles={FIELD_STYLES}
+        />
+      </ReadOnlyFieldset>
 
-      {/* Id só leitura: é por ele (e não pelo nome) que as expressões referenciam a saída */}
+      {/* Id só leitura: é por ele (e não pelo nome) que as expressões referenciam a saída. Fica fora do
+          fieldset de propósito: copiar o id não edita nada e serve a quem só lê. */}
       <NodeIdField nodeId={nodeId} />
+
+      {/* Daqui ao fim, todos os campos do tipo do nó: travados sem workflow:update (RCHFLW-74). */}
+      <ReadOnlyFieldset readOnly={readOnly}>
 
       {/* ════════════════════════════════════════════════════════ */}
       {/*  AGENT FIELDS (extraído para fields/AgentFields)        */}
@@ -623,55 +637,7 @@ function NodeFields({ nodeId, nodeData }: { nodeId: string; nodeData: FlowNodeDa
 
       {isDecision && <DecisionFields nodeData={nodeData} update={update} />}
 
-      {isApproval && (
-        <>
-          <TextInput
-            label={f('approvalTitle')}
-            value={getConfig(nodeData, 'approvalTitle', 'Please review')}
-            onChange={e => update('approvalTitle', e.currentTarget.value)}
-            size="xs"
-            styles={FIELD_STYLES}
-          />
-          <Textarea
-            label={f('approvalDescription')}
-            value={getConfig(nodeData, 'approvalDescription', '')}
-            onChange={e => update('approvalDescription', e.currentTarget.value)}
-            autosize minRows={2}
-            size="xs"
-            styles={FIELD_STYLES}
-            description={f('approvalDescriptionHint')}
-          />
-          <Textarea
-            label={f('proposalPayload')}
-            value={getConfig(nodeData, 'approvalProposal', '{}')}
-            onChange={e => update('approvalProposal', e.currentTarget.value)}
-            autosize minRows={2}
-            size="xs"
-            styles={MONO_INPUT}
-            description={f('proposalPayloadHint')}
-          />
-          <NumberInput
-            label={f('timeoutMin')}
-            value={getConfig(nodeData, 'approvalTimeoutMinutes', 30)}
-            onChange={v => update('approvalTimeoutMinutes', v)}
-            min={1} max={24 * 60}
-            size="xs"
-            styles={FIELD_STYLES}
-          />
-          <Select
-            label={f('onTimeout')}
-            value={getConfig(nodeData, 'approvalOnTimeout', 'reject')}
-            onChange={v => update('approvalOnTimeout', v)}
-            size="xs"
-            data={[
-              { value: 'reject',   label: f('onTimeoutOptions.reject') },
-              { value: 'approve',  label: f('onTimeoutOptions.approve') },
-              { value: 'escalate', label: f('onTimeoutOptions.escalate') },
-            ]}
-            styles={FIELD_STYLES}
-          />
-        </>
-      )}
+      {isApproval && <ApprovalFields nodeData={nodeData} update={update} />}
 
       {/* ════════════════════════════════════════════════════════ */}
       {/*  SUBFLOW                                               */}
@@ -1025,6 +991,7 @@ function NodeFields({ nodeId, nodeData }: { nodeId: string; nodeData: FlowNodeDa
           )}
         </>
       )}
+      </ReadOnlyFieldset>
     </div>
   )
 }

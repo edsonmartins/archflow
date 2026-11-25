@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import {
     Alert, Button, Group, Modal, Select, SimpleGrid, Stack, Switch,
     Textarea, TextInput,
@@ -9,6 +10,9 @@ import {
     IconAlertTriangle, IconClockPause, IconClockPlay, IconInfoCircle, IconPlayerPlay, IconPlus, IconRefresh,
 } from '@tabler/icons-react'
 import { triggersApi, type ScheduledTrigger } from '../services/triggers-api'
+import {
+    agentPlaygroundApi, InvocationNotFoundError, isTerminal, type InvocationResult,
+} from '../services/agent-playground-api'
 import { useCatalog } from '../components/PropertyPanel/useCatalog'
 import { ApiError } from '../services/api'
 import { confirmAction } from '../lib/confirm'
@@ -17,6 +21,56 @@ import { SectionCard } from '../components/SectionCard'
 import { StatCard } from '../components/admin/StatCard'
 import { VxTable, colunaAcoes, colunaApagada, colunaDupla, colunaStatus, type VxColumn } from '../components/VTable'
 import { formatInstant } from '../lib/format'
+
+/** Acompanhamento do "Disparar agora": os mesmos intervalo, prazo e 404s tolerados do Agent lab. */
+const RUN_POLL_INTERVAL_MS = 1000
+const RUN_POLL_DEADLINE_MS = 120_000
+const RUN_MAX_NOT_FOUND = 3
+
+/**
+ * Acompanha a invocação que o "Disparar agora" enfileirou e avisa como o agente terminou (RCHFLW-80).
+ * O disparo só enfileira: antes o gatilho dizia "disparado" e o desfecho do agente (COMPLETED/FAILED)
+ * não chegava a lugar nenhum — o lastError do gatilho é a falha do disparo, não a do agente.
+ *
+ * @returns o resultado final, ou null quando não deu para saber (prazo, consulta falhou, 404)
+ */
+export async function followTriggerRun(
+    trigger: Pick<ScheduledTrigger, 'name' | 'tenantId'>, requestId: string, t: TFunction,
+    opts: { intervalMs?: number; deadlineMs?: number } = {},
+): Promise<InvocationResult | null> {
+    const interval = opts.intervalMs ?? RUN_POLL_INTERVAL_MS
+    const deadline = Date.now() + (opts.deadlineMs ?? RUN_POLL_DEADLINE_MS)
+    const unknown = (key: 'stillRunning' | 'queryFailed') => {
+        notifications.show({ color: 'yellow', title: t('triggers.run.unknown', { name: trigger.name }),
+            message: t(`triggers.run.${key}`, { id: requestId }) })
+        return null
+    }
+    let notFound = 0
+    for (;;) {
+        try {
+            const r = await agentPlaygroundApi.invocation(requestId, trigger.tenantId)
+            notFound = 0
+            if (isTerminal(r.status)) {
+                if (r.status === 'COMPLETED') {
+                    notifications.show({ color: 'green', title: t('triggers.run.completed'),
+                        message: t('triggers.run.completedMsg', { name: trigger.name }) })
+                } else {
+                    notifications.show({ color: 'red', title: t('triggers.run.failed', { name: trigger.name }),
+                        message: r.error || t('triggers.run.noErrorMessage') })
+                }
+                return r
+            }
+        } catch (e) {
+            // Logo depois do disparo, a fila em memória pode ainda não ter registrado a invocação: alguns
+            // 404 seguidos são tolerados; outro erro (ou 404 persistente) é "não deu para saber".
+            if (!(e instanceof InvocationNotFoundError) || ++notFound >= RUN_MAX_NOT_FOUND) {
+                return unknown('queryFailed')
+            }
+        }
+        if (Date.now() >= deadline) return unknown('stillRunning')
+        await new Promise(resolve => setTimeout(resolve, interval))
+    }
+}
 
 /**
  * Cron-scheduled trigger admin surface.
@@ -115,10 +169,11 @@ export default function ScheduledTriggersPage() {
 
     const fire = async (trigger: ScheduledTrigger) => {
         try {
-            await triggersApi.fireNow(trigger.id)
+            const fired = await triggersApi.fireNow(trigger.id)
             notifications.show({ color: 'green', title: t('triggers.fired'),
                 message: t('triggers.firedMsg', { name: trigger.name }) })
             await reload()
+            if (fired.lastRequestId) void followTriggerRun(fired, fired.lastRequestId, t)
         } catch (e) {
             notifications.show({ color: 'red', title: t('triggers.fireFailed'),
                 message: e instanceof ApiError ? e.message : String(e) })

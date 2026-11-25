@@ -7,6 +7,8 @@
  * integration would sit on top of later.
  */
 
+import { authFetch } from './api'
+
 export interface AgUiEvent {
     type: string
     [key: string]: unknown
@@ -29,13 +31,13 @@ export function runAgUiWorkflow(
     const controller = new AbortController()
 
     void (async () => {
-        const token = sessionStorage.getItem('archflow_token')
-        const response = await fetch(`/ag-ui/workflows/${encodeURIComponent(workflowId)}`, {
+        // authFetch, não fetch cru: além do Authorization (com refresh), ele manda o
+        // X-Impersonate-Tenant ativo. Sem isso, o superadmin personificando o tenant B rodava
+        // pelo editor como o próprio tenant, e a aprovação do fluxo ia para a fila errada —
+        // enquanto o mesmo fluxo rodado pela lista caía no tenant B (RCHFLW-13).
+        const response = await authFetch(`/ag-ui/workflows/${encodeURIComponent(workflowId)}`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                ...(token ? { Authorization: `Bearer ${token}` } : {}),
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(input),
             signal: controller.signal,
         })

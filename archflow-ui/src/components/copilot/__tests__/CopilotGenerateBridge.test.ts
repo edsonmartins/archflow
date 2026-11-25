@@ -18,13 +18,19 @@ const notificationsMock = vi.hoisted(() => ({ show: vi.fn(), hide: vi.fn() }))
 const kit = vi.hoisted(() => ({
   subscribers: [] as Subscriber[],
   runAgent: vi.fn(),
-  agent: { addMessage: vi.fn() },
+  agent: {
+    threadId: 'thread-antiga',
+    messages: [] as { role: string; content?: string }[],
+    addMessage: vi.fn(),
+    setMessages: vi.fn(),
+  },
+  agentIds: [] as (string | undefined)[],
 }))
 
 vi.mock('@mantine/notifications', () => ({ notifications: notificationsMock }))
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (k: string) => k }) }))
 vi.mock('@copilotkit/react-core/v2', () => ({
-  useAgent: () => ({ agent: kit.agent }),
+  useAgent: (opts?: { agentId?: string }) => { kit.agentIds.push(opts?.agentId); return { agent: kit.agent } },
   useCopilotKit: () => ({
     copilotkit: {
       runAgent: kit.runAgent,
@@ -37,6 +43,7 @@ vi.mock('@copilotkit/react-core/v2', () => ({
 }))
 
 import CopilotGenerateBridge, {
+  COPILOT_GENERATE_AGENT_ID,
   COPILOT_GENERATE_NOTIFICATION_ID,
   describeCopilotRunError,
   isCopilotAbort,
@@ -68,6 +75,9 @@ let container: HTMLDivElement
 beforeEach(async () => {
   vi.clearAllMocks()
   kit.subscribers = []
+  kit.agentIds = []
+  kit.agent.messages = []
+  kit.agent.threadId = 'thread-antiga'
   ;(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true
   container = document.createElement('div')
   document.body.appendChild(container)
@@ -143,6 +153,36 @@ describe('CopilotGenerateBridge', () => {
       message: 'API key is required for OpenAI — copilot.errors.apiKeyHint',
     }))
     await act(async () => { finish() })
+  })
+
+  it('"Gerar com IA" usa o agente próprio e começa uma conversa limpa a cada geração (RCHFLW-95)', async () => {
+    kit.runAgent.mockResolvedValue(undefined)
+
+    await act(async () => { requestCopilotGeneration('monte um fluxo', 'toast-1') })
+
+    // Não é o agente do chat lateral ('archflow'): o histórico dele não entra na geração.
+    expect(kit.agentIds).toContain(COPILOT_GENERATE_AGENT_ID)
+    expect(kit.agentIds).not.toContain('archflow')
+    expect(kit.agent.setMessages).toHaveBeenCalledWith([])
+    expect(kit.agent.setMessages.mock.invocationCallOrder[0])
+      .toBeLessThan(kit.agent.addMessage.mock.invocationCallOrder[0])
+    expect(kit.agent.threadId).not.toBe('thread-antiga')
+  })
+
+  it('ao terminar, mostra o resumo do copiloto no lugar do toast de "montando"', async () => {
+    kit.runAgent.mockImplementation(async () => {
+      kit.agent.messages = [
+        { role: 'user', content: 'monte um fluxo' },
+        { role: 'assistant', content: 'Montei 3 nós ligados: Entrada, Resumo e Saída.' },
+      ]
+    })
+
+    await act(async () => { requestCopilotGeneration('monte um fluxo', 'toast-2') })
+
+    expect(notificationsMock.hide).toHaveBeenCalledWith('toast-2')
+    expect(notificationsMock.show).toHaveBeenCalledWith(expect.objectContaining({
+      color: 'teal', title: 'editor.ai.done', message: 'Montei 3 nós ligados: Entrada, Resumo e Saída.',
+    }))
   })
 
   it('erro de execução vinda do chat lateral também aparece, com título do chat', async () => {

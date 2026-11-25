@@ -12,7 +12,14 @@
 
 import React            from 'react'
 import ReactDOM         from 'react-dom/client'
+import { MantineProvider, mergeThemeOverrides } from '@mantine/core'
+// `?inline` = o CSS vira string no bundle, sem <link> global: o Shadow DOM não enxerga o CSS do
+// documento, e a página que incorpora o componente nem tem o Mantine.
+import mantineCss       from '@mantine/core/styles.css?inline'
+import outlineCss       from '../../components/FlowCanvas/CanvasOutline.css?inline'
 import { FlowCanvas }   from '../../components/FlowCanvas/FlowCanvas'
+import { workflowDataFromDocument } from '../../components/FlowCanvas/workflowSerde'
+import { theme as appTheme } from '../../theme'
 import type { WorkflowData, FlowNodeData } from '../../components/FlowCanvas/types'
 
 // ── CSS global necessário para @xyflow/react ─────────────────────
@@ -22,6 +29,12 @@ const XYFLOW_CSS_URL = 'https://unpkg.com/@xyflow/react/dist/style.css'
 class ArchflowDesignerElement extends HTMLElement {
   private root:         ReactDOM.Root | null = null
   private container:   HTMLDivElement | null = null
+  // Envolve o canvas e o alvo dos portais: os seletores de esquema de cor dos componentes Mantine
+  // são de ancestral (`:where([data-mantine-color-scheme='dark']) .m_…`), e dentro do Shadow DOM
+  // o host não conta como ancestral — o atributo precisa estar num elemento da própria árvore.
+  private schemeRoot:  HTMLDivElement | null = null
+  private portalTarget: HTMLDivElement | null = null
+  private embedTheme:   ReturnType<typeof mergeThemeOverrides> = appTheme
   private shadowRoot_: ShadowRoot
 
   // Estado interno
@@ -67,6 +80,9 @@ class ArchflowDesignerElement extends HTMLElement {
   disconnectedCallback() {
     this.root?.unmount()
     this.root = null
+    // Reconectar (mover o elemento no DOM) monta tudo de novo em connectedCallback.
+    this.schemeRoot?.remove()
+    this.schemeRoot = null
   }
 
   attributeChangedCallback(name: string, _old: string, val: string) {
@@ -255,6 +271,7 @@ class ArchflowDesignerElement extends HTMLElement {
         --amber: #D97706; --amber-l: #FFFBEB; --amber-text: #92400E;
         --red:   #DC2626; --red-l:   #FEF2F2; --red-text:   #991B1B;
         --gray:  #6B7280; --gray-l:  #F9FAFB;
+        --purple: #7C3AED; --purple-l: #F5F3FF; --purple-text: #5B21B6;
         --border2: rgba(0, 0, 0, 0.13);
         --text3: #6B7280;
         --text4: #9CA3AF;
@@ -267,9 +284,12 @@ class ArchflowDesignerElement extends HTMLElement {
         --color-text-secondary:       #334155;
         --color-text-tertiary:        #64748B;
       }
-      .canvas-root {
+      .canvas-root, .af-scheme-root {
         width: 100%;
         height: 100%;
+      }
+      .af-scheme-root {
+        position: relative;
       }
       @keyframes archflow-dash {
         to { stroke-dashoffset: -18; }
@@ -280,12 +300,29 @@ class ArchflowDesignerElement extends HTMLElement {
       }
     `
     this.shadowRoot_.appendChild(style)
+
+    const mantineStyle = document.createElement('style')
+    // As regras da lista acessível do canvas (no app vêm do CSS global, que não entra aqui).
+    mantineStyle.textContent = `${mantineCss}\n${outlineCss}`
+    this.shadowRoot_.appendChild(mantineStyle)
   }
 
   private mountReact() {
+    this.schemeRoot = document.createElement('div')
+    this.schemeRoot.className = 'af-scheme-root'
     this.container = document.createElement('div')
     this.container.className = 'canvas-root'
-    this.shadowRoot_.appendChild(this.container)
+    // Portais (Tooltip etc.) iriam para document.body, FORA do Shadow DOM — sem o CSS do Mantine,
+    // que só existe aqui dentro. O alvo é um irmão do canvas, fora da árvore que o React controla.
+    this.portalTarget = document.createElement('div')
+    this.portalTarget.className = 'af-portal-root'
+    this.schemeRoot.append(this.container, this.portalTarget)
+    this.shadowRoot_.appendChild(this.schemeRoot)
+    // Tema do app + portais no alvo acima. Montado uma vez por montagem (o alvo é desta
+    // instância), não a cada render — um objeto novo de tema re-renderizaria todo o provider.
+    this.embedTheme = mergeThemeOverrides(appTheme, {
+      components: { Portal: { defaultProps: { target: this.portalTarget } } },
+    })
 
     this.root = ReactDOM.createRoot(this.container)
     this.render()
@@ -293,9 +330,18 @@ class ArchflowDesignerElement extends HTMLElement {
 
   private render() {
     if (!this.root) return
+    this.schemeRoot?.setAttribute('data-mantine-color-scheme', this._theme)
 
+    // O FlowCanvas usa componentes Mantine (ActionIcon, Tooltip, useMantineColorScheme): sem o
+    // provider o React desmonta a árvore com "MantineProvider was not found" e o embed fica vazio.
+    // getRootElement = o host: as variáveis do Mantine vêm em `:host([data-mantine-color-scheme])`,
+    // então o atributo vai no próprio <archflow-designer>, não no <html> da página que incorpora.
     this.root.render(
-      React.createElement(FlowCanvas, {
+      React.createElement(MantineProvider, {
+        theme:            this.embedTheme,
+        forceColorScheme: this._theme,
+        getRootElement:   () => this,
+      }, React.createElement(FlowCanvas, {
         initialWorkflow: this._workflow,
         readonly:        this._readonly,
         showMinimap:     this._showMinimap,
@@ -328,7 +374,7 @@ class ArchflowDesignerElement extends HTMLElement {
             status:      'RUNNING',
           })
         },
-      })
+      }))
     )
   }
 
@@ -367,7 +413,8 @@ class ArchflowDesignerElement extends HTMLElement {
       })
       if (!res.ok) return
       const data = await res.json()
-      this.setWorkflow(data)
+      // A API devolve o documento do fluxo (arestas dentro de cada passo); o canvas lê o WorkflowData.
+      this.setWorkflow(workflowDataFromDocument(data))
       this.emit('workflow-loaded', { workflowId: id, workflow: data })
     } catch {
       // Falha silenciosa — consumer deve tratar via evento de erro futuro

@@ -122,11 +122,21 @@ public class StandaloneRunner implements AutoCloseable {
 
         // Execute
         log.info("Executing workflow with {} variables...", input.size());
-        FlowResult result = agent.executeFlow(flow, input)
+        // Anotações do canvas ficam no arquivo para o designer, mas não são passos a executar.
+        FlowResult result = submit(agent, flow.withoutAnnotations(), input)
                 .get(args.timeoutSeconds, TimeUnit.SECONDS);
 
         log.info("Workflow completed with status: {}", result.getStatus());
         return result;
+    }
+
+    /**
+     * Entrega o fluxo ao agente. Separado do {@link #run} só para um teste ver o fluxo que chega ao agente
+     * (sem as anotações do canvas) sem depender de componentes reais.
+     */
+    protected java.util.concurrent.CompletableFuture<FlowResult> submit(ArchFlowAgent agent,
+            br.com.archflow.model.flow.Flow flow, Map<String, Object> input) {
+        return agent.executeFlow(flow, input);
     }
 
     /**

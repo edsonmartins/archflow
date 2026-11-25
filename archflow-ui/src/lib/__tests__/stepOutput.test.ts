@@ -101,3 +101,18 @@ describe('isTerminalExecutionStatus', () => {
     }
   })
 })
+
+describe('buildStepRows — anotações do canvas (RCHFLW-12)', () => {
+  it('nota, quadro e separador não aparecem como "não executado": o motor nem os vê', () => {
+    const doc = [
+      { id: 'decide', componentId: 'condition', type: 'CONDITION', label: 'decide' },
+      { id: 'nota', componentId: 'sticky-note', type: 'STICKY-NOTE', label: 'Nota' },
+      { id: 'quadro', type: 'GROUP-FRAME' },
+      { id: 'divisor', componentId: 'section-divider' },
+      { id: 'resposta', componentId: 'llm-chat', type: 'LLM-CHAT', label: 'resposta' },
+    ]
+    const rows = buildStepRows([{ stepId: 'decide', status: 'COMPLETED' }], doc, true)
+    expect(rows.map(r => r.stepId)).toEqual(['decide', 'resposta'])
+    expect(rows[1].notExecuted).toBe(true)
+  })
+})

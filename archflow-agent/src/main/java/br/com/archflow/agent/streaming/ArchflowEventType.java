@@ -203,7 +203,14 @@ public enum ArchflowEventType {
     /**
      * Step ignorado (condição não atendida).
      */
-    STEP_SKIPPED("step_skipped");
+    STEP_SKIPPED("step_skipped"),
+
+    /**
+     * Step suspendeu o fluxo sem concluir — o portão de aprovação humana à espera da
+     * decisão. Fecha o STEP_STARTED do passo (mesmo {@code stepIndex}); na retomada o passo
+     * recomeça e termina com STEP_COMPLETED.
+     */
+    STEP_SUSPENDED("step_suspended");
 
     private final String value;
 

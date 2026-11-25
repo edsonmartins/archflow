@@ -120,4 +120,57 @@ class StandaloneRunnerTest {
         assertThat(reloaded.getId()).isEqualTo("export-test");
         assertThat(reloaded.getSteps()).hasSize(1);
     }
+
+    /**
+     * RCHFLW-12 no segundo leitor: o {@code run} entrega ao agente o fluxo SEM as anotações do canvas e sem
+     * as arestas que apontam para elas. Sem isto, um fluxo exportado do designer com uma nota voltava a
+     * falhar no CLI com "component not found: sticky-note".
+     */
+    @Test
+    @DisplayName("run entrega ao agente o fluxo sem as anotações do canvas")
+    void runIgnoraAnotacoes(@TempDir Path tempDir) throws Exception {
+        Path arquivo = tempDir.resolve("flow-notas.json");
+        Files.writeString(arquivo, """
+                {"id": "flow-notas", "metadata": {"name": "Com notas", "version": "1.0.0"},
+                 "steps": [
+                   {"id": "nota", "componentId": "sticky-note", "type": "STICKY-NOTE"},
+                   {"id": "decide", "componentId": "condition", "type": "CONDITION",
+                    "configuration": {"conditionExpression": "true"},
+                    "connections": [{"sourceId": "decide", "targetId": "nota"}]},
+                   {"id": "divisor", "type": "SECTION-DIVIDER"}
+                 ]}
+                """);
+        java.util.concurrent.atomic.AtomicReference<br.com.archflow.model.flow.Flow> enviado =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        StandaloneRunner runner = new StandaloneRunner() {
+            @Override
+            protected java.util.concurrent.CompletableFuture<br.com.archflow.model.flow.FlowResult> submit(
+                    br.com.archflow.agent.ArchFlowAgent agent, br.com.archflow.model.flow.Flow flow,
+                    java.util.Map<String, Object> input) {
+                enviado.set(flow);
+                return java.util.concurrent.CompletableFuture.completedFuture(concluido());
+            }
+        };
+        try {
+            runner.run(CliArgs.parse(new String[]{arquivo.toString()}));
+        } finally {
+            runner.close();
+        }
+
+        assertThat(enviado.get().getSteps()).extracting(s -> s.getId()).containsExactly("decide");
+        assertThat(enviado.get().getSteps().get(0).getConnections()).isEmpty();
+    }
+
+    private static br.com.archflow.model.flow.FlowResult concluido() {
+        return new br.com.archflow.model.flow.FlowResult() {
+            @Override public br.com.archflow.model.enums.ExecutionStatus getStatus() {
+                return br.com.archflow.model.enums.ExecutionStatus.COMPLETED;
+            }
+            @Override public java.util.Optional<Object> getOutput() { return java.util.Optional.empty(); }
+            @Override public br.com.archflow.model.engine.ExecutionMetrics getMetrics() { return null; }
+            @Override public java.util.List<br.com.archflow.model.error.ExecutionError> getErrors() {
+                return java.util.List.of();
+            }
+        };
+    }
 }

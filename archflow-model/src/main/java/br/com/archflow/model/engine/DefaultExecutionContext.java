@@ -2,6 +2,7 @@ package br.com.archflow.model.engine;
 
 import br.com.archflow.model.flow.FlowState;
 import br.com.archflow.model.metrics.StepMetrics;
+import br.com.archflow.model.tenant.DefaultTenant;
 import dev.langchain4j.memory.ChatMemory;
 
 import java.util.Collections;
@@ -34,11 +35,12 @@ public class DefaultExecutionContext implements ExecutionContext {
     private FlowState state;
 
     public DefaultExecutionContext(ChatMemory chatMemory) {
-        this("SYSTEM", null, null, chatMemory);
+        this(DefaultTenant.ID, null, null, chatMemory);
     }
 
     public DefaultExecutionContext(String tenantId, String userId, String sessionId, ChatMemory chatMemory) {
-        this.tenantId = tenantId != null ? tenantId : "SYSTEM";
+        // Sem tenant = tenant padrão canônico, o mesmo da requisição HTTP sem tenant (RCHFLW-13).
+        this.tenantId = DefaultTenant.orDefault(tenantId);
         this.userId = userId;
         this.sessionId = sessionId;
         this.requestId = UUID.randomUUID().toString();
@@ -76,6 +78,11 @@ public class DefaultExecutionContext implements ExecutionContext {
     @Override
     public void set(String key, Object value) {
         variables.put(key, value);
+    }
+
+    @Override
+    public void remove(String key) {
+        variables.remove(key);
     }
 
     @Override

@@ -1,10 +1,12 @@
 package br.com.archflow.api.web.workflow;
 
 import br.com.archflow.api.agent.mcp.McpAgentHost;
+import br.com.archflow.api.config.TenantContext;
 import br.com.archflow.engine.api.FlowEngine;
 import br.com.archflow.engine.core.StateManager;
 import br.com.archflow.model.engine.DefaultExecutionContext;
 import br.com.archflow.model.engine.ExecutionContext;
+import br.com.archflow.model.engine.ExecutionKeys;
 import br.com.archflow.model.flow.FlowResult;
 import br.com.archflow.model.flow.FlowState;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
@@ -18,6 +20,9 @@ import java.util.Map;
 
 /**
  * In-memory execution history controller for development and demos.
+ *
+ * <p>Lista, detalhe, cancelamento e retomada só enxergam as execuções do tenant da requisição; a de
+ * outro tenant responde 404 (RCHFLW-73).
  */
 @RestController
 @RequestMapping("/api/executions")
@@ -29,6 +34,9 @@ public class SpringExecutionController {
     /** Nulo numa instalação sem MCP: o nó falha dizendo isso, e o resto do fluxo segue existindo. */
     private final McpAgentHost mcpAgentHost;
 
+    /** O consumo de modelo medido (RCHFLW-75); {@code null} numa montagem sem registro. */
+    private volatile br.com.archflow.api.usage.RegistroDeUso registroDeUso;
+
     public SpringExecutionController(WorkflowRuntimeStore store, FlowEngine flowEngine,
                                      StateManager stateManager, McpAgentHost mcpAgentHost) {
         this.store = store;
@@ -37,12 +45,18 @@ public class SpringExecutionController {
         this.mcpAgentHost = mcpAgentHost;
     }
 
+    /** Liga o uso medido no detalhe da execução. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setRegistroDeUso(br.com.archflow.api.usage.RegistroDeUso registroDeUso) {
+        this.registroDeUso = registroDeUso;
+    }
+
     @GetMapping
     public List<Map<String, Object>> list(@RequestParam(required = false) String workflowId,
                                           @RequestParam(required = false) Integer limit) {
         // Filtering + limiting happen inside the store on the raw records, so a
         // bounded poll only deep-copies the survivors, not the whole history.
-        return store.executions(workflowId, limit).stream()
+        return store.executions(TenantContext.currentTenantId(), workflowId, limit).stream()
                 .map(SpringExecutionController::withoutStepOutputs)
                 .toList();
     }
@@ -75,18 +89,64 @@ public class SpringExecutionController {
 
     @GetMapping("/{id}")
     public ResponseEntity<Map<String, Object>> get(@PathVariable String id) {
-        var execution = store.getExecution(id);
+        String tenantId = TenantContext.currentTenantId();
+        var execution = store.getExecution(tenantId, id);
         if (execution == null) {
             return ResponseEntity.notFound().build();
         }
-        // Enrich with the materialized dynamic tree, if any (design-0005 step 4).
+        execution = withUsage(tenantId, id, execution);
         FlowState state = stateManager.loadState(id);
-        if (state != null && state.getExecutionPaths() != null && !state.getExecutionPaths().isEmpty()) {
-            Map<String, Object> enriched = new LinkedHashMap<>(execution);
-            enriched.put("executionPaths", state.getExecutionPaths());
-            return ResponseEntity.ok(enriched);
+        if (state == null) {
+            return ResponseEntity.ok(execution);
         }
-        return ResponseEntity.ok(execution);
+        Map<String, Object> enriched = new LinkedHashMap<>(execution);
+        // Enrich with the materialized dynamic tree, if any (design-0005 step 4).
+        if (state.getExecutionPaths() != null && !state.getExecutionPaths().isEmpty()) {
+            enriched.put("executionPaths", state.getExecutionPaths());
+        }
+        // Quem decidiu cada portão, lido do estado durável que o motor gravou sob o lock da
+        // decisão — não do registro, que é diagnóstico. Sem isto nenhuma tela respondia "quem
+        // autorizou isto" (RCHFLW-38).
+        Object approvals = state.getVariables() != null
+                ? state.getVariables().get(ExecutionKeys.APPROVAL_HISTORY) : null;
+        if (approvals instanceof java.util.Collection<?> decided && !decided.isEmpty()) {
+            enriched.put("approvals", decided);
+        }
+        // O pedido ainda aberto, para o detalhe levar direto à fila de Aprovações.
+        if (ExecutionKeys.aguardaDecisaoHumana(state)) {
+            Map<String, Object> pending = new LinkedHashMap<>();
+            pending.put("requestId", String.valueOf(state.getVariables().get(ExecutionKeys.APPROVAL_REQUEST_ID)));
+            Object stepId = state.getVariables().get(ExecutionKeys.APPROVAL_STEP_ID);
+            if (stepId != null) {
+                pending.put("stepId", String.valueOf(stepId));
+            }
+            enriched.put("pendingApproval", pending);
+        }
+        return ResponseEntity.ok(enriched);
+    }
+
+    /**
+     * O consumo de modelo da execução em {@code usage} (somando as retomadas): tokens e custo, com
+     * {@code costCents}/{@code costReais} nulos quando não há preço declarado — a tela diz "sem preço",
+     * nunca zero. Sem nada medido (fluxo que não chamou modelo, ou ainda não terminou), o campo não vem.
+     */
+    private Map<String, Object> withUsage(String tenantId, String id, Map<String, Object> execution) {
+        var registro = registroDeUso;
+        if (registro == null) {
+            return execution;
+        }
+        return registro.daExecucao(tenantId, id).map(uso -> {
+            Map<String, Object> usage = new LinkedHashMap<>();
+            usage.put("inputTokens", uso.tokensEntrada());
+            usage.put("outputTokens", uso.tokensSaida());
+            usage.put("costCents", uso.custoCentavos());
+            usage.put("costReais", uso.custoReais());
+            usage.put("declaredCostUsd", uso.custoDeclaradoUsd());
+            usage.put("withoutPrice", uso.execucoesSemPreco());
+            Map<String, Object> copy = new LinkedHashMap<>(execution);
+            copy.put("usage", usage);
+            return copy;
+        }).orElse(execution);
     }
 
     /**
@@ -96,7 +156,8 @@ public class SpringExecutionController {
      */
     @PostMapping("/{id}/cancel")
     public ResponseEntity<Map<String, Object>> cancel(@PathVariable String id) {
-        var execution = store.getExecution(id);
+        String tenantId = TenantContext.currentTenantId();
+        var execution = store.getExecution(tenantId, id);
         if (execution == null) {
             return ResponseEntity.notFound().build();
         }
@@ -112,7 +173,7 @@ public class SpringExecutionController {
             // ignore — fall through to mark the record cancelled
         }
         store.completeExecution(id, "CANCELLED", null);
-        return ResponseEntity.ok(store.getExecution(id));
+        return ResponseEntity.ok(store.getExecution(tenantId, id));
     }
 
     /**
@@ -122,7 +183,8 @@ public class SpringExecutionController {
      */
     @PostMapping("/{id}/resume")
     public ResponseEntity<Map<String, Object>> resume(@PathVariable String id) {
-        var execution = store.getExecution(id);
+        String tenantId = TenantContext.currentTenantId();
+        var execution = store.getExecution(tenantId, id);
         if (execution == null) {
             return ResponseEntity.notFound().build();
         }
@@ -133,6 +195,13 @@ public class SpringExecutionController {
         if (state.getStatus() == null || state.getStatus().isFinal()) {
             return ResponseEntity.status(409).body(
                     Map.<String, Object>of("error", "execution is in a final state and cannot be resumed"));
+        }
+        // Um portão à espera só sai pela fila de aprovações. O motor também recusa, mas de
+        // forma assíncrona: o callback abaixo marcaria o registro FAILED com o pedido ainda
+        // aberto na fila. Aqui ele nem chega a ser tocado.
+        if (ExecutionKeys.aguardaDecisaoHumana(state)) {
+            return ResponseEntity.status(409).body(Map.<String, Object>of(
+                    "error", "execution is awaiting a human decision; decide it in the approval queue"));
         }
 
         ExecutionContext ctx = new DefaultExecutionContext(
@@ -150,7 +219,7 @@ public class SpringExecutionController {
         flowEngine.resumeFlow(id, ctx).whenComplete((result, err) ->
                 store.completeExecution(id, statusOf(result, err), errorOf(err)));
 
-        return ResponseEntity.ok(store.getExecution(id));
+        return ResponseEntity.ok(store.getExecution(tenantId, id));
     }
 
     private static String statusOf(FlowResult result, Throwable err) {

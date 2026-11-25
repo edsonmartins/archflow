@@ -3,6 +3,7 @@ package br.com.archflow.api.config;
 import br.com.archflow.model.security.ApiKey;
 import br.com.archflow.security.apikey.ApiKeyService;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -36,6 +37,19 @@ class InMemoryApiKeyRepository implements ApiKeyService.ApiKeyRepository {
     @Override
     public List<ApiKey> findByOwnerId(String ownerId) {
         return store.values().stream().filter(k -> ownerId.equals(k.getOwnerId())).toList();
+    }
+
+    @Override
+    public List<ApiKey> findByTenantId(String tenantId) {
+        return store.values().stream().filter(k -> tenantId.equals(k.getTenantId())).toList();
+    }
+
+    @Override
+    public void markUsed(String id, LocalDateTime usedAt) {
+        store.computeIfPresent(id, (ignored, key) -> {
+            key.setLastUsedAt(usedAt);
+            return key;
+        });
     }
 
     @Override

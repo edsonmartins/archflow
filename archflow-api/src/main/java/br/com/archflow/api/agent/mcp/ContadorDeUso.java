@@ -42,7 +42,8 @@ import java.util.function.LongSupplier;
  * <p>Thread-safe: um fluxo pode ter passos paralelos alimentando o mesmo contador, e a execução
  * que passou do prazo continua somando noutra thread enquanto o dispatcher lê.</p>
  */
-public final class ContadorDeUso implements br.com.archflow.decision.DecisionUsageListener {
+public final class ContadorDeUso implements br.com.archflow.decision.DecisionUsageListener,
+        br.com.archflow.model.engine.ModelUsageListener {
 
     /** Onde o contador viaja no contexto do fluxo. */
     public static final String CONTEXT_KEY = ExecutionKeys.TRANSIENT_PREFIX + "contadorDeUso";
@@ -237,6 +238,16 @@ public final class ContadorDeUso implements br.com.archflow.decision.DecisionUsa
     public void onDecision(String provedor, String modelo, Long entrada, Long saida, Double custoUsd) {
         somarComCustoDeclaradoUsd(provedor, modelo == null || provedor == null ? modelo
                 : provedor + "/" + modelo, entrada, saida, custoUsd);
+    }
+
+    /**
+     * Uma chamada de um nó de chat ({@code llm-chat}) pelo adapter — que vive noutro módulo e só vê o
+     * contexto (RCHFLW-75). Conta como turno de modelo, sem custo declarado: os adapters não leem o
+     * custo do provedor, então o total declarado fica desconhecido e o custo é o da tabela de preços.
+     */
+    @Override
+    public void onModelCall(String provedor, String modelo, Long entrada, Long saida) {
+        somarComDetalhe(provedor, modelo, null, null, entrada, saida, null);
     }
 
     /**
@@ -460,8 +471,10 @@ public final class ContadorDeUso implements br.com.archflow.decision.DecisionUsa
     public static void injetar(ExecutionContext context, ContadorDeUso contador) {
         if (context != null && contador != null) {
             context.set(CONTEXT_KEY, contador);
-            // O mesmo objeto, visto pelo nó de decisão — que não conhece este módulo.
+            // O mesmo objeto, visto pelo nó de decisão e pelos adapters de chat — que não conhecem este
+            // módulo.
             context.set(br.com.archflow.decision.DecisionUsageListener.CONTEXT_KEY, contador);
+            context.set(br.com.archflow.model.engine.ModelUsageListener.CONTEXT_KEY, contador);
         }
     }
 

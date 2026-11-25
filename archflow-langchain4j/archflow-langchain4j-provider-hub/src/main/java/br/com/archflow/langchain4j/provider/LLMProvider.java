@@ -49,7 +49,7 @@ public enum LLMProvider {
     ),
 
     /**
-     * Anthropic - Claude 3.5 Sonnet, Claude 3.7 Sonnet
+     * Anthropic - Claude Sonnet 4, Claude 3.5 Sonnet
      */
     ANTHROPIC(
         "anthropic",
@@ -58,7 +58,7 @@ public enum LLMProvider {
         true,
         true,
         List.of(
-            ModelInfo.of("claude-sonnet-4-20250514", "Claude 3.7 Sonnet", 200000, 1.0),
+            ModelInfo.of("claude-sonnet-4-20250514", "Claude Sonnet 4", 200000, 1.0),
             ModelInfo.of("claude-3-5-sonnet-20241022", "Claude 3.5 Sonnet", 200000, 1.0),
             ModelInfo.of("claude-3-5-sonnet-20240620", "Claude 3.5 Sonnet (June)", 200000, 1.0),
             ModelInfo.of("claude-3-opus-20240229", "Claude 3 Opus", 200000, 1.0),
@@ -298,6 +298,10 @@ public enum LLMProvider {
     /**
      * OpenRouter - Multi-model router with OpenAI-compatible API.
      * Routes to 100+ models from OpenAI, Anthropic, Google, Meta, etc.
+     *
+     * <p>Ids no formato do OpenRouter ({@code fornecedor/modelo}, sem a data de versão da Anthropic): a
+     * lista também é o catálogo da plataforma quando {@code ARCHFLOW_LLM_MODELS} não está definida
+     * (RCHFLW-79), e um id fora do formato só falhava na chamada.
      */
     OPENROUTER(
         "openrouter",
@@ -309,8 +313,8 @@ public enum LLMProvider {
             ModelInfo.of("openai/gpt-4o", "GPT-4o (OpenRouter)", 128000, 2.0),
             ModelInfo.of("openai/gpt-4o-mini", "GPT-4o Mini (OpenRouter)", 128000, 2.0),
             ModelInfo.of("anthropic/claude-3.5-sonnet", "Claude 3.5 Sonnet (OpenRouter)", 200000, 1.0),
-            ModelInfo.of("anthropic/claude-sonnet-4-20250514", "Claude Sonnet 4 (OpenRouter)", 200000, 1.0),
-            ModelInfo.of("google/gemini-2.0-flash-exp:free", "Gemini 2.0 Flash (OpenRouter)", 1000000, 2.0),
+            ModelInfo.of("anthropic/claude-sonnet-4", "Claude Sonnet 4 (OpenRouter)", 200000, 1.0),
+            ModelInfo.of("google/gemini-2.5-flash-lite", "Gemini 2.5 Flash Lite (OpenRouter)", 1000000, 2.0),
             ModelInfo.of("meta-llama/llama-3.3-70b-instruct", "Llama 3.3 70B (OpenRouter)", 128000, 1.0),
             ModelInfo.of("deepseek/deepseek-chat", "DeepSeek Chat (OpenRouter)", 128000, 1.0)
         )

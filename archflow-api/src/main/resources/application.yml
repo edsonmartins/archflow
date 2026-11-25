@@ -7,6 +7,15 @@ spring:
   # Em dev in-memory não há DataSource, então a auto-config se desliga sozinha.
   # Defaults do Spring Boot: migra um schema vazio do zero; recusa um schema
   # não-vazio sem histórico (o operador decide via `flyway baseline`).
+  flyway:
+    # As migrações são numeradas POR MÓDULO (V1_x core, V2_x conversation, V3_x memória,
+    # V4_x observabilidade, V5_x segurança, V6_x api), não em ordem cronológica global. Uma
+    # migração nova num módulo de prefixo baixo — como a V1_3 do core — chega depois de V6_x já
+    # aplicadas, e o Flyway a recusa como "resolved migration not applied", derrubando o boot.
+    # Sem isto, evoluir o core exigiria renumerar a migração para o fim da fila global.
+    # Vale para todos os perfis: só no prod, um banco dev existente parava de subir assim que
+    # chegava uma migração de módulo de prefixo baixo (V1_3_1, V5_1_1...).
+    out-of-order: ${SPRING_FLYWAY_OUT_OF_ORDER:true}
   jackson:
     default-property-inclusion: non_null
     # Frontend expects ISO8601 strings for java.time.Instant (e.g.
@@ -116,6 +125,29 @@ archflow:
     #   ARCHFLOW_LLM_PROVIDER_PREFERENCES_ZDR=true
     #   ARCHFLOW_LLM_PROVIDER_PREFERENCES_DATA_COLLECTION=deny
     #   ARCHFLOW_LLM_PROVIDER_PREFERENCES_REQUIRED=true   # OpenRouter sem preferência → o modelo não é criado
+    # Vale também para o nó llm-chat/llm-streaming/chat com provider openrouter (RCHFLW-41): modelo
+    # principal, por contexto e fallback, desde que o destino seja openrouter.ai. O nó não as desliga.
+    #
+    # Chaves de API (RCHFLW-17) — nunca no JSON do fluxo. Ordem: chave do tenant → chave da plataforma
+    # para o provider → archflow.llm.api-key (só quando o provider é o archflow.llm.provider). Valem
+    # para nós llm-chat (adapters), agentes e nó `decision` (este com archflow.decision.keys.<ref> no meio).
+    #   ARCHFLOW_LLM_KEYS_OPENROUTER=sk-or-...            # = archflow.llm.keys.openrouter
+    #   ARCHFLOW_LLM_TENANTKEYS_ACME_OPENROUTER=sk-or-... # tenant "acme" (id simples, chega em minúsculas)
+    # Tenant com '_', '-' ou maiúsculas no id: use colchetes, com o valor vindo do ambiente:
+    # tenant-keys:
+    #   "[tenant_a]":
+    #     openrouter: ${TENANT_A_OPENROUTER_KEY:}
+    #
+    # Destinos que podem receber uma chave governada (RCHFLW-42): além do endereço oficial do provider
+    # e do archflow.llm.base-url, só os desta lista (URLs ou hosts; host sem esquema = só https). Um
+    # base.url/baseUrl/endpoint de nó fora dela falha antes de qualquer requisição.
+    #   ARCHFLOW_LLM_ALLOWED_BASE_URLS=https://gateway.acme.com/v1,proxy.acme.com
+    #
+    # Catálogo de modelos da plataforma (RCHFLW-79): ids do archflow.llm.provider, no formato dele,
+    # separados por vírgula. Semeia o catálogo global (o superadmin liga/desliga por cima); o seletor dos
+    # nós lista o que está ligado ∩ os "modelos permitidos" do tenant, e a execução recusa um modelo fora
+    # da lista de um tenant restrito ([LLM-MODELO]). Sem a variável, vale a lista do código (LLMProvider).
+    #   ARCHFLOW_LLM_MODELS=openai/gpt-6-luna,google/gemma-4-31b-it:free,nvidia/nemotron-3-ultra-550b-a55b:free
 
 logging:
   level:

@@ -23,6 +23,7 @@ import {
 import '@xyflow/react/dist/style.css'
 import dagre from '@dagrejs/dagre'
 import { ActionIcon, Group, Tooltip } from '@mantine/core'
+import { notifications } from '@mantine/notifications'
 import {
   IconArrowBackUp, IconArrowForwardUp, IconLayoutDistributeHorizontal,
 } from '@tabler/icons-react'
@@ -35,10 +36,12 @@ import {
 import { FlowEdge }      from './edges/FlowEdge'
 import { useFlowStore, type CanvasApi }  from './store/useFlowStore'
 import { defaultBranch } from './branches'
-import { NODE_CATEGORIES, NODE_TYPE_TO_CATEGORY } from './constants'
+import { ANNOTATION_COMPONENT_IDS, NODE_CATEGORIES, NODE_TYPE_TO_CATEGORY } from './constants'
 import type { FlowNodeData, WorkflowData } from './types'
 import { CanvasOutline } from './CanvasOutline'
 import { AddNodeMenu } from './AddNodeMenu'
+import { DisconnectedNodesWarning } from './DisconnectedNodesWarning'
+import { freePosition, isInView, newNodeId, nodeCentre } from './nodePlacement'
 
 // ── Registro de tipos ────────────────────────────────────────────
 const nodeTypes: NodeTypes = {
@@ -64,13 +67,15 @@ const edgeTypes = {
 
 // Annotation shapes are excluded from autolayout and from the
 // on-connection-drop menu — they are canvas furniture, not steps.
-const ANNOTATION_TYPES = new Set(['sticky-note', 'group-frame', 'section-divider'])
 
 const ANNOTATION_DEFAULT_SIZE: Record<string, { width: number; height: number }> = {
   'sticky-note':     { width: 220, height: 140 },
   'group-frame':     { width: 360, height: 220 },
   'section-divider': { width: 480, height: 36  },
 }
+
+/** Passo, em px do fluxo, entre o original e cada colagem (e entre colagens seguidas). */
+const PASTE_OFFSET = 32
 
 interface CanvasSnapshot {
   nodes: Node<FlowNodeData>[]
@@ -82,6 +87,7 @@ function buildPaletteNode(
   info: { componentId: string; label: string; nodeType?: string },
   position: XYPosition,
   id: string,
+  config: Record<string, unknown> = {},
 ): Node<FlowNodeData> {
   const category = NODE_TYPE_TO_CATEGORY[info.componentId] ?? 'tool'
   const isAnnotation = category === 'annotation'
@@ -95,7 +101,7 @@ function buildPaletteNode(
       componentId: info.componentId,
       nodeType:    info.nodeType ?? info.componentId,
       status:      'idle',
-      config:      {},
+      config,
     },
   }
 }
@@ -115,6 +121,11 @@ export interface FlowCanvasProps {
    * sem isso, Ctrl+Z/Ctrl+V/Delete digitados fora do textarea mexeriam num canvas que o usuário não vê.
    */
   keyboardActive?: boolean
+  /**
+   * Id do fluxo mostrado. A fila do copiloto pode trazer edições destinadas a um fluxo específico (o que
+   * o createFlow acabou de criar): só um canvas deste fluxo as drena — ver CanvasOp.workflowId.
+   */
+  workflowId?: string
 }
 
 // ── Componente ───────────────────────────────────────────────────
@@ -127,6 +138,7 @@ export function FlowCanvas({
   onWorkflowChange,
   onExecutionRequest,
   keyboardActive = true,
+  workflowId,
 }: FlowCanvasProps) {
   const rfInstanceRef = useRef<ReactFlowInstance<Node<FlowNodeData>, Edge> | null>(null)
 
@@ -278,36 +290,75 @@ export function FlowCanvas({
   }, [storeNodes, setNodes, pushHistory])
 
   // ── API imperativa p/ o copilot global e o palette (click-to-add) ──
+  // Por ref: com o t nas dependências, uma troca de idioma registraria a API de novo sem necessidade.
+  const tRef = useRef(t)
+  tRef.current = t
+  // Idem para o callback de seleção, que o editor recria a cada render.
+  const onNodeSelectRef = useRef(onNodeSelect)
+  onNodeSelectRef.current = onNodeSelect
   useEffect(() => {
     if (readonly) return
+    // Durante a drenagem da fila o enquadramento é um fitView só, no fim; centralizar nó a nó brigaria com ele.
+    let draining = false
     const api: CanvasApi = {
-      addNode: ({ nodeType, label, position }) => {
-        const id = `node-${Date.now()}`
-        // Default placement: current viewport centre, nudged per node so
-        // consecutive adds don't stack exactly on top of each other.
-        let pos = position
-        if (!pos) {
-          const rect = wrapperRef.current?.getBoundingClientRect()
-          const count = localNodesRef.current.length
-          pos = rect && rfInstanceRef.current
-            ? rfInstanceRef.current.screenToFlowPosition({
-                x: rect.x + rect.width / 2 + (count % 3) * 28,
-                y: rect.y + rect.height / 2 + (count % 3) * 28,
+      addNode: ({ nodeType, label, position, id: wanted, config, placement }) => {
+        const current = localNodesRef.current
+        const taken = new Set(current.map(n => n.id))
+        const id = wanted && !taken.has(wanted) ? wanted : newNodeId(taken)
+        const rect = wrapperRef.current?.getBoundingClientRect()
+        const rf = rfInstanceRef.current
+        const free = !position && placement === 'free'
+        // Copiloto (placement 'free'): a vaga livre mais próxima do centro da viewport, para nós adicionados
+        // em sequência não caírem uns sobre os outros (RCHFLW-77). Paleta: o posicionamento de sempre —
+        // centro da viewport, deslocado um pouco a cada nó.
+        const pos = position ?? (free
+          ? freePosition(
+              rect && rf
+                ? rf.screenToFlowPosition({ x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 })
+                : { x: 240, y: 165 },
+              current)
+          : rect && rf
+            ? rf.screenToFlowPosition({
+                x: rect.x + rect.width / 2 + (current.length % 3) * 28,
+                y: rect.y + rect.height / 2 + (current.length % 3) * 28,
               })
-            : { x: 120 + (count % 5) * 220, y: 120 + Math.floor(count / 5) * 130 }
-        }
+            : { x: 120 + (current.length % 5) * 220, y: 120 + Math.floor(current.length / 5) * 130 })
         pushHistory('add')
-        setNodes(nds => [...nds, buildPaletteNode({ componentId: nodeType, label: label ?? nodeType }, pos, id)])
+        const node = buildPaletteNode({ componentId: nodeType, label: label ?? nodeType }, pos, id, { ...config })
+        // O ref só seria atualizado no próximo render, e a fila do copiloto chama várias operações seguidas
+        // sem render no meio: a vaga do nó seguinte e o connect que cita este nó precisam enxergá-lo já.
+        localNodesRef.current = [...current, node]
+        setNodes(nds => [...nds, node])
+        // A vaga livre do copiloto pode cair fora da tela, e o addNode (com o editor aberto) pareceria não
+        // ter feito nada: centraliza no nó novo, sem mudar o zoom — um fitView a cada nó afastaria o fluxo
+        // inteiro.
+        if (free && !draining && rect && rf) {
+          const topLeft = rf.screenToFlowPosition({ x: rect.left, y: rect.top })
+          const bottomRight = rf.screenToFlowPosition({ x: rect.right, y: rect.bottom })
+          const view = {
+            x: topLeft.x, y: topLeft.y, width: bottomRight.x - topLeft.x, height: bottomRight.y - topLeft.y,
+          }
+          if (!isInView(pos, view)) {
+            const c = nodeCentre(pos)
+            void rf.setCenter(c.x, c.y, { zoom: rf.getZoom(), duration: 200 })
+          }
+        }
         return id
       },
       connectNodes: (sourceId, targetId) => {
-        const ids = new Set(localNodesRef.current.map(n => n.id))
+        // Só passos ligam: anotações não têm handles, e a aresta numa delas ficaria invisível e sem efeito.
+        const ids = new Set(localNodesRef.current.filter(n => !ANNOTATION_COMPONENT_IDS.has(n.type ?? '')).map(n => n.id))
         if (!ids.has(sourceId) || !ids.has(targetId)) return false
         pushHistory('connect')
-        setEdges(eds => addEdge(
-          { id: `e-${sourceId}-${targetId}-${Date.now()}`, source: sourceId, target: targetId, type: 'flow', animated: false,
-            data: defaultEdgeData(sourceId, localNodesRef.current, eds) },
-          eds))
+        const edge: Edge = {
+          id: `e-${sourceId}-${targetId}-${Date.now()}`,
+          source: sourceId, target: targetId, type: 'flow', animated: false,
+          data: defaultEdgeData(sourceId, localNodesRef.current, localEdgesRef.current),
+        }
+        // Mesmo motivo do addNode: o ramo padrão (true/false…) do connect seguinte depende das arestas já
+        // criadas neste lote, e o snapshot de undo também.
+        localEdgesRef.current = addEdge(edge, localEdgesRef.current)
+        setEdges(eds => addEdge(edge, eds))
         return true
       },
       listNodes: () => localNodesRef.current.map(n => ({
@@ -315,17 +366,95 @@ export function FlowCanvas({
         label: String(n.data?.label ?? n.id),
         nodeType: String(n.data?.nodeType ?? ''),
       })),
+      listEdges: () => localEdgesRef.current.map(e => {
+        const branch = (e.data as { branch?: string } | undefined)?.branch
+        return { id: e.id, sourceId: e.source, targetId: e.target, ...(branch ? { branch } : {}) }
+      }),
+      configureNode: (nodeId, { config, unset, label }) => {
+        const current = localNodesRef.current
+        const target = current.find(n => n.id === nodeId)
+        if (!target) return null
+        pushHistory('configure')
+        const merged: Record<string, unknown> = { ...(target.data.config ?? {}), ...(config ?? {}) }
+        for (const key of unset ?? []) delete merged[key]
+        const data: FlowNodeData = {
+          ...target.data,
+          config: merged,
+          ...(label !== undefined ? { label } : {}),
+        }
+        const swap = (nds: Node<FlowNodeData>[]) => nds.map(n => (n.id === nodeId ? { ...n, data } : n))
+        localNodesRef.current = swap(current)
+        // Funcional, como o addNode: um nó criado no mesmo lote ainda pode estar num updater pendente.
+        setNodes(swap)
+        // O espelho do store precisa do MESMO objeto data: o RF→store mantém o data que o store já tinha
+        // para ids conhecidos, e o store→RF devolveria ao canvas a config antiga (desfazendo esta). Com o
+        // mesmo objeto nos dois, os dois efeitos de sincronia veem "nada mudou". E o painel de
+        // propriedades, se este nó estiver selecionado, mostra a config nova na hora.
+        useFlowStore.setState(s => ({
+          nodes: s.nodes.map(n => (n.id === nodeId ? { ...n, data } : n)),
+          selectedNodeData: s.selectedNodeId === nodeId ? data : s.selectedNodeData,
+        }))
+        return merged
+      },
+      removeNode: (nodeId) => {
+        const current = localNodesRef.current
+        if (!current.some(n => n.id === nodeId)) return false
+        pushHistory('remove')
+        // As arestas do nó saem junto: uma aresta para um nó que não existe some do desenho mas ficaria no
+        // documento salvo (steps[].connections), apontando para o vazio.
+        const keepNodes = (nds: Node<FlowNodeData>[]) => nds.filter(n => n.id !== nodeId)
+        const keepEdges = (eds: Edge[]) => eds.filter(e => e.source !== nodeId && e.target !== nodeId)
+        localNodesRef.current = keepNodes(current)
+        localEdgesRef.current = keepEdges(localEdgesRef.current)
+        setNodes(keepNodes)
+        setEdges(keepEdges)
+        // O painel não pode continuar mostrando (e editando) um nó que saiu do canvas.
+        if (useFlowStore.getState().selectedNodeId === nodeId) {
+          clearSelection()
+          onNodeSelectRef.current?.(null, null)
+        }
+        return true
+      },
+      removeEdge: (sourceId, targetId) => {
+        const keep = (eds: Edge[]) => eds.filter(e => !(e.source === sourceId && e.target === targetId))
+        const current = localEdgesRef.current
+        const removed = current.length - keep(current).length
+        if (!removed) return 0
+        pushHistory('remove-edge')
+        localEdgesRef.current = keep(current)
+        setEdges(keep)
+        return removed
+      },
     }
     setCanvasApi(api)
     // Apply edits queued before this canvas existed (copilot: create flow -> add nodes).
     const drain = setTimeout(() => {
-      for (const op of useFlowStore.getState().takePendingCanvasOps()) {
-        if (op.kind === 'add') api.addNode(op)
-        else api.connectNodes(op.sourceId, op.targetId)
+      const ops = useFlowStore.getState().takePendingCanvasOps(workflowId)
+      draining = true
+      // Se o id escolhido na fila já estava ocupado neste canvas, o nó ganhou outro: os connects da
+      // mesma fila precisam seguir o nó criado, não o que já existia com aquele id.
+      const renamed = new Map<string, string>()
+      for (const op of ops) {
+        if (op.kind === 'add') {
+          const id = api.addNode({ ...op, placement: 'free' })
+          if (op.id && op.id !== id) renamed.set(op.id, id)
+          continue
+        }
+        const sourceId = renamed.get(op.sourceId) ?? op.sourceId
+        const targetId = renamed.get(op.targetId) ?? op.targetId
+        // Falhava calado: o usuário via os nós soltos sem saber que uma ligação pedida se perdeu.
+        if (!api.connectNodes(sourceId, targetId)) {
+          notifications.show({
+            color: 'red',
+            message: tRef.current('copilot.errors.queuedConnectFailed', { source: sourceId, target: targetId }),
+          })
+        }
       }
+      draining = false
+      if (ops.some(op => op.kind === 'add')) rfInstanceRef.current?.fitView({ padding: 0.2 })
     }, 0)
     return () => { clearTimeout(drain); setCanvasApi(null) }
-  }, [readonly, setCanvasApi, setNodes, setEdges, pushHistory])
+  }, [readonly, workflowId, setCanvasApi, setNodes, setEdges, pushHistory, clearSelection])
 
   // ── Conexão entre nós ──────────────────────────────────────────
   const onConnect: OnConnect = useCallback(
@@ -390,7 +519,11 @@ export function FlowCanvas({
   }, [connectMenu, pushHistory, setNodes, setEdges])
 
   // ── Copiar / colar / duplicar seleção ──────────────────────────
-  const clipboardRef = useRef<CanvasSnapshot | null>(null)
+  // `pastes` conta as colagens desde a última cópia: cada colagem cai PASTE_OFFSET adiante da anterior.
+  // Com o deslocamento fixo em relação ao original, duas colagens caíam na mesma posição, uma em cima da
+  // outra, e pareciam uma só (RCHFLW-93). O Ctrl+D (copia + cola) segue a mesma regra: copiar zera a
+  // conta, então a duplicata fica a um passo do nó duplicado.
+  const clipboardRef = useRef<(CanvasSnapshot & { pastes: number }) | null>(null)
 
   const copySelection = useCallback(() => {
     let selected = localNodesRef.current.filter(n => n.selected)
@@ -406,6 +539,7 @@ export function FlowCanvas({
     clipboardRef.current = {
       nodes: selected,
       edges: localEdgesRef.current.filter(e => ids.has(e.source) && ids.has(e.target)),
+      pastes: 0,
     }
     return true
   }, [])
@@ -414,22 +548,26 @@ export function FlowCanvas({
     const clip = clipboardRef.current
     if (!clip?.nodes.length) return
     pushHistory('paste')
-    const stamp = Date.now()
+    clip.pastes += 1
+    const offset = PASTE_OFFSET * clip.pastes
+    // newNodeId, e não node-<Date.now()>-<i>: duas colagens no mesmo milissegundo davam o mesmo id.
+    const taken = new Set(localNodesRef.current.map(n => n.id))
     const idMap = new Map<string, string>()
-    const newNodes = clip.nodes.map((n, i) => {
-      const nid = `node-${stamp}-${i}`
+    const newNodes = clip.nodes.map(n => {
+      const nid = newNodeId(taken)
+      taken.add(nid)
       idMap.set(n.id, nid)
       return {
         ...n,
         id: nid,
-        position: { x: n.position.x + 32, y: n.position.y + 32 },
+        position: { x: n.position.x + offset, y: n.position.y + offset },
         selected: true,
         data: { ...n.data, config: { ...n.data.config } },
       }
     })
     const newEdges = clip.edges.map((e, i) => ({
       ...e,
-      id: `e-${stamp}-${i}`,
+      id: `e-${idMap.get(e.source)}-${idMap.get(e.target)}-${i}`,
       source: idMap.get(e.source)!,
       target: idMap.get(e.target)!,
       selected: false,
@@ -444,7 +582,7 @@ export function FlowCanvas({
 
   // ── Autolayout (dagre, LR) ──────────────────────────────────────
   const tidyUp = useCallback(() => {
-    const regular = localNodesRef.current.filter(n => !ANNOTATION_TYPES.has(n.type ?? ''))
+    const regular = localNodesRef.current.filter(n => !ANNOTATION_COMPONENT_IDS.has(n.type ?? ''))
     if (regular.length < 2) return
     pushHistory('tidy')
     const g = new dagre.graphlib.Graph()
@@ -679,6 +817,12 @@ export function FlowCanvas({
                 </ActionIcon>
               </Tooltip>
             </Group>
+          </Panel>
+        )}
+
+        {!readonly && (
+          <Panel position="bottom-center">
+            <DisconnectedNodesWarning nodes={nodes} edges={edges} />
           </Panel>
         )}
 

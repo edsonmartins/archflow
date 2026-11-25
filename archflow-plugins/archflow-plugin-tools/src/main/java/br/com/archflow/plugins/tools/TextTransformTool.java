@@ -6,6 +6,7 @@ import br.com.archflow.model.ai.domain.Result;
 import br.com.archflow.model.ai.metadata.ComponentMetadata;
 import br.com.archflow.model.ai.type.ComponentType;
 import br.com.archflow.model.engine.ExecutionContext;
+import br.com.archflow.plugin.api.spi.ComponentInputs;
 import br.com.archflow.plugin.api.spi.ComponentPlugin;
 
 import java.util.List;
@@ -80,7 +81,11 @@ public class TextTransformTool implements Tool, ComponentPlugin {
             throw new IllegalStateException("Tool not initialized. Call initialize() first.");
         }
 
-        String text = (input instanceof String) ? (String) input : String.valueOf(input);
+        // String.valueOf(mapa) transformava "{message=...}" — o Executar do designer manda um mapa.
+        String text = ComponentInputs.text(input);
+        if (text == null) {
+            text = "";
+        }
 
         return switch (operation) {
             case "uppercase" -> text.toUpperCase();

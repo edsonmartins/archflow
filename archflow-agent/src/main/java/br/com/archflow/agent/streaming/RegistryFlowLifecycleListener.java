@@ -3,15 +3,19 @@ package br.com.archflow.agent.streaming;
 import br.com.archflow.agent.streaming.domain.FlowEvent;
 import br.com.archflow.engine.lifecycle.FlowLifecycleListener;
 import br.com.archflow.model.engine.ExecutionContext;
+import br.com.archflow.model.enums.ExecutionStatus;
+import br.com.archflow.model.error.ExecutionError;
 import br.com.archflow.model.flow.Flow;
 import br.com.archflow.model.flow.FlowResult;
 import br.com.archflow.model.flow.FlowStep;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 /**
  * {@link FlowLifecycleListener} that updates the {@link RunningFlowsRegistry}
@@ -76,7 +80,16 @@ public class RegistryFlowLifecycleListener implements FlowLifecycleListener {
             runningFlowsRegistry.flowEnded(flowId);
             forgetStartedIndexes(flowId);
 
-            ArchflowEvent event = FlowEvent.flowCompleted(flowId, tenantId, durationMs, flowId);
+            // O motor chama onFlowCompleted para todo FlowResult que volta sem exceção, inclusive
+            // um passo que falhou sem aresta de erro. Anunciar isso como flow_completed era estado
+            // falso para quem consome o stream (RCHFLW-33): FAILED vira flow_failed com o motivo
+            // registrado no resultado; os demais desfechos levam o status no flow_completed.
+            ExecutionStatus status = result != null ? result.getStatus() : null;
+            ArchflowEvent event = status == ExecutionStatus.FAILED
+                    ? FlowEvent.flowFailed(flowId, tenantId, failureMessage(result),
+                            failureType(result), durationMs, flowId)
+                    : FlowEvent.flowCompleted(flowId, tenantId,
+                            status != null ? status.name() : null, durationMs, flowId);
             safeBroadcast(flowId, event);
             safeAdminBroadcast(tenantId, event);
         } catch (Exception e) {
@@ -170,6 +183,22 @@ public class RegistryFlowLifecycleListener implements FlowLifecycleListener {
         }
     }
 
+    @Override
+    public void onStepSuspended(Flow flow, FlowStep step, ExecutionContext context,
+                                long durationMs) {
+        String flowId = flow.getId();
+        try {
+            // Mesmo índice do STEP_STARTED: para o cliente, a suspensão fecha o início do passo.
+            int stepIndex = finishedStepIndex(flow, step);
+            ArchflowEvent event = FlowEvent.stepSuspended(flowId, step.getId(),
+                    stepIndex, durationMs, flowId);
+            safeBroadcast(flowId, event);
+            safeAdminBroadcast(tenantIdOf(context), event);
+        } catch (Exception e) {
+            log.warn("[{}] onStepSuspended listener error (swallowed)", flowId, e);
+        }
+    }
+
     // ----------------------------------------------------------------
     // Helpers
     // ----------------------------------------------------------------
@@ -227,6 +256,36 @@ public class RegistryFlowLifecycleListener implements FlowLifecycleListener {
     /** Fim do fluxo: descarta índices de passos que nunca anunciaram o fim (evita vazamento). */
     private void forgetStartedIndexes(String flowId) {
         startedIndexes.keySet().removeIf(k -> Objects.equals(k.flowId(), flowId));
+    }
+
+    /**
+     * Motivo de um FAILED sem exceção: as mensagens dos erros que o motor pôs no resultado (os
+     * passos que falharam). Sem nenhuma, o mesmo "unknown" do {@link #onFlowFailed} com erro nulo.
+     */
+    private static String failureMessage(FlowResult result) {
+        List<ExecutionError> errors = result.getErrors();
+        if (errors == null || errors.isEmpty()) {
+            return "unknown";
+        }
+        String joined = errors.stream()
+                .map(ExecutionError::message)
+                .filter(m -> m != null && !m.isBlank())
+                .collect(Collectors.joining("; "));
+        return joined.isEmpty() ? "unknown" : joined;
+    }
+
+    /**
+     * Tipo do primeiro erro do resultado — não há exceção cujo nome de classe usar. Por isso o
+     * {@code errorType} deste flow_failed é um nome de {@code ExecutionErrorType}, e o do
+     * {@link #onFlowFailed} é um nome de classe: vocabulários diferentes, documentados em
+     * {@link FlowEvent#flowFailed}.
+     */
+    private static String failureType(FlowResult result) {
+        List<ExecutionError> errors = result.getErrors();
+        if (errors == null || errors.isEmpty() || errors.get(0).type() == null) {
+            return "unknown";
+        }
+        return errors.get(0).type().name();
     }
 
     private int currentStepIndex(Flow flow, FlowStep step) {

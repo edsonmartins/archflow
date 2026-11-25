@@ -1,11 +1,13 @@
 package br.com.archflow.api.conversation.impl;
 
+import br.com.archflow.api.config.TenantContext;
 import br.com.archflow.api.conversation.ConversationController;
 import br.com.archflow.api.conversation.dto.ConversationResponse;
 import br.com.archflow.api.conversation.dto.ConversationResponse.MessageResponse;
 import br.com.archflow.api.conversation.dto.ResumeRequest;
 import br.com.archflow.api.conversation.dto.SuspendRequest;
 import br.com.archflow.conversation.form.FormData;
+import br.com.archflow.conversation.form.FormRegistry;
 import br.com.archflow.conversation.message.ConversationMessage;
 import br.com.archflow.conversation.service.ConversationService;
 import br.com.archflow.conversation.state.SuspendedConversation;
@@ -28,14 +30,17 @@ public class ConversationControllerImpl implements ConversationController {
     private static final int DEFAULT_TIMEOUT_MINUTES = 30;
 
     private final ConversationService conversationService;
+    private final FormRegistry forms;
 
     /**
      * Creates a new ConversationControllerImpl.
      *
      * @param conversationService The conversation service
+     * @param forms formulários que o {@code formId} da suspensão resolve
      */
-    public ConversationControllerImpl(ConversationService conversationService) {
+    public ConversationControllerImpl(ConversationService conversationService, FormRegistry forms) {
         this.conversationService = conversationService;
+        this.forms = java.util.Objects.requireNonNull(forms, "forms");
     }
 
     @Override
@@ -43,14 +48,19 @@ public class ConversationControllerImpl implements ConversationController {
         log.info("Suspending conversation: {} for workflow: {}", request.conversationId(), request.workflowId());
 
         int timeoutMinutes = request.timeoutMinutes() != null ? request.timeoutMinutes() : DEFAULT_TIMEOUT_MINUTES;
+        // O formId era descartado aqui ("resolvido pelo serviço", que não resolvia): a conversa ficava
+        // SUSPENDED sem formulário e o chat sem o que mostrar (RCHFLW-67). Desconhecido é 400.
+        FormData form = forms.require(request.formId());
 
         SuspendedConversation suspended = conversationService.suspend(
                 request.conversationId(),
                 request.workflowId(),
                 request.executionId(),
-                null, // Form resolved by service/manager
+                form,
                 Duration.ofMinutes(timeoutMinutes),
-                Map.of()
+                // O tenant de quem suspendeu vai no contexto, que o store de suspensas persiste: é por
+                // ele que uma conversa nascida suspensa (sem mensagem que o traga) tem dono (RCHFLW-71).
+                Map.of("tenantId", TenantContext.currentTenantId())
         );
 
         List<ConversationMessage> messages = conversationService.getMessages(request.conversationId());
@@ -134,11 +144,15 @@ public class ConversationControllerImpl implements ConversationController {
 
     /**
      * Converts a ConversationMessage to a MessageResponse DTO.
+     *
+     * <p>Papel em minúsculas, como no {@code GET /api/conversations/{id}/messages} e nos eventos do
+     * chat: o chat reconstrói o histórico pela resposta da retomada, e com {@code "USER"} cada fala
+     * do usuário passava a ser desenhada como do assistente até recarregar.</p>
      */
     private MessageResponse toMessageResponse(ConversationMessage message) {
         return new MessageResponse(
                 message.id(),
-                message.role().name(),
+                message.role().name().toLowerCase(java.util.Locale.ROOT),
                 message.content(),
                 message.timestamp(),
                 message.metadata()

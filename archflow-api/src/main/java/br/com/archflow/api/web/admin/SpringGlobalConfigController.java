@@ -42,9 +42,18 @@ public class SpringGlobalConfigController {
         return delegate.getModels();
     }
 
-    @PutMapping("/models/{id}")
-    public void toggleModel(@PathVariable String id, @RequestBody ToggleModelRequest request) {
-        delegate.toggleModel(id, request);
+    /**
+     * {@code {*id}} captura o resto do caminho: os ids do OpenRouter têm barra
+     * ({@code openai/gpt-6-luna}), e com {@code {id}} o superadmin não conseguia desligar nenhum
+     * modelo do catálogo da plataforma (RCHFLW-79) — a rota dava 404. Barra codificada ({@code %2F})
+     * não é saída: o firewall do Spring Security a recusa.
+     */
+    @PutMapping("/models/{*id}")
+    public void toggleModel(@PathVariable("id") String id, @RequestBody ToggleModelRequest request) {
+        String raw = id.startsWith("/") ? id.substring(1) : id;
+        // O resto do caminho chega sem decodificar: o ":" de "gemma-4-31b-it:free" vem como %3A do navegador.
+        delegate.toggleModel(org.springframework.web.util.UriUtils.decode(raw,
+                java.nio.charset.StandardCharsets.UTF_8), request);
     }
 
     @GetMapping("/plans")

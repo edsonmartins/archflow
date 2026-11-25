@@ -1,4 +1,37 @@
 {
+    "acceptInvite": {
+        "title": "Accept invitation",
+        "subtitle": "Set the password for your access. It must have at least {{min}} characters.",
+        "password": "Password",
+        "confirm": "Confirm password",
+        "tooShort": "At least {{min}} characters",
+        "mismatch": "Passwords do not match",
+        "submit": "Activate access",
+        "done": "Access activated. Sign in with the username {{username}} and the password you set.",
+        "goToLogin": "Go to sign in",
+        "haveAccount": "I already have access",
+        "missingToken": "This invitation link is incomplete. Ask the administrator for a new link.",
+        "failed": "Could not accept the invitation"
+    },
+    "workspaceUserErrors": {
+        "BODY_REQUIRED": "The request arrived without data. Reload the page and try again.",
+        "EMAIL_INVALID": "Invalid e-mail address.",
+        "ROLE_UNKNOWN": "Unknown role. Choose one of the roles in the list.",
+        "USER_EXISTS": "A user with this e-mail already exists.",
+        "USER_NOT_FOUND": "User not found in this workspace.",
+        "SELF_ROLE_CHANGE": "You cannot change your own role; ask another administrator.",
+        "SELF_REMOVE": "You cannot remove yourself; ask another administrator.",
+        "INVITATION_PENDING": "This user still has a pending invitation; revoke the invitation instead of removing.",
+        "INVITATION_ALREADY_ACCEPTED": "This invitation was already accepted; remove the user instead of revoking the invitation.",
+        "INVITATION_INVALID": "This invitation link is invalid or has already been used.",
+        "INVITATION_EXPIRED": "This invitation has expired; ask the administrator for a new one.",
+        "PASSWORD_TOO_SHORT": "The password must have at least {{min}} characters."
+    },
+    "usage": {
+        "noPrice": "no price",
+        "withoutPriceCount_one": "{{count}} execution without price",
+        "withoutPriceCount_other": "{{count}} executions without price"
+    },
     "confirmations": {
         "delete": "Delete",
         "remove": "Remove",
@@ -17,7 +50,7 @@
         "suspendTenantTitle": "Suspend tenant",
         "suspendTenantMessage": "The tenant \"{{name}}\" will lose access until reactivated. Continue?",
         "removeUserTitle": "Remove user",
-        "removeUserMessage": "Remove {{name}} from this workspace? Access will be revoked immediately.",
+        "removeUserMessage": "Remove {{name}} from this workspace? Their API keys stop at once. A session that is already open ends at the next access token renewal (within 15 minutes, by default).",
         "revokeInviteTitle": "Revoke invite",
         "revokeInviteMessage": "Revoke the invite for {{name}}?",
         "revokeKeyTitle": "Revoke API key",
@@ -69,7 +102,7 @@
         "admin": "Admin",
         "dashboard": "Home",
         "searchTooltip": "Search everywhere",
-        "searchPlaceholder": "Search pages and workflows...",
+        "searchPlaceholder": "Search pages, workflows, executions, conversations and templates...",
         "searchNothing": "Nothing found",
         "short": {
             "executions": "Runs",
@@ -284,21 +317,26 @@
                 "running": "running",
                 "success": "completed",
                 "error": "failed",
-                "skipped": "skipped"
+                "skipped": "skipped",
+                "awaiting": "awaiting approval"
             }
         },
         "save": "Save",
         "saveYaml": "Save YAML",
         "canvas": "Canvas",
         "code": "Code",
-        "run": "Run",
+        "runDraft": "Run draft",
         "stop": "Stop",
+        "readOnly": "Read only",
         "back": "Back to list",
         "saved": "Saved",
         "savedAt": "Saved at {{time}}",
         "savedRelative": "Saved {{time}}",
         "untitled": "Untitled workflow",
         "renameHint": "Click to rename",
+        "yamlInvalidAt": "Invalid YAML at line {{line}}, column {{column}}: {{reason}}",
+        "yamlInvalidAtLine": "Invalid YAML at line {{line}}: {{reason}}",
+        "yamlInvalid": "Invalid YAML: {{reason}}",
         "loadingYaml": "Loading YAML…",
         "emptyTitle": "No workflow loaded",
         "emptyHint": "Create a new workflow or load an existing one to get started",
@@ -337,6 +375,10 @@
             "tidy": "Tidy up layout",
             "addNode": "Add node"
         },
+        "disconnectedWarning": {
+            "title": "Nodes without connections",
+            "message": "Not connected: {{names}}. With no edges at all, the flow runs its nodes in the order they were created; with edges, a loose node runs on its own, with the run input. Connect the nodes to set the order."
+        },
         "publish": {
             "button": "Publish",
             "title": "Publish this workflow",
@@ -367,7 +409,7 @@
             "targetVersion": "Target version",
             "restHint": "Starts an execution and returns its executionId. Poll GET /api/executions/{id} for status and per-step results.",
             "streamHint": "Runs the workflow and streams AG-UI events (RUN_STARTED, STEP_STARTED/FINISHED, messages) over SSE in a single request.",
-            "embedHint": "Embeds the workflow canvas in any page via the <archflow-designer> web component (served from this app's build).",
+            "embedHint": "Embeds the workflow canvas in a page via the <archflow-designer> web component (served from this app's build). The site's origin must be listed in ARCHFLOW_CORS_ORIGINS; otherwise the browser blocks the script and the area stays empty.",
             "mcpHint": "Connect any MCP client (Claude, IDEs, agents) to this server — the workflow shows up as the tool \"{{tool}}\".",
             "apiKeyHint": "Authenticate with a scoped API key —",
             "apiKeyLink": "manage API keys"
@@ -379,8 +421,10 @@
             "goalPlaceholder": "e.g. answer support tickets: classify the intent, search the knowledge base and draft a reply — escalate to a human when unsure",
             "generate": "Generate",
             "started": "Copilot is building your flow",
-            "startedMsg": "Nodes will appear on the canvas as the copilot works. Open the copilot sidebar to follow along.",
-            "promptTemplate": "Build a workflow on the editor canvas for the following goal. Use the addNode and connectNodes tools with the available node types, connect the nodes in a logical order, and give each node a short descriptive label. Goal: {{goal}}"
+            "startedMsg": "Nodes will appear on the canvas as the copilot works.",
+            "done": "Copilot finished building the flow",
+            "doneMsg": "Check the nodes and connections on the canvas.",
+            "promptTemplate": "Build a workflow on the editor canvas for the following goal. Create each node with the addNode tool, using the available node types and a short descriptive label; addNode returns the id of the created node. Configure each node with what the goal asks for (prompt and model of an llm-chat, expression of a condition…), in the addNode config parameter or with configureNode, using only the config keys listed for that node type. Then connect the nodes in a logical order with connectNodes, using exactly the ids returned by addNode (never invent ids). To fix a node you created or a wrong edge, use removeNode/removeEdge instead of adding another node; do not remove nodes that were already in the flow unless the goal asks for it (the user will have to confirm). When you are done, reply with a short summary of the flow. Goal: {{goal}}"
         },
         "properties": {
             "title": "Properties",
@@ -390,6 +434,7 @@
             "flowDefaults": {
                 "title": "Flow defaults",
                 "hint": "Model defaults inherited by every step. Select a node to override them.",
+                "savedGroup": "Saved in the flow",
                 "inheritHint": "Leave a field at its default to inherit from the platform."
             },
             "tabs": {
@@ -411,6 +456,22 @@
                 "executionStrategy": "Execution strategy",
                 "provider": "Provider",
                 "model": "Model",
+                "inheritFlow": "Flow default ({{provider}})",
+                "inheritPlatform": "Platform default",
+                "modelDefault": "Default",
+                "inheritFlowValue": "Flow default ({{value}})",
+                "inheritHint": "With no provider chosen, the node uses the flow default (configuration.llmConfig) or the platform default (archflow.llm.provider/model) provider and model.",
+                "noChatAdapter": "{{provider}} (no chat adapter)",
+                "noChatAdapterHint": "This provider has no chat adapter on this server — the node will fail. Pick another one or the default.",
+                "inheritPlatformNamed": "Platform default ({{provider}})",
+                "useCustomModel": "Use the id \"{{model}}\"",
+                "modelNotAllowed": "{{model}} (not allowed)",
+                "modelNotAllowedHint": "This tenant does not allow this model — the run will fail. Pick one from the list.",
+                "modelInheritedNotAllowed": "The inherited model ({{model}}) is not allowed for this tenant — the run will fail. Pick a model from the list.",
+                "modelInheritedMissing": "Nothing sets the inherited model (the provider default would be used) and this tenant only allows the models in the list — the run will fail. Pick one.",
+                "modelRestrictedHint": "This tenant can only use the models in the list (set by the platform administrator).",
+                "modelSearchHint": "Type to search the catalog or to use another provider model id.",
+                "modelNothingFound": "No catalog model",
                 "persona": "Persona",
                 "systemPrompt": "System prompt",
                 "systemPromptPlaceholder": "You are a helpful assistant...",
@@ -489,6 +550,7 @@
                 "topKRetrieval": "Top-K retrieval",
                 "minScore": "Min score (0..1)",
                 "approvalTitle": "Approval title",
+                "approvalTitleHint": "Name of the request in the Approvals queue.",
                 "decisionProvider": "Decision provider",
                 "decisionRules": "Rules (JSON)",
                 "decisionRulesHint": "Per question. choice: { \"<question>\": { \"match\": { \"<option>\": [\"word\", \"re:regex\"] }, \"otherwise\": \"<option>\" } }. score: keys are the level index and otherwise is a number, e.g. { \"<question>\": { \"match\": { \"2\": [\"down\"], \"1\": [\"slow\"] }, \"otherwise\": 0 } }. noul: { \"<question>\": { \"matchAny\": [\"word\", \"re:regex\"] } }. Without otherwise, no match is an error; falling into otherwise has confidence 0.",
@@ -518,16 +580,15 @@
                 "decisionOnDisagree": "On disagreement",
                 "decisionRoutesHint": "Connect edges from this node and pick their branch: AUTO, REVIEW or ESCALATE.",
                 "approvalDescription": "Description shown to the reviewer",
-                "approvalDescriptionHint": "Explain what the human is deciding on. Variables like {{agent.decision}} are resolved from context.",
+                "approvalDescriptionHint": "Explain what the reviewer is deciding. The text is sent as is, with no variable substitution.",
                 "proposalPayload": "Proposal payload (JSON)",
-                "proposalPayloadHint": "Shown to the reviewer alongside the description. Supports {{mustache}} substitution.",
+                "proposalPayloadHint": "What the reviewer assesses (and may edit before approving). Valid JSON becomes an object; other text is sent as is. Empty: the previous step's output.",
                 "timeoutMin": "Timeout (minutes)",
+                "timeoutMinHint": "When the deadline passes, the request is rejected. Empty: the server's global deadline (archflow.approval.timeout).",
+                "timeoutMinPlaceholder": "global deadline",
                 "onTimeout": "On timeout",
-                "onTimeoutOptions": {
-                    "reject": "Reject (default)",
-                    "approve": "Auto-approve",
-                    "escalate": "Escalate to fallback channel"
-                },
+                "onTimeoutAlwaysReject": "Reject — always. An expired deadline means nobody looked, and that never becomes an approval.",
+                "onTimeoutLegacy": "This node has \"{{value}}\" saved as its on-timeout action. That option was removed and the engine ignores it: the expired request is rejected.",
                 "conversationIdSource": "Conversation id source",
                 "conversationIdHint": "Expression resolved against the execution context. Default uses conversationId from the upstream Linktor trigger.",
                 "messageText": "Message text",
@@ -623,7 +684,8 @@
                     "noOutput": "No output available",
                     "nodeStarted": "[{{ts}}] Node started",
                     "completedIn": "[{{ts}}] Completed in {{ms}}ms",
-                    "running": "[{{ts}}] Running..."
+                    "running": "[{{ts}}] Running...",
+                    "awaiting": "[{{ts}}] Awaiting a decision in the Approvals queue"
                 }
             }
         }
@@ -665,7 +727,8 @@
             "COMPLETED": "Completed",
             "FAILED": "Failed",
             "PAUSED": "Paused",
-            "CANCELLED": "Cancelled"
+            "CANCELLED": "Cancelled",
+            "STOPPED": "Stopped"
         }
     },
     "triggers": {
@@ -722,7 +785,16 @@
         "deleteFailed": "Delete failed",
         "fireFailed": "Fire failed",
         "fired": "Fired",
-        "firedMsg": "Submitted invocation for {{name}}"
+        "firedMsg": "Submitted invocation for {{name}}",
+        "run": {
+            "completed": "Agent completed",
+            "completedMsg": "The run of {{name}} finished successfully",
+            "failed": "The agent of {{name}} failed",
+            "noErrorMessage": "The agent failed without an error message.",
+            "unknown": "Result of {{name}} unavailable",
+            "stillRunning": "The agent has not finished yet. Look it up by requestId {{id}}.",
+            "queryFailed": "Could not query the result (requestId {{id}})."
+        }
     },
     "admin": {
         "layout": {
@@ -936,7 +1008,7 @@
             },
             "live": {
                 "connection": "Connection",
-                "connectionHint": "Attach to a tenant and session to stream its events",
+                "connectionHint": "Attach to a session to stream its events. Only your own tenant (or the impersonated one) is accepted; leave the tenant blank to use your session's.",
                 "eventFeedHint": "Newest at the bottom · up to 500 events · click one to inspect",
                 "payload": "Payload",
                 "payloadHint": "Event data",
@@ -944,7 +1016,7 @@
                 "openFailed": "Failed to open stream",
                 "tenantId": "Tenant id",
                 "sessionId": "Session id",
-                "tenantPlaceholder": "acme",
+                "tenantPlaceholder": "blank = your session's tenant",
                 "sessionPlaceholder": "conversation-123",
                 "pause": "Pause",
                 "resume": "Resume",
@@ -1030,6 +1102,13 @@
                 "plan": "Plan",
                 "status": "Status",
                 "allowedModels": "Allowed models",
+                "allowedModelsAll": "All catalog models",
+                "allowedModelsHint": "Empty: the tenant uses the whole active catalog and may type another id. Filled: only these models — in the editor and at run time.",
+                "allowedModelsPlaceholder": "All catalog models",
+                "allowedModelsCatalogFailed": "Could not load the model catalog",
+                "editModels": "Edit",
+                "saveModels": "Save",
+                "modelsSaved": "Allowed models updated",
                 "name": "Name",
                 "tenantId": "Tenant ID",
                 "admin": "Admin",
@@ -1069,7 +1148,8 @@
                     "execPerDay": "Executions/day",
                     "tokensPerMonth": "Tokens/month",
                     "maxWorkflows": "Max workflows",
-                    "maxUsers": "Max users"
+                    "maxUsers": "Max users",
+                    "allowedModels": "Allowed models"
                 },
                 "plans": {
                     "trial": "Trial (30 days)",
@@ -1085,13 +1165,14 @@
                     "exec": "Exec/day",
                     "tokensMo": "Tokens/mo",
                     "workflows": "Workflows",
-                    "users": "Users"
+                    "users": "Users",
+                    "models": "Models"
                 },
                 "createBtn": "Create tenant"
             },
             "usage": {
                 "title": "Usage & Billing",
-                "subtitle": "Monthly consumption and estimated cost per tenant.",
+                "subtitle": "Measured usage and cost per tenant, for the month.",
                 "month": "Month",
                 "listTitle": "Consumption by tenant",
                 "listHint": "The bar is the share of the month’s total.",
@@ -1100,7 +1181,7 @@
                 "hints": {
                     "executions": "In {{month}}",
                     "tokens": "Input + output",
-                    "cost": "Estimated, in USD",
+                    "cost": "From the price table, in BRL",
                     "tenants": "With activity in the month"
                 },
                 "exportCsv": "Export CSV",
@@ -1169,11 +1250,15 @@
         },
         "tenant": {
             "workspace": {
+                "noPlanLimits": "This tenant has no registered plan, so there are no limits to compare. The numbers above are the measured usage.",
                 "title": "Workspace Overview",
                 "subtitle": "How this workspace is doing against its plan.",
                 "subtitleNamed": "{{name}} — how this workspace is doing against its plan.",
                 "planUsageHint": "Bars turn amber at 70% and red at 90% of the limit.",
                 "hints": {
+                    "noLimit": "No registered limit",
+                    "tokensOfLimit": "Limit: {{limit}} per month",
+                    "costMonth": "This month, from the price table",
                     "ofLimit": "Limit: {{limit}}",
                     "perDay": "Limit: {{limit}} per day",
                     "seats": "Limit: {{limit}} seats",
@@ -1183,6 +1268,8 @@
                 "summaryUnavailable": "Workspace summary is unavailable right now.",
                 "planUsage": "Plan Usage",
                 "stats": {
+                    "tokensMonth": "Tokens this month",
+                    "costMonth": "Cost this month",
                     "workflows": "Workflows",
                     "executionsToday": "Executions today",
                     "users": "Users",
@@ -1236,6 +1323,23 @@
                 }
             },
             "users": {
+                "inviteExpires": "Invitation valid until {{when}}",
+                "inviteCreated": "Invitation created for {{email}}",
+                "inviteLinkHint": "Send this link to the invited person. It is shown only now, works once and until {{when}}.",
+                "inviteNoEmail": "archflow does not send e-mail: after inviting, copy the acceptance link and send it to the person.",
+                "copyLink": "Copy link",
+                "linkCopied": "Link copied",
+                "done": "Done",
+                "permissionNames": {
+                    "all": "All permissions",
+                    "workflow_read": "View workflows",
+                    "workflow_create": "Create workflows",
+                    "workflow_update": "Edit workflows",
+                    "workflow_delete": "Delete workflows",
+                    "workflow_execute": "Run workflows",
+                    "agent_read": "View agents",
+                    "execution_read": "View execution history"
+                },
                 "title": "Users",
                 "subtitle": "Who has access to this workspace and what each role can do.",
                 "listTitle": "Members",
@@ -1257,6 +1361,7 @@
                 "inviteSentMsg": "Invite sent to {{email}}",
                 "sendInvite": "Send Invite",
                 "editRole": "Edit role",
+                "roleChangeHint": "The new role applies at once to the user's API keys. In a session that is already open, it applies from the next access token renewal (within 15 minutes, by default).",
                 "save": "Save",
                 "permissionsTitle": "Permission Matrix",
                 "permissions": {
@@ -1279,6 +1384,7 @@
                     "actions": "Actions"
                 },
                 "status": {
+                    "disabled": "Disabled",
                     "active": "Active",
                     "invited": "Invite pending"
                 },
@@ -1288,6 +1394,10 @@
                     "role": "Role"
                 },
                 "roles": {
+                    "ADMIN": "Administrator",
+                    "DESIGNER": "Designer",
+                    "EXECUTOR": "Executor",
+                    "VIEWER": "Viewer",
                     "admin": "Admin",
                     "editor": "Editor",
                     "viewer": "Viewer"
@@ -1303,7 +1413,7 @@
                 "listHint": "The secret is shown only once, right after creation.",
                 "emptyHint": "Create a key with only the scopes an integration needs.",
                 "new": "New key",
-                "info": "These keys belong to the scoped/expirable system (/api/apikeys) — distinct from the admin workspace dev keys. They carry explicit scopes.",
+                "info": "These keys belong to the scoped/expirable system (/api/apikeys) and carry explicit scopes.",
                 "created": "Key created — copy the secret now",
                 "createdHint": "This is the only time the secret will be shown.",
                 "dismiss": "Dismiss",
@@ -1313,6 +1423,25 @@
                 "revoked": "Revoked",
                 "revokedMsg": "Key {{id}} revoked",
                 "revokeFailed": "Revoke failed",
+                "scopesFailed": "Failed to load scopes",
+                "usageHint": "Send the key in the Authorization: Bearer <key> header. It acts as you, in the workspace of your login, and only reaches what its scopes cover and your role allows.",
+                "impersonationNotice": "You are viewing the {{name}} workspace as a superadmin, but the keys on this page are yours, in the workspace of your login: a key created here does not act in {{name}}.",
+                "scopeNotGrantable": "your role does not grant it",
+                "scopeOpensNothing": "does not open any endpoint yet",
+                "scopesOpenNothing": "These scopes do not open any endpoint yet: {{scopes}}. A key with only them gets 403 on every call.",
+                "scopeNames": {
+                    "WORKFLOW_READ": "Read workflows",
+                    "WORKFLOW_CREATE": "Create workflows",
+                    "WORKFLOW_UPDATE": "Update and publish workflows",
+                    "WORKFLOW_DELETE": "Delete workflows",
+                    "WORKFLOW_EXECUTE": "Execute workflows",
+                    "AGENT_READ": "Read agents",
+                    "AGENT_MANAGE": "Manage agents",
+                    "EXECUTION_READ": "Read executions",
+                    "EXECUTION_MANAGE": "Cancel and resume executions",
+                    "METRICS_READ": "Read metrics",
+                    "ADMIN": "All scopes"
+                },
                 "newTitle": "New scoped API key",
                 "columns": {
                     "name": "Name",
@@ -1371,11 +1500,11 @@
         "subtitle": "Fire an agent on demand or send it a chat message, and inspect the raw response.",
         "requestTitle": "Request",
         "requestHint": "Tenant, session, agent and what to send",
-        "responseHint": "Raw body returned by the trigger endpoint",
+        "responseHint": "The agent's result and the body returned by the trigger endpoint",
         "emptyTitle": "No response yet",
         "emptyHint": "Pick an agent, then invoke it or send a message — the response shows up here.",
         "title": "Agent Playground",
-        "info": "Trigger an agent directly (on-demand) or send a conversational message. Both require an <code>AgentInvocationQueue</code> wired on the backend.",
+        "info": "Trigger an agent directly (on-demand) or send a conversational message. Both go through the <code>AgentInvocationQueue</code>; the agent runs in the background and its result shows up here when it finishes.",
         "tenantId": "Tenant ID",
         "sessionId": "Session ID (optional)",
         "sessionPlaceholder": "auto-generated if blank",
@@ -1398,7 +1527,24 @@
         "accepted": "Accepted",
         "requestIdMsg": "requestId: {{id}}",
         "invokeFailed": "Invoke failed",
-        "sendFailed": "Send failed"
+        "sendFailed": "Send failed",
+        "result": {
+            "title": "Result",
+            "status": {
+                "QUEUED": "Queued",
+                "RUNNING": "Running",
+                "COMPLETED": "Completed",
+                "FAILED": "Failed"
+            },
+            "failedTitle": "The agent failed",
+            "noErrorMessage": "The agent failed without an error message.",
+            "noOutput": "The agent finished with no output.",
+            "notFound": "Invocation not found for this tenant.",
+            "queryFailed": "Could not fetch the result: {{message}}",
+            "stillRunning": "The agent has not finished yet. Check again in a moment.",
+            "retry": "Check again",
+            "acceptance": "Endpoint response (acceptance)"
+        }
     },
     "voicePlayground": {
         "sessionTitle": "Session",
@@ -1503,13 +1649,43 @@
         "asVariables": "JSON object: variables {{keys}}.",
         "asText": "Text: reaches the flow as input.",
         "cancel": "Cancel",
-        "run": "Run"
+        "run": "Run",
+        "target": {
+            "draft": "Runs the draft (the flow as it is in the editor), not the published version.",
+            "unpublished": "No version published to production: runs the saved draft.",
+            "published": "Runs published version v{{number}} (production), not the draft."
+        }
     },
     "executionDetail": {
+        "usage": {
+            "title": "Model usage",
+            "hint": "Tokens and cost measured on this execution’s LLM calls.",
+            "inputTokens": "Input tokens",
+            "outputTokens": "Output tokens",
+            "cost": "Cost (price table)",
+            "declaredCost": "Cost declared by the provider"
+        },
         "subtitle": "Run of {{workflow}}",
         "loadFailed": "Could not load this execution",
         "openWorkflow": "Open in editor",
         "errorTitle": "The execution failed",
+        "stoppedTitle": "The execution was stopped before completing",
+        "approvals": {
+            "title": "Human decisions",
+            "hint": "Who decided each approval gate, read from the engine's durable state",
+            "step": "Gate",
+            "decidedBy": "Decided by",
+            "decidedAt": "When",
+            "comment": "Comment",
+            "approved": "Approved",
+            "rejected": "Rejected",
+            "timeout": "Rejected by the deadline (nobody decided)"
+        },
+        "pendingApproval": {
+            "title": "Awaiting a human decision",
+            "text": "Gate {{step}} is waiting for a decision in the Approvals queue.",
+            "open": "Open in the Approvals queue"
+        },
         "stepsHint": "In execution order; failed steps open expanded",
         "noStepsTitle": "No steps recorded",
         "dynamicTreeHint": "Paths taken by the dynamic orchestration",
@@ -1519,6 +1695,7 @@
         },
         "hints": {
             "live": "Refreshing every 2 s",
+            "paused": "Waiting — refreshes on its own when it resumes",
             "finished": "Finished {{when}}",
             "started": "Started {{when}}",
             "steps": "Recorded by the engine",
@@ -1547,6 +1724,9 @@
             "finishedAt": "Finished at",
             "toggle": "Toggle step details",
             "notExecuted": "Not executed",
+            "awaiting": "Awaiting approval",
+            "rejected": "Rejected",
+            "decidedBy": "Decided by",
             "outputLabel": "Output"
         },
         "rerun": "Run again",
@@ -1554,7 +1734,11 @@
         "rerunFailed": "Could not start a new execution",
         "rawJson": "Raw JSON",
         "showRaw": "Show raw JSON",
-        "hideRaw": "Hide raw JSON"
+        "hideRaw": "Hide raw JSON",
+        "version": {
+            "draft": "Ran the draft",
+            "published": "Ran published v{{number}}"
+        }
     },
     "marketplace": {
         "title": "Marketplace",
@@ -1622,6 +1806,7 @@
         "requestTitle": "Run",
         "requestHint": "Workflow to fire over the AG-UI endpoint",
         "workflowId": "Workflow ID",
+        "input": "Run input",
         "run": "Run",
         "stop": "Stop",
         "events": "AG-UI events",
@@ -1644,10 +1829,17 @@
     },
     "copilot": {
         "errors": {
+            "queuedConnectFailed": "Connection requested from the copilot not applied: node {{source}} or {{target}} is not in the flow.",
             "generateFailed": "Could not generate the flow",
             "runFailed": "The copilot could not reply",
             "apiKeyHint": "Configure the platform's LLM key.",
             "unknown": "Unknown error while running the agent."
+        },
+        "confirmRemoveNode": {
+            "title": "Remove a node from your flow?",
+            "message": "The copilot wants to remove the node \"{{label}}\" ({{id}}), which was already in the flow, together with its edges.",
+            "confirm": "Remove",
+            "cancel": "Keep the node"
         },
         "tryHint": "Open the sidebar (bottom-right) and try one of these",
         "exampleTitles": {
@@ -1667,13 +1859,35 @@
             "run": "\"Run the workflow wf-demo-001\" — it executes it and opens Executions (runWorkflow).",
             "status": "\"Show a status saying: all good\" — it shows a notification (showStatus)."
         },
-        "hint": "Direct AG-UI connection (no Node runtime): the Java backend is the security boundary."
+        "hint": "Direct AG-UI connection (no Node runtime): the Java backend is the security boundary.",
+        "chat": {
+            "inputPlaceholder": "Type a message...",
+            "startTranscribe": "Transcribe",
+            "cancelTranscribe": "Cancel",
+            "finishTranscribe": "Finish",
+            "addAttachments": "Add attachments",
+            "tools": "Tools",
+            "copyCode": "Copy",
+            "copyCodeCopied": "Copied",
+            "copyMessage": "Copy",
+            "thumbsUp": "Good response",
+            "thumbsDown": "Bad response",
+            "readAloud": "Read aloud",
+            "regenerate": "Regenerate",
+            "editMessage": "Edit",
+            "disclaimer": "AI can make mistakes. Please verify important information.",
+            "toggleOpen": "Open chat",
+            "toggleClose": "Close chat",
+            "openThreads": "Open threads",
+            "headerTitle": "Copilot",
+            "welcome": "How can I help you today?"
+        }
     },
     "templates": {
         "catalog": "Catalog",
         "catalogHint": "{{shown}} of {{total}} templates",
         "noMatchesHint": "Try another search term, category or complexity.",
-        "stepsServer": "Steps built on use",
+        "stepsServer": "No steps",
         "categories": {
             "customer_support": "Customer Support",
             "rag": "RAG / Knowledge",
@@ -1697,11 +1911,19 @@
         "noMatches": "No templates match your search.",
         "clearFilters": "Clear filters",
         "stepsShort": "{{count}} steps",
+        "unsupportedBadge": "Nodes without executor",
+        "unsupportedShort": "No engine executor: {{types}}",
+        "unverifiedBadge": "Execution not verified",
         "detail": {
             "notFoundHint": "It may have been removed from the catalog. Pick another one from the gallery.",
             "pipelineHint": "The nodes this template places on the canvas",
-            "noSteps": "Steps are built by the server",
-            "noStepsHint": "This template comes from the backend catalog; its nodes are created when you use it.",
+            "noSteps": "This template has no steps yet",
+            "noStepsHint": "Using it would create an empty flow, so the action is disabled.",
+            "unsupportedTitle": "This template does not run end to end yet",
+            "unsupportedHint": "These node types have no executor in the engine: {{types}}. The cloned flow opens in the editor with its steps, but execution fails at the first of these nodes with \"component not found\". Replace them with executable nodes (MCP agent, decision, condition/switch, LLM with a provider) before running.",
+            "unsupportedStep": "no executor",
+            "unverifiedTitle": "Could not check whether this template runs",
+            "unverifiedHint": "The server did not answer the node type check. Some nodes may have no executor in the engine; check before running the cloned flow.",
             "variablesHint": "Placeholders you can fill in after cloning",
             "workflowJsonHint": "Steps and connections, ready to paste",
             "stats": {
@@ -1773,14 +1995,14 @@
         }
     },
     "skills": {
-        "subtitle": "Skills loaded by the skills adapter. Switch one off to hide it from agents.",
+        "subtitle": "Skills loaded from the skills directory. The switch records, for this tenant, which ones are active; no agent or flow node reads skills yet, so switching one on or off does not change any execution.",
         "listTitle": "Registered skills",
-        "listHint": "Toggle a skill to activate or deactivate it",
+        "listHint": "Toggle a skill to activate or deactivate it for this tenant. The state only survives a restart with JDBC persistence (archflow.persistence.jdbc.enabled=true, the prod profile default); without a database, as in the dev profile, every skill is inactive again when the backend restarts",
         "stats": {
             "total": "Skills",
             "totalHint": "Loaded on this instance",
             "active": "Active",
-            "activeHint": "Available to agents",
+            "activeHint": "Switched on for this tenant",
             "inactive": "Inactive",
             "inactiveHint": "Loaded but switched off",
             "resources": "Resources",
@@ -1817,12 +2039,13 @@
             "accessToken": "Access token (optional)",
             "accessTokenHint": "LINKTOR_ACCESS_TOKEN for user-scoped access.",
             "mcpCommand": "MCP command",
-            "mcpCommandHint": "Path or command to the linktor-mcp binary. Space-separated args are supported.",
+            "mcpCommandHint": "Command that starts the Linktor MCP server; space-separated args are supported. The executable (the first word) must be on the backend's MCP command allow-list.",
+            "mcpCommandPlaceholder": "node /path/to/linktor-mcp-server/dist/index.js",
             "timeout": "Timeout (seconds)",
             "saved": "Configuration saved — it will be picked up on the next request.",
             "saveFailed": "Save failed",
             "installTitle": "Install the MCP server",
-            "installHint": "<code>npm install -g @linktor/mcp-server</code> — the binary <code>linktor-mcp</code> is added to your PATH. Alternatively, run <code>node /path/to/linktor-mcp-server/dist/index.js</code>."
+            "installHint": "<code>npm install -g @linktor/mcp-server</code> installs the <code>linktor-mcp</code> binary, but it is not on the default MCP command allow-list (which has launchers such as node and npx). Run <code>node /path/to/linktor-mcp-server/dist/index.js</code>, or allow the binary through the backend's <code>ARCHFLOW_MCP_ALLOWED_COMMANDS</code> variable (comma-separated; it replaces the default list, e.g. <code>npx,node,linktor-mcp</code>)."
         },
         "inbox": {
             "subtitle": "Omnichannel conversations, contacts and channels from Linktor.",
@@ -1933,6 +2156,7 @@
         "noMessages": "No messages yet.",
         "sendFailed": "Failed to send message. Please try again.",
         "submitFormFailed": "Failed to submit form. Please try again.",
+        "awaitingForm": "Fill in the form above to continue the conversation.",
         "conversationCancelled": "Conversation cancelled.",
         "stream": {
             "idle": "idle",
@@ -1953,6 +2177,7 @@
         "refresh": "Refresh conversation metadata",
         "missingId": "Missing conversation id.",
         "loadError": "Failed to load",
+        "refreshError": "Could not refresh the conversation: {{reason}}. The details show the last record loaded.",
         "noMetadata": "No metadata.",
         "section": {
             "tenant": "Tenant",
@@ -2050,7 +2275,7 @@
             "requestHint": "Where this decision comes from",
             "proposalHint": "What the flow will do if approved",
             "proposalEditHint": "Edit the JSON — it replaces the proposal when approved",
-            "decisionHint": "Recorded with your identity and comment",
+            "decisionHint": "Recorded as the signed-in user, with your comment",
             "comment": "Comment",
             "heading": "Approval {{id}}",
             "tenant": "Tenant",
@@ -2067,6 +2292,12 @@
             "reject": "Reject",
             "cancelEdit": "Cancel edit",
             "decisionSubmitted": "Decision submitted",
+            "decidedMsg": "{{decision}} · recorded as {{who}}",
+            "decidedTitle": "Recorded decision",
+            "decidedHint": "This request has already been decided — read from the engine's durable state",
+            "decidedBy": "Decided by",
+            "decidedAt": "When",
+            "decidedComment": "Comment",
             "submitFailed": "Failed to submit decision",
             "invalidJson": "Edited payload is not valid JSON"
         },

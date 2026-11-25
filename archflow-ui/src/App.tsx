@@ -60,7 +60,7 @@ const GlobalConfig      = lazy(() => import('./pages/admin/superadmin/GlobalConf
 const UsageBilling      = lazy(() => import('./pages/admin/superadmin/UsageBilling'));
 const WorkspaceOverview = lazy(() => import('./pages/admin/tenant/WorkspaceOverview'));
 const UserManagement    = lazy(() => import('./pages/admin/tenant/UserManagement'));
-const ApiKeys           = lazy(() => import('./pages/admin/tenant/ApiKeys'));
+const AcceptInvitePage  = lazy(() => import('./pages/AcceptInvitePage'));
 
 // Observability pages — lazy loaded
 export function useColorScheme() {
@@ -81,6 +81,8 @@ function App() {
                 <Suspense fallback={<div style={{ padding: 40, textAlign: 'center' }}>Loading...</div>}>
                     <Routes>
                         <Route path="/login" element={<LoginPage />} />
+                        {/* Aceite de convite (RCHFLW-85): público, quem aceita ainda não tem login. */}
+                        <Route path="/accept-invite" element={<AcceptInvitePage />} />
 
                         {/* Main app routes */}
                         <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
@@ -122,7 +124,9 @@ function App() {
                             {/* Tenant admin */}
                             <Route path="workspace" element={<WorkspaceOverview />} />
                             <Route path="workspace/users" element={<UserManagement />} />
-                            <Route path="workspace/keys" element={<ApiKeys />} />
+                            {/* As chaves do workspace são as do ApiKeyService (RCHFLW-85): a tela antiga
+                                guardava chaves em memória que nunca autenticavam. O endereço antigo leva à atual. */}
+                            <Route path="workspace/keys" element={<Navigate to="/admin/workspace/api-keys" replace />} />
                             <Route path="workspace/api-keys" element={<ScopedApiKeysPage />} />
                             <Route path="skills" element={<SkillsPage />} />
                             <Route path="mcp" element={<McpServersPage />} />

@@ -54,10 +54,10 @@ class ImmutableExecutionContextTest {
     }
 
     @Test
-    @DisplayName("should default tenantId to SYSTEM")
+    @DisplayName("should default tenantId to the canonical default tenant")
     void shouldDefaultTenantId() {
         var ctx = ImmutableExecutionContext.builder().build();
-        assertThat(ctx.tenantId()).isEqualTo("SYSTEM");
+        assertThat(ctx.tenantId()).isEqualTo("__default__");
     }
 
     @Test

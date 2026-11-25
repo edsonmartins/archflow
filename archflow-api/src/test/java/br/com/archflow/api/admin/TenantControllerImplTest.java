@@ -30,11 +30,23 @@ class TenantControllerImplTest {
     }
 
     @Test
-    @DisplayName("should return stats")
-    void shouldReturnStats() {
+    @DisplayName("os totais somam o uso medido — o seed de demonstração não traz número inventado")
+    void statsSumMeasuredUsage() {
+        assertThat(controller.getStats().executionsToday()).as("sem fonte medida: zero, não 340").isZero();
+        assertThat(controller.getStats().tokensThisMonth()).isZero();
+
+        controller.setUsoMedido(id -> "__default__".equals(id)
+                ? new TenantDto.TenantUsageDto(1, 44, 1, 1)
+                : new TenantDto.TenantUsageDto(3, 12_000, 2, 1));
+
         var stats = controller.getStats();
         assertThat(stats.totalActive()).isGreaterThanOrEqualTo(1);
-        assertThat(stats.executionsToday()).isGreaterThan(0);
+        // O tenant padrão não está no cadastro, mas o uso dele entra nos totais (é onde cai o login sem
+        // claim de tenant) — a mesma base de Uso e cobrança.
+        assertThat(stats.executionsToday()).isEqualTo(3 + 1);
+        assertThat(stats.tokensThisMonth()).isEqualTo(12_000 + 44);
+        assertThat(controller.getTenant("tenant_rio_quality").usage().tokensThisMonth()).isEqualTo(12_000);
+        assertThat(controller.listTenants()).allSatisfy(t -> assertThat(t.usage().workflowCount()).isEqualTo(2));
     }
 
     @Test

@@ -63,37 +63,35 @@ async function installAdminApi(page: Page) {
         },
     ];
 
+    // A forma do backend real (RCHFLW-85): papel com o nome do backend e convite com validade.
     let users = [
         {
-            id: 'u1',
-            name: 'João Silva',
-            email: 'joao@rioquality.com.br',
-            role: 'admin',
+            id: 'user-1',
+            name: 'Ana Admin',
+            email: 'ana@rioquality.com.br',
+            role: 'ADMIN',
             status: 'active',
-            lastAccessAt: '2026-04-09',
-            workflowCount: 8,
+            lastAccessAt: '2026-04-09T10:00:00Z' as string | null,
+            invitationExpiresAt: null as string | null,
         },
         {
-            id: 'u2',
-            name: 'Maria Santos',
-            email: 'maria@rioquality.com.br',
-            role: 'editor',
+            id: 'user-2',
+            name: 'Bruno Designer',
+            email: 'bruno@rioquality.com.br',
+            role: 'DESIGNER',
             status: 'active',
-            lastAccessAt: '2026-04-08',
-            workflowCount: 4,
+            lastAccessAt: '2026-04-08T10:00:00Z' as string | null,
+            invitationExpiresAt: null as string | null,
         },
     ];
 
-    let keys = [
-        {
-            id: 'k1',
-            name: 'VendaX Backend',
-            type: 'production',
-            prefix: 'af_live_',
-            maskedKey: 'af_live_••••••••3f2a',
-            createdAt: '2026-01-15',
-            lastUsedAt: '2026-04-09',
-        },
+    const roles = [
+        { name: 'ADMIN', description: 'Full system access', permissions: ['*:*'] },
+        { name: 'DESIGNER', description: 'Can create and edit workflows',
+            permissions: ['agent:read', 'workflow:create', 'workflow:delete', 'workflow:execute', 'workflow:read',
+                'workflow:update'] },
+        { name: 'EXECUTOR', description: 'Can execute workflows only', permissions: ['workflow:execute', 'workflow:read'] },
+        { name: 'VIEWER', description: 'Read-only access', permissions: ['agent:read', 'execution:read', 'workflow:read'] },
     ];
 
     let toggles = {
@@ -179,6 +177,10 @@ async function installAdminApi(page: Page) {
                 await fulfillJson(route, users);
                 return true;
             }
+            if (path === '/admin/workspace/roles' && method === 'GET') {
+                await fulfillJson(route, roles);
+                return true;
+            }
             if (path !== '/admin/workspace/summary' || method !== 'GET') return false;
             await fulfillJson(route, {
                 tenantId: 'tenant_rio_quality',
@@ -189,7 +191,11 @@ async function installAdminApi(page: Page) {
                 tokensThisMonth: 4_200_000,
                 workflowCount: 12,
                 userCount: users.length,
-                apiKeyCount: keys.length,
+                apiKeyCount: 1,
+                usageThisMonth: {
+                    executions: 2, tokensInput: 3_000, tokensOutput: 1_000, costCents: 1, costReais: 0.005,
+                    declaredCostUsd: null, executionsWithoutPrice: 0,
+                },
                 limits: {
                     executionsPerDay: 500,
                     tokensPerMonth: 5_000_000,
@@ -204,16 +210,17 @@ async function installAdminApi(page: Page) {
             if (path !== '/admin/workspace/users/invite' || method !== 'POST') return false;
             const body = request.postDataJSON() as { email: string; role: string };
             const created = {
-                id: `u-${users.length + 1}`,
-                name: body.email.split('@')[0],
+                id: `user-${users.length + 1}`,
+                name: body.email,
                 email: body.email,
                 role: body.role,
                 status: 'invited',
                 lastAccessAt: null,
-                workflowCount: 0,
+                invitationExpiresAt: '2026-04-24T10:00:00Z',
             };
             users = [...users, created];
-            await fulfillJson(route, created, 201);
+            await fulfillJson(route, { user: created, invitationToken: `${created.id}.SEGREDO`,
+                expiresAt: created.invitationExpiresAt }, 201);
             return true;
         },
         async ({ path, method, request, route }) => {
@@ -241,36 +248,6 @@ async function installAdminApi(page: Page) {
             const revokeMatch = path.match(/^\/admin\/workspace\/users\/([^/]+)\/revoke$/);
             if (!revokeMatch || method !== 'POST') return false;
             users = users.filter((entry) => entry.id !== revokeMatch[1]);
-            await route.fulfill({ status: 204 });
-            return true;
-        },
-        async ({ path, method, route }) => {
-            if (path !== '/admin/workspace/keys' || method !== 'GET') return false;
-            await fulfillJson(route, keys);
-            return true;
-        },
-        async ({ path, method, request, route }) => {
-            if (path !== '/admin/workspace/keys' || method !== 'POST') return false;
-            const body = request.postDataJSON() as { name: string; type: string };
-            const prefix = body.type === 'web_component' ? 'af_pub_' : body.type === 'staging' ? 'af_test_' : 'af_live_';
-            const created = {
-                id: `k-${keys.length + 1}`,
-                name: body.name,
-                type: body.type,
-                prefix,
-                maskedKey: `${prefix}••••••••abcd`,
-                fullKey: `${prefix}secret1234abcd`,
-                createdAt: '2026-04-21',
-                lastUsedAt: null,
-            };
-            keys = [...keys, created];
-            await fulfillJson(route, created, 201);
-            return true;
-        },
-        async ({ path, method, route }) => {
-            const keyMatch = path.match(/^\/admin\/workspace\/keys\/([^/]+)$/);
-            if (!keyMatch || method !== 'DELETE') return false;
-            keys = keys.filter((entry) => entry.id !== keyMatch[1]);
             await route.fulfill({ status: 204 });
             return true;
         },
@@ -372,23 +349,10 @@ test.describe('Admin roles and integrated pages', () => {
         await inviteDialog.getByRole('combobox', { name: 'Role' }).click();
         await page.getByRole('option', { name: 'Viewer' }).click();
         await inviteDialog.getByRole('button', { name: 'Send Invite' }).dispatchEvent('click');
-        await expect(page.getByRole('main').getByText('new.user@acme.com', { exact: true })).toBeAttached();
-    });
-
-    test('creates an API key through workspace endpoints', async ({ page }) => {
-        await installAdminApi(page);
-        await setSession(page, 'tenant_admin');
-
-        await page.goto('/admin/workspace/keys');
-
-        await page.getByRole('button', { name: 'Create Key' }).click();
-        const dialog = page.getByRole('dialog', { name: 'Create API Key' });
-        await dialog.getByLabel('Key name').fill('Portal Widget');
-        await dialog.getByRole('combobox', { name: 'Type' }).click();
-        await page.getByRole('option', { name: 'Web Component' }).click();
-        await dialog.getByRole('button', { name: 'Create' }).dispatchEvent('click');
-
-        await expect(page.getByText(/af_pub_secret1234abcd/)).toBeVisible();
+        // O produto não envia e-mail: o link de aceite aparece uma vez para quem convidou.
+        await expect(page.getByTestId('invite-link-url')).toContainText('/accept-invite?token=');
+        // Convidado ainda sem nome: a linha mostra o e-mail no lugar do nome e na coluna de e-mail.
+        await expect(page.getByRole('main').getByText('new.user@acme.com', { exact: true }).first()).toBeAttached();
     });
 
     test('loads global config and persists toggle changes', async ({ page }) => {
@@ -401,7 +365,7 @@ test.describe('Admin roles and integrated pages', () => {
         await expect(debugToggle).not.toBeChecked();
         await debugToggle.click();
         await expect(debugToggle).toBeChecked();
-        await expect(page.getByText('GPT-4o')).toBeVisible();
+        await expect(page.getByText('GPT-4o', { exact: true })).toBeVisible();
         await expect(page.getByText('enterprise')).toBeAttached();
     });
 });

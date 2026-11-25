@@ -1,14 +1,18 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
-    Alert, Badge, Button, Grid, Group, Select, SimpleGrid, Stack, Tabs, Textarea, TextInput,
+    Alert, Badge, Button, Grid, Group, Loader, Select, SimpleGrid, Stack, Tabs, Text, Textarea, TextInput,
 } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import {
-    IconInfoCircle, IconMessage, IconPlayerPlayFilled, IconRobot, IconSend, IconTerminal2,
+    IconAlertTriangle, IconInfoCircle, IconMessage, IconPlayerPlayFilled, IconRefresh, IconRobot, IconSend,
+    IconTerminal2,
 } from '@tabler/icons-react'
 import { useCatalog } from '../components/PropertyPanel/useCatalog'
-import { agentPlaygroundApi } from '../services/agent-playground-api'
+import {
+    agentPlaygroundApi, InvocationNotFoundError, isTerminal,
+    type InvocationResult, type InvocationStatus,
+} from '../services/agent-playground-api'
 import { JsonViewer } from '../components/JsonViewer'
 import { PageHeader } from '../components/PageHeader'
 import { SectionCard } from '../components/SectionCard'
@@ -16,6 +20,76 @@ import EmptyState from '../components/EmptyState'
 
 /** Which endpoint produced the last response — shown as a tag on the response panel. */
 type Origem = 'invoke' | 'message'
+
+/** Intervalo entre consultas do resultado: o agente roda em segundo plano, na fila. */
+export const POLL_INTERVAL_MS = 1000
+/** Depois disso a tela para de consultar e oferece "Consultar de novo" — não fica girando para sempre. */
+export const POLL_DEADLINE_MS = 120_000
+/**
+ * 404s seguidos tolerados: na fila em memória há um instante entre o consumidor retirar a invocação e
+ * registrá-la em que a consulta ainda não a acha. Mais que isso é um requestId inexistente para o tenant.
+ */
+export const MAX_NOT_FOUND = 3
+
+type Acompanhada = { requestId: string; tenantId: string }
+type FalhaDaConsulta = { kind: 'notFound' } | { kind: 'http'; message: string }
+
+const STATUS_COLOR: Record<InvocationStatus, string> = {
+    QUEUED: 'gray', RUNNING: 'blue', COMPLETED: 'green', FAILED: 'red',
+}
+
+/**
+ * Consulta o resultado da invocação até ele ficar final (RCHFLW-80). O invoke e o chat só respondem
+ * ACCEPTED; sem isto a tela mostrava "aceito" e nunca o que o agente fez.
+ */
+function useInvocationResult(acompanhada: Acompanhada | null) {
+    const [result, setResult] = useState<InvocationResult | null>(null)
+    const [falha, setFalha] = useState<FalhaDaConsulta | null>(null)
+    const [esgotou, setEsgotou] = useState(false)
+
+    useEffect(() => {
+        setResult(null)
+        setFalha(null)
+        setEsgotou(false)
+        if (!acompanhada) return
+        let cancelado = false
+        let timer: ReturnType<typeof setTimeout> | undefined
+        let naoAchou = 0
+        const prazo = Date.now() + POLL_DEADLINE_MS
+        const consultar = async () => {
+            try {
+                const r = await agentPlaygroundApi.invocation(acompanhada.requestId, acompanhada.tenantId)
+                if (cancelado) return
+                naoAchou = 0
+                setResult(r)
+                if (isTerminal(r.status)) return
+            } catch (e) {
+                if (cancelado) return
+                if (!(e instanceof InvocationNotFoundError)) {
+                    setFalha({ kind: 'http', message: e instanceof Error ? e.message : String(e) })
+                    return
+                }
+                if (++naoAchou >= MAX_NOT_FOUND) {
+                    setFalha({ kind: 'notFound' })
+                    return
+                }
+            }
+            if (Date.now() >= prazo) {
+                setEsgotou(true)
+                return
+            }
+            timer = setTimeout(consultar, POLL_INTERVAL_MS)
+        }
+        void consultar()
+        return () => {
+            cancelado = true
+            clearTimeout(timer)
+        }
+    }, [acompanhada])
+
+    const consultando = acompanhada != null && !falha && !esgotou && !(result && isTerminal(result.status))
+    return { result, falha, esgotou, consultando }
+}
 
 /**
  * Playground for the two external-trigger endpoints that previously
@@ -34,6 +108,8 @@ export default function AgentPlaygroundPage() {
     const [response, setResp]   = useState<unknown>(null)
     const [origem, setOrigem]   = useState<Origem | null>(null)
     const [busy, setBusy]       = useState<Origem | null>(null)
+    const [acompanhada, setAcompanhada] = useState<Acompanhada | null>(null)
+    const { result, falha, esgotou, consultando } = useInvocationResult(acompanhada)
 
     const agentOptions = [
         ...catalog.agents.map(a => ({ value: a.id, label: `${a.displayName} (${t('agentPlayground.agentLabel')})` })),
@@ -51,6 +127,7 @@ export default function AgentPlaygroundPage() {
             const res = await agentPlaygroundApi.invoke(agentId, tenantId, sessionId || undefined, parsed)
             setResp(res)
             setOrigem('invoke')
+            setAcompanhada({ requestId: res.requestId, tenantId })
             notifications.show({ color: 'green', title: t('agentPlayground.invoked'), message: t('agentPlayground.requestIdMsg', { id: res.requestId }) })
         } catch (e) {
             notifications.show({ color: 'red', title: t('agentPlayground.invokeFailed'),
@@ -74,6 +151,7 @@ export default function AgentPlaygroundPage() {
             const res = await agentPlaygroundApi.message(tenantId, agentId, message, sessionId || undefined)
             setResp(res)
             setOrigem('message')
+            setAcompanhada({ requestId: res.requestId, tenantId })
             notifications.show({ color: 'green', title: t('agentPlayground.accepted'), message: t('agentPlayground.requestIdMsg', { id: res.requestId }) })
         } catch (e) {
             notifications.show({ color: 'red', title: t('agentPlayground.sendFailed'),
@@ -192,9 +270,60 @@ export default function AgentPlaygroundPage() {
                         )}
                     >
                         {response != null ? (
-                            <div role="status" aria-live="polite">
-                                <JsonViewer value={response} autoExpandDepth={2} testId="pg-response" />
-                            </div>
+                            <Stack gap="md">
+                                {acompanhada && (
+                                    <Stack gap="sm" role="status" aria-live="polite" data-testid="pg-result">
+                                        <Group gap="xs">
+                                            <Text size="sm" fw={600}>{t('agentPlayground.result.title')}</Text>
+                                            {result ? (
+                                                <Badge variant="light" color={STATUS_COLOR[result.status]}
+                                                       data-testid="pg-result-status">
+                                                    {t(`agentPlayground.result.status.${result.status}`)}
+                                                </Badge>
+                                            ) : null}
+                                            {consultando && <Loader size="xs" data-testid="pg-result-loading" />}
+                                        </Group>
+                                        {result?.status === 'FAILED' && (
+                                            <Alert color="red" variant="light" icon={<IconAlertTriangle size={16} />}
+                                                   title={t('agentPlayground.result.failedTitle')}
+                                                   data-testid="pg-result-error">
+                                                {result.error || t('agentPlayground.result.noErrorMessage')}
+                                            </Alert>
+                                        )}
+                                        {result?.status === 'COMPLETED' && (
+                                            result.output == null
+                                                ? <Text size="sm" c="dimmed">{t('agentPlayground.result.noOutput')}</Text>
+                                                : <JsonViewer value={result.output} autoExpandDepth={2}
+                                                              testId="pg-result-output" />
+                                        )}
+                                        {(falha || esgotou) && (
+                                            <Alert color="yellow" variant="light" icon={<IconAlertTriangle size={16} />}
+                                                   data-testid="pg-result-unknown">
+                                                <Stack gap="xs" align="flex-start">
+                                                    <span>
+                                                        {falha?.kind === 'notFound'
+                                                            ? t('agentPlayground.result.notFound')
+                                                            : falha?.kind === 'http'
+                                                                ? t('agentPlayground.result.queryFailed',
+                                                                    { message: falha.message })
+                                                                : t('agentPlayground.result.stillRunning')}
+                                                    </span>
+                                                    <Button size="xs" variant="light"
+                                                            leftSection={<IconRefresh size={14} />}
+                                                            onClick={() => setAcompanhada({ ...acompanhada })}
+                                                            data-testid="pg-result-retry">
+                                                        {t('agentPlayground.result.retry')}
+                                                    </Button>
+                                                </Stack>
+                                            </Alert>
+                                        )}
+                                    </Stack>
+                                )}
+                                <Stack gap={4}>
+                                    <Text size="xs" c="dimmed">{t('agentPlayground.result.acceptance')}</Text>
+                                    <JsonViewer value={response} autoExpandDepth={2} testId="pg-response" />
+                                </Stack>
+                            </Stack>
                         ) : (
                             <EmptyState
                                 compact

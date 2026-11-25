@@ -2,9 +2,11 @@ package br.com.archflow.api.web.workflow;
 
 import br.com.archflow.engine.api.FlowEngine;
 import br.com.archflow.engine.core.StateManager;
+import br.com.archflow.model.engine.ExecutionKeys;
 import br.com.archflow.model.flow.FlowResult;
 import br.com.archflow.model.flow.FlowState;
 import br.com.archflow.model.flow.FlowStatus;
+import br.com.archflow.model.tenant.DefaultTenant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -37,7 +39,7 @@ class SpringExecutionControllerTest {
 
     @Test
     void cancelsARunningExecution() {
-        when(store.getExecution("e1")).thenReturn(new LinkedHashMap<>(Map.of("id", "e1", "status", "RUNNING")));
+        when(store.getExecution(DefaultTenant.ID, "e1")).thenReturn(new LinkedHashMap<>(Map.of("id", "e1", "status", "RUNNING")));
 
         var response = controller.cancel("e1");
 
@@ -48,7 +50,7 @@ class SpringExecutionControllerTest {
 
     @Test
     void cancelReturns404WhenUnknown() {
-        when(store.getExecution("nope")).thenReturn(null);
+        when(store.getExecution(DefaultTenant.ID, "nope")).thenReturn(null);
 
         assertThat(controller.cancel("nope").getStatusCode().value()).isEqualTo(404);
         verifyNoInteractions(engine);
@@ -56,7 +58,7 @@ class SpringExecutionControllerTest {
 
     @Test
     void resumeReturns409WhenNoSavedState() {
-        when(store.getExecution("e1")).thenReturn(new LinkedHashMap<>(Map.of("id", "e1", "status", "FAILED")));
+        when(store.getExecution(DefaultTenant.ID, "e1")).thenReturn(new LinkedHashMap<>(Map.of("id", "e1", "status", "FAILED")));
         when(stateManager.loadState("e1")).thenReturn(null);
 
         assertThat(controller.resume("e1").getStatusCode().value()).isEqualTo(409);
@@ -65,18 +67,67 @@ class SpringExecutionControllerTest {
 
     @Test
     void resumeReturns409WhenFinalState() {
-        when(store.getExecution("e1")).thenReturn(new LinkedHashMap<>(Map.of("id", "e1", "status", "COMPLETED")));
+        when(store.getExecution(DefaultTenant.ID, "e1")).thenReturn(new LinkedHashMap<>(Map.of("id", "e1", "status", "COMPLETED")));
         when(stateManager.loadState("e1")).thenReturn(FlowState.builder().status(FlowStatus.COMPLETED).build());
 
         assertThat(controller.resume("e1").getStatusCode().value()).isEqualTo(409);
         verifyNoInteractions(engine);
     }
 
+    /**
+     * "Quem autorizou isto" sai do estado durável, não do registro: as decisões já tomadas (histórico
+     * do motor) e o pedido ainda aberto vão junto do detalhe da execução (RCHFLW-38).
+     */
+    @Test
+    void getExposesWhoDecidedAndThePendingRequestFromTheDurableState() {
+        when(store.getExecution(DefaultTenant.ID, "e1")).thenReturn(new LinkedHashMap<>(Map.of("id", "e1", "status", "PAUSED")));
+        var history = java.util.List.of(Map.of("stepId", "gate-a", "requestId", "req-a", "decision", "APPROVED",
+                "decidedBy", "maria", "comment", "ok", "decidedAt", "2026-11-24T12:00:00Z"));
+        when(stateManager.loadState("e1")).thenReturn(FlowState.builder()
+                .status(FlowStatus.AWAITING_APPROVAL)
+                .variables(new java.util.HashMap<>(Map.of(
+                        ExecutionKeys.APPROVAL_HISTORY, history,
+                        ExecutionKeys.APPROVAL_REQUEST_ID, "req-b",
+                        ExecutionKeys.APPROVAL_STEP_ID, "gate-b")))
+                .build());
+
+        Map<String, Object> body = controller.get("e1").getBody();
+
+        assertThat(body).containsEntry("approvals", history);
+        assertThat(body).containsEntry("pendingApproval", Map.of("requestId", "req-b", "stepId", "gate-b"));
+    }
+
+    @Test
+    void getOmitsApprovalFieldsWhenThereAreNone() {
+        when(store.getExecution(DefaultTenant.ID, "e1")).thenReturn(new LinkedHashMap<>(Map.of("id", "e1", "status", "COMPLETED")));
+        when(stateManager.loadState("e1")).thenReturn(FlowState.builder()
+                .status(FlowStatus.COMPLETED).variables(new java.util.HashMap<>()).build());
+
+        assertThat(controller.get("e1").getBody()).doesNotContainKeys("approvals", "pendingApproval");
+    }
+
+    /** Retomar um portão à espera concluía o fluxo sem decisão e sem decisor. */
+    @Test
+    void resumeReturns409WhenAwaitingAHumanDecision() {
+        when(store.getExecution(DefaultTenant.ID, "e1")).thenReturn(new LinkedHashMap<>(Map.of("id", "e1", "status", "PAUSED")));
+        when(stateManager.loadState("e1")).thenReturn(FlowState.builder()
+                .status(FlowStatus.AWAITING_APPROVAL)
+                .variables(new java.util.HashMap<>(Map.of(ExecutionKeys.APPROVAL_REQUEST_ID, "req-1")))
+                .build());
+
+        var response = controller.resume("e1");
+
+        assertThat(response.getStatusCode().value()).isEqualTo(409);
+        assertThat(String.valueOf(response.getBody().get("error"))).contains("awaiting a human decision");
+        verifyNoInteractions(engine);
+        verify(store, org.mockito.Mockito.never()).markResumed("e1");
+    }
+
     @Test
     void resumeSubmitsWhenPaused() {
         // The controller re-reads the record after store.markResumed flips it
         // to RUNNING, so the mocked store answers PAUSED first, RUNNING after.
-        when(store.getExecution("e1"))
+        when(store.getExecution(DefaultTenant.ID, "e1"))
                 .thenReturn(new LinkedHashMap<>(Map.of("id", "e1", "status", "PAUSED")))
                 .thenReturn(new LinkedHashMap<>(Map.of("id", "e1", "status", "RUNNING")));
         when(stateManager.loadState("e1")).thenReturn(FlowState.builder().status(FlowStatus.PAUSED).build());
@@ -99,7 +150,7 @@ class SpringExecutionControllerTest {
         // callback it would clobber the failure back to RUNNING (the stuck-run bug).
         var realStore = new InMemoryWorkflowRuntimeStore();
         var realController = new SpringExecutionController(realStore, engine, stateManager, null);
-        String id = realStore.createExecution("wf", "W").get("id").toString();
+        String id = realStore.createExecution(DefaultTenant.ID, "wf", "W").get("id").toString();
         realStore.completeExecution(id, "PAUSED", null); // non-terminal, resumable
         when(stateManager.loadState(id)).thenReturn(FlowState.builder().status(FlowStatus.PAUSED).build());
         when(engine.resumeFlow(eq(id), any()))
@@ -107,8 +158,8 @@ class SpringExecutionControllerTest {
 
         realController.resume(id);
 
-        assertThat(realStore.getExecution(id).get("status")).isEqualTo("FAILED");
-        assertThat(realStore.getExecution(id).get("error")).isEqualTo("boom");
+        assertThat(realStore.getExecution(DefaultTenant.ID, id).get("status")).isEqualTo("FAILED");
+        assertThat(realStore.getExecution(DefaultTenant.ID, id).get("error")).isEqualTo("boom");
     }
 
     @Test
@@ -120,8 +171,8 @@ class SpringExecutionControllerTest {
         Map<String, Object> execution = new LinkedHashMap<>(Map.of(
                 "id", "e1", "status", "COMPLETED",
                 "steps", new java.util.ArrayList<>(java.util.List.of(stepWithOutput, stepWithout))));
-        when(store.executions(null, null)).thenReturn(java.util.List.of(execution));
-        when(store.getExecution("e1")).thenReturn(execution);
+        when(store.executions(DefaultTenant.ID, null, null)).thenReturn(java.util.List.of(execution));
+        when(store.getExecution(DefaultTenant.ID, "e1")).thenReturn(execution);
 
         var listed = controller.list(null, null);
 
@@ -140,7 +191,7 @@ class SpringExecutionControllerTest {
     @Test
     void listReturnsRecordsWithoutStepsUnchanged() {
         Map<String, Object> execution = new LinkedHashMap<>(Map.of("id", "e1", "status", "RUNNING"));
-        when(store.executions("wf", 5)).thenReturn(java.util.List.of(execution));
+        when(store.executions(DefaultTenant.ID, "wf", 5)).thenReturn(java.util.List.of(execution));
 
         assertThat(controller.list("wf", 5)).containsExactly(execution);
     }

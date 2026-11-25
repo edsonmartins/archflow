@@ -11,6 +11,12 @@ export function dedupeByValue<T extends { value: string }>(options: T[]): T[] {
   return options.filter(o => (seen.has(o.value) ? false : (seen.add(o.value), true)))
 }
 
+/**
+ * Valor da opção "herdar" nos selects de provider e modelo. Escolhê-la REMOVE a chave do config do
+ * nó — ausência é o que o backend entende como "use o padrão do fluxo / da plataforma".
+ */
+export const INHERIT = '__inherit__'
+
 export function getConfig<T>(data: FlowNodeData, key: string, fallback: T): T extends string ? string : T {
   return ((data.config?.[key] as T) ?? fallback) as T extends string ? string : T
 }

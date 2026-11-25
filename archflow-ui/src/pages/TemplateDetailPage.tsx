@@ -17,6 +17,7 @@ import {
 import { notifications } from '@mantine/notifications';
 import {
     IconAlertCircle,
+    IconAlertTriangle,
     IconArrowRight,
     IconBraces,
     IconCategory,
@@ -38,11 +39,15 @@ import { StatCard } from '../components/admin/StatCard';
 import EmptyState from '../components/EmptyState';
 import { categoriaVisivel, rotuloDaComplexidade } from '../components/templates/categoria';
 import { NODE_CATEGORIES } from '../components/FlowCanvas/constants';
+import { canvasToDocumentSteps } from '../components/FlowCanvas/workflowSerde';
+import { usePermissions } from '../lib/permissions';
 
 export default function TemplateDetailPage() {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
     const { t } = useTranslation();
+    // RCHFLW-74: usar o template cria um fluxo (workflow:create).
+    const canCreate = usePermissions()('workflow:create');
     const [template, setTemplate] = useState<WorkflowTemplate | undefined>(() =>
         id ? templateApi.get(id) : undefined,
     );
@@ -50,14 +55,17 @@ export default function TemplateDetailPage() {
     const [error, setError] = useState<string | null>(null);
 
     // If the user navigated directly to the detail url without hitting the
-    // list first the cache may be cold — kick off a preload and update.
+    // list first the cache may be cold — kick off a preload and update. Roda
+    // mesmo com o template já em mãos: o síncrono pode ser a cópia do pacote,
+    // sem a versão do backend nem a marcação de nós sem executor.
     useEffect(() => {
-        if (!id || template) return;
+        if (!id) return;
         let cancelled = false;
         templateApi
             .list()
             .then(() => {
-                if (!cancelled) setTemplate(templateApi.get(id));
+                const loaded = templateApi.get(id);
+                if (!cancelled && loaded) setTemplate(loaded);
             })
             .catch(() => {
                 /* fallback already used */
@@ -65,7 +73,7 @@ export default function TemplateDetailPage() {
         return () => {
             cancelled = true;
         };
-    }, [id, template]);
+    }, [id]);
 
     if (!template) {
         return (
@@ -94,7 +102,16 @@ export default function TemplateDetailPage() {
     const cat = categoriaVisivel(template.category, t);
     const steps = template.steps ?? [];
     const variables = Object.entries(template.variables ?? {});
-    const workflowJson = JSON.stringify({ steps, connections: template.connections ?? [] }, null, 2);
+    const unsupported = template.unsupportedNodeTypes ?? [];
+    const unsupportedSet = new Set(unsupported);
+    const unverified = template.unsupportedNodeTypes === undefined && steps.length > 0;
+    const stepUnsupported = (s: { componentId?: string; type?: string }) =>
+        unsupportedSet.has((s.componentId || s.type || '').toLowerCase());
+    // O bloco convida a colar: precisa ser o documento canônico (config em `configuration`, arestas
+    // dentro de cada passo), o mesmo que o clone grava. O formato do template, com `connections` no
+    // topo, não é lido por ninguém — colado, abria e executava sem arestas (RCHFLW-45).
+    const workflowJson = JSON.stringify(
+        { steps: canvasToDocumentSteps(steps, template.connections ?? []) }, null, 2);
 
     const handleClone = async () => {
         setCloning(true);
@@ -123,17 +140,33 @@ export default function TemplateDetailPage() {
                 title={template.name}
                 subtitle={template.summary}
                 breadcrumbs={[{ label: t('templates.title'), to: '/templates' }, { label: template.name }]}
-                actions={
+                actions={canCreate ? (
                     <Button
                         leftSection={<IconRocket size={16} />}
                         onClick={handleClone}
                         loading={cloning}
+                        // Sem passos o clone seria um fluxo vazio — não oferecer o que não entrega.
+                        disabled={steps.length === 0}
                         data-testid="template-clone"
                     >
                         {t('templates.detail.use')}
                     </Button>
-                }
+                ) : undefined}
             />
+
+            {unsupported.length > 0 && (
+                <Alert color="orange" variant="light" icon={<IconAlertTriangle size={16} />}
+                       title={t('templates.detail.unsupportedTitle')} data-testid="template-unsupported">
+                    {t('templates.detail.unsupportedHint', { types: unsupported.join(', ') })}
+                </Alert>
+            )}
+
+            {unverified && (
+                <Alert color="gray" variant="light" icon={<IconAlertTriangle size={16} />}
+                       title={t('templates.detail.unverifiedTitle')} data-testid="template-unverified">
+                    {t('templates.detail.unverifiedHint')}
+                </Alert>
+            )}
 
             {error && (
                 <Alert color="red" variant="light" icon={<IconAlertCircle size={16} />}>
@@ -196,6 +229,12 @@ export default function TemplateDetailPage() {
                                     <Text size="sm" fw={500} style={{ flex: 1, minWidth: 0 }} truncate>
                                         {s.label}
                                     </Text>
+                                    {stepUnsupported(s) && (
+                                        <Badge size="xs" color="orange" variant="light" style={{ flexShrink: 0 }}
+                                               data-testid={`template-step-unsupported-${s.id}`}>
+                                            {t('templates.detail.unsupportedStep')}
+                                        </Badge>
+                                    )}
                                     <Badge size="xs" variant="dot" color={categoryColor(s.category)}
                                            style={{ flexShrink: 0 }}>
                                         {t(`categories.${s.category}`, { defaultValue: NODE_CATEGORIES[s.category]?.label ?? s.category })}
@@ -246,7 +285,8 @@ export default function TemplateDetailPage() {
                         </Tooltip>
                     }
                 >
-                    <Code block style={{ maxHeight: 280, overflow: 'auto', fontSize: 11 }}>
+                    <Code block style={{ maxHeight: 280, overflow: 'auto', fontSize: 11 }}
+                          data-testid="template-workflow-json">
                         {workflowJson}
                     </Code>
                 </SectionCard>

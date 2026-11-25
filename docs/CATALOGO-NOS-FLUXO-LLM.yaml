@@ -115,14 +115,15 @@ propertySchemas:
     concurrency: { type: integer, default: 4 }
     budgetTokens: { type: integer }
   approvalRuntime:
-    proposal: { type: any, description: "Proposta a aprovar; se ausente usa a entrada do passo" }
-    description: { type: string }
+    proposal: { type: any, description: "Chave antiga; approvalProposal vence. Ausente usa a entrada do passo" }
+    description: { type: string, description: "Chave antiga; approvalDescription vence" }
+    title: { type: string, description: "Chave antiga; approvalTitle vence" }
   approvalEditor:
-    approvalTitle: { type: string, default: "Please review", note: "Não consumido pelo HumanApprovalStep atual" }
-    approvalDescription: { type: string, default: "", note: "Runtime espera description" }
-    approvalProposal: { type: string, default: "{}", note: "Runtime espera proposal" }
-    approvalTimeoutMinutes: { type: integer, default: 30, note: "Não consumido pelo runtime atual" }
-    approvalOnTimeout: { type: string, default: reject, enum: [reject, approve, fail], note: "Não consumido pelo runtime atual" }
+    approvalTitle: { type: string, description: "Título do pedido na fila de Aprovações (APPROVAL_TITLE)" }
+    approvalDescription: { type: string, description: "O que o revisor decide (APPROVAL_DESCRIPTION); texto literal, sem substituição de variáveis" }
+    approvalProposal: { type: string, description: "JSON válido vira objeto; outro texto vai como está; vazio usa a entrada do passo" }
+    approvalTimeoutMinutes: { type: number, description: "Prazo deste pedido (APPROVAL_TIMEOUT no estado durável); ausente vale archflow.approval.timeout. Vale mesmo com o global em PT0S" }
+    approvalOnTimeout: { type: string, enum: [reject], note: "Prazo vencido é sempre REJECTED (decidedBy system:timeout). Outro valor é ignorado com WARN — o nó escolhe quando, nunca o quê" }
   mcpToolEditor:
     mcpServer: { type: string, required: true }
     mcpTool: { type: string, required: true }

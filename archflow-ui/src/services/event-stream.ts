@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { authFetch } from './api';
 
 /**
  * Streaming event protocol mirror of the backend ArchflowEvent envelope
@@ -72,8 +73,12 @@ export interface ArchflowEvent<TData = Record<string, unknown>> {
 export type StreamStatus = 'idle' | 'connecting' | 'open' | 'reconnecting' | 'closed' | 'error';
 
 export interface StreamConfig {
-    /** Tenant id used to scope the SSE connection. */
-    tenantId: string;
+    /**
+     * Tenant do canal. Omitido = o tenant da própria requisição, resolvido pelo servidor
+     * (`GET /stream/{sessionId}`) — é o que a UI deve usar. Informado, o servidor só aceita o tenant
+     * efetivo da requisição (o do token ou o da personificação) e responde 403 a qualquer outro.
+     */
+    tenantId?: string;
     /** Session id (usually the conversationId). */
     sessionId: string;
     /** Override the base API path. Defaults to `import.meta.env.VITE_API_BASE || '/api'`. */
@@ -151,27 +156,34 @@ export class ArchflowEventStream {
 
     private connect(): void {
         const { tenantId, sessionId, baseUrl = DEFAULT_BASE } = this.config;
-        const token = sessionStorage.getItem('archflow_token');
-        const url = new URL(
-            `${baseUrl}/stream/${encodeURIComponent(tenantId)}/${encodeURIComponent(sessionId)}`,
-            window.location.origin,
-        );
+        const path = tenantId
+            ? `${encodeURIComponent(tenantId)}/${encodeURIComponent(sessionId)}`
+            : encodeURIComponent(sessionId);
+        const url = new URL(`${baseUrl}/stream/${path}`, window.location.origin);
 
         this.setStatus(this.reconnectAttempts === 0 ? 'connecting' : 'reconnecting');
 
         const controller = new AbortController();
         this.controller = controller;
 
-        void this.readStream(url, token, controller).catch(() => {
+        void this.readStream(url, controller).catch(() => {
             this.handleStreamEnd();
         });
     }
 
-    private async readStream(url: URL, token: string | null, controller: AbortController): Promise<void> {
-        const response = await fetch(url.toString(), {
-            headers: token ? { Authorization: `Bearer ${token}` } : {},
-            signal: controller.signal,
-        });
+    private async readStream(url: URL, controller: AbortController): Promise<void> {
+        // authFetch, não fetch cru: manda também o X-Impersonate-Tenant ativo (e renova o token).
+        // Sem ele, o superadmin personificando o tenant B abria o stream como o próprio tenant
+        // enquanto a mensagem (enviada com o header) respondia no canal de B.
+        const response = await authFetch(url.toString(), { signal: controller.signal });
+
+        if (response.status === 401 || response.status === 403) {
+            // Recusa do servidor (sem sessão, ou canal de outro tenant — RCHFLW-49): reconectar só
+            // repetiria a mesma recusa.
+            this.controller = null;
+            this.setStatus('error');
+            return;
+        }
 
         if (!response.ok || !response.body) {
             throw new Error(`Stream failed with status ${response.status}`);
@@ -347,12 +359,25 @@ export function isChatDelta(
 
 export function isChatMessage(
     evt: ArchflowEvent,
-): evt is ArchflowEvent<{ content: string; role: string; model?: string; totalTokens?: number }> {
+): evt is ArchflowEvent<{
+    content: string;
+    role: string;
+    messageId?: string;
+    model?: string;
+    totalTokens?: number;
+}> {
     return evt.envelope.domain === 'chat' && evt.envelope.type === 'message';
 }
 
 export function isChatStart(evt: ArchflowEvent): boolean {
     return evt.envelope.domain === 'chat' && evt.envelope.type === 'start';
+}
+
+/** Falha que encerra a resposta em curso (geração do agente ou execução retomada). */
+export function isChatError(
+    evt: ArchflowEvent,
+): evt is ArchflowEvent<{ message?: string; conversationId?: string }> {
+    return evt.envelope.domain === 'chat' && evt.envelope.type === 'error';
 }
 
 export function isChatEnd(
@@ -411,7 +436,15 @@ export function isToolEnd(
 
 export function isInteractionForm(
     evt: ArchflowEvent,
-): evt is ArchflowEvent<{ formId: string; fields: unknown[]; resumeToken?: string }> {
+): evt is ArchflowEvent<{
+    formId: string;
+    fields: unknown[];
+    resumeToken?: string;
+    title?: string;
+    description?: string;
+    submitLabel?: string;
+    cancelLabel?: string;
+}> {
     return evt.envelope.domain === 'interaction' && evt.envelope.type === 'form';
 }
 

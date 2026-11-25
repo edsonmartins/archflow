@@ -2,11 +2,13 @@ package br.com.archflow.api.agui;
 
 import br.com.archflow.agent.streaming.ArchflowEvent;
 import br.com.archflow.agent.streaming.EventStreamRegistry;
+import br.com.archflow.api.config.TenantContext;
 import br.com.archflow.api.flow.RunInputSeeding;
 import br.com.archflow.api.flow.WorkflowDeserializer;
 import br.com.archflow.api.web.workflow.WorkflowRuntimeStore;
 import br.com.archflow.engine.api.FlowEngine;
 import br.com.archflow.engine.core.StateManager;
+import br.com.archflow.engine.persistence.FlowRepository;
 import br.com.archflow.model.engine.DefaultExecutionContext;
 import br.com.archflow.model.flow.FlowState;
 import br.com.archflow.model.engine.ExecutionContext;
@@ -47,6 +49,7 @@ public class AgUiController {
     private final EventStreamRegistry streamRegistry;
     private final AgUiEventMapper mapper;
     private final StateManager stateManager;
+    private final FlowRepository flowRepository;
     private final ObjectMapper json;
 
     public AgUiController(WorkflowRuntimeStore store,
@@ -55,6 +58,7 @@ public class AgUiController {
                           EventStreamRegistry streamRegistry,
                           AgUiEventMapper mapper,
                           StateManager stateManager,
+                          FlowRepository flowRepository,
                           ObjectMapper jackson2ObjectMapper) {
         this.store = store;
         this.deserializer = deserializer;
@@ -62,6 +66,7 @@ public class AgUiController {
         this.streamRegistry = streamRegistry;
         this.mapper = mapper;
         this.stateManager = stateManager;
+        this.flowRepository = flowRepository;
         this.json = jackson2ObjectMapper;
     }
 
@@ -70,23 +75,32 @@ public class AgUiController {
         SseEmitter sse = new SseEmitter(0L); // no server-side timeout; closed on run completion
         Object sendLock = new Object();      // engine may broadcast from parallel threads
 
-        var workflow = store.getWorkflow(id);
+        // Tenant da requisição, lido aqui, na thread do servlet — a execução segue em outra thread,
+        // onde não há requisição. O mesmo valor filtra o workflow (de outro tenant = não encontrado,
+        // RCHFLW-73), é o dono do registro da execução e vai para o contexto do motor (RCHFLW-13).
+        String tenantId = TenantContext.currentTenantId();
+        var workflow = store.getWorkflow(tenantId, id);
         if (workflow == null) {
             emit(sse, sendLock, AgUiEvent.of("RUN_ERROR", fields("message", "workflow not found: " + id)));
             sse.complete();
             return sse;
         }
 
-        var execution = store.createExecution(id, workflowName(workflow));
+        var execution = store.createExecution(tenantId, id, workflowName(workflow));
         String runId = String.valueOf(execution.get("id"));        // = flow id, as in /execute
         String threadId = input != null && input.threadId() != null ? input.threadId() : runId;
 
         Map<String, Object> flowJson = new HashMap<>(workflow);
         flowJson.put("id", runId);
         Flow flow = deserializer.toFlow(flowJson);
+        // A retomada busca o fluxo no FlowRepository, como em /execute. Sem o registro, uma
+        // execução do editor que parasse num portão de aprovação nunca mais seguia: aprovar
+        // consumia o pedido e a retomada falhava sem ninguém ver (RCHFLW-59).
+        flowRepository.save(flow);
 
         ExecutionContext ctx = new DefaultExecutionContext(
-                null, "ag-ui", runId, MessageWindowChatMemory.builder().maxMessages(20).build());
+                tenantId, "ag-ui", runId,
+                MessageWindowChatMemory.builder().maxMessages(20).build());
         seedInput(ctx, input);
 
         // Tee the hub into this response, filtered to this run. The lifecycle

@@ -30,6 +30,8 @@ public class DefaultLLMConfigResolver implements LLMConfigResolver {
     private final TierModelResolver tierModelResolver;
     private final ProviderPreferences providerPreferences;
     private final boolean providerPreferencesRequired;
+    private final BaseUrlPolicy baseUrlPolicy;
+    private final TenantModelPolicy modelPolicy;
 
     public DefaultLLMConfigResolver(LLMProviderHub hub) {
         this(hub, TenantKeyResolver.NOOP);
@@ -55,11 +57,40 @@ public class DefaultLLMConfigResolver implements LLMConfigResolver {
                                     TierModelResolver tierModelResolver,
                                     ProviderPreferences providerPreferences,
                                     boolean providerPreferencesRequired) {
+        this(hub, tenantKeyResolver, tierModelResolver, providerPreferences, providerPreferencesRequired,
+                BaseUrlPolicy.officialOnly());
+    }
+
+    /**
+     * @param baseUrlPolicy para onde uma chave governada (do resolver ou da plataforma) pode ir quando
+     *                      um patch de fluxo/agente/passo declara {@code baseUrl}
+     */
+    public DefaultLLMConfigResolver(LLMProviderHub hub, TenantKeyResolver tenantKeyResolver,
+                                    TierModelResolver tierModelResolver,
+                                    ProviderPreferences providerPreferences,
+                                    boolean providerPreferencesRequired,
+                                    BaseUrlPolicy baseUrlPolicy) {
+        this(hub, tenantKeyResolver, tierModelResolver, providerPreferences, providerPreferencesRequired,
+                baseUrlPolicy, TenantModelPolicy.UNRESTRICTED);
+    }
+
+    /**
+     * @param modelPolicy modelos que cada tenant pode usar ({@code allowedModels}); conferida no modelo
+     *                    <b>final</b> da cadeia (depois do tier e de todos os patches), antes de criá-lo
+     */
+    public DefaultLLMConfigResolver(LLMProviderHub hub, TenantKeyResolver tenantKeyResolver,
+                                    TierModelResolver tierModelResolver,
+                                    ProviderPreferences providerPreferences,
+                                    boolean providerPreferencesRequired,
+                                    BaseUrlPolicy baseUrlPolicy,
+                                    TenantModelPolicy modelPolicy) {
         this.hub = hub;
         this.tenantKeyResolver = tenantKeyResolver != null ? tenantKeyResolver : TenantKeyResolver.NOOP;
         this.tierModelResolver = tierModelResolver != null ? tierModelResolver : TierModelResolver.NOOP;
         this.providerPreferences = providerPreferences != null ? providerPreferences : ProviderPreferences.NONE;
         this.providerPreferencesRequired = providerPreferencesRequired;
+        this.baseUrlPolicy = baseUrlPolicy != null ? baseUrlPolicy : BaseUrlPolicy.officialOnly();
+        this.modelPolicy = modelPolicy != null ? modelPolicy : TenantModelPolicy.UNRESTRICTED;
     }
 
     @Override
@@ -156,8 +187,9 @@ public class DefaultLLMConfigResolver implements LLMConfigResolver {
         if (resolved.provider() == null || resolved.provider().isBlank()) {
             return Optional.empty();
         }
-        LLMProviderConfig config = toProviderConfig(resolved,
-                resolveApiKey(request.tenantId(), resolved.provider(), resolved));
+        Chave chave = resolverChave(request, resolved.provider(), resolved);
+        exigirDestinoPermitido(request, resolved, chave);
+        LLMProviderConfig config = toProviderConfig(resolved, chave.valor());
         String baseUrl = LLMProviderHub.effectiveBaseUrl(config);
         return baseUrl == null || baseUrl.isBlank()
                 ? Optional.empty()
@@ -172,8 +204,13 @@ public class DefaultLLMConfigResolver implements LLMConfigResolver {
             throw new IllegalStateException(
                     "Resolved LLM config has no provider; cannot build a ChatModel");
         }
+        // A restrição do tenant vale para o modelo que vai de fato: o do tier, o do patch do nó ou o da
+        // plataforma. Conferir só o que o painel mostra deixaria o YAML/API escolher qualquer um.
+        modelPolicy.check(request.tenantId(), provider, resolved.model());
 
-        String apiKey = resolveApiKey(request.tenantId(), provider, resolved);
+        Chave chave = resolverChave(request, provider, resolved);
+        exigirDestinoPermitido(request, resolved, chave);
+        String apiKey = chave.valor();
         LLMProviderConfig providerConfig = toProviderConfig(resolved, apiKey);
         exigirPreferenciaSeObrigatoria(providerConfig);
         String configId = cacheConfigId(request.tenantId(), resolved, apiKey);
@@ -212,6 +249,57 @@ public class DefaultLLMConfigResolver implements LLMConfigResolver {
         }
         Object inlineKey = resolved.additionalConfig().get("apiKey");
         return inlineKey != null ? inlineKey.toString() : null;
+    }
+
+    /** A chave e se ela é da governança (resolver/plataforma) ou do próprio fluxo. */
+    record Chave(String valor, boolean governada) {
+        static final Chave NENHUMA = new Chave(null, false);
+    }
+
+    /**
+     * Como {@link #resolveApiKey}, mas sabendo de onde a chave veio.
+     *
+     * <p>O {@code archflow.llm.api-key} chega aqui como {@code additionalConfig.apiKey} do default da
+     * plataforma — indistinguível de uma chave inline, a não ser comparando com o default. Comparar
+     * serve a duas coisas: ela é governada (o destino passa pela {@link BaseUrlPolicy}), e ela foi
+     * cadastrada para o provider da plataforma — um patch que troca o provider não a leva junto
+     * para outro fornecedor.
+     */
+    Chave resolverChave(LLMResolutionRequest request, String provider, ResolvedLLMConfig resolved) {
+        Optional<String> doResolver = tenantKeyResolver.resolveApiKey(request.tenantId(), provider);
+        if (doResolver.isPresent() && !doResolver.get().isBlank()) {
+            return new Chave(doResolver.get(), true);
+        }
+        Object inline = resolved.additionalConfig().get("apiKey");
+        if (inline == null || inline.toString().isBlank()) {
+            return Chave.NENHUMA;
+        }
+        ResolvedLLMConfig plataforma = request.platformDefault();
+        Object daPlataforma = plataforma == null ? null : plataforma.additionalConfig().get("apiKey");
+        if (daPlataforma != null && daPlataforma.toString().equals(inline.toString())) {
+            return provider.equalsIgnoreCase(plataforma.provider())
+                    ? new Chave(inline.toString(), true)
+                    : Chave.NENHUMA;
+        }
+        return new Chave(inline.toString(), false);
+    }
+
+    /**
+     * Chave governada só vai para o endereço oficial do provider, para o {@code archflow.llm.base-url}
+     * do operador ou para a lista {@code archflow.llm.allowed-base-urls}. Falha aqui, antes de o
+     * modelo existir — nenhuma requisição sai.
+     */
+    private void exigirDestinoPermitido(LLMResolutionRequest request, ResolvedLLMConfig resolved, Chave chave) {
+        Object baseUrl = resolved.additionalConfig().get("baseUrl");
+        if (!chave.governada() || baseUrl == null || baseUrl.toString().isBlank()) {
+            return;
+        }
+        ResolvedLLMConfig plataforma = request.platformDefault();
+        Object doOperador = plataforma == null ? null : plataforma.additionalConfig().get("baseUrl");
+        if (doOperador != null && doOperador.toString().equals(baseUrl.toString())) {
+            return;
+        }
+        baseUrlPolicy.check(resolved.provider(), baseUrl.toString(), "baseUrl");
     }
 
     /**

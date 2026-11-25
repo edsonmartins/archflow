@@ -1,97 +1,103 @@
 package br.com.archflow.api.admin.impl;
 
 import br.com.archflow.api.admin.WorkspaceController;
+import br.com.archflow.api.admin.dto.TenantDto;
 import br.com.archflow.api.admin.dto.UserDto;
 import br.com.archflow.api.admin.dto.UserDto.*;
-import br.com.archflow.api.admin.dto.ApiKeyDto;
-import br.com.archflow.api.admin.dto.ApiKeyDto.*;
 import br.com.archflow.api.admin.dto.WorkspaceSummaryDto;
+import br.com.archflow.api.config.ImpersonationFilter;
+import br.com.archflow.api.config.JwtAuthenticationFilter;
+import br.com.archflow.api.usage.RegistroDeUso;
+import br.com.archflow.api.usage.UsoSomado;
+import br.com.archflow.api.web.workflow.WorkflowRuntimeStore;
+import br.com.archflow.model.security.Permission;
+import br.com.archflow.model.security.Role;
+import br.com.archflow.model.security.User;
+import br.com.archflow.security.apikey.ApiKeyService;
+import br.com.archflow.security.auth.WorkspaceUserService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.web.context.request.RequestAttributes;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
-import java.security.SecureRandom;
+import java.time.Clock;
 import java.time.Instant;
-import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeParseException;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
 
+/**
+ * O workspace do tenant com dados reais (RCHFLW-85/75).
+ *
+ * <p>Antes, usuários e chaves viviam em mapas em memória semeados com "João Silva", "Maria Santos" e
+ * uma chave {@code af_live_…}: o convite só acrescentava uma linha, remover não revogava nada, as
+ * chaves nunca autenticavam, e o resumo mostrava 340 execuções e 4,2M de 5M tokens fixos no código.
+ * Agora:
+ * <ul>
+ *   <li>usuários são os do login ({@link WorkspaceUserService}, sobre o {@code UserRepository});</li>
+ *   <li>as chaves de API são as do {@link ApiKeyService} — a tela é a de {@code /api/apikeys};</li>
+ *   <li>o resumo conta o que existe: workflows e execuções do {@link WorkflowRuntimeStore}, tokens
+ *       medidos pelo {@link RegistroDeUso}, e plano/limites do cadastro do tenant — sem cadastro,
+ *       sem limite (nunca um limite inventado).</li>
+ * </ul>
+ */
 public class WorkspaceControllerImpl implements WorkspaceController {
     private static final Logger log = LoggerFactory.getLogger(WorkspaceControllerImpl.class);
-    private static final SecureRandom RANDOM = new SecureRandom();
 
     /** Dev profile fallback — when set, missing tenant context resolves to this id. */
     private final String fallbackTenantId;
-
-    private final Map<String, UserDto> users = new ConcurrentHashMap<>();
-    private final Map<String, ApiKeyDto> apiKeys = new ConcurrentHashMap<>();
-    private final Map<String, String> apiKeyFullValues = new ConcurrentHashMap<>();
-
-    /** No-arg constructor — used by tests; seeds demo data + tenant_demo fallback. */
-    public WorkspaceControllerImpl() {
-        this("tenant_demo", true);
-    }
+    private final WorkspaceUserService users;
+    private final WorkflowRuntimeStore runtimeStore;
+    private final RegistroDeUso registroDeUso;
+    private final ApiKeyService apiKeys;
+    private final TenantControllerImpl tenants;
+    private final Clock clock;
 
     /**
-     * Production constructor: pass {@code null} fallback + {@code false} seed.
+     * @param fallbackTenantId id to return when no tenant context is present; pass {@code null} in
+     *                         production so missing tenant context fails fast instead of silently
+     *                         serving one shared workspace
+     * @param tenants          o cadastro de tenants (plano, status, limites); {@code null} quando não
+     *                         há cadastro — o resumo sai sem plano e sem limites
      */
-    public WorkspaceControllerImpl(String fallbackTenantId) {
-        this(fallbackTenantId, fallbackTenantId != null);
+    public WorkspaceControllerImpl(String fallbackTenantId, WorkspaceUserService users,
+                                   WorkflowRuntimeStore runtimeStore, RegistroDeUso registroDeUso,
+                                   ApiKeyService apiKeys, TenantControllerImpl tenants) {
+        this(fallbackTenantId, users, runtimeStore, registroDeUso, apiKeys, tenants, Clock.systemDefaultZone());
     }
 
-    /**
-     * @param fallbackTenantId id to return when no tenant header is present;
-     *                         pass {@code null} in production so missing
-     *                         tenant context fails fast instead of silently
-     *                         serving one shared demo workspace.
-     * @param seedDemoData     when {@code true}, pre-populates demo users
-     *                         and API keys for the dev workspace; production
-     *                         deployments MUST pass {@code false}.
-     */
-    public WorkspaceControllerImpl(String fallbackTenantId, boolean seedDemoData) {
+    /** Com relógio injetado — "hoje" é o do relógio. */
+    public WorkspaceControllerImpl(String fallbackTenantId, WorkspaceUserService users,
+                                   WorkflowRuntimeStore runtimeStore, RegistroDeUso registroDeUso,
+                                   ApiKeyService apiKeys, TenantControllerImpl tenants, Clock clock) {
         this.fallbackTenantId = fallbackTenantId;
-        if (seedDemoData) {
-            users.put("u1", new UserDto("u1", "João Silva", "joao@rioquality.com.br", "admin", "active", "2026-04-09", 8));
-            users.put("u2", new UserDto("u2", "Maria Santos", "maria@rioquality.com.br", "editor", "active", "2026-04-08", 4));
-
-            apiKeys.put("k1", new ApiKeyDto("k1", "VendaX Backend", "production", "af_live_",
-                    "af_live_rq_••••••••3f2a", "2026-01-15", "2026-04-09"));
-        }
+        this.users = Objects.requireNonNull(users, "users");
+        this.runtimeStore = Objects.requireNonNull(runtimeStore, "runtimeStore");
+        this.registroDeUso = Objects.requireNonNull(registroDeUso, "registroDeUso");
+        this.apiKeys = Objects.requireNonNull(apiKeys, "apiKeys");
+        this.tenants = tenants;
+        this.clock = Objects.requireNonNull(clock, "clock");
     }
 
     /**
-     * Resolves the tenant identifier for the current request. Looks at:
-     * <ol>
-     *   <li>An explicit {@code X-Tenant-Id} header (set by the gateway for
-     *       admin impersonation)</li>
-     *   <li>The Spring {@code SecurityContextHolder} principal's tenant
-     *       claim (when authentication is in place)</li>
-     * </ol>
-     * Falls back to a demo tenant so dev smoke flows still work, but
-     * logs a warning so the miswire is visible in prod.
+     * Resolves the tenant identifier for the current request from the
+     * {@code archflow.tenantId} attribute written by {@code ImpersonationFilter}
+     * (JWT claim, verified impersonation, or {@code X-Tenant-Id} when no JWT is
+     * present). The raw headers are never read here.
      */
     private String resolveTenantId() {
-        try {
-            org.springframework.web.context.request.RequestAttributes attrs =
-                    org.springframework.web.context.request.RequestContextHolder.getRequestAttributes();
-            if (attrs instanceof org.springframework.web.context.request.ServletRequestAttributes sra) {
-                // Prefer the attribute set by ImpersonationFilter: it has
-                // already merged X-Impersonate-Tenant and X-Tenant-Id so
-                // callers see a single resolved value.
-                Object fromAttr = sra.getRequest().getAttribute("archflow.tenantId");
-                if (fromAttr instanceof String s && !s.isBlank()) {
-                    return s.trim();
-                }
-                String header = sra.getRequest().getHeader("X-Tenant-Id");
-                if (header != null && !header.isBlank()) {
-                    return header.trim();
-                }
-                String impersonate = sra.getRequest().getHeader("X-Impersonate-Tenant");
-                if (impersonate != null && !impersonate.isBlank()) {
-                    return impersonate.trim();
-                }
-            }
-        } catch (Exception ignored) {
-            // Request context not available (e.g., called outside HTTP) —
-            // fall through to the fallback.
+        Object fromAttr = requestAttribute(ImpersonationFilter.ATTR_TENANT_ID);
+        // Só o atributo, nunca os headers crus: o filtro já conferiu o X-Tenant-Id contra o
+        // tenant do JWT e o X-Impersonate-Tenant contra o papel. Ler o header aqui
+        // pulava as duas checagens e devolvia o workspace de outro tenant (RCHFLW-44).
+        if (fromAttr instanceof String s && !s.isBlank()) {
+            return s.trim();
         }
         if (fallbackTenantId == null) {
             // Production mode: do NOT collapse every unauthenticated caller
@@ -106,122 +112,121 @@ public class WorkspaceControllerImpl implements WorkspaceController {
         return fallbackTenantId;
     }
 
+    /**
+     * Quem está fazendo a operação: o subject do token que o {@link JwtAuthenticationFilter}
+     * validou. Nunca um valor do cliente. {@code null} só com a autenticação desligada (dev).
+     */
+    private static String actorUserId() {
+        Object userId = requestAttribute(JwtAuthenticationFilter.ATTR_USER_ID);
+        return userId instanceof String s && !s.isBlank() ? s : null;
+    }
+
+    private static Object requestAttribute(String name) {
+        RequestAttributes attrs = RequestContextHolder.getRequestAttributes();
+        if (attrs instanceof ServletRequestAttributes sra) {
+            return sra.getRequest().getAttribute(name);
+        }
+        return null;
+    }
+
     @Override
     public WorkspaceSummaryDto getSummary() {
         String tenantId = resolveTenantId();
-        String displayName = "tenant_demo".equals(tenantId) ? "Demo Workspace"
-                : tenantId.replace('_', ' ');
+        Optional<TenantDto> tenant = tenants == null ? Optional.empty() : tenants.findTenant(tenantId);
+        UsoSomado usoDoMes = registroDeUso.doTenantNoMes(tenantId, registroDeUso.mesAtual());
+        WorkspaceSummaryDto.WorkspaceLimitsDto limits = tenant
+                .filter(t -> t.limits() != null)
+                .map(t -> new WorkspaceSummaryDto.WorkspaceLimitsDto(t.limits().executionsPerDay(),
+                        t.limits().tokensPerMonth(), t.limits().maxWorkflows(), t.limits().maxUsers(),
+                        t.allowedModels()))
+                .orElse(null);
         return new WorkspaceSummaryDto(
                 tenantId,
-                displayName,
-                "enterprise",
-                "active",
-                340,
-                4_200_000,
-                12,
-                users.size(),
-                apiKeys.size(),
-                new WorkspaceSummaryDto.WorkspaceLimitsDto(
-                        500,
-                        5_000_000,
-                        20,
-                        10,
-                        List.of("gpt-4o", "claude-sonnet-4-6")
-                )
-        );
+                tenant.map(TenantDto::name).filter(n -> !n.isBlank()).orElse(tenantId),
+                tenant.map(TenantDto::plan).orElse(null),
+                tenant.map(TenantDto::status).orElse(null),
+                executionsToday(runtimeStore, tenantId, clock),
+                usoDoMes.tokens(),
+                runtimeStore.workflows(tenantId).size(),
+                users.listUsers(tenantId).size(),
+                apiKeys.countActiveKeys(tenantId),
+                WorkspaceSummaryDto.UsageDto.of(usoDoMes),
+                limits);
+    }
+
+    /**
+     * Execuções de fluxo do tenant iniciadas hoje, no fuso do relógio. Compartilhado com a lista de
+     * tenants, para os dois números serem o mesmo.
+     */
+    public static int executionsToday(WorkflowRuntimeStore store, String tenantId, Clock clock) {
+        LocalDate today = LocalDate.now(clock);
+        return (int) store.executions(tenantId, null, null).stream()
+                .map(execution -> execution.get("startedAt"))
+                .filter(startedAt -> startedAt != null && startedOn(startedAt.toString(), today, clock.getZone()))
+                .count();
+    }
+
+    private static boolean startedOn(String startedAt, LocalDate day, ZoneId zone) {
+        try {
+            return Instant.parse(startedAt).atZone(zone).toLocalDate().equals(day);
+        } catch (DateTimeParseException e) {
+            return false;
+        }
     }
 
     // ── Users ───────────────────────────────────────────────────────
 
     @Override
     public List<UserDto> listUsers() {
-        return new ArrayList<>(users.values());
+        return users.listUsers(resolveTenantId()).stream().map(WorkspaceControllerImpl::toDto).toList();
     }
 
     @Override
-    public UserDto inviteUser(InviteUserRequest request) {
-        log.info("Inviting user: {} as {}", request.email(), request.role());
-        String id = "u-" + UUID.randomUUID().toString().substring(0, 8);
-        var user = new UserDto(id, request.email().split("@")[0], request.email(),
-                request.role(), "invited", null, 0);
-        users.put(id, user);
-        return user;
+    public List<RoleDto> listRoles() {
+        return WorkspaceUserService.roles().stream()
+                .map(role -> new RoleDto(role.getName(), role.getDescription(), role.getPermissions().stream()
+                        .map(Permission::asString)
+                        .sorted()
+                        .toList()))
+                .toList();
+    }
+
+    @Override
+    public InviteUserResponse inviteUser(InviteUserRequest request) {
+        if (request == null) {
+            throw new WorkspaceUserService.WorkspaceUserException(
+                    WorkspaceUserService.WorkspaceUserException.Code.BODY_REQUIRED, "Request body is required");
+        }
+        WorkspaceUserService.Invitation invitation =
+                users.invite(resolveTenantId(), request.email(), request.role());
+        return new InviteUserResponse(toDto(invitation.user()), invitation.token(), iso(invitation.expiresAt()));
     }
 
     @Override
     public UserDto updateUserRole(String userId, UpdateRoleRequest request) {
-        UserDto existing = users.get(userId);
-        if (existing == null) throw new IllegalArgumentException("User not found: " + userId);
-        var updated = new UserDto(existing.id(), existing.name(), existing.email(),
-                request.role(), existing.status(), existing.lastAccessAt(), existing.workflowCount());
-        users.put(userId, updated);
-        return updated;
+        String role = request == null ? null : request.role();
+        return toDto(users.changeRole(resolveTenantId(), actorUserId(), userId, role));
     }
 
     @Override
     public void removeUser(String userId) {
-        log.info("Removing user: {}", userId);
-        users.remove(userId);
+        users.removeUser(resolveTenantId(), actorUserId(), userId);
     }
 
     @Override
     public void revokeInvite(String userId) {
-        log.info("Revoking invite for user: {}", userId);
-        UserDto existing = users.get(userId);
-        if (existing != null && "invited".equals(existing.status())) {
-            users.remove(userId);
-        }
+        users.revokeInvitation(resolveTenantId(), userId);
     }
 
-    // ── API Keys ────────────────────────────────────────────────────
-
-    private static final Map<String, String> KEY_PREFIXES = Map.of(
-            "production", "af_live_",
-            "staging", "af_test_",
-            "web_component", "af_pub_"
-    );
-
-    @Override
-    public List<ApiKeyDto> listApiKeys() {
-        return new ArrayList<>(apiKeys.values());
+    static UserDto toDto(User user) {
+        String status = user.isInvitationPending() ? "invited" : user.isEnabled() ? "active" : "disabled";
+        String role = user.getRoles().stream().map(Role::getName).sorted(Comparator.naturalOrder())
+                .findFirst().orElse(null);
+        return new UserDto(user.getId(), user.getFullName(), user.getEmail(), role, status,
+                iso(user.getLastLoginAt()), iso(user.getInvitationExpiresAt()));
     }
 
-    @Override
-    public synchronized CreateApiKeyResponse createApiKey(CreateApiKeyRequest request) {
-        // synchronized so the (put into apiKeys) + (put into apiKeyFullValues)
-        // pair is observed atomically by listApiKeys / revokeApiKey readers.
-        // UUID.randomUUID provides uniqueness of the id; no extra guard
-        // needed for the primary key. The random hex is SecureRandom-backed
-        // so collisions are statistically impossible (2^64 state for 16
-        // hex chars).
-        log.info("Creating API key: {} ({})", request.name(), request.type());
-        String id = "k-" + UUID.randomUUID().toString().substring(0, 8);
-        String prefix = KEY_PREFIXES.getOrDefault(request.type(), "af_key_");
-        String randomPart = generateRandomHex(16);
-        String fullKey = prefix + randomPart;
-        String maskedKey = prefix + "••••••••" + randomPart.substring(randomPart.length() - 4);
-
-        var key = new ApiKeyDto(id, request.name(), request.type(), prefix,
-                maskedKey, Instant.now().toString().substring(0, 10), null);
-        apiKeys.put(id, key);
-        apiKeyFullValues.put(id, fullKey);
-
-        return new CreateApiKeyResponse(id, request.name(), request.type(), prefix,
-                maskedKey, fullKey, key.createdAt());
-    }
-
-    @Override
-    public synchronized void revokeApiKey(String keyId) {
-        log.info("Revoking API key: {}", keyId);
-        apiKeys.remove(keyId);
-        apiKeyFullValues.remove(keyId);
-    }
-
-    private String generateRandomHex(int length) {
-        byte[] bytes = new byte[length / 2];
-        RANDOM.nextBytes(bytes);
-        StringBuilder sb = new StringBuilder();
-        for (byte b : bytes) sb.append(String.format("%02x", b));
-        return sb.toString();
+    private static String iso(LocalDateTime value) {
+        return value == null ? null : value.atZone(ZoneId.systemDefault()).toInstant().toString();
     }
 }

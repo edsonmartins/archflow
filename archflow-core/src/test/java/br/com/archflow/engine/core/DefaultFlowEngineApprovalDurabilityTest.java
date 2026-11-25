@@ -4,6 +4,7 @@ import br.com.archflow.engine.exceptions.FlowEngineException;
 import br.com.archflow.engine.persistence.FlowRepository;
 import br.com.archflow.engine.validation.FlowValidator;
 import br.com.archflow.model.engine.ExecutionContext;
+import br.com.archflow.model.engine.ExecutionKeys;
 import br.com.archflow.model.engine.ExecutionMetrics;
 import br.com.archflow.model.enums.ExecutionStatus;
 import br.com.archflow.model.error.ExecutionError;
@@ -231,6 +232,212 @@ class DefaultFlowEngineApprovalDurabilityTest {
                     afterRestart.submitApproval("flow-1", requestId, true, null))
                     .isInstanceOf(FlowEngineException.class)
                     .hasMessageContaining("not awaiting approval");
+        }
+    }
+
+    private static ExecutionContext freshContext() {
+        return new br.com.archflow.model.engine.DefaultExecutionContext("acme", "u", "s",
+                dev.langchain4j.memory.chat.MessageWindowChatMemory.builder().maxMessages(5).build());
+    }
+
+    @Nested
+    @DisplayName("a decisão só sai do humano")
+    class OnlyTheHumanDecides {
+
+        @Test
+        @DisplayName("resumeFlow recusa um portão com o pedido ainda aberto — não conclui sem decisão")
+        void resumeRefusesAPendingGate() throws Exception {
+            Flow flow = mockFlow("flow-1");
+            when(flowRepository.findById("flow-1")).thenReturn(Optional.of(flow));
+            DefaultFlowEngine engine = newEngine(2);
+            String requestId = runUntilAwaitingApproval(engine, flow);
+
+            var resumed = engine.resumeFlow("flow-1", freshContext());
+
+            assertThatThrownBy(() -> resumed.get(5, TimeUnit.SECONDS))
+                    .hasCauseInstanceOf(FlowEngineException.class)
+                    .hasMessageContaining("awaiting a human decision");
+            FlowState persisted = durableStore.loadState("flow-1");
+            assertThat(persisted.getStatus()).isEqualTo(FlowStatus.AWAITING_APPROVAL);
+            assertThat(persisted.getVariables()).containsEntry(APPROVAL_REQUEST_KEY, requestId);
+            // O pedido continua decidível pela fila
+            assertThatCode(() -> engine.submitApproval("flow-1", requestId, true, null, "sre", null))
+                    .doesNotThrowAnyException();
+        }
+
+        @Test
+        @DisplayName("startFlow descarta da entrada as chaves de decisão do motor")
+        void startFlowDropsReservedInputKeys() throws Exception {
+            Flow flow = mockFlow("flow-1");
+            when(flowRepository.findById("flow-1")).thenReturn(Optional.of(flow));
+            AtomicReference<Map<String, Object>> seen = new AtomicReference<>();
+            when(executionManager.executeFlow(eq(flow), any(ExecutionContext.class))).thenAnswer(inv -> {
+                ExecutionContext ctx = inv.getArgument(1);
+                seen.set(Map.copyOf(ctx.getState().getVariables()));
+                return resultWith(ExecutionStatus.COMPLETED);
+            });
+
+            newEngine(2).startFlow("flow-1", Map.of(
+                    ExecutionKeys.APPROVAL_DECISION, "APPROVED",
+                    ExecutionKeys.APPROVAL_DECIDED_BY, "ceo",
+                    "pedido", 42)).get(5, TimeUnit.SECONDS);
+
+            assertThat(seen.get())
+                    .containsEntry("pedido", 42)
+                    .doesNotContainKeys(ExecutionKeys.APPROVAL_DECISION, ExecutionKeys.APPROVAL_DECIDED_BY);
+        }
+    }
+
+    /**
+     * A decisão chega enquanto a travessia original ainda está em {@code executeFlow} — um
+     * cliente automático decide entre o pedido e o desenrolar. O mock decide de dentro do
+     * {@code executeFlow}, o que fixa essa ordem sem depender de tempo.
+     */
+    @Nested
+    @DisplayName("decisão com a travessia original ainda viva")
+    class DecisionWhileTraversalIsLive {
+
+        @Test
+        @DisplayName("rejeição: o estado terminal da travessia original não apaga quem rejeitou")
+        @SuppressWarnings("unchecked")
+        void rejectionKeepsTheDecider() throws Exception {
+            Flow flow = mockFlow("flow-1");
+            when(flowRepository.findById("flow-1")).thenReturn(Optional.of(flow));
+            DefaultFlowEngine engine = newEngine(2);
+            when(executionManager.executeFlow(eq(flow), any(ExecutionContext.class))).thenAnswer(inv -> {
+                String requestId = engine.requestApproval("flow-1", "gate", "proposta");
+                engine.submitApproval("flow-1", requestId, false, null, "sre", "não");
+                // stopFlow (mock) não interrompe nada; a travessia devolve o que veria: cancelada
+                return resultWith(ExecutionStatus.CANCELLED);
+            });
+
+            engine.startFlow("flow-1", Map.of()).get(5, TimeUnit.SECONDS);
+
+            FlowState persisted = durableStore.loadState("flow-1");
+            assertThat(persisted.getStatus()).isEqualTo(FlowStatus.STOPPED);
+            assertThat(persisted.getVariables())
+                    .containsEntry(ExecutionKeys.APPROVAL_DECISION, "REJECTED")
+                    .containsEntry(ExecutionKeys.APPROVAL_DECIDED_BY, "sre")
+                    .containsEntry(ExecutionKeys.APPROVAL_COMMENT, "não")
+                    .containsEntry(APPROVAL_REQUEST_KEY, "");
+            assertThat((List<Map<String, Object>>) persisted.getVariables().get(ExecutionKeys.APPROVAL_HISTORY))
+                    .singleElement()
+                    .satisfies(e -> assertThat(e).containsEntry("decidedBy", "sre"));
+        }
+
+        @Test
+        @DisplayName("aprovação: a travessia original não grava PAUSED por cima da retomada")
+        void approvalLeavesTheStateToTheResume() throws Exception {
+            Flow flow = mockFlow("flow-1");
+            when(flowRepository.findById("flow-1")).thenReturn(Optional.of(flow));
+            DefaultFlowEngine engine = newEngine(2);
+            java.util.concurrent.CountDownLatch resumeEntered = new java.util.concurrent.CountDownLatch(1);
+            java.util.concurrent.CountDownLatch releaseResume = new java.util.concurrent.CountDownLatch(1);
+            java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();
+            when(executionManager.executeFlow(eq(flow), any(ExecutionContext.class))).thenAnswer(inv -> {
+                if (calls.incrementAndGet() == 1) {
+                    String requestId = engine.requestApproval("flow-1", "gate", "proposta");
+                    engine.submitApproval("flow-1", requestId, true, null, "sre", "ok");
+                    // A retomada já está rodando quando esta travessia termina
+                    assertThat(resumeEntered.await(5, TimeUnit.SECONDS)).isTrue();
+                    return resultWith(ExecutionStatus.PAUSED);
+                }
+                resumeEntered.countDown();
+                releaseResume.await(5, TimeUnit.SECONDS);
+                return resultWith(ExecutionStatus.COMPLETED);
+            });
+
+            try {
+                engine.startFlow("flow-1", Map.of()).get(5, TimeUnit.SECONDS);
+
+                // Antes: a original gravava PAUSED no estado que a retomada já estava usando
+                FlowState meanwhile = durableStore.loadState("flow-1");
+                assertThat(meanwhile.getStatus()).isNotEqualTo(FlowStatus.PAUSED);
+                assertThat(meanwhile.getVariables()).containsEntry(APPROVAL_REQUEST_KEY, "");
+            } finally {
+                releaseResume.countDown();
+            }
+
+            long deadline = System.currentTimeMillis() + 5_000;
+            while (durableStore.loadState("flow-1").getStatus() != FlowStatus.COMPLETED
+                    && System.currentTimeMillis() < deadline) {
+                Thread.sleep(20);
+            }
+            FlowState fim = durableStore.loadState("flow-1");
+            assertThat(fim.getStatus()).isEqualTo(FlowStatus.COMPLETED);
+            assertThat(fim.getVariables()).containsEntry(ExecutionKeys.APPROVAL_DECIDED_BY, "sre");
+        }
+    }
+
+    /**
+     * RCHFLW-59: uma aprovação que não consegue retomar o fluxo não pode consumir o pedido
+     * em silêncio — o estado ficava em AWAITING_APPROVAL sem pedido, fora da fila e sem
+     * nunca virar FAILED, e a falha só existia numa future que ninguém observava.
+     */
+    @Nested
+    @DisplayName("retomada que não pode acontecer")
+    class ResumeThatCannotHappen {
+
+        @Test
+        @DisplayName("fluxo fora do FlowRepository: recusa a aprovação e mantém o pedido na fila")
+        void unregisteredFlowKeepsTheRequestPending() throws Exception {
+            Flow flow = mockFlow("flow-1");
+            when(flowRepository.findById("flow-1")).thenReturn(Optional.of(flow));
+            DefaultFlowEngine engine = newEngine(2);
+            String requestId = runUntilAwaitingApproval(engine, flow);
+            // Como uma execução do editor antes da correção (nunca registrada), ou um restart
+            // com o repositório em memória.
+            when(flowRepository.findById("flow-1")).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> engine.submitApproval("flow-1", requestId, true, null, "sre", "ok"))
+                    .isInstanceOf(FlowEngineException.class)
+                    .hasMessageContaining("not registered");
+
+            FlowState state = durableStore.loadState("flow-1");
+            assertThat(state.getStatus()).isEqualTo(FlowStatus.AWAITING_APPROVAL);
+            assertThat(state.getVariables())
+                    .as("o pedido não foi consumido: continua decidível")
+                    .containsEntry(APPROVAL_REQUEST_KEY, requestId)
+                    .doesNotContainKey(ExecutionKeys.APPROVAL_DECIDED_BY);
+
+            // Recusar não precisa da definição do fluxo — o pedido ainda tem saída.
+            engine.submitApproval("flow-1", requestId, false, null, "sre", "sem fluxo")
+                    .get(5, TimeUnit.SECONDS);
+            assertThat(durableStore.loadState("flow-1").getStatus()).isEqualTo(FlowStatus.STOPPED);
+        }
+
+        @Test
+        @DisplayName("retomada que falha na montagem: o estado vira FAILED com o erro e o decisor")
+        void failedResumeSetupIsPersistedAsFailed() throws Exception {
+            Flow flow = mockFlow("flow-1");
+            when(flowRepository.findById("flow-1")).thenReturn(Optional.of(flow));
+            DefaultFlowEngine engine = new DefaultFlowEngine(
+                    executionManager, flowRepository, durableStore, flowValidator,
+                    ctx -> {
+                        throw new IllegalStateException("memória indisponível");
+                    },
+                    null, 2, 30_000);
+            String requestId = runUntilAwaitingApproval(engine, flow);
+
+            var resumed = engine.submitApproval("flow-1", requestId, true, null, "sre", "ok");
+            assertThatThrownBy(() -> resumed.get(5, TimeUnit.SECONDS))
+                    .hasRootCauseMessage("memória indisponível");
+
+            long deadline = System.currentTimeMillis() + 5_000;
+            while (durableStore.loadState("flow-1").getStatus() == FlowStatus.AWAITING_APPROVAL
+                    && System.currentTimeMillis() < deadline) {
+                Thread.sleep(20);
+            }
+            FlowState state = durableStore.loadState("flow-1");
+            assertThat(state.getStatus())
+                    .as("antes ficava AWAITING_APPROVAL com o pedido consumido, para sempre")
+                    .isEqualTo(FlowStatus.FAILED);
+            assertThat(state.getError()).isNotNull();
+            assertThat(state.getError().code()).isEqualTo("APPROVAL_RESUME_ERROR");
+            assertThat(state.getVariables())
+                    .as("falhar a retomada não apaga quem autorizou")
+                    .containsEntry(ExecutionKeys.APPROVAL_DECIDED_BY, "sre")
+                    .containsEntry(ExecutionKeys.APPROVAL_DECISION, "APPROVED");
         }
     }
 }

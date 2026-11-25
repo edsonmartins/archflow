@@ -137,6 +137,25 @@ class WorkflowYamlBridgeTest {
     }
 
     @Test
+    @DisplayName("configuration.allowedComponents atravessa JSON → YAML → JSON (RCHFLW-63)")
+    void preservesAllowedComponents() throws Exception {
+        String json = """
+                {
+                  "id": "wf-1",
+                  "configuration": { "allowedComponents": ["log-reader"] },
+                  "steps": []
+                }
+                """;
+
+        String yaml = bridge.jsonToYaml(json);
+        assertThat(yaml).contains("allowedComponents").contains("log-reader");
+
+        SerializableFlow restored = new FlowSerializer().deserialize(bridge.yamlToJson(yaml));
+        var config = (SerializableFlowConfig) restored.getConfiguration();
+        assertThat(config.getAllowedComponents()).containsExactly("log-reader");
+    }
+
+    @Test
     @DisplayName("yamlToJson produces a parseable JSON")
     void yamlToJson() throws Exception {
         SerializableFlow flow = sample();

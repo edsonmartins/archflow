@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useParams } from 'react-router-dom';
 import {
@@ -23,6 +23,7 @@ import {
 import ChatPanel from '../components/chat/ChatPanel';
 import { conversationApi, type Conversation, type ConversationStatus } from '../services/conversation-api';
 import { formatInstant } from '../lib/format';
+import { mensagemDoErro } from '../lib/errorMessage';
 import { PageHeader } from '../components/PageHeader';
 import { SectionCard } from '../components/SectionCard';
 import EmptyState from '../components/EmptyState';
@@ -51,20 +52,66 @@ export default function ConversationPage() {
     const [conversation, setConversation] = useState<Conversation | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    // Cada busca do registro ganha um número; só a mais recente aplica. Os avisos do chat chegam em
+    // rajada (envio → resposta) e uma resposta antiga que chegasse por último voltaria a contagem.
+    const fetchSeq = useRef(0);
+    const [refreshing, setRefreshing] = useState(false);
+
+    /**
+     * Rebusca o registro (contagem, última mensagem, status) sem esqueleto: é a atualização ao vivo
+     * disparada pelo chat e pelo "Atualizar". Um sucesso apaga o erro de uma carga anterior; uma
+     * falha mantém o último registro bom — a transcrição continua sendo a fonte do que aconteceu.
+     *
+     * <p>Só o clique avisa a falha na tela: quem clicou espera uma resposta e, sem ela, não distingue
+     * registro velho de registro atualizado. A rebusca do chat vem em rajada (envio, fim da resposta,
+     * formulário) e um alerta a cada evento perdido só faria piscar a página; o próximo evento ou o
+     * clique tenta de novo.</p>
+     */
+    const fetchRecord = useCallback(
+        (manual: boolean) => {
+            if (!id) return;
+            const seq = ++fetchSeq.current;
+            if (manual) setRefreshing(true);
+            conversationApi
+                .getConversation(id)
+                .then((c) => {
+                    if (seq !== fetchSeq.current) return;
+                    setConversation(c);
+                    setError(null);
+                })
+                .catch((err) => {
+                    console.error('Failed to refresh conversation:', err);
+                    if (manual && seq === fetchSeq.current) {
+                        setError(t('conversationDetail.refreshError', {
+                            reason: mensagemDoErro(err, t('conversationDetail.loadError')),
+                        }));
+                    }
+                })
+                .finally(() => {
+                    if (manual) setRefreshing(false);
+                });
+        },
+        [id, t],
+    );
+    const refreshFromChat = useCallback(() => fetchRecord(false), [fetchRecord]);
+    const refreshManually = useCallback(() => fetchRecord(true), [fetchRecord]);
 
     useEffect(() => {
         if (!id) return;
         let cancelled = false;
+        const seq = ++fetchSeq.current;
         setLoading(true);
         setError(null);
         conversationApi
             .getConversation(id)
             .then((c) => {
-                if (!cancelled) setConversation(c);
+                if (!cancelled && seq === fetchSeq.current) setConversation(c);
             })
             .catch((err) => {
-                if (!cancelled) {
-                    setError(err instanceof Error ? err.message : t('conversationDetail.loadError'));
+                // Mesma guarda do sucesso: se uma rebusca mais nova (envio pelo chat) já trouxe o
+                // registro, a falha tardia desta carga não pode apagá-lo nem pôr um alerta por cima.
+                if (!cancelled && seq === fetchSeq.current) {
+                    setError(mensagemDoErro(err, t('conversationDetail.loadError')));
                     setConversation(null);
                 }
             })
@@ -121,9 +168,9 @@ export default function ConversationPage() {
                             variant="default"
                             leftSection={<IconRefresh size={16} />}
                             title={t('conversationDetail.refresh')}
-                            onClick={() => {
-                                if (id) conversationApi.getConversation(id).then(setConversation);
-                            }}
+                            loading={refreshing}
+                            onClick={refreshManually}
+                            data-testid="conversation-refresh"
                         >
                             {t('common.refresh')}
                         </Button>
@@ -153,7 +200,7 @@ export default function ConversationPage() {
                     <ChatPanel
                         conversationId={id}
                         workflowId={conversation?.workflowId}
-                        tenantId={conversation?.tenantId}
+                        onConversationChanged={refreshFromChat}
                     />
                 </Paper>
 

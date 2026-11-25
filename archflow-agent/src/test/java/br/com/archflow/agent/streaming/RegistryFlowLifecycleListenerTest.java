@@ -2,12 +2,17 @@ package br.com.archflow.agent.streaming;
 
 import br.com.archflow.agent.streaming.domain.FlowEvent;
 import br.com.archflow.model.engine.ExecutionContext;
+import br.com.archflow.model.enums.ExecutionStatus;
+import br.com.archflow.model.error.ExecutionError;
+import br.com.archflow.model.error.ExecutionErrorType;
 import br.com.archflow.model.flow.*;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -125,6 +130,45 @@ class RegistryFlowLifecycleListenerTest {
         }
 
         @Test
+        @DisplayName("FlowResult FAILED (passo falhou sem aresta de erro) vira FLOW_FAILED com o motivo")
+        void failedResultEmitsFlowFailed() {
+            var flowEvents = new CopyOnWriteArrayList<ArchflowEvent>();
+            var adminEvents = new CopyOnWriteArrayList<ArchflowEvent>();
+            streamRegistry.createEmitter("flow-1").onSend(flowEvents::add);
+            streamRegistry.createEmitter("__admin__:tenant-x").onSend(adminEvents::add);
+            when(result.getStatus()).thenReturn(ExecutionStatus.FAILED);
+            when(result.getErrors()).thenReturn(List.of(
+                    ExecutionError.of("STEP_FAILED", "provedor recusou a chave", ExecutionErrorType.EXECUTION),
+                    ExecutionError.of("STEP_FAILED", "timeout no passo b", ExecutionErrorType.EXECUTION)));
+
+            listener.onFlowCompleted(flow, context, result, 40L);
+
+            assertThat(flowEvents).extracting(ArchflowEvent::getType)
+                    .containsExactly(ArchflowEventType.FLOW_FAILED);
+            assertThat(flowEvents.get(0).getData("error"))
+                    .isEqualTo("provedor recusou a chave; timeout no passo b");
+            assertThat(flowEvents.get(0).getData("errorType")).isEqualTo("EXECUTION");
+            assertThat(flowEvents.get(0).getData("durationMs")).isEqualTo(40L);
+            assertThat(adminEvents).extracting(ArchflowEvent::getType)
+                    .containsExactly(ArchflowEventType.FLOW_FAILED);
+        }
+
+        @ParameterizedTest
+        @EnumSource(value = ExecutionStatus.class, names = {"COMPLETED", "CANCELLED", "PAUSED"})
+        @DisplayName("os demais desfechos saem como FLOW_COMPLETED levando o status final")
+        void otherOutcomesCarryStatus(ExecutionStatus status) {
+            var events = new CopyOnWriteArrayList<ArchflowEvent>();
+            streamRegistry.createEmitter("flow-1").onSend(events::add);
+            when(result.getStatus()).thenReturn(status);
+
+            listener.onFlowCompleted(flow, context, result, 10L);
+
+            assertThat(events).extracting(ArchflowEvent::getType)
+                    .containsExactly(ArchflowEventType.FLOW_COMPLETED);
+            assertThat(events.get(0).getData("status")).isEqualTo(status.name());
+        }
+
+        @Test
         @DisplayName("STEP_STARTED event includes step index and count")
         void stepStartedEventIncludesIndex() {
             var events = new CopyOnWriteArrayList<ArchflowEvent>();
@@ -165,6 +209,26 @@ class RegistryFlowLifecycleListenerTest {
                     ArchflowEventType.STEP_STARTED, ArchflowEventType.STEP_SKIPPED);
             assertThat(events).extracting(e -> e.getData("stepIndex"))
                     .containsExactly(0, 0, 1, 1, 2, 2);
+        }
+
+        @Test
+        @DisplayName("STEP_SUSPENDED (portão aguardando) fecha o STEP_STARTED com o mesmo índice")
+        void suspendedEventRepeatsStartedIndex() {
+            FlowStep first = stepWithId("a");
+            lenient().when(flow.getSteps()).thenReturn(List.of(first, step));
+            var events = new CopyOnWriteArrayList<ArchflowEvent>();
+            streamRegistry.createEmitter("flow-1").onSend(events::add);
+
+            listener.onStepStarted(flow, step, context, 0, 2);
+            listener.onStepSuspended(flow, step, context, 9L);
+
+            // Um evento próprio, não STEP_COMPLETED: é ele que o AG-UI e o canvas leem como
+            // "aguardando aprovação" em vez de ✓ (RCHFLW-32).
+            assertThat(events).extracting(ArchflowEvent::getType).containsExactly(
+                    ArchflowEventType.STEP_STARTED, ArchflowEventType.STEP_SUSPENDED);
+            assertThat(events.get(1).getData("stepIndex")).isEqualTo(0);
+            assertThat(events.get(1).getData("stepId")).isEqualTo("step-1");
+            assertThat(events.get(1).getData("durationMs")).isEqualTo(9L);
         }
 
         @Test

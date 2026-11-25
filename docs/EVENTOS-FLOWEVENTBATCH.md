@@ -91,7 +91,7 @@ receber**.
 ```
 POST /api/events/ingest
 Content-Type: application/x-protobuf
-X-Tenant-Id: <opcional>
+X-Tenant-Id: <opcional; com JWT, só pode repetir o tenant do token>
 
 <FlowEventBatch serializado>
 ```
@@ -102,8 +102,10 @@ bean em `ArchflowBeanConfiguration` (linha 403) e desemboca no
 `EventStreamRegistry` — de onde a UI consome.
 
 **Exige autenticação.** `/api/events` não está entre os caminhos públicos do
-`JwtAuthenticationFilter`, então o `Authorization: Bearer` ou o `X-API-Key`
-valem aqui como em qualquer outro endpoint.
+`JwtAuthenticationFilter`: vale o `Authorization: Bearer <JWT>` de um usuário.
+Uma chave de API (`Authorization: Bearer ak_...`) é recusada aqui com `403
+API_KEY_ENDPOINT_NOT_ALLOWED` — nenhum escopo de chave cobre `/api/events`
+(ver `ApiKeyScopeRequirement`). O servidor não lê `X-API-Key`.
 
 A resposta é **JSON**, não protobuf:
 
@@ -196,8 +198,35 @@ Cada evento é publicado em **dois canais**:
 | `executionId` | quem acompanha aquela execução específica |
 | `__admin__:<tenantId>` | visão administrativa de tudo do tenant |
 
-O segundo só existe quando há tenant — o `X-Tenant-Id` da requisição. Sem ele,
-o evento chega apenas em quem estiver acompanhando a execução pelo id.
+O segundo só existe quando há tenant — o tenant **resolvido** da requisição
+(atributo `archflow.tenantId` do `ImpersonationFilter`): a claim do JWT, uma
+personificação verificada, ou o `X-Tenant-Id` quando a requisição não tem JWT.
+Com JWT, um `X-Tenant-Id` diferente do tenant do token é recusado com 403
+(RCHFLW-44) — antes o header cru fixava o tenant e um agente autenticado num
+tenant publicava no canal admin de outro. Um token **sem** a claim `tenantId`
+(todo token de login hoje) é do tenant padrão `__default__`: os eventos são
+fixados nele e vão a `__admin__:__default__`, e um `X-Tenant-Id` de outro tenant
+recebe 403. **Não há, por ora, como emitir um token preso a um tenant específico**
+— um agente standalone que mandava JWT + `X-Tenant-Id: <tenant>` para publicar
+nesse tenant precisa de personificação verificada (`X-Impersonate-Tenant`, papel
+admin/superadmin) até isso existir. Sem JWT e sem header (auth desligada), não há
+tenant resolvido e o evento chega apenas em quem estiver acompanhando a execução
+pelo id.
+
+O `executionId` vem do corpo, isto é, do cliente, e vira a chave do canal. Como
+os canais SSE são `<tenant>:<sessão>`, um id com `:` só é aceito quando começa
+pelo tenant resolvido da requisição; `<outro tenant>:...` e qualquer
+`__admin__:...` (o canal admin é alimentado só pelo servidor) são **recusados** —
+contam em `rejected` e não chegam a canal nenhum. Sem tenant resolvido, ids com
+`:` também são recusados. Ids de execução comuns (sem `:`) seguem como antes.
+
+Quem **assina** pelo `GET /api/stream/{tenantId}/{sessionId}` (SSE) só abre o
+canal do próprio tenant (RCHFLW-49): `{tenantId}` tem de ser o tenant efetivo da
+requisição — o mesmo resolvido acima, inclusive a personificação verificada — e
+o canal administrativo só abre como `/api/stream/__admin__/<o próprio tenant>`.
+Qualquer outro recebe 403. `GET /api/stream/{sessionId}` assina no tenant da
+requisição sem o cliente informá-lo, com a mesma conferência: se o tenant
+efetivo for o id reservado `__admin__`, só `__admin__:__admin__` abre.
 
 A resposta conta os dois lados: `accepted` são os eventos republicados,
 `rejected` os que falharam individualmente. **Sucesso parcial não é erro HTTP** —

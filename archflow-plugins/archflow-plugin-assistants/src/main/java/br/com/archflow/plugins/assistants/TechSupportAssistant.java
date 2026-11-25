@@ -7,6 +7,7 @@ import br.com.archflow.model.ai.domain.Response;
 import br.com.archflow.model.ai.metadata.ComponentMetadata;
 import br.com.archflow.model.ai.type.ComponentType;
 import br.com.archflow.model.engine.ExecutionContext;
+import br.com.archflow.plugin.api.spi.ComponentInputs;
 import br.com.archflow.plugin.api.spi.ComponentPlugin;
 
 import java.util.*;
@@ -96,10 +97,31 @@ public class TechSupportAssistant implements AIAssistant, ComponentPlugin {
         }
 
         return switch (operation) {
-            case "analyze" -> analyzeRequest((String) input, context);
-            case "respond" -> generateResponse((Analysis) input, context);
+            case "analyze" -> analyzeRequest(ComponentInputs.text(input), context);
+            case "respond" -> generateResponse(analysisOf(input, context), context);
             default -> throw new IllegalArgumentException("Unsupported operation: " + operation);
         };
+    }
+
+    /**
+     * A análise que o {@code respond} recebe. Depois de um checkpoint, a saída do {@code analyze} anterior
+     * volta como mapa; e quem chama {@code respond} direto (nó único, invocação) manda o texto do usuário
+     * — aí analisar primeiro é o único jeito de responder algo útil.
+     */
+    private Analysis analysisOf(Object input, ExecutionContext context) {
+        if (input instanceof Analysis analysis) {
+            return analysis;
+        }
+        if (input instanceof Map<?, ?> map && map.get("intent") != null) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> entities = map.get("entities") instanceof Map<?, ?> e
+                    ? (Map<String, Object>) e : Map.of();
+            double confidence = map.get("confidence") instanceof Number n ? n.doubleValue() : 0.0;
+            List<String> actions = map.get("suggestedActions") instanceof Collection<?> c
+                    ? c.stream().map(String::valueOf).toList() : List.of();
+            return new Analysis(map.get("intent").toString(), entities, confidence, actions);
+        }
+        return analyzeRequest(ComponentInputs.text(input), context);
     }
 
     @Override

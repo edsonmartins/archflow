@@ -23,14 +23,13 @@ O archflow implementa seguranca em camadas:
 │  │  2. JWT Authentication Filter                 │   │
 │  │     - Valida token no header Authorization    │   │
 │  │     - Extrai usuario e roles                  │   │
+│  │     - ou chave de API (Bearer ak_...)         │   │
+│  │       dono, tenant e escopos da chave         │   │
 │  ├──────────────────────────────────────────────┤   │
-│  │  3. API Key Authentication (alternativo)      │   │
-│  │     - Header: X-API-Key                       │   │
-│  ├──────────────────────────────────────────────┤   │
-│  │  4. RBAC Authorization                        │   │
+│  │  3. RBAC Authorization                        │   │
 │  │     - @RequiresPermission verifica acesso     │   │
 │  ├──────────────────────────────────────────────┤   │
-│  │  5. Controller / Service                      │   │
+│  │  4. Controller / Service                      │   │
 │  └──────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────┘
 ```
@@ -227,7 +226,7 @@ curl -X POST http://localhost:8080/api/apikeys \
   -d '{
     "name": "CI/CD Pipeline",
     "scopes": ["WORKFLOW_EXECUTE", "WORKFLOW_READ", "EXECUTION_READ"],
-    "expiresInDays": 90
+    "expiresAt": "2026-06-10T00:00:00"
   }'
 ```
 
@@ -235,24 +234,35 @@ Resposta:
 
 ```json
 {
-  "id": "key-456",
+  "id": "...",
+  "keyId": "ak_XXXXXXXX",
+  "keySecret": "YYYYYYYY",
+  "apiKey": "ak_XXXXXXXX.YYYYYYYY",
   "name": "CI/CD Pipeline",
-  "secret": "af_sk_abc123def456...",
   "scopes": ["WORKFLOW_EXECUTE", "WORKFLOW_READ", "EXECUTION_READ"],
-  "expiresAt": "2026-06-10T00:00:00Z"
+  "expiresAt": "2026-06-10T00:00:00",
+  "enabled": true
 }
 ```
 
 :::caution
-O `secret` e retornado **apenas na criacao**. Armazene-o de forma segura (vault, secrets manager).
+O `apiKey` (e o `keySecret` dentro dele) e retornado **apenas na criacao**. Armazene-o de forma segura (vault, secrets manager).
 :::
 
 ### Usar a API key
 
+A credencial é o campo `apiKey` da resposta de criação (`ak_<id>.<segredo>`, mostrada uma única
+vez) e vai no mesmo `Authorization: Bearer` de um JWT — o servidor não lê `X-API-Key`:
+
 ```bash
 curl http://localhost:8080/api/workflows \
-  -H "X-API-Key: af_sk_abc123def456..."
+  -H "Authorization: Bearer ak_XXXXXXXX.YYYYYYYY"
 ```
+
+A chave age como o usuário que a criou, no tenant dele. Ela só alcança os endpoints que um escopo
+dela cobre (`ApiKeyScopeRequirement`: workflows, execuções, `/ag-ui/workflows/{id}` e `/mcp`) e que o
+papel atual do dono ainda permite; fora disso, `403`. Revogada, expirada ou com o dono desativado ou
+removido: `401`. Ninguém cria uma chave com escopo além do próprio papel.
 
 ### Scopes disponiveis
 
@@ -266,7 +276,7 @@ curl http://localhost:8080/api/apikeys \
   -H "Authorization: Bearer $TOKEN"
 
 # Revogar uma key
-curl -X DELETE http://localhost:8080/api/apikeys/key-456 \
+curl -X DELETE http://localhost:8080/api/apikeys/ak_XXXXXXXX \
   -H "Authorization: Bearer $TOKEN"
 ```
 

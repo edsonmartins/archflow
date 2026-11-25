@@ -68,6 +68,9 @@ enum EventType {
     STEP_COMPLETED  = 30;
     STEP_FAILED     = 31;
     STEP_SKIPPED    = 32;
+    // Portão de aprovação humana à espera da decisão: o passo não concluiu. Sem o número
+    // próprio, o mapper caía em EVENT_TYPE_UNSPECIFIED e o evento chegava como LOG.
+    STEP_SUSPENDED  = 33;
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

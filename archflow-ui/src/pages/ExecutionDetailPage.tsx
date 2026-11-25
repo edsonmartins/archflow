@@ -8,8 +8,9 @@ import {
 import { notifications } from '@mantine/notifications'
 import {
     IconAlertCircle, IconAlertTriangle, IconBraces, IconChevronDown, IconChevronRight, IconCheck,
-    IconCircleCheck, IconCircleDashed, IconClock, IconListDetails, IconLoader2, IconMinus,
-    IconPlayerPause, IconPlayerPlay, IconPlayerStop, IconSitemap, IconTimeline, IconTopologyRing, IconX,
+    IconCircleCheck, IconCircleDashed, IconClock, IconGavel, IconHourglass, IconListDetails, IconLoader2,
+    IconMinus, IconPlayerPause, IconPlayerPlay, IconPlayerStop, IconSitemap, IconTimeline, IconTopologyRing,
+    IconX, IconCoins,
 } from '@tabler/icons-react'
 import { executionApi, workflowApi, ApiError } from '../services/api'
 import { JsonViewer } from '../components/JsonViewer'
@@ -21,8 +22,10 @@ import { SectionCard } from '../components/SectionCard'
 import { StatCard } from '../components/admin/StatCard'
 import EmptyState from '../components/EmptyState'
 import { formatDuration, formatInstant } from '../lib/format'
-import { EXECUTION_STATUS_COLOR, isTerminalExecutionStatus } from '../lib/executionStatus'
+import { formatReais, formatUsd } from '../lib/usageFormat'
+import { EXECUTION_STATUS_COLOR, executionPollIntervalMs, isTerminalExecutionStatus } from '../lib/executionStatus'
 import { buildStepRows, parseStepOutput, type StepRecord, type StepRow } from '../lib/stepOutput'
+import { usePermissions } from '../lib/permissions'
 
 /** A materialized ExecutionPath node (design-0005 step 4). */
 interface PathNode {
@@ -35,11 +38,12 @@ const tabularNums = { fontVariantNumeric: 'tabular-nums' } as const
 
 const STATUS_ACCENT: Record<string, Accent> = {
     RUNNING: 'blue', COMPLETED: 'teal', FAILED: 'rose', PAUSED: 'amber', CANCELLED: 'slate',
+    STOPPED: 'amber',
 }
 
 const STATUS_ICON: Record<string, typeof IconCircleCheck> = {
     RUNNING: IconLoader2, COMPLETED: IconCircleCheck, FAILED: IconAlertTriangle,
-    PAUSED: IconPlayerPause, CANCELLED: IconPlayerStop,
+    PAUSED: IconPlayerPause, CANCELLED: IconPlayerStop, STOPPED: IconPlayerStop,
 }
 
 // Reuse the shared status→color map; 'STARTED' is a path-node-only alias of RUNNING.
@@ -63,6 +67,116 @@ function PathTree({ nodes, depth = 0 }: { nodes: PathNode[]; depth?: number }) {
                     )}
                 </div>
             ))}
+        </Stack>
+    )
+}
+
+/**
+ * Cor do status de um PASSO. Difere da do run em dois pontos: o portão de aprovação à espera (PAUSED)
+ * é violeta — "aguardando aprovação", o mesmo do canvas, não a pausa amarela do run — e o portão
+ * recusado (REJECTED) é vermelho.
+ */
+const STEP_STATUS_COLOR: Record<string, string> = {
+    ...EXECUTION_STATUS_COLOR,
+    PAUSED: 'violet',
+    REJECTED: 'red',
+}
+
+/** Uma decisão do histórico durável do motor (`__archflow.approvalHistory`). */
+/**
+ * O consumo de modelo da execução, como `GET /api/executions/{id}` o devolve em `usage` (RCHFLW-75).
+ * `costReais` nulo = sem preço declarado para o modelo — a tela diz "sem preço", nunca R$ 0.
+ */
+interface ExecutionUsage {
+    inputTokens: number
+    outputTokens: number
+    costCents: number | null
+    costReais: number | null
+    declaredCostUsd: number | null
+    withoutPrice: number
+}
+
+/** Tokens e custo da execução. Sem `usage` (nada chamou modelo, ou ainda não terminou) não aparece. */
+function UsageCard({ usage, locale }: { usage: ExecutionUsage; locale: string }) {
+    const { t } = useTranslation()
+    const cost = usage.costReais == null ? t('usage.noPrice') : formatReais(usage.costReais, locale)
+    return (
+        <SectionCard icon={IconCoins} accent="teal" title={t('executionDetail.usage.title')}
+                     description={t('executionDetail.usage.hint')}>
+            <Group gap="xl" data-testid="execution-usage">
+                <Meta label={t('executionDetail.usage.inputTokens')} value={usage.inputTokens.toLocaleString(locale)} />
+                <Meta label={t('executionDetail.usage.outputTokens')} value={usage.outputTokens.toLocaleString(locale)} />
+                <Meta label={t('executionDetail.usage.cost')}
+                      value={usage.costReais != null && usage.withoutPrice > 0
+                          ? `${cost} · ${t('usage.withoutPriceCount', { count: usage.withoutPrice })}` : cost} />
+                {usage.declaredCostUsd != null && (
+                    <Meta label={t('executionDetail.usage.declaredCost')} value={formatUsd(usage.declaredCostUsd, locale)} />
+                )}
+            </Group>
+        </SectionCard>
+    )
+}
+
+interface ApprovalDecision {
+    stepId?: string
+    requestId?: string
+    decision?: string
+    decidedBy?: string
+    comment?: string
+    decidedAt?: string
+}
+
+/** Quem o motor grava quando o prazo vence (ApprovalQueueService.TIMEOUT_DECIDER). */
+const TIMEOUT_DECIDER = 'system:timeout'
+
+/**
+ * Quem decidiu cada portão desta execução. Vem do estado durável que o motor gravou sob o lock da
+ * decisão (`approvals` no GET da execução) — sem isto nenhuma tela respondia "quem autorizou isto"
+ * (RCHFLW-38).
+ */
+function ApprovalDecisions({ decisions, labels, locale }: {
+    decisions: ApprovalDecision[]
+    labels: Map<string, string>
+    locale: string
+}) {
+    const { t } = useTranslation()
+    return (
+        <Stack gap="xs">
+            {decisions.map((d, i) => {
+                const timedOut = d.decidedBy === TIMEOUT_DECIDER
+                const approved = d.decision === 'APPROVED'
+                const label = timedOut ? t('executionDetail.approvals.timeout')
+                    : approved ? t('executionDetail.approvals.approved')
+                    : t('executionDetail.approvals.rejected')
+                const stepName = d.stepId ? (labels.get(d.stepId) ?? d.stepId) : '—'
+                return (
+                    <Paper key={`${d.requestId ?? i}`} withBorder radius="md" px="sm" py="xs"
+                           data-testid={`execution-approval-${d.requestId ?? i}`}
+                           style={{ boxShadow: 'none',
+                               borderLeft: `3px solid var(--mantine-color-${approved ? 'teal' : 'red'}-6)` }}>
+                        <Group gap="xl" wrap="wrap" align="flex-start">
+                            <Meta label={t('executionDetail.approvals.step')} value={stepName} />
+                            <Stack gap={2}>
+                                <Text size="xs" c="dimmed" tt="uppercase" style={{ letterSpacing: 0.5 }}>
+                                    {t('executionDetail.approvals.decidedBy')}
+                                </Text>
+                                <Group gap={6} wrap="nowrap">
+                                    <Badge size="xs" variant="light" color={approved ? 'teal' : 'red'}>{label}</Badge>
+                                    {!timedOut && (
+                                        <Text size="sm" fw={500} data-testid="execution-approval-decided-by">
+                                            {d.decidedBy || '—'}
+                                        </Text>
+                                    )}
+                                </Group>
+                            </Stack>
+                            <Meta label={t('executionDetail.approvals.decidedAt')} value={formatInstant(d.decidedAt, locale)} />
+                            {d.comment && (
+                                <Meta label={t('executionDetail.approvals.comment')} value={d.comment} />
+                            )}
+                        </Group>
+                    </Paper>
+                )
+            })}
         </Stack>
     )
 }
@@ -94,13 +208,15 @@ function StepBlock({ step, locale }: { step: StepRow; locale: string }) {
     const [open, setOpen] = useState(step.status === 'FAILED')
     const notExecuted = step.notExecuted === true
 
-    const statusColor = notExecuted ? 'gray' : (EXECUTION_STATUS_COLOR[step.status] ?? 'gray')
+    const statusColor = notExecuted ? 'gray' : (STEP_STATUS_COLOR[step.status] ?? 'gray')
     const statusLabel =
         notExecuted ? t('executionDetail.step.notExecuted')
         : step.status === 'RUNNING' ? t('executionDetail.step.running')
         : step.status === 'COMPLETED' ? t('executionDetail.step.completed')
         : step.status === 'FAILED' ? t('executionDetail.step.failed')
         : step.status === 'SKIPPED' ? t('executionDetail.step.skipped')
+        : step.status === 'PAUSED' ? t('executionDetail.step.awaiting')
+        : step.status === 'REJECTED' ? t('executionDetail.step.rejected')
         : step.status
 
     return (
@@ -139,12 +255,15 @@ function StepBlock({ step, locale }: { step: StepRow; locale: string }) {
                             {step.status === 'COMPLETED' && <IconCheck size={10} />}
                             {step.status === 'FAILED' && <IconX size={10} />}
                             {step.status === 'SKIPPED' && <IconMinus size={10} />}
+                            {step.status === 'PAUSED' && <IconHourglass size={10} />}
+                            {step.status === 'REJECTED' && <IconX size={10} />}
                             {statusLabel}
                         </Group>
                     </Badge>
                 </Group>
 
-                {typeof step.durationMs === 'number' && (
+                {/* Portão à espera não terminou: sem duração, mesmo que algum registro antigo a tenha. */}
+                {typeof step.durationMs === 'number' && step.status !== 'PAUSED' && (
                     <Text size="xs" c="dimmed" ff="monospace" style={tabularNums}>
                         {formatDuration(step.durationMs)}
                     </Text>
@@ -156,6 +275,9 @@ function StepBlock({ step, locale }: { step: StepRow; locale: string }) {
                     <Group gap="xl">
                         <Meta label={t('executionDetail.step.startedAt')} value={formatInstant(step.startedAt, locale)} />
                         <Meta label={t('executionDetail.step.finishedAt')} value={formatInstant(step.finishedAt, locale)} />
+                        {step.decidedBy && (
+                            <Meta label={t('executionDetail.step.decidedBy')} value={step.decidedBy} />
+                        )}
                     </Group>
                     {step.output != null && step.output !== '' && <StepOutput raw={step.output} />}
                     {step.error && (
@@ -187,6 +309,8 @@ export default function ExecutionDetailPage() {
     const [err, setErr]   = useState<string | null>(null)
     const [rawOpen, setRawOpen] = useState(false)
     const [rerunning, setRerunning] = useState(false)
+    // RCHFLW-74: reexecutar é executar o fluxo (workflow:execute); quem só lê não vê o botão.
+    const canExecute = usePermissions()('workflow:execute')
 
     const load = useCallback(async () => {
         try {
@@ -200,11 +324,13 @@ export default function ExecutionDetailPage() {
 
     useEffect(() => { load() }, [load])
 
-    // Live refresh while running.
+    // Recarrega enquanto roda — e enquanto está pausada: a fila de Aprovações decide em outra tela e
+    // a execução retoma e termina sem esta página fazer nada (antes, só um F5 mostrava o desfecho).
     const status = String(data?.status ?? '')
     useEffect(() => {
-        if (status !== 'RUNNING') return
-        const timer = setInterval(load, 2000)
+        const interval = executionPollIntervalMs(status)
+        if (interval == null) return
+        const timer = setInterval(load, interval)
         return () => clearInterval(timer)
     }, [status, load])
 
@@ -268,21 +394,24 @@ export default function ExecutionDetailPage() {
                             {t('executionDetail.viewTrace')}
                         </Button>
                     )}
-                    <Button
-                        leftSection={<IconPlayerPlay size={14} />}
-                        loading={rerunning}
-                        onClick={() => setRerunInputOpen(true)}
-                        disabled={!data.workflowId}
-                        data-testid="execution-rerun"
-                    >
-                        {t('executionDetail.rerun')}
-                    </Button>
-                    {rerunWorkflowId && (
+                    {canExecute && (
+                        <Button
+                            leftSection={<IconPlayerPlay size={14} />}
+                            loading={rerunning}
+                            onClick={() => setRerunInputOpen(true)}
+                            disabled={!data.workflowId}
+                            data-testid="execution-rerun"
+                        >
+                            {t('executionDetail.rerun')}
+                        </Button>
+                    )}
+                    {canExecute && rerunWorkflowId && (
                         <RunInputModal
                             workflowId={rerunWorkflowId}
                             opened={rerunInputOpen}
                             onClose={() => setRerunInputOpen(false)}
                             onConfirm={(text) => { void handleRerun(text) }}
+                            runs="production"
                         />
                     )}
                 </>
@@ -330,6 +459,17 @@ export default function ExecutionDetailPage() {
     const StatusIcon = STATUS_ICON[status] ?? IconCircleDashed
     const failedSteps = steps.filter((s) => s.status === 'FAILED').length
     const workflowName = String(data.workflowName ?? data.workflowId ?? '—')
+    const decisions = Array.isArray(data.approvals) ? (data.approvals as ApprovalDecision[]) : []
+    const pendingApproval = data.pendingApproval as { requestId?: string; stepId?: string } | undefined
+    // O que rodou, como o backend gravou na criação (RCHFLW-89). Um registro anterior a essa gravação não
+    // diz nada, e a tela também não: deduzir pela versão em produção de hoje poderia nomear a errada.
+    const ranVersion = data.workflowDraft === true
+        ? t('executionDetail.version.draft')
+        : data.workflowDraft === false && typeof data.workflowVersionNumber === 'number'
+            ? t('executionDetail.version.published', { number: data.workflowVersionNumber })
+            : null
+    const usage = data.usage as ExecutionUsage | undefined
+    const stepLabels = new Map(stepRows.filter((r) => r.label).map((r) => [r.stepId, r.label as string]))
 
     return (
         <Stack gap="lg" p="md" data-testid="execution-detail">
@@ -343,8 +483,10 @@ export default function ExecutionDetailPage() {
                     </Text>}
                     icon={StatusIcon}
                     accent={statusAccent}
-                    hint={status === 'RUNNING' ? t('executionDetail.hints.live') : t('executionDetail.hints.finished', {
-                        when: formatInstant(data.completedAt as string | undefined, locale) })}
+                    hint={status === 'RUNNING' ? t('executionDetail.hints.live')
+                        : status === 'PAUSED' ? t('executionDetail.hints.paused')
+                        : t('executionDetail.hints.finished', {
+                            when: formatInstant(data.completedAt as string | undefined, locale) })}
                 />
                 <StatCard
                     label={t('executionDetail.summary.duration')}
@@ -369,19 +511,60 @@ export default function ExecutionDetailPage() {
                     value={<Text component="span" inherit fz={18} lineClamp={1} title={workflowName}>{workflowName}</Text>}
                     icon={IconTopologyRing}
                     accent="teal"
-                    hint={data.workflowId ? (
-                        <Anchor component={Link} to={`/editor/${data.workflowId as string}`} size="xs">
-                            {t('executionDetail.openWorkflow')}
-                        </Anchor>
+                    hint={ranVersion || data.workflowId ? (
+                        <>
+                            {ranVersion && <span data-testid="execution-version">{ranVersion}</span>}
+                            {ranVersion && data.workflowId ? ' · ' : null}
+                            {data.workflowId ? (
+                                <Anchor component={Link} to={`/editor/${data.workflowId as string}`} size="xs">
+                                    {t('executionDetail.openWorkflow')}
+                                </Anchor>
+                            ) : null}
+                        </>
                     ) : undefined}
                 />
             </SimpleGrid>
 
+            {usage && <UsageCard usage={usage} locale={locale} />}
+
+            {/* STOPPED é a recusa no portão de aprovação (por alguém ou pelo prazo): o texto diz quem
+                recusou e por quê, e não é uma falha — não pode vir sob "A execução falhou". */}
             {execError && (
-                <Alert color="red" variant="light" icon={<IconAlertCircle size={16} />}
-                       title={t('executionDetail.errorTitle')}>
+                <Alert color={status === 'STOPPED' ? 'orange' : 'red'} variant="light"
+                       icon={<IconAlertCircle size={16} />} data-testid="execution-error"
+                       title={t(status === 'STOPPED' ? 'executionDetail.stoppedTitle' : 'executionDetail.errorTitle')}>
                     <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>{execError}</Text>
                 </Alert>
+            )}
+
+            {/* O pedido ainda aberto: leva direto à fila, onde a decisão é tomada. */}
+            {pendingApproval?.requestId && (
+                <Alert color="violet" variant="light" icon={<IconHourglass size={16} />}
+                       title={t('executionDetail.pendingApproval.title')} data-testid="execution-pending-approval">
+                    <Group justify="space-between" gap="sm" wrap="wrap">
+                        <Text size="sm">
+                            {t('executionDetail.pendingApproval.text', {
+                                step: pendingApproval.stepId
+                                    ? (stepLabels.get(pendingApproval.stepId) ?? pendingApproval.stepId) : '—' })}
+                        </Text>
+                        <Button component={Link} to={`/approvals/${pendingApproval.requestId}?flowId=${encodeURIComponent(id)}`} size="xs"
+                                variant="light" color="violet" leftSection={<IconGavel size={14} />}>
+                            {t('executionDetail.pendingApproval.open')}
+                        </Button>
+                    </Group>
+                </Alert>
+            )}
+
+            {decisions.length > 0 && (
+                <SectionCard
+                    icon={IconGavel}
+                    accent="amber"
+                    title={t('executionDetail.approvals.title')}
+                    description={t('executionDetail.approvals.hint')}
+                    data-testid="execution-approvals"
+                >
+                    <ApprovalDecisions decisions={decisions} labels={stepLabels} locale={locale} />
+                </SectionCard>
             )}
 
             <SectionCard

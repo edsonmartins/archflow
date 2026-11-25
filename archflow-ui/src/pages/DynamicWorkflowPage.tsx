@@ -13,7 +13,7 @@ import { StatCard } from '../components/admin/StatCard'
 import EmptyState from '../components/EmptyState'
 import { VxTable, colunaApagada, colunaStatus, type VxColumn } from '../components/VTable'
 import { orchestrationApi, type DynamicWorkflowResponse } from '../services/orchestration-api'
-import { ApiError } from '../services/api'
+import { mensagemDoErro } from '../lib/errorMessage'
 
 /**
  * No-code surface for ADR-0002 dynamic workflows: compose a goal + policy in a
@@ -53,7 +53,7 @@ export default function DynamicWorkflowPage() {
             })
             setResult(res)
         } catch (e) {
-            setError(e instanceof ApiError ? e.message : String(e))
+            setError(mensagemDoErro(e))
         } finally {
             setRunning(false)
         }

@@ -14,7 +14,14 @@ import {
     Text,
     TextInput,
 } from '@mantine/core';
-import { IconArrowRight, IconFilter, IconSearch, IconStack2, IconTemplate } from '@tabler/icons-react';
+import {
+    IconAlertTriangle,
+    IconArrowRight,
+    IconFilter,
+    IconSearch,
+    IconStack2,
+    IconTemplate,
+} from '@tabler/icons-react';
 import type { WorkflowTemplate } from '../data/templates';
 import { templateApi } from '../services/template-api';
 import { PageHeader } from '../components/PageHeader';
@@ -176,6 +183,9 @@ function TemplateCard({
     const { t } = useTranslation();
     const cat = categoriaVisivel(template.category, t);
     const stepCount = template.steps?.length ?? 0;
+    const unsupported = template.unsupportedNodeTypes ?? [];
+    // Ausente com passos = ninguém conferiu (backend fora ou sem o endpoint): sem selo pareceria "roda".
+    const unverified = template.unsupportedNodeTypes === undefined && stepCount > 0;
     return (
         <Card
             withBorder
@@ -217,6 +227,28 @@ function TemplateCard({
             <Text size="xs" c="dimmed" lineClamp={3} style={{ flex: 1 }} mb="md">
                 {template.summary}
             </Text>
+
+            {unsupported.length > 0 && (
+                // Marca em vez de esconder: o template abre e clona, mas não roda até trocar esses nós.
+                <Stack gap={4} mb="sm" data-testid={`template-unsupported-${template.id}`}>
+                    <Badge size="xs" color="orange" variant="light"
+                           leftSection={<IconAlertTriangle size={11} />}
+                           style={{ alignSelf: 'flex-start' }}>
+                        {t('templates.unsupportedBadge')}
+                    </Badge>
+                    <Text size="xs" c="orange" lineClamp={2}>
+                        {t('templates.unsupportedShort', { types: unsupported.join(', ') })}
+                    </Text>
+                </Stack>
+            )}
+
+            {unverified && (
+                <Badge size="xs" color="gray" variant="light" mb="sm" style={{ alignSelf: 'flex-start' }}
+                       leftSection={<IconAlertTriangle size={11} />}
+                       data-testid={`template-unverified-${template.id}`}>
+                    {t('templates.unverifiedBadge')}
+                </Badge>
+            )}
 
             <Group justify="space-between" wrap="nowrap" gap="xs" pt="sm"
                    style={{ borderTop: '1px solid var(--surface-border)' }}>

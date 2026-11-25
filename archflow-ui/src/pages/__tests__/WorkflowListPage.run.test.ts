@@ -6,6 +6,7 @@
  * <p>Arquivo .ts (createElement em vez de JSX) porque o vitest.config só inclui *.test.ts.</p>
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { entrarComo } from '../../lib/__tests__/papeisDeTeste'
 import { createElement as h, act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { MemoryRouter, Route, Routes, useParams } from 'react-router-dom'
@@ -14,13 +15,20 @@ import { fireEvent, waitFor, within } from '@testing-library/dom'
 
 const workflowApiMock = vi.hoisted(() => ({
   list: vi.fn(), execute: vi.fn(), setStatus: vi.fn(), get: vi.fn(), create: vi.fn(),
-  update: vi.fn(), delete: vi.fn(),
+  update: vi.fn(), delete: vi.fn(), deployment: vi.fn(), versions: vi.fn(),
 }))
 
 vi.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (k: string) => k, i18n: { language: 'pt-BR', resolvedLanguage: 'pt-BR' } }),
+  useTranslation: () => ({
+    t: (k: string, o?: { number?: number }) => (o?.number !== undefined ? `${k}:${o.number}` : k),
+    i18n: { language: 'pt-BR', resolvedLanguage: 'pt-BR' },
+  }),
 }))
-vi.mock('../../services/api', () => ({ workflowApi: workflowApiMock, executionApi: { list: vi.fn() } }))
+vi.mock('../../services/api', async (importOriginal) => ({
+  ApiError: (await importOriginal<typeof import('../../services/api')>()).ApiError,
+  workflowApi: workflowApiMock,
+  executionApi: { list: vi.fn() },
+}))
 
 import WorkflowListPage from '../WorkflowListPage'
 import { useWorkflowStore } from '../../stores/workflow-store'
@@ -34,6 +42,8 @@ let root: Root | null = null
 let container: HTMLDivElement
 
 beforeEach(() => {
+  // Papel que concede editar e executar: sem ele as ações somem (RCHFLW-74).
+  entrarComo('DESIGNER')
   vi.clearAllMocks()
   ;(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true
   ;(globalThis as any).ResizeObserver ??= class { observe() {} unobserve() {} disconnect() {} }
@@ -48,6 +58,10 @@ beforeEach(() => {
     { id: 'wf-1', name: 'Triagem', description: '', status: 'draft', version: '1.0.0', stepCount: 2, updatedAt: '2026-11-23T00:00:00Z' },
   ])
   workflowApiMock.execute.mockResolvedValue({ executionId: 'exec-42', status: 'RUNNING' })
+  workflowApiMock.deployment.mockResolvedValue({ workflowId: 'wf-1', environment: 'PRODUCTION', versionId: 'wfv-3' })
+  workflowApiMock.versions.mockResolvedValue([
+    { id: 'wfv-3', workflowId: 'wf-1', number: 3, document: {}, comment: null, createdAt: '' },
+  ])
 })
 
 afterEach(async () => {
@@ -75,6 +89,8 @@ describe('WorkflowListPage — Executar', () => {
 
     const body = within(document.body)
     const text = await waitFor(() => body.getByTestId('run-input-text'))
+    // RCHFLW-89: a lista roda a versão em produção, não o rascunho — e o modal diz qual, com o número.
+    await waitFor(() => expect(body.getByTestId('run-input-target').textContent).toBe('runInput.target.published:3'))
     await act(async () => { fireEvent.change(text, { target: { value: '{"message":"meu boleto venceu"}' } }) })
     await act(async () => { fireEvent.click(body.getByTestId('run-input-confirm')) })
 

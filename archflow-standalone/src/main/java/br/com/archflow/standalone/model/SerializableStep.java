@@ -121,6 +121,28 @@ public class SerializableStep implements FlowStep {
         return LLMConfigPatch.fromMap(configuration != null ? configuration : Map.of());
     }
 
+    /**
+     * Cópia deste passo sem as arestas cujo alvo está em {@code alvos}; o próprio passo quando não há
+     * nenhuma. Usado para tirar do fluxo executado as arestas que apontam para anotações do canvas.
+     */
+    public SerializableStep withoutConnectionsTo(java.util.Set<String> alvos) {
+        if (connections == null || alvos.isEmpty()
+                || connections.stream().noneMatch(c -> alvos.contains(c.getTargetId()))) {
+            return this;
+        }
+        SerializableStep copia = new SerializableStep();
+        copia.id = id;
+        copia.rawType = rawType;
+        copia.type = type;
+        copia.componentId = componentId;
+        copia.label = label;
+        copia.operation = operation;
+        copia.position = position;
+        copia.configuration = configuration;
+        copia.connections = connections.stream().filter(c -> !alvos.contains(c.getTargetId())).toList();
+        return copia;
+    }
+
     public String getComponentId() { return componentId; }
     public String getLabel() { return label; }
     public String getOperation() { return operation; }

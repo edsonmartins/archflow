@@ -41,4 +41,31 @@ public interface ApprovalController {
      * @return Detalhes da aprovação
      */
     ApprovalResponse getApproval(String requestId);
+
+    /**
+     * Como {@link #getApproval(String)}, mas também encontra um pedido já decidido quando se sabe
+     * de qual execução ele é — e então devolve quem decidiu, quando e o comentário.
+     *
+     * @param flowId execução que emitiu o pedido (opcional)
+     */
+    default ApprovalResponse getApproval(String requestId, String flowId) {
+        return getApproval(requestId);
+    }
+
+    /**
+     * Detalhe restrito a um tenant (RCHFLW-39): um pedido de outro tenant é "não encontrado".
+     * Sem implementação padrão de propósito — uma que ignorasse o recorte reabriria o vazamento em
+     * silêncio em qualquer implementação nova.
+     *
+     * @param tenantScope tenant que o pedido precisa ter; {@code null} aceita qualquer um
+     */
+    ApprovalResponse getApproval(String requestId, String flowId, String tenantScope);
+
+    /**
+     * Decisão restrita a um tenant (RCHFLW-39): um pedido de outro tenant é "não encontrado" e nada
+     * é decidido.
+     *
+     * @param tenantScope tenant que o pedido precisa ter; {@code null} aceita qualquer um
+     */
+    ApprovalResponse submitDecision(String requestId, ApprovalSubmitRequest request, String tenantScope);
 }

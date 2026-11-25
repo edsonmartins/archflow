@@ -1,13 +1,18 @@
 package br.com.archflow.api.web.workflow;
 
+import br.com.archflow.api.config.TenantContext;
+import br.com.archflow.api.workflow.InvalidYamlException;
 import br.com.archflow.api.workflow.WorkflowYamlBridge;
 import br.com.archflow.api.workflow.WorkflowYamlDto;
+import br.com.archflow.standalone.model.SerializableFlowConfig;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.introspect.BeanPropertyDefinition;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -15,6 +20,8 @@ import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * YAML view/edit endpoint for the workflow CRUD surface.
@@ -41,6 +48,16 @@ public class SpringWorkflowYamlController {
             .registerModule(new JavaTimeModule())
             .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
+    /**
+     * Chaves de {@code configuration} que o YAML representa, tiradas do próprio {@link SerializableFlowConfig}
+     * por introspecção: uma lista escrita à mão aqui deixaria de bater no dia em que o POJO ganhasse um campo.
+     */
+    private final Set<String> yamlConfigurationKeys = objectMapper.getSerializationConfig()
+            .introspect(objectMapper.constructType(SerializableFlowConfig.class))
+            .findProperties().stream()
+            .map(BeanPropertyDefinition::getName)
+            .collect(Collectors.toUnmodifiableSet());
+
     public SpringWorkflowYamlController(WorkflowRuntimeStore store,
                                         WorkflowYamlBridge bridge) {
         this.store = Objects.requireNonNull(store, "store");
@@ -49,7 +66,7 @@ public class SpringWorkflowYamlController {
 
     @GetMapping("/{id}/yaml")
     public WorkflowYamlDto getYaml(@PathVariable String id) {
-        Map<String, Object> doc = store.getWorkflow(id);
+        Map<String, Object> doc = store.getWorkflow(TenantContext.currentTenantId(), id);
         if (doc == null) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Workflow not found: " + id);
         }
@@ -70,7 +87,9 @@ public class SpringWorkflowYamlController {
         if (request == null || request.yaml() == null || request.yaml().isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "YAML payload is empty");
         }
-        if (!store.hasWorkflow(id)) {
+        // Tenant da requisição (RCHFLW-73): o YAML de um fluxo de outro tenant é 404, como no CRUD.
+        String tenantId = TenantContext.currentTenantId();
+        if (!store.hasWorkflow(tenantId, id)) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Workflow not found: " + id);
         }
 
@@ -92,14 +111,60 @@ public class SpringWorkflowYamlController {
         // Preserve UI-only metadata the YAML representation doesn't carry
         // (status, updatedAt). Anything the YAML body provides wins; the
         // existing values fill the gaps.
-        Map<String, Object> existing = store.getWorkflow(id);
+        Map<String, Object> existing = store.getWorkflow(tenantId, id);
         LinkedHashMap<String, Object> merged = new LinkedHashMap<>(existing);
         merged.putAll(parsed);
+        // O putAll acima trocaria 'configuration' inteira pela versão reduzida do YAML, e com ela ia
+        // embora o allowedComponents — o fluxo restrito voltava a rodar irrestrito sem aviso (RCHFLW-63).
+        merged.put("configuration", mergeConfiguration(existing.get("configuration"), parsed.get("configuration")));
         merged.put("updatedAt", Instant.now().toString());
         merged.putIfAbsent("status", "draft");
 
-        store.putWorkflow(id, merged);
+        store.putWorkflow(tenantId, id, merged);
         return new WorkflowYamlDto(id, bridge.jsonToYaml(toJson(merged)), extractVersion(merged));
+    }
+
+    /**
+     * YAML inválido vira {@code {status, error, message, reason, line, column}}. O handler global também daria
+     * 400, mas só com a frase; a aba Código precisa da posição, e {@code error} é mantido com a mesma frase para
+     * quem já lia o envelope do {@code GlobalExceptionHandler}. {@code message} é a frase pronta (em inglês, para
+     * clientes de API); {@code reason} é só o problema, para a UI montar a frase no idioma do usuário com
+     * {@code line}/{@code column}. Handler local vence o {@code @RestControllerAdvice}, então isto vale só para
+     * as rotas de YAML.
+     */
+    @ExceptionHandler(InvalidYamlException.class)
+    public ResponseEntity<Map<String, Object>> handleInvalidYaml(InvalidYamlException e) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("status", HttpStatus.BAD_REQUEST.value());
+        body.put("error", e.getMessage());
+        body.put("message", e.getMessage());
+        body.put("reason", e.getReason());
+        // LinkedHashMap e não Map.of: sem posição os campos vão como null, e Map.of rejeita null.
+        body.put("line", e.getLine());
+        body.put("column", e.getColumn());
+        return ResponseEntity.badRequest().body(body);
+    }
+
+    /**
+     * {@code configuration} depois de Salvar YAML: as chaves que o YAML representa vêm do YAML (inclusive
+     * a remoção — o usuário pode apagar o {@code allowedComponents} que vê ali); as que ele não representa
+     * não têm como ter sido editadas, então ficam com o valor que o documento já tinha.
+     */
+    private Object mergeConfiguration(Object existing, Object fromYaml) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        if (existing instanceof Map<?, ?> previous) {
+            previous.forEach((key, value) -> {
+                if (!yamlConfigurationKeys.contains(String.valueOf(key))) {
+                    result.put(String.valueOf(key), value);
+                }
+            });
+        }
+        if (fromYaml instanceof Map<?, ?> edited) {
+            edited.forEach((key, value) -> result.put(String.valueOf(key), value));
+            return result;
+        }
+        // YAML sem 'configuration': como antes, salvo pelas chaves que ele não representa.
+        return result.isEmpty() ? fromYaml : result;
     }
 
     private String toJson(Map<String, Object> doc) {

@@ -97,6 +97,7 @@ class MigrationsFlywayPostgresTest {
         assertTableExists(ds, "workflow_executions");     // archflow-api (runtime do designer)
         assertTableExists(ds, "global_config");           // archflow-api (config admin)
         assertTableExists(ds, "mcp_agent_states");        // archflow-api (laços de agente suspensos, V6_5)
+        assertTableExists(ds, "tenant_active_skills");    // archflow-api (skills ativas por tenant, V6_14)
 
         // V1_3 acrescenta uma COLUNA a uma tabela criada em V1_1 — o caso que o
         // Flyway recusa quando chega depois de prefixos mais altos já aplicados.

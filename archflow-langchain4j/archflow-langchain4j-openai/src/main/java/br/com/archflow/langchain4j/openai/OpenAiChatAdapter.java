@@ -1,13 +1,11 @@
 package br.com.archflow.langchain4j.openai;
 
+import br.com.archflow.langchain4j.core.chat.ChatTurn;
 import br.com.archflow.langchain4j.core.security.ConfigSecrets;
 import br.com.archflow.langchain4j.core.spi.ChatModelProvider;
 import br.com.archflow.langchain4j.core.spi.LangChainAdapter;
 import br.com.archflow.model.engine.ExecutionContext;
-import dev.langchain4j.data.message.AiMessage;
-import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.ChatModel;
-import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.openai.OpenAiChatModel;
 import dev.langchain4j.memory.ChatMemory;
 import org.slf4j.Logger;
@@ -54,6 +52,8 @@ public class OpenAiChatAdapter implements LangChainAdapter, ChatModelProvider {
     private final ReentrantLock lock = new ReentrantLock();
     private volatile ChatModel model;
     private volatile Map<String, Object> config;
+    /** O modelo configurado — o rótulo do consumo relatado ao contador da execução (RCHFLW-75). */
+    private volatile String modelName;
 
     /**
      * Valida as configurações fornecidas para o adapter.
@@ -137,6 +137,7 @@ public class OpenAiChatAdapter implements LangChainAdapter, ChatModelProvider {
         try {
             this.config = properties;
             this.model = newModel;
+            this.modelName = modelName;
         } finally {
             lock.unlock();
         }
@@ -186,17 +187,19 @@ public class OpenAiChatAdapter implements LangChainAdapter, ChatModelProvider {
             throw new IllegalStateException("Adapter not configured. Call configure() first.");
         }
 
-        return doExecute(current, operation, input, context);
+        return doExecute(current, ChatTurn.systemPromptOf(this.config), operation, input, context);
     }
 
-    private Object doExecute(ChatModel model, String operation, Object input, ExecutionContext context)
-            throws Exception {
+    private Object doExecute(ChatModel model, String systemPrompt, String operation, Object input,
+                             ExecutionContext context) throws Exception {
         try {
             if ("generate".equals(operation)) {
                 if (!(input instanceof String)) {
                     throw new IllegalArgumentException("Input must be a string for 'generate' operation");
                 }
-                return model.chat((String) input);
+                // O prompt de sistema do nó vai na frente (ChatTurn) — antes era descartado.
+                // O consumo vai para o contador da execução, se houver (RCHFLW-75).
+                return ChatTurn.generate(model, systemPrompt, (String) input, context, "openai", this.modelName);
             }
 
             if ("chat".equals(operation)) {
@@ -209,13 +212,8 @@ public class OpenAiChatAdapter implements LangChainAdapter, ChatModelProvider {
                     throw new IllegalStateException("Chat memory not available in context");
                 }
 
-                UserMessage userMessage = UserMessage.from((String) input);
-                memory.add(userMessage);
-
-                ChatResponse response = model.chat(memory.messages());
-                memory.add(response.aiMessage());
-
-                return response.aiMessage().text();
+                return ChatTurn.chat(model, systemPrompt, memory, (String) input, context, "openai",
+                        this.modelName);
             }
 
             throw new IllegalArgumentException("Unsupported operation: " + operation);

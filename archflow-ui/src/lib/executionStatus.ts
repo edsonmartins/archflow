@@ -9,6 +9,8 @@ export const EXECUTION_STATUS_COLOR: Record<string, string> = {
     FAILED:    'red',
     PAUSED:    'yellow',
     CANCELLED: 'gray',
+    // Recusada no portão de aprovação (por alguém ou pelo prazo): acabou, mas não falhou.
+    STOPPED:   'orange',
 }
 
 /**
@@ -22,4 +24,17 @@ export const TERMINAL_EXECUTION_STATUSES: ReadonlySet<string> =
 
 export function isTerminalExecutionStatus(status: string | null | undefined): boolean {
     return status != null && TERMINAL_EXECUTION_STATUSES.has(status)
+}
+
+/**
+ * De quanto em quanto tempo o detalhe de uma execução se recarrega, ou `null` para não
+ * recarregar. Uma execução PAUSED (aprovação humana) também muda sozinha: quem decide é a fila de
+ * Aprovações, em outra tela, e a execução retoma e termina sem que esta página faça nada. Sem o
+ * polling, o detalhe aberto mostrava PAUSED até alguém apertar F5. O intervalo é maior que o de
+ * RUNNING porque a espera por uma pessoa dura minutos ou horas.
+ */
+export function executionPollIntervalMs(status: string | null | undefined): number | null {
+    if (status === 'RUNNING') return 2000
+    if (status === 'PAUSED' || status === 'AWAITING_APPROVAL') return 5000
+    return null
 }

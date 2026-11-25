@@ -13,7 +13,7 @@ import {
     type LinktorConversation,
     type LinktorMessage,
 } from '../services/linktor-inbox-api'
-import { ApiError } from '../services/api'
+import { mensagemDoErro } from '../lib/errorMessage'
 import { confirmAction } from '../lib/confirm'
 import { formatInstant } from '../lib/format'
 import { PageHeader } from '../components/PageHeader'
@@ -51,7 +51,7 @@ export default function LinktorConversationPage() {
             ])
             setConv(c); setMessages(ms)
         } catch (e) {
-            setError(e instanceof ApiError ? e.message : String(e))
+            setError(mensagemDoErro(e))
         } finally {
             setLoading(false)
         }
@@ -69,7 +69,7 @@ export default function LinktorConversationPage() {
             await load()
         } catch (e) {
             notifications.show({ color: 'red', title: t('linktor.conversation.sendFailed'),
-                message: e instanceof ApiError ? e.message : String(e) })
+                message: mensagemDoErro(e) })
         } finally { setBusy(false) }
     }
 
@@ -83,7 +83,7 @@ export default function LinktorConversationPage() {
             await load()
         } catch (e) {
             notifications.show({ color: 'red', title: t('linktor.conversation.assignFailed'),
-                message: e instanceof ApiError ? e.message : String(e) })
+                message: mensagemDoErro(e) })
         } finally { setBusy(false) }
     }
 
@@ -102,7 +102,7 @@ export default function LinktorConversationPage() {
                     await load()
                 } catch (e) {
                     notifications.show({ color: 'red', title: t('linktor.conversation.resolveFailed'),
-                        message: e instanceof ApiError ? e.message : String(e) })
+                        message: mensagemDoErro(e) })
                 } finally { setBusy(false) }
             },
         })

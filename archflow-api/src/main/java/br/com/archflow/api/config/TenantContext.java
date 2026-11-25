@@ -1,5 +1,6 @@
 package br.com.archflow.api.config;
 
+import br.com.archflow.model.tenant.DefaultTenant;
 import org.springframework.web.context.request.RequestAttributes;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
@@ -17,8 +18,12 @@ import org.springframework.web.context.request.ServletRequestAttributes;
  */
 public final class TenantContext {
 
-    /** Default fallback used when no tenant header was set, e.g. by tests. */
-    public static final String DEFAULT_TENANT = "__default__";
+    /**
+     * Tenant de quem não declarou nenhum. É o mesmo id que o motor grava quando o contexto de execução
+     * chega sem tenant ({@link DefaultTenant#ID}) — antes eram valores diferentes ("SYSTEM" no motor),
+     * e a aprovação criada por uma execução da UI nunca aparecia na fila do tenant (RCHFLW-13).
+     */
+    public static final String DEFAULT_TENANT = DefaultTenant.ID;
 
     private TenantContext() {}
 
@@ -36,5 +41,22 @@ public final class TenantContext {
             }
         }
         return DEFAULT_TENANT;
+    }
+
+    /**
+     * O tenant do JWT validado na requisição atual ({@link JwtAuthenticationFilter#ATTR_TENANT}),
+     * ignorando impersonação e headers. Vazio sem requisição, sem auth ou sem o claim.
+     *
+     * <p>Para quem aceita um tenant vindo do cliente (corpo da requisição) e precisa confrontá-lo
+     * com o que o token garante.
+     */
+    public static java.util.Optional<String> authenticatedTenantId() {
+        RequestAttributes attrs = RequestContextHolder.getRequestAttributes();
+        if (attrs instanceof ServletRequestAttributes sra
+                && sra.getRequest().getAttribute(JwtAuthenticationFilter.ATTR_TENANT) instanceof String s
+                && !s.isBlank()) {
+            return java.util.Optional.of(s.trim());
+        }
+        return java.util.Optional.empty();
     }
 }

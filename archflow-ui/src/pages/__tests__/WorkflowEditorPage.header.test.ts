@@ -10,6 +10,7 @@
  * <p>Arquivo .ts (createElement em vez de JSX) porque o vitest.config só inclui *.test.ts.</p>
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { entrarComo } from '../../lib/__tests__/papeisDeTeste'
 import { createElement as h, act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
@@ -67,6 +68,8 @@ let root: Root | null = null
 let container: HTMLDivElement
 
 beforeEach(() => {
+  // Papel que concede editar e executar: sem ele as ações somem (RCHFLW-74).
+  entrarComo('DESIGNER')
   vi.clearAllMocks()
   ;(globalThis as any).ResizeObserver = ResizeObserverStub
   ;(globalThis as any).DOMMatrixReadOnly ??= class { m22 = 1 }
@@ -118,6 +121,19 @@ async function rename(ui: ReturnType<typeof within>, name: string, key: 'Enter' 
   await act(async () => { fireEvent.change(input, { target: { value: name } }) })
   await act(async () => { fireEvent.keyDown(input, { key }) })
 }
+
+describe('WorkflowEditor — Executar diz que roda o rascunho (RCHFLW-89)', () => {
+  it('o botão e o modal de entrada dizem rascunho, sem consultar a versão em produção', async () => {
+    const ui = await renderEditor()
+    const run = ui.getByTestId('editor-run')
+    expect(run.textContent).toBe('editor.runDraft')
+
+    await act(async () => { fireEvent.click(run) })
+    const target = await waitFor(() => within(document.body).getByTestId('run-input-target'))
+    expect(target.getAttribute('data-target')).toBe('draft')
+    expect(target.textContent).toBe('runInput.target.draft')
+  })
+})
 
 describe('WorkflowEditor — toast de execução iniciada', () => {
   it('mostra o id da execução do RUN_STARTED, nunca o id do workflow', async () => {

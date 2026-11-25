@@ -43,13 +43,16 @@ class JdbcUserRepositoryPostgresTest {
         ds.setPassword(postgres.getPassword());
         dataSource = ds;
 
-        String ddl;
-        try (var in = JdbcUserRepositoryPostgresTest.class.getResourceAsStream(
-                "/db/migration/V5_1__create_security.sql")) {
-            ddl = new String(in.readAllBytes(), StandardCharsets.UTF_8);
-        }
-        try (Connection conn = dataSource.getConnection()) {
-            conn.createStatement().execute(ddl);
+        // Na ordem do Flyway: a V5_1_2 traz tenant e convite, que o repositório grava e lê.
+        for (String migration : new String[] {"/db/migration/V5_1__create_security.sql",
+                "/db/migration/V5_1_2__add_tenant_and_invitation_to_users.sql"}) {
+            String ddl;
+            try (var in = JdbcUserRepositoryPostgresTest.class.getResourceAsStream(migration)) {
+                ddl = new String(in.readAllBytes(), StandardCharsets.UTF_8);
+            }
+            try (Connection conn = dataSource.getConnection()) {
+                conn.createStatement().execute(ddl);
+            }
         }
     }
 
@@ -154,5 +157,70 @@ class JdbcUserRepositoryPostgresTest {
         JdbcUserRepository fresh = new JdbcUserRepository(dataSource);
         User loaded = fresh.findByUsername("ada").orElseThrow();
         assertThat(loaded.hasRole(Role.ROLE_EXECUTOR)).isTrue();
+    }
+
+    @Test
+    @DisplayName("convite pendente: tenant, hash e validade persistem, sem senha; findAll lista todos")
+    void pendingInvitationRoundTrip() {
+        User invited = new User();
+        invited.setUsername("convidada@x.com");
+        invited.setEmail("convidada@x.com");
+        invited.setTenantId("tenant_acme");
+        invited.setEnabled(false);
+        invited.setInvitationTokenHash("hash-do-segredo");
+        invited.setInvitationExpiresAt(java.time.LocalDateTime.of(2026, 12, 1, 10, 0));
+        invited.addRole(Role.createViewerRole());
+        users.save(invited);
+        users.save(newUser("ada", "ada@x.com"));
+
+        User loaded = new JdbcUserRepository(dataSource).findByUsername("convidada@x.com").orElseThrow();
+        assertThat(loaded.getTenantId()).isEqualTo("tenant_acme");
+        assertThat(loaded.getPasswordHash()).isNull();
+        assertThat(loaded.isEnabled()).isFalse();
+        assertThat(loaded.isInvitationPending()).isTrue();
+        assertThat(loaded.getInvitationExpiresAt()).isEqualTo(java.time.LocalDateTime.of(2026, 12, 1, 10, 0));
+        assertThat(loaded.hasRole(Role.ROLE_VIEWER)).isTrue();
+
+        // Sem tenant no objeto, a linha grava o tenant padrão explícito.
+        assertThat(users.findAll()).extracting(User::getUsername, User::getTenantId)
+                .containsExactlyInAnyOrder(
+                        org.assertj.core.groups.Tuple.tuple("convidada@x.com", "tenant_acme"),
+                        org.assertj.core.groups.Tuple.tuple("ada", "__default__"));
+    }
+
+    @Test
+    @DisplayName("consumeInvitation compara e apaga o hash na mesma escrita: só o primeiro aceite vence")
+    void consumeInvitationIsSingleUse() {
+        User invited = new User();
+        invited.setUsername("convidada@x.com");
+        invited.setEmail("convidada@x.com");
+        invited.setTenantId("tenant_acme");
+        invited.setEnabled(false);
+        invited.setInvitationTokenHash("hash-do-segredo");
+        invited.setInvitationExpiresAt(java.time.LocalDateTime.of(2026, 12, 1, 10, 0));
+        invited.addRole(Role.createViewerRole());
+        String id = users.save(invited).getId();
+
+        assertThat(users.consumeInvitation(id, "hash-errado", "senha-x")).isFalse();
+        assertThat(users.consumeInvitation(id, "hash-do-segredo", "senha-do-primeiro")).isTrue();
+        // O segundo aceite leu o mesmo hash antes do primeiro gravar: a escrita dele não acha a linha.
+        assertThat(users.consumeInvitation(id, "hash-do-segredo", "senha-do-segundo")).isFalse();
+
+        User loaded = users.findById(id).orElseThrow();
+        assertThat(loaded.getPasswordHash()).isEqualTo("senha-do-primeiro");
+        assertThat(loaded.isEnabled()).isTrue();
+        assertThat(loaded.isInvitationPending()).isFalse();
+        assertThat(loaded.getInvitationExpiresAt()).isNull();
+        assertThat(loaded.hasRole(Role.ROLE_VIEWER)).isTrue();
+    }
+
+    @Test
+    @DisplayName("gravar um nome de login já usado lança DuplicateUserException, não um erro genérico")
+    void duplicateUsernameIsTyped() {
+        users.save(newUser("ada@x.com", "ada@x.com"));
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> users.save(newUser("ada@x.com", "ada@x.com")))
+                .isInstanceOf(DuplicateUserException.class);
+        assertThat(users.findAll()).hasSize(1);
     }
 }

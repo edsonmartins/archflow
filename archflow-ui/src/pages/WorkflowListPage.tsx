@@ -18,6 +18,7 @@ import { StatCard } from '../components/admin/StatCard';
 import EmptyState from '../components/EmptyState';
 import { RunInputModal } from '../components/RunInputModal';
 import { toExecuteBody } from '../lib/runInput';
+import { usePermissions } from '../lib/permissions';
 
 const STATUS_COLOR: Record<string, string> = {
     active: 'teal',
@@ -46,6 +47,12 @@ export default function WorkflowListPage() {
     const { workflows, loading, error, fetchWorkflows, deleteWorkflow, executeWorkflow, createWorkflow } = useWorkflowStore();
     const [search, setSearch] = useState('');
     const [deleteId, setDeleteId] = useState<string | null>(null);
+    // RCHFLW-74: só oferece o que o papel permite — o backend responde 403 ao resto.
+    const can = usePermissions();
+    const canCreate = can('workflow:create');
+    const canUpdate = can('workflow:update');
+    const canDelete = can('workflow:delete');
+    const canExecute = can('workflow:execute');
 
     useEffect(() => { fetchWorkflows() }, [fetchWorkflows]);
 
@@ -101,6 +108,7 @@ export default function WorkflowListPage() {
         const next = new URLSearchParams(searchParams);
         next.delete('new');
         setSearchParams(next, { replace: true });
+        if (!canCreate) return;
         if (mode === 'ai') createBlank(true);
         else setCreateOpen(true);
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -121,9 +129,11 @@ export default function WorkflowListPage() {
                                 onClick={() => navigate('/templates')}>
                             {t('workflows.browseTemplates')}
                         </Button>
-                        <Button leftSection={<IconPlus size={16} />} onClick={handleNew} data-testid="workflow-new">
-                            {t('workflows.newWorkflow')}
-                        </Button>
+                        {canCreate && (
+                            <Button leftSection={<IconPlus size={16} />} onClick={handleNew} data-testid="workflow-new">
+                                {t('workflows.newWorkflow')}
+                            </Button>
+                        )}
                     </>
                 }
             />
@@ -169,9 +179,11 @@ export default function WorkflowListPage() {
                     >
                         {workflows.length === 0 ? (
                             <Group mt="xs" gap="sm" justify="center">
-                                <Button leftSection={<IconPlus size={16} />} onClick={handleNew}>
-                                    {t('workflows.createWorkflow')}
-                                </Button>
+                                {canCreate && (
+                                    <Button leftSection={<IconPlus size={16} />} onClick={handleNew}>
+                                        {t('workflows.createWorkflow')}
+                                    </Button>
+                                )}
                                 <Button
                                     variant="light"
                                     leftSection={<IconTemplate size={16} />}
@@ -261,30 +273,37 @@ export default function WorkflowListPage() {
                                     onClick={e => e.stopPropagation()}
                                 >
                                     <Group gap={4}>
-                                        <Tooltip label={t('workflows.actions.edit')}>
-                                            <ActionIcon variant="subtle" color="gray" aria-label={t('workflows.actions.edit')}
-                                                        onClick={open}>
-                                                <IconPencil size={16} />
-                                            </ActionIcon>
-                                        </Tooltip>
-                                        <Tooltip label={toggleLabel}>
-                                            <ActionIcon
-                                                variant="subtle"
-                                                color={w.status === 'active' ? 'yellow' : 'teal'}
-                                                aria-label={toggleLabel}
-                                                onClick={() => void handleToggleStatus(w.id, w.status)}
-                                            >
-                                                {w.status === 'active' ? <IconPlayerPause size={16} /> : <IconRobot size={16} />}
-                                            </ActionIcon>
-                                        </Tooltip>
-                                        <Tooltip label={t('workflows.actions.delete')}>
-                                            <ActionIcon variant="subtle" color="red" aria-label={t('workflows.actions.delete')}
-                                                        onClick={() => setDeleteId(w.id)}>
-                                                <IconTrash size={16} />
-                                            </ActionIcon>
-                                        </Tooltip>
+                                        {/* Sem workflow:update o card ainda abre o editor, só para leitura. */}
+                                        {canUpdate && (
+                                            <Tooltip label={t('workflows.actions.edit')}>
+                                                <ActionIcon variant="subtle" color="gray" aria-label={t('workflows.actions.edit')}
+                                                            onClick={open}>
+                                                    <IconPencil size={16} />
+                                                </ActionIcon>
+                                            </Tooltip>
+                                        )}
+                                        {canUpdate && (
+                                            <Tooltip label={toggleLabel}>
+                                                <ActionIcon
+                                                    variant="subtle"
+                                                    color={w.status === 'active' ? 'yellow' : 'teal'}
+                                                    aria-label={toggleLabel}
+                                                    onClick={() => void handleToggleStatus(w.id, w.status)}
+                                                >
+                                                    {w.status === 'active' ? <IconPlayerPause size={16} /> : <IconRobot size={16} />}
+                                                </ActionIcon>
+                                            </Tooltip>
+                                        )}
+                                        {canDelete && (
+                                            <Tooltip label={t('workflows.actions.delete')}>
+                                                <ActionIcon variant="subtle" color="red" aria-label={t('workflows.actions.delete')}
+                                                            onClick={() => setDeleteId(w.id)}>
+                                                    <IconTrash size={16} />
+                                                </ActionIcon>
+                                            </Tooltip>
+                                        )}
                                     </Group>
-                                    <Button
+                                    {canExecute && <Button
                                         size="compact-sm"
                                         variant="light"
                                         color="violet"
@@ -293,7 +312,7 @@ export default function WorkflowListPage() {
                                         onClick={() => setRunId(w.id)}
                                     >
                                         {t('workflows.actions.run')}
-                                    </Button>
+                                    </Button>}
                                 </Group>
                             </Card>
                         );
@@ -307,6 +326,7 @@ export default function WorkflowListPage() {
                     opened
                     onClose={() => setRunId(null)}
                     onConfirm={(text) => { void handleExecute(runId, text); }}
+                    runs="production"
                 />
             )}
 

@@ -6,6 +6,7 @@ import br.com.archflow.model.flow.ExecutionPath;
 import br.com.archflow.model.flow.FlowMetrics;
 import br.com.archflow.model.flow.FlowState;
 import br.com.archflow.model.error.ExecutionError;
+import br.com.archflow.model.tenant.DefaultTenant;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -32,14 +33,14 @@ public class InMemoryStateRepository implements StateRepository {
 
     @Override
     public void saveState(String flowId, FlowState state) {
-        String tenantId = state.getTenantId() != null ? state.getTenantId() : "SYSTEM";
+        String tenantId = DefaultTenant.orDefault(state.getTenantId());
         saveState(tenantId, flowId, state);
     }
 
     @Override
     public FlowState getState(String flowId) {
         // saveState keys by the state's real tenantId; a fixed-tenant lookup
-        // here would never find flows of any tenant other than SYSTEM.
+        // here would never find flows of any tenant other than the default one.
         // flowId is unique per execution, so a cross-tenant scan is safe.
         String suffix = ":" + flowId;
         return states.entrySet().stream()
@@ -51,7 +52,7 @@ public class InMemoryStateRepository implements StateRepository {
 
     @Override
     public void saveAuditLog(String flowId, AuditLog log) {
-        saveAuditLog("SYSTEM", flowId, log);
+        saveAuditLog(DefaultTenant.ID, flowId, log);
     }
 
     @Override
@@ -99,10 +100,10 @@ public class InMemoryStateRepository implements StateRepository {
     }
 
     /**
-     * Recupera o histórico de audit logs de um fluxo (backward compat — usa tenant SYSTEM).
+     * Recupera o histórico de audit logs de um fluxo (backward compat — usa o tenant padrão).
      */
     public List<AuditLog> getAuditLogs(String flowId) {
-        return getAuditLogs("SYSTEM", flowId);
+        return getAuditLogs(DefaultTenant.ID, flowId);
     }
 
     /**
@@ -114,10 +115,10 @@ public class InMemoryStateRepository implements StateRepository {
     }
 
     /**
-     * Registra um erro de execução (backward compat — usa tenant SYSTEM).
+     * Registra um erro de execução (backward compat — usa o tenant padrão).
      */
     public void saveError(String flowId, ExecutionError error) {
-        saveError("SYSTEM", flowId, error);
+        saveError(DefaultTenant.ID, flowId, error);
     }
 
     /**
@@ -131,10 +132,10 @@ public class InMemoryStateRepository implements StateRepository {
     }
 
     /**
-     * Recupera erros de execução de um fluxo (backward compat — usa tenant SYSTEM).
+     * Recupera erros de execução de um fluxo (backward compat — usa o tenant padrão).
      */
     public List<ExecutionError> getErrors(String flowId) {
-        return getErrors("SYSTEM", flowId);
+        return getErrors(DefaultTenant.ID, flowId);
     }
 
     /**
@@ -146,10 +147,10 @@ public class InMemoryStateRepository implements StateRepository {
     }
 
     /**
-     * Remove todos os dados de um fluxo (backward compat — usa tenant SYSTEM).
+     * Remove todos os dados de um fluxo (backward compat — usa o tenant padrão).
      */
     public void clearFlow(String flowId) {
-        clearFlow("SYSTEM", flowId);
+        clearFlow(DefaultTenant.ID, flowId);
     }
 
     /**

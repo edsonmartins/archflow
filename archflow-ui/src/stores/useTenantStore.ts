@@ -48,6 +48,35 @@ interface TenantStore {
   effectiveRole:        () => UserRole
 }
 
+/** O tenant personificado vai no cabeçalho X-Impersonate-Tenant de toda requisição (services/*-api). */
+const IMPERSONATE_KEY = 'archflow_impersonate_tenant'
+/** Id e nome do tenant personificado, para a faixa voltar depois de recarregar a página (RCHFLW-96). */
+const IMPERSONATE_INFO_KEY = 'archflow_impersonate_tenant_info'
+
+/**
+ * A personificação que sobreviveu ao recarregar a página.
+ *
+ * <p>O cabeçalho sai do sessionStorage, que sobrevive ao F5; a faixa saía só do estado em memória, que
+ * não. Depois do F5 o superadmin seguia agindo no tenant sem faixa nem "Voltar ao superadmin" (RCHFLW-96).
+ * Agora a faixa volta com os dados guardados ao entrar. Se não houver como mostrá-la — dados do tenant
+ * ausentes ou de outro id, ou quem está logado não é superadmin —, a personificação termina aqui: nunca
+ * fica ativa sem aparecer.</p>
+ */
+function getInitialImpersonation(role: UserRole): TenantInfo | null {
+  try {
+    const id = sessionStorage.getItem(IMPERSONATE_KEY)
+    if (!id) return null
+    const raw = sessionStorage.getItem(IMPERSONATE_INFO_KEY)
+    const info = raw ? JSON.parse(raw) as Partial<TenantInfo> : null
+    if (role === 'superadmin' && info && info.id === id && typeof info.name === 'string') {
+      return info as TenantInfo
+    }
+    sessionStorage.removeItem(IMPERSONATE_KEY)
+    sessionStorage.removeItem(IMPERSONATE_INFO_KEY)
+  } catch { /* SSR / storage indisponível */ }
+  return null
+}
+
 function getInitialRole(): UserRole {
   try {
     const stored = sessionStorage.getItem('archflow_role')
@@ -61,7 +90,7 @@ function getInitialRole(): UserRole {
 export const useTenantStore = create<TenantStore>((set, get) => ({
   currentRole:   getInitialRole(),
   currentTenant: null,
-  impersonating: null,
+  impersonating: getInitialImpersonation(getInitialRole()),
   tenantLimits:  null,
   tenantUsage:   null,
   tenants:       [],
@@ -75,9 +104,21 @@ export const useTenantStore = create<TenantStore>((set, get) => ({
   },
   setCurrentTenant: (tenant) => set({ currentTenant: tenant }),
 
-  startImpersonation: (tenant) => set({ impersonating: tenant }),
+  startImpersonation: (tenant) => {
+    try {
+      sessionStorage.setItem(IMPERSONATE_KEY, tenant.id)
+      sessionStorage.setItem(IMPERSONATE_INFO_KEY, JSON.stringify(tenant))
+    } catch { /* SSR safe */ }
+    set({ impersonating: tenant })
+  },
 
-  exitImpersonation: () => set({ impersonating: null }),
+  exitImpersonation: () => {
+    try {
+      sessionStorage.removeItem(IMPERSONATE_KEY)
+      sessionStorage.removeItem(IMPERSONATE_INFO_KEY)
+    } catch { /* SSR safe */ }
+    set({ impersonating: null })
+  },
 
   setTenants: (tenants) => set({ tenants }),
   setLimits:  (limits)  => set({ tenantLimits: limits }),

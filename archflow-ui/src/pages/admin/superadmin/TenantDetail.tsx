@@ -1,7 +1,7 @@
 import { Text, Stack, Group, Button, Badge, LoadingOverlay, Alert, SimpleGrid, Box } from '@mantine/core'
 import {
   IconAlertCircle, IconBuildingSkyscraper, IconId, IconCreditCard, IconChartBar, IconAlertTriangle,
-  IconPlayerPause, IconPlayerPlay, IconTrash,
+  IconPlayerPause, IconPlayerPlay, IconTrash, IconPencil,
 } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
 import { PageHeader } from '../../../components/PageHeader'
@@ -15,6 +15,7 @@ import { tenantApi, type TenantDetail as TenantDetailDto } from '../../../servic
 import { UsageBar } from '../../../components/admin/UsageBar'
 import { confirmAction, confirmWithText } from '../../../lib/confirm'
 import { PLAN_COLORS, TENANT_STATUS_COLORS } from './tenantColors'
+import { AllowedModelsInput } from './AllowedModelsInput'
 
 export default function TenantDetail() {
   const { id } = useParams<{ id: string }>()
@@ -24,6 +25,8 @@ export default function TenantDetail() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  // Edição dos modelos permitidos (RCHFLW-79): antes o campo era só leitura e nada o aplicava.
+  const [editingModels, setEditingModels] = useState<string[] | null>(null)
 
   useEffect(() => {
     if (!id) return
@@ -116,6 +119,22 @@ export default function TenantDetail() {
     })
   }
 
+  const saveModels = async () => {
+    if (!id || !tenant || editingModels === null) return
+    setSubmitting(true)
+    try {
+      // Lista vazia é "sem restrição" (todo o catálogo) — o servidor a grava assim, não como "nenhum".
+      const dto = await tenantApi.update(id, { allowedModels: editingModels })
+      setTenant(dto)
+      setEditingModels(null)
+      notifications.show({ title: t('admin.superadmin.tenantDetail.modelsSaved'), message: tenant.name, color: 'teal' })
+    } catch (e) {
+      setError(e instanceof Error ? e.message : t('admin.superadmin.tenantDetail.updateFailed'))
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
   const suspended = tenant?.status === 'suspended'
 
   return (
@@ -183,15 +202,38 @@ export default function TenantDetail() {
                   />
                 </Prop>
                 <Box style={{ gridColumn: '1 / -1' }}>
-                  <Prop label={t('admin.superadmin.tenantDetail.allowedModels')}>
-                    {tenant.allowedModels.length > 0 ? (
-                      <Group gap={6}>
-                        {tenant.allowedModels.map((model) => (
-                          <Badge key={model} variant="default" size="sm" tt="none">{model}</Badge>
-                        ))}
+                  {editingModels !== null ? (
+                    <Stack gap="xs">
+                      <AllowedModelsInput value={editingModels} onChange={setEditingModels} disabled={submitting} />
+                      <Group gap="xs" justify="flex-end">
+                        <Button size="xs" variant="default" onClick={() => setEditingModels(null)}>
+                          {t('common.cancel')}
+                        </Button>
+                        <Button size="xs" onClick={saveModels} loading={submitting} data-testid="save-allowed-models">
+                          {t('admin.superadmin.tenantDetail.saveModels')}
+                        </Button>
                       </Group>
-                    ) : '—'}
-                  </Prop>
+                    </Stack>
+                  ) : (
+                    <Prop label={t('admin.superadmin.tenantDetail.allowedModels')}>
+                      <Group gap={6} justify="space-between" wrap="nowrap" align="flex-start">
+                        {(tenant.allowedModels ?? []).length > 0 ? (
+                          <Group gap={6}>
+                            {tenant.allowedModels.map((model) => (
+                              <Badge key={model} variant="default" size="sm" tt="none">{model}</Badge>
+                            ))}
+                          </Group>
+                        ) : (
+                          <Text size="sm" c="dimmed">{t('admin.superadmin.tenantDetail.allowedModelsAll')}</Text>
+                        )}
+                        <Button size="compact-xs" variant="subtle" leftSection={<IconPencil size={12} />}
+                          onClick={() => setEditingModels([...(tenant.allowedModels ?? [])])}
+                          data-testid="edit-allowed-models">
+                          {t('admin.superadmin.tenantDetail.editModels')}
+                        </Button>
+                      </Group>
+                    </Prop>
+                  )}
                 </Box>
               </SimpleGrid>
             </SectionCard>

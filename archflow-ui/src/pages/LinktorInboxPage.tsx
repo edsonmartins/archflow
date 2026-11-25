@@ -14,7 +14,7 @@ import {
     type LinktorContact,
     type LinktorConversation,
 } from '../services/linktor-inbox-api'
-import { ApiError } from '../services/api'
+import { mensagemDoErro } from '../lib/errorMessage'
 import { formatInstant } from '../lib/format'
 import { PageHeader } from '../components/PageHeader'
 import { SectionCard } from '../components/SectionCard'
@@ -53,7 +53,7 @@ export default function LinktorInboxPage() {
             if (which === 'contacts')      setContacts(await linktorInboxApi.listContacts())
             if (which === 'channels')      setChannels(await linktorInboxApi.listChannels())
         } catch (e) {
-            setError(e instanceof ApiError ? e.message : String(e))
+            setError(mensagemDoErro(e))
         } finally {
             setLoading(false)
         }
@@ -241,17 +241,6 @@ export default function LinktorInboxPage() {
             )}
         </Stack>
     )
-}
-
-/** O backend devolve o erro como JSON (`{"error":"..."}`); fica só a frase. */
-function mensagemDoErro(bruto: string): string {
-    try {
-        const corpo = JSON.parse(bruto) as { error?: unknown; message?: unknown }
-        const msg = corpo.error ?? corpo.message
-        return typeof msg === 'string' && msg ? msg : bruto
-    } catch {
-        return bruto
-    }
 }
 
 function linktorDesligado(bruto: string): boolean {

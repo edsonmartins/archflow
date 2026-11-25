@@ -294,6 +294,18 @@ public class ArchflowBeanConfiguration {
     }
 
     /**
+     * Os usuários do workspace sobre o mesmo repositório do login (RCHFLW-85). O convite vale
+     * {@code archflow.security.invitation.ttl} até ser aceito.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public br.com.archflow.security.auth.WorkspaceUserService workspaceUserService(
+            UserRepository userRepository, PasswordService passwordService,
+            @Value("${archflow.security.invitation.ttl:PT72H}") java.time.Duration invitationTtl) {
+        return new br.com.archflow.security.auth.WorkspaceUserService(userRepository, passwordService, invitationTtl);
+    }
+
+    /**
      * Default in-memory API key repository — bean próprio (não mais embutido
      * no apiKeyService) para que deployments possam sobrescrevê-lo com uma
      * implementação durável e o ProductionReadinessGuard consiga detectá-lo.
@@ -307,8 +319,9 @@ public class ArchflowBeanConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public ApiKeyService apiKeyService(ApiKeyService.ApiKeyRepository apiKeyRepository) {
-        return new ApiKeyService(apiKeyRepository);
+    public ApiKeyService apiKeyService(ApiKeyService.ApiKeyRepository apiKeyRepository,
+                                       UserRepository userRepository) {
+        return new ApiKeyService(apiKeyRepository, userRepository);
     }
 
     // =========================================================================
@@ -388,10 +401,18 @@ public class ArchflowBeanConfiguration {
     // Controller implementations — Admin (self-contained, no deps)
     // =========================================================================
 
+    /**
+     * Catálogo de modelos da plataforma (RCHFLW-79): {@code ARCHFLOW_LLM_MODELS}
+     * ({@code archflow.llm.models}, ids do {@code archflow.llm.provider} separados por vírgula) ou, sem
+     * ela, a lista do código. O superadmin liga/desliga por cima; o seletor dos nós lista o que está
+     * ligado, recortado pelos permitidos do tenant.
+     */
     @Bean
     @ConditionalOnMissingBean
-    public GlobalConfigControllerImpl globalConfigControllerImpl() {
-        return new GlobalConfigControllerImpl();
+    public GlobalConfigControllerImpl globalConfigControllerImpl(
+            @Value("${archflow.llm.provider:openai}") String platformProvider,
+            @Value("${archflow.llm.models:}") String platformModels) {
+        return new GlobalConfigControllerImpl(platformProvider, platformModels);
     }
 
     @Bean
@@ -404,16 +425,50 @@ public class ArchflowBeanConfiguration {
         return new TenantControllerImpl(seedDemoData);
     }
 
+    /**
+     * O workspace com dados reais (RCHFLW-85/75): usuários do login, chaves do {@code ApiKeyService},
+     * uso medido e plano/limites do cadastro do tenant. Não há mais dado de demonstração aqui — o
+     * {@code archflow.admin.seedDemoData} não semeia usuários nem chaves.
+     */
     @Bean
     @ConditionalOnMissingBean
     public WorkspaceControllerImpl workspaceControllerImpl(
             @Value("${archflow.admin.tenantFallback:}") String tenantFallback,
-            @Value("${archflow.admin.seedDemoData:false}") boolean seedDemoData) {
+            br.com.archflow.security.auth.WorkspaceUserService workspaceUserService,
+            br.com.archflow.api.web.workflow.WorkflowRuntimeStore runtimeStore,
+            br.com.archflow.api.usage.RegistroDeUso registroDeUso,
+            ApiKeyService apiKeyService,
+            TenantControllerImpl tenantControllerImpl) {
         // The fallback is intentionally empty by default so production
         // deployments fail loud when the X-Tenant-Id header / security
-        // filter is not wired. Dev profiles should set both props.
+        // filter is not wired. Dev profiles should set it.
         String fallback = (tenantFallback == null || tenantFallback.isBlank()) ? null : tenantFallback;
-        return new WorkspaceControllerImpl(fallback, seedDemoData);
+        return new WorkspaceControllerImpl(fallback, workspaceUserService, runtimeStore, registroDeUso,
+                apiKeyService, tenantControllerImpl);
+    }
+
+    /**
+     * O uso que a lista de tenants e o relatório de uso mostram é o medido (RCHFLW-75): execuções de
+     * hoje e workflows do runtime store, tokens do {@code RegistroDeUso}, usuários do login. Antes, a
+     * lista mostrava o número de demonstração do seed ou zeros que nada atualizava, e o relatório
+     * devolvia sempre uma lista vazia.
+     */
+    @Bean
+    public org.springframework.beans.factory.SmartInitializingSingleton usoMedidoNasTelasDeAdmin(
+            TenantControllerImpl tenantControllerImpl,
+            GlobalConfigControllerImpl globalConfigControllerImpl,
+            br.com.archflow.api.usage.RegistroDeUso registroDeUso,
+            br.com.archflow.api.web.workflow.WorkflowRuntimeStore runtimeStore,
+            br.com.archflow.security.auth.WorkspaceUserService workspaceUserService) {
+        java.time.Clock relogio = java.time.Clock.systemDefaultZone();
+        return () -> {
+            tenantControllerImpl.setUsoMedido(tenantId -> new br.com.archflow.api.admin.dto.TenantDto.TenantUsageDto(
+                    WorkspaceControllerImpl.executionsToday(runtimeStore, tenantId, relogio),
+                    registroDeUso.doTenantNoMes(tenantId, registroDeUso.mesAtual()).tokens(),
+                    runtimeStore.workflows(tenantId).size(),
+                    workspaceUserService.listUsers(tenantId).size()));
+            globalConfigControllerImpl.setUso(registroDeUso, tenantControllerImpl::findTenant);
+        };
     }
 
     @Bean
@@ -481,12 +536,17 @@ public class ArchflowBeanConfiguration {
             br.com.archflow.engine.api.FlowEngine flowEngine,
             @Value("${archflow.approval.timeout:PT24H}") java.time.Duration approvalTimeout,
             org.springframework.beans.factory.ObjectProvider<
-                    br.com.archflow.api.agent.mcp.RetomadaDoLaco> retomadaDoLaco) {
+                    br.com.archflow.api.agent.mcp.RetomadaDoLaco> retomadaDoLaco,
+            org.springframework.beans.factory.ObjectProvider<
+                    br.com.archflow.api.web.workflow.WorkflowRuntimeStore> executionRecords) {
         // Os dois gates humanos — o nó de fluxo e o do laço de agente — numa fila só. O
         // ObjectProvider mantém a resolução tardia: a retomada depende do host de MCP, cujo grafo
         // passa pelo catálogo de componentes.
+        // O registro de execuções vai junto porque a decisão chega por aqui: sem ele, aprovar,
+        // recusar ou expirar deixava a execução PAUSED para sempre (RCHFLW-40).
         return new ApprovalQueueService(stateManager, flowEngine, approvalTimeout,
-                java.time.Clock.systemUTC(), retomadaDoLaco.getIfAvailable());
+                java.time.Clock.systemUTC(), retomadaDoLaco.getIfAvailable(),
+                executionRecords.getIfAvailable());
     }
 
     /**
@@ -512,7 +572,9 @@ public class ArchflowBeanConfiguration {
      * ficava pendurada para sempre, segurando estado e poluindo uma fila que
      * nunca esvaziava. O prazo default é generoso (24h) e a decisão de timeout é
      * sempre REJECTED — "ninguém olhou" não pode virar "pode executar".
-     * {@code archflow.approval.timeout=PT0S} restaura o comportamento anterior.
+     * {@code archflow.approval.timeout=PT0S} desliga só o prazo global: um nó de
+     * aprovação com prazo próprio ({@code approvalTimeoutMinutes}) ainda vence,
+     * e também como REJECTED.
      */
     @Bean(initMethod = "start", destroyMethod = "close")
     @ConditionalOnMissingBean
@@ -535,8 +597,22 @@ public class ArchflowBeanConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public ConversationControllerImpl conversationControllerImpl(ConversationService conversationService) {
-        return new ConversationControllerImpl(conversationService);
+    public ConversationControllerImpl conversationControllerImpl(
+            ConversationService conversationService,
+            br.com.archflow.conversation.form.FormRegistry formRegistry) {
+        return new ConversationControllerImpl(conversationService, formRegistry);
+    }
+
+    /**
+     * Formulários que o {@code formId} de uma suspensão resolve (RCHFLW-67): os de
+     * {@code FormData.Templates} que não pedem segredo (ver {@code InMemoryFormRegistry.withTemplates}).
+     * Não há cadastro pela API ou pela tela — outro conjunto entra por um bean próprio, que vence este
+     * {@code @ConditionalOnMissingBean}.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public br.com.archflow.conversation.form.FormRegistry formRegistry() {
+        return br.com.archflow.conversation.form.InMemoryFormRegistry.withTemplates();
     }
 
     /**
@@ -617,12 +693,16 @@ public class ArchflowBeanConfiguration {
     @Bean
     @ConditionalOnMissingBean
     public WorkflowConfigControllerImpl workflowConfigControllerImpl(
-            br.com.archflow.api.linktor.LinktorConfigController linktorConfigController) {
+            br.com.archflow.api.linktor.LinktorConfigController linktorConfigController,
+            org.springframework.beans.factory.ObjectProvider<GlobalConfigControllerImpl> globalConfig,
+            br.com.archflow.langchain4j.provider.TenantModelPolicy tenantModelPolicy,
+            @Value("${archflow.llm.provider:openai}") String platformProvider,
+            @Value("${archflow.llm.model:gpt-4o-mini}") String platformModel) {
         // Linktor appears in the MCP dropdown as soon as the admin
         // enables it in /admin/linktor — no restart needed. We resolve
         // the list lazily so each /workflow/mcp-servers call sees the
         // latest config state.
-        return new WorkflowConfigControllerImpl(() -> {
+        WorkflowConfigControllerImpl controller = new WorkflowConfigControllerImpl(() -> {
             var cfg = linktorConfigController.get();
             if (!cfg.enabled() || cfg.mcpCommand() == null || cfg.mcpCommand().isBlank()) {
                 return java.util.List.of();
@@ -634,6 +714,19 @@ public class ArchflowBeanConfiguration {
                     cfg.apiBaseUrl(),
                     0));
         });
+        // Seletor de modelos = catálogo ativo ∩ permitidos do tenant da requisição (RCHFLW-79). O
+        // tenant é o do JWT/impersonação; "nenhum tenant" (__default__) não tem restrição — a mesma
+        // regra da execução, que usa a mesma política.
+        GlobalConfigControllerImpl catalog = globalConfig.getIfAvailable();
+        if (catalog != null) {
+            controller.setModelCatalog(catalog::activeModels, () -> {
+                String tenant = TenantContext.currentTenantId();
+                return br.com.archflow.langchain4j.provider.TenantKeyResolver.isNoTenant(tenant)
+                        ? java.util.Optional.empty()
+                        : tenantModelPolicy.allowedModels(tenant);
+            }, platformProvider, platformModel);
+        }
+        return controller;
     }
 
     @Bean
@@ -688,11 +781,16 @@ public class ArchflowBeanConfiguration {
             br.com.archflow.api.web.workflow.WorkflowRuntimeStore runtimeStore,
             br.com.archflow.agent.metrics.MetricsCollector metricsCollector,
             br.com.archflow.api.admin.observability.impl.TraceStoreRecorder traceStoreRecorder,
+            br.com.archflow.api.usage.RegistroDeUso registroDeUso,
             @Value("${archflow.flow.strict-conditions:false}") boolean strictConditions) {
         // Registered before create(): the factory snapshots process-wide
         // listeners into the engine's composite lifecycle listener.
         br.com.archflow.engine.lifecycle.FlowLifecycleListeners.register(
                 new br.com.archflow.api.flow.StepRecordingListener(runtimeStore));
+        // Toda travessia ganha um contador de uso e o relata no fim (RCHFLW-75): editor, lista,
+        // retomada e MCP passam pelo motor, e só o VendaX punha contador no contexto.
+        br.com.archflow.engine.lifecycle.FlowLifecycleListeners.register(
+                new br.com.archflow.api.usage.RegistroDeUsoListener(registroDeUso));
         return br.com.archflow.api.flow.FlowEngineFactory.create(
                 flowRepository, eventStreamRegistry, runningFlowsRegistry, stateManager,
                 metricsCollector, traceStoreRecorder, 16, 3_600_000L, 8, strictConditions);
@@ -834,6 +932,9 @@ public class ArchflowBeanConfiguration {
             for (var meta : manager.getCatalog().listComponents()) {
                 var component = manager.getCatalog().getComponent(meta.id()).orElse(null);
                 if (component != null) {
+                    // O manager só chama onLoad; sem initialize o plugin falharia em todo uso direto.
+                    // Falha aqui é só aviso: o nó o inicializa com a própria config.
+                    br.com.archflow.api.flow.CatalogComponents.initializeOnRegistration(component);
                     catalog.register(component);
                     copied++;
                 }
@@ -871,6 +972,12 @@ public class ArchflowBeanConfiguration {
                 Class<?> cls = Class.forName(className);
                 Object instance = cls.getDeclaredConstructor().newInstance();
                 if (instance instanceof br.com.archflow.model.ai.AIComponent aic) {
+                    // Registrado sem initialize, todo embutido respondia "not initialized" (RCHFLW-15).
+                    // O mcp-agent fica de fora: sem systemPrompt ele não inicializa, e todo nó dele já
+                    // ganha instância própria no DefaultFlowStepFactory.
+                    if (!(aic instanceof br.com.archflow.api.agent.mcp.McpAgentComponent)) {
+                        br.com.archflow.api.flow.CatalogComponents.initializeOnRegistration(aic);
+                    }
                     catalog.register(aic);
                     registered.add(className);
                 }
@@ -926,18 +1033,33 @@ public class ArchflowBeanConfiguration {
                         new br.com.archflow.langchain4j.skills.FileSystemSkillLoader(
                                 java.nio.file.Path.of(skillsDirectory));
                 manager.loadFrom(loader);
-            } catch (Exception ignored) {
-                // Directory missing / unreadable — leave manager empty.
+            } catch (Exception e) {
+                // Segue com o catálogo vazio (a API não deve cair por um diretório de skills), mas não em
+                // silêncio: sem o log a página Skills ficava vazia e nada dizia por quê (RCHFLW-66).
+                log.error("Failed to load skills from archflow.skills.directory={}: {}",
+                        skillsDirectory, e.getMessage(), e);
             }
         }
         return manager;
     }
 
+    /**
+     * Skills ativas por tenant. Em memória por default (dev); o durável vive em
+     * {@link JdbcPersistenceConfiguration} (migration V6_14) — é o que faz o switch sobreviver a restart.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(name = JDBC_ENABLED, havingValue = "false", matchIfMissing = true)
+    public br.com.archflow.api.skills.store.SkillActivationStore skillActivationStore() {
+        return new br.com.archflow.api.skills.store.InMemorySkillActivationStore();
+    }
+
     @Bean
     @ConditionalOnMissingBean
     public br.com.archflow.api.skills.SkillsController skillsController(
-            br.com.archflow.langchain4j.skills.SkillsManager skillsManager) {
-        return new br.com.archflow.api.skills.impl.SkillsControllerImpl(skillsManager);
+            br.com.archflow.langchain4j.skills.SkillsManager skillsManager,
+            br.com.archflow.api.skills.store.SkillActivationStore skillActivationStore) {
+        return new br.com.archflow.api.skills.impl.SkillsControllerImpl(skillsManager, skillActivationStore);
     }
 
     // =========================================================================
@@ -1054,13 +1176,50 @@ public class ArchflowBeanConfiguration {
     // =========================================================================
 
     /**
-     * Resolução de chave por tenant. NOOP por padrão (sem chaves por tenant);
-     * produtos sobrepõem este bean para resolver chaves do seu storage.
+     * Chave de LLM por tenant, com fallback para a da plataforma:
+     * {@code archflow.llm.tenant-keys.<tenant>.<provider>}, depois {@code archflow.llm.keys.<provider>}
+     * (env {@code ARCHFLOW_LLM_KEYS_OPENROUTER}), depois {@code archflow.llm.api-key} quando o provider
+     * é o {@code archflow.llm.provider} (formato em {@link LlmKeyBinding}).
+     *
+     * <p>Era {@code NOOP}: o nó {@code llm-chat} (ponte de adapters) só achava chave se ela estivesse
+     * escrita no JSON do fluxo. Agora os três consumidores — adapter, agentes ({@code llmConfigResolver})
+     * e decisão ({@code decisionKeys}) — leem este bean. Produtos (VendaX, cofre de segredos) continuam
+     * podendo sobrepô-lo.
      */
     @Bean
     @ConditionalOnMissingBean
-    public br.com.archflow.langchain4j.provider.TenantKeyResolver tenantKeyResolver() {
-        return br.com.archflow.langchain4j.provider.TenantKeyResolver.NOOP;
+    public br.com.archflow.langchain4j.provider.TenantKeyResolver tenantKeyResolver(
+            org.springframework.core.env.Environment env) {
+        return LlmKeyBinding.tenantKeyResolver(env);
+    }
+
+    /**
+     * Modelos que cada tenant pode usar ({@code allowedModels} do cadastro de tenants, RCHFLW-79),
+     * conferidos na execução pelos dois caminhos de LLM: agentes ({@code llmConfigResolver}) e nós de
+     * chat ({@code DefaultFlowStepFactory}). Sem cadastro (tenant desconhecido ou lista vazia) não há
+     * restrição. Um produto com cadastro próprio sobrepõe o bean.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public br.com.archflow.langchain4j.provider.TenantModelPolicy tenantModelPolicy(
+            org.springframework.beans.factory.ObjectProvider<TenantControllerImpl> tenants) {
+        return tenantId -> {
+            TenantControllerImpl controller = tenants.getIfAvailable();
+            return controller == null ? java.util.Optional.empty() : controller.allowedModels(tenantId);
+        };
+    }
+
+    /**
+     * Para onde uma chave governada pode ir: o endereço oficial do provider, o
+     * {@code archflow.llm.base-url} e a lista {@code archflow.llm.allowed-base-urls} (URLs ou hosts,
+     * separados por vírgula). Um {@code base.url}/{@code baseUrl}/{@code endpoint} de nó fora disso
+     * falha antes de qualquer requisição (RCHFLW-42).
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public br.com.archflow.langchain4j.provider.BaseUrlPolicy llmBaseUrlPolicy(
+            org.springframework.core.env.Environment env) {
+        return LlmKeyBinding.baseUrlPolicy(env);
     }
 
     /**
@@ -1143,10 +1302,13 @@ public class ArchflowBeanConfiguration {
             br.com.archflow.langchain4j.provider.TenantKeyResolver tenantKeyResolver,
             br.com.archflow.langchain4j.provider.TierModelResolver tierModelResolver,
             br.com.archflow.model.config.ProviderPreferences llmProviderPreferences,
-            @Value("${archflow.llm.provider-preferences.required:false}") boolean preferencesRequired) {
+            @Value("${archflow.llm.provider-preferences.required:false}") boolean preferencesRequired,
+            br.com.archflow.langchain4j.provider.BaseUrlPolicy llmBaseUrlPolicy,
+            br.com.archflow.langchain4j.provider.TenantModelPolicy tenantModelPolicy) {
         return new br.com.archflow.langchain4j.provider.DefaultLLMConfigResolver(
                 br.com.archflow.langchain4j.provider.LLMProviderHub.getInstance(),
-                tenantKeyResolver, tierModelResolver, llmProviderPreferences, preferencesRequired);
+                tenantKeyResolver, tierModelResolver, llmProviderPreferences, preferencesRequired,
+                llmBaseUrlPolicy, tenantModelPolicy);
     }
 
     /**
@@ -1238,7 +1400,8 @@ public class ArchflowBeanConfiguration {
             br.com.archflow.agent.metrics.MetricsCollector metricsCollector,
             br.com.archflow.api.agent.mcp.McpAgentStateStore mcpAgentStateStore,
             @Value("${archflow.agent.tool-catalog.warn-tokens:4000}") int catalogWarnTokens,
-            @Value("${archflow.llm.custo-da-geracao.prazo:PT2S}") java.time.Duration prazoDoCusto) {
+            @Value("${archflow.llm.custo-da-geracao.prazo:PT2S}") java.time.Duration prazoDoCusto,
+            br.com.archflow.api.usage.RegistroDeUso registroDeUso) {
         // Mesmo coletor do engine e do ObservabilityService: latência e taxa de
         // falha por tool aparecem junto das métricas de fluxo, não num silo.
         //
@@ -1248,9 +1411,13 @@ public class ArchflowBeanConfiguration {
         br.com.archflow.api.agent.mcp.CustoDaGeracao custoDaGeracao =
                 prazoDoCusto == null || prazoDoCusto.isZero() || prazoDoCusto.isNegative()
                         ? null : br.com.archflow.api.agent.mcp.CustoDaGeracao.openRouter(prazoDoCusto);
-        return new br.com.archflow.api.agent.mcp.McpAgentRunner(
+        var runner = new br.com.archflow.api.agent.mcp.McpAgentRunner(
                 llmConfigResolver, platformDefaultLLMConfig, metricsCollector, catalogWarnTokens,
                 mcpAgentStateStore, custoDaGeracao, prazoDoCusto);
+        // O consumo de toda execução do laço fica medido por tenant (RCHFLW-75) — invoke, VendaX,
+        // playground e os nós de agente dos fluxos.
+        runner.setRegistroDeUso(registroDeUso);
+        return runner;
     }
 
     /** Referência sob a qual a configuração legada do VendaX é semeada. */
@@ -1453,6 +1620,30 @@ public class ArchflowBeanConfiguration {
         return tabela;
     }
 
+    /**
+     * Onde o consumo medido fica, quando não há banco: em memória, some no restart. Com
+     * {@code archflow.persistence.jdbc.enabled=true} o {@code JdbcPersistenceConfiguration} põe o
+     * durável no lugar.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(name = JDBC_ENABLED, havingValue = "false", matchIfMissing = true)
+    public br.com.archflow.api.usage.RepositorioDeUso repositorioDeUso() {
+        return new br.com.archflow.api.usage.InMemoryRepositorioDeUso();
+    }
+
+    /**
+     * O consumo de modelo medido por tenant (RCHFLW-75): o que o detalhe da execução e as telas de
+     * uso mostram. O custo é o da mesma {@code TabelaDePrecos} do VendaX.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public br.com.archflow.api.usage.RegistroDeUso registroDeUso(
+            br.com.archflow.api.usage.RepositorioDeUso repositorioDeUso,
+            br.com.archflow.api.agent.mcp.TabelaDePrecos tabelaDePrecos) {
+        return new br.com.archflow.api.usage.RegistroDeUso(repositorioDeUso, tabelaDePrecos);
+    }
+
     /** Roteia o invoke do Core: fluxo quando a definição traz um, senão o caminho por nome. */
     @Bean
     @ConditionalOnMissingBean
@@ -1525,22 +1716,34 @@ public class ArchflowBeanConfiguration {
             br.com.archflow.langchain4j.provider.LLMConfigResolver llmConfigResolver,
             br.com.archflow.model.config.ResolvedLLMConfig platformDefaultLLMConfig,
             br.com.archflow.model.config.ProviderPreferences llmProviderPreferences,
-            @Value("${archflow.llm.provider-preferences.required:false}") boolean preferencesRequired) {
+            @Value("${archflow.llm.provider-preferences.required:false}") boolean preferencesRequired,
+            br.com.archflow.langchain4j.provider.BaseUrlPolicy llmBaseUrlPolicy,
+            br.com.archflow.langchain4j.provider.TenantModelPolicy tenantModelPolicy) {
         return br.com.archflow.decision.DecisionProviders.withDefaults()
-                // Substitui o embutido (mesmo id) pelo que leva a preferencia de provedor.
-                .register(new br.com.archflow.decision.HttpDecisionProvider(
-                        llmProviderPreferences, preferencesRequired))
+                // Substitui o embutido (mesmo id) pelo que leva a preferencia de provedor. Os dois
+                // que aceitam destino nas opcoes do no passam pela guarda de host (RCHFLW-42) e pelos
+                // modelos permitidos do tenant (RCHFLW-79) - o `llm` ja passa pelo resolver.
+                .register(new br.com.archflow.api.decision.DecisionEndpointGuard(
+                        new br.com.archflow.decision.HttpDecisionProvider(
+                                llmProviderPreferences, preferencesRequired), llmBaseUrlPolicy,
+                        tenantModelPolicy))
                 .register(new br.com.archflow.api.decision.LlmDecisionProvider(
                         llmConfigResolver, platformDefaultLLMConfig))
-                .register(new br.com.archflow.api.decision.LangChain4jDecisionProvider(
-                        llmProviderPreferences, preferencesRequired));
+                .register(new br.com.archflow.api.decision.DecisionEndpointGuard(
+                        new br.com.archflow.api.decision.LangChain4jDecisionProvider(
+                                llmProviderPreferences, preferencesRequired), llmBaseUrlPolicy,
+                        tenantModelPolicy));
     }
 
     /**
-     * A chave de um provedor de decisão: a do tenant (o mesmo resolvedor das chaves de LLM, com o
-     * id do provedor — {@code openrouter} por padrão) e, na falta dela,
-     * {@code archflow.decision.keys.<ref>} (env {@code ARCHFLOW_DECISION_KEYS_<REF>}). Nunca do
-     * documento do fluxo.
+     * A chave de um provedor de decisão, nunca do documento do fluxo: a do tenant, depois
+     * {@code archflow.decision.keys.<ref>} (env {@code ARCHFLOW_DECISION_KEYS_<REF>}), depois a chave
+     * de LLM da plataforma para aquele provider.
+     *
+     * <p>A ordem importa desde que o resolver de chaves ganhou fallback de plataforma: chamá-lo inteiro
+     * primeiro faria a chave de LLM da plataforma passar na frente da chave de decisão que o operador
+     * cadastrou de propósito. Com um resolver de produto (sem essa separação), vale o comportamento
+     * anterior: resolver, depois {@code archflow.decision.keys.<ref>}.
      */
     @Bean
     @ConditionalOnMissingBean
@@ -1548,13 +1751,23 @@ public class ArchflowBeanConfiguration {
             br.com.archflow.langchain4j.provider.TenantKeyResolver tenantKeyResolver,
             org.springframework.core.env.Environment env) {
         return (tenantId, ref) -> {
-            var doTenant = tenantKeyResolver.resolveApiKey(tenantId, ref);
+            boolean doDeployment =
+                    tenantKeyResolver instanceof br.com.archflow.langchain4j.provider.PropertyTenantKeyResolver;
+            var doTenant = doDeployment
+                    ? ((br.com.archflow.langchain4j.provider.PropertyTenantKeyResolver) tenantKeyResolver)
+                            .resolveTenantKey(tenantId, ref)
+                    : tenantKeyResolver.resolveApiKey(tenantId, ref);
             if (doTenant.isPresent() && !doTenant.get().isBlank()) {
                 return doTenant;
             }
             String daPlataforma = env.getProperty("archflow.decision.keys." + ref);
-            return daPlataforma == null || daPlataforma.isBlank()
-                    ? java.util.Optional.empty() : java.util.Optional.of(daPlataforma);
+            if (daPlataforma != null && !daPlataforma.isBlank()) {
+                return java.util.Optional.of(daPlataforma);
+            }
+            return doDeployment
+                    ? ((br.com.archflow.langchain4j.provider.PropertyTenantKeyResolver) tenantKeyResolver)
+                            .resolvePlatformKey(ref)
+                    : java.util.Optional.empty();
         };
     }
 }

@@ -79,10 +79,24 @@ public class JdbcPersistenceConfiguration {
         return new br.com.archflow.api.queue.JdbcAgentInvocationQueue(dataSource);
     }
 
+    /** Resultado das invocações da fila durável: sobrevive ao restart e é visto de qualquer réplica. */
+    @Bean
+    public br.com.archflow.api.agent.invocation.AgentInvocationResultStore agentInvocationResultStore(
+            DataSource dataSource) {
+        log.info("JDBC persistence ativo: resultados de invocação duráveis (JdbcAgentInvocationResultStore)");
+        return new br.com.archflow.api.agent.invocation.JdbcAgentInvocationResultStore(dataSource);
+    }
+
     @Bean
     public UserRepository userRepository(DataSource dataSource) {
         log.info("JDBC persistence ativo: UserRepository durável (JdbcUserRepository)");
         return new JdbcUserRepository(dataSource);
+    }
+
+    @Bean
+    public br.com.archflow.api.usage.RepositorioDeUso repositorioDeUso(DataSource dataSource) {
+        log.info("JDBC persistence ativo: consumo de modelo durável (JdbcRepositorioDeUso)");
+        return new br.com.archflow.api.usage.JdbcRepositorioDeUso(dataSource);
     }
 
     @Bean
@@ -178,6 +192,13 @@ public class JdbcPersistenceConfiguration {
         log.info("JDBC persistence ativo: McpAgentStateStore durável "
                 + "(laço de agente suspenso sobrevive a restart)");
         return new br.com.archflow.api.agent.mcp.JdbcMcpAgentStateStore(dataSource);
+    }
+
+    /** Skills ativas por tenant, duráveis (migration V6_14): o switch de Admin > Skills sobrevive a restart. */
+    @Bean
+    public br.com.archflow.api.skills.store.SkillActivationStore skillActivationStore(DataSource dataSource) {
+        log.info("JDBC persistence ativo: SkillActivationStore durável (skills ativas por tenant)");
+        return new br.com.archflow.api.skills.store.JdbcSkillActivationStore(dataSource);
     }
 
     @Bean

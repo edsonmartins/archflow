@@ -43,7 +43,7 @@ test.describe('Conversation actions', () => {
                 return true;
             },
             async ({ path, method, route }) => {
-                if (path !== '/stream/acme/conv-actions-1' || method !== 'GET') return false;
+                if (path !== '/stream/conv-actions-1' || method !== 'GET') return false;
                 await route.fulfill({
                     status: 200,
                     contentType: 'text/event-stream',
@@ -119,7 +119,7 @@ test.describe('Conversation actions', () => {
                 return true;
             },
             async ({ path, method, route }) => {
-                if (path !== '/stream/acme/conv-actions-1' || method !== 'GET') return false;
+                if (path !== '/stream/conv-actions-1' || method !== 'GET') return false;
                 await route.fulfill({
                     status: 200,
                     contentType: 'text/event-stream',
@@ -174,7 +174,7 @@ test.describe('Conversation actions', () => {
                     await route.fulfill({ status: 204 });
                     return true;
                 }
-                if (path !== '/stream/acme/conv-actions-1' || method !== 'GET') return false;
+                if (path !== '/stream/conv-actions-1' || method !== 'GET') return false;
                 await route.fulfill({
                     status: 200,
                     contentType: 'text/event-stream',

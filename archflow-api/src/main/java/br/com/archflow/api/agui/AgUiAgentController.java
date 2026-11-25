@@ -1,6 +1,10 @@
 package br.com.archflow.api.agui;
 
+import br.com.archflow.api.agent.mcp.ContadorDeUso;
+import br.com.archflow.api.config.TenantContext;
 import br.com.archflow.api.trust.UntrustedContentFence;
+import br.com.archflow.api.usage.LancamentoDeUso;
+import br.com.archflow.api.usage.RegistroDeUso;
 import br.com.archflow.langchain4j.provider.LLMConfigResolver;
 import br.com.archflow.langchain4j.provider.LLMResolutionRequest;
 import br.com.archflow.model.config.ResolvedLLMConfig;
@@ -10,6 +14,7 @@ import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
+import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
@@ -17,6 +22,8 @@ import dev.langchain4j.model.chat.request.json.JsonObjectSchema;
 import dev.langchain4j.model.chat.request.json.JsonStringSchema;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
+import dev.langchain4j.model.output.TokenUsage;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -25,8 +32,11 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 import static br.com.archflow.api.agui.AgUiEvent.fields;
@@ -46,6 +56,11 @@ import static br.com.archflow.api.agui.AgUiEvent.fields;
  * (text-based tool loop + guardrails) can't stream user-facing tokens while still
  * parsing tool calls from the same text; native tool-calling + streaming is the
  * follow-up.
+ *
+ * <p>Uma requisição é uma chamada ao modelo; o laço de ferramentas fica no browser. Quando uma
+ * ferramenta do front tem {@code followUp} (addNode devolve o id do nó, e o agente precisa dele para o
+ * connectNodes), o CopilotKit executa o lote e faz OUTRO POST com o histórico — as chamadas do
+ * assistente e os resultados — que {@link #buildMessages} remonta como pares chamada/resultado.
  */
 @RestController
 @RequestMapping("/ag-ui")
@@ -54,9 +69,15 @@ public class AgUiAgentController {
     private static final String DEFAULT_SYSTEM_PROMPT =
             "You are the archflow assistant. Be concise and helpful.";
 
+    /** Resposta de uma chamada sem resultado (ferramenta que não devolve nada, ex.: navigateTo). */
+    private static final String NO_TOOL_RESULT = "(no result)";
+
     private final LLMConfigResolver llmConfigResolver;
     private final ResolvedLLMConfig platformDefault;
     private final ObjectMapper json;
+
+    /** Onde o consumo do chat fica medido, por tenant (RCHFLW-75); {@code null} não registra. */
+    private volatile RegistroDeUso registroDeUso;
 
     public AgUiAgentController(LLMConfigResolver llmConfigResolver,
                               ResolvedLLMConfig platformDefaultLLMConfig,
@@ -64,6 +85,15 @@ public class AgUiAgentController {
         this.llmConfigResolver = llmConfigResolver;
         this.platformDefault = platformDefaultLLMConfig;
         this.json = jackson2ObjectMapper;
+    }
+
+    /**
+     * Liga o registro do consumo. O chat do AG-UI chama o modelo direto, sem o laço de agente, e era
+     * um dos caminhos em que nenhum token era contado.
+     */
+    @Autowired(required = false)
+    public void setRegistroDeUso(RegistroDeUso registroDeUso) {
+        this.registroDeUso = registroDeUso;
     }
 
     @PostMapping(value = "/agent", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
@@ -79,8 +109,16 @@ public class AgUiAgentController {
         emit(sse, lock, AgUiEvent.of("RUN_STARTED", fields("threadId", threadId, "runId", runId)));
 
         try {
-            StreamingChatModel model = llmConfigResolver.resolveStreamingModel(
-                    LLMResolutionRequest.builder(platformDefault).build());
+            // O tenant da requisição (JWT/impersonação, ver ImpersonationFilter) — resolvido aqui, na
+            // thread da requisição: escolhe a chave dele e aplica os modelos permitidos (RCHFLW-79).
+            // Sem tenant é o sentinela __default__, que o resolver trata como "nenhum tenant".
+            String tenantId = TenantContext.currentTenantId();
+            LLMResolutionRequest llmRequest = LLMResolutionRequest.builder(platformDefault)
+                    .tenantId(tenantId)
+                    .build();
+            StreamingChatModel model = llmConfigResolver.resolveStreamingModel(llmRequest);
+            ContadorDeUso uso = new ContadorDeUso();
+            ResolvedLLMConfig configDoUso = configParaUso(llmRequest);
 
             emit(sse, lock, AgUiEvent.of("TEXT_MESSAGE_START", fields("messageId", messageId, "role", "assistant")));
 
@@ -98,6 +136,7 @@ public class AgUiAgentController {
 
                 @Override
                 public void onCompleteResponse(ChatResponse response) {
+                    registrarUso(tenantId, configDoUso, uso, response);
                     synchronized (lock) {
                         writeQuietly(sse, AgUiEvent.of("TEXT_MESSAGE_END", fields("messageId", messageId)));
                         // Frontend tool calls (useFrontendTool): emit AG-UI TOOL_CALL_*
@@ -138,6 +177,33 @@ public class AgUiAgentController {
     }
 
     /**
+     * {@code provider/modelo} da chamada — a chave com que o operador declara preço, a mesma regra do
+     * laço de agente. Sem configuração resolvida, o uso sai sem modelo (e sem custo), nunca falha.
+     */
+    private ResolvedLLMConfig configParaUso(LLMResolutionRequest llmRequest) {
+        try {
+            return llmConfigResolver.resolve(llmRequest);
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    /** Soma o turno e registra o total ({@link RegistroDeUso#registrar} não lança). */
+    private void registrarUso(String tenantId, ResolvedLLMConfig config, ContadorDeUso uso, ChatResponse response) {
+        RegistroDeUso registro = registroDeUso;
+        if (registro == null) {
+            return;
+        }
+        TokenUsage tokens = response == null ? null : response.tokenUsage();
+        String provedor = config == null ? null : config.provider();
+        String modelo = config == null || config.model() == null || config.model().isBlank() ? null
+                : provedor == null || provedor.isBlank() ? config.model() : provedor + "/" + config.model();
+        uso.somar(provedor, modelo,
+                tokens == null ? null : tokens.inputTokenCount(), tokens == null ? null : tokens.outputTokenCount());
+        registro.registrar(tenantId, null, LancamentoDeUso.ORIGEM_AG_UI, uso);
+    }
+
+    /**
      * Full conversation: a system message (prompt + useAgentContext) then the history.
      *
      * <p>Tudo em {@link RunAgentInput} vem do browser. O {@code useAgentContext}
@@ -162,16 +228,40 @@ public class AgUiAgentController {
                 : DEFAULT_SYSTEM_PROMPT));
 
         if (input != null && input.messages() != null) {
+            Map<String, String> toolResults = toolResultsById(input.messages());
+            Set<String> answered = new HashSet<>();
             for (Map<String, Object> m : input.messages()) {
                 String role = String.valueOf(m.get("role"));
                 Object content = m.get("content");
                 String text = content == null ? "" : content.toString();
+                List<ToolExecutionRequest> calls = "assistant".equals(role) ? toolCallsOf(m) : List.of();
+                if (!calls.isEmpty()) {
+                    // A rodada de acompanhamento do CopilotKit (followUp) só serve se o modelo enxergar o que
+                    // pediu e o que voltou: era aqui que a mensagem do assistente com toolCalls (content vazio)
+                    // sumia e o resultado virava uma fala de usuário solta, sem dizer de qual chamada era — o
+                    // modelo recebia "node-…-1", "node-…-2" (na ordem INVERSA: o CopilotKit insere cada
+                    // resultado logo após a mensagem) e não sabia qual nó era qual para o connectNodes.
+                    messages.add(text.isBlank() ? AiMessage.from(calls) : AiMessage.from(text, calls));
+                    for (ToolExecutionRequest call : calls) {
+                        // Toda chamada precisa de resposta, ou o provedor recusa o histórico (OpenAI: 400).
+                        String result = toolResults.getOrDefault(call.id(), "");
+                        answered.add(call.id());
+                        messages.add(ToolExecutionResultMessage.from(call.id(), call.name(),
+                                fence.wrap(call.name(), result.isBlank() ? NO_TOOL_RESULT : result)));
+                    }
+                    continue;
+                }
+                if ("tool".equals(role) && answered.contains(String.valueOf(m.get("toolCallId")))) {
+                    continue;
+                }
                 if (text.isBlank()) {
                     continue;
                 }
                 if ("assistant".equals(role)) {
                     messages.add(AiMessage.from(text));
                 } else if ("tool".equals(role)) {
+                    // Resultado sem a chamada correspondente no histórico: sem o par, o provedor recusaria
+                    // um ToolExecutionResultMessage, então segue como dado cercado na fala do usuário.
                     // Resultado de tool do frontend: dado, não instrução.
                     messages.add(UserMessage.from(fence.wrap("frontend-tool", text)));
                 } else if (!"system".equals(role)) {
@@ -184,6 +274,43 @@ public class AgUiAgentController {
             messages.add(UserMessage.from("Hello"));
         }
         return messages;
+    }
+
+    /** Resultado das mensagens {@code role:tool} do histórico, pelo {@code toolCallId} da chamada. */
+    private static Map<String, String> toolResultsById(List<Map<String, Object>> history) {
+        Map<String, String> byId = new HashMap<>();
+        for (Map<String, Object> m : history) {
+            Object id = m.get("toolCallId");
+            if ("tool".equals(String.valueOf(m.get("role"))) && id != null) {
+                Object content = m.get("content");
+                byId.put(id.toString(), content == null ? "" : content.toString());
+            }
+        }
+        return byId;
+    }
+
+    /** Os {@code toolCalls} AG-UI ({id, function:{name, arguments}}) de uma mensagem do assistente. */
+    private static List<ToolExecutionRequest> toolCallsOf(Map<String, Object> message) {
+        if (!(message.get("toolCalls") instanceof List<?> raw)) {
+            return List.of();
+        }
+        List<ToolExecutionRequest> calls = new ArrayList<>();
+        for (Object item : raw) {
+            Map<String, Object> call = asMap(item);
+            Map<String, Object> function = asMap(call.get("function"));
+            Object id = call.get("id");
+            Object name = function.get("name");
+            if (id == null || name == null) {
+                continue;
+            }
+            Object args = function.get("arguments");
+            calls.add(ToolExecutionRequest.builder()
+                    .id(id.toString())
+                    .name(name.toString())
+                    .arguments(args == null ? "{}" : args.toString())
+                    .build());
+        }
+        return calls;
     }
 
     /**

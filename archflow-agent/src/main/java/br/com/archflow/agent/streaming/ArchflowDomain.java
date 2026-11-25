@@ -113,6 +113,7 @@ public enum ArchflowDomain {
      *   <li>step_completed - Conclusão bem-sucedida de um step</li>
      *   <li>step_failed - Falha na execução de um step</li>
      *   <li>step_skipped - Step ignorado (condição não atendida)</li>
+     *   <li>step_suspended - Step suspendeu o fluxo (aprovação humana pendente)</li>
      * </ul>
      */
     FLOW("flow");

@@ -342,17 +342,18 @@ class MultiTenantE2ETest {
         assertThat(streamRegistry.getEmittersByTenant("tenant-C")).isEmpty();
     }
 
-    // ── Cenário 6: Backward compatibility (SYSTEM tenant) ──────────────
+    // ── Cenário 6: Backward compatibility (tenant padrão) ──────────────
 
     @Test
-    @DisplayName("E2E: Legacy code without tenantId should work with SYSTEM default")
+    @DisplayName("E2E: Legacy code without tenantId should work with the canonical default tenant")
     @SuppressWarnings("deprecation")
     void legacyCodeShouldWorkWithSystemDefault() {
         // Legacy ExecutionContext (mutable)
         var legacyCtx = new DefaultExecutionContext(
                 MessageWindowChatMemory.builder().maxMessages(10).build());
 
-        assertThat(legacyCtx.getTenantId()).isEqualTo("SYSTEM");
+        // Tenant padrão canônico (RCHFLW-13): o mesmo "__default__" da requisição HTTP sem tenant.
+        assertThat(legacyCtx.getTenantId()).isEqualTo("__default__");
 
         // Legacy FlowState without tenantId
         var legacyState = FlowState.builder()
@@ -361,8 +362,9 @@ class MultiTenantE2ETest {
                 .variables(new HashMap<>())
                 .build();
 
-        // Should save under SYSTEM tenant
+        // Should save under the default tenant
         stateRepo.saveState("legacy-flow", legacyState);
+        assertThat(stateRepo.getStatesByTenant("__default__")).hasSize(1);
 
         // Legacy episodic memory
         episodicMemory.store(Episode.of("ctx-1", "legacy data", 0.5));

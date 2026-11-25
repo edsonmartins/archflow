@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AppShell, Group, Badge, ActionIcon, Tooltip, Kbd } from '@mantine/core';
-import { Spotlight, spotlight, type SpotlightActionData, type SpotlightActionGroupData } from '@mantine/spotlight';
+import { spotlight, type SpotlightActionGroupData } from '@mantine/spotlight';
 import { HttpAgent } from '@ag-ui/client';
-import { CopilotKitProvider, CopilotSidebar } from '@copilotkit/react-core/v2';
+import { CopilotKitProvider } from '@copilotkit/react-core/v2';
 import '@copilotkit/react-core/v2/styles.css';
 import CopilotAppOperator from '../copilot/CopilotAppOperator';
-import CopilotGenerateBridge from '../copilot/CopilotGenerateBridge';
+import CopilotGenerateBridge, { COPILOT_GENERATE_AGENT_ID } from '../copilot/CopilotGenerateBridge';
+import { ImpersonationBanner } from '../admin/ImpersonationBanner';
+import AppCopilotSidebar from '../copilot/AppCopilotSidebar';
 import {
     IconTopologyRing,
     IconPlayerPlay,
@@ -31,11 +33,12 @@ import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '../../stores/auth-store';
 import { useTenantStore } from '../../stores/useTenantStore';
-import { useWorkflowStore } from '../../stores/workflow-store';
+import { approvalTenantParam } from '../../lib/approvalTenant';
 import { useColorScheme } from '../../App';
 import { approvalApi } from '../../services/approval-api';
 import { authFetch } from '../../services/api';
 import LanguageSwitcher from './LanguageSwitcher';
+import GlobalSearch from './GlobalSearch';
 import { SidebarBrand, SidebarGroup, SidebarItem, SidebarUser } from './Sidebar';
 
 // Labels come from t() at render time so switching languages updates
@@ -83,15 +86,18 @@ export default function AppLayout() {
     // O @copilotkit (pré-release) embute sua própria declaração de
     // AbstractAgent, nominalmente incompatível com a de @ag-ui/client —
     // em runtime é o mesmo protocolo AG-UI, então o cast é seguro.
-    const copilotAgent = useMemo(
+    const copilotAgents = useMemo(
         () => {
             // authFetch (services/api) injeta o token ATUAL a cada chamada COM
             // refresh single-flight — sem o refresh o /ag-ui/agent voltava 401
             // após a expiração do access token em sessões longas.
             const copilotFetch: typeof window.fetch = (input, init) =>
                 authFetch(typeof input === 'string' ? input : input.toString(), init ?? undefined);
-            return new HttpAgent({ url: '/ag-ui/agent', fetch: copilotFetch }) as unknown as
+            const novo = () => new HttpAgent({ url: '/ag-ui/agent', fetch: copilotFetch }) as unknown as
                 NonNullable<Parameters<typeof CopilotKitProvider>[0]['agents__unsafe_dev_only']>[string];
+            // Dois agentes no mesmo endpoint: o do chat lateral e o do "Gerar com IA", cada um com a própria
+            // conversa (RCHFLW-95 — ver COPILOT_GENERATE_AGENT_ID).
+            return { archflow: novo(), [COPILOT_GENERATE_AGENT_ID]: novo() };
         },
         []);
     const location = useLocation();
@@ -108,7 +114,7 @@ export default function AppLayout() {
     // — the badge is opportunistic, not load-bearing.
     useEffect(() => {
         // impersonating é um TenantInfo — a API espera o ID (passar o objeto virava "[object Object]")
-        const tenantId = impersonating?.id ?? (currentRole === 'superadmin' ? 'all' : 'default');
+        const tenantId = approvalTenantParam(impersonating, currentRole);
         let cancelled = false;
         const refresh = () => {
             approvalApi
@@ -131,11 +137,8 @@ export default function AppLayout() {
         navigate('/login');
     };
 
-    // ── Global search (⌘K) — navigation + workflows ─────────────────
-    const { workflows, fetchWorkflows } = useWorkflowStore();
-    useEffect(() => { fetchWorkflows().catch(() => { /* opportunistic */ }); }, [fetchWorkflows]);
-
-    const spotlightActions = useMemo<(SpotlightActionGroupData | SpotlightActionData)[]>(() => {
+    // ── Global search (⌘K) — as páginas do menu; os dados (fluxos, execuções…) vêm do GlobalSearch ──
+    const spotlightActions = useMemo<SpotlightActionGroupData[]>(() => {
         const nav: SpotlightActionGroupData[] = NAV_GROUPS.map((group) => ({
             group: t(group.key),
             actions: group.items.map((item) => ({
@@ -156,20 +159,8 @@ export default function AppLayout() {
                 }],
             });
         }
-        if (workflows.length > 0) {
-            nav.push({
-                group: t('nav.workflows'),
-                actions: workflows.slice(0, 30).map((w) => ({
-                    id: `wf-${w.id}`,
-                    label: w.name,
-                    description: w.description || undefined,
-                    onClick: () => navigate(`/editor/${w.id}`),
-                    leftSection: <IconTopologyRing size={18} />,
-                })),
-            });
-        }
         return nav;
-    }, [t, navigate, isAdmin, workflows]);
+    }, [t, navigate, isAdmin]);
 
     const toggleTheme = () => {
         setColorScheme(dark ? 'light' : 'dark');
@@ -318,23 +309,16 @@ export default function AppLayout() {
                 )}
             </AppShell.Navbar>
 
-            <Spotlight
-                actions={spotlightActions}
-                shortcut="mod + k"
-                highlightQuery
-                searchProps={{
-                    leftSection: <IconSearch size={18} />,
-                    placeholder: t('nav.searchPlaceholder'),
-                }}
-                nothingFound={t('nav.searchNothing')}
-            />
+            <GlobalSearch pageActions={spotlightActions} />
 
             <AppShell.Main className="af-main">
-                <CopilotKitProvider agents__unsafe_dev_only={{ archflow: copilotAgent }}>
+                {/* A personificação vale em todas as telas, não só em Administração: a faixa também (RCHFLW-96). */}
+                <ImpersonationBanner />
+                <CopilotKitProvider agents__unsafe_dev_only={copilotAgents}>
                     <CopilotAppOperator />
                     <CopilotGenerateBridge />
                     <Outlet />
-                    <CopilotSidebar agentId="archflow" defaultOpen={false} />
+                    <AppCopilotSidebar />
                 </CopilotKitProvider>
             </AppShell.Main>
         </AppShell>

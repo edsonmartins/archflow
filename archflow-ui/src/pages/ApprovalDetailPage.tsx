@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
     Alert,
@@ -26,20 +26,27 @@ import {
     IconX,
 } from '@tabler/icons-react';
 import { approvalApi, type ApprovalResponse } from '../services/approval-api';
+import { approvalTenantParam } from '../lib/approvalTenant';
+import { useTenantStore } from '../stores/useTenantStore';
 import { JsonViewer } from '../components/JsonViewer';
 import { Meta } from '../components/Meta';
 import { formatInstant } from '../lib/format';
-import { useTenantStore } from '../stores/useTenantStore';
 import { confirmAction } from '../lib/confirm';
 import { PageHeader } from '../components/PageHeader';
 import { SectionCard } from '../components/SectionCard';
 
 export default function ApprovalDetailPage() {
     const { id } = useParams<{ id: string }>();
+    // A execução do pedido, quando o link a traz (fila, detalhe da execução): é o que permite ao
+    // servidor achar um pedido já decidido e devolver quem decidiu.
+    const [searchParams] = useSearchParams();
+    const flowId = searchParams.get('flowId') || undefined;
     const navigate = useNavigate();
     const { t, i18n } = useTranslation();
+    // O mesmo tenant da fila: o superadmin que abriu o pedido na visão "all" precisa pedi-lo assim,
+    // senão o servidor só procura no tenant da requisição e responde 404 (RCHFLW-39).
     const { impersonating, currentRole } = useTenantStore();
-    const tenantId = impersonating?.id ?? (currentRole === 'superadmin' ? 'all' : 'default');
+    const tenantId = approvalTenantParam(impersonating, currentRole);
 
     const [approval, setApproval] = useState<ApprovalResponse | null>(null);
     const [loading, setLoading] = useState(true);
@@ -54,7 +61,7 @@ export default function ApprovalDetailPage() {
         let cancelled = false;
         setLoading(true);
         approvalApi
-            .get(id)
+            .get(id, flowId, tenantId)
             .then((dto) => {
                 if (cancelled) return;
                 setApproval(dto);
@@ -70,7 +77,7 @@ export default function ApprovalDetailPage() {
             cancelled = true;
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [id]);
+    }, [id, flowId, tenantId]);
 
     const decide = async (decision: 'APPROVED' | 'REJECTED' | 'EDITED') => {
         if (!id || !approval) return;
@@ -86,15 +93,18 @@ export default function ApprovalDetailPage() {
                 }
             }
             const result = await approvalApi.submit(id, {
-                tenantId: approval.tenantId ?? tenantId,
+                // O tenant da própria pendência, vindo do servidor — nunca um palpite da UI.
+                tenantId: approval.tenantId,
                 decision,
                 editedPayload: parsedPayload,
-                responderId: 'me',
                 comment: comment.trim() || undefined,
             });
+            // Em nome de quem o servidor registrou — é o que vale, não o que esta tela supõe.
             notifications.show({
                 title: t('approvals.detail.decisionSubmitted'),
-                message: `${decision} · ${result.requestId.slice(0, 12)}`,
+                message: result.decidedBy
+                    ? t('approvals.detail.decidedMsg', { decision, who: result.decidedBy })
+                    : `${decision} · ${result.requestId.slice(0, 12)}`,
                 color:
                     decision === 'APPROVED'
                         ? 'teal'
@@ -155,6 +165,8 @@ export default function ApprovalDetailPage() {
 
     const locale = i18n.resolvedLanguage ?? i18n.language;
     const expired = approval.expiresAt ? new Date(approval.expiresAt).getTime() <= Date.now() : false;
+    // Decidido não é acionável: no lugar da proposta e dos botões, quem decidiu, quando e por quê.
+    const decided = approval.status !== 'PENDING';
 
     return (
         <Stack gap="lg" p="md">
@@ -186,6 +198,9 @@ export default function ApprovalDetailPage() {
                 description={t('approvals.detail.requestHint')}
             >
                 <Stack gap="md">
+                    {approval.title && (
+                        <Text size="lg" fw={600} data-testid="approval-title">{approval.title}</Text>
+                    )}
                     {approval.description && (
                         <Paper
                             p="md"
@@ -215,89 +230,116 @@ export default function ApprovalDetailPage() {
                 </Stack>
             </SectionCard>
 
-            <Group align="flex-start" gap="lg" wrap="wrap">
+            {decided && (
                 <SectionCard
-                    style={{ flex: '2 1 520px', minWidth: 0 }}
-                    icon={IconBraces}
-                    accent="blue"
-                    title={t('approvals.detail.proposal')}
-                    description={editMode ? t('approvals.detail.proposalEditHint') : t('approvals.detail.proposalHint')}
-                    actions={
-                        !editMode && (
-                            <Button
-                                size="xs"
-                                variant="light"
-                                leftSection={<IconEdit size={14} />}
-                                onClick={() => setEditMode(true)}
-                                data-testid="approval-edit-toggle"
-                            >
-                                {t('approvals.detail.editBeforeApprove')}
-                            </Button>
-                        )
-                    }
-                >
-                    {editMode ? (
-                        <Textarea
-                            value={editedPayload}
-                            onChange={(e) => setEditedPayload(e.currentTarget.value)}
-                            minRows={10}
-                            autosize
-                            styles={{ input: { fontFamily: 'var(--font-mono)', fontSize: 12 } }}
-                            data-testid="approval-edit-payload"
-                        />
-                    ) : (
-                        <JsonViewer value={approval.proposal} autoExpandDepth={2} testId="approval-proposal" />
-                    )}
-                </SectionCard>
-
-                <SectionCard
-                    style={{ flex: '1 1 320px', minWidth: 0 }}
                     icon={IconGavel}
                     accent="amber"
-                    title={t('approvals.detail.yourDecision')}
-                    description={t('approvals.detail.decisionHint')}
+                    title={t('approvals.detail.decidedTitle')}
+                    description={t('approvals.detail.decidedHint')}
+                    data-testid="approval-decided"
                 >
                     <Stack gap="md">
-                        <Textarea
-                            size="sm"
-                            label={t('approvals.detail.comment')}
-                            placeholder={t('approvals.detail.commentPlaceholder')}
-                            minRows={3}
-                            autosize
-                            value={comment}
-                            onChange={(e) => setComment(e.currentTarget.value)}
-                        />
-                        <Group gap="sm" justify="flex-end">
-                            {editMode && (
-                                <Button variant="subtle" color="gray" onClick={() => setEditMode(false)}>
-                                    {t('approvals.detail.cancelEdit')}
-                                </Button>
-                            )}
-                            <Button
-                                leftSection={<IconX size={14} />}
-                                color="red"
-                                variant="light"
-                                loading={submitting}
-                                disabled={submitting}
-                                onClick={() => confirmDecide('REJECTED')}
-                                data-testid="approval-reject"
-                            >
-                                {t('approvals.detail.reject')}
-                            </Button>
-                            <Button
-                                leftSection={<IconCheck size={14} />}
-                                color="teal"
-                                loading={submitting}
-                                disabled={submitting}
-                                onClick={() => confirmDecide(editMode ? 'EDITED' : 'APPROVED')}
-                                data-testid="approval-approve"
-                            >
-                                {editMode ? t('approvals.detail.saveAndApprove') : t('approvals.detail.approve')}
-                            </Button>
-                        </Group>
+                        <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="lg">
+                            <Meta label={t('approvals.detail.decidedBy')} value={approval.decidedBy ?? '—'} />
+                            <Meta label={t('approvals.detail.decidedAt')}
+                                  value={formatInstant(approval.decidedAt ?? null, locale)} />
+                        </SimpleGrid>
+                        {approval.comment && (
+                            <Stack gap={2}>
+                                <Text size="xs" c="dimmed">{t('approvals.detail.decidedComment')}</Text>
+                                <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}
+                                      data-testid="approval-decided-comment">{approval.comment}</Text>
+                            </Stack>
+                        )}
                     </Stack>
                 </SectionCard>
-            </Group>
+            )}
+
+            {!decided && (
+                <Group align="flex-start" gap="lg" wrap="wrap">
+                    <SectionCard
+                        style={{ flex: '2 1 520px', minWidth: 0 }}
+                        icon={IconBraces}
+                        accent="blue"
+                        title={t('approvals.detail.proposal')}
+                        description={editMode ? t('approvals.detail.proposalEditHint') : t('approvals.detail.proposalHint')}
+                        actions={
+                            !editMode && (
+                                <Button
+                                    size="xs"
+                                    variant="light"
+                                    leftSection={<IconEdit size={14} />}
+                                    onClick={() => setEditMode(true)}
+                                    data-testid="approval-edit-toggle"
+                                >
+                                    {t('approvals.detail.editBeforeApprove')}
+                                </Button>
+                            )
+                        }
+                    >
+                        {editMode ? (
+                            <Textarea
+                                value={editedPayload}
+                                onChange={(e) => setEditedPayload(e.currentTarget.value)}
+                                minRows={10}
+                                autosize
+                                styles={{ input: { fontFamily: 'var(--font-mono)', fontSize: 12 } }}
+                                data-testid="approval-edit-payload"
+                            />
+                        ) : (
+                            <JsonViewer value={approval.proposal} autoExpandDepth={2} testId="approval-proposal" />
+                        )}
+                    </SectionCard>
+
+                    <SectionCard
+                        style={{ flex: '1 1 320px', minWidth: 0 }}
+                        icon={IconGavel}
+                        accent="amber"
+                        title={t('approvals.detail.yourDecision')}
+                        description={t('approvals.detail.decisionHint')}
+                    >
+                        <Stack gap="md">
+                            <Textarea
+                                size="sm"
+                                label={t('approvals.detail.comment')}
+                                placeholder={t('approvals.detail.commentPlaceholder')}
+                                minRows={3}
+                                autosize
+                                value={comment}
+                                onChange={(e) => setComment(e.currentTarget.value)}
+                            />
+                            <Group gap="sm" justify="flex-end">
+                                {editMode && (
+                                    <Button variant="subtle" color="gray" onClick={() => setEditMode(false)}>
+                                        {t('approvals.detail.cancelEdit')}
+                                    </Button>
+                                )}
+                                <Button
+                                    leftSection={<IconX size={14} />}
+                                    color="red"
+                                    variant="light"
+                                    loading={submitting}
+                                    disabled={submitting}
+                                    onClick={() => confirmDecide('REJECTED')}
+                                    data-testid="approval-reject"
+                                >
+                                    {t('approvals.detail.reject')}
+                                </Button>
+                                <Button
+                                    leftSection={<IconCheck size={14} />}
+                                    color="teal"
+                                    loading={submitting}
+                                    disabled={submitting}
+                                    onClick={() => confirmDecide(editMode ? 'EDITED' : 'APPROVED')}
+                                    data-testid="approval-approve"
+                                >
+                                    {editMode ? t('approvals.detail.saveAndApprove') : t('approvals.detail.approve')}
+                                </Button>
+                            </Group>
+                        </Stack>
+                    </SectionCard>
+                </Group>
+            )}
         </Stack>
     );
 }

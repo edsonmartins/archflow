@@ -8,18 +8,28 @@
  * é (string pura ou JSON cortado pelo truncamento).
  */
 
+import { isAnnotationStep } from '../components/FlowCanvas/constants'
+
 /** Registro de passo persistido pelo backend (`GET /api/executions/{id}` → `steps[]`). */
 export interface StepRecord {
   stepId: string
   type?: string
   stepIndex?: number
   stepCount?: number
-  status: 'RUNNING' | 'COMPLETED' | 'FAILED' | 'SKIPPED' | string
+  /**
+   * PAUSED: portão de aprovação à espera da decisão (não concluiu). REJECTED: portão recusado, por
+   * alguém ou pelo prazo — gravado pela fila de Aprovações, com `decidedBy`.
+   */
+  status: 'RUNNING' | 'COMPLETED' | 'FAILED' | 'SKIPPED' | 'PAUSED' | 'REJECTED' | string
   startedAt?: string
   finishedAt?: string
+  /** Quando o portão suspendeu o fluxo para esperar a decisão. */
+  suspendedAt?: string
   durationMs?: number
   error?: string
   output?: string
+  /** Quem recusou o portão (só em REJECTED). */
+  decidedBy?: string
 }
 
 /** Status sintético das linhas de passos do fluxo que não têm registro nesta execução. */
@@ -116,6 +126,8 @@ export function buildStepRows(
     const recorded = new Set(records.map((r) => r.stepId))
     for (const step of docSteps) {
       if (!step || typeof step.id !== 'string' || recorded.has(step.id)) continue
+      // Nota, quadro e separador não são passos: o motor nem os vê, então não "deixaram de executar".
+      if (isAnnotationStep(step)) continue
       rows.push({ stepId: step.id, status: NOT_EXECUTED, label: labels.get(step.id), notExecuted: true })
     }
   }
