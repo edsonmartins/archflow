@@ -189,6 +189,7 @@ public class AnthropicChatAdapter implements LangChainAdapter, ChatModelProvider
 
     private Object doExecute(ChatModel model, String systemPrompt, String operation, Object input,
                              ExecutionContext context) throws Exception {
+            exigeMensagemNaoVazia(operation, input);
             try {
                 if ("generate".equals(operation)) {
                     if (!(input instanceof String)) {
@@ -218,6 +219,28 @@ public class AnthropicChatAdapter implements LangChainAdapter, ChatModelProvider
             } catch (Exception e) {
                 throw new RuntimeException("Error executing operation: " + operation, e);
             }
+    }
+
+    /** A falha de uma mensagem em branco, dita no termo do nó (RCHFLW-101). */
+    static final String MENSAGEM_VAZIA = "O nó precisa de uma entrada: a API da Anthropic recusa uma "
+            + "mensagem vazia. Execute o fluxo com uma entrada ou ligue o nó a um passo que produza texto.";
+
+    /**
+     * Recusa, antes de qualquer requisição, a mensagem do usuário em branco.
+     *
+     * <p>Executar um fluxo com a entrada vazia agora semeia {@code input = ""} (RCHFLW-101). OpenAI e
+     * OpenRouter aceitam a mensagem vazia; a API da Anthropic não ("text content blocks must be
+     * non-empty", 400). Sem esta checagem o passo falhava com o genérico "Error executing operation"
+     * por cima do 400 em inglês do provedor. Fica fora do {@code try} de {@code doExecute} para a
+     * mensagem chegar ao passo como está, sem o embrulho. Não troca o texto por outro: inventar uma
+     * mensagem mandaria ao modelo algo que ninguém escreveu.</p>
+     */
+    static void exigeMensagemNaoVazia(String operation, Object input) {
+        boolean operacaoDeMensagem = "generate".equals(operation) || "chat".equals(operation)
+                || "generateStream".equals(operation) || "chatStream".equals(operation);
+        if (operacaoDeMensagem && input instanceof String text && text.isBlank()) {
+            throw new IllegalArgumentException(MENSAGEM_VAZIA);
+        }
     }
 
     /**

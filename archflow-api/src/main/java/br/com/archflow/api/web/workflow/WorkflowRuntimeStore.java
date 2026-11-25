@@ -169,8 +169,36 @@ public interface WorkflowRuntimeStore {
                 && Set.of("PAUSED", "CANCELLED").contains(incoming);
     }
 
-    /** Records the wall-clock duration of an execution (set by the lifecycle listener). */
+    /**
+     * Records the wall-clock duration of an execution (set by the lifecycle listener), as
+     * {@link #executionDuration}: o tempo desde o {@code startedAt} do registro, não só o da última
+     * travessia do motor.
+     */
     void recordDuration(String id, long durationMs);
+
+    /**
+     * A duração a gravar quando o motor termina: do {@code startedAt} da execução até agora. O
+     * {@code durationMs} do motor mede só a travessia que terminou; numa execução que pausou numa
+     * aprovação e foi retomada, era o trecho depois da retomada — o detalhe mostrava 1,6 s para uma
+     * execução de 28 s (RCHFLW-99). Sem {@code startedAt} legível no registro, vale o do motor, que é o
+     * que havia antes.
+     *
+     * @param execution   o registro da execução
+     * @param traversalMs a duração que o motor mediu
+     * @param now         o instante do fim
+     */
+    static long executionDuration(Map<String, Object> execution, long traversalMs, java.time.Instant now) {
+        Object startedAt = execution.get("startedAt");
+        if (startedAt == null) {
+            return traversalMs;
+        }
+        try {
+            long total = java.time.Duration.between(java.time.Instant.parse(startedAt.toString()), now).toMillis();
+            return Math.max(total, traversalMs);
+        } catch (java.time.format.DateTimeParseException e) {
+            return traversalMs;
+        }
+    }
 
     /**
      * Appends/updates a per-step record inside the execution's {@code steps}

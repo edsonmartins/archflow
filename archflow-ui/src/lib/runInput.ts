@@ -6,7 +6,8 @@ import type { AgUiRunInput } from '../services/agui-client'
  * <p>O usuário digita um texto livre. Se ele é um objeto JSON, cada chave vira uma variável do
  * contexto (é o que o POST /workflows/{id}/execute faz com o corpo); qualquer outra coisa vira a
  * variável <code>input</code> — o nome que os fluxos já leem (<code>${input}</code>) e que o curl de
- * exemplo do Publicar usa. Vazio continua valendo: é a execução sem entrada de antes.</p>
+ * exemplo do Publicar usa. Vazio continua valendo: é a execução sem entrada, e o servidor
+ * (RunInputSeeding) define <code>input = ""</code> — assim <code>${input} != ''</code> dá false (RCHFLW-101).</p>
  */
 export type ParsedRunInput =
     | { kind: 'empty' }

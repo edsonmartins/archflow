@@ -197,6 +197,28 @@ class DefaultFlowEngineApprovalDurabilityTest {
                     .doesNotThrowAnyException();
         }
 
+        /**
+         * RCHFLW-50: a retomada reidratada montava o contexto com sessão null (a variável
+         * {@code sessionId} em geral não existe), e o orchestrate depois do portão, que publica no
+         * canal da sessão, não emitia nada. A sessão é o id do fluxo, como em toda entrada do servidor.
+         */
+        @Test
+        @DisplayName("a retomada reidratada tem a sessão igual ao id do fluxo")
+        void rehydratedResumeKeepsTheSession() throws Exception {
+            Flow flow = mockFlow("flow-1");
+            when(flowRepository.findById("flow-1")).thenReturn(Optional.of(flow));
+            String requestId = runUntilAwaitingApproval(newEngine(2), flow);
+
+            AtomicReference<String> sessaoNaRetomada = new AtomicReference<>();
+            when(executionManager.executeFlow(eq(flow), any(ExecutionContext.class))).thenAnswer(inv -> {
+                sessaoNaRetomada.set(inv.<ExecutionContext>getArgument(1).getSessionId());
+                return resultWith(ExecutionStatus.COMPLETED);
+            });
+            newEngine(2).submitApproval("flow-1", requestId, true, null).get(5, TimeUnit.SECONDS);
+
+            assertThat(sessaoNaRetomada.get()).isEqualTo("flow-1");
+        }
+
         @Test
         @DisplayName("requestId inválido é rejeitado também no caminho reidratado")
         void rehydratedPathRejectsUnknownRequestId() throws Exception {

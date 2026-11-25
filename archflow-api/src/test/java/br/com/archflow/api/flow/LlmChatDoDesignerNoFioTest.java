@@ -151,6 +151,24 @@ class LlmChatDoDesignerNoFioTest {
                 .isEmpty();
     }
 
+    /**
+     * RCHFLW-101: executar com a entrada vazia deixava o {@code input} indefinido, e o nó falhava com o
+     * texto técnico "Input must be a string for 'generate'". Agora o input é "" e é ele que o nó manda.
+     */
+    @Test
+    @DisplayName("entrada vazia: o nó recebe \"\" (não um valor ausente) e responde")
+    void entradaVazia() {
+        Flow flow = fluxo(noDoDesigner("s1", Map.of("systemPrompt", "Conte uma piada curta.")));
+        ExecutionContext ctx = contexto();
+        RunInputSeeding.seedVariables(ctx, null);
+
+        StepResult result = flow.getSteps().get(0).execute(ctx).join();
+
+        assertThat(result.getStatus()).as(String.valueOf(result.getOutput())).isEqualTo(StepStatus.COMPLETED);
+        assertThat(corpos).singleElement().satisfies(corpo -> assertThat(corpo.replaceAll("\\s", ""))
+                .contains("{\"role\":\"user\",\"content\":\"\"}"));
+    }
+
     @Test
     @DisplayName("llm.model na entrada da execução não troca o modelo do nó (nem sai com a chave governada)")
     void entradaNaoEscolheOModelo() {

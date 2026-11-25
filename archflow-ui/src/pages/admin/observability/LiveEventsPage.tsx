@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Alert, Badge, Box, Button, Grid, Group, TextInput } from '@mantine/core';
+import { ActionIcon, Alert, Badge, Box, Button, Grid, Group, Select, Switch, TextInput, Tooltip } from '@mantine/core';
 import {
     IconAlertCircle,
     IconBraces,
@@ -9,9 +9,12 @@ import {
     IconPlugConnected,
     IconPlugConnectedX,
     IconRadar2,
+    IconRefresh,
     IconTrash,
 } from '@tabler/icons-react';
 import { ArchflowEventStream, type ArchflowEvent, type StreamStatus } from '../../../services/event-stream';
+import { executionApi, type ExecutionSummary } from '../../../services/api';
+import { isTerminalExecutionStatus } from '../../../lib/executionStatus';
 import { JsonViewer } from '../../../components/JsonViewer';
 import EmptyState from '../../../components/EmptyState';
 import { SectionCard } from '../../../components/SectionCard';
@@ -19,17 +22,29 @@ import { VxTable, colunaApagada, colunaStatus, type Registro, type VxColumn } fr
 
 /**
  * Live SSE event viewer for debugging. Reuses {@link ArchflowEventStream}
- * from P0 — the user types a session id (and, optionally, a tenant id) and
- * sees every frame arriving in real time. Scrollback is capped at 500 entries.
- * Clicking an event opens its payload in the side panel.
+ * from P0 — the user picks an execution and sees every frame arriving in real
+ * time. Scrollback is capped at 500 entries. Clicking an event opens its
+ * payload in the side panel.
  *
- * O tenant em branco é o da própria sessão (o servidor resolve). Informado, o servidor só aceita o
- * tenant efetivo da requisição — o próprio, ou o personificado por um superadmin — e responde 403 a
- * qualquer outro (RCHFLW-49); `__admin__` + o próprio tenant abre o canal administrativo dele.
+ * Escolher a execução, e não digitar tenant e sessão (RCHFLW-50): o motor publica os eventos de
+ * fluxo e de passo no canal `<tenant da execução>:<executionId>`, e a lista vem de
+ * `GET /executions`, que só devolve as do tenant da requisição. O stream é aberto sem tenant
+ * (`GET /stream/{executionId}`): o servidor usa o tenant de quem está logado (o do token, ou o
+ * personificado já conferido) — a página não tem como escolher o canal de outro tenant, e a rota com
+ * tenant responde 403 a qualquer outro (RCHFLW-49).
+ *
+ * O canal livre (tenant + sessão digitados) continua disponível atrás de uma chave, desligada por
+ * padrão: é o único jeito de assinar uma conversa ou o canal administrativo (`__admin__` + o próprio
+ * tenant, com os eventos de todos os fluxos dele), que não são execuções da lista. O servidor confere o
+ * tenant do mesmo jeito nas duas formas.
  */
 export default function LiveEventsPage() {
     const { t, i18n } = useTranslation();
     const locale = i18n.resolvedLanguage ?? i18n.language;
+    const [executions, setExecutions] = useState<ExecutionSummary[]>([]);
+    const [loadingExecutions, setLoadingExecutions] = useState(false);
+    const [executionId, setExecutionId] = useState<string | null>(null);
+    const [freeChannel, setFreeChannel] = useState(false);
     const [tenantId, setTenantId] = useState('');
     const [sessionId, setSessionId] = useState('');
     const [paused, setPaused] = useState(false);
@@ -40,7 +55,37 @@ export default function LiveEventsPage() {
     const [attached, setAttached] = useState<{ tenantId?: string; sessionId: string } | null>(null);
     const streamRef = useRef<ArchflowEventStream | null>(null);
 
-    const canAttach = sessionId.trim().length > 0;
+    const canAttach = freeChannel ? sessionId.trim().length > 0 : !!executionId;
+    // O stream é só ao vivo, sem replay: uma execução que já terminou não emite mais nada, e conectar
+    // nela deixaria o feed em "Aguardando eventos…" para sempre sem dizer por quê.
+    const selectedExecution = executions.find((e) => e.id === executionId) ?? null;
+    const selectedFinished = !freeChannel && isTerminalExecutionStatus(selectedExecution?.status);
+
+    const loadExecutions = async () => {
+        setLoadingExecutions(true);
+        try {
+            setExecutions(await executionApi.list({ limit: 50 }));
+        } catch {
+            // Sem a lista não há o que escolher: dizer por quê, em vez de um seletor vazio mudo.
+            setError(t('admin.observability.live.executionsFailed'));
+        } finally {
+            setLoadingExecutions(false);
+        }
+    };
+
+    // Só na montagem; depois, pelo botão de atualizar.
+    useEffect(() => {
+        void loadExecutions();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    const executionOptions = useMemo(
+        () => executions.map((e) => ({
+            value: e.id,
+            label: `${e.workflowName || e.workflowId} · ${e.id} · ${e.status}`,
+        })),
+        [executions],
+    );
 
     useEffect(() => {
         if (!attached) return;
@@ -77,7 +122,9 @@ export default function LiveEventsPage() {
         setError(null);
         setEvents([]);
         setExpandedId(null);
-        setAttached({ tenantId: tenantId.trim() || undefined, sessionId: sessionId.trim() });
+        setAttached(freeChannel
+            ? { tenantId: tenantId.trim() || undefined, sessionId: sessionId.trim() }
+            : { sessionId: executionId! });
     };
 
     const handleDetach = () => {
@@ -121,7 +168,9 @@ export default function LiveEventsPage() {
                 icon={IconPlugConnected}
                 accent="green"
                 title={t('admin.observability.live.connection')}
-                description={t('admin.observability.live.connectionHint')}
+                description={freeChannel
+                    ? t('admin.observability.live.channelHint')
+                    : t('admin.observability.live.connectionHint')}
                 actions={
                     <Badge size="lg" variant="dot" color={statusColor(status)} data-testid="live-status">
                         {status}
@@ -129,25 +178,66 @@ export default function LiveEventsPage() {
                 }
             >
                 <Group gap="sm" wrap="wrap" align="flex-end">
-                    <TextInput
-                        size="sm"
-                        label={t('admin.observability.live.tenantId')}
-                        value={tenantId}
-                        onChange={(e) => setTenantId(e.currentTarget.value)}
-                        w={220}
-                        placeholder={t('admin.observability.live.tenantPlaceholder')}
+                    {freeChannel ? (
+                        <>
+                            <TextInput
+                                size="sm"
+                                label={t('admin.observability.live.tenantId')}
+                                value={tenantId}
+                                onChange={(e) => setTenantId(e.currentTarget.value)}
+                                w={220}
+                                placeholder={t('admin.observability.live.tenantPlaceholder')}
+                                disabled={!!attached}
+                                data-testid="live-tenant"
+                            />
+                            <TextInput
+                                size="sm"
+                                label={t('admin.observability.live.sessionId')}
+                                value={sessionId}
+                                onChange={(e) => setSessionId(e.currentTarget.value)}
+                                w={280}
+                                placeholder={t('admin.observability.live.sessionPlaceholder')}
+                                disabled={!!attached}
+                                data-testid="live-session"
+                            />
+                        </>
+                    ) : (
+                        <>
+                            <Select
+                                size="sm"
+                                label={t('admin.observability.live.execution')}
+                                data={executionOptions}
+                                value={executionId}
+                                onChange={setExecutionId}
+                                searchable
+                                w={420}
+                                placeholder={t('admin.observability.live.executionPlaceholder')}
+                                nothingFoundMessage={t('admin.observability.live.executionsEmpty')}
+                                disabled={!!attached}
+                                data-testid="live-execution"
+                            />
+                            <Tooltip label={t('admin.observability.live.refreshExecutions')}>
+                                <ActionIcon
+                                    variant="default"
+                                    size="lg"
+                                    onClick={() => void loadExecutions()}
+                                    loading={loadingExecutions}
+                                    disabled={!!attached}
+                                    aria-label={t('admin.observability.live.refreshExecutions')}
+                                    data-testid="live-refresh"
+                                >
+                                    <IconRefresh size={16} />
+                                </ActionIcon>
+                            </Tooltip>
+                        </>
+                    )}
+                    <Switch
+                        label={t('admin.observability.live.freeChannel')}
+                        checked={freeChannel}
+                        onChange={(e) => setFreeChannel(e.currentTarget.checked)}
                         disabled={!!attached}
-                        data-testid="live-tenant"
-                    />
-                    <TextInput
-                        size="sm"
-                        label={t('admin.observability.live.sessionId')}
-                        value={sessionId}
-                        onChange={(e) => setSessionId(e.currentTarget.value)}
-                        w={280}
-                        placeholder={t('admin.observability.live.sessionPlaceholder')}
-                        disabled={!!attached}
-                        data-testid="live-session"
+                        mb={8}
+                        data-testid="live-free-channel"
                     />
                     <Group gap="xs" ml="auto">
                         {attached ? (
@@ -197,6 +287,16 @@ export default function LiveEventsPage() {
             {error && (
                 <Alert color="red" variant="light" icon={<IconAlertCircle size={16} />}>
                     {error}
+                </Alert>
+            )}
+            {selectedFinished && (
+                <Alert color="yellow" variant="light" icon={<IconAlertCircle size={16} />} data-testid="live-finished">
+                    {t('admin.observability.live.finished')}
+                </Alert>
+            )}
+            {attached && status === 'error' && (
+                <Alert color="red" variant="light" icon={<IconAlertCircle size={16} />} data-testid="live-rejected">
+                    {t('admin.observability.live.rejected')}
                 </Alert>
             )}
 

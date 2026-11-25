@@ -253,6 +253,8 @@ export const executionApi = {
         return api.get<ExecutionSummary[]>(query ? `/executions?${query}` : '/executions');
     },
     get: (id: string) => api.get<ExecutionSummary>(`/executions/${id}`),
+    /** Cancela no servidor (marca CANCELLED; o passo em curso termina e o resultado é descartado). */
+    cancel: (id: string) => api.post<ExecutionSummary>(`/executions/${encodeURIComponent(id)}/cancel`),
 };
 
 export { ApiError };

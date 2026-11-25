@@ -7,7 +7,7 @@
  * integration would sit on top of later.
  */
 
-import { authFetch } from './api'
+import { ApiError, authFetch, executionApi } from './api'
 
 export interface AgUiEvent {
     type: string
@@ -20,15 +20,44 @@ export interface AgUiRunInput {
 }
 
 /**
+ * Desfecho do Parar:
+ * - `stopped`: não havia o que cancelar, ou o servidor aceitou o cancelamento;
+ * - `byDisconnect`: o servidor recusou por permissão (403). Executar pede `workflow:execute`, mas o
+ *   `POST /api/executions/{id}/cancel` pede `execution:manage`, que só o ADMIN tem — DESIGNER e
+ *   EXECUTOR caem aqui a cada Parar. A execução para mesmo assim: o stream já foi fechado e o
+ *   servidor cancela ao notar a desconexão (no próximo batimento do AgUiController ou evento), só
+ *   que mais tarde. Dizer "pode continuar rodando" seria alarme falso e esconderia a causa real;
+ * - `failed`: o servidor recusou por outro motivo ou não respondeu — a execução pode continuar
+ *   rodando, e quem chamou precisa dizer isso ao usuário.
+ */
+export type StopOutcome = 'stopped' | 'byDisconnect' | 'failed'
+
+/**
+ * Para o run: fecha o stream e, se o RUN_STARTED já trouxe o id da execução e o run ainda não
+ * terminou, cancela no servidor (POST /api/executions/{id}/cancel). Ver {@link StopOutcome}.
+ */
+export type StopAgUiRun = () => Promise<StopOutcome>
+
+/**
  * Runs a workflow over AG-UI, invoking `onEvent` for each event. Returns a
- * function that aborts the stream (cancels the run server-side on disconnect).
+ * function that stops the run (see {@link StopAgUiRun}).
  */
 export function runAgUiWorkflow(
     workflowId: string,
     input: AgUiRunInput,
     onEvent: (event: AgUiEvent) => void,
-): () => void {
+): StopAgUiRun {
     const controller = new AbortController()
+    // Fechar o fetch só avisa o servidor quando ele tenta escrever — e um passo longo (LLM) não
+    // escreve nada até terminar: o passo ia até o fim e a execução ficava COMPLETED (RCHFLW-54).
+    // Por isso o Parar também cancela pelo id que o RUN_STARTED trouxe.
+    let runId: string | null = null
+    let terminado = false
+    const dispatch = (event: AgUiEvent) => {
+        if (event.type === 'RUN_STARTED' && typeof event.runId === 'string') runId = event.runId
+        if (event.type === 'RUN_FINISHED' || event.type === 'RUN_ERROR') terminado = true
+        onEvent(event)
+    }
 
     void (async () => {
         // authFetch, não fetch cru: além do Authorization (com refresh), ele manda o
@@ -44,11 +73,11 @@ export function runAgUiWorkflow(
         // HTTP-level failures (401/500/...) never produce SSE frames — emit a
         // synthetic RUN_ERROR so callers can leave their "executing" state.
         if (!response.ok) {
-            onEvent({ type: 'RUN_ERROR', message: `HTTP ${response.status} ${response.statusText}`.trim() })
+            dispatch({ type: 'RUN_ERROR', message: `HTTP ${response.status} ${response.statusText}`.trim() })
             return
         }
         if (!response.body) {
-            onEvent({ type: 'RUN_ERROR', message: 'Empty response stream' })
+            dispatch({ type: 'RUN_ERROR', message: 'Empty response stream' })
             return
         }
 
@@ -73,7 +102,7 @@ export function runAgUiWorkflow(
                 const payload = dataLine.slice(5).trim()
                 if (!payload) continue
                 try {
-                    onEvent(JSON.parse(payload) as AgUiEvent)
+                    dispatch(JSON.parse(payload) as AgUiEvent)
                 } catch {
                     // ignore malformed frame
                 }
@@ -83,11 +112,22 @@ export function runAgUiWorkflow(
         // A user-initiated abort is not an error; anything else must reach the
         // caller as RUN_ERROR or the UI stays stuck in its executing state.
         if (controller.signal.aborted) return
-        onEvent({
+        dispatch({
             type: 'RUN_ERROR',
             message: err instanceof Error ? err.message : String(err),
         })
     })
 
-    return () => controller.abort()
+    return async () => {
+        controller.abort()
+        if (!runId || terminado) return 'stopped'
+        const id = runId
+        terminado = true
+        try {
+            await executionApi.cancel(id)
+            return 'stopped'
+        } catch (e) {
+            return e instanceof ApiError && e.status === 403 ? 'byDisconnect' : 'failed'
+        }
+    }
 }

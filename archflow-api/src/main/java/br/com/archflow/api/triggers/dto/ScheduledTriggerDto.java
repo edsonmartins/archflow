@@ -24,11 +24,15 @@ import java.util.Objects;
  *                       but paused — Quartz won't schedule it
  * @param createdAt      server clock at creation
  * @param lastFiredAt    last successful fire time, or {@code null}
- * @param lastError      last error message, or {@code null} — a falha do <i>disparo</i> (fila fora, por
- *                       exemplo); o desfecho do agente é o resultado da invocação
+ * @param lastError      a falha do último disparo, ou {@code null}: a do <i>disparo</i> (fila fora, por
+ *                       exemplo) ou a do agente na invocação disparada ({@code FAILED} no resultado,
+ *                       RCHFLW-104). Um disparo seguinte que termina bem a limpa
  * @param lastRequestId  requestId da última invocação disparada, ou {@code null}. É por ele que se sabe
  *                       como o agente terminou ({@code GET /archflow/agents/invocations/{requestId}}):
  *                       sem ele, "disparado" era tudo o que o gatilho dizia (RCHFLW-80)
+ * @param lastStatus     como terminou o último disparo — {@code QUEUED}, {@code RUNNING},
+ *                       {@code COMPLETED} ou {@code FAILED} (os estados do resultado da invocação) —, ou
+ *                       {@code null} se o gatilho nunca disparou
  */
 public record ScheduledTriggerDto(
         String id,
@@ -41,7 +45,20 @@ public record ScheduledTriggerDto(
         Instant createdAt,
         Instant lastFiredAt,
         String lastError,
-        String lastRequestId) {
+        String lastRequestId,
+        String lastStatus) {
+
+    /**
+     * Sem o status do último disparo — o formato de antes da RCHFLW-104, que é o de quem só envia o
+     * corpo de criação/edição (o status é do servidor, não do cliente).
+     */
+    public ScheduledTriggerDto(String id, String name, String cronExpression, String tenantId,
+                               String agentId, Map<String, Object> payload, boolean enabled,
+                               Instant createdAt, Instant lastFiredAt, String lastError,
+                               String lastRequestId) {
+        this(id, name, cronExpression, tenantId, agentId, payload, enabled, createdAt, lastFiredAt,
+                lastError, lastRequestId, null);
+    }
 
     public ScheduledTriggerDto {
         Objects.requireNonNull(name, "name");

@@ -285,7 +285,7 @@ public class InMemoryWorkflowRuntimeStore implements WorkflowRuntimeStore {
             return;
         }
         synchronized (execution) {
-            execution.put("duration", durationMs);
+            execution.put("duration", WorkflowRuntimeStore.executionDuration(execution, durationMs, Instant.now()));
         }
     }
 

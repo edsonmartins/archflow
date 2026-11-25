@@ -85,7 +85,11 @@ public class SerializableStep implements FlowStep {
      * ({@code ${id.route} == 'AUTO'}) — a mesma regra da factory do archflow-api
      * ({@code BranchCondition}). Sem isto, um fluxo escrito pela DSL com {@code route(...)}
      * carregaria aqui com arestas incondicionais e seguiria todos os ramos, em silêncio.
+     *
+     * <p>{@code @JsonIgnore}: é leitura de execução. O que vai para o JSON/YAML é
+     * {@link #getConnectionsAsWritten()}.</p>
      */
+    @com.fasterxml.jackson.annotation.JsonIgnore
     @Override @SuppressWarnings("unchecked")
     public List<StepConnection> getConnections() {
         if (connections == null) {
@@ -95,6 +99,20 @@ public class SerializableStep implements FlowStep {
         return connections.stream()
                 .map(c -> (StepConnection) c.comRamoResolvido(id, kind))
                 .toList();
+    }
+
+    /**
+     * As arestas como estão no documento — o que o JSON/YAML grava. Antes o Jackson gravava as de
+     * {@link #getConnections()}, com a condição derivada do {@code branch} materializada: depois de um
+     * GET e um PUT do YAML a aresta passava a ter as duas chaves, e como uma {@code condition} escrita
+     * vence o {@code branch} ({@code BranchCondition}), renomear o ramo ou o nó no canvas deixava a
+     * condição antiga valendo — o fluxo seguia o caminho errado sem erro (RCHFLW-102). A condição
+     * derivada é cálculo de execução, não dado do documento; uma {@code condition} manual continua
+     * aqui como veio.
+     */
+    @com.fasterxml.jackson.annotation.JsonGetter("connections")
+    public List<SerializableConnection> getConnectionsAsWritten() {
+        return connections == null ? List.of() : connections;
     }
 
     /**
@@ -208,5 +226,7 @@ public class SerializableStep implements FlowStep {
     public void setOperation(String operation) { this.operation = operation; }
     public void setPosition(Map<String, Object> position) { this.position = position; }
     public void setConfiguration(Map<String, Object> configuration) { this.configuration = configuration; }
+    /** Explícito porque o getter de execução ({@link #getConnections()}) é ignorado pelo Jackson. */
+    @com.fasterxml.jackson.annotation.JsonSetter("connections")
     public void setConnections(List<SerializableConnection> connections) { this.connections = connections; }
 }

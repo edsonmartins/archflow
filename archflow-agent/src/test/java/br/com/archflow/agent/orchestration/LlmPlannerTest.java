@@ -66,4 +66,24 @@ class LlmPlannerTest {
                 .contains("tenant: acme")
                 .contains("at most 4 subtasks");
     }
+
+    /** RCHFLW-62: o uso que o provedor informa volta com as subtarefas, para o supervisor debitar. */
+    @Test
+    void aMeteredChatReturnsTheProviderUsageWithTheItems() {
+        LlmPlanner planner = LlmPlanner.metered(
+                prompt -> new LlmPlanner.Reply("a\nb", br.com.archflow.orchestration.Usage.tokens(42)));
+
+        MeteredPlanner.Decomposition d = planner.decomposeMetered(Goal.of("g"), new PlanSpec("p", 10));
+
+        assertThat(d.items()).containsExactly("a", "b");
+        assertThat(d.usage().tokens()).isEqualTo(42L);
+    }
+
+    /** Texto entra, texto sai: o uso é desconhecido ({@code null}), não zero. */
+    @Test
+    void aPlainChatFunctionHasUnknownUsage() {
+        ChatFunction chat = prompt -> "a";
+
+        assertThat(new LlmPlanner(chat).decomposeMetered(Goal.of("g"), new PlanSpec("p", 10)).usage()).isNull();
+    }
 }

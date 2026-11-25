@@ -141,6 +141,10 @@ public class SpringObservabilityController {
      *
      * <p>A execução de outro tenant e a que não está rodando têm a mesma resposta (404, mesma
      * mensagem): respostas diferentes revelariam quais ids de outros tenants estão em execução.</p>
+     *
+     * <p>Sucesso é 204: o cancelamento foi pedido ao motor e não há corpo a devolver. Era um 200 sem
+     * corpo, que o cliente da UI não consegue ler como JSON — a tela tomava o sucesso por falha
+     * (RCHFLW-72).</p>
      */
     @PostMapping("/running/{flowId}/cancel")
     public ResponseEntity<Map<String, Object>> cancelFlow(@RequestParam(required = false) String tenantId,
@@ -152,6 +156,6 @@ public class SpringObservabilityController {
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
                     .body(Map.of("error", "Flow not running: " + flowId, "status", 404));
         }
-        return ResponseEntity.ok().build();
+        return ResponseEntity.noContent().build();
     }
 }

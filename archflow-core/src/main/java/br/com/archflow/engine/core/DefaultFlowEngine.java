@@ -45,7 +45,25 @@ public class DefaultFlowEngine implements FlowEngine {
     private final MemoryRestorer memoryRestorer;
     private final TraceRecorder traceRecorder;
     private final FlowLifecycleListener lifecycleListener;
+    /**
+     * Gancho aplicado ao contexto de toda retomada ({@link #resumeFlow}), depois de restauradas as
+     * variáveis e a memória. Existe para a infraestrutura que mora no contexto sob chave
+     * {@code transient} — o host de MCP, por exemplo: ela não vai para o checkpoint, então o
+     * contexto que {@link #createResumeContext} monta depois de uma aprovação nasce sem ela, e o nó
+     * que a usa falhava só depois que o humano aprovou (RCHFLW-48). Quem monta o motor sabe o que
+     * hospedar; cada chamador de {@code submitApproval} não precisa lembrar.
+     */
+    private final java.util.function.Consumer<ExecutionContext> resumeContextHook;
     private final Map<String, FlowExecution> activeExecutions;
+    /**
+     * Submissões aceitas (quem chamou já tem a future) que ainda não entraram em
+     * {@link #activeExecutions}: esperando permissão do semáforo — até 30 s com o motor cheio — ou
+     * preparando o fluxo. Sem isto, um {@link #cancel} nessa janela lançava "não encontrado", quem
+     * pediu tratava como "já terminou", marcava CANCELLED, e o fluxo depois rodava inteiro e
+     * terminava COMPLETED (RCHFLW-54). O cancelamento fica anotado aqui e a submissão não roda
+     * nenhum passo.
+     */
+    private final Map<String, PendingStart> pendingStarts = new ConcurrentHashMap<>();
     private final ExecutorService virtualExecutor = Executors.newVirtualThreadPerTaskExecutor();
 
     /**
@@ -136,6 +154,25 @@ public class DefaultFlowEngine implements FlowEngine {
                              int maxConcurrentFlows,
                              long flowTimeoutMs,
                              FlowLifecycleListener lifecycleListener) {
+        this(executionManager, flowRepository, stateManager, flowValidator, memoryRestorer, traceRecorder,
+                maxConcurrentFlows, flowTimeoutMs, lifecycleListener, null);
+    }
+
+    /**
+     * @param resumeContextHook aplicado ao contexto de cada retomada, por último — ver o campo;
+     *                          {@code null} para nenhum
+     */
+    public DefaultFlowEngine(ExecutionManager executionManager,
+                             FlowRepository flowRepository,
+                             StateManager stateManager,
+                             FlowValidator flowValidator,
+                             MemoryRestorer memoryRestorer,
+                             TraceRecorder traceRecorder,
+                             int maxConcurrentFlows,
+                             long flowTimeoutMs,
+                             FlowLifecycleListener lifecycleListener,
+                             java.util.function.Consumer<ExecutionContext> resumeContextHook) {
+        this.resumeContextHook = resumeContextHook;
         this.executionManager = executionManager;
         this.flowRepository = flowRepository;
         this.stateManager = stateManager;
@@ -239,6 +276,12 @@ public class DefaultFlowEngine implements FlowEngine {
                 }
             }
 
+            // Por último, como a injeção do host depois do input no /execute: uma variável
+            // persistida com a mesma chave não pode sobrescrever a infraestrutura do host.
+            if (resumeContextHook != null) {
+                resumeContextHook.accept(context);
+            }
+
             return Map.entry(flow, context);
         });
     }
@@ -270,6 +313,12 @@ public class DefaultFlowEngine implements FlowEngine {
             String flowId,
             FlowSetupSupplier supplier) {
 
+        // Registrada já aqui, na thread de quem chamou: a janela começa quando a future é devolvida.
+        // Uma segunda submissão do mesmo id enquanto esta espera não ganha marca — ela será recusada
+        // como duplicada, e o cancelamento vale para a primeira.
+        PendingStart pending = new PendingStart();
+        pendingStarts.putIfAbsent(flowId, pending);
+
         CompletableFuture<FlowResult> future = CompletableFuture.supplyAsync(() -> {
             boolean permitAcquired = false;
             long startMs = System.currentTimeMillis();
@@ -290,9 +339,16 @@ public class DefaultFlowEngine implements FlowEngine {
 
                 // ── Duplicate prevention: reject if same flowId is already running
                 FlowExecution execution = new FlowExecution(flow, context);
-                FlowExecution existing = activeExecutions.putIfAbsent(flowId, execution);
-                if (existing != null) {
-                    throw new FlowEngineException("Flow is already running: " + flowId);
+                // Sob o mesmo lock do cancel: ou o cancel acha a marca pendente, ou acha a execução
+                // registrada — nunca nenhuma das duas.
+                synchronized (transitionLock) {
+                    FlowExecution existing = activeExecutions.putIfAbsent(flowId, execution);
+                    if (existing != null) {
+                        throw new FlowEngineException("Flow is already running: " + flowId);
+                    }
+                    if (pendingStarts.remove(flowId, pending) && pending.cancelled) {
+                        execution.cancel();
+                    }
                 }
 
                 notifyTraceStart(flowId, tenantId, null);
@@ -300,8 +356,12 @@ public class DefaultFlowEngine implements FlowEngine {
                 safeLifecycle(() -> lifecycleListener.onFlowStarted(flow, context, stepCount));
 
                 try {
-                    FlowResult result = keepApprovalSuspension(
-                            flowId, context, executionManager.executeFlow(flow, context));
+                    // Cancelado antes de a travessia começar (na espera do semáforo, ou entre o
+                    // registro acima e este ponto, quando o executor ainda não tem a quem sinalizar):
+                    // nenhum passo roda e o desfecho é o mesmo de um cancelamento durante o passo.
+                    FlowResult result = execution.isStopRequested()
+                            ? cancelledBeforeStart(flowId, context)
+                            : keepApprovalSuspension(flowId, context, executionManager.executeFlow(flow, context));
                     synchronized (transitionLock) {
                         // Decidida enquanto esta travessia ainda desenrolava, a execução já
                         // tem dono: submitApproval gravou a decisão (e, se aprovou, a retomada
@@ -339,6 +399,9 @@ public class DefaultFlowEngine implements FlowEngine {
             } catch (Exception e) {
                 throw new FlowEngineException("Error executing flow: " + flowId, e);
             } finally {
+                // Falhou antes do registro (semáforo, preparo, duplicada): a marca não pode sobrar
+                // para uma submissão futura do mesmo id.
+                pendingStarts.remove(flowId, pending);
                 if (permitAcquired) {
                     activeFlowCount.decrementAndGet();
                     flowSemaphore.release();
@@ -422,6 +485,14 @@ public class DefaultFlowEngine implements FlowEngine {
                     return e;
                 });
                 if (execution == null) {
+                    // Submetido mas ainda não registrado (esperando o semáforo): anota, e a
+                    // submissão termina CANCELLED sem rodar passo. Lançar aqui perdia o pedido.
+                    PendingStart pending = pendingStarts.get(flowId);
+                    if (pending != null) {
+                        pending.cancelled = true;
+                        logger.info("Fluxo " + flowId + " cancelado antes de começar; nenhum passo vai rodar");
+                        return;
+                    }
                     throw new FlowNotFoundException(flowId);
                 }
                 // Mark as cancelled — submitFlow's finally block will see the
@@ -842,10 +913,14 @@ public class DefaultFlowEngine implements FlowEngine {
         String tenantId = DefaultTenant.orDefault(state.getTenantId());
         Object userId = variableOf(state, "userId");
         Object sessionId = variableOf(state, "sessionId");
+        // Sem a variável, a sessão é o id do fluxo: é o que todo ponto de entrada do servidor passa
+        // como sessão (o executionId, que também é o id do fluxo) e o que o /resume do REST já usa.
+        // Com null, um orchestrate depois do portão não tinha executionId e não emitia nada no stream
+        // (RCHFLW-50); a variável continua valendo, como no createInitialContext.
         return new DefaultExecutionContext(
                 tenantId,
                 userId != null ? String.valueOf(userId) : null,
-                sessionId != null ? String.valueOf(sessionId) : null,
+                sessionId != null ? String.valueOf(sessionId) : state.getFlowId(),
                 MessageWindowChatMemory.builder()
                         .maxMessages(100)
                         .build()
@@ -911,6 +986,35 @@ public class DefaultFlowEngine implements FlowEngine {
                 logger.warning("TraceRecorder.onFlowEnd failed: " + ex.getMessage());
             }
         }
+    }
+
+    /**
+     * O desfecho de uma submissão cancelada antes do primeiro passo: CANCELLED sem saída, o mesmo
+     * que o executor devolve quando o cancelamento chega durante um passo.
+     */
+    private static FlowResult cancelledBeforeStart(String flowId, ExecutionContext context) {
+        logger.info("Fluxo " + flowId + " não executa: cancelado antes do primeiro passo");
+        return new FlowResult() {
+            @Override
+            public ExecutionStatus getStatus() {
+                return ExecutionStatus.CANCELLED;
+            }
+
+            @Override
+            public Optional<Object> getOutput() {
+                return Optional.empty();
+            }
+
+            @Override
+            public ExecutionMetrics getMetrics() {
+                return context.getMetrics();
+            }
+
+            @Override
+            public List<ExecutionError> getErrors() {
+                return List.of();
+            }
+        };
     }
 
     /**
@@ -1034,11 +1138,18 @@ public class DefaultFlowEngine implements FlowEngine {
 
     // ── FlowExecution inner class ───────────────────────────────────
 
+    /** Marca de uma submissão ainda fora de {@link #activeExecutions}; escrita sob o transitionLock. */
+    private static final class PendingStart {
+        private volatile boolean cancelled;
+    }
+
     private static class FlowExecution {
         private final Flow flow;
         private final ExecutionContext context;
         /** Uma decisão humana chegou enquanto esta travessia ainda estava viva. */
         private volatile boolean decided;
+        /** {@link DefaultFlowEngine#cancel} foi pedido para esta execução. */
+        private volatile boolean stopRequested;
 
         public FlowExecution(Flow flow, ExecutionContext context) {
             this.flow = flow;
@@ -1058,7 +1169,12 @@ public class DefaultFlowEngine implements FlowEngine {
         }
 
         public void cancel() {
+            stopRequested = true;
             updateState(FlowStatus.STOPPED);
+        }
+
+        boolean isStopRequested() {
+            return stopRequested;
         }
 
         private void updateState(FlowStatus newStatus) {
