@@ -81,8 +81,8 @@ export function describeCopilotRunError(
 /**
  * Fire-and-forget entry point for "build with AI": any component can ask
  * the app-wide copilot to run a prompt without opening the chat sidebar.
- * The agent's frontend tools (addNode / connectNodes / createFlow) act on
- * the canvas, so the user watches the flow being assembled in place.
+ * The agent's frontend tools (createFlow / addNode / connectNodes / configureNode / removeNode /
+ * removeEdge) act on the canvas, so the user watches the flow being assembled in place.
  */
 export function requestCopilotGeneration(prompt: string, notificationId?: string) {
     window.dispatchEvent(new CustomEvent(COPILOT_GENERATE_EVENT, { detail: { prompt, notificationId } }))
