@@ -36,7 +36,10 @@ export function FlowDefaultsPanel() {
   }
 
   const cfg = readLlmConfig(currentWorkflow.configuration)
-  const f = (key: string) => t(`editor.properties.fields.${key}`)
+  const f = (key: string, opts?: Record<string, unknown>) => t(`editor.properties.fields.${key}`, opts)
+  const savedModel = typeof cfg.model === 'string' ? cfg.model.trim() : ''
+  // Tenant com restrição de modelos: o servidor manda allowCustomModel=false (ver AgentFields).
+  const restrito = providers.some(p => p.allowCustomModel === false)
 
   const modelGroups = (() => {
     const groups = new Map<string, { value: string; label: string }[]>()
@@ -52,10 +55,22 @@ export function FlowDefaultsPanel() {
         groups.get(p.group)!.push({ value: m.id, label: m.name })
       })
     })
-    return Array.from(groups.entries())
+    const result = Array.from(groups.entries())
       .map(([group, items]) => ({ group, items }))
       .filter(g => g.items.length > 0)
+    // A lista é o catálogo ativo ∩ os permitidos do tenant (RCHFLW-79), não mais o enum inteiro: um
+    // padrão gravado antes (id antigo, catálogo da variável, tenant restrito) sumia do campo — o painel
+    // mostrava "—" enquanto todo nó que herda rodava com ele (ou falhava com [LLM-MODELO]). Ele aparece
+    // como está, marcado quando o tenant não o permite, como no seletor do nó.
+    if (savedModel && !seen.has(savedModel)) {
+      result.push({
+        group: t('editor.properties.flowDefaults.savedGroup'),
+        items: [{ value: savedModel, label: restrito ? f('modelNotAllowed', { model: savedModel }) : savedModel }],
+      })
+    }
+    return result
   })()
+  const savedNotAllowed = restrito && savedModel !== '' && !providers.some(p => p.models.some(m => m.id === savedModel))
 
   return (
     <ScrollArea style={{ height: '100%' }} p="md">
@@ -82,6 +97,9 @@ export function FlowDefaultsPanel() {
           searchable
           styles={FIELD_STYLES}
         />
+        {savedNotAllowed && (
+          <Text size="xs" c="red" mt={-8} lh={1.4}>{f('modelNotAllowedHint')}</Text>
+        )}
 
         <NumberInput
           label={f('temperature')}

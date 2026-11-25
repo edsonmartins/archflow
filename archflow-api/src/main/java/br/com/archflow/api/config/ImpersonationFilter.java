@@ -21,9 +21,11 @@ import java.util.List;
  * re-exposes it as the request attribute {@code archflow.tenantId}
  * plus the MDC entry {@code tenantId}.
  *
- * <p>The plain {@code X-Tenant-Id} header is accepted unconditionally
- * — it merely echoes the caller's own tenant claim and grants no extra
- * privilege. The {@code X-Impersonate-Tenant} header, however, lets a
+ * <p>The plain {@code X-Tenant-Id} header only echoes the caller's own
+ * tenant: when a validated JWT carries a {@code tenantId} claim, a header
+ * naming another tenant is ignored (and logged) — the JWT tenant stays.
+ * Without a JWT tenant (auth off, dev) the header is accepted as before.
+ * The {@code X-Impersonate-Tenant} header, however, lets a
  * superadmin act as another tenant; until JWT/role-based auth is wired
  * into archflow-api, accepting it from anyone would let any frontend
  * read any workspace. We therefore:
@@ -75,7 +77,17 @@ public class ImpersonationFilter implements Filter {
             if (tenant == null) {
                 String headerTenant = http.getHeader(HEADER_TENANT);
                 if (headerTenant != null && !headerTenant.isBlank()) {
-                    tenant = headerTenant.trim();
+                    String doJwt = jwtTenant(http);
+                    if (doJwt != null && !doJwt.equals(headerTenant.trim())) {
+                        // O header não pode trocar o tenant do token. Com chave de LLM por tenant
+                        // (PropertyTenantKeyResolver), aceitar isto deixaria um usuário do tenant A
+                        // rodar — e faturar — na chave do tenant B só mandando o header. Fica o do
+                        // JWT, que o JwtAuthenticationFilter já gravou no atributo.
+                        log.warn("Ignored X-Tenant-Id that differs from the JWT tenant: jwt={} header={} path={}",
+                                doJwt, headerTenant.trim(), http.getRequestURI());
+                    } else {
+                        tenant = headerTenant.trim();
+                    }
                 }
             }
             if (tenant != null) {
@@ -89,6 +101,12 @@ public class ImpersonationFilter implements Filter {
         } finally {
             org.slf4j.MDC.remove("tenantId");
         }
+    }
+
+    /** O tenant do token, quando o {@link JwtAuthenticationFilter} validou um; senão {@code null}. */
+    private static String jwtTenant(HttpServletRequest http) {
+        return http.getAttribute(JwtAuthenticationFilter.ATTR_TENANT) instanceof String s && !s.isBlank()
+                ? s.trim() : null;
     }
 
     /**

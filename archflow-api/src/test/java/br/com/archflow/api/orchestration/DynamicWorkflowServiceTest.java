@@ -58,6 +58,32 @@ class DynamicWorkflowServiceTest {
         verify(resolver).resolveModel(any());
     }
 
+    /**
+     * O planejador resolvia o LLM sem tenant ("nenhum tenant"): nem a chave do tenant nem os modelos
+     * permitidos dele (RCHFLW-79) valiam. O tenant é o do contexto de execução.
+     */
+    @Test
+    void resolvesThePlannerModelForTheExecutionTenant() {
+        LLMConfigResolver resolver = mock(LLMConfigResolver.class);
+        java.util.List<br.com.archflow.langchain4j.provider.LLMResolutionRequest> pedidos =
+                new java.util.concurrent.CopyOnWriteArrayList<>();
+        when(resolver.resolveModel(any())).thenAnswer(inv -> {
+            pedidos.add(inv.getArgument(0));
+            throw new IllegalStateException("[LLM-MODELO] parou no teste");
+        });
+        DynamicWorkflowService service = new DynamicWorkflowService(resolver,
+                new ResolvedLLMConfig("test", "m", 0.0, 256, 30, Map.of()),
+                mock(ComponentCatalog.class), mock(ComponentQueryRouter.class), mock(ConfidenceScorer.class));
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.run(
+                        new DynamicWorkflowRequest("audit", null, null, null, null, null, null, null, "acme")))
+                .hasMessageContaining("[LLM-MODELO]");
+
+        assertThat(pedidos).singleElement()
+                .extracting(br.com.archflow.langchain4j.provider.LLMResolutionRequest::tenantId)
+                .isEqualTo("acme");
+    }
+
     @Test
     void rejectsBlankGoal() {
         DynamicWorkflowService service = new DynamicWorkflowService(

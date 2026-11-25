@@ -38,6 +38,7 @@ public final class ComponentStep implements FlowStep {
     private final ToolInterceptorChain interceptors;
     private final AIComponent resolved;
     private final Map<String, Object> configuration;
+    private final String notFoundHint;
 
     public ComponentStep(String id, StepType type, String componentId, String operation,
                          List<StepConnection> connections, ComponentCatalog catalog) {
@@ -68,6 +69,21 @@ public final class ComponentStep implements FlowStep {
                          List<StepConnection> connections, ComponentCatalog catalog,
                          ToolInterceptorChain interceptors, AIComponent resolved,
                          Map<String, Object> configuration) {
+        this(id, type, componentId, operation, connections, catalog, interceptors, resolved, configuration,
+                null);
+    }
+
+    /**
+     * @param notFoundHint o que dizer depois de "component not found: X" quando o catálogo também
+     *                     não tem o componente — para um nó de chat, por que ele não foi para um
+     *                     adapter (provider sem adapter, nenhum padrão). O prefixo fica: é por ele que
+     *                     quem já trata o erro o reconhece.
+     */
+    public ComponentStep(String id, StepType type, String componentId, String operation,
+                         List<StepConnection> connections, ComponentCatalog catalog,
+                         ToolInterceptorChain interceptors, AIComponent resolved,
+                         Map<String, Object> configuration, String notFoundHint) {
+        this.notFoundHint = notFoundHint == null || notFoundHint.isBlank() ? null : notFoundHint;
         this.id = id;
         this.type = type;
         this.componentId = componentId;
@@ -94,7 +110,8 @@ public final class ComponentStep implements FlowStep {
                 : catalog.getComponent(componentId).orElse(null);
         if (component == null) {
             return CompletableFuture.completedFuture(
-                    SimpleStepResult.failed(id, "component not found: " + componentId, elapsedMs(start)));
+                    SimpleStepResult.failed(id, "component not found: " + componentId
+                            + (notFoundHint == null ? "" : " — " + notFoundHint), elapsedMs(start)));
         }
         try {
             Object input = context.get(INPUT_KEY).orElse(null);

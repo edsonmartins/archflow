@@ -60,6 +60,19 @@ public record ProviderPreferences(Boolean zdr, String dataCollection) {
         return new ProviderPreferences(z, dataCollection);
     }
 
+    /**
+     * O host é o do OpenRouter ({@code openrouter.ai} ou um subdomínio) — o único destino que recebe o
+     * objeto {@code provider}: noutro provedor um campo desconhecido pode virar 400. Mora aqui, ao lado
+     * do formato no fio, porque três leitores aplicam a regra (provedor HTTP de decisões, o
+     * {@code langchain4j-decisions} e o adapter de chat do OpenRouter dos nós de fluxo) e nenhum depende
+     * dos outros: um lugar só decide quem recebe a preferência.
+     */
+    public static boolean isOpenRouterHost(java.net.URI uri) {
+        String host = uri == null ? null : uri.getHost();
+        return host != null && (host.equalsIgnoreCase("openrouter.ai")
+                || host.toLowerCase(java.util.Locale.ROOT).endsWith(".openrouter.ai"));
+    }
+
     /** Nada a enviar. */
     public boolean isEmpty() {
         return zdr == null && dataCollection == null;

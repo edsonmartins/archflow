@@ -26,8 +26,9 @@ import java.util.List;
  *   <li>{@code GET /mcp-servers}         — registered MCP servers</li>
  * </ul>
  *
- * <p>All endpoints are read-only and tenant-agnostic — the data is
- * platform-wide configuration, not per-tenant. Implementations should
+ * <p>All endpoints are read-only. They are platform-wide configuration, except
+ * that {@code /providers} lists only the models the request tenant may use
+ * (active catalog ∩ the tenant's allowed models, RCHFLW-79). Implementations should
  * still require authentication so the catalog isn't leaked publicly.
  */
 public interface WorkflowConfigController {

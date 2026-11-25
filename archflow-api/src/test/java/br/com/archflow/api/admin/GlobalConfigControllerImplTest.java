@@ -41,10 +41,11 @@ class GlobalConfigControllerImplTest {
         controller.toggleModel("gpt-4o", new ToggleModelRequest(false));
 
         var other = new GlobalConfigControllerImpl(store);
+        // A lista do código tem o gpt-4o na OpenAI e na Azure: o toggle é por id e desliga os dois.
         assertThat(other.getModels())
                 .filteredOn(m -> m.id().equals("gpt-4o"))
-                .singleElement()
-                .satisfies(m -> assertThat(m.status()).isEqualTo("deprecated"));
+                .isNotEmpty()
+                .allSatisfy(m -> assertThat(m.status()).isEqualTo("deprecated"));
     }
 
     @Test

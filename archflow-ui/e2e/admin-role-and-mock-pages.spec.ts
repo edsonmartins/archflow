@@ -401,7 +401,7 @@ test.describe('Admin roles and integrated pages', () => {
         await expect(debugToggle).not.toBeChecked();
         await debugToggle.click();
         await expect(debugToggle).toBeChecked();
-        await expect(page.getByText('GPT-4o')).toBeVisible();
+        await expect(page.getByText('GPT-4o', { exact: true })).toBeVisible();
         await expect(page.getByText('enterprise')).toBeAttached();
     });
 });

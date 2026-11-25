@@ -122,8 +122,12 @@ public class DynamicWorkflowService {
                 ConvergePolicy.untilDry(orDefault(req.maxRounds(), 5)));
 
         // Resolve the model once and reuse it as the planner's chat seam.
-        ChatModel model = llmConfigResolver.resolveModel(
-                LLMResolutionRequest.builder(platformDefault).build());
+        // O tenant é o do contexto de execução (o do fluxo, no passo ORCHESTRATE; o da requisição,
+        // conferido com o token, na rota REST): escolhe a chave dele e aplica os modelos permitidos
+        // (RCHFLW-79). Sem ele o planejador rodava sempre como "nenhum tenant".
+        ChatModel model = llmConfigResolver.resolveModel(LLMResolutionRequest.builder(platformDefault)
+                .tenantId(ctx.getTenantId())
+                .build());
         ChatFunction chat = model::chat;
 
         ComponentAccessPolicy policy = componentPolicy != null

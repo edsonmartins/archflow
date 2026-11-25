@@ -5,6 +5,7 @@ import br.com.archflow.api.orchestration.DynamicWorkflowService;
 import br.com.archflow.engine.api.FlowEngine;
 import br.com.archflow.agent.tool.ToolInterceptorChain;
 import br.com.archflow.api.flow.adapter.AdapterNodeTypes;
+import br.com.archflow.api.flow.adapter.ChatNodeDefaults;
 import br.com.archflow.api.flow.adapter.LangChainAdapterComponent;
 import br.com.archflow.langchain4j.provider.TenantKeyResolver;
 import br.com.archflow.engine.core.StateManager;
@@ -59,6 +60,91 @@ public class DefaultFlowStepFactory implements FlowStepFactory {
         if (keys != null) {
             this.decisionKeys = keys;
         }
+    }
+
+    // Sem o bean do host, só os endereços oficiais recebem a chave injetada — o default seguro.
+    private br.com.archflow.langchain4j.provider.BaseUrlPolicy baseUrlPolicy =
+            br.com.archflow.langchain4j.provider.BaseUrlPolicy.officialOnly();
+
+    /**
+     * Para onde a chave injetada num nó adapter pode ir ({@code archflow.llm.allowed-base-urls}).
+     * O mesmo bean guarda o caminho dos agentes ({@code DefaultLLMConfigResolver}), para os dois
+     * caminhos recusarem o mesmo host.
+     */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setBaseUrlPolicy(br.com.archflow.langchain4j.provider.BaseUrlPolicy policy) {
+        if (policy != null) {
+            this.baseUrlPolicy = policy;
+        }
+    }
+
+    // Preferência de provedor do OpenRouter (ZDR) — do deployment; sem o bean, nada configurado.
+    private br.com.archflow.model.config.ProviderPreferences providerPreferences =
+            br.com.archflow.model.config.ProviderPreferences.NONE;
+    private boolean providerPreferencesRequired;
+
+    /**
+     * {@code archflow.llm.provider-preferences}: o nó adapter do OpenRouter as envia no corpo
+     * ({@code provider: {zdr, data_collection}}, RCHFLW-41) e, com {@code required=true} sem nenhuma,
+     * falha antes de chamar — ver {@link LangChainAdapterComponent}.
+     */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setProviderPreferences(
+            br.com.archflow.model.config.ProviderPreferences preferences,
+            @org.springframework.beans.factory.annotation.Value(
+                    "${archflow.llm.provider-preferences.required:false}") boolean required) {
+        if (preferences != null) {
+            this.providerPreferences = preferences;
+        }
+        this.providerPreferencesRequired = required;
+    }
+
+    // Modelos permitidos por tenant (RCHFLW-79). Sem o bean do host, ninguém é restringido.
+    private br.com.archflow.langchain4j.provider.TenantModelPolicy modelPolicy =
+            br.com.archflow.langchain4j.provider.TenantModelPolicy.UNRESTRICTED;
+
+    /**
+     * {@code allowedModels} do tenant: o nó de chat confere o modelo antes de cada chamada — o mesmo
+     * bean que o caminho dos agentes ({@code DefaultLLMConfigResolver}) usa, para os dois recusarem o
+     * mesmo modelo. Ver {@link LangChainAdapterComponent}.
+     */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setModelPolicy(br.com.archflow.langchain4j.provider.TenantModelPolicy policy) {
+        if (policy != null) {
+            this.modelPolicy = policy;
+        }
+    }
+
+    // Padrão de LLM da plataforma (archflow.llm.provider/model). Nulo sem o host (testes, standalone):
+    // aí um nó de chat sem provider só herda do fluxo, e sem isso segue o caminho antigo.
+    private br.com.archflow.model.config.ResolvedLLMConfig platformDefaultLLM;
+
+    /**
+     * O nível mais baixo da herança dos nós de chat sem provider (RCHFLW-16) — o mesmo bean que o
+     * caminho dos agentes usa, para {@code llm-chat} e {@code mcp-agent} herdarem igual. Ver
+     * {@link ChatNodeDefaults}.
+     */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setPlatformDefaultLLM(
+            @org.springframework.beans.factory.annotation.Qualifier("platformDefaultLLMConfig")
+            br.com.archflow.model.config.ResolvedLLMConfig platformDefaultLLMConfig) {
+        this.platformDefaultLLM = platformDefaultLLMConfig;
+    }
+
+    /**
+     * Endereços que o deployment declarou serem o OpenRouter: o {@code archflow.llm.base-url} quando
+     * {@code archflow.llm.provider=openrouter} (um gateway do operador à frente do OpenRouter). O hub
+     * dos agentes manda a preferência de provedor por provider, então o agente nesse gateway já leva
+     * ZDR; sem isto o nó de chat, que decide pelo host, ia ao mesmo gateway sem ela e com
+     * {@code required=true} passava. Só o padrão da plataforma entra — um {@code base.url} escrito no
+     * nó não se declara OpenRouter (um Ollama receberia o campo e devolveria 400).
+     */
+    private List<String> openRouterUrls() {
+        if (platformDefaultLLM == null || !"openrouter".equalsIgnoreCase(platformDefaultLLM.provider())) {
+            return List.of();
+        }
+        Object baseUrl = platformDefaultLLM.additionalConfig().get("baseUrl");
+        return baseUrl instanceof String url && !url.isBlank() ? List.of(url.trim()) : List.of();
     }
 
     public DefaultFlowStepFactory(ComponentCatalog catalog, DynamicWorkflowService dynamicWorkflowService,
@@ -133,13 +219,42 @@ public class DefaultFlowStepFactory implements FlowStepFactory {
             componentId = node.get("type");
         }
 
+        // Nó de chat (llm-chat / llm-streaming / chat): o provider é o do nó ou o herdado do fluxo e
+        // da plataforma (RCHFLW-16). Sem adapter para ele, segue para o catálogo como sempre — mas a
+        // falha passa a dizer por quê, em vez de um "component not found: llm-chat" seco.
+        String notFoundHint = null;
+        if ("chat".equals(AdapterNodeTypes.adapterTypeFor(type))) {
+            String explicitProvider = explicitChatProvider(config,
+                    componentId == null ? null : componentId.toString());
+            Optional<ChatNodeDefaults.Resolution> chat =
+                    ChatNodeDefaults.resolve(config, explicitProvider, flowPatch, platformDefaultLLM);
+            if (chat.isPresent() && AdapterNodeTypes.isAdapterNode(type, chat.get().provider())) {
+                String chatProvider = chat.get().provider();
+                if (!policy.isAllowed(chatProvider)) {
+                    // O escopo do fluxo vale também para o provider herdado: um fluxo restrito não
+                    // alcança um adapter fora da lista só por não ter escrito o provider.
+                    return new ComponentStep(id, StepType.TOOL, chatProvider, operationOf(config, node),
+                            connections, scopedCatalog, interceptors, null, config,
+                            "o provider '" + chatProvider + "' não está em configuration.allowedComponents");
+                }
+                LangChainAdapterComponent adapter = new LangChainAdapterComponent(
+                        chatProvider, "chat", chat.get().config(), tenantKeyResolver,
+                        baseUrlPolicy, providerPreferences, providerPreferencesRequired, openRouterUrls(),
+                        modelPolicy);
+                return new ComponentStep(id, StepType.TOOL, adapter.componentId(),
+                        operationOf(config, node), connections, scopedCatalog, interceptors, adapter,
+                        config);
+            }
+            notFoundHint = semAdapterDeChat(chat.orElse(null));
+        }
+
         // Nó servido por um adapter LangChain4j (openai/anthropic/redis/...).
         // Só entra aqui quando o registry REALMENTE tem aquele provider para
         // aquele tipo — qualquer outra coisa cai no catálogo, então nenhum
         // workflow existente muda de comportamento.
         String providerId = str(config.get("provider"),
                 componentId == null ? null : componentId.toString());
-        if (AdapterNodeTypes.isAdapterNode(type, providerId)) {
+        if (notFoundHint == null && AdapterNodeTypes.isAdapterNode(type, providerId)) {
             if (!policy.isAllowed(providerId)) {
                 // Fora do escopo do fluxo: cai no ComponentStep normal, que não
                 // resolve e falha com "component not found" — mesmo tratamento
@@ -148,7 +263,9 @@ public class DefaultFlowStepFactory implements FlowStepFactory {
                         connections, scopedCatalog, interceptors, null, config);
             }
             LangChainAdapterComponent adapter = new LangChainAdapterComponent(
-                    providerId, AdapterNodeTypes.adapterTypeFor(type), config, tenantKeyResolver);
+                    providerId, AdapterNodeTypes.adapterTypeFor(type), config, tenantKeyResolver,
+                    baseUrlPolicy, providerPreferences, providerPreferencesRequired, openRouterUrls(),
+                    modelPolicy);
             return new ComponentStep(id, StepType.TOOL, adapter.componentId(),
                     operationOf(config, node), connections, scopedCatalog, interceptors, adapter,
                     config);
@@ -192,7 +309,44 @@ public class DefaultFlowStepFactory implements FlowStepFactory {
         return new ComponentStep(
                 id, StepType.TOOL,
                 componentId == null ? "" : componentId.toString(),
-                operationOf(config, node), connections, scopedCatalog, interceptors, null, config);
+                operationOf(config, node), connections, scopedCatalog, interceptors, null, config,
+                notFoundHint);
+    }
+
+    /**
+     * O provider que um nó de chat declarou: {@code config.provider}, ou o {@code componentId}
+     * legado ({@code {type: "llm-chat", componentId: "openai"}}) quando ele não é só o próprio tipo
+     * do nó — o designer grava {@code componentId: "llm-chat"}, que não é escolha de provider.
+     */
+    private static String explicitChatProvider(Map<String, Object> config, String componentId) {
+        if (config.get("provider") instanceof String provider && !provider.isBlank()) {
+            return provider.trim();
+        }
+        if (componentId != null && !componentId.isBlank()
+                && AdapterNodeTypes.adapterTypeFor(componentId) == null) {
+            return componentId.trim();
+        }
+        return null;
+    }
+
+    /** Por que um nó de chat não foi para um adapter — o que a falha diz depois de "component not found". */
+    private static String semAdapterDeChat(ChatNodeDefaults.Resolution chat) {
+        String disponiveis = String.join(", ", new java.util.TreeSet<>(
+                br.com.archflow.langchain4j.core.spi.LangChainRegistry.getProvidersOfType("chat")));
+        if (chat == null) {
+            return "o nó não escolheu provider e não há padrão do fluxo (configuration.llmConfig.provider) "
+                    + "nem da plataforma (archflow.llm.provider). Escolha um provider no nó (com adapter de "
+                    + "chat: " + disponiveis + ")";
+        }
+        String deOnde = switch (chat.origin()) {
+            case NODE -> "o provider '" + chat.provider() + "'";
+            case FLOW -> "o nó não escolheu provider e o padrão do fluxo (configuration.llmConfig.provider) é '"
+                    + chat.provider() + "', que";
+            case PLATFORM -> "o nó não escolheu provider e o padrão da plataforma (archflow.llm.provider) é '"
+                    + chat.provider() + "', que";
+        };
+        return deOnde + " não tem adapter de chat (disponíveis: " + disponiveis + "). Escolha um destes no "
+                + "nó, ou use um nó de agente (mcp-agent), que fala com todos os providers";
     }
 
     /**

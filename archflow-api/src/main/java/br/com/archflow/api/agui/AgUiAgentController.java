@@ -1,5 +1,6 @@
 package br.com.archflow.api.agui;
 
+import br.com.archflow.api.config.TenantContext;
 import br.com.archflow.api.trust.UntrustedContentFence;
 import br.com.archflow.langchain4j.provider.LLMConfigResolver;
 import br.com.archflow.langchain4j.provider.LLMResolutionRequest;
@@ -79,8 +80,13 @@ public class AgUiAgentController {
         emit(sse, lock, AgUiEvent.of("RUN_STARTED", fields("threadId", threadId, "runId", runId)));
 
         try {
+            // O tenant da requisição (JWT/impersonação, ver ImpersonationFilter) — resolvido aqui, na
+            // thread da requisição: escolhe a chave dele e aplica os modelos permitidos (RCHFLW-79).
+            // Sem tenant é o sentinela __default__, que o resolver trata como "nenhum tenant".
             StreamingChatModel model = llmConfigResolver.resolveStreamingModel(
-                    LLMResolutionRequest.builder(platformDefault).build());
+                    LLMResolutionRequest.builder(platformDefault)
+                            .tenantId(TenantContext.currentTenantId())
+                            .build());
 
             emit(sse, lock, AgUiEvent.of("TEXT_MESSAGE_START", fields("messageId", messageId, "role", "assistant")));
 

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { resetWorkflowConfigCache } from '../useWorkflowConfig'
+import { fetchProviders, resetWorkflowConfigCache } from '../useWorkflowConfig'
+import { useTenantStore } from '../../../stores/useTenantStore'
 import { workflowConfigApi } from '../../../services/workflow-config-api'
 
 /**
@@ -132,5 +133,23 @@ describe('useWorkflowConfig cache contract', () => {
   it('resetWorkflowConfigCache is callable and idempotent', () => {
     expect(() => resetWorkflowConfigCache()).not.toThrow()
     expect(() => resetWorkflowConfigCache()).not.toThrow()
+  })
+
+  it('entrar ou sair da impersonação descarta o catálogo do tenant anterior', async () => {
+    resetWorkflowConfigCache()
+    const getProviders = vi.spyOn(workflowConfigApi, 'getProviders').mockResolvedValue([])
+
+    await fetchProviders()
+    await fetchProviders()
+    expect(getProviders).toHaveBeenCalledTimes(1)
+
+    // Os modelos permitidos são por tenant (RCHFLW-79): o cache do superadmin não pode servir ao tenant.
+    useTenantStore.getState().startImpersonation({ id: 'tenant_rio', name: 'Rio' } as never)
+    await fetchProviders()
+    expect(getProviders).toHaveBeenCalledTimes(2)
+
+    useTenantStore.getState().exitImpersonation()
+    await fetchProviders()
+    expect(getProviders).toHaveBeenCalledTimes(3)
   })
 })

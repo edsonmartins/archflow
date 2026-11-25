@@ -390,6 +390,7 @@
             "flowDefaults": {
                 "title": "Flow defaults",
                 "hint": "Model defaults inherited by every step. Select a node to override them.",
+                "savedGroup": "Saved in the flow",
                 "inheritHint": "Leave a field at its default to inherit from the platform."
             },
             "tabs": {
@@ -411,6 +412,22 @@
                 "executionStrategy": "Execution strategy",
                 "provider": "Provider",
                 "model": "Model",
+                "inheritFlow": "Flow default ({{provider}})",
+                "inheritPlatform": "Platform default",
+                "modelDefault": "Default",
+                "inheritFlowValue": "Flow default ({{value}})",
+                "inheritHint": "With no provider chosen, the node uses the flow default (configuration.llmConfig) or the platform default (archflow.llm.provider/model) provider and model.",
+                "noChatAdapter": "{{provider}} (no chat adapter)",
+                "noChatAdapterHint": "This provider has no chat adapter on this server — the node will fail. Pick another one or the default.",
+                "inheritPlatformNamed": "Platform default ({{provider}})",
+                "useCustomModel": "Use the id \"{{model}}\"",
+                "modelNotAllowed": "{{model}} (not allowed)",
+                "modelNotAllowedHint": "This tenant does not allow this model — the run will fail. Pick one from the list.",
+                "modelInheritedNotAllowed": "The inherited model ({{model}}) is not allowed for this tenant — the run will fail. Pick a model from the list.",
+                "modelInheritedMissing": "Nothing sets the inherited model (the provider default would be used) and this tenant only allows the models in the list — the run will fail. Pick one.",
+                "modelRestrictedHint": "This tenant can only use the models in the list (set by the platform administrator).",
+                "modelSearchHint": "Type to search the catalog or to use another provider model id.",
+                "modelNothingFound": "No catalog model",
                 "persona": "Persona",
                 "systemPrompt": "System prompt",
                 "systemPromptPlaceholder": "You are a helpful assistant...",
@@ -1030,6 +1047,13 @@
                 "plan": "Plan",
                 "status": "Status",
                 "allowedModels": "Allowed models",
+                "allowedModelsAll": "All catalog models",
+                "allowedModelsHint": "Empty: the tenant uses the whole active catalog and may type another id. Filled: only these models — in the editor and at run time.",
+                "allowedModelsPlaceholder": "All catalog models",
+                "allowedModelsCatalogFailed": "Could not load the model catalog",
+                "editModels": "Edit",
+                "saveModels": "Save",
+                "modelsSaved": "Allowed models updated",
                 "name": "Name",
                 "tenantId": "Tenant ID",
                 "admin": "Admin",
@@ -1069,7 +1093,8 @@
                     "execPerDay": "Executions/day",
                     "tokensPerMonth": "Tokens/month",
                     "maxWorkflows": "Max workflows",
-                    "maxUsers": "Max users"
+                    "maxUsers": "Max users",
+                    "allowedModels": "Allowed models"
                 },
                 "plans": {
                     "trial": "Trial (30 days)",
@@ -1085,7 +1110,8 @@
                     "exec": "Exec/day",
                     "tokensMo": "Tokens/mo",
                     "workflows": "Workflows",
-                    "users": "Users"
+                    "users": "Users",
+                    "models": "Models"
                 },
                 "createBtn": "Create tenant"
             },

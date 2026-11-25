@@ -388,10 +388,18 @@ public class ArchflowBeanConfiguration {
     // Controller implementations — Admin (self-contained, no deps)
     // =========================================================================
 
+    /**
+     * Catálogo de modelos da plataforma (RCHFLW-79): {@code ARCHFLOW_LLM_MODELS}
+     * ({@code archflow.llm.models}, ids do {@code archflow.llm.provider} separados por vírgula) ou, sem
+     * ela, a lista do código. O superadmin liga/desliga por cima; o seletor dos nós lista o que está
+     * ligado, recortado pelos permitidos do tenant.
+     */
     @Bean
     @ConditionalOnMissingBean
-    public GlobalConfigControllerImpl globalConfigControllerImpl() {
-        return new GlobalConfigControllerImpl();
+    public GlobalConfigControllerImpl globalConfigControllerImpl(
+            @Value("${archflow.llm.provider:openai}") String platformProvider,
+            @Value("${archflow.llm.models:}") String platformModels) {
+        return new GlobalConfigControllerImpl(platformProvider, platformModels);
     }
 
     @Bean
@@ -617,12 +625,16 @@ public class ArchflowBeanConfiguration {
     @Bean
     @ConditionalOnMissingBean
     public WorkflowConfigControllerImpl workflowConfigControllerImpl(
-            br.com.archflow.api.linktor.LinktorConfigController linktorConfigController) {
+            br.com.archflow.api.linktor.LinktorConfigController linktorConfigController,
+            org.springframework.beans.factory.ObjectProvider<GlobalConfigControllerImpl> globalConfig,
+            br.com.archflow.langchain4j.provider.TenantModelPolicy tenantModelPolicy,
+            @Value("${archflow.llm.provider:openai}") String platformProvider,
+            @Value("${archflow.llm.model:gpt-4o-mini}") String platformModel) {
         // Linktor appears in the MCP dropdown as soon as the admin
         // enables it in /admin/linktor — no restart needed. We resolve
         // the list lazily so each /workflow/mcp-servers call sees the
         // latest config state.
-        return new WorkflowConfigControllerImpl(() -> {
+        WorkflowConfigControllerImpl controller = new WorkflowConfigControllerImpl(() -> {
             var cfg = linktorConfigController.get();
             if (!cfg.enabled() || cfg.mcpCommand() == null || cfg.mcpCommand().isBlank()) {
                 return java.util.List.of();
@@ -634,6 +646,19 @@ public class ArchflowBeanConfiguration {
                     cfg.apiBaseUrl(),
                     0));
         });
+        // Seletor de modelos = catálogo ativo ∩ permitidos do tenant da requisição (RCHFLW-79). O
+        // tenant é o do JWT/impersonação; "nenhum tenant" (__default__) não tem restrição — a mesma
+        // regra da execução, que usa a mesma política.
+        GlobalConfigControllerImpl catalog = globalConfig.getIfAvailable();
+        if (catalog != null) {
+            controller.setModelCatalog(catalog::activeModels, () -> {
+                String tenant = TenantContext.currentTenantId();
+                return br.com.archflow.langchain4j.provider.TenantKeyResolver.isNoTenant(tenant)
+                        ? java.util.Optional.empty()
+                        : tenantModelPolicy.allowedModels(tenant);
+            }, platformProvider, platformModel);
+        }
+        return controller;
     }
 
     @Bean
@@ -1054,13 +1079,50 @@ public class ArchflowBeanConfiguration {
     // =========================================================================
 
     /**
-     * Resolução de chave por tenant. NOOP por padrão (sem chaves por tenant);
-     * produtos sobrepõem este bean para resolver chaves do seu storage.
+     * Chave de LLM por tenant, com fallback para a da plataforma:
+     * {@code archflow.llm.tenant-keys.<tenant>.<provider>}, depois {@code archflow.llm.keys.<provider>}
+     * (env {@code ARCHFLOW_LLM_KEYS_OPENROUTER}), depois {@code archflow.llm.api-key} quando o provider
+     * é o {@code archflow.llm.provider} (formato em {@link LlmKeyBinding}).
+     *
+     * <p>Era {@code NOOP}: o nó {@code llm-chat} (ponte de adapters) só achava chave se ela estivesse
+     * escrita no JSON do fluxo. Agora os três consumidores — adapter, agentes ({@code llmConfigResolver})
+     * e decisão ({@code decisionKeys}) — leem este bean. Produtos (VendaX, cofre de segredos) continuam
+     * podendo sobrepô-lo.
      */
     @Bean
     @ConditionalOnMissingBean
-    public br.com.archflow.langchain4j.provider.TenantKeyResolver tenantKeyResolver() {
-        return br.com.archflow.langchain4j.provider.TenantKeyResolver.NOOP;
+    public br.com.archflow.langchain4j.provider.TenantKeyResolver tenantKeyResolver(
+            org.springframework.core.env.Environment env) {
+        return LlmKeyBinding.tenantKeyResolver(env);
+    }
+
+    /**
+     * Modelos que cada tenant pode usar ({@code allowedModels} do cadastro de tenants, RCHFLW-79),
+     * conferidos na execução pelos dois caminhos de LLM: agentes ({@code llmConfigResolver}) e nós de
+     * chat ({@code DefaultFlowStepFactory}). Sem cadastro (tenant desconhecido ou lista vazia) não há
+     * restrição. Um produto com cadastro próprio sobrepõe o bean.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public br.com.archflow.langchain4j.provider.TenantModelPolicy tenantModelPolicy(
+            org.springframework.beans.factory.ObjectProvider<TenantControllerImpl> tenants) {
+        return tenantId -> {
+            TenantControllerImpl controller = tenants.getIfAvailable();
+            return controller == null ? java.util.Optional.empty() : controller.allowedModels(tenantId);
+        };
+    }
+
+    /**
+     * Para onde uma chave governada pode ir: o endereço oficial do provider, o
+     * {@code archflow.llm.base-url} e a lista {@code archflow.llm.allowed-base-urls} (URLs ou hosts,
+     * separados por vírgula). Um {@code base.url}/{@code baseUrl}/{@code endpoint} de nó fora disso
+     * falha antes de qualquer requisição (RCHFLW-42).
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public br.com.archflow.langchain4j.provider.BaseUrlPolicy llmBaseUrlPolicy(
+            org.springframework.core.env.Environment env) {
+        return LlmKeyBinding.baseUrlPolicy(env);
     }
 
     /**
@@ -1143,10 +1205,13 @@ public class ArchflowBeanConfiguration {
             br.com.archflow.langchain4j.provider.TenantKeyResolver tenantKeyResolver,
             br.com.archflow.langchain4j.provider.TierModelResolver tierModelResolver,
             br.com.archflow.model.config.ProviderPreferences llmProviderPreferences,
-            @Value("${archflow.llm.provider-preferences.required:false}") boolean preferencesRequired) {
+            @Value("${archflow.llm.provider-preferences.required:false}") boolean preferencesRequired,
+            br.com.archflow.langchain4j.provider.BaseUrlPolicy llmBaseUrlPolicy,
+            br.com.archflow.langchain4j.provider.TenantModelPolicy tenantModelPolicy) {
         return new br.com.archflow.langchain4j.provider.DefaultLLMConfigResolver(
                 br.com.archflow.langchain4j.provider.LLMProviderHub.getInstance(),
-                tenantKeyResolver, tierModelResolver, llmProviderPreferences, preferencesRequired);
+                tenantKeyResolver, tierModelResolver, llmProviderPreferences, preferencesRequired,
+                llmBaseUrlPolicy, tenantModelPolicy);
     }
 
     /**
@@ -1525,22 +1590,34 @@ public class ArchflowBeanConfiguration {
             br.com.archflow.langchain4j.provider.LLMConfigResolver llmConfigResolver,
             br.com.archflow.model.config.ResolvedLLMConfig platformDefaultLLMConfig,
             br.com.archflow.model.config.ProviderPreferences llmProviderPreferences,
-            @Value("${archflow.llm.provider-preferences.required:false}") boolean preferencesRequired) {
+            @Value("${archflow.llm.provider-preferences.required:false}") boolean preferencesRequired,
+            br.com.archflow.langchain4j.provider.BaseUrlPolicy llmBaseUrlPolicy,
+            br.com.archflow.langchain4j.provider.TenantModelPolicy tenantModelPolicy) {
         return br.com.archflow.decision.DecisionProviders.withDefaults()
-                // Substitui o embutido (mesmo id) pelo que leva a preferencia de provedor.
-                .register(new br.com.archflow.decision.HttpDecisionProvider(
-                        llmProviderPreferences, preferencesRequired))
+                // Substitui o embutido (mesmo id) pelo que leva a preferencia de provedor. Os dois
+                // que aceitam destino nas opcoes do no passam pela guarda de host (RCHFLW-42) e pelos
+                // modelos permitidos do tenant (RCHFLW-79) - o `llm` ja passa pelo resolver.
+                .register(new br.com.archflow.api.decision.DecisionEndpointGuard(
+                        new br.com.archflow.decision.HttpDecisionProvider(
+                                llmProviderPreferences, preferencesRequired), llmBaseUrlPolicy,
+                        tenantModelPolicy))
                 .register(new br.com.archflow.api.decision.LlmDecisionProvider(
                         llmConfigResolver, platformDefaultLLMConfig))
-                .register(new br.com.archflow.api.decision.LangChain4jDecisionProvider(
-                        llmProviderPreferences, preferencesRequired));
+                .register(new br.com.archflow.api.decision.DecisionEndpointGuard(
+                        new br.com.archflow.api.decision.LangChain4jDecisionProvider(
+                                llmProviderPreferences, preferencesRequired), llmBaseUrlPolicy,
+                        tenantModelPolicy));
     }
 
     /**
-     * A chave de um provedor de decisão: a do tenant (o mesmo resolvedor das chaves de LLM, com o
-     * id do provedor — {@code openrouter} por padrão) e, na falta dela,
-     * {@code archflow.decision.keys.<ref>} (env {@code ARCHFLOW_DECISION_KEYS_<REF>}). Nunca do
-     * documento do fluxo.
+     * A chave de um provedor de decisão, nunca do documento do fluxo: a do tenant, depois
+     * {@code archflow.decision.keys.<ref>} (env {@code ARCHFLOW_DECISION_KEYS_<REF>}), depois a chave
+     * de LLM da plataforma para aquele provider.
+     *
+     * <p>A ordem importa desde que o resolver de chaves ganhou fallback de plataforma: chamá-lo inteiro
+     * primeiro faria a chave de LLM da plataforma passar na frente da chave de decisão que o operador
+     * cadastrou de propósito. Com um resolver de produto (sem essa separação), vale o comportamento
+     * anterior: resolver, depois {@code archflow.decision.keys.<ref>}.
      */
     @Bean
     @ConditionalOnMissingBean
@@ -1548,13 +1625,23 @@ public class ArchflowBeanConfiguration {
             br.com.archflow.langchain4j.provider.TenantKeyResolver tenantKeyResolver,
             org.springframework.core.env.Environment env) {
         return (tenantId, ref) -> {
-            var doTenant = tenantKeyResolver.resolveApiKey(tenantId, ref);
+            boolean doDeployment =
+                    tenantKeyResolver instanceof br.com.archflow.langchain4j.provider.PropertyTenantKeyResolver;
+            var doTenant = doDeployment
+                    ? ((br.com.archflow.langchain4j.provider.PropertyTenantKeyResolver) tenantKeyResolver)
+                            .resolveTenantKey(tenantId, ref)
+                    : tenantKeyResolver.resolveApiKey(tenantId, ref);
             if (doTenant.isPresent() && !doTenant.get().isBlank()) {
                 return doTenant;
             }
             String daPlataforma = env.getProperty("archflow.decision.keys." + ref);
-            return daPlataforma == null || daPlataforma.isBlank()
-                    ? java.util.Optional.empty() : java.util.Optional.of(daPlataforma);
+            if (daPlataforma != null && !daPlataforma.isBlank()) {
+                return java.util.Optional.of(daPlataforma);
+            }
+            return doDeployment
+                    ? ((br.com.archflow.langchain4j.provider.PropertyTenantKeyResolver) tenantKeyResolver)
+                            .resolvePlatformKey(ref)
+                    : java.util.Optional.empty();
         };
     }
 }
