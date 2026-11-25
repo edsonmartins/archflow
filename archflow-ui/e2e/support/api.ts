@@ -42,13 +42,26 @@ export async function fulfillJson(route: Route, body: unknown, status = 200) {
     });
 }
 
+/**
+ * Access token da sessão mockada: um JWT sem assinatura válida que carrega o claim `roles`, como o do
+ * backend. A UI lê as permissões desse claim (RCHFLW-74, `lib/permissions.ts`) — com o antigo
+ * 'e2e-token' opaco nenhuma ação de escrita aparecia. Sem `exp`, como antes: a sessão não expira e o
+ * cliente não tenta renovar. Quem confere a assinatura é o servidor, que aqui não existe.
+ */
+export function e2eAccessToken(roles: readonly string[]): string {
+    const part = (value: object) => Buffer.from(JSON.stringify(value)).toString('base64url');
+    return `${part({ alg: 'HS256', typ: 'JWT' })}.${part({ sub: 'user-e2e', type: 'access', roles })}.e2e-signature`;
+}
+
 export async function installSession(
     page: Page,
-    options: { role?: string; token?: string; refreshToken?: string } = {},
+    options: { role?: string; roles?: readonly string[]; token?: string; refreshToken?: string } = {},
 ) {
     const {
         role,
-        token = 'e2e-token',
+        // Os papéis do token, que decidem as ações de fluxos/execuções; o padrão é o do adminUser.
+        roles = adminUser.roles,
+        token = e2eAccessToken(roles),
         refreshToken = 'e2e-refresh-token',
     } = options;
 
@@ -145,11 +158,13 @@ export function authHandlers(
                 return true;
             }
 
+            // O token carrega os papéis do usuário mockado, como o do backend (ver e2eAccessToken).
+            const token = e2eAccessToken(user.roles);
             const body =
                 loginShape === 'token'
-                    ? { token: 'e2e-token', refreshToken: 'e2e-refresh-token' }
+                    ? { token, refreshToken: 'e2e-refresh-token' }
                     : {
-                        accessToken: 'e2e-token',
+                        accessToken: token,
                         refreshToken: 'e2e-refresh-token',
                         userId: user.id,
                         username: user.username,

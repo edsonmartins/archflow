@@ -4,6 +4,7 @@ import br.com.archflow.api.approval.ApprovalController;
 import br.com.archflow.api.approval.dto.ApprovalResponse;
 import br.com.archflow.api.approval.dto.ApprovalSubmitRequest;
 import br.com.archflow.api.config.JwtAuthenticationFilter;
+import br.com.archflow.api.config.TenantScope;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -53,8 +54,20 @@ class SpringApprovalControllerTest {
                 lookedUpFlow.set(flowId);
                 return null;
             }
+
+            @Override
+            public ApprovalResponse getApproval(String requestId, String flowId, String tenantScope) {
+                return getApproval(requestId, flowId);
+            }
+
+            @Override
+            public ApprovalResponse submitDecision(String requestId, ApprovalSubmitRequest request,
+                                                   String tenantScope) {
+                return submitDecision(requestId, request);
+            }
         };
-        controller = new SpringApprovalController(delegate);
+        // Auth desligada: aqui o assunto é o decisor; o recorte de tenant tem teste próprio.
+        controller = new SpringApprovalController(delegate, new TenantScope(false));
     }
 
     private static ApprovalSubmitRequest bodyClaiming(String responderId) {
@@ -101,7 +114,7 @@ class SpringApprovalControllerTest {
     @Test
     @DisplayName("GET do detalhe repassa a execução: é ela que acha um pedido já decidido")
     void detailForwardsTheExecution() {
-        controller.getApproval("req-1", "exec-1");
+        controller.getApproval("req-1", "exec-1", null);
 
         assertThat(lookedUpFlow.get()).isEqualTo("exec-1");
     }

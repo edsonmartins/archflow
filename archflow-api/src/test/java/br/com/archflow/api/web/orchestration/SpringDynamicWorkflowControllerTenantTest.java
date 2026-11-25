@@ -28,7 +28,8 @@ import static org.mockito.Mockito.verify;
 class SpringDynamicWorkflowControllerTenantTest {
 
     private final DynamicWorkflowService service = mock(DynamicWorkflowService.class);
-    private final SpringDynamicWorkflowController controller = new SpringDynamicWorkflowController(service);
+    private final SpringDynamicWorkflowController controller = new SpringDynamicWorkflowController(service,
+            new br.com.archflow.api.config.TenantScope(true));
 
     @AfterEach
     void limpa() {

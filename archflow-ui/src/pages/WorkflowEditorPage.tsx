@@ -2,7 +2,7 @@ import { useEffect, useCallback, useMemo, useRef, useState } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
 import { useTranslation }    from 'react-i18next'
 import { notifications }     from '@mantine/notifications'
-import { Button, Modal, Stack, Textarea } from '@mantine/core'
+import { Badge, Button, Modal, Stack, Textarea } from '@mantine/core'
 import {
     IconChevronLeft,
     IconChevronRight,
@@ -32,6 +32,7 @@ import { useWorkflowStore }  from '../stores/workflow-store'
 import { workflowYamlApi }   from '../services/workflow-yaml-api'
 import type { FlowNodeData, WorkflowData } from '../components/FlowCanvas/types'
 import { canvasToDocumentSteps, workflowDataFromDocument } from '../components/FlowCanvas/workflowSerde'
+import { usePermissions }    from '../lib/permissions'
 
 /**
  * Floating chevron button that sits flush to the canvas edge and
@@ -114,6 +115,11 @@ export function WorkflowEditor() {
   // com id na rota, o editor só trata como aberto o fluxo da rota, e depois do fetch. Sem id (/editor, o
   // item de menu) continua mostrando o último fluxo aberto.
   const [loadedId, setLoadedId] = useState<string | null>(null)
+  // RCHFLW-74: sem workflow:update o editor é só leitura (canvas, YAML, título, Salvar, Publicar, IA);
+  // sem workflow:execute não há Executar. O backend responde 403 a quem tentar mesmo assim.
+  const can = usePermissions()
+  const canUpdate = can('workflow:update')
+  const canExecute = can('workflow:execute')
   const current = !id || (storedWorkflow?.id === id && loadedId === id) ? storedWorkflow : null
   // Timestamp (epoch millis) of the most recent successful save. Used
   // by the "saved N seconds ago" indicator in the toolbar.
@@ -482,6 +488,13 @@ export function WorkflowEditor() {
     // o YAML em silêncio e executaria a versão anterior.
     const viaYaml = view === 'yaml' && yamlDirty
     if (viaYaml) setYamlError(null)
+    // Quem só executa (EXECUTOR) não grava: o canvas e o YAML dele são só leitura, então não há edição
+    // a perder, e o PUT responderia 403 e impediria a execução da versão gravada.
+    if (!canUpdate) {
+      startExecution(current.id)
+      abortRunRef.current = runAgUiWorkflow(current.id, toAgUiRunInput(inputText), handleRunEvent)
+      return
+    }
     try {
       if (viaYaml) {
         await persistYaml()
@@ -502,7 +515,7 @@ export function WorkflowEditor() {
     }
     startExecution(current.id)
     abortRunRef.current = runAgUiWorkflow(current.id, toAgUiRunInput(inputText), handleRunEvent)
-  }, [current, startExecution, handleRunEvent, saveWorkflow, persistYaml, view, yamlDirty, t])
+  }, [current, startExecution, handleRunEvent, saveWorkflow, persistYaml, view, yamlDirty, canUpdate, t])
 
   // ── Troca de aba ──────────────────────────────────────────────
   // O YAML da aba Código vem do backend, então não inclui edições do canvas ainda não salvas — e um
@@ -597,7 +610,7 @@ export function WorkflowEditor() {
   // antigo), o Salvar YAML grava esse texto e recarrega o currentWorkflow do backend — um nome trocado no
   // cabeçalho seria descartado logo abaixo do toast "YAML salvo". Quem quer renomear ali edita
   // metadata.name no próprio YAML.
-  const titleEditable = !!current && view !== 'yaml'
+  const titleEditable = !!current && view !== 'yaml' && canUpdate
   const [editingTitle, setEditingTitle] = useState(false)
   const [titleDraft, setTitleDraft] = useState('')
   // Esc fecha o campo; se o navegador disparar blur ao desmontá-lo, o rascunho não pode ser confirmado.
@@ -771,39 +784,51 @@ export function WorkflowEditor() {
             </button>
           </div>
 
-          <button
-            onClick={view === 'yaml' ? handleSaveYaml : handleSave}
-            disabled={isSaving || (view === 'yaml' && !yamlDirty)}
-            style={{ ...btnStyle, opacity: isSaving ? 0.6 : 1 }}
-            data-testid="editor-save"
-          >
-            {isSaving ? t('common.saving') : view === 'yaml' ? t('editor.saveYaml') : t('editor.save')}
-          </button>
+          {!canUpdate && (
+            <Badge variant="light" color="gray" size="sm" data-testid="editor-read-only">
+              {t('editor.readOnly')}
+            </Badge>
+          )}
 
-          <Button
-            onClick={() => setPublishOpen(true)}
-            variant="default"
-            leftSection={<IconWorldUpload size={14} />}
-            size="xs"
-            disabled={!current}
-            data-testid="editor-publish"
-          >
-            {t('editor.publish.button')}
-          </Button>
+          {canUpdate && (
+            <button
+              onClick={view === 'yaml' ? handleSaveYaml : handleSave}
+              disabled={isSaving || (view === 'yaml' && !yamlDirty)}
+              style={{ ...btnStyle, opacity: isSaving ? 0.6 : 1 }}
+              data-testid="editor-save"
+            >
+              {isSaving ? t('common.saving') : view === 'yaml' ? t('editor.saveYaml') : t('editor.save')}
+            </button>
+          )}
 
-          <Button
-            onClick={() => setAiOpen(true)}
-            variant="light"
-            color="grape"
-            leftSection={<IconSparkles size={14} />}
-            size="xs"
-            disabled={!current}
-            data-testid="editor-ai"
-          >
-            {t('editor.ai.button')}
-          </Button>
+          {canUpdate && (
+            <Button
+              onClick={() => setPublishOpen(true)}
+              variant="default"
+              leftSection={<IconWorldUpload size={14} />}
+              size="xs"
+              disabled={!current}
+              data-testid="editor-publish"
+            >
+              {t('editor.publish.button')}
+            </Button>
+          )}
 
-          <Button
+          {canUpdate && (
+            <Button
+              onClick={() => setAiOpen(true)}
+              variant="light"
+              color="grape"
+              leftSection={<IconSparkles size={14} />}
+              size="xs"
+              disabled={!current}
+              data-testid="editor-ai"
+            >
+              {t('editor.ai.button')}
+            </Button>
+          )}
+
+          {canExecute && <Button
             onClick={handleExecute}
             color={isExecuting ? 'red' : undefined}
             variant={isExecuting ? 'light' : 'filled'}
@@ -814,7 +839,7 @@ export function WorkflowEditor() {
           >
             {/* O editor roda o rascunho; a lista e a API, a versão publicada (RCHFLW-89). */}
             {isExecuting ? t('editor.stop') : t('editor.runDraft')}
-          </Button>
+          </Button>}
         </div>
       </div>
 
@@ -897,17 +922,21 @@ export function WorkflowEditor() {
         >
           {/* Palette — animates width between 240 and 0. A thin edge
               button stays visible at all times so the user can bring
-              it back without hunting a menu. */}
-          <div
-            style={{
-              width:      paletteVisible ? 240 : 0,
-              flexShrink: 0,
-              overflow:   'hidden',
-              transition: 'width 0.18s ease',
-            }}
-          >
-            <NodePalette />
-          </div>
+              it back without hunting a menu. Sem workflow:update (RCHFLW-74)
+              não há paleta nem o botão dela: o canvas só leitura não registra
+              a API de inserir nem aceita o drop, então os itens não fariam nada. */}
+          {canUpdate && (
+            <div
+              style={{
+                width:      paletteVisible ? 240 : 0,
+                flexShrink: 0,
+                overflow:   'hidden',
+                transition: 'width 0.18s ease',
+              }}
+            >
+              <NodePalette />
+            </div>
+          )}
 
           {/* Canvas — gains the reclaimed space automatically via
               flex:1. Absolute toggles float over the canvas edges. */}
@@ -922,6 +951,7 @@ export function WorkflowEditor() {
                 // plain save, so editing state is preserved.
                 key={`${current?.id ?? 'none'}:${canvasRevision}`}
                 initialWorkflow={workflowData}
+                readonly={!canUpdate}
                 onNodeSelect={handleNodeSelect}
                 onExecutionRequest={handleExecute}
                 keyboardActive={view === 'canvas'}
@@ -931,13 +961,15 @@ export function WorkflowEditor() {
               <EmptyCanvas />
             )}
 
-            <PanelToggle
-              side="left"
-              open={paletteVisible}
-              onToggle={() => setPaletteVisible(v => !v)}
-              label={t('editor.properties.togglePalette')}
-              testId="toggle-palette"
-            />
+            {canUpdate && (
+              <PanelToggle
+                side="left"
+                open={paletteVisible}
+                onToggle={() => setPaletteVisible(v => !v)}
+                label={t('editor.properties.togglePalette')}
+                testId="toggle-palette"
+              />
+            )}
             <PanelToggle
               side="right"
               open={propertiesVisible}
@@ -959,6 +991,7 @@ export function WorkflowEditor() {
             <PropertyPanel
               nodeId={selectedNodeId}
               nodeData={selectedNodeData as FlowNodeData | null}
+              readOnly={!canUpdate}
             />
           </div>
         </div>
@@ -984,6 +1017,7 @@ export function WorkflowEditor() {
             ) : (
               <YamlEditor
                 value={yamlText}
+                readOnly={!canUpdate}
                 onChange={(v) => {
                   setYamlText(v)
                   setYamlDirty(true)

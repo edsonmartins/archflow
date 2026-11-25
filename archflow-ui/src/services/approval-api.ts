@@ -51,11 +51,20 @@ export const approvalApi = {
      * Com `flowId` (a execução do pedido), um pedido já decidido volta com quem decidiu, quando e o
      * comentário, em vez de 404 — o link aberto depois da decisão ainda responde "quem autorizou".
      */
-    get: (requestId: string, flowId?: string) =>
-        api.get<ApprovalResponse>(
-            `/approvals/${encodeURIComponent(requestId)}`
-                + (flowId ? `?flowId=${encodeURIComponent(flowId)}` : ''),
-        ),
+    /**
+     * `tenantId` segue a regra da fila (`approvalTenantParam`): o superadmin manda `'all'` para abrir
+     * um pedido de outro tenant visto na fila de todos. Sem ele, o servidor só acha pedidos do tenant
+     * da requisição (RCHFLW-39).
+     */
+    get: (requestId: string, flowId?: string, tenantId?: string) => {
+        const qs = new URLSearchParams();
+        if (flowId) qs.set('flowId', flowId);
+        if (tenantId) qs.set('tenantId', tenantId);
+        const query = qs.toString();
+        return api.get<ApprovalResponse>(
+            `/approvals/${encodeURIComponent(requestId)}${query ? `?${query}` : ''}`,
+        );
+    },
 
     submit: (requestId: string, request: ApprovalSubmitRequest) =>
         api.post<ApprovalResponse>(

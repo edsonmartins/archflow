@@ -93,7 +93,8 @@ class AdminRoleInterceptorTest {
         new AdminSecurityConfiguration(true).addInterceptors(registry);
 
         List<Object> registered = registry.interceptors();
-        assertThat(registered).hasSize(1);
+        // O segundo é o WorkflowPermissionInterceptor (RCHFLW-74), nos paths de fluxos e execuções.
+        assertThat(registered).hasSize(2);
         // MappedInterceptor embrulha o nosso quando há path patterns.
         Object first = registered.get(0);
         assertThat(first).isInstanceOf(org.springframework.web.servlet.handler.MappedInterceptor.class);

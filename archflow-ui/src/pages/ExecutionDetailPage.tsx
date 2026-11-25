@@ -24,6 +24,7 @@ import EmptyState from '../components/EmptyState'
 import { formatDuration, formatInstant } from '../lib/format'
 import { EXECUTION_STATUS_COLOR, executionPollIntervalMs, isTerminalExecutionStatus } from '../lib/executionStatus'
 import { buildStepRows, parseStepOutput, type StepRecord, type StepRow } from '../lib/stepOutput'
+import { usePermissions } from '../lib/permissions'
 
 /** A materialized ExecutionPath node (design-0005 step 4). */
 interface PathNode {
@@ -273,6 +274,8 @@ export default function ExecutionDetailPage() {
     const [err, setErr]   = useState<string | null>(null)
     const [rawOpen, setRawOpen] = useState(false)
     const [rerunning, setRerunning] = useState(false)
+    // RCHFLW-74: reexecutar é executar o fluxo (workflow:execute); quem só lê não vê o botão.
+    const canExecute = usePermissions()('workflow:execute')
 
     const load = useCallback(async () => {
         try {
@@ -356,16 +359,18 @@ export default function ExecutionDetailPage() {
                             {t('executionDetail.viewTrace')}
                         </Button>
                     )}
-                    <Button
-                        leftSection={<IconPlayerPlay size={14} />}
-                        loading={rerunning}
-                        onClick={() => setRerunInputOpen(true)}
-                        disabled={!data.workflowId}
-                        data-testid="execution-rerun"
-                    >
-                        {t('executionDetail.rerun')}
-                    </Button>
-                    {rerunWorkflowId && (
+                    {canExecute && (
+                        <Button
+                            leftSection={<IconPlayerPlay size={14} />}
+                            loading={rerunning}
+                            onClick={() => setRerunInputOpen(true)}
+                            disabled={!data.workflowId}
+                            data-testid="execution-rerun"
+                        >
+                            {t('executionDetail.rerun')}
+                        </Button>
+                    )}
+                    {canExecute && rerunWorkflowId && (
                         <RunInputModal
                             workflowId={rerunWorkflowId}
                             opened={rerunInputOpen}

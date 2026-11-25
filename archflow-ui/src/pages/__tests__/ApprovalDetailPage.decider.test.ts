@@ -26,6 +26,7 @@ vi.mock('@mantine/notifications', () => ({ notifications: notificationsMock }))
 vi.mock('../../lib/confirm', () => ({ confirmAction: (o: { onConfirm: () => void }) => o.onConfirm() }))
 
 import ApprovalDetailPage from '../ApprovalDetailPage'
+import { useTenantStore } from '../../stores/useTenantStore'
 
 let root: Root | null = null
 let container: HTMLDivElement
@@ -109,7 +110,8 @@ describe('ApprovalDetailPage — pedido já decidido', () => {
 
     await render('/approvals/req-1?flowId=exec-1')
 
-    expect(approvalApiMock.get).toHaveBeenCalledWith('req-1', 'exec-1')
+    // Papel comum (viewer, o inicial): sem tenantId — o servidor usa o da requisição.
+    expect(approvalApiMock.get).toHaveBeenCalledWith('req-1', 'exec-1', undefined)
     const decided = container.querySelector('[data-testid="approval-decided"]')
     expect(decided).not.toBeNull()
     expect(decided?.textContent).toContain('diretor.financeiro')
@@ -124,5 +126,20 @@ describe('ApprovalDetailPage — pedido já decidido', () => {
 
     expect(container.querySelector('[data-testid="approval-decided"]')).toBeNull()
     expect(container.querySelector('[data-testid="approval-approve"]')).not.toBeNull()
+  })
+})
+
+describe('ApprovalDetailPage — tenant do detalhe', () => {
+  afterEach(() => { useTenantStore.setState({ currentRole: 'viewer', impersonating: null }) })
+
+  // A fila do superadmin é a de todos ('all'); o detalhe de um pedido de outro tenant visto ali só é
+  // encontrado se for pedido do mesmo jeito — sem o parâmetro, o servidor procura no tenant da
+  // requisição e responde 404 (RCHFLW-39).
+  it('superadmin pede o detalhe com tenantId=all, como a fila', async () => {
+    useTenantStore.setState({ currentRole: 'superadmin', impersonating: null })
+
+    await render('/approvals/req-1?flowId=exec-1')
+
+    expect(approvalApiMock.get).toHaveBeenCalledWith('req-1', 'exec-1', 'all')
   })
 })

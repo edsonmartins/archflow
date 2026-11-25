@@ -79,8 +79,10 @@ class ObservabilityServiceTest {
         assertThat(overview.topPersonas().get(0).personaId()).isEqualTo("order_tracking");
         assertThat(overview.topPersonas().get(0).executionCount()).isEqualTo(3);
 
-        // audit count for today >= 4
-        assertThat(overview.totalAuditEventsToday()).isGreaterThanOrEqualTo(4);
+        // A contagem de auditoria do dia é do tenant pedido (RCHFLW-39): os eventos semeados não
+        // carregam tenant no contexto, então não são da acme — o total da plataforma vem sem tenant.
+        assertThat(overview.totalAuditEventsToday()).isZero();
+        assertThat(service.getOverview(null).totalAuditEventsToday()).isGreaterThanOrEqualTo(4);
         assertThat(overview.latencySparkline()).hasSize(12);
     }
 

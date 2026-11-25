@@ -26,6 +26,8 @@ import {
     IconX,
 } from '@tabler/icons-react';
 import { approvalApi, type ApprovalResponse } from '../services/approval-api';
+import { approvalTenantParam } from '../lib/approvalTenant';
+import { useTenantStore } from '../stores/useTenantStore';
 import { JsonViewer } from '../components/JsonViewer';
 import { Meta } from '../components/Meta';
 import { formatInstant } from '../lib/format';
@@ -41,6 +43,10 @@ export default function ApprovalDetailPage() {
     const flowId = searchParams.get('flowId') || undefined;
     const navigate = useNavigate();
     const { t, i18n } = useTranslation();
+    // O mesmo tenant da fila: o superadmin que abriu o pedido na visão "all" precisa pedi-lo assim,
+    // senão o servidor só procura no tenant da requisição e responde 404 (RCHFLW-39).
+    const { impersonating, currentRole } = useTenantStore();
+    const tenantId = approvalTenantParam(impersonating, currentRole);
 
     const [approval, setApproval] = useState<ApprovalResponse | null>(null);
     const [loading, setLoading] = useState(true);
@@ -55,7 +61,7 @@ export default function ApprovalDetailPage() {
         let cancelled = false;
         setLoading(true);
         approvalApi
-            .get(id, flowId)
+            .get(id, flowId, tenantId)
             .then((dto) => {
                 if (cancelled) return;
                 setApproval(dto);
@@ -71,7 +77,7 @@ export default function ApprovalDetailPage() {
             cancelled = true;
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [id, flowId]);
+    }, [id, flowId, tenantId]);
 
     const decide = async (decision: 'APPROVED' | 'REJECTED' | 'EDITED') => {
         if (!id || !approval) return;
