@@ -98,6 +98,8 @@ class ExceptionsTest {
 
             assertThat(ex.getErrors()).hasSize(2);
             assertThat(ex.getMessage()).contains("2 errors found");
+            // O motivo vai na mensagem: é ela que a execução FAILED guarda e a tela mostra.
+            assertThat(ex.getMessage()).endsWith(": error1; error2");
         }
 
         @Test

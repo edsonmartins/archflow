@@ -143,13 +143,14 @@ public class KnowledgeBaseTemplate extends AbstractWorkflowTemplate {
                 )
         ));
 
-        // Vector search node
+        // Vector search node. O parâmetro do template continua vectorStoreId (é o contrato do install); no nó
+        // ele vai para knowledgeBaseId, a chave que o painel grava e o motor lê (RCHFLW-55).
         nodes.put("vector-search", new WorkflowTemplateDefinition.TemplateNode(
                 "vector-search",
                 "vector-search",
                 "Vector Search",
                 Map.of(
-                        "vectorStoreId", "{{vectorStoreId}}",
+                        "knowledgeBaseId", "{{vectorStoreId}}",
                         "topK", "{{topK}}",
                         "minScore", "{{minScore}}"
                 )

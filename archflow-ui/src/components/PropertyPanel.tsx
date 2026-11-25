@@ -1,11 +1,11 @@
 import { useTranslation } from 'react-i18next'
 import {
   Select, TextInput, Textarea, NumberInput, ScrollArea, Tabs,
-  Switch, TagsInput, Badge, Text,
+  Switch, TagsInput, Badge, Text, Alert,
 } from '@mantine/core'
 import { useFlowStore }     from './FlowCanvas/store/useFlowStore'
 import type { FlowNodeData } from './FlowCanvas/types'
-import { NODE_CATEGORIES, NODE_TYPE_TO_CATEGORY } from './FlowCanvas/constants'
+import { NODE_CATEGORIES, NODE_TYPE_TO_CATEGORY, isNotExecutableNode } from './FlowCanvas/constants'
 import { NodeIcon } from './FlowCanvas/nodeIcons'
 import { FIELD_STYLES, MONO_INPUT } from './PropertyPanel/fieldStyles'
 import { useWorkflowConfig } from './PropertyPanel/useWorkflowConfig'
@@ -13,11 +13,16 @@ import { FlowDefaultsPanel } from './PropertyPanel/FlowDefaultsPanel'
 import { ReadOnlyFieldset } from './PropertyPanel/ReadOnlyFieldset'
 import { useCatalog } from './PropertyPanel/useCatalog'
 import { AgentFields } from './PropertyPanel/fields/AgentFields'
-import { getConfig } from './PropertyPanel/fields/helpers'
+import {
+  getConfig, numberUpdater, storedChoice, storedFlag, storedNumber, storedText,
+} from './PropertyPanel/fields/helpers'
 import { McpToolFields } from './PropertyPanel/fields/McpToolFields'
 import { SubflowFields } from './PropertyPanel/fields/SubflowFields'
 import { SkillsFields } from './PropertyPanel/fields/SkillsFields'
 import { DecisionFields } from './PropertyPanel/fields/DecisionFields'
+import { KnowledgeBaseField } from './PropertyPanel/fields/KnowledgeBaseField'
+import { knowledgeBaseOf } from './FlowCanvas/dataNodeKeys'
+import { ServerConnectionField, VectorStoreFields } from './PropertyPanel/fields/VectorStoreFields'
 import { ApprovalFields } from './PropertyPanel/fields/ApprovalFields'
 import { ExecutionLogs, OutputPreview } from './PropertyPanel/fields/ExecutionPanels'
 import { NodeIdField, UpstreamRefs } from './PropertyPanel/fields/NodeReferences'
@@ -148,6 +153,12 @@ function NodeFields({ nodeId, nodeData, readOnly }: { nodeId: string; nodeData: 
   const isEmbedding = nodeData.nodeType === 'embedding'
   const isRag       = nodeData.nodeType === 'rag'
   const isMemory    = ['memory', 'memory-store'].includes(nodeData.nodeType)
+  // Memória e Vector store não têm operação padrão no motor (LangChainAdapterComponent), e o painel não tem o
+  // campo: sem 'operation' escrita no nó, a execução sempre falha — o painel diz, e o Executar bloqueia.
+  const hasOperation = storedChoice(nodeData, 'operation') != null
+  // O embedding local exige caminhos que o painel não tem (LocalEmbeddingAdapter.validate).
+  const localEmbeddingIncomplete = storedChoice(nodeData, 'embeddingProvider') === 'local'
+    && (storedChoice(nodeData, 'local.model.path') == null || storedChoice(nodeData, 'local.vocab.path') == null)
   // ── New node families backed by existing backend surface ──────
   const isMcpTool         = nodeData.nodeType === 'mcp-tool'
   const isApproval        = nodeData.nodeType === 'approval'
@@ -179,6 +190,29 @@ function NodeFields({ nodeId, nodeData, readOnly }: { nodeId: string; nodeData: 
   }
   // Shortcut for field translations; keeps JSX free of the long prefix.
   const f = (key: string, opts?: Record<string, unknown>) => t(`editor.properties.fields.${key}`, opts)
+  const localEmbeddingWarning = (
+    <Alert color="orange" variant="light" p="xs" data-testid="local-embedding-not-configurable">
+      <Text size="xs">{f('localEmbeddingNotConfigurable')}</Text>
+    </Alert>
+  )
+  // O painel só mostra o que está gravado (RCHFLW-92). Exemplo vai no placeholder como "ex.: X"; "padrão: X" só
+  // quando o motor usa X com o campo vazio — conferido no Java (ex.: DynamicWorkflowService para o Orquestrar).
+  const ex = (value: unknown) => f('exampleValue', { value: String(value) })
+  const dflt = (value: unknown) => f('defaultValue', { value: String(value) })
+  const num = (key: string) => numberUpdater(update, key)
+  // Select desmarcado tira a chave, em vez de gravar null.
+  const choose = (key: string) => (v: string | null) => update(key, v ?? undefined)
+  // vector-search/rag com Base de conhecimento (RCHFLW-55): o backend de vetores não é usado.
+  const withKnowledgeBase = (nodeData.nodeType === 'vector-search' || isRag) && knowledgeBaseOf(nodeData.config) != null
+  const catalogStores = catalog.vectorstores ?? []
+  const vectorBackends = catalogStores.length > 0
+    ? catalogStores.map(v => ({ value: v.id, label: v.displayName }))
+    : [
+        { value: 'pgvector',  label: f('vectorBackendOptions.pgvector') },
+        { value: 'pinecone',  label: f('vectorBackendOptions.pinecone') },
+        { value: 'redis',     label: f('vectorBackendOptions.redis') },
+        // Sem 'in-memory': não há adapter de vector store em memória — o nó caía em "component not found".
+      ]
 
 
   return (
@@ -206,6 +240,20 @@ function NodeFields({ nodeId, nodeData, readOnly }: { nodeId: string; nodeData: 
           fieldset de propósito: copiar o id não edita nada e serve a quem só lê. */}
       <NodeIdField nodeId={nodeId} />
 
+      {/* Tipo sem execução no servidor (RCHFLW-11): o nó salva, mas o Executar é impedido enquanto ele estiver no fluxo */}
+      {isNotExecutableNode(nodeData) && (
+        <Alert color="orange" variant="light" p="xs" data-testid="panel-not-executable">
+          <Text size="xs">{f('notExecutableHint')}</Text>
+        </Alert>
+      )}
+
+      {/* llm-streaming saiu da paleta: roda como o llm-chat, sem streaming (RCHFLW-57) */}
+      {nodeData.nodeType === 'llm-streaming' && (
+        <Alert color="blue" variant="light" p="xs" data-testid="panel-llm-streaming-alias">
+          <Text size="xs">{f('llmStreamingAlias')}</Text>
+        </Alert>
+      )}
+
       {/* Daqui ao fim, todos os campos do tipo do nó: travados sem workflow:update (RCHFLW-74). */}
       <ReadOnlyFieldset readOnly={readOnly}>
 
@@ -224,8 +272,8 @@ function NodeFields({ nodeId, nodeData, readOnly }: { nodeId: string; nodeData: 
           {catalog.tools.length > 0 ? (
             <Select
               label={f('tool')}
-              value={getConfig(nodeData, 'toolId', catalog.tools[0].id)}
-              onChange={v => update('toolId', v)}
+              value={storedChoice(nodeData, 'toolId')}
+              onChange={choose('toolId')}
               size="xs"
               data={catalog.tools.map(x => ({ value: x.id, label: x.displayName }))}
               styles={FIELD_STYLES}
@@ -234,7 +282,7 @@ function NodeFields({ nodeId, nodeData, readOnly }: { nodeId: string; nodeData: 
           ) : (
             <TextInput
               label={f('toolId')}
-              value={getConfig(nodeData, 'toolId', '')}
+              value={storedText(nodeData, 'toolId')}
               onChange={e => update('toolId', e.currentTarget.value)}
               size="xs"
               styles={MONO_INPUT}
@@ -244,8 +292,8 @@ function NodeFields({ nodeId, nodeData, readOnly }: { nodeId: string; nodeData: 
           {/* Gap 8: Retry policy */}
           <Select
             label={f('onError')}
-            value={getConfig(nodeData, 'onError', 'stop')}
-            onChange={v => update('onError', v)}
+            value={storedChoice(nodeData, 'onError')}
+            onChange={choose('onError')}
             size="xs"
             data={[
               { value: 'stop',     label: f('onErrorOptions.stop') },
@@ -255,12 +303,13 @@ function NodeFields({ nodeId, nodeData, readOnly }: { nodeId: string; nodeData: 
             styles={FIELD_STYLES}
           />
 
-          {getConfig(nodeData, 'onError', 'stop') === 'retry' && (
+          {storedChoice(nodeData, 'onError') === 'retry' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '8px 0' }}>
               <NumberInput
                 label={f('retryMaxAttempts')}
-                value={getConfig(nodeData, 'retryMaxAttempts', 3)}
-                onChange={v => update('retryMaxAttempts', v)}
+                value={storedNumber(nodeData, 'retryMaxAttempts')}
+                placeholder={ex(3)}
+                onChange={num('retryMaxAttempts')}
                 min={1}
                 max={10}
                 size="xs"
@@ -268,8 +317,9 @@ function NodeFields({ nodeId, nodeData, readOnly }: { nodeId: string; nodeData: 
               />
               <NumberInput
                 label={f('retryInitialDelay')}
-                value={getConfig(nodeData, 'retryDelay', 1000)}
-                onChange={v => update('retryDelay', v)}
+                value={storedNumber(nodeData, 'retryDelay')}
+                placeholder={ex(1000)}
+                onChange={num('retryDelay')}
                 min={100}
                 max={60000}
                 step={100}
@@ -278,8 +328,9 @@ function NodeFields({ nodeId, nodeData, readOnly }: { nodeId: string; nodeData: 
               />
               <NumberInput
                 label={f('retryBackoff')}
-                value={getConfig(nodeData, 'retryMultiplier', 2.0)}
-                onChange={v => update('retryMultiplier', v)}
+                value={storedNumber(nodeData, 'retryMultiplier')}
+                placeholder={ex(2.0)}
+                onChange={num('retryMultiplier')}
                 min={1.0}
                 max={5.0}
                 step={0.5}
@@ -293,8 +344,9 @@ function NodeFields({ nodeId, nodeData, readOnly }: { nodeId: string; nodeData: 
           {/* Gap 4: Timeout for tools */}
           <NumberInput
             label={f('timeoutSec')}
-            value={getConfig(nodeData, 'timeout', 30)}
-            onChange={v => update('timeout', v)}
+            value={storedNumber(nodeData, 'timeout')}
+            placeholder={ex(30)}
+            onChange={num('timeout')}
             min={1}
             max={600}
             size="xs"
@@ -308,105 +360,29 @@ function NodeFields({ nodeId, nodeData, readOnly }: { nodeId: string; nodeData: 
       {/* ════════════════════════════════════════════════════════ */}
       {isVector && (
         <>
-          <Select
-            label={f('vectorBackend')}
-            value={getConfig(nodeData, 'vectorBackend', catalog.vectorstores[0]?.id ?? 'pgvector')}
-            onChange={v => update('vectorBackend', v)}
-            size="xs"
-            data={catalog.vectorstores.length > 0
-                ? catalog.vectorstores.map(v => ({ value: v.id, label: v.displayName }))
-                : [
-                    { value: 'pgvector',  label: f('vectorBackendOptions.pgvector') },
-                    { value: 'pinecone',  label: f('vectorBackendOptions.pinecone') },
-                    { value: 'redis',     label: f('vectorBackendOptions.redis') },
-                    { value: 'in-memory', label: f('vectorBackendOptions.in-memory') },
-                  ]}
-            styles={FIELD_STYLES}
-          />
+          {/* Base de conhecimento (RCHFLW-55): com ela a busca é a da tela de Conhecimento, e o backend não é usado */}
+          {nodeData.nodeType === 'vector-search' && <KnowledgeBaseField nodeData={nodeData} update={update} />}
 
-          {getConfig(nodeData, 'vectorBackend', 'pgvector') === 'pinecone' && (
-            <>
-              <TextInput
-                label={f('pineconeApiKey')}
-                value={getConfig(nodeData, 'pineconeApiKey', '')}
-                onChange={e => update('pineconeApiKey', e.currentTarget.value)}
-                type="password"
-                size="xs"
-                styles={FIELD_STYLES}
-              />
-              <TextInput
-                label={f('environment')}
-                value={getConfig(nodeData, 'pineconeEnvironment', '')}
-                onChange={e => update('pineconeEnvironment', e.currentTarget.value)}
-                placeholder={f('environmentPlaceholder')}
-                size="xs"
-                styles={MONO_INPUT}
-              />
-              <TextInput
-                label={f('indexName')}
-                value={getConfig(nodeData, 'pineconeIndex', '')}
-                onChange={e => update('pineconeIndex', e.currentTarget.value)}
-                size="xs"
-                styles={MONO_INPUT}
-              />
-            </>
+          {nodeData.nodeType === 'vector-store' && !hasOperation && (
+            <Alert color="orange" variant="light" p="xs" data-testid="vector-store-does-not-write">
+              <Text size="xs">{f('vectorStoreDoesNotWrite')}</Text>
+            </Alert>
           )}
 
-          {getConfig(nodeData, 'vectorBackend', 'pgvector') === 'pgvector' && (
-            <>
-              <TextInput
-                label={f('datasource')}
-                value={getConfig(nodeData, 'pgDatasource', '')}
-                onChange={e => update('pgDatasource', e.currentTarget.value)}
-                placeholder={f('datasourceNamePlaceholder')}
-                size="xs"
-                styles={MONO_INPUT}
-              />
-              <TextInput
-                label={f('tableName')}
-                value={getConfig(nodeData, 'pgTableName', 'embeddings')}
-                onChange={e => update('pgTableName', e.currentTarget.value)}
-                size="xs"
-                styles={MONO_INPUT}
-              />
-              <NumberInput
-                label={f('dimensions')}
-                value={getConfig(nodeData, 'pgDimensions', 1536)}
-                onChange={v => update('pgDimensions', v)}
-                min={1}
-                max={4096}
-                size="xs"
-                styles={FIELD_STYLES}
-              />
-            </>
-          )}
-
-          {getConfig(nodeData, 'vectorBackend', 'pgvector') === 'redis' && (
-            <>
-              <TextInput
-                label={f('redisUrl')}
-                value={getConfig(nodeData, 'vectorRedisUrl', 'redis://localhost:6379')}
-                onChange={e => update('vectorRedisUrl', e.currentTarget.value)}
-                size="xs"
-                styles={MONO_INPUT}
-              />
-              <TextInput
-                label={f('keyPrefix')}
-                value={getConfig(nodeData, 'vectorRedisPrefix', 'vec:')}
-                onChange={e => update('vectorRedisPrefix', e.currentTarget.value)}
-                size="xs"
-                styles={MONO_INPUT}
-              />
-            </>
+          {!withKnowledgeBase && (
+            <VectorStoreFields nodeData={nodeData} update={update} backends={vectorBackends} />
           )}
 
           {nodeData.nodeType === 'vector-search' && (
             <NumberInput
               label={f('topK')}
-              value={getConfig(nodeData, 'topK', 5)}
-              onChange={v => update('topK', v)}
+              value={storedNumber(nodeData, 'topK')}
+              // Com base: o padrão da busca do Conhecimento (KnowledgeNodeComponent.DEFAULT_LIMIT). Sem base, o
+              // adapter recebe o pedido sem maxResults e vale o do LangChain4j — exemplo, não padrão do motor.
+              placeholder={withKnowledgeBase ? dflt(5) : ex(5)}
+              onChange={num('topK')}
               min={1}
-              max={100}
+              max={withKnowledgeBase ? 50 : 100}
               size="xs"
               styles={FIELD_STYLES}
             />
@@ -422,8 +398,8 @@ function NodeFields({ nodeId, nodeData, readOnly }: { nodeId: string; nodeData: 
           {catalog.embeddings.length > 0 ? (
             <Select
               label={f('embeddingProvider')}
-              value={getConfig(nodeData, 'embeddingProvider', catalog.embeddings[0].id)}
-              onChange={v => update('embeddingProvider', v)}
+              value={storedChoice(nodeData, 'embeddingProvider')}
+              onChange={choose('embeddingProvider')}
               size="xs"
               data={catalog.embeddings.map(e => ({ value: e.id, label: e.displayName }))}
               styles={FIELD_STYLES}
@@ -432,9 +408,9 @@ function NodeFields({ nodeId, nodeData, readOnly }: { nodeId: string; nodeData: 
             <>
               <Select
                 label={f('embeddingProvider')}
-                value={getConfig(nodeData, 'embeddingProvider', 'openai')}
+                value={storedChoice(nodeData, 'embeddingProvider')}
                 onChange={v => {
-                  update('embeddingProvider', v)
+                  update('embeddingProvider', v ?? undefined)
                   const first = EMBEDDING_MODELS.find(e => e.provider === v)?.models[0]
                   if (first) {
                     update('embeddingModel', first.id)
@@ -450,24 +426,26 @@ function NodeFields({ nodeId, nodeData, readOnly }: { nodeId: string; nodeData: 
               />
               <Select
                 label={f('model')}
-                value={getConfig(nodeData, 'embeddingModel', 'text-embedding-3-small')}
+                value={storedChoice(nodeData, 'embeddingModel')}
                 onChange={v => {
-                  update('embeddingModel', v)
-                  const entry = EMBEDDING_MODELS.find(e => e.provider === getConfig(nodeData, 'embeddingProvider', 'openai'))
+                  update('embeddingModel', v ?? undefined)
+                  const entry = EMBEDDING_MODELS.find(e => e.provider === storedChoice(nodeData, 'embeddingProvider'))
                   const m = entry?.models.find(mm => mm.id === v)
                   if (m) update('embeddingDimensions', m.dimensions)
                 }}
                 size="xs"
-                data={(EMBEDDING_MODELS.find(e => e.provider === getConfig(nodeData, 'embeddingProvider', 'openai'))?.models ?? [])
+                data={(EMBEDDING_MODELS.find(e => e.provider === storedChoice(nodeData, 'embeddingProvider'))?.models ?? [])
                   .map(m => ({ value: m.id, label: m.name }))}
                 styles={FIELD_STYLES}
               />
             </>
           )}
+          {localEmbeddingIncomplete && localEmbeddingWarning}
           <NumberInput
             label={f('dimensions')}
-            value={getConfig(nodeData, 'embeddingDimensions', 1536)}
-            onChange={v => update('embeddingDimensions', v)}
+            value={storedNumber(nodeData, 'embeddingDimensions')}
+            placeholder={ex(1536)}
+            onChange={num('embeddingDimensions')}
             min={1}
             max={4096}
             size="xs"
@@ -479,20 +457,35 @@ function NodeFields({ nodeId, nodeData, readOnly }: { nodeId: string; nodeData: 
       {/* ════════════════════════════════════════════════════════ */}
       {/*  MEMORY FIELDS                                         */}
       {/* ════════════════════════════════════════════════════════ */}
+      {isMemory && !hasOperation && (
+        <Alert color="orange" variant="light" p="xs" data-testid="memory-needs-operation">
+          <Text size="xs">{f('memoryNeedsOperation')}</Text>
+        </Alert>
+      )}
       {isMemory && catalog.memories.length > 0 && (
         <>
           <Select
             label={f('memoryBackend')}
-            value={getConfig(nodeData, 'memoryBackend', catalog.memories[0].id)}
-            onChange={v => update('memoryBackend', v)}
+            value={storedChoice(nodeData, 'memoryBackend')}
+            onChange={choose('memoryBackend')}
             size="xs"
             data={catalog.memories.map(m => ({ value: m.id, label: m.displayName }))}
             styles={FIELD_STYLES}
           />
+          {storedChoice(nodeData, 'memoryBackend') === 'redis' && (
+            <ServerConnectionField nodeData={nodeData} update={update} backend="redis" />
+          )}
+          {storedChoice(nodeData, 'memoryBackend') === 'jdbc' && (
+            <Alert color="orange" variant="light" p="xs" data-testid="memory-jdbc-not-connected">
+              <Text size="xs">{f('jdbcMemoryNotConnected')}</Text>
+            </Alert>
+          )}
           <NumberInput
             label={f('maxMessages')}
-            value={getConfig(nodeData, 'memoryMaxMessages', 100)}
-            onChange={v => update('memoryMaxMessages', v)}
+            value={storedNumber(nodeData, 'memoryMaxMessages')}
+            // O padrão dos dois adapters de memória (RedisMemoryAdapter, JdbcMemoryAdapter).
+            placeholder={dflt(100)}
+            onChange={num('memoryMaxMessages')}
             min={1}
             max={5000}
             size="xs"
@@ -506,38 +499,43 @@ function NodeFields({ nodeId, nodeData, readOnly }: { nodeId: string; nodeData: 
       {/* ════════════════════════════════════════════════════════ */}
       {isRag && (
         <>
-          <Select
-            label={f('embeddingProvider')}
-            value={getConfig(nodeData, 'embeddingProvider', catalog.embeddings[0]?.id ?? 'openai')}
-            onChange={v => update('embeddingProvider', v)}
-            size="xs"
-            data={catalog.embeddings.length > 0
-                ? catalog.embeddings.map(e => ({ value: e.id, label: e.displayName }))
-                : [{ value: 'openai', label: f('embeddingProviderOptions.openai') }, { value: 'local', label: f('embeddingProviderOptions.local') }]}
-            styles={FIELD_STYLES}
-          />
-          <Select
-            label={f('vectorStore')}
-            value={getConfig(nodeData, 'vectorBackend', catalog.vectorstores[0]?.id ?? 'pgvector')}
-            onChange={v => update('vectorBackend', v)}
-            size="xs"
-            data={catalog.vectorstores.length > 0
-                ? catalog.vectorstores.map(v => ({ value: v.id, label: v.displayName }))
-                : [{ value: 'pgvector', label: 'pgvector' }]}
-            styles={FIELD_STYLES}
-          />
+          {/* Com base (RCHFLW-55): busca no Conhecimento e responde pelo chat do nó — embedding e vector store
+              são os da base. Sem base: o RagChainAdapter, com os três providers e o vector store dele. */}
+          <KnowledgeBaseField nodeData={nodeData} update={update} />
+          {!withKnowledgeBase && (
+            <>
+              <Select
+                label={f('embeddingProvider')}
+                withAsterisk
+                value={storedChoice(nodeData, 'embeddingProvider')}
+                onChange={choose('embeddingProvider')}
+                size="xs"
+                data={catalog.embeddings.length > 0
+                    ? catalog.embeddings.map(e => ({ value: e.id, label: e.displayName }))
+                    : [{ value: 'openai', label: f('embeddingProviderOptions.openai') }, { value: 'local', label: f('embeddingProviderOptions.local') }]}
+                styles={FIELD_STYLES}
+              />
+              {localEmbeddingIncomplete && localEmbeddingWarning}
+              <VectorStoreFields nodeData={nodeData} update={update} backends={vectorBackends} label={f('vectorStore')} />
+            </>
+          )}
           <Select
             label={f('llmProvider')}
-            value={getConfig(nodeData, 'llmProvider', providers[0]?.id ?? 'openai')}
-            onChange={v => update('llmProvider', v)}
+            // Com base, o chat herda o provider do fluxo/plataforma como um LLM Chat; o RagChainAdapter não herda.
+            withAsterisk={!withKnowledgeBase}
+            value={storedChoice(nodeData, 'llmProvider')}
+            onChange={choose('llmProvider')}
             size="xs"
             data={providers.map(p => ({ value: p.id, label: p.displayName }))}
             styles={FIELD_STYLES}
           />
           <NumberInput
             label={f('topKRetrieval')}
-            value={getConfig(nodeData, 'retrieverMaxResults', 5)}
-            onChange={v => update('retrieverMaxResults', v)}
+            value={storedNumber(nodeData, 'retrieverMaxResults')}
+            // Padrões reais de cada caminho: a busca do Conhecimento (5, KnowledgeNodeComponent) e o
+            // RagChainAdapter (2).
+            placeholder={dflt(withKnowledgeBase ? 5 : 2)}
+            onChange={num('retrieverMaxResults')}
             min={1}
             max={50}
             size="xs"
@@ -545,8 +543,9 @@ function NodeFields({ nodeId, nodeData, readOnly }: { nodeId: string; nodeData: 
           />
           <NumberInput
             label={f('minScore')}
-            value={getConfig(nodeData, 'retrieverMinScore', 0.7)}
-            onChange={v => update('retrieverMinScore', v)}
+            value={storedNumber(nodeData, 'retrieverMinScore')}
+            placeholder={dflt(withKnowledgeBase ? 0 : 0.7)}
+            onChange={num('retrieverMinScore')}
             min={0}
             max={1}
             step={0.05}
@@ -575,7 +574,7 @@ function NodeFields({ nodeId, nodeData, readOnly }: { nodeId: string; nodeData: 
           <Textarea
             label={t('dynamicWorkflow.goal')}
             placeholder={t('dynamicWorkflow.goalPlaceholder')}
-            value={getConfig(nodeData, 'goal', '')}
+            value={storedText(nodeData, 'goal')}
             onChange={e => update('goal', e.currentTarget.value)}
             autosize minRows={2}
             size="xs"
@@ -584,7 +583,7 @@ function NodeFields({ nodeId, nodeData, readOnly }: { nodeId: string; nodeData: 
           <Textarea
             label={t('dynamicWorkflow.decomposePrompt')}
             placeholder={t('dynamicWorkflow.decomposePromptPlaceholder')}
-            value={getConfig(nodeData, 'decomposePrompt', '')}
+            value={storedText(nodeData, 'decomposePrompt')}
             onChange={e => update('decomposePrompt', e.currentTarget.value)}
             autosize minRows={1}
             size="xs"
@@ -592,40 +591,44 @@ function NodeFields({ nodeId, nodeData, readOnly }: { nodeId: string; nodeData: 
           />
           <NumberInput
             label={t('dynamicWorkflow.maxSubtasks')}
-            value={getConfig(nodeData, 'maxSubtasks', 8)}
-            onChange={v => update('maxSubtasks', v)}
+            value={storedNumber(nodeData, 'maxSubtasks')}
+            placeholder={dflt(8)}
+            onChange={num('maxSubtasks')}
             min={1}
             size="xs"
             styles={FIELD_STYLES}
           />
           <NumberInput
             label={t('dynamicWorkflow.voters')}
-            value={getConfig(nodeData, 'voters', 1)}
-            onChange={v => update('voters', v)}
+            value={storedNumber(nodeData, 'voters')}
+            placeholder={dflt(1)}
+            onChange={num('voters')}
             min={1}
             size="xs"
             styles={FIELD_STYLES}
           />
           <NumberInput
             label={t('dynamicWorkflow.maxRounds')}
-            value={getConfig(nodeData, 'maxRounds', 5)}
-            onChange={v => update('maxRounds', v)}
+            value={storedNumber(nodeData, 'maxRounds')}
+            placeholder={dflt(5)}
+            onChange={num('maxRounds')}
             min={1}
             size="xs"
             styles={FIELD_STYLES}
           />
           <NumberInput
             label={t('dynamicWorkflow.concurrency')}
-            value={getConfig(nodeData, 'concurrency', 4)}
-            onChange={v => update('concurrency', v)}
+            value={storedNumber(nodeData, 'concurrency')}
+            placeholder={dflt(4)}
+            onChange={num('concurrency')}
             min={1}
             size="xs"
             styles={FIELD_STYLES}
           />
           <NumberInput
             label={t('dynamicWorkflow.budgetTokens')}
-            value={getConfig(nodeData, 'budgetTokens', '')}
-            onChange={v => update('budgetTokens', v)}
+            value={storedNumber(nodeData, 'budgetTokens')}
+            onChange={num('budgetTokens')}
             min={0}
             step={1000}
             placeholder="∞"
@@ -660,7 +663,8 @@ function NodeFields({ nodeId, nodeData, readOnly }: { nodeId: string; nodeData: 
         <>
           <TextInput
             label={f('conversationIdSource')}
-            value={getConfig(nodeData, 'linktorConversationExpr', '${context.conversationId}')}
+            value={storedText(nodeData, 'linktorConversationExpr')}
+            placeholder={ex('${context.conversationId}')}
             onChange={e => update('linktorConversationExpr', e.currentTarget.value)}
             size="xs"
             styles={MONO_INPUT}
@@ -668,7 +672,7 @@ function NodeFields({ nodeId, nodeData, readOnly }: { nodeId: string; nodeData: 
           />
           <Textarea
             label={f('messageText')}
-            value={getConfig(nodeData, 'linktorMessageText', '')}
+            value={storedText(nodeData, 'linktorMessageText')}
             onChange={e => update('linktorMessageText', e.currentTarget.value)}
             autosize minRows={2}
             size="xs"
@@ -677,8 +681,8 @@ function NodeFields({ nodeId, nodeData, readOnly }: { nodeId: string; nodeData: 
           />
           <Select
             label={f('failurePolicy')}
-            value={getConfig(nodeData, 'linktorSendOnError', 'warn')}
-            onChange={v => update('linktorSendOnError', v)}
+            value={storedChoice(nodeData, 'linktorSendOnError')}
+            onChange={choose('linktorSendOnError')}
             size="xs"
             data={[
               { value: 'warn',  label: f('failurePolicyOptions.warn') },
@@ -697,14 +701,15 @@ function NodeFields({ nodeId, nodeData, readOnly }: { nodeId: string; nodeData: 
         <>
           <TextInput
             label={f('conversationIdSource')}
-            value={getConfig(nodeData, 'linktorConversationExpr', '${context.conversationId}')}
+            value={storedText(nodeData, 'linktorConversationExpr')}
+            placeholder={ex('${context.conversationId}')}
             onChange={e => update('linktorConversationExpr', e.currentTarget.value)}
             size="xs"
             styles={MONO_INPUT}
           />
           <TextInput
             label={f('targetUser')}
-            value={getConfig(nodeData, 'linktorTargetUser', '')}
+            value={storedText(nodeData, 'linktorTargetUser')}
             onChange={e => update('linktorTargetUser', e.currentTarget.value)}
             size="xs"
             styles={FIELD_STYLES}
@@ -712,7 +717,8 @@ function NodeFields({ nodeId, nodeData, readOnly }: { nodeId: string; nodeData: 
           />
           <Textarea
             label={f('reason')}
-            value={getConfig(nodeData, 'linktorReason', 'Agent escalated')}
+            value={storedText(nodeData, 'linktorReason')}
+            placeholder={ex('Agent escalated')}
             onChange={e => update('linktorReason', e.currentTarget.value)}
             autosize minRows={2}
             size="xs"
@@ -728,7 +734,9 @@ function NodeFields({ nodeId, nodeData, readOnly }: { nodeId: string; nodeData: 
         <>
           <Textarea
             label={f('expression')}
-            value={getConfig(nodeData, 'conditionExpression', '${agent.confidence} > 0.8')}
+            withAsterisk
+            value={storedText(nodeData, 'conditionExpression')}
+            placeholder={ex('${agent.confidence} > 0.8')}
             onChange={e => update('conditionExpression', e.currentTarget.value)}
             autosize minRows={2}
             size="xs"
@@ -749,7 +757,9 @@ function NodeFields({ nodeId, nodeData, readOnly }: { nodeId: string; nodeData: 
         <>
           <TextInput
             label={f('switchExpression')}
-            value={getConfig(nodeData, 'switchExpression', '${agent.intent}')}
+            withAsterisk
+            value={storedText(nodeData, 'switchExpression')}
+            placeholder={ex('${agent.intent}')}
             onChange={e => update('switchExpression', e.currentTarget.value)}
             size="xs"
             styles={MONO_INPUT}
@@ -759,7 +769,9 @@ function NodeFields({ nodeId, nodeData, readOnly }: { nodeId: string; nodeData: 
           <UpstreamRefs nodeId={nodeId} onInsert={s => insertRef('switchExpression', s, true)} />
           <Textarea
             label={f('switchCases')}
-            value={getConfig(nodeData, 'switchCases', 'order_tracking\ncomplaint\nsales\ndefault')}
+            withAsterisk
+            value={storedText(nodeData, 'switchCases')}
+            placeholder={ex('order_tracking\ncomplaint\nsales\ndefault')}
             onChange={e => update('switchCases', e.currentTarget.value)}
             autosize minRows={3}
             size="xs"
@@ -776,14 +788,16 @@ function NodeFields({ nodeId, nodeData, readOnly }: { nodeId: string; nodeData: 
         <>
           <TextInput
             label={f('collectionExpression')}
-            value={getConfig(nodeData, 'loopCollection', '${input.items}')}
+            value={storedText(nodeData, 'loopCollection')}
+            placeholder={ex('${input.items}')}
             onChange={e => update('loopCollection', e.currentTarget.value)}
             size="xs"
             styles={MONO_INPUT}
           />
           <TextInput
             label={f('itemVariable')}
-            value={getConfig(nodeData, 'loopItemVar', 'item')}
+            value={storedText(nodeData, 'loopItemVar')}
+            placeholder={ex('item')}
             onChange={e => update('loopItemVar', e.currentTarget.value)}
             size="xs"
             styles={FIELD_STYLES}
@@ -791,14 +805,15 @@ function NodeFields({ nodeId, nodeData, readOnly }: { nodeId: string; nodeData: 
           />
           <NumberInput
             label={f('maxIterations')}
-            value={getConfig(nodeData, 'loopMaxIterations', 100)}
-            onChange={v => update('loopMaxIterations', v)}
+            value={storedNumber(nodeData, 'loopMaxIterations')}
+            placeholder={ex(100)}
+            onChange={num('loopMaxIterations')}
             min={1} max={10_000}
             size="xs"
             styles={FIELD_STYLES}
           />
           <Switch
-            checked={getConfig(nodeData, 'loopParallel', false)}
+            checked={storedFlag(nodeData, 'loopParallel')}
             onChange={e => update('loopParallel', e.currentTarget.checked)}
             label={f('runInParallel')}
             size="xs"
@@ -813,8 +828,8 @@ function NodeFields({ nodeId, nodeData, readOnly }: { nodeId: string; nodeData: 
         <>
           <Select
             label={f('waitStrategy')}
-            value={getConfig(nodeData, 'parallelStrategy', 'all')}
-            onChange={v => update('parallelStrategy', v)}
+            value={storedChoice(nodeData, 'parallelStrategy')}
+            onChange={choose('parallelStrategy')}
             size="xs"
             data={[
               { value: 'all',     label: f('waitStrategyOptions.all') },
@@ -825,14 +840,15 @@ function NodeFields({ nodeId, nodeData, readOnly }: { nodeId: string; nodeData: 
           />
           <NumberInput
             label={f('timeoutSec')}
-            value={getConfig(nodeData, 'parallelTimeoutSeconds', 60)}
-            onChange={v => update('parallelTimeoutSeconds', v)}
+            value={storedNumber(nodeData, 'parallelTimeoutSeconds')}
+            placeholder={ex(60)}
+            onChange={num('parallelTimeoutSeconds')}
             min={1} max={3600}
             size="xs"
             styles={FIELD_STYLES}
           />
           <Switch
-            checked={getConfig(nodeData, 'parallelFailFast', true)}
+            checked={storedFlag(nodeData, 'parallelFailFast')}
             onChange={e => update('parallelFailFast', e.currentTarget.checked)}
             label={f('failFast')}
             size="xs"
@@ -847,8 +863,8 @@ function NodeFields({ nodeId, nodeData, readOnly }: { nodeId: string; nodeData: 
         <>
           <Select
             label={f('mergeStrategy')}
-            value={getConfig(nodeData, 'mergeStrategy', 'concat')}
-            onChange={v => update('mergeStrategy', v)}
+            value={storedChoice(nodeData, 'mergeStrategy')}
+            onChange={choose('mergeStrategy')}
             size="xs"
             data={[
               { value: 'concat',      label: f('mergeStrategyOptions.concat') },
@@ -860,7 +876,8 @@ function NodeFields({ nodeId, nodeData, readOnly }: { nodeId: string; nodeData: 
           />
           <TextInput
             label={f('outputVariable')}
-            value={getConfig(nodeData, 'mergeOutputVar', 'merged')}
+            value={storedText(nodeData, 'mergeOutputVar')}
+            placeholder={ex('merged')}
             onChange={e => update('mergeOutputVar', e.currentTarget.value)}
             size="xs"
             styles={FIELD_STYLES}
@@ -876,7 +893,8 @@ function NodeFields({ nodeId, nodeData, readOnly }: { nodeId: string; nodeData: 
         <>
           <TextInput
             label={f('inputExpression')}
-            value={getConfig(nodeData, 'transformInput', '${input}')}
+            value={storedText(nodeData, 'transformInput')}
+            placeholder={ex('${input}')}
             onChange={e => update('transformInput', e.currentTarget.value)}
             size="xs"
             styles={MONO_INPUT}
@@ -888,7 +906,7 @@ function NodeFields({ nodeId, nodeData, readOnly }: { nodeId: string; nodeData: 
               nodeData.nodeType === 'map'      ? f('transformMap') :
               f('transformExpression')
             }
-            value={getConfig(nodeData, 'transformExpression', '')}
+            value={storedText(nodeData, 'transformExpression')}
             onChange={e => update('transformExpression', e.currentTarget.value)}
             autosize minRows={3}
             size="xs"
@@ -898,7 +916,8 @@ function NodeFields({ nodeId, nodeData, readOnly }: { nodeId: string; nodeData: 
           {nodeData.nodeType === 'reduce' && (
             <TextInput
               label={f('reduceInitial')}
-              value={getConfig(nodeData, 'reduceInitial', '0')}
+              value={storedText(nodeData, 'reduceInitial')}
+              placeholder={ex('0')}
               onChange={e => update('reduceInitial', e.currentTarget.value)}
               size="xs"
               styles={MONO_INPUT}
@@ -906,7 +925,8 @@ function NodeFields({ nodeId, nodeData, readOnly }: { nodeId: string; nodeData: 
           )}
           <TextInput
             label={f('outputVariable')}
-            value={getConfig(nodeData, 'transformOutputVar', 'output')}
+            value={storedText(nodeData, 'transformOutputVar')}
+            placeholder={ex('output')}
             onChange={e => update('transformOutputVar', e.currentTarget.value)}
             size="xs"
             styles={FIELD_STYLES}
@@ -921,7 +941,7 @@ function NodeFields({ nodeId, nodeData, readOnly }: { nodeId: string; nodeData: 
         <>
           <Textarea
             label={isPromptChunk ? f('promptChunk') : f('promptTemplate')}
-            value={getConfig(nodeData, 'promptText', '')}
+            value={storedText(nodeData, 'promptText')}
             onChange={e => update('promptText', e.currentTarget.value)}
             autosize minRows={4}
             size="xs"
@@ -942,8 +962,9 @@ function NodeFields({ nodeId, nodeData, readOnly }: { nodeId: string; nodeData: 
           {isPromptChunk && (
             <NumberInput
               label={f('chunkOrder')}
-              value={getConfig(nodeData, 'promptChunkOrder', 0)}
-              onChange={v => update('promptChunkOrder', v)}
+              value={storedNumber(nodeData, 'promptChunkOrder')}
+              placeholder={ex(0)}
+              onChange={num('promptChunkOrder')}
               min={0} max={100}
               size="xs"
               styles={FIELD_STYLES}
@@ -951,7 +972,8 @@ function NodeFields({ nodeId, nodeData, readOnly }: { nodeId: string; nodeData: 
           )}
           <TextInput
             label={f('outputVariable')}
-            value={getConfig(nodeData, 'promptOutputVar', 'prompt')}
+            value={storedText(nodeData, 'promptOutputVar')}
+            placeholder={ex('prompt')}
             onChange={e => update('promptOutputVar', e.currentTarget.value)}
             size="xs"
             styles={FIELD_STYLES}
@@ -964,6 +986,9 @@ function NodeFields({ nodeId, nodeData, readOnly }: { nodeId: string; nodeData: 
       {/* ════════════════════════════════════════════════════════ */}
       {(isInput || isOutput) && (
         <>
+          <Text size="xs" c="dimmed" lh={1.4} data-testid="io-pass-through-hint">
+            {isInput ? f('inputPassThroughHint') : f('outputPassThroughHint')}
+          </Text>
           <TagsInput
             label={isInput ? f('expectedInputs') : f('exportedOutputs')}
             value={getConfig<string[]>(nodeData, 'ioFields', [])}
@@ -974,7 +999,7 @@ function NodeFields({ nodeId, nodeData, readOnly }: { nodeId: string; nodeData: 
           />
           <Textarea
             label={f('jsonSchema')}
-            value={getConfig(nodeData, 'ioSchema', '')}
+            value={storedText(nodeData, 'ioSchema')}
             onChange={e => update('ioSchema', e.currentTarget.value)}
             autosize minRows={3}
             size="xs"
@@ -983,7 +1008,7 @@ function NodeFields({ nodeId, nodeData, readOnly }: { nodeId: string; nodeData: 
           />
           {isInput && (
             <Switch
-              checked={getConfig(nodeData, 'inputRequired', true)}
+              checked={storedFlag(nodeData, 'inputRequired')}
               onChange={e => update('inputRequired', e.currentTarget.checked)}
               label={f('rejectIfMissing')}
               size="xs"

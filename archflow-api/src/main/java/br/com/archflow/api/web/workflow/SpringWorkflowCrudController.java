@@ -277,11 +277,20 @@ public class SpringWorkflowCrudController {
         return result.getStatus() != null ? result.getStatus().name() : "COMPLETED";
     }
 
+    /**
+     * A razão da falha, não o invólucro: o motor embrulha a exceção duas vezes ({@code CompletionException}
+     * → {@code FlowEngineException("Error executing flow: …")}), e ler um nível só gravava
+     * "Error executing flow: exec-…" no lugar, por exemplo, da recusa de um nó sem execução (RCHFLW-11).
+     * Mesma regra do {@code rootMessage} do {@code WorkflowMcpServer}.
+     */
     private static String errorOf(Throwable err) {
         if (err == null) {
             return null;
         }
-        Throwable cause = err.getCause() != null ? err.getCause() : err;
+        Throwable cause = err;
+        while (cause.getCause() != null && cause.getCause() != cause) {
+            cause = cause.getCause();
+        }
         return cause.getMessage() != null ? cause.getMessage() : cause.toString();
     }
 
@@ -297,15 +306,23 @@ public class SpringWorkflowCrudController {
         int stepCount = (int) asList(wf.get("steps")).stream()
                 .filter(step -> !(step instanceof Map<?, ?> m && CanvasAnnotation.isAnnotation(m)))
                 .count();
+        // Map.of recusa nulo, e getOrDefault devolve o nulo quando a chave existe — o "Salvar YAML" grava
+        // metadata com description/author nulos, e um único fluxo assim derrubava a lista do tenant (500).
         return Map.of(
-                "id", wf.getOrDefault("id", ""),
-                "name", meta.getOrDefault("name", "Untitled"),
-                "description", meta.getOrDefault("description", ""),
-                "version", meta.getOrDefault("version", "1.0.0"),
-                "status", wf.getOrDefault("status", "draft"),
-                "updatedAt", wf.getOrDefault("updatedAt", ""),
+                "id", valorOu(wf, "id", ""),
+                "name", valorOu(meta, "name", "Untitled"),
+                "description", valorOu(meta, "description", ""),
+                "version", valorOu(meta, "version", "1.0.0"),
+                "status", valorOu(wf, "status", "draft"),
+                "updatedAt", valorOu(wf, "updatedAt", ""),
                 "stepCount", stepCount
         );
+    }
+
+    /** O valor da chave, ou o padrão quando ela falta <b>ou</b> é nula. */
+    private static Object valorOu(Map<String, Object> mapa, String chave, Object padrao) {
+        Object valor = mapa.get(chave);
+        return valor != null ? valor : padrao;
     }
 
     private String workflowName(Map<String, Object> workflow) {
