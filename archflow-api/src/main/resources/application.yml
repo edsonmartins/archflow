@@ -7,6 +7,15 @@ spring:
   # Em dev in-memory não há DataSource, então a auto-config se desliga sozinha.
   # Defaults do Spring Boot: migra um schema vazio do zero; recusa um schema
   # não-vazio sem histórico (o operador decide via `flyway baseline`).
+  flyway:
+    # As migrações são numeradas POR MÓDULO (V1_x core, V2_x conversation, V3_x memória,
+    # V4_x observabilidade, V5_x segurança, V6_x api), não em ordem cronológica global. Uma
+    # migração nova num módulo de prefixo baixo — como a V1_3 do core — chega depois de V6_x já
+    # aplicadas, e o Flyway a recusa como "resolved migration not applied", derrubando o boot.
+    # Sem isto, evoluir o core exigiria renumerar a migração para o fim da fila global.
+    # Vale para todos os perfis: só no prod, um banco dev existente parava de subir assim que
+    # chegava uma migração de módulo de prefixo baixo (V1_3_1, V5_1_1...).
+    out-of-order: ${SPRING_FLYWAY_OUT_OF_ORDER:true}
   jackson:
     default-property-inclusion: non_null
     # Frontend expects ISO8601 strings for java.time.Instant (e.g.
