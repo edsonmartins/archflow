@@ -11,6 +11,7 @@ import br.com.archflow.model.flow.StepConnection;
 import br.com.archflow.model.flow.StepResult;
 import br.com.archflow.model.flow.StepType;
 import br.com.archflow.plugin.api.catalog.ComponentCatalog;
+import br.com.archflow.plugin.api.catalog.ScopedComponentCatalog;
 
 import java.util.List;
 import java.util.Map;
@@ -120,9 +121,15 @@ public final class ComponentStep implements FlowStep {
                 ? resolved
                 : catalog.getComponent(componentId).orElse(null);
         if (component == null) {
+            // O motivo do escopo vem antes da dica do nó: com require-allowlist e sem lista, a dica
+            // ("o provider X não está em allowedComponents") mandaria acrescentar um item a uma lista
+            // que o fluxo nem declara.
+            String motivo = catalog instanceof ScopedComponentCatalog escopo
+                    ? escopo.denialReason(componentId).orElse(notFoundHint)
+                    : notFoundHint;
             return CompletableFuture.completedFuture(
                     SimpleStepResult.failed(id, "component not found: " + componentId
-                            + (notFoundHint == null ? "" : " — " + notFoundHint), elapsedMs(start)));
+                            + (motivo == null ? "" : " — " + motivo), elapsedMs(start)));
         }
         try {
             Object input = context.get(INPUT_KEY).orElse(null);

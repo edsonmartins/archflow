@@ -112,6 +112,8 @@ public class AnthropicStreamingChatAdapter implements LangChainAdapter {
             if (model == null) {
                 throw new IllegalStateException("Adapter not configured. Call configure() first.");
             }
+            // A mesma API que recusa a mensagem em branco no adapter síncrono (RCHFLW-101).
+            AnthropicChatAdapter.exigeMensagemNaoVazia(operation, input);
 
             if ("generateStream".equals(operation)) {
                 if (!(input instanceof String)) {

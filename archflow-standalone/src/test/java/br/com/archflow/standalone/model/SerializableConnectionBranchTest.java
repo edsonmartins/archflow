@@ -67,12 +67,25 @@ class SerializableConnectionBranchTest {
         assertThat(((SerializableConnection) c).getBranch()).isEqualTo("QUALQUER");
     }
 
+    /**
+     * RCHFLW-102: a condição derivada é cálculo de execução. Gravada no documento, ela passaria a vencer o
+     * {@code branch}, e renomear o ramo ou o nó deixaria a condição antiga valendo sem aviso.
+     */
     @Test
-    @DisplayName("ida e volta: o branch sobrevive e a condição resolvida também sai")
+    @DisplayName("ida e volta: o branch sobrevive sem virar condição gravada; a condição manual fica")
     void idaEVolta() throws Exception {
         YamlFlowSerializer yaml = new YamlFlowSerializer();
         String out = yaml.serialize(yaml.deserialize(YAML));
-        assertThat(out).contains("branch: AUTO").contains("${intencao.route} == 'AUTO'");
+        assertThat(out).contains("branch: AUTO").contains("branch: REVIEW").contains("branch: \"true\"");
+        assertThat(out).doesNotContain("${intencao.route} == 'AUTO'")
+                .doesNotContain("${intencao.route} == 'REVIEW'")
+                .doesNotContain("${checa.branch}");
+        assertThat(out).contains("${x} == 1");
         assertThat(out).doesNotContain("branch: null");
+
+        // E a leitura de execução do YAML que voltou continua derivando a mesma condição.
+        SerializableFlow back = yaml.deserialize(out);
+        assertThat(arestas(back, "intencao")).extracting(c -> c.getCondition().orElse(null))
+                .containsExactly("${intencao.route} == 'AUTO'", "${intencao.route} == 'REVIEW'", "${x} == 1");
     }
 }

@@ -177,10 +177,9 @@ public class AgUiController {
         if (input == null) {
             return;
         }
-        if (input.state() != null) {
-            // Mesma regra do POST /api/workflows/{id}/execute (ver RunInputSeeding).
-            RunInputSeeding.seedVariables(ctx, input.state());
-        }
+        // Mesma regra do POST /api/workflows/{id}/execute (ver RunInputSeeding), também sem state: o
+        // Executar do editor com a entrada vazia não manda state, e o input tem de ser "" (RCHFLW-101).
+        RunInputSeeding.seedVariables(ctx, input.state());
         if (input.messages() != null && !input.messages().isEmpty()) {
             Object content = input.messages().get(input.messages().size() - 1).get("content");
             if (content != null) {

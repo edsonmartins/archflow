@@ -5,6 +5,7 @@ import br.com.archflow.agent.queue.InvocationRequest;
 import br.com.archflow.api.agent.invocation.AgentInvocationLookup;
 import br.com.archflow.api.agent.invocation.AgentInvocationResult;
 import br.com.archflow.api.agent.invocation.InMemoryAgentInvocationResultStore;
+import br.com.archflow.api.config.TenantScope;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -32,7 +33,8 @@ class SpringAgentInvocationControllerTest {
     void setUp() {
         queue = new InMemoryAgentInvocationQueue();
         store = new InMemoryAgentInvocationResultStore();
-        controller = new SpringAgentInvocationController(new AgentInvocationLookup(store, queue, null));
+        controller = new SpringAgentInvocationController(new AgentInvocationLookup(store, queue, null),
+                new TenantScope(false));
     }
 
     @Test

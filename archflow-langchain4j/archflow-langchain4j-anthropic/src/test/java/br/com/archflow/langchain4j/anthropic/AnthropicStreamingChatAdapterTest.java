@@ -1,5 +1,6 @@
 package br.com.archflow.langchain4j.anthropic;
 
+import dev.langchain4j.model.chat.StreamingChatModel;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -9,6 +10,8 @@ import java.util.HashMap;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.*;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 @DisplayName("AnthropicStreamingChatAdapter")
 class AnthropicStreamingChatAdapterTest {
@@ -136,6 +139,23 @@ class AnthropicStreamingChatAdapterTest {
             assertThatThrownBy(() -> adapter.execute("generateStream", "hello", null))
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("not configured");
+        }
+
+        /** RCHFLW-101: a mesma recusa clara do adapter síncrono, sem abrir o stream. */
+        @Test
+        @DisplayName("mensagem em branco: falha dizendo que o nó precisa de uma entrada, sem chamar o modelo")
+        void mensagemEmBranco() throws Exception {
+            StreamingChatModel modelo = mock(StreamingChatModel.class);
+            var campo = AnthropicStreamingChatAdapter.class.getDeclaredField("model");
+            campo.setAccessible(true);
+            campo.set(adapter, modelo);
+
+            for (String operacao : new String[] {"generateStream", "chatStream"}) {
+                assertThatThrownBy(() -> adapter.execute(operacao, " ", null))
+                        .isInstanceOf(IllegalArgumentException.class)
+                        .hasMessage(AnthropicChatAdapter.MENSAGEM_VAZIA);
+            }
+            verifyNoInteractions(modelo);
         }
     }
 

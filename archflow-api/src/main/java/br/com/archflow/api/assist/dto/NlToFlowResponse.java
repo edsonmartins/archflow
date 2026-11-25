@@ -12,6 +12,18 @@ import java.util.Map;
  * {@code lacunas} com uma mensagem padrão e {@code observacoes} com o texto cru
  * (ainda HTTP 200).
  *
+ * <p><b>Este não é o documento que o motor executa.</b> O motor lê {@code steps[]} com as arestas
+ * <i>dentro</i> de cada passo ({@code steps[].connections}, ver CLAUDE.md, "the three readers");
+ * aqui as ligações ficam num {@code links} no topo, por {@code step.name}. O formato fica como está
+ * porque é o contrato do Mentors, o consumidor desta API — nada no archflow (designer, motor,
+ * standalone) lê esta resposta (RCHFLW-107). Para executá-la, quem consome converte: cada
+ * {@link Step} vira {@code {id: name, type: nodeType, componentId: component,
+ * configuration: parameters (+ operation)}} — num nó de adapter (chat, embedding, memória, vector
+ * store, RAG) o {@code component} vai em {@code configuration.provider} e o {@code componentId} é o
+ * próprio tipo —, e cada {@link Link} vira {@code {sourceId: source, targetId: target}} dentro de
+ * {@code connections} do passo {@code source}. Emitir os {@code links} no topo como estão daria um
+ * fluxo que abre no designer e não anda quando executado.
+ *
  * @param workflow    rascunho do workflow (steps + links); nunca {@code null}
  * @param lacunas     capacidades pedidas sem plugin correspondente no catálogo
  * @param observacoes observações livres do modelo; pode ser {@code null}
