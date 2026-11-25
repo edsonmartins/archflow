@@ -371,6 +371,7 @@ export default function ExecutionDetailPage() {
                             opened={rerunInputOpen}
                             onClose={() => setRerunInputOpen(false)}
                             onConfirm={(text) => { void handleRerun(text) }}
+                            runs="production"
                         />
                     )}
                 </>
@@ -420,6 +421,13 @@ export default function ExecutionDetailPage() {
     const workflowName = String(data.workflowName ?? data.workflowId ?? '—')
     const decisions = Array.isArray(data.approvals) ? (data.approvals as ApprovalDecision[]) : []
     const pendingApproval = data.pendingApproval as { requestId?: string; stepId?: string } | undefined
+    // O que rodou, como o backend gravou na criação (RCHFLW-89). Um registro anterior a essa gravação não
+    // diz nada, e a tela também não: deduzir pela versão em produção de hoje poderia nomear a errada.
+    const ranVersion = data.workflowDraft === true
+        ? t('executionDetail.version.draft')
+        : data.workflowDraft === false && typeof data.workflowVersionNumber === 'number'
+            ? t('executionDetail.version.published', { number: data.workflowVersionNumber })
+            : null
     const stepLabels = new Map(stepRows.filter((r) => r.label).map((r) => [r.stepId, r.label as string]))
 
     return (
@@ -462,10 +470,16 @@ export default function ExecutionDetailPage() {
                     value={<Text component="span" inherit fz={18} lineClamp={1} title={workflowName}>{workflowName}</Text>}
                     icon={IconTopologyRing}
                     accent="teal"
-                    hint={data.workflowId ? (
-                        <Anchor component={Link} to={`/editor/${data.workflowId as string}`} size="xs">
-                            {t('executionDetail.openWorkflow')}
-                        </Anchor>
+                    hint={ranVersion || data.workflowId ? (
+                        <>
+                            {ranVersion && <span data-testid="execution-version">{ranVersion}</span>}
+                            {ranVersion && data.workflowId ? ' · ' : null}
+                            {data.workflowId ? (
+                                <Anchor component={Link} to={`/editor/${data.workflowId as string}`} size="xs">
+                                    {t('executionDetail.openWorkflow')}
+                                </Anchor>
+                            ) : null}
+                        </>
                     ) : undefined}
                 />
             </SimpleGrid>

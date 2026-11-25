@@ -119,6 +119,19 @@ async function rename(ui: ReturnType<typeof within>, name: string, key: 'Enter' 
   await act(async () => { fireEvent.keyDown(input, { key }) })
 }
 
+describe('WorkflowEditor — Executar diz que roda o rascunho (RCHFLW-89)', () => {
+  it('o botão e o modal de entrada dizem rascunho, sem consultar a versão em produção', async () => {
+    const ui = await renderEditor()
+    const run = ui.getByTestId('editor-run')
+    expect(run.textContent).toBe('editor.runDraft')
+
+    await act(async () => { fireEvent.click(run) })
+    const target = await waitFor(() => within(document.body).getByTestId('run-input-target'))
+    expect(target.getAttribute('data-target')).toBe('draft')
+    expect(target.textContent).toBe('runInput.target.draft')
+  })
+})
+
 describe('WorkflowEditor — toast de execução iniciada', () => {
   it('mostra o id da execução do RUN_STARTED, nunca o id do workflow', async () => {
     const ui = await renderEditor()

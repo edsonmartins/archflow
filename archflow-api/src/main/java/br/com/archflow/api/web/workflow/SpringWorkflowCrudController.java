@@ -223,7 +223,7 @@ public class SpringWorkflowCrudController {
         var workflow = version == null ? draft : version.document();
         String workflowVersionId = version == null ? null : version.id();
 
-        var execution = store.createExecution(tenantId, id, workflowName(workflow), workflowVersionId);
+        var execution = store.createExecution(tenantId, id, workflowName(workflow), version);
         String executionId = String.valueOf(execution.get("id"));
 
         // Deserialize the stored JSON into an executable Flow and submit it to the
@@ -262,6 +262,10 @@ public class SpringWorkflowCrudController {
         body.put("status", "RUNNING");
         body.put("workflowId", id);
         body.put("workflowVersionId", workflowVersionId);
+        // Quem chama a API vê o que rodou (RCHFLW-89): o número da versão publicada, ou a marca do
+        // rascunho quando o fluxo ainda não tem versão em produção — os mesmos campos do registro.
+        body.put("workflowDraft", execution.get("workflowDraft"));
+        body.put("workflowVersionNumber", execution.get("workflowVersionNumber"));
         body.put("startedAt", execution.get("startedAt"));
         return ResponseEntity.ok(body);
     }

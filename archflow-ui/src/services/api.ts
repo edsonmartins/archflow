@@ -208,7 +208,10 @@ export const workflowApi = {
     setStatus: (id: string, status: 'draft' | 'active' | 'archived') =>
         api.patch<WorkflowDetail>(`/workflows/${id}/status`, { status }),
     execute: (id: string, input?: Record<string, unknown>) =>
-        api.post<{ executionId: string; status: string; workflowVersionId: string | null }>(
+        api.post<{
+            executionId: string; status: string; workflowVersionId: string | null;
+            workflowDraft?: boolean; workflowVersionNumber?: number;
+        }>(
             `/workflows/${id}/execute`, input),
     versions: (id: string) =>
         api.get<WorkflowVersion[]>(`/workflows/${id}/versions`),
@@ -232,6 +235,13 @@ export interface ExecutionSummary {
     completedAt: string | null;
     duration: number | null;
     error: string | null;
+    /**
+     * O que rodou, gravado na criação (RCHFLW-89): {@code true} = o rascunho; {@code false} = a versão
+     * publicada {@link workflowVersionNumber}. Ausente num registro anterior a essa gravação.
+     */
+    workflowDraft?: boolean;
+    workflowVersionId?: string | null;
+    workflowVersionNumber?: number;
 }
 
 export const executionApi = {

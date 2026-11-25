@@ -307,6 +307,7 @@ export default function WorkflowListPage() {
                     opened
                     onClose={() => setRunId(null)}
                     onConfirm={(text) => { void handleExecute(runId, text); }}
+                    runs="production"
                 />
             )}
 

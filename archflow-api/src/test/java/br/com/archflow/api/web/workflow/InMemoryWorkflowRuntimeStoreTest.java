@@ -65,11 +65,34 @@ class InMemoryWorkflowRuntimeStoreTest {
     void executionRecordsPinnedVersion() {
         var store = new InMemoryWorkflowRuntimeStore();
 
-        var execution = store.createExecution(T, "wf-1", "Flow", "wfv-1");
+        var execution = store.createExecution(T, "wf-1", "Flow", versao("wfv-1", 3));
 
         assertThat(execution.get("workflowVersionId")).isEqualTo("wfv-1");
-        assertThat(store.getExecution(T, String.valueOf(execution.get("id")))
-                .get("workflowVersionId")).isEqualTo("wfv-1");
+        assertThat(store.getExecution(T, String.valueOf(execution.get("id"))))
+                .containsEntry("workflowVersionId", "wfv-1")
+                .containsEntry("workflowVersionNumber", 3)
+                .containsEntry("workflowDraft", false);
+    }
+
+    @Test
+    @DisplayName("RCHFLW-89: execução sem versão grava que rodou o rascunho, nas duas assinaturas")
+    void execucaoSemVersaoMarcaORascunho() {
+        var store = new InMemoryWorkflowRuntimeStore();
+
+        // O AG-UI do editor e o MCP server usam a de três argumentos; a lista/API, sem implantação,
+        // passa null. As duas rodam o documento salvo, e o detalhe precisa poder dizer isso.
+        String doEditor = store.createExecution(T, "wf-1", "Flow").get("id").toString();
+        String semImplantacao = store.createExecution(T, "wf-1", "Flow", null).get("id").toString();
+
+        for (String id : List.of(doEditor, semImplantacao)) {
+            assertThat(store.getExecution(T, id))
+                    .containsEntry("workflowDraft", true)
+                    .doesNotContainKey("workflowVersionNumber");
+        }
+    }
+
+    private static WorkflowVersionRecord versao(String id, int numero) {
+        return new WorkflowVersionRecord(id, "wf-1", numero, Map.of(), null, java.time.Instant.now());
     }
 
     @Test
@@ -210,7 +233,7 @@ class InMemoryWorkflowRuntimeStoreTest {
     @DisplayName("execução grava o tenant e só é lida, listada por ele")
     void execucaoPertenceAoTenant() {
         var store = new InMemoryWorkflowRuntimeStore();
-        String id = store.createExecution("acme", "wf-acme", "A", "wfv-1").get("id").toString();
+        String id = store.createExecution("acme", "wf-acme", "A", versao("wfv-1", 1)).get("id").toString();
 
         assertThat(store.getExecution("acme", id)).containsEntry("tenantId", "acme")
                 .containsEntry("workflowVersionId", "wfv-1");

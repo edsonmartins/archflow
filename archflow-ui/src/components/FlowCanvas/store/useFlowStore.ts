@@ -137,13 +137,13 @@ export const useFlowStore = create<FlowStore>((set, get) => ({
       const existing = existingById.get(node.id)
       return existing ? { ...node, data: existing.data } : node
     })
-    const selected = state.selectedNodeId
-      ? merged.find((node) => node.id === state.selectedNodeId)
-      : null
-    return {
-      nodes: merged,
-      selectedNodeData: selected ? selected.data : state.selectedNodeData,
-    }
+    if (!state.selectedNodeId) return { nodes: merged }
+    const selected = merged.find((node) => node.id === state.selectedNodeId)
+    // O nó selecionado saiu do canvas (Delete/Backspace, removeNode do copiloto): a seleção sai junto e o
+    // painel volta aos padrões do fluxo. Antes o painel seguia mostrando — e editando — o nó apagado
+    // (RCHFLW-90). Aqui, e não em cada caminho de remoção, porque todos passam por esta sincronia.
+    if (!selected) return { nodes: merged, selectedNodeId: null, selectedNodeData: null }
+    return { nodes: merged, selectedNodeData: selected.data }
   }),
   setEdges: (edges) => set({ edges }),
   replaceCanvas: (nodes, edges) =>

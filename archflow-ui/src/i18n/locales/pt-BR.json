@@ -69,7 +69,7 @@
         "admin": "Administração",
         "dashboard": "Início",
         "searchTooltip": "Buscar em tudo",
-        "searchPlaceholder": "Buscar páginas e workflows...",
+        "searchPlaceholder": "Buscar páginas, fluxos, execuções, conversas e modelos...",
         "searchNothing": "Nada encontrado",
         "short": {
             "executions": "Execuções",
@@ -292,7 +292,7 @@
         "saveYaml": "Salvar YAML",
         "canvas": "Canvas",
         "code": "Código",
-        "run": "Executar",
+        "runDraft": "Executar rascunho",
         "stop": "Parar",
         "back": "Voltar à lista",
         "saved": "Salvo",
@@ -1567,7 +1567,12 @@
         "asVariables": "Objeto JSON: variáveis {{keys}}.",
         "asText": "Texto: chega ao fluxo como input.",
         "cancel": "Cancelar",
-        "run": "Executar"
+        "run": "Executar",
+        "target": {
+            "draft": "Executa o rascunho (o fluxo como está no editor), não a versão publicada.",
+            "unpublished": "Sem versão publicada em produção: executa o rascunho salvo.",
+            "published": "Executa a versão publicada v{{number}} (produção), não o rascunho."
+        }
     },
     "executionDetail": {
         "subtitle": "Execução de {{workflow}}",
@@ -1639,7 +1644,11 @@
         "rerunFailed": "Não foi possível iniciar uma nova execução",
         "rawJson": "JSON bruto",
         "showRaw": "Mostrar JSON bruto",
-        "hideRaw": "Ocultar JSON bruto"
+        "hideRaw": "Ocultar JSON bruto",
+        "version": {
+            "draft": "Rodou o rascunho",
+            "published": "Rodou a v{{number}} publicada"
+        }
     },
     "marketplace": {
         "title": "Marketplace",
@@ -1760,7 +1769,29 @@
             "run": "\"Rode o workflow wf-demo-001\" — ele executa e abre Execuções (runWorkflow).",
             "status": "\"Mostre um status dizendo: tudo certo\" — ele exibe uma notificação (showStatus)."
         },
-        "hint": "Conexão AG-UI direta (sem runtime Node): o backend Java é a fronteira de segurança."
+        "hint": "Conexão AG-UI direta (sem runtime Node): o backend Java é a fronteira de segurança.",
+        "chat": {
+            "inputPlaceholder": "Digite uma mensagem...",
+            "startTranscribe": "Transcrever",
+            "cancelTranscribe": "Cancelar",
+            "finishTranscribe": "Concluir",
+            "addAttachments": "Adicionar anexos",
+            "tools": "Ferramentas",
+            "copyCode": "Copiar",
+            "copyCodeCopied": "Copiado",
+            "copyMessage": "Copiar",
+            "thumbsUp": "Boa resposta",
+            "thumbsDown": "Resposta ruim",
+            "readAloud": "Ler em voz alta",
+            "regenerate": "Gerar de novo",
+            "editMessage": "Editar",
+            "disclaimer": "A IA pode errar. Confira as informações importantes.",
+            "toggleOpen": "Abrir chat",
+            "toggleClose": "Fechar chat",
+            "openThreads": "Abrir conversas",
+            "headerTitle": "Copilot",
+            "welcome": "Como posso ajudar você hoje?"
+        }
     },
     "templates": {
         "catalog": "Catálogo",

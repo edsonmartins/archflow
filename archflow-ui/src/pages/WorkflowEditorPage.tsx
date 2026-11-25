@@ -812,7 +812,8 @@ export function WorkflowEditor() {
             disabled={!current}
             data-testid="editor-run"
           >
-            {isExecuting ? t('editor.stop') : t('editor.run')}
+            {/* O editor roda o rascunho; a lista e a API, a versão publicada (RCHFLW-89). */}
+            {isExecuting ? t('editor.stop') : t('editor.runDraft')}
           </Button>
         </div>
       </div>
@@ -863,6 +864,7 @@ export function WorkflowEditor() {
           opened={runInputOpen}
           onClose={() => setRunInputOpen(false)}
           onConfirm={(text) => { void startRun(text) }}
+          runs="draft"
         />
       )}
 

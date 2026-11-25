@@ -14,6 +14,7 @@ import {
     visibleConfig, REDACTED, type ConfigValueType,
 } from './nodeConfigKeys'
 import { confirmCopilotNodeRemoval } from './confirmCopilotRemoval'
+import CopilotClockContext from './CopilotClockContext'
 
 /** page key -> route. Exposed to the agent so it can navigate by name. */
 const ROUTES: Record<string, string> = {
@@ -571,5 +572,6 @@ export default function CopilotAppOperator() {
         },
     })
 
-    return null
+    // Data e hora atuais (RCHFLW-98) num filho: o relógio vira a cada minuto sem renderizar o operador de novo.
+    return <CopilotClockContext />
 }
