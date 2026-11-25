@@ -133,7 +133,8 @@ public final class FlowEngineFactory {
                 executionManager,
                 flowRepository,
                 effectiveStateManager,
-                new DefaultFlowValidator(),
+                // Nó de tipo sem execução recusa o fluxo antes do primeiro passo (RCHFLW-11).
+                new ExecutableNodesValidator(new DefaultFlowValidator()),
                 // Restaura a conversa que o CheckpointingLifecycleListener
                 // capturou nas variáveis — sem isto o resume perde o histórico.
                 new FlowStateChatMemory(),

@@ -63,7 +63,9 @@ public class NodeSupport {
                 log.debug("Nó {} não construiu: {}", node.get("id"), e.getMessage());
                 continue;
             }
-            if (step instanceof ComponentStep component && !component.resolvesComponent()) {
+            // Tipo da paleta sem execução (RCHFLW-11) ou componente que o catálogo não tem.
+            if (step instanceof UnsupportedNodeStep
+                    || step instanceof ComponentStep component && !component.resolvesComponent()) {
                 unsupported.add(typeOf(node));
             }
         }

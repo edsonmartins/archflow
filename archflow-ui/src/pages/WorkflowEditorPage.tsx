@@ -32,6 +32,7 @@ import { useWorkflowStore }  from '../stores/workflow-store'
 import { workflowYamlApi }   from '../services/workflow-yaml-api'
 import type { FlowNodeData, WorkflowData } from '../components/FlowCanvas/types'
 import { canvasToDocumentSteps, workflowDataFromDocument } from '../components/FlowCanvas/workflowSerde'
+import { hasRunBlockers, runBlockers, runBlockersMessage } from '../components/FlowCanvas/runReadiness'
 import { usePermissions }    from '../lib/permissions'
 
 /**
@@ -476,8 +477,25 @@ export function WorkflowEditor() {
       })
       return
     }
+    // Nó sem execução ou campo obrigatório vazio: o run nem começa, e o aviso diz qual nó (e qual campo)
+    // corrigir (RCHFLW-11, RCHFLW-92). Com YAML não salvo na aba Código, o canvas não é o que vai rodar —
+    // aí quem recusa é o servidor, no início da execução.
+    if (!(view === 'yaml' && yamlDirty)) {
+      const blockers = runBlockers(useFlowStore.getState().getCanvasSnapshot().steps.map(s => ({
+        id: s.id, label: s.label, componentId: s.componentId, type: s.type, config: s.config,
+      })))
+      if (hasRunBlockers(blockers)) {
+        notifications.show({
+          title:   t('editor.notif.runBlocked'),
+          message: runBlockersMessage(t, blockers),
+          color:   'red',
+          autoClose: false,
+        })
+        return
+      }
+    }
     setRunInputOpen(true)
-  }, [current, isExecuting, abortExecution, t])
+  }, [current, isExecuting, abortExecution, view, yamlDirty, t])
 
   const startRun = useCallback(async (inputText: string) => {
     if (!current) return
