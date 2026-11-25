@@ -18,6 +18,11 @@ public class ApiKey {
     private String keySecret; // Hashed, never plaintext
     private String name;
     private String ownerId;
+    /**
+     * Tenant em que a chave foi criada. Uma requisição autenticada pela chave age neste tenant e em
+     * nenhum outro: é o mesmo papel do claim {@code tenantId} do JWT (RCHFLW-84/86).
+     */
+    private String tenantId;
     private Set<ApiKeyScope> scopes = new HashSet<>();
     private boolean enabled = true;
     private LocalDateTime expiresAt;
@@ -150,6 +155,14 @@ public class ApiKey {
         this.ownerId = ownerId;
     }
 
+    public String getTenantId() {
+        return tenantId;
+    }
+
+    public void setTenantId(String tenantId) {
+        this.tenantId = tenantId;
+    }
+
     public Set<ApiKeyScope> getScopes() {
         return scopes;
     }
@@ -225,6 +238,7 @@ public class ApiKey {
                 ", keyId='" + keyId + '\'' +
                 ", name='" + name + '\'' +
                 ", ownerId='" + ownerId + '\'' +
+                ", tenantId='" + tenantId + '\'' +
                 ", scopes=" + scopes +
                 ", enabled=" + enabled +
                 ", expiresAt=" + expiresAt +

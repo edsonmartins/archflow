@@ -69,6 +69,12 @@ public class AuthService {
         User user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new AuthenticationException("Invalid username or password"));
 
+        // Convidado que ainda não aceitou: a mensagem diz o que fazer, em vez de "conta desativada".
+        if (user.isInvitationPending()) {
+            throw new AuthenticationException(
+                    "Invitation not accepted yet: open the invitation link to set a password");
+        }
+
         // Check if user is enabled
         if (!user.isEnabled()) {
             throw new AuthenticationException("User account is disabled");
@@ -98,7 +104,10 @@ public class AuthService {
                 .map(role -> role.getName())
                 .toArray(String[]::new);
 
-        String accessToken = jwtService.generateAccessToken(user.getId(), user.getUsername(), roles);
+        // O tenant do usuário vai no token: é o que o ImpersonationFilter lê como tenant da
+        // requisição. Sem ele, um usuário convidado no workspace de um tenant entraria no padrão.
+        String accessToken = jwtService.generateTenantAccessToken(
+                user.getId(), user.getUsername(), user.getTenantId(), roles);
         String refreshToken = jwtService.generateRefreshToken(user.getId(), user.getUsername());
 
         log.info("User authenticated successfully: {}", username);
@@ -152,7 +161,8 @@ public class AuthService {
                     .map(role -> role.getName())
                     .toArray(String[]::new);
 
-            String newAccessToken = jwtService.generateAccessToken(user.getId(), user.getUsername(), roles);
+            String newAccessToken = jwtService.generateTenantAccessToken(
+                    user.getId(), user.getUsername(), user.getTenantId(), roles);
             String newRefreshToken = jwtService.generateRefreshToken(user.getId(), user.getUsername());
 
             log.info("Token refreshed for user: {}", user.getUsername());

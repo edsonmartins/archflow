@@ -24,6 +24,19 @@ public class User {
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
     private LocalDateTime lastLoginAt;
+    /**
+     * O tenant em que o usuário age; {@code null} é o tenant padrão — a mesma regra de um token sem a
+     * claim {@code tenantId}. Existe para que um convite feito no workspace de um tenant crie um
+     * acesso a ESSE tenant: sem ele, todo login caía no tenant padrão (RCHFLW-85).
+     */
+    private String tenantId;
+    /**
+     * Hash do segredo do convite ainda não aceito; {@code null} quando não há convite pendente. O
+     * segredo em si só existe na resposta do convite — como o de uma chave de API.
+     */
+    private String invitationTokenHash;
+    /** Até quando o convite pendente vale; {@code null} sem convite pendente. */
+    private LocalDateTime invitationExpiresAt;
 
     public User() {
     }
@@ -200,6 +213,35 @@ public class User {
 
     public void setLastLoginAt(LocalDateTime lastLoginAt) {
         this.lastLoginAt = lastLoginAt;
+    }
+
+    public String getTenantId() {
+        return tenantId;
+    }
+
+    public void setTenantId(String tenantId) {
+        this.tenantId = tenantId;
+    }
+
+    public String getInvitationTokenHash() {
+        return invitationTokenHash;
+    }
+
+    public void setInvitationTokenHash(String invitationTokenHash) {
+        this.invitationTokenHash = invitationTokenHash;
+    }
+
+    public LocalDateTime getInvitationExpiresAt() {
+        return invitationExpiresAt;
+    }
+
+    public void setInvitationExpiresAt(LocalDateTime invitationExpiresAt) {
+        this.invitationExpiresAt = invitationExpiresAt;
+    }
+
+    /** Convidado que ainda não aceitou: não tem senha e não entra. */
+    public boolean isInvitationPending() {
+        return invitationTokenHash != null;
     }
 
     public void updateTimestamp() {

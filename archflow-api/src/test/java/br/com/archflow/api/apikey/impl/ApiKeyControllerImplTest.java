@@ -24,6 +24,8 @@ import static org.mockito.Mockito.*;
 @DisplayName("ApiKeyControllerImpl")
 class ApiKeyControllerImplTest {
 
+    private static final String T = "tenant-a";
+
     @Mock
     private ApiKeyService apiKeyService;
 
@@ -53,18 +55,20 @@ class ApiKeyControllerImplTest {
         @Test
         @DisplayName("should create api key successfully")
         void shouldCreateSuccessfully() {
-            var request = new CreateApiKeyRequest("My Key", Set.of(ApiKeyScope.WORKFLOW_READ), null);
+            var request = new CreateApiKeyRequest("My Key", Set.of("WORKFLOW_READ"), null);
             var apiKey = createMockApiKey("id-1", "key-1", "My Key");
             var result = new ApiKeyService.ApiKeyWithSecret(apiKey, "secret-123");
 
-            when(apiKeyService.createApiKey("owner-1", "My Key", Set.of(ApiKeyScope.WORKFLOW_READ), null))
+            when(apiKeyService.createApiKey(T, "owner-1", "My Key", Set.of(ApiKeyScope.WORKFLOW_READ), null))
                     .thenReturn(result);
 
-            var response = controller.createApiKey("owner-1", request);
+            var response = controller.createApiKey(T, "owner-1", request);
 
             assertThat(response.id()).isEqualTo("id-1");
             assertThat(response.keyId()).isEqualTo("key-1");
             assertThat(response.keySecret()).isEqualTo("secret-123");
+            // A credencial que o cliente põe no "Authorization: Bearer" — o segredo sozinho não autentica.
+            assertThat(response.apiKey()).isEqualTo("key-1.secret-123");
             assertThat(response.name()).isEqualTo("My Key");
             assertThat(response.enabled()).isTrue();
         }
@@ -73,16 +77,87 @@ class ApiKeyControllerImplTest {
         @DisplayName("should pass expiration to service")
         void shouldPassExpiration() {
             var expiry = LocalDateTime.now().plusDays(30);
-            var request = new CreateApiKeyRequest("Key", Set.of(ApiKeyScope.ADMIN), expiry);
+            var request = new CreateApiKeyRequest("Key", Set.of("ADMIN"), expiry);
             var apiKey = createMockApiKey("id-1", "key-1", "Key");
             var result = new ApiKeyService.ApiKeyWithSecret(apiKey, "secret");
 
-            when(apiKeyService.createApiKey("owner-1", "Key", Set.of(ApiKeyScope.ADMIN), expiry))
+            when(apiKeyService.createApiKey(T, "owner-1", "Key", Set.of(ApiKeyScope.ADMIN), expiry))
                     .thenReturn(result);
 
-            controller.createApiKey("owner-1", request);
+            controller.createApiKey(T, "owner-1", request);
 
-            verify(apiKeyService).createApiKey("owner-1", "Key", Set.of(ApiKeyScope.ADMIN), expiry);
+            verify(apiKeyService).createApiKey(T, "owner-1", "Key", Set.of(ApiKeyScope.ADMIN), expiry);
+        }
+    }
+
+    @Nested
+    @DisplayName("escopos (RCHFLW-83)")
+    class ScopesTest {
+
+        @Test
+        @DisplayName("publica o vocabulário do backend: nome da constante, permissão e descrição")
+        void listsTheBackendScopes() {
+            when(apiKeyService.grantableScopes("owner-1")).thenReturn(Set.of(ApiKeyScope.values()));
+            var scopes = controller.listScopes("owner-1");
+
+            assertThat(scopes).extracting(s -> s.name())
+                    .containsExactly(java.util.Arrays.stream(ApiKeyScope.values()).map(Enum::name)
+                            .toArray(String[]::new));
+            assertThat(scopes).anySatisfy(s -> {
+                assertThat(s.name()).isEqualTo("WORKFLOW_EXECUTE");
+                assertThat(s.permission()).isEqualTo("workflow:execute");
+            });
+        }
+
+        @Test
+        @DisplayName("marca o que o papel de quem pergunta concede e o que ainda não abre endpoint nenhum")
+        void marksGrantableAndUnusedScopes() {
+            when(apiKeyService.grantableScopes("viewer-1"))
+                    .thenReturn(Set.of(ApiKeyScope.WORKFLOW_READ, ApiKeyScope.METRICS_READ));
+
+            var scopes = controller.listScopes("viewer-1");
+
+            assertThat(scopes).filteredOn(s -> s.grantable()).extracting(s -> s.name())
+                    .containsExactlyInAnyOrder("WORKFLOW_READ", "METRICS_READ");
+            // Nenhum endpoint aceita hoje uma chave só com escopo de agente ou de métricas.
+            assertThat(scopes).filteredOn(s -> !s.opensEndpoints()).extracting(s -> s.name())
+                    .containsExactlyInAnyOrder("AGENT_READ", "AGENT_MANAGE", "METRICS_READ");
+        }
+
+        @Test
+        @DisplayName("cria com os escopos do vocabulário")
+        void createsWithBackendScopes() {
+            var request = new CreateApiKeyRequest("CI", Set.of("WORKFLOW_EXECUTE", "EXECUTION_READ"), null);
+            var result = new ApiKeyService.ApiKeyWithSecret(createMockApiKey("id-1", "key-1", "CI"), "s");
+            when(apiKeyService.createApiKey(T, "owner-1", "CI",
+                    Set.of(ApiKeyScope.WORKFLOW_EXECUTE, ApiKeyScope.EXECUTION_READ), null)).thenReturn(result);
+
+            assertThat(controller.createApiKey(T, "owner-1", request).keyId()).isEqualTo("key-1");
+        }
+
+        @Test
+        @DisplayName("escopo fora do vocabulário é recusado com o valor e a lista válida — sem segundo formato")
+        void rejectsUnknownScopeReadably() {
+            for (String other : List.of("workflow.read", "workflow:read", "workflow_read")) {
+                assertThatThrownBy(() -> controller.createApiKey(T, "owner-1",
+                        new CreateApiKeyRequest("CI", Set.of(other), null)))
+                        .isInstanceOf(IllegalArgumentException.class)
+                        .hasMessageContaining("Unknown scope '" + other + "'")
+                        .hasMessageContaining("WORKFLOW_READ");
+            }
+            verifyNoInteractions(apiKeyService);
+        }
+
+        @Test
+        @DisplayName("nome vazio ou nenhum escopo: 400 legível, nada criado")
+        void requiresNameAndScopes() {
+            assertThatThrownBy(() -> controller.createApiKey(T, "owner-1",
+                    new CreateApiKeyRequest(" ", Set.of("WORKFLOW_READ"), null)))
+                    .isInstanceOf(IllegalArgumentException.class).hasMessage("API key name is required");
+            assertThatThrownBy(() -> controller.createApiKey(T, "owner-1",
+                    new CreateApiKeyRequest("CI", Set.of(), null)))
+                    .isInstanceOf(IllegalArgumentException.class).hasMessage("At least one scope is required");
+            verifyNoInteractions(apiKeyService);
         }
     }
 
@@ -97,9 +172,9 @@ class ApiKeyControllerImplTest {
                     createMockApiKey("id-1", "key-1", "Key 1"),
                     createMockApiKey("id-2", "key-2", "Key 2")
             );
-            when(apiKeyService.listApiKeys("owner-1")).thenReturn(keys);
+            when(apiKeyService.listApiKeys(T, "owner-1")).thenReturn(keys);
 
-            var response = controller.listApiKeys("owner-1");
+            var response = controller.listApiKeys(T, "owner-1");
 
             assertThat(response).hasSize(2);
             assertThat(response.get(0).name()).isEqualTo("Key 1");
@@ -109,9 +184,9 @@ class ApiKeyControllerImplTest {
         @Test
         @DisplayName("should return empty list when no keys")
         void shouldReturnEmptyList() {
-            when(apiKeyService.listApiKeys("owner-1")).thenReturn(List.of());
+            when(apiKeyService.listApiKeys(T, "owner-1")).thenReturn(List.of());
 
-            var response = controller.listApiKeys("owner-1");
+            var response = controller.listApiKeys(T, "owner-1");
 
             assertThat(response).isEmpty();
         }
@@ -125,9 +200,9 @@ class ApiKeyControllerImplTest {
         @DisplayName("should return key by id")
         void shouldReturnKey() {
             var apiKey = createMockApiKey("id-1", "key-1", "My Key");
-            when(apiKeyService.getApiKey("key-1", "owner-1")).thenReturn(apiKey);
+            when(apiKeyService.getApiKey(T, "owner-1", "key-1")).thenReturn(apiKey);
 
-            var response = controller.getApiKey("owner-1", "key-1");
+            var response = controller.getApiKey(T, "owner-1", "key-1");
 
             assertThat(response.keyId()).isEqualTo("key-1");
             assertThat(response.name()).isEqualTo("My Key");
@@ -136,10 +211,10 @@ class ApiKeyControllerImplTest {
         @Test
         @DisplayName("should throw NotFoundException when key not found")
         void shouldThrowWhenNotFound() {
-            when(apiKeyService.getApiKey("missing", "owner-1"))
+            when(apiKeyService.getApiKey(T, "owner-1", "missing"))
                     .thenThrow(new ApiKeyService.ApiKeyNotFoundException("Not found"));
 
-            assertThatThrownBy(() -> controller.getApiKey("owner-1", "missing"))
+            assertThatThrownBy(() -> controller.getApiKey(T, "owner-1", "missing"))
                     .isInstanceOf(ApiKeyController.NotFoundException.class);
         }
     }
@@ -151,17 +226,17 @@ class ApiKeyControllerImplTest {
         @Test
         @DisplayName("should revoke key successfully")
         void shouldRevokeSuccessfully() {
-            assertThatNoException().isThrownBy(() -> controller.revokeApiKey("owner-1", "key-1"));
-            verify(apiKeyService).revokeApiKey("key-1", "owner-1");
+            assertThatNoException().isThrownBy(() -> controller.revokeApiKey(T, "owner-1", "key-1"));
+            verify(apiKeyService).revokeApiKey(T, "owner-1", "key-1");
         }
 
         @Test
         @DisplayName("should throw NotFoundException when key not found")
         void shouldThrowWhenNotFound() {
             doThrow(new ApiKeyService.ApiKeyNotFoundException("Not found"))
-                    .when(apiKeyService).revokeApiKey("missing", "owner-1");
+                    .when(apiKeyService).revokeApiKey(T, "owner-1", "missing");
 
-            assertThatThrownBy(() -> controller.revokeApiKey("owner-1", "missing"))
+            assertThatThrownBy(() -> controller.revokeApiKey(T, "owner-1", "missing"))
                     .isInstanceOf(ApiKeyController.NotFoundException.class);
         }
     }
@@ -182,13 +257,13 @@ class ApiKeyControllerImplTest {
         @DisplayName("criação de chave grava CREATE com o keyId e o ator")
         void createIsAudited() {
             controller.setAuditTrail(new br.com.archflow.api.audit.AuditTrail(() -> auditRepo));
-            var request = new CreateApiKeyRequest("My Key", Set.of(ApiKeyScope.WORKFLOW_READ), null);
+            var request = new CreateApiKeyRequest("My Key", Set.of("WORKFLOW_READ"), null);
             var result = new ApiKeyService.ApiKeyWithSecret(
                     createMockApiKey("id-1", "key-1", "My Key"), "secret-123");
-            when(apiKeyService.createApiKey("owner-1", "My Key", Set.of(ApiKeyScope.WORKFLOW_READ), null))
+            when(apiKeyService.createApiKey(T, "owner-1", "My Key", Set.of(ApiKeyScope.WORKFLOW_READ), null))
                     .thenReturn(result);
 
-            controller.createApiKey("owner-1", request);
+            controller.createApiKey(T, "owner-1", request);
 
             assertThat(events()).singleElement().satisfies(e -> {
                 assertThat(e.getAction())
@@ -204,10 +279,10 @@ class ApiKeyControllerImplTest {
         void revokeIsAudited() {
             controller.setAuditTrail(new br.com.archflow.api.audit.AuditTrail(() -> auditRepo));
 
-            controller.revokeApiKey("owner-1", "key-1");
+            controller.revokeApiKey(T, "owner-1", "key-1");
             doThrow(new ApiKeyService.ApiKeyNotFoundException("Not found"))
-                    .when(apiKeyService).revokeApiKey("missing", "owner-1");
-            assertThatThrownBy(() -> controller.revokeApiKey("owner-1", "missing"))
+                    .when(apiKeyService).revokeApiKey(T, "owner-1", "missing");
+            assertThatThrownBy(() -> controller.revokeApiKey(T, "owner-1", "missing"))
                     .isInstanceOf(ApiKeyController.NotFoundException.class);
 
             var events = events();

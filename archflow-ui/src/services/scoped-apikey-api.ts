@@ -1,5 +1,21 @@
 import { api } from './api'
 
+/**
+ * Um escopo que uma chave pode receber, como o backend o publica em `GET /api/apikeys/scopes`.
+ * `name` (ex.: `WORKFLOW_EXECUTE`) é o valor que a criação aceita e que a listagem devolve em
+ * `scopes` — o único vocabulário (RCHFLW-83). A UI não mantém uma lista própria: a antiga
+ * (`workflow.read`…) não existia no backend e toda criação falhava com 400.
+ */
+export interface ApiKeyScopeOption {
+    name: string
+    permission: string
+    description: string
+    /** O papel atual do usuário concede este escopo; a criação recusa (403) o que não conceder. */
+    grantable: boolean
+    /** Alguma rota aceita uma chave com este escopo; `false` = uma chave só com ele recebe 403 em tudo. */
+    opensEndpoints: boolean
+}
+
 export interface ScopedApiKey {
     id: string
     keyId: string
@@ -19,44 +35,21 @@ export interface CreateScopedApiKeyRequest {
 
 export interface CreateScopedApiKeyResponse extends ScopedApiKey {
     keySecret: string
+    /** Credencial completa para `Authorization: Bearer` — só existe nesta resposta. */
+    apiKey: string
 }
 
 /**
- * Wraps {@code /api/apikeys/*} — the scoped/expiring API key system
- * (distinct from the admin workspace keys). All requests require the
- * {@code X-User-Id} header; we forward the authenticated user id.
+ * `/api/apikeys/*` pelo `request()` comum: token, refresh e erro legível (`ApiError.message` já é a
+ * frase do corpo, não o JSON cru). O dono da chave é o usuário do token — o servidor ignora
+ * `X-User-Id`, que esta camada mandava (RCHFLW-86).
+ *
+ * <p>Ver, consultar e revogar usam o `keyId` (id público), que é o que o backend procura.</p>
  */
-function userHeader(): Record<string, string> {
-    const raw = localStorage.getItem('archflow_user')
-    if (raw) {
-        try {
-            const u = JSON.parse(raw)
-            if (u?.userId) return { 'X-User-Id': String(u.userId) }
-        } catch { /* fall through */ }
-    }
-    return { 'X-User-Id': 'anonymous' }
-}
-
-async function req<T>(path: string, init: RequestInit = {}): Promise<T> {
-    const headers = {
-        'Content-Type': 'application/json',
-        ...(init.headers as Record<string, string> ?? {}),
-        ...userHeader(),
-    }
-    const token = sessionStorage.getItem('archflow_token')
-    if (token) (headers as Record<string, string>).Authorization = `Bearer ${token}`
-    const res = await fetch(`${import.meta.env.VITE_API_BASE || '/api'}${path}`, { ...init, headers })
-    if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`)
-    if (res.status === 204) return undefined as T
-    return res.json() as Promise<T>
-}
-
 export const scopedApiKeyApi = {
-    list:   () => req<ScopedApiKey[]>('/apikeys'),
-    get:    (id: string) => req<ScopedApiKey>(`/apikeys/${encodeURIComponent(id)}`),
-    create: (body: CreateScopedApiKeyRequest) =>
-        req<CreateScopedApiKeyResponse>('/apikeys', { method: 'POST', body: JSON.stringify(body) }),
-    remove: (id: string) =>
-        req<void>(`/apikeys/${encodeURIComponent(id)}`, { method: 'DELETE' }),
-    _unused: api, // keep import linter happy
+    scopes: () => api.get<ApiKeyScopeOption[]>('/apikeys/scopes'),
+    list:   () => api.get<ScopedApiKey[]>('/apikeys'),
+    get:    (keyId: string) => api.get<ScopedApiKey>(`/apikeys/${encodeURIComponent(keyId)}`),
+    create: (body: CreateScopedApiKeyRequest) => api.post<CreateScopedApiKeyResponse>('/apikeys', body),
+    remove: (keyId: string) => api.delete<void>(`/apikeys/${encodeURIComponent(keyId)}`),
 }

@@ -20,8 +20,8 @@ import java.util.Set;
 
 /**
  * Implementação JDBC do {@link ApiKeyService.ApiKeyRepository} — chaves de API
- * persistidas na tabela {@code api_keys} (ver migration
- * {@code V5_1__create_security.sql}).
+ * persistidas na tabela {@code api_keys} (ver migrations
+ * {@code V5_1__create_security.sql} e {@code V5_1_1__add_tenant_to_api_keys.sql}).
  *
  * <p>SQL ANSI portável (PostgreSQL, H2, MySQL). Os escopos são serializados como
  * lista dos nomes de constante de {@link ApiKeyScope} (robusto a mudanças nas
@@ -46,13 +46,14 @@ public class JdbcApiKeyRepository implements ApiKeyService.ApiKeyRepository {
     public ApiKey save(ApiKey apiKey) {
         String updateSql = """
             UPDATE api_keys SET key_id = ?, key_secret = ?, name = ?, owner_id = ?, scopes = ?,
-                   enabled = ?, expires_at = ?, last_used_at = ?, created_at = ?, created_by = ?
+                   enabled = ?, expires_at = ?, last_used_at = ?, created_at = ?, created_by = ?,
+                   tenant_id = ?
             WHERE id = ?
             """;
         String insertSql = """
             INSERT INTO api_keys (id, key_id, key_secret, name, owner_id, scopes, enabled,
-                                  expires_at, last_used_at, created_at, created_by)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                  expires_at, last_used_at, created_at, created_by, tenant_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """;
 
         try (Connection conn = dataSource.getConnection()) {
@@ -68,7 +69,8 @@ public class JdbcApiKeyRepository implements ApiKeyService.ApiKeyRepository {
                 ps.setTimestamp(8, timestamp(apiKey.getLastUsedAt()));
                 ps.setTimestamp(9, timestamp(apiKey.getCreatedAt()));
                 ps.setString(10, apiKey.getCreatedBy());
-                ps.setString(11, apiKey.getId());
+                ps.setString(11, apiKey.getTenantId());
+                ps.setString(12, apiKey.getId());
                 updated = ps.executeUpdate();
             }
             if (updated == 0) {
@@ -84,6 +86,7 @@ public class JdbcApiKeyRepository implements ApiKeyService.ApiKeyRepository {
                     ps.setTimestamp(9, timestamp(apiKey.getLastUsedAt()));
                     ps.setTimestamp(10, timestamp(apiKey.getCreatedAt()));
                     ps.setString(11, apiKey.getCreatedBy());
+                    ps.setString(12, apiKey.getTenantId());
                     ps.executeUpdate();
                 }
             }
@@ -138,6 +141,38 @@ public class JdbcApiKeyRepository implements ApiKeyService.ApiKeyRepository {
     }
 
     @Override
+    public List<ApiKey> findByTenantId(String tenantId) {
+        List<ApiKey> result = new ArrayList<>();
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement ps = conn.prepareStatement(
+                     "SELECT * FROM api_keys WHERE tenant_id = ? ORDER BY created_at DESC")) {
+            ps.setString(1, tenantId);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    result.add(mapApiKey(rs));
+                }
+            }
+        } catch (SQLException e) {
+            log.error("Failed to list api keys for tenant {}", tenantId, e);
+            throw new RuntimeException("Failed to list api keys for tenant " + tenantId, e);
+        }
+        return result;
+    }
+
+    @Override
+    public void markUsed(String id, LocalDateTime usedAt) {
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement ps = conn.prepareStatement("UPDATE api_keys SET last_used_at = ? WHERE id = ?")) {
+            ps.setTimestamp(1, timestamp(usedAt));
+            ps.setString(2, id);
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            log.error("Failed to record last use of api key {}", id, e);
+            throw new RuntimeException("Failed to record last use of api key " + id, e);
+        }
+    }
+
+    @Override
     public void delete(ApiKey apiKey) {
         try (Connection conn = dataSource.getConnection();
              PreparedStatement ps = conn.prepareStatement("DELETE FROM api_keys WHERE id = ?")) {
@@ -156,6 +191,7 @@ public class JdbcApiKeyRepository implements ApiKeyService.ApiKeyRepository {
         apiKey.setKeySecret(rs.getString("key_secret"));
         apiKey.setName(rs.getString("name"));
         apiKey.setOwnerId(rs.getString("owner_id"));
+        apiKey.setTenantId(rs.getString("tenant_id"));
         apiKey.setScopes(deserializeScopes(rs.getString("scopes")));
         apiKey.setEnabled(rs.getBoolean("enabled"));
         apiKey.setExpiresAt(localDateTime(rs.getTimestamp("expires_at")));

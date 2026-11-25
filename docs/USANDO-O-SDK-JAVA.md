@@ -246,6 +246,15 @@ PublishResult r = client.publish(doc);
 Map<String, Object> execucao = client.execute(r.assignedId(), Map.of("input", "olá"));
 ```
 
+`ARCHFLOW_API_KEY` é a credencial completa (`ak_<id>.<segredo>`, campo `apiKey`
+da resposta de `POST /api/apikeys`, mostrada uma única vez). `.apiKey(...)` a
+envia em `Authorization: Bearer`, como `.bearerToken(...)` — é o único
+cabeçalho em que o servidor reconhece chaves. A chave age como o usuário que a
+criou, no tenant dele, e só alcança o que os escopos dela cobrem **e** o papel
+atual do dono ainda permite: `WORKFLOW_READ`/`WORKFLOW_CREATE`/`WORKFLOW_UPDATE`
+para `list`/`get`/`publish`, `WORKFLOW_EXECUTE` para `execute`. Sem o escopo,
+`403`; chave revogada, expirada ou com o dono desativado, `401`.
+
 Outras operações:
 
 ```java

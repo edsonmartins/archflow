@@ -1,4 +1,37 @@
 {
+    "acceptInvite": {
+        "title": "Aceitar convite",
+        "subtitle": "Defina a senha do seu acesso. Ela precisa ter pelo menos {{min}} caracteres.",
+        "password": "Senha",
+        "confirm": "Confirme a senha",
+        "tooShort": "Pelo menos {{min}} caracteres",
+        "mismatch": "As senhas não conferem",
+        "submit": "Ativar acesso",
+        "done": "Acesso ativado. Entre com o usuário {{username}} e a senha que você definiu.",
+        "goToLogin": "Ir para o login",
+        "haveAccount": "Já tenho acesso",
+        "missingToken": "Este link de convite está incompleto. Peça ao administrador um link novo.",
+        "failed": "Não foi possível aceitar o convite"
+    },
+    "workspaceUserErrors": {
+        "BODY_REQUIRED": "A requisição chegou sem dados. Recarregue a página e tente de novo.",
+        "EMAIL_INVALID": "E-mail inválido.",
+        "ROLE_UNKNOWN": "Função desconhecida. Escolha uma das funções da lista.",
+        "USER_EXISTS": "Já existe um usuário com este e-mail.",
+        "USER_NOT_FOUND": "Usuário não encontrado neste workspace.",
+        "SELF_ROLE_CHANGE": "Você não pode mudar a sua própria função; peça a outro administrador.",
+        "SELF_REMOVE": "Você não pode remover a si mesmo; peça a outro administrador.",
+        "INVITATION_PENDING": "Este usuário ainda tem um convite pendente; revogue o convite em vez de remover.",
+        "INVITATION_ALREADY_ACCEPTED": "Este convite já foi aceito; remova o usuário em vez de revogar o convite.",
+        "INVITATION_INVALID": "Este link de convite é inválido ou já foi usado.",
+        "INVITATION_EXPIRED": "Este convite venceu; peça ao administrador um novo.",
+        "PASSWORD_TOO_SHORT": "A senha precisa ter pelo menos {{min}} caracteres."
+    },
+    "usage": {
+        "noPrice": "sem preço",
+        "withoutPriceCount_one": "{{count}} execução sem preço",
+        "withoutPriceCount_other": "{{count}} execuções sem preço"
+    },
     "confirmations": {
         "delete": "Excluir",
         "remove": "Remover",
@@ -17,7 +50,7 @@
         "suspendTenantTitle": "Suspender tenant",
         "suspendTenantMessage": "O tenant \"{{name}}\" perderá o acesso até ser reativado. Deseja continuar?",
         "removeUserTitle": "Remover usuário",
-        "removeUserMessage": "Remover {{name}} deste workspace? O acesso será revogado imediatamente.",
+        "removeUserMessage": "Remover {{name}} deste workspace? As chaves de API dele param na hora. Uma sessão já aberta termina na próxima renovação do token de acesso (até 15 minutos, no padrão).",
         "revokeInviteTitle": "Revogar convite",
         "revokeInviteMessage": "Revogar o convite de {{name}}?",
         "revokeKeyTitle": "Revogar chave de API",
@@ -1139,7 +1172,7 @@
             },
             "usage": {
                 "title": "Uso e cobrança",
-                "subtitle": "Consumo mensal e custo estimado por tenant.",
+                "subtitle": "Consumo medido e custo por tenant, no mês.",
                 "month": "Mês",
                 "listTitle": "Consumo por tenant",
                 "listHint": "A barra é a fatia do total do mês.",
@@ -1148,7 +1181,7 @@
                 "hints": {
                     "executions": "Em {{month}}",
                     "tokens": "Entrada + saída",
-                    "cost": "Estimado, em USD",
+                    "cost": "Pela tabela de preços, em reais",
                     "tenants": "Com atividade no mês"
                 },
                 "exportCsv": "Exportar CSV",
@@ -1217,11 +1250,15 @@
         },
         "tenant": {
             "workspace": {
+                "noPlanLimits": "Este tenant não tem plano cadastrado, então não há limites para comparar. Os números acima são o uso medido.",
                 "title": "Visão geral do workspace",
                 "subtitle": "Como este workspace está frente ao plano.",
                 "subtitleNamed": "{{name}} — como este workspace está frente ao plano.",
                 "planUsageHint": "As barras ficam âmbar em 70% e vermelhas em 90% do limite.",
                 "hints": {
+                    "noLimit": "Sem limite cadastrado",
+                    "tokensOfLimit": "Limite: {{limit}} por mês",
+                    "costMonth": "Neste mês, pela tabela de preços",
                     "ofLimit": "Limite: {{limit}}",
                     "perDay": "Limite: {{limit}} por dia",
                     "seats": "Limite: {{limit}} assentos",
@@ -1231,6 +1268,8 @@
                 "summaryUnavailable": "Resumo do workspace indisponível no momento.",
                 "planUsage": "Uso do plano",
                 "stats": {
+                    "tokensMonth": "Tokens no mês",
+                    "costMonth": "Custo no mês",
                     "workflows": "Fluxos",
                     "executionsToday": "Execuções hoje",
                     "users": "Usuários",
@@ -1284,6 +1323,23 @@
                 }
             },
             "users": {
+                "inviteExpires": "Convite vale até {{when}}",
+                "inviteCreated": "Convite criado para {{email}}",
+                "inviteLinkHint": "Envie este link para a pessoa convidada. Ele aparece só agora, vale uma vez e até {{when}}.",
+                "inviteNoEmail": "O archflow não envia e-mail: depois de convidar, copie o link de aceite e envie para a pessoa.",
+                "copyLink": "Copiar link",
+                "linkCopied": "Link copiado",
+                "done": "Concluir",
+                "permissionNames": {
+                    "all": "Todas as permissões",
+                    "workflow_read": "Ver fluxos",
+                    "workflow_create": "Criar fluxos",
+                    "workflow_update": "Editar fluxos",
+                    "workflow_delete": "Excluir fluxos",
+                    "workflow_execute": "Executar fluxos",
+                    "agent_read": "Ver agentes",
+                    "execution_read": "Ver histórico de execuções"
+                },
                 "title": "Usuários",
                 "subtitle": "Quem tem acesso a este workspace e o que cada papel pode fazer.",
                 "listTitle": "Membros",
@@ -1305,6 +1361,7 @@
                 "inviteSentMsg": "Convite enviado para {{email}}",
                 "sendInvite": "Enviar convite",
                 "editRole": "Editar função",
+                "roleChangeHint": "A nova função vale na hora para as chaves de API do usuário. Na sessão já aberta, vale a partir da próxima renovação do token de acesso (até 15 minutos, no padrão).",
                 "save": "Salvar",
                 "permissionsTitle": "Matriz de permissões",
                 "permissions": {
@@ -1327,6 +1384,7 @@
                     "actions": "Ações"
                 },
                 "status": {
+                    "disabled": "Desativado",
                     "active": "Ativo",
                     "invited": "Convite pendente"
                 },
@@ -1336,6 +1394,10 @@
                     "role": "Função"
                 },
                 "roles": {
+                    "ADMIN": "Administrador",
+                    "DESIGNER": "Designer",
+                    "EXECUTOR": "Executor",
+                    "VIEWER": "Visualizador",
                     "admin": "Admin",
                     "editor": "Editor",
                     "viewer": "Visualizador"
@@ -1351,7 +1413,7 @@
                 "listHint": "O segredo aparece uma única vez, logo após a criação.",
                 "emptyHint": "Crie uma chave só com os escopos que a integração precisa.",
                 "new": "Nova chave",
-                "info": "Estas chaves pertencem ao sistema com escopos/expiração (/api/apikeys) — distintas das chaves de dev do workspace. Carregam escopos explícitos.",
+                "info": "Estas chaves pertencem ao sistema com escopos/expiração (/api/apikeys) e carregam escopos explícitos.",
                 "created": "Chave criada — copie o segredo agora",
                 "createdHint": "Esta é a única vez em que o segredo será exibido.",
                 "dismiss": "Fechar",
@@ -1361,6 +1423,25 @@
                 "revoked": "Revogada",
                 "revokedMsg": "Chave {{id}} revogada",
                 "revokeFailed": "Falha ao revogar",
+                "scopesFailed": "Falha ao carregar os escopos",
+                "usageHint": "Envie a chave no cabeçalho Authorization: Bearer <chave>. Ela age como você, no workspace do seu login, e só alcança o que os escopos dela cobrem e o seu papel permite.",
+                "impersonationNotice": "Você está vendo o workspace {{name}} como superadmin, mas as chaves desta página são suas, no workspace do seu login: uma chave criada aqui não age em {{name}}.",
+                "scopeNotGrantable": "seu papel não concede",
+                "scopeOpensNothing": "ainda não abre nenhum endpoint",
+                "scopesOpenNothing": "Estes escopos ainda não abrem nenhum endpoint: {{scopes}}. Uma chave só com eles recebe 403 em toda chamada.",
+                "scopeNames": {
+                    "WORKFLOW_READ": "Ler workflows",
+                    "WORKFLOW_CREATE": "Criar workflows",
+                    "WORKFLOW_UPDATE": "Alterar e publicar workflows",
+                    "WORKFLOW_DELETE": "Excluir workflows",
+                    "WORKFLOW_EXECUTE": "Executar workflows",
+                    "AGENT_READ": "Ler agentes",
+                    "AGENT_MANAGE": "Gerenciar agentes",
+                    "EXECUTION_READ": "Ler execuções",
+                    "EXECUTION_MANAGE": "Cancelar e retomar execuções",
+                    "METRICS_READ": "Ler métricas",
+                    "ADMIN": "Todos os escopos"
+                },
                 "newTitle": "Nova chave com escopo",
                 "columns": {
                     "name": "Nome",
@@ -1576,6 +1657,14 @@
         }
     },
     "executionDetail": {
+        "usage": {
+            "title": "Uso de modelo",
+            "hint": "Tokens e custo medidos nas chamadas a LLM desta execução.",
+            "inputTokens": "Tokens de entrada",
+            "outputTokens": "Tokens de saída",
+            "cost": "Custo (tabela de preços)",
+            "declaredCost": "Custo declarado pelo provedor"
+        },
         "subtitle": "Execução de {{workflow}}",
         "loadFailed": "Não foi possível carregar esta execução",
         "openWorkflow": "Abrir no editor",

@@ -3,6 +3,7 @@ package br.com.archflow.api.admin;
 import br.com.archflow.api.admin.dto.GlobalConfigDto.FeatureTogglesDto;
 import br.com.archflow.api.admin.dto.GlobalConfigDto.PlanDefaultsDto;
 import br.com.archflow.api.admin.dto.GlobalConfigDto.ToggleModelRequest;
+import br.com.archflow.api.admin.dto.GlobalConfigDto.UsageRowDto;
 import br.com.archflow.api.admin.impl.GlobalConfigControllerImpl;
 import br.com.archflow.api.admin.store.InMemoryGlobalConfigStore;
 import br.com.archflow.api.audit.AuditTrail;
@@ -12,7 +13,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @DisplayName("GlobalConfigControllerImpl")
 class GlobalConfigControllerImplTest {
@@ -114,11 +118,12 @@ class GlobalConfigControllerImplTest {
     }
 
     @Test
-    @DisplayName("usage por tenant é vazio — nunca dados fabricados")
+    @DisplayName("usage por tenant é vazio sem medição — nunca dados fabricados")
     void usageIsEmptyNeverFabricated() {
-        var usage = controller.getUsageByTenant("2026-04");
+        assertThat(controller.getUsageByTenant("2026-04")).isEmpty();
 
-        assertThat(usage).isEmpty();
+        controller.setUso(registroDeUso(), id -> java.util.Optional.empty());
+        assertThat(controller.getUsageByTenant("2026-04")).isEmpty();
     }
 
     @Test
@@ -126,11 +131,56 @@ class GlobalConfigControllerImplTest {
     void usageCsvHeaderOnly() {
         String csv = controller.exportUsageCsv("2026-04");
 
-        assertThat(csv).startsWith(
-                "tenantId,tenantName,executions,tokensInput,tokensOutput,estimatedCost,percentOfTotal,planLimit");
+        assertThat(csv).startsWith("tenantId,tenantName,executions,tokensInput,tokensOutput,costReais,"
+                + "declaredCostUsd,executionsWithoutPrice,percentOfTotal,planLimit");
         assertThat(csv.lines().count()).isEqualTo(1);
         assertThat(csv).doesNotContain("Acme Corp").doesNotContain("Demo Trial")
                 .doesNotContain("Rio Quality");
+    }
+
+    @Test
+    @DisplayName("usage por tenant é o medido no mês: tokens, custo (ou sem preço), fatia e limite do cadastro")
+    void usageByTenantIsTheMeasuredOne() {
+        var registro = registroDeUso();
+        registrar(registro, "acme", "openrouter/m", 3_000, 1_000);
+        registrar(registro, "acme", "modelo/sem-preco", 500, 500);
+        registrar(registro, "globex", "openrouter/m", 800, 200);
+        var limites = new br.com.archflow.api.admin.dto.TenantDto.TenantLimitsDto(10, 5_000_000, 1, 1,
+                List.of(), List.of());
+        controller.setUso(registro, id -> "acme".equals(id)
+                ? java.util.Optional.of(new br.com.archflow.api.admin.dto.TenantDto("acme", "Acme", "pro", "active",
+                        null, null, limites, null, List.of(), null))
+                : java.util.Optional.empty());
+
+        var rows = controller.getUsageByTenant(registro.mesAtual().toString());
+
+        assertThat(rows).extracting(UsageRowDto::tenantId).containsExactly("acme", "globex");
+        var acme = rows.get(0);
+        assertThat(acme.tenantName()).isEqualTo("Acme");
+        assertThat(acme.executions()).isEqualTo(2);
+        assertThat(acme.tokensInput()).isEqualTo(3_500);
+        assertThat(acme.tokensOutput()).isEqualTo(1_500);
+        assertThat(acme.costCents()).as("só a execução com preço entra na soma").isEqualTo(1L);
+        assertThat(acme.executionsWithoutPrice()).isEqualTo(1);
+        assertThat(acme.percentOfTotal()).isEqualTo(83.3);
+        assertThat(acme.planLimit()).isEqualTo(5_000_000L);
+        var globex = rows.get(1);
+        assertThat(globex.tenantName()).as("sem cadastro, o id").isEqualTo("globex");
+        assertThat(globex.planLimit()).as("sem cadastro, sem limite inventado").isNull();
+        assertThat(controller.getUsageByTenant(registro.mesAtual().minusMonths(1).toString())).isEmpty();
+        assertThatThrownBy(() -> controller.getUsageByTenant("abril")).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    private static br.com.archflow.api.usage.RegistroDeUso registroDeUso() {
+        return new br.com.archflow.api.usage.RegistroDeUso(new br.com.archflow.api.usage.InMemoryRepositorioDeUso(),
+                br.com.archflow.api.agent.mcp.TabelaDePrecos.doTexto("openrouter/m=100,200").tabela());
+    }
+
+    private static void registrar(br.com.archflow.api.usage.RegistroDeUso registro, String tenant, String modelo,
+                                  int entrada, int saida) {
+        var uso = new br.com.archflow.api.agent.mcp.ContadorDeUso();
+        uso.somar("openrouter", modelo, entrada, saida);
+        registro.registrar(tenant, null, br.com.archflow.api.usage.LancamentoDeUso.ORIGEM_AGENTE, uso);
     }
 
     @Test

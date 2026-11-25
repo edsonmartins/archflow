@@ -102,6 +102,9 @@ class AdminRoleInterceptorTest {
         assertThat(mapped.getInterceptor()).isInstanceOf(AdminRoleInterceptor.class);
         assertThat(mapped.matches(withParsedPath("/api/admin/global/models"))).isTrue();
         assertThat(mapped.matches(withParsedPath("/api/admin/tenants/t-1"))).isTrue();
+        // RCHFLW-85: convidar/trocar papel/remover mudam o acesso real do login — só ADMIN.
+        assertThat(mapped.matches(withParsedPath("/api/admin/workspace/users/invite"))).isTrue();
+        assertThat(mapped.matches(withParsedPath("/api/admin/workspace/summary"))).isTrue();
         assertThat(mapped.matches(withParsedPath("/api/workflows"))).isFalse();
     }
 

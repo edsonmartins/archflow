@@ -36,8 +36,61 @@ class ChatTurnTest {
             if (falhar) {
                 throw new IllegalStateException("provedor fora");
             }
-            return ChatResponse.builder().aiMessage(AiMessage.from("ok")).build();
+            return ChatResponse.builder().aiMessage(AiMessage.from("ok")).tokenUsage(uso).build();
         }
+
+        dev.langchain4j.model.output.TokenUsage uso;
+    }
+
+    /** O ouvinte que o host põe no contexto; aqui, só anota. */
+    private static br.com.archflow.model.engine.ExecutionContext contextoCom(List<String> relatos) {
+        var contexto = new br.com.archflow.model.engine.DefaultExecutionContext("acme", "u", "exec-1",
+                MessageWindowChatMemory.builder().maxMessages(20).build());
+        br.com.archflow.model.engine.ModelUsageListener ouvinte =
+                (provedor, modelo, entrada, saida) ->
+                        relatos.add(provedor + "|" + modelo + "|" + entrada + "|" + saida);
+        contexto.set(br.com.archflow.model.engine.ModelUsageListener.CONTEXT_KEY, ouvinte);
+        return contexto;
+    }
+
+    @Test
+    @DisplayName("com ouvinte no contexto, generate e chat relatam provedor/modelo e tokens (RCHFLW-75)")
+    void relataOUsoAoOuvinteDoContexto() {
+        Gravador modelo = new Gravador();
+        modelo.uso = new dev.langchain4j.model.output.TokenUsage(120, 30);
+        List<String> relatos = new ArrayList<>();
+        var contexto = contextoCom(relatos);
+
+        String resposta = ChatTurn.generate(modelo, null, "oi", contexto, "openai", "gpt-4o-mini");
+        ChatTurn.chat(modelo, "Seja breve.", contexto.getChatMemory(), "e agora?", contexto, "openai", "gpt-4o-mini");
+
+        assertThat(resposta).isEqualTo("ok");
+        assertThat(relatos).containsExactly("openai|openai/gpt-4o-mini|120|30", "openai|openai/gpt-4o-mini|120|30");
+        // A volta sem prompt continua sendo só a mensagem do usuário.
+        assertThat(modelo.chamadas.get(0)).containsExactly(UserMessage.from("oi"));
+    }
+
+    @Test
+    @DisplayName("sem ouvinte no contexto, nada é relatado e a requisição é a mesma")
+    void semOuvinteNadaMuda() {
+        Gravador modelo = new Gravador();
+        var contexto = new br.com.archflow.model.engine.DefaultExecutionContext("acme", "u", "exec-1",
+                MessageWindowChatMemory.builder().maxMessages(20).build());
+
+        ChatTurn.generate(modelo, null, "oi", contexto, "openai", "gpt-4o-mini");
+
+        assertThat(modelo.chamadas).singleElement()
+                .satisfies(mensagens -> assertThat(mensagens).containsExactly(UserMessage.from("oi")));
+    }
+
+    @Test
+    @DisplayName("resposta sem uso informado relata tokens nulos — não informado, nunca zero")
+    void semUsoInformadoRelataNulo() {
+        List<String> relatos = new ArrayList<>();
+
+        ChatTurn.generate(new Gravador(), "Prompt", "oi", contextoCom(relatos), "anthropic", "claude");
+
+        assertThat(relatos).containsExactly("anthropic|anthropic/claude|null|null");
     }
 
     @Test
