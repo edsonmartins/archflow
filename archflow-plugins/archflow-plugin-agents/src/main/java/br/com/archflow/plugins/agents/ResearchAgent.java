@@ -5,6 +5,7 @@ import br.com.archflow.model.ai.domain.*;
 import br.com.archflow.model.ai.metadata.ComponentMetadata;
 import br.com.archflow.model.ai.type.ComponentType;
 import br.com.archflow.model.engine.ExecutionContext;
+import br.com.archflow.plugin.api.spi.ComponentInputs;
 import br.com.archflow.plugin.api.spi.ComponentPlugin;
 
 import java.util.*;
@@ -74,9 +75,10 @@ public class ResearchAgent implements AIAgent, ComponentPlugin {
         }
 
         return switch (operation) {
-            case "executeTask" -> executeTask((Task) input, context);
+            // Mapa ou texto viram Task/Goal: é o que chega de um nó de fluxo ou da fila de invocações.
+            case "executeTask" -> executeTask(ComponentInputs.task(input, "research", null), context);
             case "makeDecision" -> makeDecision(context);
-            case "planActions" -> planActions((Goal) input, context);
+            case "planActions" -> planActions(ComponentInputs.goal(input), context);
             default -> throw new IllegalArgumentException("Unsupported operation: " + operation);
         };
     }

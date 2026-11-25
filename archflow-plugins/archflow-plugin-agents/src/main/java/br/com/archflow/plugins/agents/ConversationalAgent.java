@@ -5,6 +5,7 @@ import br.com.archflow.model.ai.domain.*;
 import br.com.archflow.model.ai.metadata.ComponentMetadata;
 import br.com.archflow.model.ai.type.ComponentType;
 import br.com.archflow.model.engine.ExecutionContext;
+import br.com.archflow.plugin.api.spi.ComponentInputs;
 import br.com.archflow.plugin.api.spi.ComponentPlugin;
 
 import java.util.*;
@@ -139,7 +140,10 @@ public class ConversationalAgent implements AIAgent, ComponentPlugin {
                 ),
                 Map.of(
                         "escalationThreshold", String.valueOf(DEFAULT_ESCALATION_THRESHOLD),
-                        "maxContextMessages", String.valueOf(DEFAULT_MAX_CONTEXT_MESSAGES)
+                        "maxContextMessages", String.valueOf(DEFAULT_MAX_CONTEXT_MESSAGES),
+                        // Operação de um nó/invocação que não escolhe nenhuma: responder é o que se
+                        // espera de um agente de conversa; só classificar (a 1ª declarada) não é.
+                        "defaultOperation", "generateResponse"
                 ),
                 Set.of("agent", "conversational", "customer-service"),
                 // keywords — para roteamento por query em linguagem natural
@@ -153,12 +157,14 @@ public class ConversationalAgent implements AIAgent, ComponentPlugin {
             throw new IllegalStateException("Agent not initialized. Call initialize() first.");
         }
 
+        // A entrada pode chegar como mapa (Executar do designer, payload da fila de invocações) —
+        // ComponentInputs extrai o texto em vez de quebrar num cast.
         return switch (operation) {
-            case "analyzeRequest" -> analyzeRequest((String) input);
-            case "generateResponse" -> generateResponse((String) input);
-            case "executeTask" -> executeTask((Task) input, context);
+            case "analyzeRequest" -> analyzeRequest(ComponentInputs.text(input));
+            case "generateResponse" -> generateResponse(ComponentInputs.text(input));
+            case "executeTask" -> executeTask(ComponentInputs.task(input, "conversation", "request"), context);
             case "makeDecision" -> makeDecision(context);
-            case "planActions" -> planActions((Goal) input, context);
+            case "planActions" -> planActions(ComponentInputs.goal(input), context);
             default -> throw new IllegalArgumentException("Unsupported operation: " + operation);
         };
     }

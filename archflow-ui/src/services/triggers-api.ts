@@ -11,11 +11,13 @@ export interface ScheduledTrigger {
     createdAt: string
     lastFiredAt?: string | null
     lastError?: string | null
+    /** requestId da última invocação disparada: é por ele que se consulta como o agente terminou. */
+    lastRequestId?: string | null
 }
 
 export type NewScheduledTrigger = Omit<
     ScheduledTrigger,
-    'id' | 'createdAt' | 'lastFiredAt' | 'lastError'
+    'id' | 'createdAt' | 'lastFiredAt' | 'lastError' | 'lastRequestId'
 >
 
 export const triggersApi = {

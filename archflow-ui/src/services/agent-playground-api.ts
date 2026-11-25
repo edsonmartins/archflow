@@ -18,6 +18,31 @@ export interface MessageResponse {
     timestamp?: string
 }
 
+/** Andamento de uma invocação da fila: QUEUED/RUNNING são transitórios, COMPLETED/FAILED finais. */
+export type InvocationStatus = 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED'
+
+export interface InvocationResult {
+    requestId: string
+    tenantId: string
+    agentId: string
+    status: InvocationStatus
+    output?: unknown
+    error?: string | null
+    attempts: number
+    createdAt?: string | null
+    startedAt?: string | null
+    finishedAt?: string | null
+}
+
+export const isTerminal = (s: InvocationStatus) => s === 'COMPLETED' || s === 'FAILED'
+
+/**
+ * 404 da consulta: o requestId não existe para este tenant. Separado dos outros erros porque, logo
+ * depois do ACCEPTED, há um instante em que o consumidor retirou a invocação da fila em memória e ainda
+ * não a registrou — quem consulta tolera alguns 404 seguidos antes de desistir.
+ */
+export class InvocationNotFoundError extends Error {}
+
 /**
  * Wrapper for the two "trigger an agent" endpoints that the audit
  * flagged as lacking a frontend surface: agent invoke and event
@@ -45,4 +70,14 @@ export const agentPlaygroundApi = {
             if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`)
             return r.json() as Promise<MessageResponse>
         }),
+
+    // RCHFLW-80: o invoke e o chat só respondem ACCEPTED; o resultado do agente sai daqui.
+    invocation: (requestId: string, tenantId: string) =>
+        authFetch(`/archflow/agents/invocations/${encodeURIComponent(requestId)}`
+                + `?tenantId=${encodeURIComponent(tenantId)}`)
+            .then(async r => {
+                if (r.status === 404) throw new InvocationNotFoundError(await r.text())
+                if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`)
+                return r.json() as Promise<InvocationResult>
+            }),
 }

@@ -354,6 +354,14 @@
             <artifactId>junit-jupiter</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- H2 em modo PostgreSQL: a fila de invocações e o store de resultados JDBC rodam as migrations
+             reais contra ele, sem Docker (claim/lease precisam de um banco de verdade para valer). -->
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <version>2.2.224</version>
+            <scope>test</scope>
+        </dependency>
         <!-- O driver PostgreSQL é declarado acima com escopo runtime, que já o
              coloca no classpath de teste. Redeclará-lo como test aqui tornaria
              a dependência duplicada e reverteria o escopo. -->

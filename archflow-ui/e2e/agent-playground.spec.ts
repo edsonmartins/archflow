@@ -15,6 +15,21 @@ async function mockApi(page: Page) {
             timestamp: new Date().toISOString(),
         });
     });
+    // RCHFLW-80: depois do ACCEPTED a tela consulta o resultado da invocação até ele ficar final.
+    await page.route('**/archflow/agents/invocations/*', async (route) => {
+        await fulfillJson(route, {
+            requestId: 'req-e2e-1',
+            tenantId: 'tenant_demo',
+            agentId: 'conversational-agent',
+            status: 'COMPLETED',
+            output: { response: 'resposta-e2e' },
+            error: null,
+            attempts: 1,
+            createdAt: new Date().toISOString(),
+            startedAt: new Date().toISOString(),
+            finishedAt: new Date().toISOString(),
+        });
+    });
     await page.route('**/archflow/events/message', async (route) => {
         await fulfillJson(route, {
             requestId: 'req-e2e-1',
@@ -67,5 +82,7 @@ test.describe('Agent playground', () => {
         // success notification toast — `.first()` keeps the assertion
         // unambiguous regardless of toast lifecycle.
         await expect(page.getByText(/req-e2e-1/).first()).toBeVisible();
+        // E o resultado do agente, não só o aceite.
+        await expect(page.getByTestId('pg-result-output')).toContainText('resposta-e2e');
     });
 });

@@ -90,6 +90,7 @@ public class ScheduledTriggerControllerImpl implements ScheduledTriggerControlle
                 incoming.enabled(),
                 Instant.now(),
                 null,
+                null,
                 null);
         STORE.put(id, stored);
         materialise(stored);
@@ -114,7 +115,8 @@ public class ScheduledTriggerControllerImpl implements ScheduledTriggerControlle
                 incoming.enabled(),
                 existing.createdAt(),
                 existing.lastFiredAt(),
-                existing.lastError());
+                existing.lastError(),
+                existing.lastRequestId());
         STORE.put(id, stored);
         // Recreate the Quartz job to pick up the new schedule/payload.
         removeFromScheduler(id);
@@ -135,19 +137,19 @@ public class ScheduledTriggerControllerImpl implements ScheduledTriggerControlle
     public ScheduledTriggerDto fireNow(String id) {
         ScheduledTriggerDto dto = get(id);
         try {
-            submitInvocation(dto);
+            String requestId = submitInvocation(dto);
             STORE.put(id, new ScheduledTriggerDto(
                     dto.id(), dto.name(), dto.cronExpression(),
                     dto.tenantId(), dto.agentId(), dto.payload(),
                     dto.enabled(), dto.createdAt(),
-                    Instant.now(), null));
+                    Instant.now(), null, requestId));
             return STORE.get(id);
         } catch (Exception e) {
             ScheduledTriggerDto failed = new ScheduledTriggerDto(
                     dto.id(), dto.name(), dto.cronExpression(),
                     dto.tenantId(), dto.agentId(), dto.payload(),
                     dto.enabled(), dto.createdAt(),
-                    dto.lastFiredAt(), e.getMessage());
+                    dto.lastFiredAt(), e.getMessage(), dto.lastRequestId());
             STORE.put(id, failed);
             throw new IllegalStateException(
                     "Failed to fire trigger " + id + ": " + e.getMessage(), e);
@@ -194,24 +196,31 @@ public class ScheduledTriggerControllerImpl implements ScheduledTriggerControlle
         }
     }
 
-    /** Submits the invocation to the shared queue. */
-    static void submitInvocation(ScheduledTriggerDto dto) {
+    /**
+     * Submits the invocation to the shared queue.
+     *
+     * @return o requestId da invocação — guardado no gatilho para que o desfecho do agente seja
+     *         consultável (o consumidor grava o resultado sob ele)
+     */
+    static String submitInvocation(ScheduledTriggerDto dto) {
         AgentInvocationQueue queue = QUEUE;
         if (queue == null) {
             throw new IllegalStateException("AgentInvocationQueue not configured; cannot fire trigger");
         }
-        queue.submit(new InvocationRequest(
+        InvocationRequest request = new InvocationRequest(
                 null, dto.tenantId(), dto.agentId(),
-                dto.payload(), null, 0, Instant.now()));
+                dto.payload(), null, 0, Instant.now());
+        queue.submit(request);
+        return request.requestId();
     }
 
     /** Records a successful firing against the DTO store. */
-    static void recordFire(String triggerId) {
+    static void recordFire(String triggerId, String requestId) {
         STORE.computeIfPresent(triggerId, (k, dto) -> new ScheduledTriggerDto(
                 dto.id(), dto.name(), dto.cronExpression(),
                 dto.tenantId(), dto.agentId(), dto.payload(),
                 dto.enabled(), dto.createdAt(),
-                Instant.now(), null));
+                Instant.now(), null, requestId));
     }
 
     /** Records an error during firing. */
@@ -220,7 +229,7 @@ public class ScheduledTriggerControllerImpl implements ScheduledTriggerControlle
                 dto.id(), dto.name(), dto.cronExpression(),
                 dto.tenantId(), dto.agentId(), dto.payload(),
                 dto.enabled(), dto.createdAt(),
-                dto.lastFiredAt(), message));
+                dto.lastFiredAt(), message, dto.lastRequestId()));
     }
 
     /**
@@ -238,10 +247,10 @@ public class ScheduledTriggerControllerImpl implements ScheduledTriggerControlle
                 return;
             }
             try {
-                submitInvocation(dto);
-                recordFire(triggerId);
-                log.info("Trigger {} fired → submitted invocation for agent={} tenant={}",
-                        triggerId, dto.agentId(), dto.tenantId());
+                String requestId = submitInvocation(dto);
+                recordFire(triggerId, requestId);
+                log.info("Trigger {} fired → submitted invocation {} for agent={} tenant={}",
+                        triggerId, requestId, dto.agentId(), dto.tenantId());
             } catch (Exception e) {
                 recordError(triggerId, e.getMessage());
                 throw new JobExecutionException(

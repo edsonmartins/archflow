@@ -5,6 +5,7 @@ import br.com.archflow.model.ai.domain.*;
 import br.com.archflow.model.ai.metadata.ComponentMetadata;
 import br.com.archflow.model.ai.type.ComponentType;
 import br.com.archflow.model.engine.ExecutionContext;
+import br.com.archflow.plugin.api.spi.ComponentInputs;
 import br.com.archflow.plugin.api.spi.ComponentPlugin;
 
 import java.util.*;
@@ -151,11 +152,12 @@ public class DataAnalysisAgent implements AIAgent, ComponentPlugin {
         }
 
         return switch (operation) {
-            case "executeTask" -> executeTask((Task) input, context);
-            case "analyzeRequest" -> analyzeRequest((String) input);
+            // Mapa ou texto viram Task/Goal/texto: é o que chega de um nó de fluxo ou da fila.
+            case "executeTask" -> executeTask(ComponentInputs.task(input, "analyze", "query"), context);
+            case "analyzeRequest" -> analyzeRequest(ComponentInputs.text(input));
             case "generateResponse" -> generateResponse(input);
             case "makeDecision" -> makeDecision(context);
-            case "planActions" -> planActions((Goal) input, context);
+            case "planActions" -> planActions(ComponentInputs.goal(input), context);
             default -> throw new IllegalArgumentException("Unsupported operation: " + operation);
         };
     }

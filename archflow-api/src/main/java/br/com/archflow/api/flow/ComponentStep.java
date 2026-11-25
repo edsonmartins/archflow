@@ -51,6 +51,8 @@ public final class ComponentStep implements FlowStep {
     }
 
     /**
+     * @param operation operação do nó; {@code null} deixa um componente do catálogo usar a padrão dele
+     *                  ({@link CatalogComponents#defaultOperation})
      * @param resolved componente já materializado; quando presente, o catálogo
      *                 não é consultado. É o caminho dos nós servidos por um
      *                 adapter LangChain4j, que não vive no catálogo — ele é
@@ -98,7 +100,13 @@ public final class ComponentStep implements FlowStep {
         }
         try {
             Object input = context.get(INPUT_KEY).orElse(null);
-            Object output = invoke(component, input, context);
+            // Componente do catálogo: instância por execução, operação padrão e entrada adaptada
+            // (CatalogComponents). Um componente já materializado (adapter, mcp-agent, decision) foi
+            // construído para este nó e recebe a operação como veio.
+            Object output = resolved != null
+                    ? invoke(resolved, operationOrLegacy(), input, context)
+                    : CatalogComponents.invoke(component, operation, configuration, input,
+                            (instance, op, in) -> invoke(instance, op, in, context));
             context.set(id, output);
             context.set(INPUT_KEY, output);
             return CompletableFuture.completedFuture(SimpleStepResult.ok(id, output, elapsedMs(start)));
@@ -120,7 +128,7 @@ public final class ComponentStep implements FlowStep {
      * <p>Um interceptor que aborta vira {@link ToolResult.Status#ERROR}, que o
      * step traduz em falha — o componente não roda.
      */
-    private Object invoke(AIComponent component, Object input, ExecutionContext context)
+    private Object invoke(AIComponent component, String operation, Object input, ExecutionContext context)
             throws Exception {
         if (interceptors == null || interceptors.getInterceptors().isEmpty()) {
             return component.execute(operation, input, context);
@@ -145,6 +153,11 @@ public final class ComponentStep implements FlowStep {
                     .orElse("tool interceptor rejeitou a execução de " + componentId));
         }
         return result.getData().orElse(null);
+    }
+
+    /** {@code null} quer dizer "o nó não escolheu"; fora do catálogo, vale o padrão histórico. */
+    private String operationOrLegacy() {
+        return operation == null || operation.isBlank() ? CatalogComponents.LEGACY_OPERATION : operation;
     }
 
     private static long elapsedMs(long startNanos) {
