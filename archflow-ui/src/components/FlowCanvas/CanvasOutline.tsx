@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useFlowStore } from './store/useFlowStore'
 import type { FlowNodeData } from './types'
 import type { Node } from '@xyflow/react'
+import './CanvasOutline.css'
 
 /**
  * Visão textual acessível do grafo do editor — alternativa navegável por

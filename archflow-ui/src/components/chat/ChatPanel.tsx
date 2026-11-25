@@ -30,6 +30,17 @@ interface ChatPanelProps {
     workflowId?: string;
     /** Tenant id used for SSE scoping. Falls back to "default" when undefined. */
     tenantId?: string;
+    /**
+     * Chamado quando o registro da conversa mudou no servidor: mensagem do usuário aceita, resposta
+     * do agente concluída (chat/end), formulário de suspensão recebido, retomada ou cancelamento.
+     *
+     * <p>A transcrição vive aqui, alimentada pelo stream, mas contagem, última mensagem e status são
+     * do registro que a página dona busca — sem este aviso os painéis de detalhes ficavam parados
+     * até o "Atualizar" (RCHFLW-81). Só avisa, não manda dados: quem calcula é o servidor, e o
+     * chat/end só é publicado depois de a resposta ser gravada, então um GET logo em seguida já a
+     * enxerga.</p>
+     */
+    onConversationChanged?: () => void;
 }
 
 interface PendingAssistant {
@@ -42,8 +53,13 @@ interface PendingAssistant {
     finished: boolean;
 }
 
-export default function ChatPanel({ conversationId, workflowId, tenantId }: ChatPanelProps) {
+export default function ChatPanel({ conversationId, workflowId, tenantId, onConversationChanged }: ChatPanelProps) {
     const { t } = useTranslation();
+    // Por ref: o callback do pai muda de identidade a cada render e, como dependência do efeito do
+    // SSE, faria o stream fechar e reabrir — perdendo eventos no meio de uma resposta.
+    const changedRef = useRef(onConversationChanged);
+    changedRef.current = onConversationChanged;
+    const notifyChanged = useCallback(() => changedRef.current?.(), []);
     const [messages, setMessages] = useState<ConversationMessage[]>([]);
     const [pending, setPending] = useState<PendingAssistant | null>(null);
     const [input, setInput] = useState('');
@@ -185,6 +201,7 @@ export default function ChatPanel({ conversationId, workflowId, tenantId }: Chat
                     return null;
                 });
                 setSending(false);
+                notifyChanged();
                 return;
             }
 
@@ -284,6 +301,7 @@ export default function ChatPanel({ conversationId, workflowId, tenantId }: Chat
                 };
                 setSuspendedForm(form);
                 setResumeToken((evt.data.resumeToken as string | undefined) ?? null);
+                notifyChanged();
             }
         });
 
@@ -293,7 +311,7 @@ export default function ChatPanel({ conversationId, workflowId, tenantId }: Chat
             offEvent();
             stream.close();
         };
-    }, [conversationId, tenantId]);
+    }, [conversationId, tenantId, notifyChanged]);
 
     useEffect(() => {
         scrollToBottom();
@@ -316,7 +334,8 @@ export default function ChatPanel({ conversationId, workflowId, tenantId }: Chat
 
         try {
             await conversationApi.sendMessage(conversationId, text);
-            // Streaming response will arrive via SSE — no need to refetch.
+            // A resposta chega pelo SSE; o registro, porém, já conta a mensagem do usuário.
+            notifyChanged();
         } catch (err) {
             console.error('Failed to send message:', err);
             setMessages((prev) => [
@@ -344,6 +363,7 @@ export default function ChatPanel({ conversationId, workflowId, tenantId }: Chat
                 const response = await conversationApi.resumeConversation(resumeToken, data);
                 setMessages(response.messages);
                 setResumeToken(null);
+                notifyChanged();
             } catch (err) {
                 console.error('Failed to resume conversation:', err);
                 setMessages((prev) => [
@@ -369,6 +389,7 @@ export default function ChatPanel({ conversationId, workflowId, tenantId }: Chat
         setResumeToken(null);
         try {
             await conversationApi.cancelConversation(conversationId);
+            notifyChanged();
             setMessages((prev) => [
                 ...prev,
                 {

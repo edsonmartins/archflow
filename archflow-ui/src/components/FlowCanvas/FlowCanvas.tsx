@@ -343,7 +343,7 @@ export function FlowCanvas({
       },
       connectNodes: (sourceId, targetId) => {
         // Só passos ligam: anotações não têm handles, e a aresta numa delas ficaria invisível e sem efeito.
-        const ids = new Set(localNodesRef.current.filter(n => !ANNOTATION_TYPES.has(n.type ?? '')).map(n => n.id))
+        const ids = new Set(localNodesRef.current.filter(n => !ANNOTATION_COMPONENT_IDS.has(n.type ?? '')).map(n => n.id))
         if (!ids.has(sourceId) || !ids.has(targetId)) return false
         pushHistory('connect')
         const edge: Edge = {

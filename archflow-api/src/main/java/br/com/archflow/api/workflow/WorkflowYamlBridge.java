@@ -50,8 +50,10 @@ public class WorkflowYamlBridge {
 
     /**
      * Parse a YAML payload and return a ready-to-persist
-     * {@link SerializableFlow}. Throws {@link IllegalArgumentException}
-     * when the YAML is malformed or missing required fields.
+     * {@link SerializableFlow}. Throws {@link InvalidYamlException} (an
+     * {@link IllegalArgumentException} with line/column) when the YAML is
+     * malformed, and {@link IllegalArgumentException} when it misses
+     * required fields.
      */
     public SerializableFlow fromYaml(String yaml) {
         if (yaml == null || yaml.isBlank()) {
@@ -64,7 +66,8 @@ public class WorkflowYamlBridge {
             }
             return flow;
         } catch (IOException e) {
-            throw new IllegalArgumentException("Malformed YAML: " + e.getMessage(), e);
+            // Nunca "Malformed YAML: " + e.getMessage(): é o texto do Jackson, com classes Java (RCHFLW-94).
+            throw InvalidYamlException.from(e);
         }
     }
 
@@ -83,7 +86,8 @@ public class WorkflowYamlBridge {
     }
 
     /**
-     * Convenience bridge: converts a YAML string to JSON.
+     * Convenience bridge: converts a YAML string to JSON. Malformed input
+     * throws {@link InvalidYamlException}.
      */
     public String yamlToJson(String yaml) {
         Objects.requireNonNull(yaml, "yaml");
@@ -91,7 +95,7 @@ public class WorkflowYamlBridge {
             SerializableFlow flow = yamlSerializer.deserialize(yaml);
             return jsonSerializer.serialize(flow);
         } catch (IOException e) {
-            throw new IllegalArgumentException("Malformed YAML: " + e.getMessage(), e);
+            throw InvalidYamlException.from(e);
         }
     }
 }

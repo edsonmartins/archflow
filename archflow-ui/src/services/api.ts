@@ -1,9 +1,28 @@
+import { mensagemDoCorpoDeErro } from '../lib/errorMessage';
+
 const API_BASE = import.meta.env.VITE_API_BASE || '/api';
 
+/**
+ * Erro HTTP de `request()`. `message` é a frase legível extraída do corpo (`{message|detail|error}` ou texto
+ * puro) — é o que alertas e toasts mostram; o corpo cru fica em `body` para quem precisar dos outros campos
+ * (ex.: `line`/`column` do YAML inválido). Antes `message` recebia o corpo inteiro e a tela exibia JSON cru
+ * (RCHFLW-65/94).
+ */
 class ApiError extends Error {
-    constructor(public status: number, message: string) {
+    constructor(public status: number, message: string, public body: string = message) {
         super(message);
         this.name = 'ApiError';
+    }
+
+    /** Corpo interpretado como JSON, ou `null` quando não é um objeto JSON. */
+    get details(): Record<string, unknown> | null {
+        try {
+            const parsed: unknown = JSON.parse(this.body);
+            return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+                ? parsed as Record<string, unknown> : null;
+        } catch {
+            return null;
+        }
     }
 }
 
@@ -113,7 +132,8 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
     if (!response.ok) {
         const body = await response.text().catch(() => '');
-        throw new ApiError(response.status, body || response.statusText);
+        const fallback = response.statusText || `HTTP ${response.status}`;
+        throw new ApiError(response.status, mensagemDoCorpoDeErro(body, fallback), body);
     }
 
     if (response.status === 204) return undefined as T;

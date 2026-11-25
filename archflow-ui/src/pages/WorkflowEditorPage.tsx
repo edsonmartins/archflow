@@ -21,6 +21,7 @@ import { RunInputModal } from '../components/RunInputModal'
 import { toAgUiRunInput } from '../lib/runInput'
 import { stepOutputsFromExecution } from '../lib/stepOutput'
 import { runOutcomeOf } from '../lib/runOutcome'
+import { mensagemDeYamlInvalido } from '../lib/errorMessage'
 import { executionApi }      from '../services/api'
 import { FlowCanvas }        from '../components/FlowCanvas/FlowCanvas'
 import { NodePalette }       from '../components/NodePalette'
@@ -30,10 +31,7 @@ import { useFlowStore }      from '../components/FlowCanvas/store/useFlowStore'
 import { useWorkflowStore }  from '../stores/workflow-store'
 import { workflowYamlApi }   from '../services/workflow-yaml-api'
 import type { FlowNodeData, WorkflowData } from '../components/FlowCanvas/types'
-import { NODE_TYPE_TO_CATEGORY } from '../components/FlowCanvas/constants'
-import {
-  canvasToDocumentSteps, connectionsFromSteps,
-} from '../components/FlowCanvas/workflowSerde'
+import { canvasToDocumentSteps, workflowDataFromDocument } from '../components/FlowCanvas/workflowSerde'
 
 /**
  * Floating chevron button that sits flush to the canvas edge and
@@ -93,37 +91,6 @@ function PanelToggle({
             <Icon size={14} stroke={2.5} />
         </button>
     )
-}
-
-function toWorkflowData(detail: any): WorkflowData {
-  const steps = (detail.steps ?? []).map((step: any, i: number) => {
-    // A YAML/API-authored execution operation lives at the node level; fold it
-    // into `config.operation` so a plain canvas save round-trips it instead of
-    // dropping it (the backend's DefaultFlowStepFactory reads config.operation
-    // first). Only do this when a distinct `label` is present: pre-schema saves
-    // stored the DISPLAY NAME in `operation`, so folding a label-less step's
-    // `operation` would make the factory run a bogus operation.
-    // O documento aceita `config` como sinônimo de `configuration`: o motor e o YAML leem os dois
-    // (SerializableStep tem @JsonAlias("config")) e a DSL grava `config`. O editor lê os dois do mesmo
-    // jeito; `configuration` vence quando os dois existem.
-    const config = { ...(step.config ?? {}), ...(step.configuration ?? {}) }
-    if (step.operation && step.label && config.operation == null) config.operation = step.operation
-    return {
-      id:          step.id ?? `step-${i}`,
-      type:        step.type?.toLowerCase() ?? 'custom',
-      componentId: step.componentId ?? step.type?.toLowerCase() ?? 'custom',
-      label:       step.label ?? step.operation ?? step.componentId ?? step.type ?? 'Node',
-      category:    NODE_TYPE_TO_CATEGORY[step.type?.toLowerCase()] ?? 'tool' as const,
-      position:    step.position ?? { x: 200 + i * 250, y: 150 },
-      config,
-    }
-  })
-
-  // Condition and branch survive the round trip — dropping them made a flow opened and saved in the
-  // designer follow every branch (see workflowSerde).
-  const connections = connectionsFromSteps(detail.steps)
-
-  return { steps, connections }
 }
 
 type EditorView = 'canvas' | 'yaml'
@@ -241,7 +208,7 @@ export function WorkflowEditor() {
   // seguro porque o FlowCanvas nunca remonta numa troca de aba (fica montado e
   // oculto). Qualquer novo caminho que remonte o canvas precisa bumpar a revisão.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const workflowData = useMemo(() => current ? toWorkflowData(current) : null, [current?.id, canvasRevision])
+  const workflowData = useMemo(() => current ? workflowDataFromDocument(current) : null, [current?.id, canvasRevision])
   // O FlowCanvas (filho) aplica o initialWorkflow no efeito de montagem, que roda ANTES deste efeito do
   // pai no mesmo commit — então aqui o store já tem o canvas reconstruído e o snapshot é o "limpo".
   // Edições aplicadas depois (inclusive a fila do copiloto, drenada num setTimeout) contam como sujas.
@@ -345,10 +312,12 @@ export function WorkflowEditor() {
         color: 'teal',
       })
     } catch (e) {
-      setYamlError(e instanceof Error ? e.message : t('editor.notif.yamlErrorMsg'))
+      // Frase traduzida com linha/coluna do backend (RCHFLW-94); o toast repete o problema, não um genérico.
+      const mensagem = mensagemDeYamlInvalido(e, t, t('editor.notif.yamlErrorMsg'))
+      setYamlError(mensagem)
       notifications.show({
         title: t('editor.notif.yamlError'),
-        message: t('editor.notif.yamlErrorMsg'),
+        message: mensagem,
         color: 'red',
       })
     }
@@ -523,7 +492,7 @@ export function WorkflowEditor() {
     } catch (e) {
       // Mesma mensagem que o Salvar YAML mostraria no editor: o erro de validação do backend é o que
       // diz ao usuário o que corrigir.
-      if (viaYaml) setYamlError(e instanceof Error ? e.message : t('editor.notif.yamlErrorMsg'))
+      if (viaYaml) setYamlError(mensagemDeYamlInvalido(e, t, t('editor.notif.yamlErrorMsg')))
       notifications.show({
         title:   t('editor.notif.execStartError'),
         message: t('editor.notif.saveErrorMsg'),

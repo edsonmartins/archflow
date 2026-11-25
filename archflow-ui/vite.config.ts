@@ -39,7 +39,13 @@ export default defineConfig(({ mode }) => ({
         outDir: 'dist-app'
       },
   define: {
-    __ARCHFLOW_VERSION__: JSON.stringify('1.0.0-beta.1')
+    __ARCHFLOW_VERSION__: JSON.stringify('1.0.0-beta.1'),
+    // No modo lib o vite NÃO substitui `process.env.*` (deixa para quem consome a lib decidir).
+    // Mas este bundle também é servido como está, direto ao navegador, pelo trecho de
+    // Publicar › Incorporar (RCHFLW-87) — e o React lê `process.env.NODE_ENV` nos entry points
+    // CJS: sem a troca, o import lança "process is not defined" e o <archflow-designer> nunca é
+    // registrado. No SPA o vite já faz essa troca sozinho; por isso só no modo component.
+    ...(mode === 'component' ? { 'process.env.NODE_ENV': JSON.stringify('production') } : {}),
   },
   server: {
     proxy: {

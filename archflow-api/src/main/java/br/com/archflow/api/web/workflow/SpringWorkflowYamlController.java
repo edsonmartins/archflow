@@ -1,5 +1,6 @@
 package br.com.archflow.api.web.workflow;
 
+import br.com.archflow.api.workflow.InvalidYamlException;
 import br.com.archflow.api.workflow.WorkflowYamlBridge;
 import br.com.archflow.api.workflow.WorkflowYamlDto;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -8,6 +9,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -100,6 +102,27 @@ public class SpringWorkflowYamlController {
 
         store.putWorkflow(id, merged);
         return new WorkflowYamlDto(id, bridge.jsonToYaml(toJson(merged)), extractVersion(merged));
+    }
+
+    /**
+     * YAML inválido vira {@code {status, error, message, reason, line, column}}. O handler global também daria
+     * 400, mas só com a frase; a aba Código precisa da posição, e {@code error} é mantido com a mesma frase para
+     * quem já lia o envelope do {@code GlobalExceptionHandler}. {@code message} é a frase pronta (em inglês, para
+     * clientes de API); {@code reason} é só o problema, para a UI montar a frase no idioma do usuário com
+     * {@code line}/{@code column}. Handler local vence o {@code @RestControllerAdvice}, então isto vale só para
+     * as rotas de YAML.
+     */
+    @ExceptionHandler(InvalidYamlException.class)
+    public ResponseEntity<Map<String, Object>> handleInvalidYaml(InvalidYamlException e) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("status", HttpStatus.BAD_REQUEST.value());
+        body.put("error", e.getMessage());
+        body.put("message", e.getMessage());
+        body.put("reason", e.getReason());
+        // LinkedHashMap e não Map.of: sem posição os campos vão como null, e Map.of rejeita null.
+        body.put("line", e.getLine());
+        body.put("column", e.getColumn());
+        return ResponseEntity.badRequest().body(body);
     }
 
     private String toJson(Map<String, Object> doc) {

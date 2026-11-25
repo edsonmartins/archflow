@@ -36,6 +36,15 @@ public class WebMvcConfiguration implements WebMvcConfigurer {
     private static final List<String> NON_SPA_PREFIXES = List.of(
             "api/", "archflow/", "mcp", "ag-ui", "actuator/", "realtime/", "ws/", "error");
 
+    /**
+     * Bundle do web-component {@code <archflow-designer>} servido na raiz do estático (RCHFLW-87).
+     * É o que o trecho de Publicar › Incorporar carrega com {@code <script type="module">} — e um
+     * module script de outra origem é buscado em modo CORS: sem {@code Access-Control-Allow-Origin}
+     * o navegador baixa o arquivo e se recusa a executá-lo. O caminho precisa casar com o
+     * {@code COPY} do Dockerfile e com {@code embedSnippet} em {@code PublishModal.tsx}.
+     */
+    static final String[] EMBED_BUNDLE_PATHS = {"/archflow-designer.js", "/archflow-designer.css"};
+
     private final String[] allowedOrigins;
     private final String[] staticLocations;
 
@@ -55,6 +64,19 @@ public class WebMvcConfiguration implements WebMvcConfigurer {
                 .exposedHeaders("Authorization")
                 .allowCredentials(true)
                 .maxAge(3600);
+
+        // As mesmas origens da API, de propósito: o componente embutido chama api-base (/api)
+        // a partir dessa página, então uma origem fora de archflow.cors.allowed-origins não usaria
+        // o designer de qualquer forma — um só ajuste libera o embed inteiro. Sem credenciais: o
+        // bundle é código público, igual para todos, e o script é buscado sem cookies (crossorigin
+        // anônimo). Só leitura.
+        for (String path : EMBED_BUNDLE_PATHS) {
+            registry.addMapping(path)
+                    .allowedOrigins(allowedOrigins)
+                    .allowedMethods("GET", "HEAD")
+                    .allowCredentials(false)
+                    .maxAge(3600);
+        }
     }
 
     /**

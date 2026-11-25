@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Badge, Button, Group, Loader, ScrollArea, Stack, Text, TextInput } from '@mantine/core'
+import { Badge, Button, Group, Loader, ScrollArea, Stack, Text, TextInput, Textarea } from '@mantine/core'
 import {
     IconActivity, IconPlayerPlay, IconPlayerStop, IconPlugConnected, IconTrash,
 } from '@tabler/icons-react'
@@ -9,6 +9,7 @@ import { SectionCard } from '../components/SectionCard'
 import EmptyState from '../components/EmptyState'
 import { runAgUiWorkflow, type AgUiEvent } from '../services/agui-client'
 import { runOutcomeOf, type RunOutcome } from '../lib/runOutcome'
+import { parseRunInput, toAgUiRunInput } from '../lib/runInput'
 
 /** Chave i18n (agui.outcome.*) e cor do badge para cada desfecho. */
 const RUNNER_OUTCOME: Record<RunOutcome, 'finished' | 'failed' | 'cancelled' | 'paused' | 'unknown'> = {
@@ -41,6 +42,11 @@ function summarize(event: AgUiEvent): string {
 export default function AgUiRunnerPage() {
     const { t } = useTranslation()
     const [workflowId, setWorkflowId] = useState('wf-demo-001')
+    // Entrada do run, com a mesma regra do modal "Entrada da execução" do editor (lib/runInput):
+    // objeto JSON → variáveis do state; outro texto → mensagem do usuário (vira ${input}); vazio →
+    // sem entrada. Antes a página mandava sempre a mensagem fixa "run" e o fluxo julgava essa
+    // palavra, dando um resultado diferente do Executar do editor (RCHFLW-53).
+    const [inputText, setInputText] = useState('')
     const [events, setEvents] = useState<AgUiEvent[]>([])
     const [running, setRunning] = useState(false)
     const cancelRef = useRef<(() => void) | null>(null)
@@ -57,7 +63,7 @@ export default function AgUiRunnerPage() {
         setRunning(true)
         cancelRef.current = runAgUiWorkflow(
             workflowId.trim(),
-            { messages: [{ role: 'user', content: 'run' }] },
+            toAgUiRunInput(inputText),
             (event) => {
                 setEvents((prev) => [...prev, event])
                 if (event.type === 'RUN_FINISHED' || event.type === 'RUN_ERROR') {
@@ -74,6 +80,13 @@ export default function AgUiRunnerPage() {
 
     // O desfecho vem do result.status do RUN_FINISHED, não só do tipo: um fluxo FAILED (passo sem
     // chave de API) ou PAUSED (aprovação humana) também termina com RUN_FINISHED.
+    const parsedInput = parseRunInput(inputText)
+    const inputHint = parsedInput.kind === 'empty'
+        ? t('runInput.asEmpty')
+        : parsedInput.kind === 'variables'
+            ? t('runInput.asVariables', { keys: Object.keys(parsedInput.value).join(', ') || '—' })
+            : t('runInput.asText')
+
     const lastEvent = events[events.length - 1]
     const outcome = !lastEvent ? null
         : lastEvent.type === 'RUN_ERROR' ? 'error'
@@ -95,26 +108,47 @@ export default function AgUiRunnerPage() {
                 title={t('agui.requestTitle')}
                 description={t('agui.requestHint')}
             >
-                <Group align="flex-end" gap="sm">
+                <Stack gap="sm">
                     <TextInput
                         size="sm"
                         label={t('agui.workflowId')}
                         value={workflowId}
                         onChange={(e) => setWorkflowId(e.currentTarget.value)}
-                        style={{ flex: 1, minWidth: 220 }}
                         styles={{ input: { fontFamily: 'var(--font-mono)' } }}
                         data-testid="agui-workflow-id"
                     />
-                    {running ? (
-                        <Button color="red" leftSection={<IconPlayerStop size={16} />} onClick={stop}>
-                            {t('agui.stop')}
-                        </Button>
-                    ) : (
-                        <Button leftSection={<IconPlayerPlay size={16} />} onClick={run} disabled={!workflowId.trim()} data-testid="agui-run">
-                            {t('agui.run')}
-                        </Button>
-                    )}
-                </Group>
+                    <Textarea
+                        size="sm"
+                        label={t('agui.input')}
+                        description={t('runInput.subtitle')}
+                        placeholder={t('runInput.placeholder')}
+                        value={inputText}
+                        onChange={(e) => setInputText(e.currentTarget.value)}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !running && workflowId.trim()) {
+                                e.preventDefault()
+                                run()
+                            }
+                        }}
+                        rows={4}
+                        resize="vertical"
+                        styles={{ input: { fontFamily: 'var(--font-mono)', fontSize: 12.5 } }}
+                        data-testid="agui-input"
+                    />
+                    <Group justify="space-between" align="center" gap="sm" wrap="wrap">
+                        <Text size="xs" c="dimmed" data-testid="agui-input-hint">{inputHint}</Text>
+                        {running ? (
+                            <Button color="red" leftSection={<IconPlayerStop size={16} />} onClick={stop}>
+                                {t('agui.stop')}
+                            </Button>
+                        ) : (
+                            <Button leftSection={<IconPlayerPlay size={16} />} onClick={run}
+                                    disabled={!workflowId.trim()} data-testid="agui-run">
+                                {t('agui.run')}
+                            </Button>
+                        )}
+                    </Group>
+                </Stack>
             </SectionCard>
 
             <SectionCard
