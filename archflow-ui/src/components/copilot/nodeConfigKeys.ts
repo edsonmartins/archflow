@@ -13,7 +13,8 @@
  * seleção de provedor/modelo continua com o painel; aqui {@code provider}/{@code model} são só
  * valores (o id do provedor e o do modelo).</p>
  */
-import { NODE_TYPE_TO_CATEGORY, PALETTE_NODES } from '../FlowCanvas/constants'
+import { NODE_TYPE_TO_CATEGORY, NOT_EXECUTABLE_NODE_TYPES, PALETTE_NODES } from '../FlowCanvas/constants'
+import { NODE_TYPES_WITHOUT_DEFAULT_OPERATION } from '../FlowCanvas/dataNodeKeys'
 
 /**
  * Tipo do valor. {@code json} é um objeto/array cuja FORMA é conferida por {@link JSON_SHAPES} — o motor lê
@@ -64,21 +65,23 @@ const TOOL: ConfigKeys = {
   timeout: 'number',
 }
 
-// Sem pineconeApiKey: segredo não entra no documento do fluxo pela mão do modelo (nem sai do canvas para o
-// contexto dele — ver visibleConfig). O painel segue aceitando a chave digitada pelo usuário.
-const VECTOR: ConfigKeys = {
+// O vector store de um nó de dados (VectorStoreFields). Sem credencial nem endereço: a conexão é escolhida por
+// NOME (pgDatasource / redisConnection / pineconeConnection) e o servidor tem o resto (RCHFLW-56) — o painel
+// não grava mais pineconeApiKey, pineconeEnvironment nem vectorRedisUrl.
+const VECTOR_STORE: ConfigKeys = {
   vectorBackend: 'string',
-  pineconeEnvironment: 'string',
+  pineconeConnection: 'string',
   pineconeIndex: 'string',
   pgDatasource: 'string',
   pgTableName: 'string',
   pgDimensions: 'number',
-  vectorRedisUrl: 'string',
+  redisConnection: 'string',
   vectorRedisPrefix: 'string',
-  topK: 'number',
+  vectorDimensions: 'number',
 }
+const VECTOR: ConfigKeys = { ...VECTOR_STORE, topK: 'number' }
 
-const MEMORY: ConfigKeys = { memoryBackend: 'string', memoryMaxMessages: 'number' }
+const MEMORY: ConfigKeys = { memoryBackend: 'string', redisConnection: 'string', memoryMaxMessages: 'number' }
 
 const TRANSFORM: ConfigKeys = {
   transformInput: 'string',
@@ -116,12 +119,14 @@ export const NODE_CONFIG_KEYS: Readonly<Record<string, ConfigKeys>> = {
   tool: TOOL,
   function: TOOL,
   custom: TOOL,
-  'vector-search': VECTOR,
+  // knowledgeBaseId: a Base de conhecimento (RCHFLW-55) — só nos tipos que o motor lê com ela.
+  'vector-search': { ...VECTOR, knowledgeBaseId: 'string' },
   'vector-store': VECTOR,
   embedding: { embeddingProvider: 'string', embeddingModel: 'string', embeddingDimensions: 'number' },
   rag: {
+    ...VECTOR_STORE,
+    knowledgeBaseId: 'string',
     embeddingProvider: 'string',
-    vectorBackend: 'string',
     llmProvider: 'string',
     retrieverMaxResults: 'number',
     retrieverMinScore: 'number',
@@ -169,8 +174,15 @@ export const NODE_CONFIG_KEYS: Readonly<Record<string, ConfigKeys>> = {
   'section-divider': { label: 'string', color: 'string' },
 }
 
-/** Os tipos de nó que o copiloto pode criar: os da paleta. */
-export const COPILOT_NODE_TYPES: readonly string[] = PALETTE_NODES.map(n => n.componentId)
+/**
+ * Os tipos de nó que o copiloto pode criar: os da paleta que executam. Os sem execução (RCHFLW-11) ficam de fora —
+ * "Gerar com IA" montava fluxos que só falhavam ao executar —, e também Memória e Vector store, que só rodam com
+ * uma 'operation' que nem o painel nem esta tabela oferecem (NODE_TYPES_WITHOUT_DEFAULT_OPERATION). A tabela acima
+ * continua cobrindo todos os tipos: o copiloto ainda configura um nó desses que já esteja no canvas.
+ */
+export const COPILOT_NODE_TYPES: readonly string[] = PALETTE_NODES
+  .map(n => n.componentId as string)
+  .filter(id => !NOT_EXECUTABLE_NODE_TYPES.has(id) && !NODE_TYPES_WITHOUT_DEFAULT_OPERATION.has(id))
 
 export function isAnnotationType(nodeType: string): boolean {
   return NODE_TYPE_TO_CATEGORY[nodeType] === 'annotation'

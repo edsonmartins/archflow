@@ -2,13 +2,13 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Select, TextInput, Textarea, NumberInput, Switch } from '@mantine/core'
 import { FIELD_STYLES, MONO_INPUT } from '../fieldStyles'
-import { getConfig } from './helpers'
+import { getConfig, numberUpdater, storedFlag, storedNumber, storedText } from './helpers'
 import type { FieldProps } from './FieldProps'
 import { workflowApi } from '../../../services/api'
 
 export function SubflowFields({ nodeData, update }: FieldProps) {
   const { t } = useTranslation()
-  const f = (key: string) => t(`editor.properties.fields.${key}`)
+  const f = (key: string, opts?: Record<string, unknown>) => t(`editor.properties.fields.${key}`, opts)
   const [workflows, setWorkflows] = useState<{ id: string; name: string }[]>([])
   const [loading, setLoading]     = useState(true)
 
@@ -34,7 +34,8 @@ export function SubflowFields({ nodeData, update }: FieldProps) {
       />
       <Textarea
         label={f('inputMapping')}
-        value={getConfig(nodeData, 'subflowInput', '{}')}
+        value={storedText(nodeData, 'subflowInput')}
+        placeholder={f('exampleValue', { value: '{}' })}
         onChange={e => update('subflowInput', e.currentTarget.value)}
         autosize minRows={3}
         size="xs"
@@ -43,21 +44,23 @@ export function SubflowFields({ nodeData, update }: FieldProps) {
       />
       <TextInput
         label={f('outputVariable')}
-        value={getConfig(nodeData, 'subflowOutputVar', 'subflowResult')}
+        value={storedText(nodeData, 'subflowOutputVar')}
+        placeholder={f('exampleValue', { value: 'subflowResult' })}
         onChange={e => update('subflowOutputVar', e.currentTarget.value)}
         size="xs"
         styles={FIELD_STYLES}
       />
       <NumberInput
         label={f('timeoutSec')}
-        value={getConfig(nodeData, 'subflowTimeoutSeconds', 120)}
-        onChange={v => update('subflowTimeoutSeconds', v)}
+        value={storedNumber(nodeData, 'subflowTimeoutSeconds')}
+        placeholder={f('exampleValue', { value: 120 })}
+        onChange={numberUpdater(update, 'subflowTimeoutSeconds')}
         min={1} max={3600}
         size="xs"
         styles={FIELD_STYLES}
       />
       <Switch
-        checked={getConfig(nodeData, 'subflowAsync', false)}
+        checked={storedFlag(nodeData, 'subflowAsync')}
         onChange={e => update('subflowAsync', e.currentTarget.checked)}
         label={f('fireAndForget')}
         size="xs"

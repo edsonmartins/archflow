@@ -158,7 +158,8 @@ class TemplateConformanceTest {
         List<Map<String, Object>> steps = controller.getTemplate("customer-support").steps();
 
         List<String> none = new NodeSupport(factory).unsupportedNodeTypes(steps);
-        assertThat(none).containsExactly("input", "llm", "vector-search", "sentiment", "human-handoff", "output");
+        // Entrada e Saída executam como passagem (RCHFLW-11): não são mais marcadas.
+        assertThat(none).containsExactly("llm", "vector-search", "sentiment", "human-handoff");
 
         ComponentCatalog withLlm = mock(ComponentCatalog.class);
         when(withLlm.getComponent(anyString())).thenReturn(Optional.empty());
@@ -203,9 +204,12 @@ class TemplateConformanceTest {
         List<Map<String, Object>> steps = (List<Map<String, Object>>) stored.get("steps");
         assertThat(steps).hasSize(10);
         assertThat(steps).filteredOn(s -> "kb-search".equals(s.get("id"))).singleElement()
-                .extracting(s -> ((Map<?, ?>) s.get("configuration")).get("vectorStoreId"))
+                .extracting(s -> ((Map<?, ?>) s.get("configuration")).get("knowledgeBaseId"))
                 .isEqualTo("docs-sac");
-        assertThat(created.getBody().get("unsupportedNodeTypes")).asList().contains("sentiment");
+        // Com a base informada, a busca do template executa pela base de conhecimento (RCHFLW-55).
+        assertThat(created.getBody().get("unsupportedNodeTypes")).asList()
+                .contains("sentiment")
+                .doesNotContain("vector-search");
         assertThatCode(() -> deserializer.toFlow(stored)).doesNotThrowAnyException();
     }
 

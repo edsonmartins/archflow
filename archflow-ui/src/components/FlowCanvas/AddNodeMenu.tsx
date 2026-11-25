@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Paper, TextInput, Text, UnstyledButton, ScrollArea } from '@mantine/core'
 import { IconSearch } from '@tabler/icons-react'
-import { NODE_CATEGORIES } from './constants'
+import { NODE_CATEGORIES, NOT_EXECUTABLE_NODE_TYPES } from './constants'
 import { NodeIcon } from './nodeIcons'
 import { searchPaletteEntries } from './paletteSearch'
 
@@ -93,6 +93,12 @@ export function AddNodeMenu({
                                 <Text size="xs" c="dimmed" component="span" display="block" truncate>
                                     {n.description}
                                 </Text>
+                                {NOT_EXECUTABLE_NODE_TYPES.has(n.componentId) && (
+                                    <Text size="xs" c="orange" component="span" display="block"
+                                          data-testid={`add-node-not-executable-${n.componentId}`}>
+                                        {t('editor.palette.notExecutable')}
+                                    </Text>
+                                )}
                             </span>
                         </UnstyledButton>
                     )

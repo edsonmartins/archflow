@@ -13,3 +13,9 @@ archflow:
       # Allows X-Impersonate-Tenant header for the dev workspace switcher.
       # Production must keep this off until JWT-role auth is wired.
       enabled: true
+  # Worker da fila de jobs (RCHFLW-58). Sem ele, no perfil padrão (dev — o do docker compose) nada consome a fila:
+  # a ingestão de um documento do Knowledge ficava QUEUED para sempre e a base sem chunks. O bean JobWorkerLoop só
+  # sobe com a propriedade em true; o prod a liga do mesmo jeito em application-prod.yml.
+  jobs:
+    worker:
+      enabled: ${ARCHFLOW_JOBS_WORKER_ENABLED:true}

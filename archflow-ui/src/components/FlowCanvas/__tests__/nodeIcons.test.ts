@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { NodeIcon, hasNodeImage } from '../nodeIcons'
-import { PALETTE_NODES } from '../constants'
+import { NODE_TYPE_TO_CATEGORY, PALETTE_NODES } from '../constants'
 
 const COM_ARTE = [
     'agent', 'assistant', 'llm-chat', 'llm-streaming', 'orchestrate', 'condition', 'parallel',
@@ -31,8 +31,10 @@ describe('ícones dos nós', () => {
         expect(PALETTE_NODES.filter((n) => !hasNodeImage(n.componentId)).map((n) => n.componentId)).toEqual([])
     })
 
-    it('todo nó mapeado existe na paleta (nada de arte para id que não existe)', () => {
-        const ids = new Set(PALETTE_NODES.map((n) => n.componentId))
+    // Vale o que o designer conhece, não só a paleta: o llm-streaming saiu dela (RCHFLW-57), mas os fluxos que já o
+    // têm continuam abrindo com a arte dele.
+    it('todo nó mapeado é um tipo do designer (nada de arte para id que não existe)', () => {
+        const ids = new Set(Object.keys(NODE_TYPE_TO_CATEGORY))
         expect(COM_ARTE.filter((id) => !ids.has(id))).toEqual([])
     })
 })

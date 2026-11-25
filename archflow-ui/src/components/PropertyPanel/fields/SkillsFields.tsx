@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Select, TextInput } from '@mantine/core'
 import { FIELD_STYLES } from '../fieldStyles'
-import { getConfig } from './helpers'
+import { getConfig, storedChoice, storedText } from './helpers'
 import type { FieldProps } from './FieldProps'
 import { skillsApi } from '../../../services/skills-api'
 
@@ -17,14 +17,15 @@ export function SkillsFields({ nodeData, update }: FieldProps) {
         .catch(() => setSkills([]))
   }, [])
 
-  const operation = getConfig(nodeData, 'skillsOperation', 'activate') as string
+  // Só a operação gravada (RCHFLW-92): o "activate" de antes aparecia escolhido sem estar no nó.
+  const operation = storedChoice(nodeData, 'skillsOperation')
 
   return (
     <>
       <Select
         label={f('operation')}
         value={operation}
-        onChange={v => update('skillsOperation', v)}
+        onChange={v => update('skillsOperation', v ?? undefined)}
         size="xs"
         data={[
           { value: 'list',        label: f('skillsOps.list') },
@@ -58,7 +59,8 @@ export function SkillsFields({ nodeData, update }: FieldProps) {
       )}
       <TextInput
         label={f('outputVariable')}
-        value={getConfig(nodeData, 'skillsOutputVar', 'skillsResult')}
+        value={storedText(nodeData, 'skillsOutputVar')}
+        placeholder={f('exampleValue', { value: 'skillsResult' })}
         onChange={e => update('skillsOutputVar', e.currentTarget.value)}
         size="xs"
         styles={FIELD_STYLES}
