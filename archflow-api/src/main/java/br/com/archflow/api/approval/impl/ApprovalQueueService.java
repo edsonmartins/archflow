@@ -301,6 +301,61 @@ public class ApprovalQueueService {
     }
 
     /**
+     * O estado da execução do tenant que espera uma decisão humana, para receber dados de fora da
+     * fila — o formulário de uma conversa suspensa (RCHFLW-67).
+     *
+     * <p>Só o portão de aprovação ({@code AWAITING_APPROVAL} com pedido vivo) leva dados à execução
+     * ({@link ExecutionKeys#APPROVAL_PAYLOAD}); um fluxo apenas pausado volta pelo {@code /resume},
+     * sem dados. O tenant é comparado estritamente, sem o "todos os tenants" da fila: quem envia o
+     * formulário age na própria execução, não administra as dos outros.</p>
+     *
+     * @throws IllegalArgumentException se a execução não existe no tenant
+     * @throws IllegalStateException    se ela não está esperando uma decisão ou o prazo dela venceu
+     */
+    public FlowState requireAwaitingInput(String tenantId, String flowId) {
+        FlowState state = flowId == null || flowId.isBlank() ? null : stateManager.loadState(flowId);
+        if (state == null || !br.com.archflow.model.tenant.DefaultTenant.orDefault(state.getTenantId())
+                .equals(br.com.archflow.model.tenant.DefaultTenant.orDefault(tenantId))) {
+            throw new IllegalArgumentException("Execução não encontrada neste tenant: " + flowId);
+        }
+        if (!ExecutionKeys.aguardaDecisaoHumana(state)) {
+            throw new IllegalStateException("A execução " + flowId + " não está aguardando uma decisão "
+                    + "humana (status " + state.getStatus() + "): só uma execução parada num nó de "
+                    + "aprovação recebe os dados de um formulário");
+        }
+        if (isExpired(state)) {
+            throw new IllegalStateException("A aprovação pendente da execução " + flowId + " expirou");
+        }
+        return state;
+    }
+
+    /**
+     * Aprova o portão em que a execução espera, com {@code payload} como os dados da decisão, e devolve
+     * a retomada — quem enviou o formulário precisa do desfecho para responder na conversa.
+     *
+     * <p>É o mesmo caminho de um {@code EDITED} da fila: o motor consome o pedido sob lock (um segundo
+     * envio é recusado lá), grava o decisor e retoma; o registro da execução acompanha até o fim.</p>
+     *
+     * @throws IllegalArgumentException se a execução não existe no tenant
+     * @throws IllegalStateException    se ela não espera decisão, expirou ou o motor recusou
+     */
+    public CompletableFuture<FlowResult> submitInput(String tenantId, String flowId, Object payload,
+                                                     String responderId, String comment) {
+        FlowState state = requireAwaitingInput(tenantId, flowId);
+        String requestId = variable(state, ExecutionKeys.APPROVAL_REQUEST_ID);
+        CompletableFuture<FlowResult> run;
+        try {
+            run = flowEngine.submitApproval(flowId, requestId, true, payload, responderId, comment);
+        } catch (RuntimeException e) {
+            throw new IllegalStateException(
+                    "Failed to submit approval " + requestId + ": " + e.getMessage(), e);
+        }
+        log.info("Aprovação {} decidida por formulário por {} (flow={})", requestId, responderId, flowId);
+        acompanharExecucao(flowId, requestId, true, run);
+        return run;
+    }
+
+    /**
      * A entrada do histórico de aprovações ({@link ExecutionKeys#APPROVAL_HISTORY}) que o motor
      * gravou para este pedido, ou um mapa vazio quando o estado não a tem (motor falso, versão
      * anterior). É ela que responde quem decidiu: a resposta não repete o que o chamador mandou.

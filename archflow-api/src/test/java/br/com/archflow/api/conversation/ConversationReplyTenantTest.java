@@ -28,13 +28,16 @@ class ConversationReplyTenantTest {
 
     private ConversationReplyService servico() {
         LLMConfigResolver resolver = mock(LLMConfigResolver.class);
-        when(resolver.resolveModel(any())).thenAnswer(inv -> {
+        ResolvedLLMConfig plataforma = new ResolvedLLMConfig("openrouter", "m", 0.0, 256, 30, Map.of());
+        when(resolver.resolve(any())).thenReturn(plataforma);
+        // O OpenRouter tem streaming: é o modelo em streaming que a resposta resolve (RCHFLW-68).
+        when(resolver.resolveStreamingModel(any())).thenAnswer(inv -> {
             pedidos.add(inv.getArgument(0));
             // Para aqui: o que se confere é o pedido de resolução, não a resposta.
             throw new IllegalStateException("[LLM-MODELO] parou no teste");
         });
         return new ConversationReplyService(mock(ConversationService.class), mock(EventStreamRegistry.class),
-                resolver, new ResolvedLLMConfig("openrouter", "m", 0.0, 256, 30, Map.of()));
+                resolver, plataforma);
     }
 
     @Test

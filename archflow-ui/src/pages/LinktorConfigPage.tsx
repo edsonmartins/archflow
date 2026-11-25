@@ -16,7 +16,9 @@ const DEFAULT: LinktorConfig = {
     apiBaseUrl: 'http://localhost:8081/api/v1',
     apiKey: '',
     accessToken: '',
-    mcpCommand: 'linktor-mcp',
+    // Vazio, como o default do servidor (archflow.linktor.mcpCommand): `linktor-mcp` não está na allow-list
+    // padrão de comandos MCP e o save respondia erro com o valor que a própria tela sugeria (RCHFLW-69).
+    mcpCommand: '',
     timeoutSeconds: 30,
 }
 
@@ -140,7 +142,7 @@ export default function LinktorConfigPage() {
                                     label={t('linktor.config.mcpCommand')}
                                     value={cfg.mcpCommand}
                                     onChange={e => setCfg({ ...cfg, mcpCommand: e.currentTarget.value })}
-                                    placeholder="linktor-mcp"
+                                    placeholder={t('linktor.config.mcpCommandPlaceholder')}
                                     description={t('linktor.config.mcpCommandHint')}
                                     data-testid="linktor-mcp-command"
                                 />

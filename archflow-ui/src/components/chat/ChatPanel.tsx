@@ -6,12 +6,14 @@ import EmptyState from '../EmptyState';
 import ChatMessage from './ChatMessage';
 import type { ToolCallView } from './ToolCallBlock';
 import type { Citation } from './CitationList';
+import { ApiError } from '../../services/api';
 import { conversationApi } from '../../services/conversation-api';
 import type { ConversationMessage, FormDataType } from '../../services/conversation-api';
 import {
     ArchflowEventStream,
     isChatDelta,
     isChatEnd,
+    isChatError,
     isChatMessage,
     isChatStart,
     isHeartbeat,
@@ -43,6 +45,8 @@ interface ChatPanelProps {
 
 interface PendingAssistant {
     id: string;
+    /** Papel da fala: a resposta de um fluxo retomado pode ser um aviso do sistema, não do assistente. */
+    role?: ConversationMessage['role'];
     content: string;
     toolCalls: ToolCallView[];
     citations: Citation[];
@@ -175,9 +179,11 @@ export default function ChatPanel({ conversationId, workflowId, onConversationCh
             }
 
             if (isChatMessage(evt)) {
-                // Full message replaces any in-flight delta accumulation.
+                // Full message replaces any in-flight delta accumulation. O id gravado no servidor
+                // (messageId) vence o do evento: é por ele que a lista recarregada reconhece a fala.
                 setPending((prev) => ({
-                    id: prev?.id ?? evt.envelope.id,
+                    id: evt.data.messageId ?? prev?.id ?? evt.envelope.id,
+                    role: evt.data.role === 'system' ? 'system' : 'assistant',
                     content: evt.data.content ?? '',
                     toolCalls: prev?.toolCalls ?? [],
                     citations: prev?.citations ?? [],
@@ -193,7 +199,7 @@ export default function ChatPanel({ conversationId, workflowId, onConversationCh
                     if (!prev) return null;
                     const finalMessage: ConversationMessage = {
                         id: prev.id,
-                        role: 'assistant',
+                        role: prev.role ?? 'assistant',
                         content: prev.content,
                         timestamp: evt.envelope.timestamp,
                         toolCalls: prev.toolCalls,
@@ -209,6 +215,23 @@ export default function ChatPanel({ conversationId, workflowId, onConversationCh
                     return null;
                 });
                 setSending(false);
+                notifyChanged();
+                return;
+            }
+
+            // Falha da resposta: sem isto o "digitando" ficava para sempre e o campo, travado.
+            if (isChatError(evt)) {
+                setPending(null);
+                setSending(false);
+                setMessages((m) => [
+                    ...m,
+                    {
+                        id: evt.envelope.id,
+                        role: 'system',
+                        content: evt.data.message ?? '',
+                        timestamp: evt.envelope.timestamp,
+                    },
+                ]);
                 notifyChanged();
                 return;
             }
@@ -301,11 +324,15 @@ export default function ChatPanel({ conversationId, workflowId, onConversationCh
             // Interaction (suspended form)
             if (isInteractionForm(evt)) {
                 const fields = (evt.data.fields as unknown as FormDataType['fields']) ?? [];
+                // O servidor manda título, descrição e rótulos nos dados do evento (como o
+                // InteractionEvent.form); os metadados continuam aceitos, como antes.
                 const form: FormDataType = {
                     id: evt.data.formId ?? `form_${evt.envelope.id}`,
-                    title: (evt.metadata?.title as string) ?? 'Input required',
-                    description: evt.metadata?.description as string | undefined,
+                    title: evt.data.title ?? (evt.metadata?.title as string) ?? 'Input required',
+                    description: evt.data.description ?? (evt.metadata?.description as string | undefined),
                     fields,
+                    submitLabel: evt.data.submitLabel,
+                    cancelLabel: evt.data.cancelLabel,
                 };
                 setSuspendedForm(form);
                 setResumeToken((evt.data.resumeToken as string | undefined) ?? null);
@@ -365,30 +392,43 @@ export default function ChatPanel({ conversationId, workflowId, onConversationCh
     const handleFormSubmit = useCallback(
         async (data: Record<string, unknown>) => {
             if (!resumeToken) return;
+            const form = suspendedForm;
             setSending(true);
             setSuspendedForm(null);
             try {
                 const response = await conversationApi.resumeConversation(resumeToken, data);
-                setMessages(response.messages);
+                // A resposta do fluxo (ou do agente) chega pelo stream e pode chegar antes desta
+                // resposta HTTP: as falas que vieram por lá e o servidor ainda não listou ficam. As do
+                // usuário ficam de fora — as otimistas têm id local e já estão na lista do servidor.
+                setMessages((prev) => {
+                    const known = new Set(response.messages.map((m) => m.id));
+                    const streamed = prev.filter((m) => m.role !== 'user' && !known.has(m.id));
+                    return [...response.messages, ...streamed];
+                });
                 setResumeToken(null);
                 notifyChanged();
+                // Sem setSending(false): o "digitando" segue até o chat/end ou chat/error da resposta.
+                return;
             } catch (err) {
                 console.error('Failed to resume conversation:', err);
+                // Recusado (400/409: aprovação já decidida pela fila, prazo vencido), a conversa segue
+                // esperando no servidor: o formulário volta e o campo livre continua travado. O aviso é
+                // a frase do servidor, que diz o motivo; o texto genérico só quando não há uma.
+                setSuspendedForm(form);
                 setMessages((prev) => [
                     ...prev,
                     {
                         id: crypto.randomUUID(),
                         role: 'system',
-                        content: t('chat.submitFormFailed'),
+                        content: err instanceof ApiError && err.message ? err.message : t('chat.submitFormFailed'),
                         timestamp: new Date().toISOString(),
                     },
                 ]);
-            } finally {
                 setSending(false);
             }
         },
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        [resumeToken],
+        [resumeToken, suspendedForm],
     );
 
     const handleFormCancel = useCallback(async () => {
@@ -554,7 +594,7 @@ export default function ChatPanel({ conversationId, workflowId, onConversationCh
                     <TextInput
                         ref={inputRef}
                         variant="unstyled"
-                        placeholder={t('chat.placeholder')}
+                        placeholder={suspendedForm ? t('chat.awaitingForm') : t('chat.placeholder')}
                         aria-label={t('chat.placeholder')}
                         size="sm"
                         style={{ flex: 1 }}

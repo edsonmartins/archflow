@@ -188,6 +188,13 @@ public class JdbcPersistenceConfiguration {
         return new br.com.archflow.api.agent.mcp.JdbcMcpAgentStateStore(dataSource);
     }
 
+    /** Skills ativas por tenant, duráveis (migration V6_14): o switch de Admin > Skills sobrevive a restart. */
+    @Bean
+    public br.com.archflow.api.skills.store.SkillActivationStore skillActivationStore(DataSource dataSource) {
+        log.info("JDBC persistence ativo: SkillActivationStore durável (skills ativas por tenant)");
+        return new br.com.archflow.api.skills.store.JdbcSkillActivationStore(dataSource);
+    }
+
     @Bean
     public br.com.archflow.conversation.state.SuspendedConversationStore suspendedConversationStore(
             DataSource dataSource) {
