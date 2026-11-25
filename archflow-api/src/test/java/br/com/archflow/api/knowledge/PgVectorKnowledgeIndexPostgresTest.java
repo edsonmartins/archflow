@@ -1,8 +1,10 @@
 package br.com.archflow.api.knowledge;
 
 import br.com.archflow.api.jobs.JdbcJobRepository;
+import br.com.archflow.api.jobs.JobAttempt;
 import br.com.archflow.api.jobs.JobHandlerRegistry;
 import br.com.archflow.api.jobs.JobService;
+import br.com.archflow.api.jobs.JobStatus;
 import br.com.archflow.api.jobs.JobWorker;
 import br.com.archflow.api.storage.FileStorageService;
 import br.com.archflow.api.storage.JdbcFileMetadataRepository;
@@ -251,6 +253,167 @@ class PgVectorKnowledgeIndexPostgresTest {
                 .startsWith("Failed to replace pgvector document index: ")
                 .contains("expected 128 dimensions, not 64")
                 .doesNotContainIgnoringCase("insert");
+    }
+
+    // RCHFLW-111: o reenvio do mesmo conteúdo criava um documento que o job deduplicado por
+    // conteúdo (já terminal) nunca processava. Aqui com os stores JDBC reais, inclusive a chave
+    // única de idempotência da tabela jobs.
+
+    @Test
+    @DisplayName("reenvio do mesmo conteúdo depois de READY devolve o documento existente, sem órfão")
+    void reenvioDepoisDeSucesso() {
+        var fixture = fixture(DIMENSAO);
+        String tenant = tenant();
+        KnowledgeBase base = fixture.knowledge.createBase(tenant, null, "Políticas");
+        var primeiro = fixture.knowledge.ingest(tenant, base.id(), troca(fixture, tenant, "troca.txt"));
+        fixture.processarFila();
+
+        var reenvio = fixture.knowledge.ingest(tenant, base.id(), troca(fixture, tenant, "troca (1).txt"));
+
+        assertThat(reenvio.outcome()).isEqualTo(KnowledgeService.IngestionOutcome.ALREADY_PRESENT);
+        assertThat(reenvio.document().id()).isEqualTo(primeiro.document().id());
+        assertThat(reenvio.document().status()).isEqualTo("READY");
+        assertThat(reenvio.job().id()).isEqualTo(primeiro.job().id());
+        assertThat(fixture.repository.listDocuments(tenant, base.id()))
+                .extracting(KnowledgeDocument::id).containsExactly(primeiro.document().id());
+    }
+
+    @Test
+    @DisplayName("reenvio do mesmo conteúdo depois de FAILED reabre o job e o documento termina READY")
+    void reenvioDepoisDeFalha() {
+        // Primeiro com o ambiente quebrado (64 dimensões contra vector(128), como no RCHFLW-110);
+        // o reenvio acontece com o ambiente já corrigido.
+        var quebrado = fixture(64);
+        String tenant = tenant();
+        KnowledgeBase base = quebrado.knowledge.createBase(tenant, null, "Políticas");
+        var primeiro = quebrado.knowledge.ingest(tenant, base.id(), troca(quebrado, tenant, "troca.txt"));
+        quebrado.processarFila();
+        assertThat(quebrado.jobs.get(tenant, primeiro.job().id()).status()).isEqualTo(JobStatus.FAILED);
+
+        var corrigido = fixture(DIMENSAO);
+        var reenvio = corrigido.knowledge.ingest(tenant, base.id(), troca(corrigido, tenant, "troca.txt"));
+
+        assertThat(reenvio.outcome()).isEqualTo(KnowledgeService.IngestionOutcome.REPROCESSING);
+        assertThat(reenvio.document().id()).isEqualTo(primeiro.document().id());
+        assertThat(reenvio.job().id()).isEqualTo(primeiro.job().id());
+        assertThat(reenvio.job().status()).isEqualTo(JobStatus.QUEUED);
+        assertThat(corrigido.repository.findDocument(tenant, primeiro.document().id()).status())
+                .isEqualTo("QUEUED");
+        corrigido.processarFila();
+        assertThat(corrigido.repository.listDocuments(tenant, base.id())).singleElement()
+                .satisfies(documento -> {
+                    assertThat(documento.id()).isEqualTo(primeiro.document().id());
+                    assertThat(documento.status()).isEqualTo("READY");
+                    assertThat(documento.error()).isNull();
+                });
+        assertThat(corrigido.jobs.get(tenant, primeiro.job().id()).status()).isEqualTo(JobStatus.SUCCEEDED);
+        assertThat(corrigido.jobs.attempts(tenant, primeiro.job().id()))
+                .extracting(JobAttempt::attempt).containsExactly(1, 2, 3, 4);
+        assertThat(corrigido.knowledge.search(tenant, base.id(), "nota fiscal", 3, -1.0))
+                .extracting(KnowledgeVectorIndex.SearchHit::documentId)
+                .containsExactly(primeiro.document().id());
+    }
+
+    @Test
+    @DisplayName("reenvio depois de FAILED com o blob original apagado reprocessa a partir do arquivo novo")
+    void reenvioDepoisDeFalhaComBlobApagado() {
+        var quebrado = fixture(64);
+        String tenant = tenant();
+        KnowledgeBase base = quebrado.knowledge.createBase(tenant, null, "Políticas");
+        String original = troca(quebrado, tenant, "troca.txt");
+        var primeiro = quebrado.knowledge.ingest(tenant, base.id(), original);
+        quebrado.processarFila();
+        // DELETE /api/files/{id}: o blob sai primeiro, depois a FK de knowledge_documents barra o
+        // registro. Fica um stored_files sem conteúdo, e o job antigo aponta para ele.
+        assertThatThrownBy(() -> quebrado.files.delete(tenant, original)).isNotNull();
+        assertThat(quebrado.files.metadata(tenant, original)).isNotNull();
+
+        var corrigido = fixture(DIMENSAO);
+        String novo = troca(corrigido, tenant, "troca.txt");
+        var reenvio = corrigido.knowledge.ingest(tenant, base.id(), novo);
+        corrigido.processarFila();
+
+        assertThat(reenvio.outcome()).isEqualTo(KnowledgeService.IngestionOutcome.REPROCESSING);
+        assertThat(corrigido.jobs.get(tenant, primeiro.job().id()))
+                .satisfies(job -> {
+                    assertThat(job.status()).isEqualTo(JobStatus.SUCCEEDED);
+                    assertThat(job.payload()).containsEntry("fileId", novo);
+                });
+        assertThat(corrigido.repository.findDocument(tenant, primeiro.document().id()))
+                .satisfies(documento -> {
+                    assertThat(documento.status()).isEqualTo("READY");
+                    assertThat(documento.fileId()).isEqualTo(novo);
+                });
+    }
+
+    @Test
+    @DisplayName("reenvio depois de cancelar na fila volta a processar (cancel_requested é limpo)")
+    void reenvioDepoisDeCancelar() {
+        var fixture = fixture(DIMENSAO);
+        String tenant = tenant();
+        KnowledgeBase base = fixture.knowledge.createBase(tenant, null, "Políticas");
+        var primeiro = fixture.knowledge.ingest(tenant, base.id(), troca(fixture, tenant, "troca.txt"));
+        assertThat(fixture.jobs.cancel(tenant, primeiro.job().id()).status()).isEqualTo(JobStatus.CANCELLED);
+
+        var reenvio = fixture.knowledge.ingest(tenant, base.id(), troca(fixture, tenant, "troca.txt"));
+        fixture.processarFila();
+
+        assertThat(reenvio.outcome()).isEqualTo(KnowledgeService.IngestionOutcome.REPROCESSING);
+        assertThat(reenvio.job().cancelRequested()).isFalse();
+        assertThat(fixture.repository.findDocument(tenant, primeiro.document().id()).status())
+                .isEqualTo("READY");
+    }
+
+    @Test
+    @DisplayName("reenvio resolve o órfão QUEUED sem job que a versão anterior deixava")
+    void reenvioResolveOrfaoLegado() {
+        var quebrado = fixture(64);
+        String tenant = tenant();
+        KnowledgeBase base = quebrado.knowledge.createBase(tenant, null, "Políticas");
+        var primeiro = quebrado.knowledge.ingest(tenant, base.id(), troca(quebrado, tenant, "troca.txt"));
+        quebrado.processarFila();
+        // O estado do banco dev (doc-a27333d0…): um segundo documento QUEUED, do mesmo conteúdo,
+        // sem job próprio, ao lado do documento FAILED do job.
+        Instant agora = Instant.now();
+        String orfao = quebrado.repository.saveDocument(new KnowledgeDocument("doc-" + UUID.randomUUID(),
+                tenant, base.id(), troca(quebrado, tenant, "troca.txt"), "QUEUED", 0, null,
+                agora, agora)).id();
+
+        var corrigido = fixture(DIMENSAO);
+        corrigido.knowledge.ingest(tenant, base.id(), troca(corrigido, tenant, "troca.txt"));
+        corrigido.processarFila();
+
+        assertThat(corrigido.repository.findDocument(tenant, orfao)).isNull();
+        assertThat(corrigido.repository.listDocuments(tenant, base.id())).singleElement()
+                .satisfies(documento -> {
+                    assertThat(documento.id()).isEqualTo(primeiro.document().id());
+                    assertThat(documento.status()).isEqualTo("READY");
+                });
+    }
+
+    @Test
+    @DisplayName("conteúdo diferente na mesma base segue criando documento e job próprios")
+    void conteudoDiferente() {
+        var fixture = fixture(DIMENSAO);
+        String tenant = tenant();
+        KnowledgeBase base = fixture.knowledge.createBase(tenant, null, "Políticas");
+        var troca = fixture.knowledge.ingest(tenant, base.id(), troca(fixture, tenant, "troca.txt"));
+        var frete = fixture.knowledge.ingest(tenant, base.id(), fixture.files.store(tenant, null, "frete.txt",
+                "text/plain", "Frete grátis acima de 200 reais.".getBytes(StandardCharsets.UTF_8)).id());
+        fixture.processarFila();
+
+        assertThat(frete.outcome()).isEqualTo(KnowledgeService.IngestionOutcome.QUEUED);
+        assertThat(frete.job().id()).isNotEqualTo(troca.job().id());
+        assertThat(fixture.repository.listDocuments(tenant, base.id()))
+                .extracting(KnowledgeDocument::id, KnowledgeDocument::status)
+                .containsExactlyInAnyOrder(
+                        org.assertj.core.groups.Tuple.tuple(troca.document().id(), "READY"),
+                        org.assertj.core.groups.Tuple.tuple(frete.document().id(), "READY"));
+    }
+
+    private static String troca(Fixture fixture, String tenant, String nome) {
+        return fixture.files.store(tenant, null, nome, "text/plain",
+                "Trocas em até 7 dias com nota fiscal.".getBytes(StandardCharsets.UTF_8)).id();
     }
 
     private KnowledgeVectorIndex.IndexVersion ativarComUmChunk(

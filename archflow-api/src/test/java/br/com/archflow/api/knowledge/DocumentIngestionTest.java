@@ -9,6 +9,8 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -133,12 +135,246 @@ class DocumentIngestionTest {
         assertThat(index.activeVersion("tenant", "base").id()).isEqualTo(first.id());
     }
 
+    // RCHFLW-111: reenvio do mesmo conteúdo. Antes cada envio criava um documento novo, e o job
+    // deduplicado por conteúdo apontava para o antigo: o novo ficava QUEUED para sempre.
+
+    @Test
+    void resubmittingSameContentAfterSuccessReturnsTheExistingDocument() {
+        Fixture fixture = fixture();
+        KnowledgeBase base = fixture.knowledge.createBase("tenant", null, "Docs");
+        var first = fixture.knowledge.ingest("tenant", base.id(), store(fixture, "troca.txt"));
+        try (var worker = fixture.worker()) {
+            assertThat(worker.runOnce()).isTrue();
+        }
+
+        var second = fixture.knowledge.ingest("tenant", base.id(), store(fixture, "troca-2.txt"));
+
+        assertThat(first.outcome()).isEqualTo(KnowledgeService.IngestionOutcome.QUEUED);
+        assertThat(second.outcome()).isEqualTo(KnowledgeService.IngestionOutcome.ALREADY_PRESENT);
+        assertThat(second.document().id()).isEqualTo(first.document().id());
+        assertThat(second.document().status()).isEqualTo("READY");
+        assertThat(second.job().id()).isEqualTo(first.job().id());
+        assertThat(second.job().status()).isEqualTo(JobStatus.SUCCEEDED);
+        assertThat(fixture.repository.listDocuments("tenant", base.id()))
+                .extracting(KnowledgeDocument::id).containsExactly(first.document().id());
+        try (var worker = fixture.worker()) {
+            assertThat(worker.runOnce()).as("nada novo na fila").isFalse();
+        }
+    }
+
+    @Test
+    void resubmittingSameContentWhileQueuedDoesNotCreateAnotherDocument() {
+        Fixture fixture = fixture();
+        KnowledgeBase base = fixture.knowledge.createBase("tenant", null, "Docs");
+        var first = fixture.knowledge.ingest("tenant", base.id(), store(fixture, "troca.txt"));
+
+        var second = fixture.knowledge.ingest("tenant", base.id(), store(fixture, "troca-2.txt"));
+        try (var worker = fixture.worker()) {
+            assertThat(worker.runOnce()).isTrue();
+        }
+
+        assertThat(second.outcome()).isEqualTo(KnowledgeService.IngestionOutcome.ALREADY_PRESENT);
+        assertThat(second.document().id()).isEqualTo(first.document().id());
+        assertThat(fixture.repository.listDocuments("tenant", base.id()))
+                .singleElement().satisfies(document -> {
+                    assertThat(document.id()).isEqualTo(first.document().id());
+                    assertThat(document.status()).isEqualTo("READY");
+                });
+    }
+
+    @Test
+    void resubmittingSameContentAfterFailureReprocessesTheDocument() {
+        AtomicBoolean providerDown = new AtomicBoolean(true);
+        Fixture fixture = fixture(new FlakyEmbeddings(providerDown));
+        KnowledgeBase base = fixture.knowledge.createBase("tenant", null, "Docs");
+        var first = fixture.knowledge.ingest("tenant", base.id(), store(fixture, "troca.txt"));
+        drain(fixture);
+        assertThat(fixture.jobs.get("tenant", first.job().id()).status()).isEqualTo(JobStatus.FAILED);
+        assertThat(fixture.repository.findDocument("tenant", first.document().id()).status())
+                .isEqualTo("FAILED");
+
+        providerDown.set(false);
+        var second = fixture.knowledge.ingest("tenant", base.id(), store(fixture, "troca-2.txt"));
+
+        assertThat(second.outcome()).isEqualTo(KnowledgeService.IngestionOutcome.REPROCESSING);
+        assertThat(second.document().id()).isEqualTo(first.document().id());
+        assertThat(second.document().status()).isEqualTo("QUEUED");
+        assertThat(second.document().error()).isNull();
+        assertThat(second.job().id()).isEqualTo(first.job().id());
+        assertThat(second.job().status()).isEqualTo(JobStatus.QUEUED);
+        drain(fixture);
+        assertThat(fixture.repository.listDocuments("tenant", base.id()))
+                .singleElement().satisfies(document -> {
+                    assertThat(document.status()).isEqualTo("READY");
+                    assertThat(document.error()).isNull();
+                });
+        assertThat(fixture.jobs.get("tenant", first.job().id()).status())
+                .isEqualTo(JobStatus.SUCCEEDED);
+        assertThat(fixture.jobs.attempts("tenant", first.job().id()))
+                .as("o histórico das tentativas anteriores continua lá")
+                .extracting(JobAttempt::outcome)
+                .containsExactly(JobStatus.FAILED, JobStatus.FAILED, JobStatus.FAILED,
+                        JobStatus.SUCCEEDED);
+    }
+
+    @Test
+    void resubmittingSameContentAfterCancellationReprocessesTheDocument() {
+        Fixture fixture = fixture();
+        KnowledgeBase base = fixture.knowledge.createBase("tenant", null, "Docs");
+        var first = fixture.knowledge.ingest("tenant", base.id(), store(fixture, "troca.txt"));
+        fixture.jobs.cancel("tenant", first.job().id());
+
+        var second = fixture.knowledge.ingest("tenant", base.id(), store(fixture, "troca-2.txt"));
+        drain(fixture);
+
+        assertThat(second.outcome()).isEqualTo(KnowledgeService.IngestionOutcome.REPROCESSING);
+        assertThat(second.job().cancelRequested()).isFalse();
+        assertThat(fixture.repository.findDocument("tenant", first.document().id()).status())
+                .isEqualTo("READY");
+    }
+
+    @Test
+    void resubmittingResolvesOrphansLeftByThePreviousBehaviour() {
+        Fixture fixture = fixture();
+        KnowledgeBase base = fixture.knowledge.createBase("tenant", null, "Docs");
+        var first = fixture.knowledge.ingest("tenant", base.id(), store(fixture, "troca.txt"));
+        drain(fixture);
+        // O que a versão anterior deixava a cada reenvio: documento QUEUED sem job próprio.
+        String orphanFile = store(fixture, "troca-orfao.txt");
+        var now = java.time.Instant.now();
+        fixture.repository.saveDocument(new KnowledgeDocument("doc-orfao", "tenant", base.id(),
+                orphanFile, "QUEUED", 0, null, now, now));
+        String otherContent = fixture.files.store("tenant", null, "outro.txt", "text/plain",
+                "conteúdo diferente".getBytes(StandardCharsets.UTF_8)).id();
+        var other = fixture.knowledge.ingest("tenant", base.id(), otherContent);
+
+        fixture.knowledge.ingest("tenant", base.id(), store(fixture, "troca-3.txt"));
+
+        assertThat(fixture.repository.listDocuments("tenant", base.id()))
+                .extracting(KnowledgeDocument::id)
+                .as("o órfão sai; o documento de outro conteúdo, ainda na fila, fica")
+                .containsExactlyInAnyOrder(first.document().id(), other.document().id());
+    }
+
+    @Test
+    void aResubmissionThatSawTheFailureLateLeavesTheReprocessedDocumentReady() {
+        // Dois reenvios de um documento que falhou: B lê o job FAILED e, antes de continuar, A
+        // reabre o job e o worker leva o documento a READY. Antes, B gravava QUEUED por cima do
+        // READY (ao lado de um job SUCCEEDED) e todo reenvio seguinte devolvia esse QUEUED.
+        AtomicBoolean providerDown = new AtomicBoolean(true);
+        AtomicReference<Runnable> afterLookup = new AtomicReference<>();
+        var jobs = new JobService(new InMemoryJobRepository()) {
+            @Override
+            public JobRecord findByIdempotencyKey(String tenantId, String type, String key) {
+                JobRecord snapshot = super.findByIdempotencyKey(tenantId, type, key);
+                Runnable concurrent = afterLookup.getAndSet(null);
+                if (concurrent != null) concurrent.run();
+                return snapshot;
+            }
+        };
+        Fixture fixture = fixture(new FlakyEmbeddings(providerDown), jobs);
+        KnowledgeBase base = fixture.knowledge.createBase("tenant", null, "Docs");
+        var first = fixture.knowledge.ingest("tenant", base.id(), store(fixture, "troca.txt"));
+        drain(fixture);
+        providerDown.set(false);
+        afterLookup.set(() -> {
+            var winner = fixture.knowledge.ingest("tenant", base.id(), store(fixture, "troca-a.txt"));
+            assertThat(winner.outcome()).isEqualTo(KnowledgeService.IngestionOutcome.REPROCESSING);
+            drain(fixture);
+        });
+
+        var late = fixture.knowledge.ingest("tenant", base.id(), store(fixture, "troca-b.txt"));
+
+        assertThat(fixture.repository.findDocument("tenant", first.document().id()).status())
+                .as("o READY gravado pelo worker não é sobrescrito").isEqualTo("READY");
+        assertThat(late.outcome()).as("não foi este envio que reabriu o job")
+                .isEqualTo(KnowledgeService.IngestionOutcome.ALREADY_PRESENT);
+        assertThat(late.job().status()).isEqualTo(JobStatus.SUCCEEDED);
+        assertThat(late.document().status()).isEqualTo("READY");
+        try (var worker = fixture.worker()) {
+            assertThat(worker.runOnce()).isFalse();
+        }
+    }
+
+    @Test
+    void resubmissionReprocessesFromTheNewFileWhenTheOriginalBlobIsGone() {
+        AtomicBoolean providerDown = new AtomicBoolean(true);
+        Fixture fixture = fixture(new FlakyEmbeddings(providerDown));
+        KnowledgeBase base = fixture.knowledge.createBase("tenant", null, "Docs");
+        String original = store(fixture, "troca.txt");
+        var first = fixture.knowledge.ingest("tenant", base.id(), original);
+        drain(fixture);
+        assertThat(fixture.files.delete("tenant", original)).isTrue();
+
+        providerDown.set(false);
+        String again = store(fixture, "troca-2.txt");
+        var second = fixture.knowledge.ingest("tenant", base.id(), again);
+        drain(fixture);
+
+        assertThat(second.outcome()).isEqualTo(KnowledgeService.IngestionOutcome.REPROCESSING);
+        assertThat(second.job().payload()).containsEntry("fileId", again);
+        assertThat(fixture.repository.findDocument("tenant", first.document().id()))
+                .satisfies(document -> {
+                    assertThat(document.status()).isEqualTo("READY");
+                    assertThat(document.fileId()).isEqualTo(again);
+                });
+    }
+
+    @Test
+    void differentContentStillCreatesItsOwnDocument() {
+        Fixture fixture = fixture();
+        KnowledgeBase base = fixture.knowledge.createBase("tenant", null, "Docs");
+        var first = fixture.knowledge.ingest("tenant", base.id(), store(fixture, "troca.txt"));
+        var second = fixture.knowledge.ingest("tenant", base.id(), fixture.files.store(
+                "tenant", null, "frete.txt", "text/plain",
+                "Frete grátis acima de 200 reais.".getBytes(StandardCharsets.UTF_8)).id());
+
+        assertThat(second.outcome()).isEqualTo(KnowledgeService.IngestionOutcome.QUEUED);
+        assertThat(second.document().id()).isNotEqualTo(first.document().id());
+        assertThat(second.job().id()).isNotEqualTo(first.job().id());
+        assertThat(fixture.repository.listDocuments("tenant", base.id())).hasSize(2);
+    }
+
+    private static String store(Fixture fixture, String name) {
+        return fixture.files.store("tenant", null, name, "text/plain",
+                "Trocas em até 7 dias com nota fiscal.".getBytes(StandardCharsets.UTF_8)).id();
+    }
+
+    /** Esvazia a fila; o teto cobre as três tentativas de um job que falha. */
+    private static void drain(Fixture fixture) {
+        try (var worker = fixture.worker()) {
+            for (int i = 0; i < 10 && worker.runOnce(); i++) {
+                // cada volta processa um job
+            }
+        }
+    }
+
+    /** Provedor de embeddings fora do ar enquanto {@code down} estiver ligado. */
+    private record FlakyEmbeddings(AtomicBoolean down) implements KnowledgeEmbeddingModel {
+        private static final HashEmbeddingModel DELEGATE = new HashEmbeddingModel(128);
+
+        public float[] embed(String text) {
+            if (down.get()) throw new IllegalStateException("embedding provider unavailable");
+            return DELEGATE.embed(text);
+        }
+
+        public int dimension() {
+            return DELEGATE.dimension();
+        }
+    }
+
     private Fixture fixture() {
+        return fixture(new HashEmbeddingModel(128));
+    }
+
+    private Fixture fixture(KnowledgeEmbeddingModel embeddings) {
+        return fixture(embeddings, new JobService(new InMemoryJobRepository()));
+    }
+
+    private Fixture fixture(KnowledgeEmbeddingModel embeddings, JobService jobs) {
         var files = new FileStorageService(new LocalFileObjectStorage(directory),
                 new InMemoryFileMetadataRepository(), 1024 * 1024);
         var repository = new InMemoryKnowledgeRepository();
-        var jobs = new JobService(new InMemoryJobRepository());
-        var embeddings = new HashEmbeddingModel(128);
         var vectorIndex = new InMemoryKnowledgeVectorIndex();
         var knowledge = new KnowledgeService(repository, files, jobs, embeddings, vectorIndex);
         var handler = new DocumentIngestionHandler(

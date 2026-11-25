@@ -172,6 +172,8 @@
         "rollbackComplete": "Versão restaurada",
         "rollbackFailed": "Não foi possível restaurar a versão",
         "ingestionQueued": "Documento enviado para indexação",
+        "ingestionAlreadyPresent": "Este conteúdo já está nesta base",
+        "ingestionReprocessing": "Documento enviado de novo para indexação",
         "ingestionComplete": "Indexação concluída",
         "ingestionFailed": "Falha na indexação",
         "uploadFailed": "Falha ao enviar documento",
