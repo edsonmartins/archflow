@@ -6,6 +6,7 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.ServletRequest;
 import jakarta.servlet.ServletResponse;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -17,25 +18,28 @@ import java.io.IOException;
 import java.util.List;
 
 /**
- * Recognises the frontend's {@code X-Impersonate-Tenant} header and
- * re-exposes it as the request attribute {@code archflow.tenantId}
- * plus the MDC entry {@code tenantId}.
+ * Resolves the request tenant into the request attribute {@code archflow.tenantId} (read by
+ * {@link TenantContext}) plus the MDC entry {@code tenantId}.
  *
- * <p>The plain {@code X-Tenant-Id} header is accepted unconditionally
- * — it merely echoes the caller's own tenant claim and grants no extra
- * privilege. The {@code X-Impersonate-Tenant} header, however, lets a
- * superadmin act as another tenant; until JWT/role-based auth is wired
- * into archflow-api, accepting it from anyone would let any frontend
- * read any workspace. We therefore:
- * <ul>
- *   <li>Gate {@code X-Impersonate-Tenant} behind the
- *       {@code archflow.admin.impersonation.enabled} property
- *       (default {@code false} — set to {@code true} only in dev).</li>
- *   <li>Log every impersonation attempt at INFO so audit trails make
- *       it visible.</li>
- * </ul>
- * When real auth lands the property gate should be replaced with a
- * Spring-Security role check (only superadmin may impersonate).
+ * <p>Precedence:
+ * <ol>
+ *   <li>{@code X-Impersonate-Tenant} — only when {@code archflow.admin.impersonation.enabled} is on
+ *       AND the JWT carries an admin/superadmin role ({@link #callerCanImpersonate}). This is the
+ *       ONLY way an authenticated caller acts on a tenant other than its own; every attempt is
+ *       logged.</li>
+ *   <li>The JWT {@code tenantId} claim (already copied by {@link JwtAuthenticationFilter}); a token
+ *       without the claim belongs to the default tenant ({@link TenantContext#DEFAULT_TENANT}), and
+ *       that value is written to the attribute — a JWT-authenticated request never leaves it
+ *       unset.</li>
+ *   <li>{@code X-Tenant-Id} — honoured as the tenant only when NO JWT authenticated the request
+ *       (auth off in dev, gateways in front of public paths).</li>
+ * </ol>
+ *
+ * <p>For a JWT-authenticated request, {@code X-Tenant-Id} may only <em>echo</em> the token's tenant.
+ * A different value is answered with {@code 403 TENANT_MISMATCH} (RCHFLW-44): until then the header
+ * silently overwrote the claim, and any authenticated user read and wrote another tenant's files,
+ * knowledge bases, jobs and configuration just by knowing its id. Rejecting — instead of ignoring —
+ * keeps a client that really meant another tenant from writing into its own by accident.
  */
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE + 20)
@@ -74,8 +78,26 @@ public class ImpersonationFilter implements Filter {
             }
             if (tenant == null) {
                 String headerTenant = http.getHeader(HEADER_TENANT);
-                if (headerTenant != null && !headerTenant.isBlank()) {
-                    tenant = headerTenant.trim();
+                headerTenant = headerTenant == null || headerTenant.isBlank() ? null : headerTenant.trim();
+                if (authenticatedByJwt(http)) {
+                    // O tenant de quem tem token é o do token. O header só pode repeti-lo: se
+                    // pudesse trocá-lo, bastaria conhecer o id de outro tenant para ler e alterar
+                    // os dados dele (RCHFLW-44). Token sem a claim = tenant padrão, não "livre".
+                    String tokenTenant = jwtTenant(http);
+                    String expected = tokenTenant != null ? tokenTenant : TenantContext.DEFAULT_TENANT;
+                    if (headerTenant != null && !headerTenant.equals(expected)) {
+                        log.warn("Rejected X-Tenant-Id that differs from the JWT tenant: header={} jwt={} "
+                                + "path={}", headerTenant, expected, http.getRequestURI());
+                        rejectTenantMismatch(response);
+                        return;
+                    }
+                    // Grava o tenant efetivo (inclusive o padrão), não a claim crua: quem lê o
+                    // atributo direto (ingest, workspace, conversa) recebia null para um token sem
+                    // claim e caía no próprio fallback ou não fixava tenant nenhum, divergindo do
+                    // TenantContext. Fechado: todo leitor vê o mesmo tenant.
+                    tenant = expected;
+                } else {
+                    tenant = headerTenant;
                 }
             }
             if (tenant != null) {
@@ -88,6 +110,30 @@ public class ImpersonationFilter implements Filter {
             chain.doFilter(request, response);
         } finally {
             org.slf4j.MDC.remove("tenantId");
+        }
+    }
+
+    /**
+     * True when {@link JwtAuthenticationFilter} validated an access token for this request — it is
+     * what writes the user/roles attributes. Only then is there an identity whose tenant the
+     * {@code X-Tenant-Id} header could forge.
+     */
+    private static boolean authenticatedByJwt(HttpServletRequest http) {
+        return http.getAttribute(JwtAuthenticationFilter.ATTR_USER_ID) != null
+                || http.getAttribute(JwtAuthenticationFilter.ATTR_ROLES) != null;
+    }
+
+    private static String jwtTenant(HttpServletRequest http) {
+        Object claim = http.getAttribute(JwtAuthenticationFilter.ATTR_TENANT);
+        return claim instanceof String s && !s.isBlank() ? s.trim() : null;
+    }
+
+    private static void rejectTenantMismatch(ServletResponse response) throws IOException {
+        if (response instanceof HttpServletResponse http) {
+            http.setStatus(HttpServletResponse.SC_FORBIDDEN);
+            http.setContentType("application/json");
+            http.getWriter().write("{\"error\":\"TENANT_MISMATCH\","
+                    + "\"message\":\"X-Tenant-Id must match the tenant of the access token\"}");
         }
     }
 

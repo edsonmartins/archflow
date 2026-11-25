@@ -1,5 +1,6 @@
 package br.com.archflow.api.conversation.impl;
 
+import br.com.archflow.api.config.TenantContext;
 import br.com.archflow.api.conversation.ConversationController;
 import br.com.archflow.api.conversation.dto.ConversationResponse;
 import br.com.archflow.api.conversation.dto.ConversationResponse.MessageResponse;
@@ -50,7 +51,9 @@ public class ConversationControllerImpl implements ConversationController {
                 request.executionId(),
                 null, // Form resolved by service/manager
                 Duration.ofMinutes(timeoutMinutes),
-                Map.of()
+                // O tenant de quem suspendeu vai no contexto, que o store de suspensas persiste: é por
+                // ele que uma conversa nascida suspensa (sem mensagem que o traga) tem dono (RCHFLW-71).
+                Map.of("tenantId", TenantContext.currentTenantId())
         );
 
         List<ConversationMessage> messages = conversationService.getMessages(request.conversationId());

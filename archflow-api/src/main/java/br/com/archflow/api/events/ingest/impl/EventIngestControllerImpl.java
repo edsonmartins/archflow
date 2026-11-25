@@ -18,7 +18,9 @@ import java.util.logging.Logger;
  *   <li>Map each {@code FlowEvent} → {@link ArchflowEvent}.</li>
  *   <li>Pin the tenant: override {@code tenantId} with the authenticated
  *       caller's tenant to prevent spoofing.</li>
- *   <li>Broadcast to {@code executionId} + {@code "__admin__:" + tenantId}.</li>
+ *   <li>Broadcast to {@code executionId} + {@code "__admin__:" + tenantId}. An {@code executionId}
+ *       shaped like another tenant's channel key ({@code "<other>:<session>"} or
+ *       {@code "__admin__:<any>"}) is rejected — see {@link #canalPermitido}.</li>
  * </ol>
  *
  * <p>Invalid protobuf bodies throw {@link IllegalArgumentException} which
@@ -27,6 +29,9 @@ import java.util.logging.Logger;
 public class EventIngestControllerImpl implements EventIngestController {
 
     private static final Logger log = Logger.getLogger(EventIngestControllerImpl.class.getName());
+
+    /** Mesmo literal de {@code SpringStreamController.ADMIN_CHANNEL_TENANT} + ":". */
+    private static final String ADMIN_CHANNEL_PREFIX = "__admin__:";
 
     private final EventStreamRegistry registry;
 
@@ -63,12 +68,20 @@ public class EventIngestControllerImpl implements EventIngestController {
                 // Broadcast to flow-specific channel
                 String executionId = event.getExecutionId();
                 if (executionId != null && !executionId.isBlank()) {
+                    if (!canalPermitido(executionId, authenticatedTenantId)) {
+                        // Recusa o evento inteiro (nem o canal admin o recebe): é tentativa de
+                        // escrever no canal de outro tenant, e a resposta "rejected" avisa o cliente.
+                        log.warning("Rejected ingest event addressed to another tenant's channel: executionId="
+                                + executionId + " tenant=" + authenticatedTenantId);
+                        rejected++;
+                        continue;
+                    }
                     registry.broadcast(executionId, event);
                 }
 
                 // Broadcast to admin channel
                 if (authenticatedTenantId != null) {
-                    registry.broadcast("__admin__:" + authenticatedTenantId, event);
+                    registry.broadcast(ADMIN_CHANNEL_PREFIX + authenticatedTenantId, event);
                 }
 
                 accepted++;
@@ -79,6 +92,28 @@ public class EventIngestControllerImpl implements EventIngestController {
         }
 
         return new IngestResultDto(accepted, rejected, describe(accepted, rejected));
+    }
+
+    /**
+     * O {@code executionId} vem do corpo protobuf, ou seja, do cliente, e vira a chave do canal sem
+     * transformação. Os canais SSE que o servidor abre são todos {@code "<tenant>:<sessão>"}
+     * (inclusive o administrativo {@code "__admin__:<tenant>"}), então um id com {@code ':'} escolhia
+     * o canal de qualquer tenant: um agente autenticado como A publicava no chat ou no canal admin de
+     * B — fixar o {@code tenantId} do evento não adiantava, a entrega já tinha ido para B.
+     *
+     * <p>Regra: id sem {@code ':'} é um id de execução comum e segue como antes; id com {@code ':'}
+     * só passa quando começa pelo tenant autenticado. O canal administrativo nunca é endereçável
+     * pelo cliente — o servidor já publica nele, logo abaixo — nem mesmo por quem personifica o id
+     * reservado. Sem tenant resolvido (auth desligada) não há com o que conferir: recusa.
+     */
+    static boolean canalPermitido(String executionId, String authenticatedTenantId) {
+        if (executionId.indexOf(':') < 0) {
+            return true;
+        }
+        if (authenticatedTenantId == null || executionId.startsWith(ADMIN_CHANNEL_PREFIX)) {
+            return false;
+        }
+        return executionId.startsWith(authenticatedTenantId + ":");
     }
 
     /**

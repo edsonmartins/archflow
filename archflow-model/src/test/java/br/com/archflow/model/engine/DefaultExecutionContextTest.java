@@ -3,6 +3,7 @@ package br.com.archflow.model.engine;
 import br.com.archflow.model.flow.FlowState;
 import br.com.archflow.model.flow.FlowStatus;
 import br.com.archflow.model.metrics.StepMetrics;
+import br.com.archflow.model.tenant.DefaultTenant;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.memory.ChatMemory;
 import org.junit.jupiter.api.BeforeEach;
@@ -156,9 +157,11 @@ class DefaultExecutionContextTest {
     }
 
     @Test
-    @DisplayName("should default tenantId to SYSTEM with legacy constructor")
-    void shouldDefaultTenantIdToSystem() {
-        assertThat(context.getTenantId()).isEqualTo("SYSTEM");
+    @DisplayName("should default tenantId to the canonical default tenant with legacy constructor")
+    void shouldDefaultTenantIdToCanonicalDefault() {
+        // "__default__" é o mesmo id da requisição HTTP sem tenant (RCHFLW-13); "SYSTEM" deixava
+        // o estado do motor fora da fila de aprovações do tenant.
+        assertThat(context.getTenantId()).isEqualTo("__default__");
         assertThat(context.getUserId()).isNull();
         assertThat(context.getSessionId()).isNull();
         assertThat(context.getRequestId()).isNotNull();
@@ -176,10 +179,12 @@ class DefaultExecutionContextTest {
     }
 
     @Test
-    @DisplayName("should treat null tenantId as SYSTEM")
-    void shouldTreatNullTenantIdAsSystem() {
+    @DisplayName("should treat null or blank tenantId as the canonical default tenant")
+    void shouldTreatNullTenantIdAsDefault() {
         var ctx = new DefaultExecutionContext(null, null, null, chatMemory);
-        assertThat(ctx.getTenantId()).isEqualTo("SYSTEM");
+        assertThat(ctx.getTenantId()).isEqualTo(DefaultTenant.ID).isEqualTo("__default__");
+        assertThat(new DefaultExecutionContext("  ", null, null, chatMemory).getTenantId())
+                .isEqualTo("__default__");
     }
 
     @Test
@@ -204,7 +209,7 @@ class DefaultExecutionContextTest {
 
         assertThat(snapshot.get("key")).contains("original");
         assertThat(snapshot.get("newKey")).isEmpty();
-        assertThat(snapshot.getTenantId()).isEqualTo("SYSTEM");
+        assertThat(snapshot.getTenantId()).isEqualTo("__default__");
     }
 
     @Test

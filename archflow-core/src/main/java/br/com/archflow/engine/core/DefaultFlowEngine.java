@@ -12,6 +12,7 @@ import br.com.archflow.model.engine.ExecutionMetrics;
 import br.com.archflow.model.enums.ExecutionStatus;
 import br.com.archflow.model.error.ExecutionError;
 import br.com.archflow.model.flow.*;
+import br.com.archflow.model.tenant.DefaultTenant;
 import br.com.archflow.engine.validation.FlowValidator;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 
@@ -626,7 +627,7 @@ public class DefaultFlowEngine implements FlowEngine {
      * (tenant/user/session) e a memória de chat.
      */
     private ExecutionContext createResumeContext(FlowState state) {
-        String tenantId = state.getTenantId() != null ? state.getTenantId() : "SYSTEM";
+        String tenantId = DefaultTenant.orDefault(state.getTenantId());
         Object userId = variableOf(state, "userId");
         Object sessionId = variableOf(state, "sessionId");
         return new DefaultExecutionContext(
@@ -641,7 +642,7 @@ public class DefaultFlowEngine implements FlowEngine {
 
     private ExecutionContext createInitialContext(Flow flow, Map<String, Object> input) {
         Map<String, Object> vars = input != null ? new HashMap<>(input) : new HashMap<>();
-        String tenantId = vars.containsKey("tenantId") ? String.valueOf(vars.get("tenantId")) : "SYSTEM";
+        String tenantId = vars.containsKey("tenantId") ? String.valueOf(vars.get("tenantId")) : DefaultTenant.ID;
         String userId = vars.containsKey("userId") ? String.valueOf(vars.get("userId")) : null;
         String sessionId = vars.containsKey("sessionId") ? String.valueOf(vars.get("sessionId")) : null;
 
@@ -667,7 +668,9 @@ public class DefaultFlowEngine implements FlowEngine {
 
     private FlowState createInitialState(String flowId, String tenantId) {
         return FlowState.builder()
-                .tenantId(tenantId != null ? tenantId : "SYSTEM")
+                // Mesmo padrão do contexto e da requisição HTTP: um estado sem tenant vai para o
+                // tenant padrão canônico, onde a fila de aprovações desse tenant o encontra.
+                .tenantId(DefaultTenant.orDefault(tenantId))
                 .flowId(flowId)
                 .status(FlowStatus.INITIALIZED)
                 .variables(new HashMap<>())

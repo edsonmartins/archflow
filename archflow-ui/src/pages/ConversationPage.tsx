@@ -200,7 +200,6 @@ export default function ConversationPage() {
                     <ChatPanel
                         conversationId={id}
                         workflowId={conversation?.workflowId}
-                        tenantId={conversation?.tenantId}
                         onConversationChanged={refreshFromChat}
                     />
                 </Paper>

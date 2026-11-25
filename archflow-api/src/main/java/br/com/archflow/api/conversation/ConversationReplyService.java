@@ -4,6 +4,7 @@ import br.com.archflow.agent.streaming.ArchflowDomain;
 import br.com.archflow.agent.streaming.ArchflowEvent;
 import br.com.archflow.agent.streaming.ArchflowEventType;
 import br.com.archflow.agent.streaming.EventStreamRegistry;
+import br.com.archflow.api.config.TenantContext;
 import br.com.archflow.conversation.message.ConversationMessage;
 import br.com.archflow.conversation.service.ConversationService;
 import br.com.archflow.langchain4j.provider.LLMConfigResolver;
@@ -40,10 +41,14 @@ public class ConversationReplyService {
     private static final int HISTORY_LIMIT = 20;
 
     /**
-     * O frontend conecta o stream com o tenant do store ou {@code "default"}
-     * como fallback — publicamos nos dois canais quando diferem.
+     * Tenant de uma mensagem que chegou sem tenant (auth desligada, sem header): o mesmo que o
+     * {@code GET /api/stream/{sessionId}} resolve para essa requisição ({@link TenantContext}), senão
+     * a resposta sai num canal que ninguém assina. Antes era {@code "default"}, o tenant que a UI
+     * inventava — e a resposta também ia para "{@code default:<conversa>}" quando ninguém ouvia no
+     * canal do tenant, o que, com o stream aberto a qualquer tenant, entregava a resposta a quem
+     * adivinhasse o id da conversa (RCHFLW-49).
      */
-    private static final String FALLBACK_TENANT = "default";
+    private static final String FALLBACK_TENANT = TenantContext.DEFAULT_TENANT;
 
     private final ConversationService conversationService;
     private final EventStreamRegistry registry;
@@ -108,14 +113,9 @@ public class ConversationReplyService {
                 .executionId(tenantId + ":" + conversationId)
                 .data(data)
                 .build();
-        // O cliente conecta o SSE sob "<tenant>:<conversationId>", onde <tenant>
-        // pode ser o tenant real OU o fallback "default" do frontend. Publica no
-        // canal do tenant; só recorre ao canal "default" se ninguém recebeu ali
-        // — evita entrega dupla (e serialização dobrada) quando os dois coincidem.
-        int delivered = registry.broadcast(tenantId + ":" + conversationId, event);
-        if (delivered == 0 && !FALLBACK_TENANT.equals(tenantId)) {
-            registry.broadcast(FALLBACK_TENANT + ":" + conversationId, event);
-        }
+        // Só o canal do tenant de quem mandou a mensagem: o stream agora só abre no tenant da
+        // própria requisição, então é ali — e só ali — que a UI escuta.
+        registry.broadcast(tenantId + ":" + conversationId, event);
     }
 
     /**

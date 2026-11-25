@@ -8,6 +8,7 @@ import {
 } from '@tabler/icons-react';
 import { useWorkflowStore } from '../stores/workflow-store';
 import { useTenantStore } from '../stores/useTenantStore';
+import { approvalTenantParam } from '../lib/approvalTenant';
 import { approvalApi } from '../services/approval-api';
 import { StatCard } from '../components/admin/StatCard';
 import { OptionCard } from '../components/OptionCard';
@@ -42,7 +43,7 @@ export default function DashboardPage() {
     }, [fetchWorkflows, fetchExecutions]);
 
     useEffect(() => {
-        const tenantId = impersonating?.id ?? (currentRole === 'superadmin' ? 'all' : 'default');
+        const tenantId = approvalTenantParam(impersonating, currentRole);
         approvalApi.pendingCount(tenantId)
             .then((res) => setPendingApprovals(res.count))
             .catch(() => setPendingApprovals(null));

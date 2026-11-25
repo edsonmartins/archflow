@@ -948,7 +948,7 @@
             },
             "live": {
                 "connection": "Conexão",
-                "connectionHint": "Conecte a um tenant e sessão para receber os eventos",
+                "connectionHint": "Conecte a uma sessão para receber os eventos. Só o seu tenant (ou o personificado) é aceito; deixe o tenant em branco para usar o da sessão.",
                 "eventFeedHint": "Mais recentes embaixo · até 500 eventos · clique para inspecionar",
                 "payload": "Payload",
                 "payloadHint": "Dados do evento",
@@ -956,7 +956,7 @@
                 "openFailed": "Falha ao abrir stream",
                 "tenantId": "ID do tenant",
                 "sessionId": "ID da sessão",
-                "tenantPlaceholder": "acme",
+                "tenantPlaceholder": "em branco = o tenant da sua sessão",
                 "sessionPlaceholder": "conversation-123",
                 "pause": "Pausar",
                 "resume": "Retomar",

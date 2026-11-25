@@ -2,6 +2,7 @@ package br.com.archflow.api.agui;
 
 import br.com.archflow.agent.streaming.ArchflowEvent;
 import br.com.archflow.agent.streaming.EventStreamRegistry;
+import br.com.archflow.api.config.TenantContext;
 import br.com.archflow.api.flow.RunInputSeeding;
 import br.com.archflow.api.flow.WorkflowDeserializer;
 import br.com.archflow.api.web.workflow.WorkflowRuntimeStore;
@@ -70,14 +71,18 @@ public class AgUiController {
         SseEmitter sse = new SseEmitter(0L); // no server-side timeout; closed on run completion
         Object sendLock = new Object();      // engine may broadcast from parallel threads
 
-        var workflow = store.getWorkflow(id);
+        // Tenant da requisição, lido aqui, na thread do servlet — a execução segue em outra thread,
+        // onde não há requisição. O mesmo valor filtra o workflow (de outro tenant = não encontrado,
+        // RCHFLW-73), é o dono do registro da execução e vai para o contexto do motor (RCHFLW-13).
+        String tenantId = TenantContext.currentTenantId();
+        var workflow = store.getWorkflow(tenantId, id);
         if (workflow == null) {
             emit(sse, sendLock, AgUiEvent.of("RUN_ERROR", fields("message", "workflow not found: " + id)));
             sse.complete();
             return sse;
         }
 
-        var execution = store.createExecution(id, workflowName(workflow));
+        var execution = store.createExecution(tenantId, id, workflowName(workflow));
         String runId = String.valueOf(execution.get("id"));        // = flow id, as in /execute
         String threadId = input != null && input.threadId() != null ? input.threadId() : runId;
 
@@ -86,7 +91,8 @@ public class AgUiController {
         Flow flow = deserializer.toFlow(flowJson);
 
         ExecutionContext ctx = new DefaultExecutionContext(
-                null, "ag-ui", runId, MessageWindowChatMemory.builder().maxMessages(20).build());
+                tenantId, "ag-ui", runId,
+                MessageWindowChatMemory.builder().maxMessages(20).build());
         seedInput(ctx, input);
 
         // Tee the hub into this response, filtered to this run. The lifecycle

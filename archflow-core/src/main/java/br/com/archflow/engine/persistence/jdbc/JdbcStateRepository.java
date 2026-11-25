@@ -4,6 +4,7 @@ import br.com.archflow.engine.persistence.StateRepository;
 import br.com.archflow.model.flow.AuditLog;
 import br.com.archflow.model.flow.FlowState;
 import br.com.archflow.model.flow.FlowStatus;
+import br.com.archflow.model.tenant.DefaultTenant;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -35,14 +36,14 @@ public class JdbcStateRepository implements StateRepository {
 
     @Override
     public void saveState(String flowId, FlowState state) {
-        String tenantId = state.getTenantId() != null ? state.getTenantId() : "SYSTEM";
+        String tenantId = DefaultTenant.orDefault(state.getTenantId());
         saveState(tenantId, flowId, state);
     }
 
     @Override
     public FlowState getState(String flowId) {
         // saveState keys by the state's real tenantId; a fixed-tenant lookup
-        // here would never find flows of any tenant other than SYSTEM.
+        // here would never find flows of any tenant other than that one.
         // flowId is unique per execution, so a cross-tenant lookup is safe.
         String sql = "SELECT * FROM flow_states WHERE flow_id = ? ORDER BY updated_at DESC LIMIT 1";
 
@@ -66,7 +67,7 @@ public class JdbcStateRepository implements StateRepository {
 
     @Override
     public void saveAuditLog(String flowId, AuditLog log) {
-        saveAuditLog("SYSTEM", flowId, log);
+        saveAuditLog(DefaultTenant.ID, flowId, log);
     }
 
     @Override

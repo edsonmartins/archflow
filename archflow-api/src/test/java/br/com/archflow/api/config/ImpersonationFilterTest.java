@@ -22,7 +22,7 @@ import static org.mockito.Mockito.when;
 class ImpersonationFilterTest {
 
     @Test
-    @DisplayName("accepts X-Tenant-Id header and propagates to request attribute")
+    @DisplayName("accepts X-Tenant-Id header and propagates to request attribute when no JWT is present")
     void acceptsTenantIdHeader() throws Exception {
         ImpersonationFilter filter = new ImpersonationFilter(false);
         HttpServletRequest req = mock(HttpServletRequest.class);
@@ -86,12 +86,15 @@ class ImpersonationFilterTest {
         when(req.getHeader(ImpersonationFilter.HEADER_IMPERSONATE)).thenReturn("tenant_other");
         when(req.getHeader(ImpersonationFilter.HEADER_TENANT)).thenReturn("tenant_self");
         when(req.getAttribute(JwtAuthenticationFilter.ATTR_ROLES)).thenReturn(List.of("tenant_admin"));
+        // Com JWT, o X-Tenant-Id só vale quando repete a claim do token (RCHFLW-44).
+        when(req.getAttribute(JwtAuthenticationFilter.ATTR_TENANT)).thenReturn("tenant_self");
         when(req.getRequestURI()).thenReturn("/api/admin/workspace");
 
         filter.doFilter(req, resp, chain);
 
-        // Should fall back to the X-Tenant-Id, not honour the impersonation.
+        // Should stay on the caller's own (JWT) tenant, not honour the impersonation.
         verify(req).setAttribute(ImpersonationFilter.ATTR_TENANT_ID, "tenant_self");
+        verify(req, never()).setAttribute(ImpersonationFilter.ATTR_TENANT_ID, "tenant_other");
     }
 
     @Test

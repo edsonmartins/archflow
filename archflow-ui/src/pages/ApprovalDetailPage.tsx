@@ -29,7 +29,6 @@ import { approvalApi, type ApprovalResponse } from '../services/approval-api';
 import { JsonViewer } from '../components/JsonViewer';
 import { Meta } from '../components/Meta';
 import { formatInstant } from '../lib/format';
-import { useTenantStore } from '../stores/useTenantStore';
 import { confirmAction } from '../lib/confirm';
 import { PageHeader } from '../components/PageHeader';
 import { SectionCard } from '../components/SectionCard';
@@ -38,8 +37,6 @@ export default function ApprovalDetailPage() {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
     const { t, i18n } = useTranslation();
-    const { impersonating, currentRole } = useTenantStore();
-    const tenantId = impersonating?.id ?? (currentRole === 'superadmin' ? 'all' : 'default');
 
     const [approval, setApproval] = useState<ApprovalResponse | null>(null);
     const [loading, setLoading] = useState(true);
@@ -86,7 +83,8 @@ export default function ApprovalDetailPage() {
                 }
             }
             const result = await approvalApi.submit(id, {
-                tenantId: approval.tenantId ?? tenantId,
+                // O tenant da própria pendência, vindo do servidor — nunca um palpite da UI.
+                tenantId: approval.tenantId,
                 decision,
                 editedPayload: parsedPayload,
                 responderId: 'me',

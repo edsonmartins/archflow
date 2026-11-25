@@ -58,13 +58,10 @@ public class WorkspaceControllerImpl implements WorkspaceController {
     }
 
     /**
-     * Resolves the tenant identifier for the current request. Looks at:
-     * <ol>
-     *   <li>An explicit {@code X-Tenant-Id} header (set by the gateway for
-     *       admin impersonation)</li>
-     *   <li>The Spring {@code SecurityContextHolder} principal's tenant
-     *       claim (when authentication is in place)</li>
-     * </ol>
+     * Resolves the tenant identifier for the current request from the
+     * {@code archflow.tenantId} attribute written by {@code ImpersonationFilter}
+     * (JWT claim, verified impersonation, or {@code X-Tenant-Id} when no JWT is
+     * present). The raw headers are never read here.
      * Falls back to a demo tenant so dev smoke flows still work, but
      * logs a warning so the miswire is visible in prod.
      */
@@ -73,20 +70,13 @@ public class WorkspaceControllerImpl implements WorkspaceController {
             org.springframework.web.context.request.RequestAttributes attrs =
                     org.springframework.web.context.request.RequestContextHolder.getRequestAttributes();
             if (attrs instanceof org.springframework.web.context.request.ServletRequestAttributes sra) {
-                // Prefer the attribute set by ImpersonationFilter: it has
-                // already merged X-Impersonate-Tenant and X-Tenant-Id so
-                // callers see a single resolved value.
-                Object fromAttr = sra.getRequest().getAttribute("archflow.tenantId");
+                // Só o atributo, nunca os headers crus: o filtro já conferiu o X-Tenant-Id contra o
+                // tenant do JWT e o X-Impersonate-Tenant contra o papel. Ler o header aqui
+                // pulava as duas checagens e devolvia o workspace de outro tenant (RCHFLW-44).
+                Object fromAttr = sra.getRequest().getAttribute(
+                        br.com.archflow.api.config.ImpersonationFilter.ATTR_TENANT_ID);
                 if (fromAttr instanceof String s && !s.isBlank()) {
                     return s.trim();
-                }
-                String header = sra.getRequest().getHeader("X-Tenant-Id");
-                if (header != null && !header.isBlank()) {
-                    return header.trim();
-                }
-                String impersonate = sra.getRequest().getHeader("X-Impersonate-Tenant");
-                if (impersonate != null && !impersonate.isBlank()) {
-                    return impersonate.trim();
                 }
             }
         } catch (Exception ignored) {

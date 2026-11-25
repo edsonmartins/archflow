@@ -171,7 +171,7 @@ public record ImmutableExecutionContext(
     }
 
     public static class Builder {
-        private String tenantId = "SYSTEM";
+        private String tenantId = br.com.archflow.model.tenant.DefaultTenant.ID;
         private String userId;
         private String sessionId;
         private String requestId;

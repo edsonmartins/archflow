@@ -65,7 +65,7 @@ async function mockApi(page: Page) {
             return true;
         },
         async ({ path, method, route }) => {
-            if (path !== `/stream/${conversation.tenantId}/${conversation.id}` || method !== 'GET') return false;
+            if (path !== `/stream/${conversation.id}` || method !== 'GET') return false;
             const body = buildSseBody();
             await route.fulfill({
                 status: 200,

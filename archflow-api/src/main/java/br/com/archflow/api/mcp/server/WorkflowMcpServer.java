@@ -5,12 +5,14 @@ import br.com.archflow.api.flow.WorkflowDeserializer;
 import br.com.archflow.api.web.workflow.WorkflowRuntimeStore;
 import br.com.archflow.engine.api.FlowEngine;
 import br.com.archflow.engine.persistence.FlowRepository;
+import br.com.archflow.langchain4j.mcp.JsonRpc;
 import br.com.archflow.langchain4j.mcp.McpModel;
 import br.com.archflow.langchain4j.mcp.server.AbstractMcpServer;
 import br.com.archflow.model.engine.DefaultExecutionContext;
 import br.com.archflow.model.engine.ExecutionContext;
 import br.com.archflow.model.flow.Flow;
 import br.com.archflow.model.flow.FlowResult;
+import br.com.archflow.model.tenant.DefaultTenant;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 
@@ -37,6 +39,16 @@ public class WorkflowMcpServer extends AbstractMcpServer {
 
     static final String TOOL_PREFIX = "workflow_";
 
+    /**
+     * Tenant da requisição MCP em curso. O {@code tools/call} roda numa thread virtual (ver
+     * {@link SpringMcpServerController}), onde não há {@code RequestAttributes}: ler o
+     * {@code TenantContext} ali devolveria sempre o tenant padrão e esconderia o defeito. Quem tem a
+     * requisição captura o tenant na thread do servlet e o vincula aqui por
+     * {@link #handleRequest(JsonRpc.Request, String)}; um {@link ScopedValue} (e não um ThreadLocal)
+     * porque o vínculo some sozinho ao fim da chamada, sem vazar para a próxima tarefa da thread.
+     */
+    private static final ScopedValue<String> TENANT_DA_CHAMADA = ScopedValue.newInstance();
+
     private final WorkflowRuntimeStore store;
     private final WorkflowDeserializer deserializer;
     private final FlowEngine flowEngine;
@@ -56,10 +68,29 @@ public class WorkflowMcpServer extends AbstractMcpServer {
         this.json = Objects.requireNonNull(json, "json");
     }
 
+    /**
+     * Despacha a requisição com o tenant de quem a fez vinculado — é o tenant com que as execuções
+     * disparadas por {@code tools/call} são criadas (estado, aprovações, chaves).
+     *
+     * @param tenantId tenant resolvido na thread da requisição; nulo ou em branco = tenant padrão
+     */
+    public JsonRpc.Response handleRequest(JsonRpc.Request request, String tenantId) {
+        return ScopedValue.where(TENANT_DA_CHAMADA, DefaultTenant.orDefault(tenantId))
+                .call(() -> handleRequest(request));
+    }
+
+    /**
+     * Sem vínculo (outro transporte, chamada direta) = tenant padrão, nunca nulo: nulo virava
+     * "SYSTEM" no motor e a aprovação do fluxo não aparecia em fila nenhuma (RCHFLW-13).
+     */
+    private static String tenantDaChamada() {
+        return TENANT_DA_CHAMADA.orElse(DefaultTenant.ID);
+    }
+
     @Override
     public List<McpModel.Tool> listTools() {
         List<McpModel.Tool> tools = new ArrayList<>();
-        for (Map<String, Object> workflow : store.workflows()) {
+        for (Map<String, Object> workflow : store.workflows(tenantDaChamada())) {
             String id = String.valueOf(workflow.get("id"));
             tools.add(new McpModel.Tool(
                     TOOL_PREFIX + id,
@@ -83,13 +114,16 @@ public class WorkflowMcpServer extends AbstractMcpServer {
                     McpModel.ToolResult.error("Unknown tool: " + name));
         }
         String workflowId = name.substring(TOOL_PREFIX.length());
-        Map<String, Object> workflow = store.getWorkflow(workflowId);
+        String tenantId = tenantDaChamada();
+        // Workflow de outro tenant = desconhecido, como no REST (RCHFLW-73): o tools/list também só
+        // anuncia os do tenant, então um nome adivinhado não passa a ser executável.
+        Map<String, Object> workflow = store.getWorkflow(tenantId, workflowId);
         if (workflow == null) {
             return CompletableFuture.completedFuture(
                     McpModel.ToolResult.error("Unknown workflow: " + workflowId));
         }
 
-        var execution = store.createExecution(workflowId, workflowName(workflow));
+        var execution = store.createExecution(tenantId, workflowId, workflowName(workflow));
         String executionId = String.valueOf(execution.get("id"));
 
         // Any failure before the engine takes over must still complete the
@@ -102,7 +136,7 @@ public class WorkflowMcpServer extends AbstractMcpServer {
             flowRepository.save(flow);
 
             ExecutionContext ctx = new DefaultExecutionContext(
-                    null, "mcp", executionId,
+                    tenantId, "mcp", executionId,
                     MessageWindowChatMemory.builder().maxMessages(20).build());
             // Mesma regra do REST e do AG-UI: sem chave "input", os argumentos inteiros viram o input.
             RunInputSeeding.seedVariables(ctx, arguments.arguments());

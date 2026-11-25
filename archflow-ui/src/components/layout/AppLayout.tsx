@@ -31,6 +31,7 @@ import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '../../stores/auth-store';
 import { useTenantStore } from '../../stores/useTenantStore';
+import { approvalTenantParam } from '../../lib/approvalTenant';
 import { useWorkflowStore } from '../../stores/workflow-store';
 import { useColorScheme } from '../../App';
 import { approvalApi } from '../../services/approval-api';
@@ -108,7 +109,7 @@ export default function AppLayout() {
     // — the badge is opportunistic, not load-bearing.
     useEffect(() => {
         // impersonating é um TenantInfo — a API espera o ID (passar o objeto virava "[object Object]")
-        const tenantId = impersonating?.id ?? (currentRole === 'superadmin' ? 'all' : 'default');
+        const tenantId = approvalTenantParam(impersonating, currentRole);
         let cancelled = false;
         const refresh = () => {
             approvalApi

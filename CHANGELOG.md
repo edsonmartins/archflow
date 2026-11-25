@@ -149,6 +149,85 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security — tenant da requisição (RCHFLW-13, RCHFLW-44, RCHFLW-49)
+- **`X-Tenant-Id` não troca mais o tenant de quem tem JWT.** Com um access token válido, o header só
+  pode repetir o tenant do token; um valor diferente recebe `403 TENANT_MISMATCH`. Um token **sem** a
+  claim `tenantId` — todo token emitido pelo login hoje — é do tenant padrão `__default__`. A única
+  forma de agir em outro tenant é a personificação verificada (`X-Impersonate-Tenant`, com
+  `archflow.admin.impersonation.enabled` e papel admin/superadmin). Sem JWT (auth desligada), o
+  header continua definindo o tenant.
+  - **Quebra para agentes standalone:** quem chamava `POST /api/events/ingest` com JWT +
+    `X-Tenant-Id: <tenant>` para publicar nesse tenant passa a receber 403. Ainda não há como
+    emitir um token preso a um tenant; até lá, o caminho suportado é a personificação. Com JWT, os
+    eventos são sempre fixados no tenant do token (`__default__` sem claim) e publicados em
+    `__admin__:<esse tenant>` — antes, sem header, não eram fixados e cada evento ficava com o
+    tenant do próprio payload.
+  - O workspace (`WorkspaceControllerImpl`) não lê mais os headers crus como fallback.
+- **Tenant padrão único: `__default__`.** O motor gravava `SYSTEM` para execução sem tenant e a UI
+  inventava `default`; agora todos usam `__default__` (`DefaultTenant.ID`). As migrações
+  `V1_3_1` (`flow_states`, `audit_logs`) e `V6_12_1` (`mcp_agent_states`, coluna e JSON) trazem o
+  dado antigo `SYSTEM` para o novo id. `V1_3_1` chega **fora de ordem** num banco já em 6.12 e
+  depende de `spring.flyway.out-of-order=true` (padrão do perfil prod, como a `V1_3`): com
+  `SPRING_FLYWAY_OUT_OF_ORDER=false` o boot para em "Detected resolved migration not applied".
+- **Execuções por REST (`POST /api/workflows/{id}/execute`), editor (AG-UI) e MCP (`tools/call`)
+  rodam com o tenant da requisição**, não mais com `SYSTEM`: estado, aprovações, traces, cache de
+  adaptador e `TenantKeyResolver` recebem o tenant real. Um `TenantKeyResolver` próprio que tinha
+  chaves sob `SYSTEM` passa a ser consultado com o tenant real (ou `__default__`). O Run do editor
+  passa a enviar a personificação ativa (`X-Impersonate-Tenant`), como a lista de fluxos.
+- **`GET /api/approvals/pending` e `/pending/count` sem `tenantId`** devolvem a fila do tenant da
+  requisição; antes a ausência significava "todos os tenants". `tenantId=all` e valores explícitos
+  seguem como estavam (a checagem de quem pode pedir o quê é o RCHFLW-39).
+- **Stream SSE só do próprio tenant (RCHFLW-49).** `GET /api/stream/{tenantId}/{sessionId}` responde
+  `403` (sem corpo) quando `{tenantId}` não é o tenant efetivo da requisição — o do token, ou o
+  personificado por um superadmin com papel conferido no servidor — e não registra o emitter. O canal
+  administrativo só abre para o próprio tenant: `/api/stream/__admin__/<meu tenant>`; personificar o
+  id `__admin__` não alcança o de outro. Antes qualquer usuário autenticado lia em tempo real o chat e
+  os eventos de execução de outro tenant conhecendo os ids.
+  - **Nova rota `GET /api/stream/{sessionId}`**: o servidor usa o tenant da requisição. É a que o chat
+    usa; a UI parou de mandar o tenant da conversa ou `default`. Passa pela mesma conferência: com o
+    tenant efetivo igual ao id reservado `__admin__`, `/api/stream/<B>` responde `403` em vez de abrir
+    `__admin__:<B>`.
+  - **Ingest também não escreve no canal de outro tenant.** `POST /api/events/ingest` usava o
+    `executionId` do corpo como chave do canal, e um agente do tenant A entregava eventos em
+    `<B>:<conversa>` ou `__admin__:<B>`. Agora um id com `:` só passa quando começa pelo tenant da
+    requisição; `__admin__:...` nunca (o servidor já publica nele). O evento recusado conta em
+    `rejected`. Ids de execução comuns (sem `:`) não mudam.
+  - **Quebra:** `/api/stream/default/...` deixa de funcionar para o tenant padrão — o id é
+    `__default__` (ou use a rota sem tenant). A resposta do chat não é mais publicada também em
+    `default:<conversa>`; mensagem sem tenant (auth desligada) publica em `__default__:<conversa>`.
+  - O cliente SSE da UI manda a personificação ativa (`X-Impersonate-Tenant`) e não reconecta após
+    401/403. Live Events aceita o tenant em branco (= o da sessão).
+
+### Security — fluxos, execuções e conversas por tenant (RCHFLW-73, RCHFLW-71)
+- **Workflows e execuções são do tenant da requisição.** `GET/PUT/DELETE /api/workflows/{id}`,
+  `/status`, `/publish`, `/versions`, `/deployments`, `/execute`, `GET/PUT /api/workflows/{id}/yaml`,
+  `GET /api/executions`, `/{id}`, `/{id}/cancel`, `/{id}/resume`, o Run do editor (AG-UI) e o MCP
+  (`tools/list`, `tools/call`) só alcançam os do tenant da requisição. O de outro tenant responde
+  **404** (MCP: some do `tools/list` e o `tools/call` responde "Unknown workflow"), sem revelar que o
+  id existe. Instalar um template cria o rascunho no tenant de quem instalou. Não há leitura "todos
+  os tenants": o superadmin age sobre outro tenant só personificando.
+  - O registro de execução ganhou o campo **`tenantId`** (resposta de `GET /api/executions`).
+  - `WorkflowRuntimeStore` mudou de contrato: todo método por workflow, a listagem e a leitura de
+    execução recebem o tenant; `putExecution` e o `executions()` sem argumentos saíram. Um store
+    próprio precisa ser adaptado.
+  - Dado anterior: a migração **`V6_12_2`** acrescenta `tenant_id` a `workflow_documents` e
+    `workflow_executions` e põe toda linha existente no tenant padrão `__default__` — onde ela sempre
+    apareceu para quem entra sem personificar. O JSON antigo das execuções não é reescrito; o tenant
+    vem da coluna. Depois do preenchimento a coluna fica sem DEFAULT: um INSERT sem tenant falha. Num
+    banco que já tenha aplicado uma migração acima de 6.12.2, ela chega fora de ordem e depende de
+    `spring.flyway.out-of-order=true` (padrão do perfil prod). O fluxo de demonstração do dev é do
+    tenant padrão.
+- **Conversas são do tenant que as criou (RCHFLW-71).** `POST /api/conversations` grava o tenant da
+  requisição na mensagem de sistema que abre a conversa (`metadata.tenantId`); a primeira mensagem
+  enviada para um id ainda sem conversa faz o mesmo, e `POST /suspend` grava o tenant no contexto da
+  conversa suspensa. Lista, detalhe, mensagens, envio, `resume` (pelo token), `suspend` de uma
+  conversa existente e cancelamento de uma conversa de outro tenant respondem **404**. O campo
+  `tenantId` da conversa passa a ser o dono real (antes era sempre `"default"`); conversa sem tenant
+  gravado é do tenant padrão `__default__`.
+- UI: ao entrar num tenant ou sair da personificação, a lista de fluxos, o fluxo aberto e as execuções
+  em memória são descartados e a lista é recarregada — uma resposta atrasada do tenant anterior é
+  ignorada.
+
 ### Added
 - **`APPROVAL` step type** — the producer the human-in-the-loop gate was missing. A flow node of
   this type suspends the run in `AWAITING_APPROVAL` with a proposal, durably, and continues only

@@ -1,5 +1,6 @@
 package br.com.archflow.api.web.workflow;
 
+import br.com.archflow.model.tenant.DefaultTenant;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -35,6 +36,13 @@ import java.util.function.Consumer;
  *
  * <p>Upsert portável (PostgreSQL, H2): UPDATE primeiro e INSERT quando não existe
  * linha — mesmo padrão do {@code JdbcFlowRepository}.
+ *
+ * <p>Tenant (RCHFLW-73, migration {@code V6_12_2}): {@code workflow_documents.tenant_id} e
+ * {@code workflow_executions.tenant_id} são a fonte da verdade e entram no {@code WHERE} de toda
+ * leitura. O tenant fica fora do JSON do documento (que a UI edita e reenvia); no JSON da execução
+ * ele é reescrito a partir da coluna a cada leitura, para que um registro antigo, gravado sem a
+ * chave, diga o mesmo tenant que o filtro aplicou. Versões e implantações não têm coluna: pendem de
+ * um workflow cujo id é único no store, e cada método checa o dono dele antes.
  */
 public class JdbcWorkflowRuntimeStore implements WorkflowRuntimeStore {
 
@@ -59,14 +67,16 @@ public class JdbcWorkflowRuntimeStore implements WorkflowRuntimeStore {
     // ------------------------------------------------------------------ workflows
 
     @Override
-    public Collection<Map<String, Object>> workflows() {
-        String sql = "SELECT document FROM workflow_documents";
+    public Collection<Map<String, Object>> workflows(String tenantId) {
+        String sql = "SELECT document FROM workflow_documents WHERE tenant_id = ?";
         List<Map<String, Object>> result = new ArrayList<>();
         try (Connection conn = dataSource.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql);
-             ResultSet rs = ps.executeQuery()) {
-            while (rs.next()) {
-                result.add(fromJson(rs.getString("document")));
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, DefaultTenant.orDefault(tenantId));
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    result.add(fromJson(rs.getString("document")));
+                }
             }
             return result;
         } catch (SQLException e) {
@@ -75,11 +85,12 @@ public class JdbcWorkflowRuntimeStore implements WorkflowRuntimeStore {
     }
 
     @Override
-    public Map<String, Object> getWorkflow(String id) {
-        String sql = "SELECT document FROM workflow_documents WHERE id = ?";
+    public Map<String, Object> getWorkflow(String tenantId, String id) {
+        String sql = "SELECT document FROM workflow_documents WHERE id = ? AND tenant_id = ?";
         try (Connection conn = dataSource.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, id);
+            ps.setString(2, DefaultTenant.orDefault(tenantId));
             try (ResultSet rs = ps.executeQuery()) {
                 return rs.next() ? fromJson(rs.getString("document")) : null;
             }
@@ -88,32 +99,62 @@ public class JdbcWorkflowRuntimeStore implements WorkflowRuntimeStore {
         }
     }
 
+    /**
+     * UPDATE restrito ao tenant; sem linha atualizada, o INSERT só acontece se o id estiver livre —
+     * se for de outro tenant, {@link WorkflowOwnershipException}. A chave primária continua sendo a
+     * última barreira numa corrida entre a checagem e o INSERT.
+     */
     @Override
-    public Map<String, Object> putWorkflow(String id, Map<String, Object> workflow) {
-        String updateSql = "UPDATE workflow_documents SET document = ?, updated_at = ? WHERE id = ?";
-        String insertSql = "INSERT INTO workflow_documents (id, document, updated_at) VALUES (?, ?, ?)";
-        upsert(updateSql, insertSql, id, toJson(workflow),
-                "Failed to save workflow " + id);
+    public Map<String, Object> putWorkflow(String tenantId, String id, Map<String, Object> workflow) {
+        String tenant = DefaultTenant.orDefault(tenantId);
+        String payload = toJson(workflow);
+        Timestamp now = Timestamp.from(Instant.now());
+        try (Connection conn = dataSource.getConnection()) {
+            int updated;
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "UPDATE workflow_documents SET document = ?, updated_at = ? WHERE id = ? AND tenant_id = ?")) {
+                ps.setString(1, payload);
+                ps.setTimestamp(2, now);
+                ps.setString(3, id);
+                ps.setString(4, tenant);
+                updated = ps.executeUpdate();
+            }
+            if (updated == 0) {
+                if (exists(conn, "SELECT 1 FROM workflow_documents WHERE id = ?", id)) {
+                    throw new WorkflowOwnershipException(id);
+                }
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "INSERT INTO workflow_documents (id, tenant_id, document, updated_at) VALUES (?, ?, ?, ?)")) {
+                    ps.setString(1, id);
+                    ps.setString(2, tenant);
+                    ps.setString(3, payload);
+                    ps.setTimestamp(4, now);
+                    ps.executeUpdate();
+                }
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to save workflow " + id, e);
+        }
         return workflow;
     }
 
     @Override
-    public boolean hasWorkflow(String id) {
-        String sql = "SELECT 1 FROM workflow_documents WHERE id = ?";
-        try (Connection conn = dataSource.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, id);
-            try (ResultSet rs = ps.executeQuery()) {
-                return rs.next();
-            }
+    public boolean hasWorkflow(String tenantId, String id) {
+        try (Connection conn = dataSource.getConnection()) {
+            return owns(conn, tenantId, id);
         } catch (SQLException e) {
             throw new RuntimeException("Failed to check workflow " + id, e);
         }
     }
 
     @Override
-    public void deleteWorkflow(String id) {
+    public void deleteWorkflow(String tenantId, String id) {
         try (Connection conn = dataSource.getConnection()) {
+            // Checa o dono antes de tocar nas tabelas dependentes: versões e implantações não têm
+            // tenant próprio, então apagá-las por workflow_id sem essa checagem apagaria as do outro.
+            if (!owns(conn, tenantId, id)) {
+                return;
+            }
             try (PreparedStatement ps = conn.prepareStatement(
                     "DELETE FROM workflow_deployments WHERE workflow_id = ?")) {
                 ps.setString(1, id);
@@ -130,8 +171,9 @@ public class JdbcWorkflowRuntimeStore implements WorkflowRuntimeStore {
                 ps.executeUpdate();
             }
             try (PreparedStatement ps = conn.prepareStatement(
-                    "DELETE FROM workflow_executions WHERE workflow_id = ?")) {
+                    "DELETE FROM workflow_executions WHERE workflow_id = ? AND tenant_id = ?")) {
                 ps.setString(1, id);
+                ps.setString(2, DefaultTenant.orDefault(tenantId));
                 ps.executeUpdate();
             }
         } catch (SQLException e) {
@@ -139,8 +181,35 @@ public class JdbcWorkflowRuntimeStore implements WorkflowRuntimeStore {
         }
     }
 
+    private static boolean owns(Connection conn, String tenantId, String id) throws SQLException {
+        return exists(conn, "SELECT 1 FROM workflow_documents WHERE id = ? AND tenant_id = ?",
+                id, DefaultTenant.orDefault(tenantId));
+    }
+
+    private boolean owns(String tenantId, String id) {
+        try (Connection conn = dataSource.getConnection()) {
+            return owns(conn, tenantId, id);
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to check workflow " + id, e);
+        }
+    }
+
+    private static boolean exists(Connection conn, String sql, String... params) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            for (int i = 0; i < params.length; i++) {
+                ps.setString(i + 1, params[i]);
+            }
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next();
+            }
+        }
+    }
+
     @Override
-    public List<WorkflowVersionRecord> workflowVersions(String workflowId) {
+    public List<WorkflowVersionRecord> workflowVersions(String tenantId, String workflowId) {
+        if (!owns(tenantId, workflowId)) {
+            return List.of();
+        }
         String sql = """
                 SELECT id, version_no, document, comment, created_at
                   FROM workflow_versions
@@ -163,7 +232,10 @@ public class JdbcWorkflowRuntimeStore implements WorkflowRuntimeStore {
     }
 
     @Override
-    public WorkflowVersionRecord getWorkflowVersion(String workflowId, String versionId) {
+    public WorkflowVersionRecord getWorkflowVersion(String tenantId, String workflowId, String versionId) {
+        if (!owns(tenantId, workflowId)) {
+            return null;
+        }
         String sql = """
                 SELECT id, version_no, document, comment, created_at
                   FROM workflow_versions
@@ -182,8 +254,8 @@ public class JdbcWorkflowRuntimeStore implements WorkflowRuntimeStore {
     }
 
     @Override
-    public WorkflowVersionRecord publishWorkflow(String workflowId, String comment) {
-        Map<String, Object> draft = getWorkflow(workflowId);
+    public WorkflowVersionRecord publishWorkflow(String tenantId, String workflowId, String comment) {
+        Map<String, Object> draft = getWorkflow(tenantId, workflowId);
         if (draft == null) {
             return null;
         }
@@ -208,11 +280,14 @@ public class JdbcWorkflowRuntimeStore implements WorkflowRuntimeStore {
         } catch (SQLException e) {
             throw new RuntimeException("Failed to publish workflow " + workflowId, e);
         }
-        return getWorkflowVersion(workflowId, versionId);
+        return getWorkflowVersion(tenantId, workflowId, versionId);
     }
 
     @Override
-    public WorkflowDeploymentRecord getDeployment(String workflowId, String environment) {
+    public WorkflowDeploymentRecord getDeployment(String tenantId, String workflowId, String environment) {
+        if (!owns(tenantId, workflowId)) {
+            return null;
+        }
         String normalized = normalizeEnvironment(environment);
         String sql = """
                 SELECT version_id, deployed_at
@@ -237,8 +312,8 @@ public class JdbcWorkflowRuntimeStore implements WorkflowRuntimeStore {
 
     @Override
     public WorkflowDeploymentRecord deployWorkflow(
-            String workflowId, String environment, String versionId) {
-        if (getWorkflowVersion(workflowId, versionId) == null) {
+            String tenantId, String workflowId, String environment, String versionId) {
+        if (getWorkflowVersion(tenantId, workflowId, versionId) == null) {
             return null;
         }
         String normalized = normalizeEnvironment(environment);
@@ -281,19 +356,20 @@ public class JdbcWorkflowRuntimeStore implements WorkflowRuntimeStore {
     // ----------------------------------------------------------------- executions
 
     @Override
-    public List<Map<String, Object>> executions(String workflowId, Integer limit) {
+    public List<Map<String, Object>> executions(String tenantId, String workflowId, Integer limit) {
         String sql = workflowId == null
-                ? "SELECT record FROM workflow_executions"
-                : "SELECT record FROM workflow_executions WHERE workflow_id = ?";
+                ? "SELECT record, tenant_id FROM workflow_executions WHERE tenant_id = ?"
+                : "SELECT record, tenant_id FROM workflow_executions WHERE tenant_id = ? AND workflow_id = ?";
         List<Map<String, Object>> records = new ArrayList<>();
         try (Connection conn = dataSource.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, DefaultTenant.orDefault(tenantId));
             if (workflowId != null) {
-                ps.setString(1, workflowId);
+                ps.setString(2, workflowId);
             }
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
-                    records.add(fromJson(rs.getString("record")));
+                    records.add(readExecution(rs));
                 }
             }
         } catch (SQLException e) {
@@ -312,32 +388,56 @@ public class JdbcWorkflowRuntimeStore implements WorkflowRuntimeStore {
     }
 
     @Override
-    public Map<String, Object> getExecution(String id) {
-        String sql = "SELECT record FROM workflow_executions WHERE id = ?";
+    public Map<String, Object> getExecution(String tenantId, String id) {
+        Map<String, Object> execution = loadExecution(id);
+        return execution != null
+                && DefaultTenant.orDefault(tenantId).equals(execution.get(TENANT_KEY)) ? execution : null;
+    }
+
+    /** Leitura por id, sem tenant: só para as mutações internas (callbacks do motor). */
+    private Map<String, Object> loadExecution(String id) {
+        String sql = "SELECT record, tenant_id FROM workflow_executions WHERE id = ?";
         try (Connection conn = dataSource.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, id);
             try (ResultSet rs = ps.executeQuery()) {
                 // A deserialização já produz uma cópia fresca — equivalente ao
                 // snapshot defensivo do in-memory.
-                return rs.next() ? fromJson(rs.getString("record")) : null;
+                return rs.next() ? readExecution(rs) : null;
             }
         } catch (SQLException e) {
             throw new RuntimeException("Failed to load execution " + id, e);
         }
     }
 
-    @Override
-    public Map<String, Object> putExecution(String id, Map<String, Object> execution) {
-        saveExecution(id, execution);
+    /** O tenant do registro vem da coluna, inclusive para JSON antigo gravado sem a chave. */
+    private Map<String, Object> readExecution(ResultSet rs) throws SQLException {
+        Map<String, Object> execution = fromJson(rs.getString("record"));
+        execution.put(TENANT_KEY, rs.getString("tenant_id"));
         return execution;
     }
 
     @Override
-    public Map<String, Object> createExecution(String workflowId, String workflowName) {
+    public Map<String, Object> createExecution(
+            String tenantId, String workflowId, String workflowName, String workflowVersionId) {
+        Map<String, Object> execution = newExecution(tenantId, workflowId, workflowName);
+        execution.put("workflowVersionId", workflowVersionId);
+        saveExecution(String.valueOf(execution.get("id")), execution);
+        return execution;
+    }
+
+    @Override
+    public Map<String, Object> createExecution(String tenantId, String workflowId, String workflowName) {
+        Map<String, Object> execution = newExecution(tenantId, workflowId, workflowName);
+        saveExecution(String.valueOf(execution.get("id")), execution);
+        return execution;
+    }
+
+    private static Map<String, Object> newExecution(String tenantId, String workflowId, String workflowName) {
         var executionId = "exec-" + UUID.randomUUID().toString().substring(0, 8);
         var execution = new LinkedHashMap<String, Object>();
         execution.put("id", executionId);
+        execution.put(TENANT_KEY, DefaultTenant.orDefault(tenantId));
         execution.put("workflowId", workflowId);
         execution.put("workflowName", workflowName);
         execution.put("status", "RUNNING");
@@ -345,7 +445,6 @@ public class JdbcWorkflowRuntimeStore implements WorkflowRuntimeStore {
         execution.put("completedAt", null);
         execution.put("duration", null);
         execution.put("error", null);
-        saveExecution(executionId, execution);
         return execution;
     }
 
@@ -406,7 +505,7 @@ public class JdbcWorkflowRuntimeStore implements WorkflowRuntimeStore {
     private void mutateExecution(String id, Consumer<Map<String, Object>> mutation) {
         Object lock = executionLocks.computeIfAbsent(id, k -> new Object());
         synchronized (lock) {
-            Map<String, Object> execution = getExecution(id);
+            Map<String, Object> execution = loadExecution(id);
             if (execution == null) {
                 return;
             }
@@ -415,12 +514,17 @@ public class JdbcWorkflowRuntimeStore implements WorkflowRuntimeStore {
         }
     }
 
+    /**
+     * O UPDATE não mexe em {@code tenant_id}: o dono de uma execução é decidido uma vez, no INSERT, e
+     * um read-modify-write posterior não tem como trocá-lo.
+     */
     private void saveExecution(String id, Map<String, Object> execution) {
         String updateSql =
                 "UPDATE workflow_executions SET workflow_id = ?, record = ?, updated_at = ? WHERE id = ?";
-        String insertSql =
-                "INSERT INTO workflow_executions (workflow_id, record, updated_at, id) VALUES (?, ?, ?, ?)";
+        String insertSql = "INSERT INTO workflow_executions (workflow_id, record, updated_at, id, tenant_id) "
+                + "VALUES (?, ?, ?, ?, ?)";
         String workflowId = Objects.toString(execution.get("workflowId"), "");
+        Object tenant = execution.get(TENANT_KEY);
         String json = toJson(execution);
         Timestamp now = Timestamp.from(Instant.now());
         try (Connection conn = dataSource.getConnection()) {
@@ -438,36 +542,12 @@ public class JdbcWorkflowRuntimeStore implements WorkflowRuntimeStore {
                     ps.setString(2, json);
                     ps.setTimestamp(3, now);
                     ps.setString(4, id);
+                    ps.setString(5, DefaultTenant.orDefault(tenant == null ? null : tenant.toString()));
                     ps.executeUpdate();
                 }
             }
         } catch (SQLException e) {
             throw new RuntimeException("Failed to save execution " + id, e);
-        }
-    }
-
-    /** Upsert portável para documentos: UPDATE primeiro, INSERT quando 0 linhas. */
-    private void upsert(String updateSql, String insertSql, String id, String payload,
-                        String errorMessage) {
-        Timestamp now = Timestamp.from(Instant.now());
-        try (Connection conn = dataSource.getConnection()) {
-            int updated;
-            try (PreparedStatement ps = conn.prepareStatement(updateSql)) {
-                ps.setString(1, payload);
-                ps.setTimestamp(2, now);
-                ps.setString(3, id);
-                updated = ps.executeUpdate();
-            }
-            if (updated == 0) {
-                try (PreparedStatement ps = conn.prepareStatement(insertSql)) {
-                    ps.setString(1, id);
-                    ps.setString(2, payload);
-                    ps.setTimestamp(3, now);
-                    ps.executeUpdate();
-                }
-            }
-        } catch (SQLException e) {
-            throw new RuntimeException(errorMessage, e);
         }
     }
 
