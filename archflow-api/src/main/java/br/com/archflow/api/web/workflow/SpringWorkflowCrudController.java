@@ -277,11 +277,20 @@ public class SpringWorkflowCrudController {
         return result.getStatus() != null ? result.getStatus().name() : "COMPLETED";
     }
 
+    /**
+     * A razão da falha, não o invólucro: o motor embrulha a exceção duas vezes ({@code CompletionException}
+     * → {@code FlowEngineException("Error executing flow: …")}), e ler um nível só gravava
+     * "Error executing flow: exec-…" no lugar, por exemplo, da recusa de um nó sem execução (RCHFLW-11).
+     * Mesma regra do {@code rootMessage} do {@code WorkflowMcpServer}.
+     */
     private static String errorOf(Throwable err) {
         if (err == null) {
             return null;
         }
-        Throwable cause = err.getCause() != null ? err.getCause() : err;
+        Throwable cause = err;
+        while (cause.getCause() != null && cause.getCause() != cause) {
+            cause = cause.getCause();
+        }
         return cause.getMessage() != null ? cause.getMessage() : cause.toString();
     }
 
