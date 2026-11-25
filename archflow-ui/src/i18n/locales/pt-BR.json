@@ -383,7 +383,9 @@
             "goalPlaceholder": "ex.: responder tickets de suporte: classificar a intenção, buscar na base de conhecimento e redigir a resposta — escalar para humano em caso de dúvida",
             "generate": "Gerar",
             "started": "O copilot está montando seu fluxo",
-            "startedMsg": "Os nós vão aparecendo no canvas conforme o copilot trabalha. Abra a barra do copilot para acompanhar.",
+            "startedMsg": "Os nós vão aparecendo no canvas conforme o copilot trabalha.",
+            "done": "Fluxo montado pelo copilot",
+            "doneMsg": "Confira os nós e as ligações no canvas.",
             "promptTemplate": "Monte um workflow no canvas do editor para o objetivo a seguir. Crie cada nó com a ferramenta addNode, usando os tipos de nó disponíveis e um rótulo curto e descritivo; o addNode devolve o id do nó criado. Configure cada nó com o que o objetivo pede (prompt e modelo de um llm-chat, expressão de um condition…), no parâmetro config do addNode ou com configureNode, usando só as chaves de config listadas para o tipo do nó. Depois ligue os nós em ordem lógica com connectNodes, usando exatamente os ids devolvidos pelo addNode (nunca invente ids). Para corrigir um nó que você criou ou uma ligação errada, use removeNode/removeEdge em vez de criar outro nó; não remova nós que já estavam no fluxo, a menos que o objetivo peça (o usuário terá de confirmar). Ao terminar, responda com um resumo curto do fluxo montado. Objetivo: {{goal}}"
         },
         "properties": {

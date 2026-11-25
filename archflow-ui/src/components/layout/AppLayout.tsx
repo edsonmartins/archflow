@@ -5,7 +5,8 @@ import { HttpAgent } from '@ag-ui/client';
 import { CopilotKitProvider, CopilotSidebar } from '@copilotkit/react-core/v2';
 import '@copilotkit/react-core/v2/styles.css';
 import CopilotAppOperator from '../copilot/CopilotAppOperator';
-import CopilotGenerateBridge from '../copilot/CopilotGenerateBridge';
+import CopilotGenerateBridge, { COPILOT_GENERATE_AGENT_ID } from '../copilot/CopilotGenerateBridge';
+import { ImpersonationBanner } from '../admin/ImpersonationBanner';
 import {
     IconTopologyRing,
     IconPlayerPlay,
@@ -84,15 +85,18 @@ export default function AppLayout() {
     // O @copilotkit (pré-release) embute sua própria declaração de
     // AbstractAgent, nominalmente incompatível com a de @ag-ui/client —
     // em runtime é o mesmo protocolo AG-UI, então o cast é seguro.
-    const copilotAgent = useMemo(
+    const copilotAgents = useMemo(
         () => {
             // authFetch (services/api) injeta o token ATUAL a cada chamada COM
             // refresh single-flight — sem o refresh o /ag-ui/agent voltava 401
             // após a expiração do access token em sessões longas.
             const copilotFetch: typeof window.fetch = (input, init) =>
                 authFetch(typeof input === 'string' ? input : input.toString(), init ?? undefined);
-            return new HttpAgent({ url: '/ag-ui/agent', fetch: copilotFetch }) as unknown as
+            const novo = () => new HttpAgent({ url: '/ag-ui/agent', fetch: copilotFetch }) as unknown as
                 NonNullable<Parameters<typeof CopilotKitProvider>[0]['agents__unsafe_dev_only']>[string];
+            // Dois agentes no mesmo endpoint: o do chat lateral e o do "Gerar com IA", cada um com a própria
+            // conversa (RCHFLW-95 — ver COPILOT_GENERATE_AGENT_ID).
+            return { archflow: novo(), [COPILOT_GENERATE_AGENT_ID]: novo() };
         },
         []);
     const location = useLocation();
@@ -331,7 +335,9 @@ export default function AppLayout() {
             />
 
             <AppShell.Main className="af-main">
-                <CopilotKitProvider agents__unsafe_dev_only={{ archflow: copilotAgent }}>
+                {/* A personificação vale em todas as telas, não só em Administração: a faixa também (RCHFLW-96). */}
+                <ImpersonationBanner />
+                <CopilotKitProvider agents__unsafe_dev_only={copilotAgents}>
                     <CopilotAppOperator />
                     <CopilotGenerateBridge />
                     <Outlet />

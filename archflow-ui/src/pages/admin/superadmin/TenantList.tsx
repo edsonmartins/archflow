@@ -73,7 +73,6 @@ export default function TenantList() {
   }, [setTenants])
 
   const handleImpersonate = (tenant: TenantRow) => {
-    sessionStorage.setItem('archflow_impersonate_tenant', tenant.id)
     startImpersonation({
       id: tenant.id,
       name: tenant.name,

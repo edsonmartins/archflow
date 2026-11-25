@@ -383,7 +383,9 @@
             "goalPlaceholder": "e.g. answer support tickets: classify the intent, search the knowledge base and draft a reply — escalate to a human when unsure",
             "generate": "Generate",
             "started": "Copilot is building your flow",
-            "startedMsg": "Nodes will appear on the canvas as the copilot works. Open the copilot sidebar to follow along.",
+            "startedMsg": "Nodes will appear on the canvas as the copilot works.",
+            "done": "Copilot finished building the flow",
+            "doneMsg": "Check the nodes and connections on the canvas.",
             "promptTemplate": "Build a workflow on the editor canvas for the following goal. Create each node with the addNode tool, using the available node types and a short descriptive label; addNode returns the id of the created node. Configure each node with what the goal asks for (prompt and model of an llm-chat, expression of a condition…), in the addNode config parameter or with configureNode, using only the config keys listed for that node type. Then connect the nodes in a logical order with connectNodes, using exactly the ids returned by addNode (never invent ids). To fix a node you created or a wrong edge, use removeNode/removeEdge instead of adding another node; do not remove nodes that were already in the flow unless the goal asks for it (the user will have to confirm). When you are done, reply with a short summary of the flow. Goal: {{goal}}"
         },
         "properties": {
