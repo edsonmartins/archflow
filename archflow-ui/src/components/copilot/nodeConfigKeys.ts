@@ -137,7 +137,6 @@ export const NODE_CONFIG_KEYS: Readonly<Record<string, ConfigKeys>> = {
     approvalDescription: 'string',
     approvalProposal: 'string',
     approvalTimeoutMinutes: 'number',
-    approvalOnTimeout: 'string',
   },
   decision: {
     provider: 'string',

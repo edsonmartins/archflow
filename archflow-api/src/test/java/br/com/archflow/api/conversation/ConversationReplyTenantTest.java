@@ -46,9 +46,9 @@ class ConversationReplyTenantTest {
     }
 
     @Test
-    @DisplayName("o canal de fallback ('default') não vira tenant")
+    @DisplayName("o tenant padrão (__default__) não vira tenant na resolução do LLM")
     void fallbackNaoViraTenant() {
-        servico().reply("c1", "default");
+        servico().reply("c1", br.com.archflow.api.config.TenantContext.DEFAULT_TENANT);
 
         assertThat(pedidos).singleElement().extracting(LLMResolutionRequest::tenantId).isNull();
     }

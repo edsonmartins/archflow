@@ -118,21 +118,25 @@ class ImpersonationFilterTest {
     }
 
     @Test
-    @DisplayName("X-Tenant-Id diferente do tenant do JWT é ignorado — fica o do token")
+    @DisplayName("X-Tenant-Id diferente do tenant do JWT é recusado (403) — não troca o tenant do token")
     void tenantHeaderCannotOverrideJwtTenant() throws Exception {
-        // A chave de LLM é por tenant: aceitar o header deixaria o tenant_a rodar na chave do tenant_b.
+        // A chave de LLM é por tenant: aceitar o header deixaria o tenant_a rodar na chave do tenant_b. A regra
+        // é a do RCHFLW-44: com JWT, o header só pode repetir o tenant do token; diferente, 403 TENANT_MISMATCH.
         ImpersonationFilter filter = new ImpersonationFilter(false);
         HttpServletRequest req = mock(HttpServletRequest.class);
         HttpServletResponse resp = mock(HttpServletResponse.class);
         FilterChain chain = mock(FilterChain.class);
         when(req.getHeader(ImpersonationFilter.HEADER_TENANT)).thenReturn("tenant_b");
         when(req.getAttribute(JwtAuthenticationFilter.ATTR_TENANT)).thenReturn("tenant_a");
+        when(req.getAttribute(JwtAuthenticationFilter.ATTR_USER_ID)).thenReturn("u-1");
         when(req.getRequestURI()).thenReturn("/api/agents/qp/quote");
+        when(resp.getWriter()).thenReturn(new java.io.PrintWriter(new java.io.StringWriter()));
 
         filter.doFilter(req, resp, chain);
 
         verify(req, never()).setAttribute(ImpersonationFilter.ATTR_TENANT_ID, "tenant_b");
-        verify(chain, times(1)).doFilter(req, resp);
+        verify(resp).setStatus(HttpServletResponse.SC_FORBIDDEN);
+        verify(chain, never()).doFilter(req, resp);
     }
 
     @Test
