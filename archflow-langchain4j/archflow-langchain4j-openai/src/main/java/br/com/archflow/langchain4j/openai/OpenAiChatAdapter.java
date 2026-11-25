@@ -52,6 +52,8 @@ public class OpenAiChatAdapter implements LangChainAdapter, ChatModelProvider {
     private final ReentrantLock lock = new ReentrantLock();
     private volatile ChatModel model;
     private volatile Map<String, Object> config;
+    /** O modelo configurado — o rótulo do consumo relatado ao contador da execução (RCHFLW-75). */
+    private volatile String modelName;
 
     /**
      * Valida as configurações fornecidas para o adapter.
@@ -135,6 +137,7 @@ public class OpenAiChatAdapter implements LangChainAdapter, ChatModelProvider {
         try {
             this.config = properties;
             this.model = newModel;
+            this.modelName = modelName;
         } finally {
             lock.unlock();
         }
@@ -195,7 +198,8 @@ public class OpenAiChatAdapter implements LangChainAdapter, ChatModelProvider {
                     throw new IllegalArgumentException("Input must be a string for 'generate' operation");
                 }
                 // O prompt de sistema do nó vai na frente (ChatTurn) — antes era descartado.
-                return ChatTurn.generate(model, systemPrompt, (String) input);
+                // O consumo vai para o contador da execução, se houver (RCHFLW-75).
+                return ChatTurn.generate(model, systemPrompt, (String) input, context, "openai", this.modelName);
             }
 
             if ("chat".equals(operation)) {
@@ -208,7 +212,8 @@ public class OpenAiChatAdapter implements LangChainAdapter, ChatModelProvider {
                     throw new IllegalStateException("Chat memory not available in context");
                 }
 
-                return ChatTurn.chat(model, systemPrompt, memory, (String) input);
+                return ChatTurn.chat(model, systemPrompt, memory, (String) input, context, "openai",
+                        this.modelName);
             }
 
             throw new IllegalArgumentException("Unsupported operation: " + operation);

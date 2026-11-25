@@ -21,9 +21,9 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Integração com PostgreSQL real: aplica a migration
- * {@code V5_1__create_security.sql} e exercita o {@link JdbcApiKeyRepository},
- * incluindo escopos, timestamps opcionais e sobrevivência a "restart".
+ * Integração com PostgreSQL real: aplica as migrations
+ * {@code V5_1__create_security.sql} e {@code V5_1_1__add_tenant_to_api_keys.sql} e exercita o
+ * {@link JdbcApiKeyRepository}, incluindo escopos, timestamps opcionais e sobrevivência a "restart".
  */
 @Testcontainers(disabledWithoutDocker = true)
 @DisplayName("Persistência de API keys (PostgreSQL real)")
@@ -34,6 +34,9 @@ class JdbcApiKeyRepositoryPostgresTest {
             new PostgreSQLContainer<>("postgres:16-alpine");
 
     private static DataSource dataSource;
+    /** {@code enabled} e {@code tenant_id} da linha legada logo depois da V5_1_1. */
+    private static boolean legacyEnabledAfterMigration;
+    private static String legacyTenantAfterMigration;
     private JdbcApiKeyRepository apiKeys;
 
     @BeforeAll
@@ -44,14 +47,39 @@ class JdbcApiKeyRepositoryPostgresTest {
         ds.setPassword(postgres.getPassword());
         dataSource = ds;
 
+        apply("/db/migration/V5_1__create_security.sql");
+        // Uma chave de antes da V5_1_1: ativa, sem tenant, dono vindo do X-User-Id.
+        try (Connection conn = dataSource.getConnection()) {
+            conn.createStatement().execute("INSERT INTO api_keys (id, key_id, key_secret, owner_id, scopes,"
+                    + " enabled, created_at) VALUES ('legacy-1', 'ak_legacy', 'hash', 'anonymous', 'ADMIN',"
+                    + " TRUE, CURRENT_TIMESTAMP)");
+        }
+        apply("/db/migration/V5_1_1__add_tenant_to_api_keys.sql");
+        try (Connection conn = dataSource.getConnection();
+             var rs = conn.createStatement().executeQuery(
+                     "SELECT enabled, tenant_id FROM api_keys WHERE id = 'legacy-1'")) {
+            rs.next();
+            legacyEnabledAfterMigration = rs.getBoolean("enabled");
+            legacyTenantAfterMigration = rs.getString("tenant_id");
+        }
+    }
+
+    private static void apply(String migration) throws Exception {
         String ddl;
-        try (var in = JdbcApiKeyRepositoryPostgresTest.class.getResourceAsStream(
-                "/db/migration/V5_1__create_security.sql")) {
+        try (var in = JdbcApiKeyRepositoryPostgresTest.class.getResourceAsStream(migration)) {
             ddl = new String(in.readAllBytes(), StandardCharsets.UTF_8);
         }
         try (Connection conn = dataSource.getConnection()) {
             conn.createStatement().execute(ddl);
         }
+    }
+
+    @Test
+    @DisplayName("V5_1_1 desativa as chaves anteriores a ela: dono não verificado, tenant que ninguém escolheu")
+    void legacyKeysAreDisabledByTheMigration() {
+        // Ativa, ela viraria uma credencial viva no tenant padrão, invisível para qualquer login.
+        assertThat(legacyEnabledAfterMigration).isFalse();
+        assertThat(legacyTenantAfterMigration).isEqualTo("__default__");
     }
 
     @BeforeEach
@@ -67,6 +95,7 @@ class JdbcApiKeyRepositoryPostgresTest {
                 Set.of(ApiKeyScope.WORKFLOW_READ, ApiKeyScope.AGENT_READ));
         key.setKeySecret("sha256-hash-value");
         key.setCreatedBy("admin");
+        key.setTenantId("tenant-a");
         return key;
     }
 
@@ -81,6 +110,7 @@ class JdbcApiKeyRepositoryPostgresTest {
         assertThat(loaded.getKeySecret()).isEqualTo("sha256-hash-value");
         assertThat(loaded.getOwnerId()).isEqualTo("owner-1");
         assertThat(loaded.getCreatedBy()).isEqualTo("admin");
+        assertThat(loaded.getTenantId()).isEqualTo("tenant-a");
         assertThat(loaded.getScopes())
                 .containsExactlyInAnyOrder(ApiKeyScope.WORKFLOW_READ, ApiKeyScope.AGENT_READ);
     }

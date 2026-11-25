@@ -2,9 +2,12 @@ package br.com.archflow.api.admin.impl;
 
 import br.com.archflow.api.admin.GlobalConfigController;
 import br.com.archflow.api.admin.dto.GlobalConfigDto.*;
+import br.com.archflow.api.admin.dto.TenantDto;
 import br.com.archflow.api.admin.store.GlobalConfigStore;
 import br.com.archflow.api.admin.store.InMemoryGlobalConfigStore;
 import br.com.archflow.api.audit.AuditTrail;
+import br.com.archflow.api.usage.RegistroDeUso;
+import br.com.archflow.api.usage.UsoSomado;
 import br.com.archflow.langchain4j.provider.LLMProvider;
 import br.com.archflow.observability.audit.AuditAction;
 import br.com.archflow.observability.audit.AuditEvent;
@@ -14,7 +17,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.time.YearMonth;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -22,6 +28,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 /**
@@ -54,13 +61,18 @@ public class GlobalConfigControllerImpl implements GlobalConfigController {
     static final String STATUS_DEPRECATED = "deprecated";
 
     private static final String USAGE_CSV_HEADER =
-            "tenantId,tenantName,executions,tokensInput,tokensOutput,estimatedCost,percentOfTotal,planLimit";
+            "tenantId,tenantName,executions,tokensInput,tokensOutput,costReais,declaredCostUsd,"
+                    + "executionsWithoutPrice,percentOfTotal,planLimit";
 
     private final ObjectMapper mapper = new ObjectMapper();
 
     private volatile GlobalConfigStore store;
     private volatile Supplier<AuditRepository> auditRepository = () -> null;
     private volatile AuditTrail auditTrail = AuditTrail.noop();
+    /** O consumo medido (RCHFLW-75); sem ele, o relatório de uso sai vazio — nada medido. */
+    private volatile RegistroDeUso registroDeUso;
+    /** O cadastro de tenants, para nome e limite do plano; vazio quando não há cadastro. */
+    private volatile Function<String, Optional<TenantDto>> cadastroDeTenants = id -> Optional.empty();
 
     /** Provider da plataforma ({@code archflow.llm.provider}): dono dos ids de {@link #platformModels}. */
     private final String platformProvider;
@@ -309,12 +321,48 @@ public class GlobalConfigControllerImpl implements GlobalConfigController {
     // -------------------------------------------------------------------- usage
 
     /**
-     * No real per-tenant metering source exists yet (executions are not
-     * tenant-partitioned), so this returns empty instead of fabricated rows.
+     * Liga o relatório de uso ao consumo medido e ao cadastro de tenants (nome e limite do plano).
+     */
+    public void setUso(RegistroDeUso registroDeUso,
+                       Function<String, Optional<TenantDto>> tenants) {
+        this.registroDeUso = registroDeUso;
+        if (tenants != null) {
+            this.cadastroDeTenants = tenants;
+        }
+    }
+
+    /**
+     * O consumo medido de cada tenant no mês ({@code yyyy-MM}; em branco, o mês corrente). Tenant
+     * sem medição não aparece — vazio é "nada medido", nunca uma linha de demonstração.
+     *
+     * @throws IllegalArgumentException mês fora do formato {@code yyyy-MM} (400)
      */
     @Override
     public List<UsageRowDto> getUsageByTenant(String month) {
-        return List.of();
+        RegistroDeUso registro = registroDeUso;
+        if (registro == null) {
+            return List.of();
+        }
+        YearMonth mes;
+        try {
+            mes = month == null || month.isBlank() ? registro.mesAtual() : YearMonth.parse(month.trim());
+        } catch (DateTimeParseException e) {
+            throw new IllegalArgumentException("Invalid month: " + month + " (expected yyyy-MM)");
+        }
+        Map<String, UsoSomado> porTenant = registro.porTenantNoMes(mes);
+        long totalTokens = porTenant.values().stream().mapToLong(UsoSomado::tokens).sum();
+        List<UsageRowDto> rows = new ArrayList<>();
+        porTenant.forEach((tenantId, uso) -> {
+            Optional<TenantDto> cadastro = cadastroDeTenants.apply(tenantId);
+            double percent = totalTokens == 0 ? 0.0 : Math.round(uso.tokens() * 1000.0 / totalTokens) / 10.0;
+            rows.add(new UsageRowDto(tenantId,
+                    cadastro.map(TenantDto::name).filter(n -> !n.isBlank()).orElse(tenantId),
+                    uso.execucoes(), uso.tokensEntrada(), uso.tokensSaida(), uso.custoCentavos(), uso.custoReais(),
+                    uso.custoDeclaradoUsd(), uso.execucoesSemPreco(), percent,
+                    cadastro.map(TenantDto::limits).map(TenantDto.TenantLimitsDto::tokensPerMonth).orElse(null)));
+        });
+        rows.sort(Comparator.comparingLong((UsageRowDto r) -> r.tokensInput() + r.tokensOutput()).reversed());
+        return rows;
     }
 
     @Override
@@ -327,9 +375,12 @@ public class GlobalConfigControllerImpl implements GlobalConfigController {
                     .append(row.executions()).append(',')
                     .append(row.tokensInput()).append(',')
                     .append(row.tokensOutput()).append(',')
-                    .append(row.estimatedCost()).append(',')
+                    // Sem preço fica vazio, não "0": zero seria "de graça".
+                    .append(row.costReais() == null ? "" : row.costReais()).append(',')
+                    .append(row.declaredCostUsd() == null ? "" : row.declaredCostUsd()).append(',')
+                    .append(row.executionsWithoutPrice()).append(',')
                     .append(row.percentOfTotal()).append(',')
-                    .append(row.planLimit()).append('\n');
+                    .append(row.planLimit() == null ? "" : row.planLimit()).append('\n');
         }
         return csv.toString();
     }

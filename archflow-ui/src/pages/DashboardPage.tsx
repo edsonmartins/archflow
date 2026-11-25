@@ -17,6 +17,7 @@ import { SectionCard } from '../components/SectionCard';
 import { VxTable, colunaStatus, colunaApagada, type VxColumn } from '../components/VTable';
 import { EXECUTION_STATUS_COLOR } from '../lib/executionStatus';
 import { formatDuration, formatInstant } from '../lib/format';
+import { usePermissions } from '../lib/permissions';
 
 /** Recent-activity window: enough for the table and a meaningful failure count. */
 const RECENT_EXECUTIONS_LIMIT = 25;
@@ -29,6 +30,8 @@ const RECENT_EXECUTIONS_LIMIT = 25;
  */
 export default function DashboardPage() {
     const navigate = useNavigate();
+    // RCHFLW-74: os atalhos de criação só para quem tem workflow:create.
+    const canCreate = usePermissions()('workflow:create');
     const { t, i18n } = useTranslation();
     const locale = i18n.resolvedLanguage ?? i18n.language;
     const { workflows, executions, loading, fetchWorkflows, fetchExecutions } = useWorkflowStore();
@@ -76,14 +79,16 @@ export default function DashboardPage() {
                 subtitle={t('dashboard.subtitle')}
                 actions={
                     <>
-                        <Button
-                            variant="light"
-                            color="grape"
-                            leftSection={<IconSparkles size={16} />}
-                            onClick={() => navigate('/workflows?new=ai')}
-                        >
-                            {t('workflows.createModal.ai')}
-                        </Button>
+                        {canCreate && (
+                            <Button
+                                variant="light"
+                                color="grape"
+                                leftSection={<IconSparkles size={16} />}
+                                onClick={() => navigate('/workflows?new=ai')}
+                            >
+                                {t('workflows.createModal.ai')}
+                            </Button>
+                        )}
                         <Button
                             variant="default"
                             leftSection={<IconTemplate size={16} />}
@@ -91,13 +96,15 @@ export default function DashboardPage() {
                         >
                             {t('workflows.browseTemplates')}
                         </Button>
-                        <Button
-                            leftSection={<IconPlus size={16} />}
-                            onClick={() => navigate('/workflows?new=1')}
-                            data-testid="dashboard-new"
-                        >
-                            {t('workflows.newWorkflow')}
-                        </Button>
+                        {canCreate && (
+                            <Button
+                                leftSection={<IconPlus size={16} />}
+                                onClick={() => navigate('/workflows?new=1')}
+                                data-testid="dashboard-new"
+                            >
+                                {t('workflows.newWorkflow')}
+                            </Button>
+                        )}
                     </>
                 }
             />

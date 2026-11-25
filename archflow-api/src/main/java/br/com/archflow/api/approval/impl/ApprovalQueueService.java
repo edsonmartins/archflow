@@ -200,13 +200,35 @@ public class ApprovalQueueService {
      * @throws NoSuchElementException se o id é desconhecido (ou decidido e sem {@code flowId})
      */
     public ApprovalResponse getDetail(String requestId, String flowId) {
+        return getDetail(requestId, flowId, null);
+    }
+
+    /**
+     * Como {@link #getDetail(String, String)}, restrito a um tenant (RCHFLW-39).
+     *
+     * <p>Um pedido de outro tenant é respondido como inexistente, com a mesma exceção de um id
+     * desconhecido: responder "existe, mas não é seu" já entregaria a quem não pode que o id vale.</p>
+     *
+     * @param tenantScope tenant que o pedido precisa ter; {@code null} aceita qualquer um (admin com
+     *                    "all", ou servidor sem autenticação)
+     */
+    public ApprovalResponse getDetail(String requestId, String flowId, String tenantScope) {
         Objects.requireNonNull(requestId, "requestId");
         return findPendingByRequestId(requestId)
+                .filter(state -> inScope(tenantScope, state.getTenantId()))
                 .map(state -> toResponse(state, "PENDING"))
-                .or(() -> pendenciaDoLaco(requestId).map(ApprovalQueueService::doLaco))
-                .or(() -> decidedDetail(requestId, flowId))
+                .or(() -> pendenciaDoLaco(requestId)
+                        .filter(p -> inScope(tenantScope, p.tenantId()))
+                        .map(ApprovalQueueService::doLaco))
+                .or(() -> decidedDetail(requestId, flowId)
+                        .filter(r -> inScope(tenantScope, r.tenantId())))
                 .orElseThrow(() -> new NoSuchElementException(
                         "Approval not found or already decided: " + requestId));
+    }
+
+    /** {@code null} é "qualquer tenant"; fora isso, o tenant do item tem de ser o do recorte. */
+    private static boolean inScope(String tenantScope, String itemTenant) {
+        return tenantScope == null || tenantScope.equals(itemTenant);
     }
 
     /**
@@ -244,6 +266,19 @@ public class ApprovalQueueService {
      * suspensão; REJECTED o encerra.
      */
     public ApprovalResponse submitDecision(String requestId, ApprovalSubmitRequest request) {
+        return submitDecision(requestId, request, null);
+    }
+
+    /**
+     * Como {@link #submitDecision(String, ApprovalSubmitRequest)}, só para um pedido do tenant do
+     * recorte (RCHFLW-39). Antes, qualquer usuário autenticado que soubesse o {@code requestId}
+     * aprovava — ou editava os argumentos da tool — de um pedido de outro tenant. Fora do recorte, o
+     * pedido é "não encontrado", como um id desconhecido, e nada é decidido.
+     *
+     * @param tenantScope tenant que o pedido precisa ter; {@code null} aceita qualquer um
+     */
+    public ApprovalResponse submitDecision(String requestId, ApprovalSubmitRequest request,
+                                           String tenantScope) {
         Objects.requireNonNull(requestId, "requestId");
         Objects.requireNonNull(request, "request");
 
@@ -256,12 +291,13 @@ public class ApprovalQueueService {
         // O id diz qual mecanismo responde: o gate do laço grava no store do agente, o nó de fluxo
         // no estado do motor. Um id não existe nos dois.
         Optional<br.com.archflow.api.agent.mcp.RetomadaDoLaco.Pendencia> noLaco =
-                pendenciaDoLaco(requestId);
+                pendenciaDoLaco(requestId).filter(p -> inScope(tenantScope, p.tenantId()));
         if (noLaco.isPresent()) {
             return decidirNoLaco(noLaco.get(), decision, request);
         }
 
         FlowState state = findPendingByRequestId(requestId)
+                .filter(s -> inScope(tenantScope, s.getTenantId()))
                 .orElseThrow(() -> new NoSuchElementException("Approval not found: " + requestId));
         if (isExpired(state)) {
             // Uma proposta vencida descreve um mundo que já mudou. Executá-la
@@ -298,6 +334,61 @@ public class ApprovalQueueService {
         // O decisor e a justificativa ficam no estado durável, gravados pelo motor sob o
         // mesmo lock da decisão — e a resposta os devolve de lá, não do pedido.
         return withDecision(snapshot, decided);
+    }
+
+    /**
+     * O estado da execução do tenant que espera uma decisão humana, para receber dados de fora da
+     * fila — o formulário de uma conversa suspensa (RCHFLW-67).
+     *
+     * <p>Só o portão de aprovação ({@code AWAITING_APPROVAL} com pedido vivo) leva dados à execução
+     * ({@link ExecutionKeys#APPROVAL_PAYLOAD}); um fluxo apenas pausado volta pelo {@code /resume},
+     * sem dados. O tenant é comparado estritamente, sem o "todos os tenants" da fila: quem envia o
+     * formulário age na própria execução, não administra as dos outros.</p>
+     *
+     * @throws IllegalArgumentException se a execução não existe no tenant
+     * @throws IllegalStateException    se ela não está esperando uma decisão ou o prazo dela venceu
+     */
+    public FlowState requireAwaitingInput(String tenantId, String flowId) {
+        FlowState state = flowId == null || flowId.isBlank() ? null : stateManager.loadState(flowId);
+        if (state == null || !br.com.archflow.model.tenant.DefaultTenant.orDefault(state.getTenantId())
+                .equals(br.com.archflow.model.tenant.DefaultTenant.orDefault(tenantId))) {
+            throw new IllegalArgumentException("Execução não encontrada neste tenant: " + flowId);
+        }
+        if (!ExecutionKeys.aguardaDecisaoHumana(state)) {
+            throw new IllegalStateException("A execução " + flowId + " não está aguardando uma decisão "
+                    + "humana (status " + state.getStatus() + "): só uma execução parada num nó de "
+                    + "aprovação recebe os dados de um formulário");
+        }
+        if (isExpired(state)) {
+            throw new IllegalStateException("A aprovação pendente da execução " + flowId + " expirou");
+        }
+        return state;
+    }
+
+    /**
+     * Aprova o portão em que a execução espera, com {@code payload} como os dados da decisão, e devolve
+     * a retomada — quem enviou o formulário precisa do desfecho para responder na conversa.
+     *
+     * <p>É o mesmo caminho de um {@code EDITED} da fila: o motor consome o pedido sob lock (um segundo
+     * envio é recusado lá), grava o decisor e retoma; o registro da execução acompanha até o fim.</p>
+     *
+     * @throws IllegalArgumentException se a execução não existe no tenant
+     * @throws IllegalStateException    se ela não espera decisão, expirou ou o motor recusou
+     */
+    public CompletableFuture<FlowResult> submitInput(String tenantId, String flowId, Object payload,
+                                                     String responderId, String comment) {
+        FlowState state = requireAwaitingInput(tenantId, flowId);
+        String requestId = variable(state, ExecutionKeys.APPROVAL_REQUEST_ID);
+        CompletableFuture<FlowResult> run;
+        try {
+            run = flowEngine.submitApproval(flowId, requestId, true, payload, responderId, comment);
+        } catch (RuntimeException e) {
+            throw new IllegalStateException(
+                    "Failed to submit approval " + requestId + ": " + e.getMessage(), e);
+        }
+        log.info("Aprovação {} decidida por formulário por {} (flow={})", requestId, responderId, flowId);
+        acompanharExecucao(flowId, requestId, true, run);
+        return run;
     }
 
     /**

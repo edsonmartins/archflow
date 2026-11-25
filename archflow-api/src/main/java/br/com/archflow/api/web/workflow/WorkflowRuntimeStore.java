@@ -100,12 +100,37 @@ public interface WorkflowRuntimeStore {
     /** Snapshot of the execution record, or {@code null} when absent or owned by another tenant. */
     Map<String, Object> getExecution(String tenantId, String id);
 
-    /** Creates a new RUNNING execution record for the tenant's workflow and returns it. */
+    /**
+     * Creates a new RUNNING execution record for the tenant's workflow and returns it. Sem versão: a
+     * execução roda o rascunho (o documento salvo) — é o que fazem o AG-UI do editor e o MCP server, que
+     * leem o fluxo por {@link #getWorkflow}. Equivale a {@code createExecution(..., null)}.
+     */
     Map<String, Object> createExecution(String tenantId, String workflowId, String workflowName);
 
-    /** Creates an execution pinned to the immutable workflow version used. */
+    /**
+     * Creates an execution pinned to the immutable workflow version used — {@code null} quando o que
+     * rodou foi o rascunho. Ver {@link #recordRanVersion}.
+     */
     Map<String, Object> createExecution(
-            String tenantId, String workflowId, String workflowName, String workflowVersionId);
+            String tenantId, String workflowId, String workflowName, WorkflowVersionRecord version);
+
+    /**
+     * Grava no registro da execução o que rodou: {@code workflowDraft} (sempre presente) e, para uma
+     * versão publicada, {@code workflowVersionId} e {@code workflowVersionNumber}.
+     *
+     * <p>O detalhe da execução precisa dizer qual versão rodou (RCHFLW-89): o editor roda o rascunho e a
+     * lista/API roda a versão em produção, e o mesmo fluxo dava resultados diferentes sem nenhuma tela
+     * dizer por quê. A marca do rascunho é explícita porque um registro antigo, sem informação nenhuma,
+     * seria indistinguível de uma execução do rascunho — e o número fica no registro para a tela não
+     * precisar adivinhá-lo pela lista de versões.</p>
+     */
+    static void recordRanVersion(Map<String, Object> execution, WorkflowVersionRecord version) {
+        execution.put("workflowDraft", version == null);
+        execution.put("workflowVersionId", version == null ? null : version.id());
+        if (version != null) {
+            execution.put("workflowVersionNumber", version.number());
+        }
+    }
 
     /** Marks a resumed execution RUNNING again (counterpart of completeExecution). */
     void markResumed(String id);

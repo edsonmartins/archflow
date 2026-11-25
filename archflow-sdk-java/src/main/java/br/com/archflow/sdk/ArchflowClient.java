@@ -255,11 +255,14 @@ public final class ArchflowClient {
             return this;
         }
 
-        /** Autentica com {@code X-API-Key}. */
+        /**
+         * Autentica com uma chave de API — a credencial completa ({@code ak_<id>.<segredo>}) que a
+         * criação devolve uma única vez. Vai em {@code Authorization: Bearer}, o único cabeçalho em
+         * que o servidor reconhece chaves; o {@code X-API-Key} que o SDK mandava antes é ignorado
+         * pelo servidor, e toda chamada voltava 401.
+         */
         public Builder apiKey(String apiKey) {
-            this.authHeader = "X-API-Key";
-            this.authValue = apiKey;
-            return this;
+            return bearerToken(apiKey);
         }
 
         /** Autentica com {@code Authorization: Bearer <token>}. */

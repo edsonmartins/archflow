@@ -39,6 +39,7 @@ vi.mock('react-i18next', () => ({
   }),
 }))
 
+import { COPILOT_GENERATE_AGENT_ID } from '../CopilotGenerateBridge'
 import CopilotAppOperator from '../CopilotAppOperator'
 import { FlowCanvas } from '../../FlowCanvas/FlowCanvas'
 import { useFlowStore } from '../../FlowCanvas/store/useFlowStore'
@@ -120,6 +121,32 @@ function overlaps(a: { x: number; y: number }, b: { x: number; y: number }) {
   // O nó tem 240 px de largura (ShapedNode) e ~90 de altura.
   return Math.abs(a.x - b.x) < 240 && Math.abs(a.y - b.y) < 90
 }
+
+describe('CopilotAppOperator — createFlow no "Gerar com IA" (RCHFLW-95)', () => {
+  it('o agente da geração não cria outro fluxo: recusa e não chama a API', async () => {
+    await mountOperator()
+    workflowApiMock.create.mockClear()
+
+    let erro: unknown
+    await act(async () => {
+      try {
+        await tools.get('createFlow')!.handler({ name: 'Outro' }, { agent: { agentId: COPILOT_GENERATE_AGENT_ID } })
+      } catch (e) { erro = e }
+    })
+
+    expect(String(erro)).toContain('createFlow not applied')
+    expect(workflowApiMock.create).not.toHaveBeenCalled()
+  })
+
+  it('no chat lateral (agente archflow) o createFlow continua criando o fluxo', async () => {
+    await mountOperator()
+    workflowApiMock.create.mockClear()
+
+    await act(async () => { await tools.get('createFlow')!.handler({ name: 'Novo' }, { agent: { agentId: 'archflow' } }) })
+
+    expect(workflowApiMock.create).toHaveBeenCalledTimes(1)
+  })
+})
 
 describe('CopilotAppOperator — fila createFlow → addNode antes de o canvas montar', () => {
   it('os nós da fila saem com ids únicos (os que o addNode devolveu), em posições distintas e ligados', async () => {

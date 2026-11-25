@@ -9,12 +9,16 @@ import br.com.archflow.agent.orchestration.OrchestrationListener;
 import br.com.archflow.agent.orchestration.OrchestrationTrace;
 import br.com.archflow.agent.orchestration.SupervisorConfig;
 import br.com.archflow.agent.orchestration.SupervisorResult;
+import br.com.archflow.api.agent.mcp.ContadorDeUso;
+import br.com.archflow.api.usage.LancamentoDeUso;
+import br.com.archflow.api.usage.RegistroDeUso;
 import br.com.archflow.conversation.agent.ConversationalAgent.ChatFunction;
 import br.com.archflow.langchain4j.provider.LLMConfigResolver;
 import br.com.archflow.langchain4j.provider.LLMResolutionRequest;
 import br.com.archflow.model.config.ResolvedLLMConfig;
 import br.com.archflow.model.engine.DefaultExecutionContext;
 import br.com.archflow.model.engine.ExecutionContext;
+import br.com.archflow.model.engine.ModelUsageListener;
 import br.com.archflow.orchestration.Budget;
 import br.com.archflow.orchestration.BudgetLedger;
 import br.com.archflow.orchestration.ConvergePolicy;
@@ -29,10 +33,17 @@ import br.com.archflow.plugin.api.catalog.ComponentCatalog;
 import br.com.archflow.plugin.api.catalog.ComponentQueryRouter;
 import br.com.archflow.plugin.api.catalog.DefaultComponentQueryRouter;
 import br.com.archflow.plugin.api.catalog.ScopedComponentCatalog;
+import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import dev.langchain4j.model.chat.ChatModel;
+import dev.langchain4j.model.chat.response.ChatResponse;
+import dev.langchain4j.model.output.TokenUsage;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -46,6 +57,8 @@ import java.util.UUID;
 @Service
 public class DynamicWorkflowService {
 
+    private static final Logger log = LoggerFactory.getLogger(DynamicWorkflowService.class);
+
     private static final String DEFAULT_DECOMPOSE_PROMPT =
             "Decompose the goal into independent, concrete subtasks.";
 
@@ -54,6 +67,9 @@ public class DynamicWorkflowService {
     private final ComponentCatalog catalog;
     private final ComponentQueryRouter router;
     private final ConfidenceScorer scorer;
+
+    /** Onde o consumo da rota REST fica medido, por tenant (RCHFLW-75); {@code null} não registra. */
+    private volatile RegistroDeUso registroDeUso;
 
     public DynamicWorkflowService(LLMConfigResolver llmConfigResolver,
                                   ResolvedLLMConfig platformDefaultLLMConfig,
@@ -67,15 +83,39 @@ public class DynamicWorkflowService {
         this.scorer = scorer;
     }
 
-    /** Entry point that creates its own ExecutionContext (REST path), with a trace. */
+    /**
+     * Liga o registro do consumo da rota REST. No passo {@code ORCHESTRATE} quem registra é o motor
+     * (o contador já vem no contexto do fluxo); fora de fluxo não havia contador nenhum, e o gasto do
+     * planejador e dos agentes-trabalhadores não entrava no uso do tenant.
+     */
+    @Autowired(required = false)
+    public void setRegistroDeUso(RegistroDeUso registroDeUso) {
+        this.registroDeUso = registroDeUso;
+    }
+
+    /**
+     * Entry point that creates its own ExecutionContext (REST path), with a trace.
+     *
+     * <p>O contador vai no contexto, como o motor faz num fluxo: o planejador e os agentes do catálogo
+     * relatam a ele. O registro fica no {@code finally} — uma orquestração que falha no meio já gastou.
+     */
     public DynamicWorkflowResponse run(DynamicWorkflowRequest req) {
         ExecutionContext ctx = new DefaultExecutionContext(
                 req.tenantId(), "orchestrator", UUID.randomUUID().toString(),
                 MessageWindowChatMemory.builder().maxMessages(20).build());
+        ContadorDeUso uso = new ContadorDeUso();
+        ContadorDeUso.injetar(ctx, uso);
         OrchestrationTrace trace = new OrchestrationTrace();
-        SupervisorResult result = runOn(req, ctx, trace);
-        return new DynamicWorkflowResponse(
-                result.confirmed(), result.confirmedCount(), result.rounds(), trace.entries());
+        try {
+            SupervisorResult result = runOn(req, ctx, trace);
+            return new DynamicWorkflowResponse(
+                    result.confirmed(), result.confirmedCount(), result.rounds(), trace.entries());
+        } finally {
+            RegistroDeUso registro = registroDeUso;
+            if (registro != null) {
+                registro.registrar(ctx.getTenantId(), null, LancamentoDeUso.ORIGEM_ORQUESTRACAO, uso);
+            }
+        }
     }
 
     /** As {@link #runOn(DynamicWorkflowRequest, ExecutionContext, OrchestrationListener)} with no listener. */
@@ -125,10 +165,11 @@ public class DynamicWorkflowService {
         // O tenant é o do contexto de execução (o do fluxo, no passo ORCHESTRATE; o da requisição,
         // conferido com o token, na rota REST): escolhe a chave dele e aplica os modelos permitidos
         // (RCHFLW-79). Sem ele o planejador rodava sempre como "nenhum tenant".
-        ChatModel model = llmConfigResolver.resolveModel(LLMResolutionRequest.builder(platformDefault)
+        LLMResolutionRequest llmRequest = LLMResolutionRequest.builder(platformDefault)
                 .tenantId(ctx.getTenantId())
-                .build());
-        ChatFunction chat = model::chat;
+                .build();
+        ChatModel model = llmConfigResolver.resolveModel(llmRequest);
+        ChatFunction chat = plannerChat(model, ctx, configParaUso(llmRequest));
 
         ComponentAccessPolicy policy = componentPolicy != null
                 ? componentPolicy : ComponentAccessPolicy.allowAll();
@@ -147,6 +188,50 @@ public class DynamicWorkflowService {
 
         DynamicSupervisor supervisor = new DynamicSupervisor(new DefaultOrchestrator(orDefault(req.concurrency(), 4)));
         return supervisor.run(Goal.of(req.goal()), config, planner, worker, voter, budget, listener);
+    }
+
+    /**
+     * O canal de chat do planejador, relatando cada chamada ao {@link ModelUsageListener} do contexto
+     * (RCHFLW-75). Antes era {@code model::chat} — texto entra, texto sai — e o uso que o provedor
+     * devolve se perdia: o planejamento gastava a chave do tenant sem aparecer no detalhe da execução,
+     * nas telas de uso nem no teto de custo.
+     *
+     * <p>Sem ouvinte a chamada é a de antes ({@code chat(String)}). Com ele, vai como lista de uma
+     * {@link UserMessage} — a mesma requisição, com a resposta inteira, de onde sai o uso (a mesma regra
+     * de {@code ChatTurn}, dos nós {@code llm-chat}). O ouvinte é lido a cada chamada, não na montagem.
+     */
+    static ChatFunction plannerChat(ChatModel model, ExecutionContext ctx, ResolvedLLMConfig config) {
+        String provedor = config == null || config.provider() == null || config.provider().isBlank()
+                ? null : config.provider();
+        String rotulo = config == null || config.model() == null || config.model().isBlank() ? null
+                : provedor == null ? config.model() : provedor + "/" + config.model();
+        return prompt -> {
+            var listener = ModelUsageListener.from(ctx);
+            if (listener.isEmpty()) {
+                return model.chat(prompt);
+            }
+            ChatResponse response = model.chat(List.of(UserMessage.from(prompt)));
+            TokenUsage tokens = response.tokenUsage();
+            listener.get().onModelCall(provedor, rotulo,
+                    tokens == null || tokens.inputTokenCount() == null ? null : tokens.inputTokenCount().longValue(),
+                    tokens == null || tokens.outputTokenCount() == null ? null
+                            : tokens.outputTokenCount().longValue());
+            return response.aiMessage().text();
+        };
+    }
+
+    /**
+     * A configuração resolvida, só para o rótulo {@code provider/modelo} do uso — a chave com que o
+     * operador declara preço, a mesma regra do laço de agente. Falhar aqui não derruba o planejador:
+     * sem rótulo, o uso sai sem modelo e sem custo, que é honesto.
+     */
+    private ResolvedLLMConfig configParaUso(LLMResolutionRequest llmRequest) {
+        try {
+            return llmConfigResolver.resolve(llmRequest);
+        } catch (RuntimeException e) {
+            log.debug("Sem configuração resolvida para o uso do planejador: {}", e.getMessage());
+            return null;
+        }
     }
 
     private static int orDefault(Integer value, int fallback) {

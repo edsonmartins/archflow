@@ -1,5 +1,8 @@
 package br.com.archflow.api.config;
 
+import br.com.archflow.model.security.ApiKey;
+import br.com.archflow.model.security.ApiKeyScope;
+import br.com.archflow.security.apikey.ApiKeyService;
 import br.com.archflow.security.auth.AuthService;
 import br.com.archflow.security.jwt.JwtService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -23,12 +26,18 @@ import java.io.IOException;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 /**
  * Validates {@code Authorization: Bearer <token>} headers, populates
  * request attributes with the user / role / tenant claims, and rejects
  * requests to protected endpoints when the token is missing or invalid.
+ *
+ * <p>The bearer credential is either a JWT access token or an API key
+ * ({@code ak_<id>.<secret>}, see {@link ApiKeyService#isApiKeyCredential}). A key
+ * is validated by {@link ApiKeyService}; its owner and tenant become the request
+ * identity and its scopes bound what it may reach ({@link ApiKeyScopeRequirement}).
  *
  * <p>Only requests to a protected API prefix ({@link #PROTECTED_PREFIXES})
  * require a token; the public paths ({@link #DEFAULT_PUBLIC_PATHS}) are carved
@@ -60,11 +69,18 @@ public class JwtAuthenticationFilter implements Filter {
     public static final String ATTR_USERNAME = "archflow.username";
     public static final String ATTR_ROLES    = "archflow.roles";
     public static final String ATTR_TENANT   = "archflow.jwtTenantId";
+    /** Id público da chave de API que autenticou a requisição (ausente quando foi um JWT). */
+    public static final String ATTR_API_KEY_ID     = "archflow.apiKeyId";
+    /** Escopos ({@code ApiKeyScope}) da chave de API que autenticou a requisição. */
+    public static final String ATTR_API_KEY_SCOPES = "archflow.apiKeyScopes";
 
     private static final List<String> DEFAULT_PUBLIC_PATHS = List.of(
             "/api/auth/login",
             "/api/auth/refresh",
             "/api/auth/logout",
+            // Aceite de convite (RCHFLW-85): quem aceita ainda não tem credencial; o token de uso
+            // único do link é o que o controller confere.
+            "/api/auth/invitations/",
             "/api/health",
             "/actuator/",
             "/realtime/",
@@ -100,6 +116,7 @@ public class JwtAuthenticationFilter implements Filter {
 
     private final JwtService jwtService;
     private final AuthService authService;
+    private final ApiKeyService apiKeyService;
     private final boolean enabled;
     private final Set<String> publicPaths;
     private final ObjectMapper jsonWriter = new ObjectMapper();
@@ -108,10 +125,12 @@ public class JwtAuthenticationFilter implements Filter {
     public JwtAuthenticationFilter(
             JwtService jwtService,
             AuthService authService,
+            ApiKeyService apiKeyService,
             @Value("${archflow.security.auth.enabled:false}") boolean enabled,
             @Value("${archflow.security.auth.publicPaths:}") String additionalPublicPaths) {
         this.jwtService = jwtService;
         this.authService = authService;
+        this.apiKeyService = apiKeyService;
         this.enabled = enabled;
         Set<String> paths = new HashSet<>(DEFAULT_PUBLIC_PATHS);
         if (additionalPublicPaths != null && !additionalPublicPaths.isBlank()) {
@@ -125,8 +144,13 @@ public class JwtAuthenticationFilter implements Filter {
         }
     }
 
+    public JwtAuthenticationFilter(JwtService jwtService, AuthService authService, boolean enabled,
+                                   String additionalPublicPaths) {
+        this(jwtService, authService, null, enabled, additionalPublicPaths);
+    }
+
     JwtAuthenticationFilter(JwtService jwtService, boolean enabled, String additionalPublicPaths) {
-        this(jwtService, null, enabled, additionalPublicPaths);
+        this(jwtService, null, null, enabled, additionalPublicPaths);
     }
 
     @Override
@@ -143,7 +167,15 @@ public class JwtAuthenticationFilter implements Filter {
         String authHeader = http.getHeader("Authorization");
         String token = stripBearer(authHeader);
 
-        if (token != null) {
+        if (token != null && ApiKeyService.isApiKeyCredential(token)) {
+            // O mesmo "Bearer" que o Publicar ensina carrega também chaves de API (RCHFLW-84). Antes
+            // toda credencial ia para o JWT e a chave era sempre "token inválido": nenhuma
+            // integração autenticava.
+            if (!authenticateApiKey(http, httpResp, token, enabled && !isPublic && isProtectedPath(path),
+                    isPublic || !isProtectedPath(path))) {
+                return;
+            }
+        } else if (token != null) {
             try {
                 Claims claims = jwtService.validateToken(token);
                 if (!"access".equals(claims.get("type", String.class))) {
@@ -174,6 +206,82 @@ public class JwtAuthenticationFilter implements Filter {
         }
 
         chain.doFilter(request, response);
+    }
+
+    /**
+     * Autentica a requisição por uma chave de API e aplica os escopos dela.
+     *
+     * <p>Válida: dono e tenant da chave viram a identidade da requisição, nos mesmos atributos que
+     * um JWT preenche — o {@link ImpersonationFilter} trata o tenant como o de um token (o
+     * {@code X-Tenant-Id} só pode repeti-lo) e quem lê o usuário (auditoria) vê o dono. Não há roles:
+     * uma chave não é admin de nada. E a chave só alcança o que um escopo dela cobre
+     * ({@link ApiKeyScopeRequirement}) <em>e</em> o papel atual do dono ainda concede; fora disso,
+     * {@code 403}. O escopo vale mesmo com a autenticação desligada: quem se apresenta como a chave
+     * não recebe a identidade dela sem os limites dela.
+     *
+     * <p>Revogada, expirada, desconhecida, malformada ou com o dono desativado/removido: {@code 401}
+     * onde a autenticação é exigida; fora disso (autenticação desligada) segue anônima, como um JWT
+     * inválido.
+     *
+     * @param enforce   a autenticação é exigida neste caminho
+     * @param unguarded caminho público ou fora da API (estático/SPA): a chave não é considerada
+     * @return {@code false} quando a resposta já foi escrita (recusa)
+     */
+    private boolean authenticateApiKey(HttpServletRequest http, HttpServletResponse resp, String credential,
+                                       boolean enforce, boolean unguarded) throws IOException {
+        if (unguarded) {
+            return true;
+        }
+        if (apiKeyService == null) {
+            if (enforce) {
+                reject(resp, HttpServletResponse.SC_UNAUTHORIZED, "INVALID_API_KEY",
+                        "API key authentication is not available on this server");
+                return false;
+            }
+            return true;
+        }
+        ApiKeyService.AuthenticatedApiKey authenticated;
+        try {
+            authenticated = apiKeyService.authenticate(credential);
+        } catch (ApiKeyService.InvalidApiKeyException e) {
+            if (enforce) {
+                // Só o motivo; nunca a credencial recebida.
+                log.debug("Rejected request to {} — API key {}", http.getRequestURI(), e.reason());
+                reject(resp, HttpServletResponse.SC_UNAUTHORIZED, "INVALID_API_KEY", e.getMessage());
+                return false;
+            }
+            log.debug("Ignoring invalid API key (auth disabled): {}", e.reason());
+            return true;
+        }
+        ApiKey apiKey = authenticated.apiKey();
+        Optional<ApiKeyScope> required = ApiKeyScopeRequirement.requiredScope(http.getMethod(),
+                http.getRequestURI());
+        if (required.isEmpty()) {
+            reject(resp, HttpServletResponse.SC_FORBIDDEN, "API_KEY_ENDPOINT_NOT_ALLOWED",
+                    "API keys cannot access " + http.getMethod() + " " + http.getRequestURI());
+            return false;
+        }
+        if (!apiKey.hasScope(required.get())) {
+            reject(resp, HttpServletResponse.SC_FORBIDDEN, "INSUFFICIENT_SCOPE",
+                    "This API key lacks the scope " + required.get().name() + " required for "
+                            + http.getMethod() + " " + http.getRequestURI());
+            return false;
+        }
+        if (!authenticated.ownerPermits(required.get())) {
+            // O escopo foi concedido quando o papel do dono permitia; o papel atual não permite mais.
+            reject(resp, HttpServletResponse.SC_FORBIDDEN, "INSUFFICIENT_OWNER_PERMISSION",
+                    "The owner of this API key no longer has the permission " + required.get().getPermission()
+                            + " required for " + http.getMethod() + " " + http.getRequestURI());
+            return false;
+        }
+        http.setAttribute(ATTR_USER_ID, apiKey.getOwnerId());
+        http.setAttribute(ATTR_TENANT, apiKey.getTenantId());
+        if (http.getAttribute(ImpersonationFilter.ATTR_TENANT_ID) == null) {
+            http.setAttribute(ImpersonationFilter.ATTR_TENANT_ID, apiKey.getTenantId());
+        }
+        http.setAttribute(ATTR_API_KEY_ID, apiKey.getKeyId());
+        http.setAttribute(ATTR_API_KEY_SCOPES, Set.copyOf(apiKey.getScopes()));
+        return true;
     }
 
     private boolean isPublicPath(String path) {
@@ -221,7 +329,11 @@ public class JwtAuthenticationFilter implements Filter {
     }
 
     private void reject(HttpServletResponse resp, String code, String message) throws IOException {
-        resp.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+        reject(resp, HttpServletResponse.SC_UNAUTHORIZED, code, message);
+    }
+
+    private void reject(HttpServletResponse resp, int status, String code, String message) throws IOException {
+        resp.setStatus(status);
         resp.setContentType("application/json");
         resp.getWriter().write(jsonWriter.writeValueAsString(java.util.Map.of(
                 "error", code,

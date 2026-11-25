@@ -1,7 +1,10 @@
 package br.com.archflow.api.agui;
 
+import br.com.archflow.api.agent.mcp.ContadorDeUso;
 import br.com.archflow.api.config.TenantContext;
 import br.com.archflow.api.trust.UntrustedContentFence;
+import br.com.archflow.api.usage.LancamentoDeUso;
+import br.com.archflow.api.usage.RegistroDeUso;
 import br.com.archflow.langchain4j.provider.LLMConfigResolver;
 import br.com.archflow.langchain4j.provider.LLMResolutionRequest;
 import br.com.archflow.model.config.ResolvedLLMConfig;
@@ -19,6 +22,8 @@ import dev.langchain4j.model.chat.request.json.JsonObjectSchema;
 import dev.langchain4j.model.chat.request.json.JsonStringSchema;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
+import dev.langchain4j.model.output.TokenUsage;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -71,12 +76,24 @@ public class AgUiAgentController {
     private final ResolvedLLMConfig platformDefault;
     private final ObjectMapper json;
 
+    /** Onde o consumo do chat fica medido, por tenant (RCHFLW-75); {@code null} não registra. */
+    private volatile RegistroDeUso registroDeUso;
+
     public AgUiAgentController(LLMConfigResolver llmConfigResolver,
                               ResolvedLLMConfig platformDefaultLLMConfig,
                               ObjectMapper jackson2ObjectMapper) {
         this.llmConfigResolver = llmConfigResolver;
         this.platformDefault = platformDefaultLLMConfig;
         this.json = jackson2ObjectMapper;
+    }
+
+    /**
+     * Liga o registro do consumo. O chat do AG-UI chama o modelo direto, sem o laço de agente, e era
+     * um dos caminhos em que nenhum token era contado.
+     */
+    @Autowired(required = false)
+    public void setRegistroDeUso(RegistroDeUso registroDeUso) {
+        this.registroDeUso = registroDeUso;
     }
 
     @PostMapping(value = "/agent", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
@@ -95,10 +112,13 @@ public class AgUiAgentController {
             // O tenant da requisição (JWT/impersonação, ver ImpersonationFilter) — resolvido aqui, na
             // thread da requisição: escolhe a chave dele e aplica os modelos permitidos (RCHFLW-79).
             // Sem tenant é o sentinela __default__, que o resolver trata como "nenhum tenant".
-            StreamingChatModel model = llmConfigResolver.resolveStreamingModel(
-                    LLMResolutionRequest.builder(platformDefault)
-                            .tenantId(TenantContext.currentTenantId())
-                            .build());
+            String tenantId = TenantContext.currentTenantId();
+            LLMResolutionRequest llmRequest = LLMResolutionRequest.builder(platformDefault)
+                    .tenantId(tenantId)
+                    .build();
+            StreamingChatModel model = llmConfigResolver.resolveStreamingModel(llmRequest);
+            ContadorDeUso uso = new ContadorDeUso();
+            ResolvedLLMConfig configDoUso = configParaUso(llmRequest);
 
             emit(sse, lock, AgUiEvent.of("TEXT_MESSAGE_START", fields("messageId", messageId, "role", "assistant")));
 
@@ -116,6 +136,7 @@ public class AgUiAgentController {
 
                 @Override
                 public void onCompleteResponse(ChatResponse response) {
+                    registrarUso(tenantId, configDoUso, uso, response);
                     synchronized (lock) {
                         writeQuietly(sse, AgUiEvent.of("TEXT_MESSAGE_END", fields("messageId", messageId)));
                         // Frontend tool calls (useFrontendTool): emit AG-UI TOOL_CALL_*
@@ -153,6 +174,33 @@ public class AgUiAgentController {
         }
 
         return sse;
+    }
+
+    /**
+     * {@code provider/modelo} da chamada — a chave com que o operador declara preço, a mesma regra do
+     * laço de agente. Sem configuração resolvida, o uso sai sem modelo (e sem custo), nunca falha.
+     */
+    private ResolvedLLMConfig configParaUso(LLMResolutionRequest llmRequest) {
+        try {
+            return llmConfigResolver.resolve(llmRequest);
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    /** Soma o turno e registra o total ({@link RegistroDeUso#registrar} não lança). */
+    private void registrarUso(String tenantId, ResolvedLLMConfig config, ContadorDeUso uso, ChatResponse response) {
+        RegistroDeUso registro = registroDeUso;
+        if (registro == null) {
+            return;
+        }
+        TokenUsage tokens = response == null ? null : response.tokenUsage();
+        String provedor = config == null ? null : config.provider();
+        String modelo = config == null || config.model() == null || config.model().isBlank() ? null
+                : provedor == null || provedor.isBlank() ? config.model() : provedor + "/" + config.model();
+        uso.somar(provedor, modelo,
+                tokens == null ? null : tokens.inputTokenCount(), tokens == null ? null : tokens.outputTokenCount());
+        registro.registrar(tenantId, null, LancamentoDeUso.ORIGEM_AG_UI, uso);
     }
 
     /**

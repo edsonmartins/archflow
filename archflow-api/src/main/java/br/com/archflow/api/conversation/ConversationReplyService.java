@@ -8,15 +8,21 @@ import br.com.archflow.api.config.TenantContext;
 import br.com.archflow.conversation.message.ConversationMessage;
 import br.com.archflow.conversation.service.ConversationService;
 import br.com.archflow.langchain4j.provider.LLMConfigResolver;
+import br.com.archflow.langchain4j.provider.LLMProvider;
 import br.com.archflow.langchain4j.provider.LLMResolutionRequest;
 import br.com.archflow.model.config.ResolvedLLMConfig;
-import dev.langchain4j.model.chat.ChatModel;
+import dev.langchain4j.model.chat.StreamingChatModel;
+import dev.langchain4j.model.chat.response.ChatResponse;
+import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -24,11 +30,18 @@ import java.util.concurrent.Executors;
  * Gera a resposta do agente para uma mensagem de conversa e a publica via SSE.
  *
  * <p>Fluxo: mensagem do usuário já persistida → {@link #replyAsync} → monta o
- * prompt com o histórico recente → {@code ChatModel.chat} (config resolvida
- * pelo {@link LLMConfigResolver}, mesmo caminho do AssistService) → persiste a
- * resposta → publica eventos {@code chat/start|message|end} (ou {@code error})
- * no canal {@code tenantId:conversationId} do {@link EventStreamRegistry},
- * consumido por {@code GET /api/stream/...}.
+ * prompt com o histórico recente → {@code StreamingChatModel.chat} (config resolvida
+ * pelo {@link LLMConfigResolver}, mesmo caminho do AssistService) → um {@code chat/delta}
+ * por parcial → persiste a resposta → {@code chat/message} com o texto completo e
+ * {@code chat/end} (ou {@code error}) no canal {@code tenantId:conversationId} do
+ * {@link EventStreamRegistry}, consumido por {@code GET /api/stream/...}.
+ *
+ * <p>Antes a resposta era o {@code ChatModel.chat} bloqueante: a bolha ficava vazia durante toda a
+ * geração e o texto aparecia inteiro no fim, embora o chat já acumulasse deltas (RCHFLW-68). O
+ * bloqueante continua só para o provider que declara não ter streaming
+ * ({@link LLMProvider#supportsStreaming()}) — decidido pelo provider resolvido, antes de chamar, e
+ * não por uma exceção do streaming: uma falha no meio da geração vira {@code error}, não uma
+ * segunda chamada ao modelo.
  *
  * <p>Antes deste serviço, o POST de mensagem apenas persistia — o frontend
  * ficava com spinner eterno esperando uma resposta que nunca chegava
@@ -84,28 +97,109 @@ public class ConversationReplyService {
             // a chave dele (antes da da plataforma) e aplica os modelos permitidos (RCHFLW-79). Sem ele o
             // resolver tratava toda resposta como "nenhum tenant" e a restrição não valia aqui. O
             // FALLBACK_TENANT é só o canal de broadcast, não um tenant de verdade.
-            ChatModel model = llmConfigResolver.resolveModel(LLMResolutionRequest.builder(platformDefault)
+            LLMResolutionRequest request = LLMResolutionRequest.builder(platformDefault)
                     .tenantId(FALLBACK_TENANT.equals(tenantId) ? null : tenantId)
-                    .build());
-            String replyText = model.chat(prompt);
+                    .build();
+            String replyText = streams(request)
+                    ? streamReply(request, prompt, tenantId, conversationId)
+                    : llmConfigResolver.resolveModel(request).chat(prompt);
 
-            ConversationMessage assistant = ConversationMessage.assistant(conversationId, replyText);
-            conversationService.addMessage(assistant);
-
-            broadcast(tenantId, conversationId, ArchflowEventType.MESSAGE, Map.of(
-                    "conversationId", conversationId,
-                    "messageId", assistant.id(),
-                    "role", "assistant",
-                    "content", replyText));
-            broadcast(tenantId, conversationId, ArchflowEventType.END,
-                    Map.of("conversationId", conversationId));
+            publishAssistantMessage(conversationId, tenantId, replyText);
 
         } catch (Exception e) {
-            log.warn("Falha ao gerar resposta para conversa {}: {}", conversationId, e.toString());
+            Throwable cause = e instanceof CompletionException && e.getCause() != null ? e.getCause() : e;
+            log.warn("Falha ao gerar resposta para conversa {}: {}", conversationId, cause.toString());
             broadcast(tenantId, conversationId, ArchflowEventType.ERROR, Map.of(
                     "conversationId", conversationId,
-                    "message", "Falha ao gerar resposta: " + e.getMessage()));
+                    "message", "Falha ao gerar resposta: " + cause.getMessage()));
         }
+    }
+
+    /**
+     * Se o provider resolvido para a requisição declara streaming. Um provider que o catálogo não
+     * conhece segue o caminho bloqueante, que falha com a mensagem da resolução dele.
+     */
+    private boolean streams(LLMResolutionRequest request) {
+        ResolvedLLMConfig resolved = llmConfigResolver.resolve(request);
+        return LLMProvider.fromId(resolved.provider()).map(LLMProvider::supportsStreaming).orElse(false);
+    }
+
+    /**
+     * Gera em streaming, publicando cada parcial como {@code chat/delta} assim que chega, e devolve o
+     * texto completo. Espera o fim aqui — a thread já é a virtual do {@link #replyAsync} — para que
+     * persistir e publicar o fim continue num ponto só, com o mesmo tratamento de erro do bloqueante.
+     */
+    private String streamReply(LLMResolutionRequest request, String prompt, String tenantId,
+                               String conversationId) {
+        StreamingChatModel model = llmConfigResolver.resolveStreamingModel(request);
+        StringBuilder received = new StringBuilder();
+        CompletableFuture<ChatResponse> done = new CompletableFuture<>();
+        model.chat(prompt, new StreamingChatResponseHandler() {
+            @Override
+            public void onPartialResponse(String partial) {
+                if (partial == null || partial.isEmpty()) {
+                    return;
+                }
+                received.append(partial);
+                broadcast(tenantId, conversationId, ArchflowEventType.DELTA, Map.of(
+                        "conversationId", conversationId,
+                        "content", partial));
+            }
+
+            @Override
+            public void onCompleteResponse(ChatResponse response) {
+                done.complete(response);
+            }
+
+            @Override
+            public void onError(Throwable error) {
+                done.completeExceptionally(error);
+            }
+        });
+        ChatResponse response = done.join();
+        // O texto final do provider é o oficial; os deltas são o mesmo texto em partes, e só valem
+        // quando a resposta final não traz texto (provider que só entrega pelas parciais).
+        String text = response != null && response.aiMessage() != null ? response.aiMessage().text() : null;
+        return text != null ? text : received.toString();
+    }
+
+    /**
+     * Persiste uma fala do assistente e a publica como resposta completa: {@code chat/start},
+     * {@code chat/message} e {@code chat/end}. É por aqui que a resposta de um fluxo retomado pelo
+     * formulário chega ao chat (RCHFLW-67) — o mesmo canal e o mesmo formato da resposta do agente.
+     */
+    void publishReply(String conversationId, String tenantId, ConversationMessage message) {
+        String tenant = channelTenant(tenantId);
+        broadcast(tenant, conversationId, ArchflowEventType.START, Map.of("conversationId", conversationId));
+        publishMessage(conversationId, tenant, message);
+    }
+
+    /** Persiste e publica uma falha que encerra a espera do chat ({@code chat/error}). */
+    void publishFailure(String conversationId, String tenantId, String message) {
+        String tenant = channelTenant(tenantId);
+        conversationService.addMessage(ConversationMessage.system(conversationId, message));
+        broadcast(tenant, conversationId, ArchflowEventType.ERROR, Map.of(
+                "conversationId", conversationId,
+                "message", message));
+    }
+
+    private void publishAssistantMessage(String conversationId, String tenantId, String text) {
+        publishMessage(conversationId, tenantId, ConversationMessage.assistant(conversationId, text));
+    }
+
+    private void publishMessage(String conversationId, String tenantId, ConversationMessage message) {
+        conversationService.addMessage(message);
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("conversationId", conversationId);
+        data.put("messageId", message.id());
+        data.put("role", message.role().name().toLowerCase(java.util.Locale.ROOT));
+        data.put("content", message.content());
+        broadcast(tenantId, conversationId, ArchflowEventType.MESSAGE, data);
+        broadcast(tenantId, conversationId, ArchflowEventType.END, Map.of("conversationId", conversationId));
+    }
+
+    private static String channelTenant(String tenantId) {
+        return tenantId == null || tenantId.isBlank() ? FALLBACK_TENANT : tenantId;
     }
 
     private void broadcast(String tenantId, String conversationId,

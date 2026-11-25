@@ -32,6 +32,19 @@ public interface ExecutionContext {
     void set(String key, Object value);
 
     /**
+     * Remove uma variável do contexto. Existe porque {@link #set} não aceita {@code null}: sem ela, quem
+     * precisa dizer "não há valor" (o executor, ao fixar o {@code input} de um step que não recebe dado
+     * nenhum) só conseguiria deixar o valor anterior, que é o de outro step.
+     *
+     * <p>O default falha em vez de ignorar: um contexto que não remove deixaria o valor velho no lugar
+     * sem ninguém ver.
+     */
+    default void remove(String key) {
+        throw new UnsupportedOperationException(
+                getClass().getName() + " não suporta remover a variável '" + key + "' do contexto");
+    }
+
+    /**
      * Retorna uma nova instância do contexto com a variável adicionada/atualizada.
      * O contexto original permanece inalterado (imutabilidade).
      *

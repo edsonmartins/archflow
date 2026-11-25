@@ -88,6 +88,23 @@ class JwtAuthenticationFilterTest {
     }
 
     @Test
+    @DisplayName("o aceite de convite é público: quem aceita ainda não tem credencial (RCHFLW-85)")
+    void permitsInvitationAcceptance() throws Exception {
+        JwtAuthenticationFilter filter = new JwtAuthenticationFilter(jwtService, true, "");
+
+        HttpServletRequest req = mock(HttpServletRequest.class);
+        HttpServletResponse resp = mock(HttpServletResponse.class);
+        FilterChain chain = mock(FilterChain.class);
+        when(req.getRequestURI()).thenReturn("/api/auth/invitations/accept");
+        when(req.getHeader("Authorization")).thenReturn(null);
+
+        filter.doFilter(req, resp, chain);
+
+        verify(chain, times(1)).doFilter(req, resp);
+        verify(resp, never()).setStatus(401);
+    }
+
+    @Test
     @DisplayName("populates request attributes from valid access token")
     void populatesAttributes() throws Exception {
         JwtAuthenticationFilter filter = new JwtAuthenticationFilter(jwtService, true, "");

@@ -420,18 +420,16 @@ public class JdbcWorkflowRuntimeStore implements WorkflowRuntimeStore {
 
     @Override
     public Map<String, Object> createExecution(
-            String tenantId, String workflowId, String workflowName, String workflowVersionId) {
+            String tenantId, String workflowId, String workflowName, WorkflowVersionRecord version) {
         Map<String, Object> execution = newExecution(tenantId, workflowId, workflowName);
-        execution.put("workflowVersionId", workflowVersionId);
+        WorkflowRuntimeStore.recordRanVersion(execution, version);
         saveExecution(String.valueOf(execution.get("id")), execution);
         return execution;
     }
 
     @Override
     public Map<String, Object> createExecution(String tenantId, String workflowId, String workflowName) {
-        Map<String, Object> execution = newExecution(tenantId, workflowId, workflowName);
-        saveExecution(String.valueOf(execution.get("id")), execution);
-        return execution;
+        return createExecution(tenantId, workflowId, workflowName, null);
     }
 
     private static Map<String, Object> newExecution(String tenantId, String workflowId, String workflowName) {

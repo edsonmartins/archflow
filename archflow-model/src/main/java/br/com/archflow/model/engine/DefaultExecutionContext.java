@@ -81,6 +81,11 @@ public class DefaultExecutionContext implements ExecutionContext {
     }
 
     @Override
+    public void remove(String key) {
+        variables.remove(key);
+    }
+
+    @Override
     public ExecutionContext withVariable(String key, Object value) {
         Map<String, Object> newVars = new HashMap<>(this.variables);
         newVars.put(key, value);

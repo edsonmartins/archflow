@@ -7,6 +7,8 @@ import br.com.archflow.engine.api.FlowEngine;
 import br.com.archflow.engine.persistence.FlowRepository;
 import br.com.archflow.langchain4j.mcp.McpModel;
 import br.com.archflow.model.enums.ExecutionStatus;
+import br.com.archflow.model.error.ExecutionError;
+import br.com.archflow.model.error.ExecutionErrorType;
 import br.com.archflow.model.flow.Flow;
 import br.com.archflow.model.flow.FlowResult;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -104,5 +106,52 @@ class WorkflowMcpServerTest {
 
         assertThat(result.isError()).isTrue();
         assertThat(result.content().get(0).text()).contains("boom");
+    }
+
+    @Test
+    @DisplayName("fluxo que termina FAILED sem exceção devolve isError=true com o motivo e o registro guarda o erro")
+    void failedResultIsAnError() throws Exception {
+        FlowResult flowResult = mock(FlowResult.class);
+        when(flowResult.getStatus()).thenReturn(ExecutionStatus.FAILED);
+        when(flowResult.getErrors()).thenReturn(List.of(
+                ExecutionError.of("STEP_FAILED", "provedor recusou a chave", ExecutionErrorType.EXECUTION)));
+        when(engine.execute(any(), any())).thenReturn(CompletableFuture.completedFuture(flowResult));
+
+        McpModel.ToolResult result = server
+                .callTool(new McpModel.ToolArguments("workflow_wf-demo-001", Map.of("input", "hi")))
+                .get();
+
+        assertThat(result.isError()).isTrue();
+        String text = result.content().get(0).text();
+        assertThat(text).contains("provedor recusou a chave");
+        Map<String, Object> execution = onlyNewExecution(text);
+        assertThat(execution.get("status")).isEqualTo("FAILED");
+        assertThat(execution.get("error")).isEqualTo("provedor recusou a chave");
+    }
+
+    @Test
+    @DisplayName("fluxo que termina CANCELLED também é isError=true")
+    void cancelledResultIsAnError() throws Exception {
+        FlowResult flowResult = mock(FlowResult.class);
+        when(flowResult.getStatus()).thenReturn(ExecutionStatus.CANCELLED);
+        when(flowResult.getErrors()).thenReturn(List.of());
+        when(engine.execute(any(), any())).thenReturn(CompletableFuture.completedFuture(flowResult));
+
+        McpModel.ToolResult result = server
+                .callTool(new McpModel.ToolArguments("workflow_wf-demo-001", Map.of()))
+                .get();
+
+        assertThat(result.isError()).isTrue();
+        String text = result.content().get(0).text();
+        assertThat(text).contains("cancelled");
+        assertThat(onlyNewExecution(text).get("status")).isEqualTo("CANCELLED");
+    }
+
+    /** A execução criada pela chamada: o id aparece no texto de erro entre parênteses. */
+    private Map<String, Object> onlyNewExecution(String text) {
+        String executionId = text.replaceAll("(?s).*\\(([^)]+)\\).*", "$1");
+        Map<String, Object> execution = store.getExecution(DefaultTenant.ID, executionId);
+        assertThat(execution).as("execução %s", executionId).isNotNull();
+        return execution;
     }
 }

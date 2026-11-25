@@ -193,12 +193,14 @@ public class OpenRouterChatAdapter implements LangChainAdapter, ChatModelProvide
             ChatModel resolved = resolveModel(model, context);
 
             try {
-                return executeWithModel(resolved, operation, input, context);
+                return executeWithModel(resolved, operation, input, context, "openrouter", modeloPedido(context));
             } catch (Exception e) {
                 if (fallbackModel != null) {
                     logger.log(Level.WARNING,
                             "OpenRouter call failed, falling back to local provider: " + e.getMessage());
-                    return executeWithModel(fallbackModel, operation, input, context);
+                    // O fallback é outro provedor (local): o rótulo é o modelo dele, sem "openrouter/".
+                    return executeWithModel(fallbackModel, operation, input, context, null,
+                            (String) config.get("fallback.model.name"));
                 }
                 throw e;
             }
@@ -399,8 +401,14 @@ public class OpenRouterChatAdapter implements LangChainAdapter, ChatModelProvide
         };
     }
 
+    /** O modelo que esta chamada pede: o efetivo do contexto, ou o configurado no adapter. */
+    private String modeloPedido(ExecutionContext context) {
+        EffectiveModel eff = effectiveModel(context);
+        return eff != null ? eff.modelName() : (String) config.getOrDefault("model.name", DEFAULT_MODEL);
+    }
+
     private Object executeWithModel(ChatModel chatModel, String operation, Object input,
-                                     ExecutionContext context) throws Exception {
+                                     ExecutionContext context, String provider, String modelName) throws Exception {
         // O prompt de sistema do nó vai na frente da mensagem, no modelo principal e no fallback
         // (ChatTurn) — antes era descartado e o modelo respondia sem as instruções.
         String systemPrompt = ChatTurn.systemPromptOf(this.config);
@@ -408,7 +416,8 @@ public class OpenRouterChatAdapter implements LangChainAdapter, ChatModelProvide
             if (!(input instanceof String)) {
                 throw new IllegalArgumentException("Input must be a string for 'generate'");
             }
-            return ChatTurn.generate(chatModel, systemPrompt, (String) input);
+            // O consumo vai para o contador da execução, se houver (RCHFLW-75).
+            return ChatTurn.generate(chatModel, systemPrompt, (String) input, context, provider, modelName);
         }
 
         if ("chat".equals(operation)) {
@@ -419,7 +428,7 @@ public class OpenRouterChatAdapter implements LangChainAdapter, ChatModelProvide
             if (memory == null) {
                 throw new IllegalStateException("Chat memory not available in context");
             }
-            return ChatTurn.chat(chatModel, systemPrompt, memory, (String) input);
+            return ChatTurn.chat(chatModel, systemPrompt, memory, (String) input, context, provider, modelName);
         }
 
         throw new IllegalArgumentException("Unsupported operation: " + operation);

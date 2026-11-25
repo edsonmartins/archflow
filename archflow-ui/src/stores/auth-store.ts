@@ -64,6 +64,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         }
         sessionStorage.removeItem('archflow_token');
         sessionStorage.removeItem('archflow_refresh_token');
+        // A personificação é da sessão de quem saiu: sem isto o próximo login nesta aba seguiria mandando
+        // X-Impersonate-Tenant do tenant anterior.
+        useTenantStore.getState().exitImpersonation();
         useTenantStore.getState().setRole('viewer');
         sessionStorage.removeItem('archflow_role');
         set({ user: null, token: null });

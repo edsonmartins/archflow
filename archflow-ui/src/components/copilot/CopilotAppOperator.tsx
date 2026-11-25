@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
+import { COPILOT_GENERATE_AGENT_ID } from './CopilotGenerateBridge'
 import { notifications } from '@mantine/notifications'
 import { useTranslation } from 'react-i18next'
 import { z } from 'zod'
@@ -14,6 +15,7 @@ import {
     visibleConfig, REDACTED, type ConfigValueType,
 } from './nodeConfigKeys'
 import { confirmCopilotNodeRemoval } from './confirmCopilotRemoval'
+import CopilotClockContext from './CopilotClockContext'
 
 /** page key -> route. Exposed to the agent so it can navigate by name. */
 const ROUTES: Record<string, string> = {
@@ -90,7 +92,7 @@ function annotationError(sourceId: string, targetId: string, nodes: CanvasNodeRe
 
 type AgentMessageLike = { id: string; role: string; toolCalls?: { id: string }[] }
 /** O que o CopilotKit entrega como 2º argumento do handler (FrontendToolHandlerContext). */
-type ToolContext = { toolCall?: { id: string }; agent?: { messages?: AgentMessageLike[] } }
+type ToolContext = { toolCall?: { id: string }; agent?: { agentId?: string; messages?: AgentMessageLike[] } }
 
 /**
  * Id da mensagem do assistente que trouxe esta chamada — identifica o lote. Todas as chamadas de um lote
@@ -266,6 +268,13 @@ export default function CopilotAppOperator() {
         parameters: z.object({ name: z.string().optional().describe('optional name for the flow') }),
         handler: async ({ name }: CreateFlowParams, ctx?: ToolContext): Promise<CreateFlowResult> => {
             guardEdit(ctx, 'createFlow')
+            // O "Gerar com IA" é disparado do editor de UM fluxo e monta aquele fluxo. Criar outro ali deixava o
+            // fluxo que o usuário abriu vazio e levava tudo para um novo (RCHFLW-95). Recusar devolve o motivo ao
+            // modelo, que segue adicionando os nós no canvas aberto.
+            if (ctx?.agent?.agentId === COPILOT_GENERATE_AGENT_ID) {
+                throw new Error('createFlow not applied: "Gerar com IA" builds the flow that is open in the editor. '
+                    + 'Add the nodes to the current canvas with addNode.')
+            }
             try {
                 const wf = await workflowApi.create({
                     metadata: { name: name || 'New flow', description: '', version: '1.0.0', category: '', tags: [] },
@@ -569,5 +578,6 @@ export default function CopilotAppOperator() {
         },
     })
 
-    return null
+    // Data e hora atuais (RCHFLW-98) num filho: o relógio vira a cada minuto sem renderizar o operador de novo.
+    return <CopilotClockContext />
 }

@@ -6,15 +6,26 @@ import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 /**
- * Registra o {@link AdminRoleInterceptor} nos paths de administração global.
+ * Registra o {@link AdminRoleInterceptor} nos paths de administração global e o
+ * {@link WorkflowPermissionInterceptor} nos de fluxos e execuções (RCHFLW-74).
  * Configuração separada de {@link WebMvcConfiguration} (CORS) para manter a
- * superfície de admin-enforcement isolada e testável.
+ * superfície de enforcement de papel isolada e testável.
  */
 @Configuration
 public class AdminSecurityConfiguration implements WebMvcConfigurer {
 
-    /** Paths que exigem role ADMIN/SUPERADMIN. */
-    static final String[] ADMIN_PATHS = {"/api/admin/global/**", "/api/admin/tenants/**"};
+    /**
+     * Paths que exigem role ADMIN/SUPERADMIN. O workspace entrou com RCHFLW-85: convidar, trocar papel
+     * e remover passaram a mudar o acesso real do login — aberto a qualquer autenticado, um
+     * visualizador se promoveria a ADMIN.
+     */
+    static final String[] ADMIN_PATHS = {"/api/admin/global/**", "/api/admin/tenants/**", "/api/admin/workspace/**"};
+
+    /** Paths cujas escritas exigem a permissão do papel ({@link WorkflowPermissionInterceptor}). */
+    static final String[] WORKFLOW_PATHS = {
+        "/api/workflows", "/api/workflows/**", "/api/executions", "/api/executions/**", "/ag-ui/workflows/**",
+        "/api/templates/*/install", "/api/admin/observability/running/*/cancel"
+    };
 
     private final boolean authEnabled;
 
@@ -27,5 +38,7 @@ public class AdminSecurityConfiguration implements WebMvcConfigurer {
     public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(new AdminRoleInterceptor(authEnabled))
                 .addPathPatterns(ADMIN_PATHS);
+        registry.addInterceptor(new WorkflowPermissionInterceptor(authEnabled))
+                .addPathPatterns(WORKFLOW_PATHS);
     }
 }

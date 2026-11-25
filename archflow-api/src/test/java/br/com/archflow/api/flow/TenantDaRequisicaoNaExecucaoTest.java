@@ -276,7 +276,8 @@ class TenantDaRequisicaoNaExecucaoTest {
         String daGlobex = executarPorRest("globex", null);
         aguardandoAprovacao(daGlobex);
 
-        SpringApprovalController endpoint = new SpringApprovalController(new ApprovalControllerImpl(queue));
+        SpringApprovalController endpoint = new SpringApprovalController(new ApprovalControllerImpl(queue),
+                new br.com.archflow.api.config.TenantScope(false));
 
         List<ApprovalResponse> vistoPelaAcme = naRequisicao("acme", () -> endpoint.listPending(null));
         Map<String, Integer> contagemDaAcme = naRequisicao("acme", () -> endpoint.pendingCount(null));

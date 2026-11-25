@@ -1,4 +1,37 @@
 {
+    "acceptInvite": {
+        "title": "Aceitar convite",
+        "subtitle": "Defina a senha do seu acesso. Ela precisa ter pelo menos {{min}} caracteres.",
+        "password": "Senha",
+        "confirm": "Confirme a senha",
+        "tooShort": "Pelo menos {{min}} caracteres",
+        "mismatch": "As senhas não conferem",
+        "submit": "Ativar acesso",
+        "done": "Acesso ativado. Entre com o usuário {{username}} e a senha que você definiu.",
+        "goToLogin": "Ir para o login",
+        "haveAccount": "Já tenho acesso",
+        "missingToken": "Este link de convite está incompleto. Peça ao administrador um link novo.",
+        "failed": "Não foi possível aceitar o convite"
+    },
+    "workspaceUserErrors": {
+        "BODY_REQUIRED": "A requisição chegou sem dados. Recarregue a página e tente de novo.",
+        "EMAIL_INVALID": "E-mail inválido.",
+        "ROLE_UNKNOWN": "Função desconhecida. Escolha uma das funções da lista.",
+        "USER_EXISTS": "Já existe um usuário com este e-mail.",
+        "USER_NOT_FOUND": "Usuário não encontrado neste workspace.",
+        "SELF_ROLE_CHANGE": "Você não pode mudar a sua própria função; peça a outro administrador.",
+        "SELF_REMOVE": "Você não pode remover a si mesmo; peça a outro administrador.",
+        "INVITATION_PENDING": "Este usuário ainda tem um convite pendente; revogue o convite em vez de remover.",
+        "INVITATION_ALREADY_ACCEPTED": "Este convite já foi aceito; remova o usuário em vez de revogar o convite.",
+        "INVITATION_INVALID": "Este link de convite é inválido ou já foi usado.",
+        "INVITATION_EXPIRED": "Este convite venceu; peça ao administrador um novo.",
+        "PASSWORD_TOO_SHORT": "A senha precisa ter pelo menos {{min}} caracteres."
+    },
+    "usage": {
+        "noPrice": "sem preço",
+        "withoutPriceCount_one": "{{count}} execução sem preço",
+        "withoutPriceCount_other": "{{count}} execuções sem preço"
+    },
     "confirmations": {
         "delete": "Excluir",
         "remove": "Remover",
@@ -17,7 +50,7 @@
         "suspendTenantTitle": "Suspender tenant",
         "suspendTenantMessage": "O tenant \"{{name}}\" perderá o acesso até ser reativado. Deseja continuar?",
         "removeUserTitle": "Remover usuário",
-        "removeUserMessage": "Remover {{name}} deste workspace? O acesso será revogado imediatamente.",
+        "removeUserMessage": "Remover {{name}} deste workspace? As chaves de API dele param na hora. Uma sessão já aberta termina na próxima renovação do token de acesso (até 15 minutos, no padrão).",
         "revokeInviteTitle": "Revogar convite",
         "revokeInviteMessage": "Revogar o convite de {{name}}?",
         "revokeKeyTitle": "Revogar chave de API",
@@ -69,7 +102,7 @@
         "admin": "Administração",
         "dashboard": "Início",
         "searchTooltip": "Buscar em tudo",
-        "searchPlaceholder": "Buscar páginas e workflows...",
+        "searchPlaceholder": "Buscar páginas, fluxos, execuções, conversas e modelos...",
         "searchNothing": "Nada encontrado",
         "short": {
             "executions": "Execuções",
@@ -292,8 +325,9 @@
         "saveYaml": "Salvar YAML",
         "canvas": "Canvas",
         "code": "Código",
-        "run": "Executar",
+        "runDraft": "Executar rascunho",
         "stop": "Parar",
+        "readOnly": "Somente leitura",
         "back": "Voltar à lista",
         "saved": "Salvo",
         "savedAt": "Salvo às {{time}}",
@@ -345,6 +379,10 @@
             "tidy": "Organizar layout",
             "addNode": "Adicionar nó"
         },
+        "disconnectedWarning": {
+            "title": "Nós sem conexão",
+            "message": "Sem conexão: {{names}}. Sem nenhuma aresta, o fluxo roda os nós na ordem em que foram criados; com arestas, um nó solto roda à parte, com a entrada da execução. Ligue os nós para definir a ordem."
+        },
         "publish": {
             "button": "Publicar",
             "title": "Publicar este workflow",
@@ -387,7 +425,9 @@
             "goalPlaceholder": "ex.: responder tickets de suporte: classificar a intenção, buscar na base de conhecimento e redigir a resposta — escalar para humano em caso de dúvida",
             "generate": "Gerar",
             "started": "O copilot está montando seu fluxo",
-            "startedMsg": "Os nós vão aparecendo no canvas conforme o copilot trabalha. Abra a barra do copilot para acompanhar.",
+            "startedMsg": "Os nós vão aparecendo no canvas conforme o copilot trabalha.",
+            "done": "Fluxo montado pelo copilot",
+            "doneMsg": "Confira os nós e as ligações no canvas.",
             "promptTemplate": "Monte um workflow no canvas do editor para o objetivo a seguir. Crie cada nó com a ferramenta addNode, usando os tipos de nó disponíveis e um rótulo curto e descritivo; o addNode devolve o id do nó criado. Configure cada nó com o que o objetivo pede (prompt e modelo de um llm-chat, expressão de um condition…), no parâmetro config do addNode ou com configureNode, usando só as chaves de config listadas para o tipo do nó. Depois ligue os nós em ordem lógica com connectNodes, usando exatamente os ids devolvidos pelo addNode (nunca invente ids). Para corrigir um nó que você criou ou uma ligação errada, use removeNode/removeEdge em vez de criar outro nó; não remova nós que já estavam no fluxo, a menos que o objetivo peça (o usuário terá de confirmar). Ao terminar, responda com um resumo curto do fluxo montado. Objetivo: {{goal}}"
         },
         "properties": {
@@ -1157,7 +1197,7 @@
             },
             "usage": {
                 "title": "Uso e cobrança",
-                "subtitle": "Consumo mensal e custo estimado por tenant.",
+                "subtitle": "Consumo medido e custo por tenant, no mês.",
                 "month": "Mês",
                 "listTitle": "Consumo por tenant",
                 "listHint": "A barra é a fatia do total do mês.",
@@ -1166,7 +1206,7 @@
                 "hints": {
                     "executions": "Em {{month}}",
                     "tokens": "Entrada + saída",
-                    "cost": "Estimado, em USD",
+                    "cost": "Pela tabela de preços, em reais",
                     "tenants": "Com atividade no mês"
                 },
                 "exportCsv": "Exportar CSV",
@@ -1235,11 +1275,15 @@
         },
         "tenant": {
             "workspace": {
+                "noPlanLimits": "Este tenant não tem plano cadastrado, então não há limites para comparar. Os números acima são o uso medido.",
                 "title": "Visão geral do workspace",
                 "subtitle": "Como este workspace está frente ao plano.",
                 "subtitleNamed": "{{name}} — como este workspace está frente ao plano.",
                 "planUsageHint": "As barras ficam âmbar em 70% e vermelhas em 90% do limite.",
                 "hints": {
+                    "noLimit": "Sem limite cadastrado",
+                    "tokensOfLimit": "Limite: {{limit}} por mês",
+                    "costMonth": "Neste mês, pela tabela de preços",
                     "ofLimit": "Limite: {{limit}}",
                     "perDay": "Limite: {{limit}} por dia",
                     "seats": "Limite: {{limit}} assentos",
@@ -1249,6 +1293,8 @@
                 "summaryUnavailable": "Resumo do workspace indisponível no momento.",
                 "planUsage": "Uso do plano",
                 "stats": {
+                    "tokensMonth": "Tokens no mês",
+                    "costMonth": "Custo no mês",
                     "workflows": "Fluxos",
                     "executionsToday": "Execuções hoje",
                     "users": "Usuários",
@@ -1302,6 +1348,23 @@
                 }
             },
             "users": {
+                "inviteExpires": "Convite vale até {{when}}",
+                "inviteCreated": "Convite criado para {{email}}",
+                "inviteLinkHint": "Envie este link para a pessoa convidada. Ele aparece só agora, vale uma vez e até {{when}}.",
+                "inviteNoEmail": "O archflow não envia e-mail: depois de convidar, copie o link de aceite e envie para a pessoa.",
+                "copyLink": "Copiar link",
+                "linkCopied": "Link copiado",
+                "done": "Concluir",
+                "permissionNames": {
+                    "all": "Todas as permissões",
+                    "workflow_read": "Ver fluxos",
+                    "workflow_create": "Criar fluxos",
+                    "workflow_update": "Editar fluxos",
+                    "workflow_delete": "Excluir fluxos",
+                    "workflow_execute": "Executar fluxos",
+                    "agent_read": "Ver agentes",
+                    "execution_read": "Ver histórico de execuções"
+                },
                 "title": "Usuários",
                 "subtitle": "Quem tem acesso a este workspace e o que cada papel pode fazer.",
                 "listTitle": "Membros",
@@ -1323,6 +1386,7 @@
                 "inviteSentMsg": "Convite enviado para {{email}}",
                 "sendInvite": "Enviar convite",
                 "editRole": "Editar função",
+                "roleChangeHint": "A nova função vale na hora para as chaves de API do usuário. Na sessão já aberta, vale a partir da próxima renovação do token de acesso (até 15 minutos, no padrão).",
                 "save": "Salvar",
                 "permissionsTitle": "Matriz de permissões",
                 "permissions": {
@@ -1345,6 +1409,7 @@
                     "actions": "Ações"
                 },
                 "status": {
+                    "disabled": "Desativado",
                     "active": "Ativo",
                     "invited": "Convite pendente"
                 },
@@ -1354,6 +1419,10 @@
                     "role": "Função"
                 },
                 "roles": {
+                    "ADMIN": "Administrador",
+                    "DESIGNER": "Designer",
+                    "EXECUTOR": "Executor",
+                    "VIEWER": "Visualizador",
                     "admin": "Admin",
                     "editor": "Editor",
                     "viewer": "Visualizador"
@@ -1369,7 +1438,7 @@
                 "listHint": "O segredo aparece uma única vez, logo após a criação.",
                 "emptyHint": "Crie uma chave só com os escopos que a integração precisa.",
                 "new": "Nova chave",
-                "info": "Estas chaves pertencem ao sistema com escopos/expiração (/api/apikeys) — distintas das chaves de dev do workspace. Carregam escopos explícitos.",
+                "info": "Estas chaves pertencem ao sistema com escopos/expiração (/api/apikeys) e carregam escopos explícitos.",
                 "created": "Chave criada — copie o segredo agora",
                 "createdHint": "Esta é a única vez em que o segredo será exibido.",
                 "dismiss": "Fechar",
@@ -1379,6 +1448,25 @@
                 "revoked": "Revogada",
                 "revokedMsg": "Chave {{id}} revogada",
                 "revokeFailed": "Falha ao revogar",
+                "scopesFailed": "Falha ao carregar os escopos",
+                "usageHint": "Envie a chave no cabeçalho Authorization: Bearer <chave>. Ela age como você, no workspace do seu login, e só alcança o que os escopos dela cobrem e o seu papel permite.",
+                "impersonationNotice": "Você está vendo o workspace {{name}} como superadmin, mas as chaves desta página são suas, no workspace do seu login: uma chave criada aqui não age em {{name}}.",
+                "scopeNotGrantable": "seu papel não concede",
+                "scopeOpensNothing": "ainda não abre nenhum endpoint",
+                "scopesOpenNothing": "Estes escopos ainda não abrem nenhum endpoint: {{scopes}}. Uma chave só com eles recebe 403 em toda chamada.",
+                "scopeNames": {
+                    "WORKFLOW_READ": "Ler workflows",
+                    "WORKFLOW_CREATE": "Criar workflows",
+                    "WORKFLOW_UPDATE": "Alterar e publicar workflows",
+                    "WORKFLOW_DELETE": "Excluir workflows",
+                    "WORKFLOW_EXECUTE": "Executar workflows",
+                    "AGENT_READ": "Ler agentes",
+                    "AGENT_MANAGE": "Gerenciar agentes",
+                    "EXECUTION_READ": "Ler execuções",
+                    "EXECUTION_MANAGE": "Cancelar e retomar execuções",
+                    "METRICS_READ": "Ler métricas",
+                    "ADMIN": "Todos os escopos"
+                },
                 "newTitle": "Nova chave com escopo",
                 "columns": {
                     "name": "Nome",
@@ -1586,9 +1674,22 @@
         "asVariables": "Objeto JSON: variáveis {{keys}}.",
         "asText": "Texto: chega ao fluxo como input.",
         "cancel": "Cancelar",
-        "run": "Executar"
+        "run": "Executar",
+        "target": {
+            "draft": "Executa o rascunho (o fluxo como está no editor), não a versão publicada.",
+            "unpublished": "Sem versão publicada em produção: executa o rascunho salvo.",
+            "published": "Executa a versão publicada v{{number}} (produção), não o rascunho."
+        }
     },
     "executionDetail": {
+        "usage": {
+            "title": "Uso de modelo",
+            "hint": "Tokens e custo medidos nas chamadas a LLM desta execução.",
+            "inputTokens": "Tokens de entrada",
+            "outputTokens": "Tokens de saída",
+            "cost": "Custo (tabela de preços)",
+            "declaredCost": "Custo declarado pelo provedor"
+        },
         "subtitle": "Execução de {{workflow}}",
         "loadFailed": "Não foi possível carregar esta execução",
         "openWorkflow": "Abrir no editor",
@@ -1658,7 +1759,11 @@
         "rerunFailed": "Não foi possível iniciar uma nova execução",
         "rawJson": "JSON bruto",
         "showRaw": "Mostrar JSON bruto",
-        "hideRaw": "Ocultar JSON bruto"
+        "hideRaw": "Ocultar JSON bruto",
+        "version": {
+            "draft": "Rodou o rascunho",
+            "published": "Rodou a v{{number}} publicada"
+        }
     },
     "marketplace": {
         "title": "Marketplace",
@@ -1779,7 +1884,29 @@
             "run": "\"Rode o workflow wf-demo-001\" — ele executa e abre Execuções (runWorkflow).",
             "status": "\"Mostre um status dizendo: tudo certo\" — ele exibe uma notificação (showStatus)."
         },
-        "hint": "Conexão AG-UI direta (sem runtime Node): o backend Java é a fronteira de segurança."
+        "hint": "Conexão AG-UI direta (sem runtime Node): o backend Java é a fronteira de segurança.",
+        "chat": {
+            "inputPlaceholder": "Digite uma mensagem...",
+            "startTranscribe": "Transcrever",
+            "cancelTranscribe": "Cancelar",
+            "finishTranscribe": "Concluir",
+            "addAttachments": "Adicionar anexos",
+            "tools": "Ferramentas",
+            "copyCode": "Copiar",
+            "copyCodeCopied": "Copiado",
+            "copyMessage": "Copiar",
+            "thumbsUp": "Boa resposta",
+            "thumbsDown": "Resposta ruim",
+            "readAloud": "Ler em voz alta",
+            "regenerate": "Gerar de novo",
+            "editMessage": "Editar",
+            "disclaimer": "A IA pode errar. Confira as informações importantes.",
+            "toggleOpen": "Abrir chat",
+            "toggleClose": "Fechar chat",
+            "openThreads": "Abrir conversas",
+            "headerTitle": "Copilot",
+            "welcome": "Como posso ajudar você hoje?"
+        }
     },
     "templates": {
         "catalog": "Catálogo",
@@ -1893,14 +2020,14 @@
         }
     },
     "skills": {
-        "subtitle": "Skills carregadas pelo adaptador de skills. Desligue uma para escondê-la dos agentes.",
+        "subtitle": "Skills carregadas do diretório de skills. O switch grava, para este tenant, quais ficam ativas; nenhum agente ou nó de fluxo lê skills ainda, então ligar ou desligar não muda nenhuma execução.",
         "listTitle": "Skills registradas",
-        "listHint": "Alterne uma skill para ativá-la ou desativá-la",
+        "listHint": "Alterne uma skill para ativá-la ou desativá-la neste tenant. O estado só sobrevive a um restart com persistência JDBC (archflow.persistence.jdbc.enabled=true, padrão do perfil prod); sem banco, como no perfil dev, todas voltam a inativas quando o backend reinicia",
         "stats": {
             "total": "Skills",
             "totalHint": "Carregadas nesta instância",
             "active": "Ativas",
-            "activeHint": "Disponíveis aos agentes",
+            "activeHint": "Ligadas neste tenant",
             "inactive": "Inativas",
             "inactiveHint": "Carregadas, mas desligadas",
             "resources": "Recursos",
@@ -1937,12 +2064,13 @@
             "accessToken": "Token de acesso (opcional)",
             "accessTokenHint": "LINKTOR_ACCESS_TOKEN para acesso em escopo de usuário.",
             "mcpCommand": "Comando MCP",
-            "mcpCommandHint": "Caminho ou comando para o binário linktor-mcp. Argumentos separados por espaço são suportados.",
+            "mcpCommandHint": "Comando que inicia o servidor MCP do Linktor; argumentos separados por espaço são suportados. O executável (a primeira palavra) precisa estar na allow-list de comandos MCP do backend.",
+            "mcpCommandPlaceholder": "node /caminho/para/linktor-mcp-server/dist/index.js",
             "timeout": "Timeout (segundos)",
             "saved": "Configuração salva — será aplicada na próxima requisição.",
             "saveFailed": "Falha ao salvar",
             "installTitle": "Instale o servidor MCP",
-            "installHint": "<code>npm install -g @linktor/mcp-server</code> — o binário <code>linktor-mcp</code> é adicionado ao PATH. Alternativamente, rode <code>node /caminho/para/linktor-mcp-server/dist/index.js</code>."
+            "installHint": "<code>npm install -g @linktor/mcp-server</code> instala o binário <code>linktor-mcp</code>, mas ele não está na allow-list padrão de comandos MCP (que traz launchers como node e npx). Rode <code>node /caminho/para/linktor-mcp-server/dist/index.js</code> ou libere o binário na variável <code>ARCHFLOW_MCP_ALLOWED_COMMANDS</code> do backend (separada por vírgula; ela substitui a lista padrão, ex.: <code>npx,node,linktor-mcp</code>)."
         },
         "inbox": {
             "subtitle": "Conversas, contatos e canais omnichannel do Linktor.",
@@ -2053,6 +2181,7 @@
         "noMessages": "Nenhuma mensagem ainda.",
         "sendFailed": "Falha ao enviar a mensagem. Tente novamente.",
         "submitFormFailed": "Falha ao enviar o formulário. Tente novamente.",
+        "awaitingForm": "Preencha o formulário acima para continuar a conversa.",
         "conversationCancelled": "Conversa cancelada.",
         "stream": {
             "idle": "ocioso",

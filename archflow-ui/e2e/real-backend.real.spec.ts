@@ -159,7 +159,6 @@ test.describe('Real backend smoke', () => {
     expect(exportCsv.headers()['content-type']).toContain('text/csv');
     const csv = await exportCsv.text();
     expect(csv).toContain('tenantId,tenantName,executions');
-    expect(csv).toContain('tenant_rio_quality');
 
     await login(page);
     await page.goto('/conversations');
@@ -200,64 +199,53 @@ test.describe('Real backend smoke', () => {
     await impersonateWorkspace(page);
     await expect(page.getByText('Workspace Overview')).toBeVisible();
     await expect(page.getByText('Executions today')).toBeVisible();
-    await expect(page.locator('div').filter({ hasText: /^340$/ }).first()).toBeVisible();
+    // Números medidos (RCHFLW-75): nada de 340 execuções fixas no código.
+    await expect(page.locator('div').filter({ hasText: /^340$/ })).toHaveCount(0);
   });
 
-  test('manages workspace users and api keys through the real admin UI', async ({ page, request }) => {
+  // RCHFLW-85: os usuários são os do login. Convidar mostra o link de aceite (o produto não envia e-mail);
+  // aceitar ativa o login; trocar o papel e remover mudam o usuário real. As chaves do workspace são as de
+  // /api/apikeys (scoped-apikeys.spec.ts) — a tela /admin/workspace/keys em memória foi removida.
+  test('invites, accepts, changes the role and removes a real workspace user', async ({ page, request }) => {
     await login(page, { role: 'superadmin' });
     await impersonateWorkspace(page);
 
     await page.goto('/admin/workspace/users');
     await expect(page.getByRole('heading', { name: 'Users' })).toBeVisible();
-    await expect(page.getByText('João Silva')).toBeVisible();
-    await expect(page.getByText('Maria Santos')).toBeVisible();
+    await expect(page.getByText('João Silva')).toHaveCount(0);
+    await expect(page.getByText('Maria Santos')).toHaveCount(0);
 
+    const email = `qa.${Date.now().toString().slice(-6)}@rioquality.com.br`;
     await page.getByRole('button', { name: 'Invite User' }).click();
     const inviteModal = page.getByRole('dialog', { name: 'Invite User' });
-    await inviteModal.getByLabel('Email').fill('qa.real@rioquality.com.br');
+    await inviteModal.getByLabel('Email').fill(email);
+    await inviteModal.getByRole('textbox', { name: 'Role' }).evaluate((element: HTMLInputElement) => element.click());
+    await page.getByRole('option', { name: 'Viewer' }).click();
     await inviteModal.getByRole('button', { name: 'Send Invite' }).evaluate((element: HTMLButtonElement) => element.click());
-    const invitedRow = page.locator('tr').filter({ hasText: 'qa.real@rioquality.com.br' });
-    await expect(invitedRow).toBeVisible();
-    await expect(invitedRow.getByText('Invite pending')).toBeVisible();
+    const link = (await page.getByTestId('invite-link-url').textContent()) ?? '';
+    expect(link).toContain('/accept-invite?token=');
 
-    await expect.poll(async () => {
-      const response = await request.get(`${API_BASE}/admin/workspace/users`);
-      const users = await response.json();
-      return users.find((user: { email: string; role: string }) => user.email === 'qa.real@rioquality.com.br')?.role;
-    }).toBe('editor');
+    const token = decodeURIComponent(new URL(link).searchParams.get('token') ?? '');
+    const accepted = await request.post(`${API_BASE}/auth/invitations/accept`, {
+      data: { token, password: 'senha-de-teste-123' },
+    });
+    expect(accepted.ok()).toBeTruthy();
+    const login2 = await request.post(`${API_BASE}/auth/login`, { data: { username: email, password: 'senha-de-teste-123' } });
+    expect(login2.ok()).toBeTruthy();
 
-    await invitedRow.locator('button').nth(1).click();
-    await expect.poll(async () => {
-      const response = await request.get(`${API_BASE}/admin/workspace/users`);
-      const users = await response.json();
-      return users.some((user: { email: string }) => user.email === 'qa.real@rioquality.com.br');
-    }).toBe(false);
+    const users = await (await request.get(`${API_BASE}/admin/workspace/users`)).json();
+    const invited = users.find((user: { email: string }) => user.email === email);
+    expect(invited?.status).toBe('active');
+    const userId = invited.id as string;
 
-    await page.goto('/admin/workspace/keys');
-    await expect(page.getByRole('heading', { name: 'API Keys' })).toBeVisible();
-    await expect(page.getByText('VendaX Backend')).toBeVisible();
+    const changed = await request.put(`${API_BASE}/admin/workspace/users/${userId}`, { data: { role: 'EXECUTOR' } });
+    expect(changed.ok()).toBeTruthy();
+    expect((await changed.json()).role).toBe('EXECUTOR');
 
-    await page.getByRole('button', { name: 'Create Key' }).click();
-    const keyModal = page.getByRole('dialog', { name: 'Create API Key' });
-    await keyModal.getByLabel('Key name').fill('Playwright Real Key');
-    await keyModal.getByRole('button', { name: 'Create' }).evaluate((element: HTMLButtonElement) => element.click());
-    await expect(keyModal.getByText('Your new API key:')).toBeVisible();
-    await expect(keyModal.getByText('af_live_', { exact: false })).toBeVisible();
-    await keyModal.getByRole('button', { name: 'Done' }).evaluate((element: HTMLButtonElement) => element.click());
-
-    await expect.poll(async () => {
-      const response = await request.get(`${API_BASE}/admin/workspace/keys`);
-      const keys = await response.json();
-      return keys.some((key: { name: string }) => key.name === 'Playwright Real Key');
-    }).toBe(true);
-
-    const createdKeyRow = page.locator('tr').filter({ hasText: 'Playwright Real Key' });
-    await createdKeyRow.locator('button').last().click();
-    await expect.poll(async () => {
-      const response = await request.get(`${API_BASE}/admin/workspace/keys`);
-      const keys = await response.json();
-      return keys.some((key: { name: string }) => key.name === 'Playwright Real Key');
-    }).toBe(false);
+    const removed = await request.delete(`${API_BASE}/admin/workspace/users/${userId}`);
+    expect(removed.status()).toBe(204);
+    const relogin = await request.post(`${API_BASE}/auth/login`, { data: { username: email, password: 'senha-de-teste-123' } });
+    expect(relogin.status()).toBe(401);
   });
 
   test('creates and deletes a tenant through the real admin UI', async ({ page, request }) => {
@@ -297,45 +285,6 @@ test.describe('Real backend smoke', () => {
     }).toBe(false);
     await page.goto('/admin/tenants');
     await expect(page.getByText(tenantName)).toHaveCount(0);
-  });
-
-  test('updates a workspace user role through the real admin UI', async ({ page, request }) => {
-    await login(page, { role: 'superadmin' });
-    await impersonateWorkspace(page);
-
-    await page.goto('/admin/workspace/users');
-    await expect(page.getByRole('heading', { name: 'Users' })).toBeVisible();
-
-    const usersBeforeResponse = await request.get(`${API_BASE}/admin/workspace/users`);
-    const usersBefore = await usersBeforeResponse.json();
-    const maria = usersBefore.find((user: { email: string }) => user.email === 'maria@rioquality.com.br');
-    expect(maria).toBeTruthy();
-
-    const mariaRow = page.locator('tr').filter({ hasText: 'Maria Santos' });
-    await mariaRow.locator('button').first().click();
-
-    const editModal = page.getByRole('dialog', { name: 'Edit role' });
-    await editModal.getByLabel('Role').evaluate((element: HTMLInputElement) => element.click());
-    await page.getByRole('option', { name: 'Viewer' }).click();
-    await editModal.getByRole('button', { name: 'Save' }).evaluate((element: HTMLButtonElement) => element.click());
-
-    await expect.poll(async () => {
-      const response = await request.get(`${API_BASE}/admin/workspace/users`);
-      const users = await response.json();
-      return users.find((user: { id: string; role: string }) => user.id === maria.id)?.role;
-    }).toBe('viewer');
-
-    await expect(mariaRow.getByText('viewer')).toBeVisible();
-
-    const restoreResponse = await request.put(`${API_BASE}/admin/workspace/users/${maria.id}`, {
-      data: { role: 'editor' },
-    });
-    expect(restoreResponse.ok()).toBeTruthy();
-    await expect.poll(async () => {
-      const response = await request.get(`${API_BASE}/admin/workspace/users`);
-      const users = await response.json();
-      return users.find((user: { id: string; role: string }) => user.id === maria.id)?.role;
-    }).toBe('editor');
   });
 
   test('loads global config, updates a toggle and views usage billing', async ({ page, request }) => {
@@ -397,16 +346,18 @@ test.describe('Real backend smoke', () => {
 
     await page.goto('/admin/billing');
     await expect(page.getByRole('heading', { name: 'Usage & Billing' })).toBeVisible();
-    await expect(page.getByText('Rio Quality')).toBeVisible();
-    await expect(page.getByText('$67.80')).toBeVisible();
+    await expect(page.getByText('$67.80')).toHaveCount(0);
 
+    // O mês inicial é o corrente (era fixo em 2026-04).
+    const now = new Date();
+    const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     const exportLink = page.getByRole('link', { name: 'Export CSV' });
-    await expect(exportLink).toHaveAttribute('href', /month=2026-04/);
+    await expect(exportLink).toHaveAttribute('href', new RegExp(`month=${currentMonth}`));
 
-    const usageResponse = await request.get(`${API_BASE}/admin/global/usage?month=2026-03`);
+    // Um mês sem medição devolve lista vazia — nunca linhas de demonstração.
+    const usageResponse = await request.get(`${API_BASE}/admin/global/usage?month=2020-01`);
     expect(usageResponse.ok()).toBeTruthy();
-    const usageRows = await usageResponse.json();
-    expect(usageRows.length).toBeGreaterThan(0);
+    expect(await usageResponse.json()).toEqual([]);
   });
 
   test('shows a realtime voice error when microphone permission is denied', async ({ page }) => {

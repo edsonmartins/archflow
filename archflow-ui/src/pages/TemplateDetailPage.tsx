@@ -40,11 +40,14 @@ import EmptyState from '../components/EmptyState';
 import { categoriaVisivel, rotuloDaComplexidade } from '../components/templates/categoria';
 import { NODE_CATEGORIES } from '../components/FlowCanvas/constants';
 import { canvasToDocumentSteps } from '../components/FlowCanvas/workflowSerde';
+import { usePermissions } from '../lib/permissions';
 
 export default function TemplateDetailPage() {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
     const { t } = useTranslation();
+    // RCHFLW-74: usar o template cria um fluxo (workflow:create).
+    const canCreate = usePermissions()('workflow:create');
     const [template, setTemplate] = useState<WorkflowTemplate | undefined>(() =>
         id ? templateApi.get(id) : undefined,
     );
@@ -137,7 +140,7 @@ export default function TemplateDetailPage() {
                 title={template.name}
                 subtitle={template.summary}
                 breadcrumbs={[{ label: t('templates.title'), to: '/templates' }, { label: template.name }]}
-                actions={
+                actions={canCreate ? (
                     <Button
                         leftSection={<IconRocket size={16} />}
                         onClick={handleClone}
@@ -148,7 +151,7 @@ export default function TemplateDetailPage() {
                     >
                         {t('templates.detail.use')}
                     </Button>
-                }
+                ) : undefined}
             />
 
             {unsupported.length > 0 && (

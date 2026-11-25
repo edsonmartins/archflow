@@ -2,6 +2,7 @@ package br.com.archflow.security.auth;
 
 import br.com.archflow.model.security.Role;
 import br.com.archflow.model.security.User;
+import br.com.archflow.model.tenant.DefaultTenant;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -12,7 +13,9 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -57,14 +60,16 @@ public class JdbcUserRepository implements UserRepository {
         String updateSql = """
             UPDATE users SET username = ?, email = ?, password_hash = ?, first_name = ?,
                    last_name = ?, enabled = ?, account_non_expired = ?, account_non_locked = ?,
-                   credentials_non_expired = ?, updated_at = ?, last_login_at = ?
+                   credentials_non_expired = ?, updated_at = ?, last_login_at = ?, tenant_id = ?,
+                   invitation_token_hash = ?, invitation_expires_at = ?
             WHERE id = ?
             """;
         String insertSql = """
             INSERT INTO users (id, username, email, password_hash, first_name, last_name,
                                enabled, account_non_expired, account_non_locked,
-                               credentials_non_expired, created_at, updated_at, last_login_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                               credentials_non_expired, created_at, updated_at, last_login_at,
+                               tenant_id, invitation_token_hash, invitation_expires_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """;
 
         try (Connection conn = dataSource.getConnection()) {
@@ -84,7 +89,10 @@ public class JdbcUserRepository implements UserRepository {
                     ps.setBoolean(9, user.isCredentialsNonExpired());
                     ps.setTimestamp(10, timestamp(user.getUpdatedAt()));
                     ps.setTimestamp(11, timestamp(user.getLastLoginAt()));
-                    ps.setString(12, user.getId());
+                    ps.setString(12, tenantColumn(user));
+                    ps.setString(13, user.getInvitationTokenHash());
+                    ps.setTimestamp(14, timestamp(user.getInvitationExpiresAt()));
+                    ps.setString(15, user.getId());
                     updated = ps.executeUpdate();
                 }
                 if (updated == 0) {
@@ -102,6 +110,9 @@ public class JdbcUserRepository implements UserRepository {
                         ps.setTimestamp(11, timestamp(user.getCreatedAt()));
                         ps.setTimestamp(12, timestamp(user.getUpdatedAt()));
                         ps.setTimestamp(13, timestamp(user.getLastLoginAt()));
+                        ps.setString(14, tenantColumn(user));
+                        ps.setString(15, user.getInvitationTokenHash());
+                        ps.setTimestamp(16, timestamp(user.getInvitationExpiresAt()));
                         ps.executeUpdate();
                     }
                 }
@@ -116,9 +127,59 @@ public class JdbcUserRepository implements UserRepository {
             return user;
 
         } catch (SQLException e) {
+            if (isUniqueViolation(e)) {
+                // Não é falha de banco: outra gravação levou o nome antes. Sem o tipo próprio, quem
+                // convidou recebia um 500 em vez do conflito.
+                log.info("User not saved, username already taken: {}", user.getUsername());
+                throw new DuplicateUserException("A user with the username " + user.getUsername()
+                        + " already exists", e);
+            }
             log.error("Failed to save user {} (username {})", user.getId(), user.getUsername(), e);
             throw new RuntimeException("Failed to save user " + user.getId(), e);
         }
+    }
+
+    /**
+     * SQLSTATE {@code 23505} é a violação de unicidade no PostgreSQL e no H2 (os bancos deste
+     * repositório); o MySQL usa a classe genérica {@code 23000} com o código 1062.
+     */
+    private static boolean isUniqueViolation(SQLException e) {
+        String state = e.getSQLState();
+        return "23505".equals(state) || ("23000".equals(state) && e.getErrorCode() == 1062);
+    }
+
+    @Override
+    public boolean consumeInvitation(String userId, String invitationTokenHash, String passwordHash) {
+        if (userId == null || invitationTokenHash == null) {
+            return false;
+        }
+        // A comparação do hash e a limpeza estão no mesmo UPDATE: dois aceites simultâneos não podem
+        // ambos ver o convite pendente — o segundo encontra o hash já nulo e atualiza zero linhas.
+        String sql = """
+            UPDATE users SET password_hash = ?, enabled = ?, invitation_token_hash = NULL,
+                   invitation_expires_at = NULL, updated_at = ?
+            WHERE id = ? AND invitation_token_hash = ?
+            """;
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, passwordHash);
+            ps.setBoolean(2, true);
+            ps.setTimestamp(3, timestamp(LocalDateTime.now()));
+            ps.setString(4, userId);
+            ps.setString(5, invitationTokenHash);
+            return ps.executeUpdate() == 1;
+        } catch (SQLException e) {
+            log.error("Failed to accept the invitation of user {}", userId, e);
+            throw new RuntimeException("Failed to accept the invitation of user " + userId, e);
+        }
+    }
+
+    /**
+     * A coluna é NOT NULL: usuário sem tenant é o do tenant padrão, a mesma leitura de um token sem a
+     * claim {@code tenantId}. Gravar o id explícito evita um terceiro valor ("vazio") no banco.
+     */
+    private static String tenantColumn(User user) {
+        return DefaultTenant.orDefault(user.getTenantId());
     }
 
     private void replaceRoles(Connection conn, User user) throws SQLException {
@@ -168,6 +229,25 @@ public class JdbcUserRepository implements UserRepository {
         } catch (SQLException e) {
             log.error("Failed to load user by {} = {}", column, value, e);
             throw new RuntimeException("Failed to load user by " + column, e);
+        }
+    }
+
+    @Override
+    public List<User> findAll() {
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement ps = conn.prepareStatement("SELECT * FROM users");
+             ResultSet rs = ps.executeQuery()) {
+            List<User> all = new ArrayList<>();
+            while (rs.next()) {
+                all.add(mapUser(rs));
+            }
+            for (User user : all) {
+                user.setRoles(loadRoles(conn, user.getId()));
+            }
+            return all;
+        } catch (SQLException e) {
+            log.error("Failed to list users", e);
+            throw new RuntimeException("Failed to list users", e);
         }
     }
 
@@ -251,6 +331,9 @@ public class JdbcUserRepository implements UserRepository {
         user.setCreatedAt(localDateTime(rs.getTimestamp("created_at")));
         user.setUpdatedAt(localDateTime(rs.getTimestamp("updated_at")));
         user.setLastLoginAt(localDateTime(rs.getTimestamp("last_login_at")));
+        user.setTenantId(rs.getString("tenant_id"));
+        user.setInvitationTokenHash(rs.getString("invitation_token_hash"));
+        user.setInvitationExpiresAt(localDateTime(rs.getTimestamp("invitation_expires_at")));
         return user;
     }
 

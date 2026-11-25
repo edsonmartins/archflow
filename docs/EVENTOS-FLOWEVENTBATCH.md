@@ -102,8 +102,10 @@ bean em `ArchflowBeanConfiguration` (linha 403) e desemboca no
 `EventStreamRegistry` — de onde a UI consome.
 
 **Exige autenticação.** `/api/events` não está entre os caminhos públicos do
-`JwtAuthenticationFilter`, então o `Authorization: Bearer` ou o `X-API-Key`
-valem aqui como em qualquer outro endpoint.
+`JwtAuthenticationFilter`: vale o `Authorization: Bearer <JWT>` de um usuário.
+Uma chave de API (`Authorization: Bearer ak_...`) é recusada aqui com `403
+API_KEY_ENDPOINT_NOT_ALLOWED` — nenhum escopo de chave cobre `/api/events`
+(ver `ApiKeyScopeRequirement`). O servidor não lê `X-API-Key`.
 
 A resposta é **JSON**, não protobuf:
 

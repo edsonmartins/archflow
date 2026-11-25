@@ -10,7 +10,7 @@ import {
     IconAlertCircle, IconAlertTriangle, IconBraces, IconChevronDown, IconChevronRight, IconCheck,
     IconCircleCheck, IconCircleDashed, IconClock, IconGavel, IconHourglass, IconListDetails, IconLoader2,
     IconMinus, IconPlayerPause, IconPlayerPlay, IconPlayerStop, IconSitemap, IconTimeline, IconTopologyRing,
-    IconX,
+    IconX, IconCoins,
 } from '@tabler/icons-react'
 import { executionApi, workflowApi, ApiError } from '../services/api'
 import { JsonViewer } from '../components/JsonViewer'
@@ -22,8 +22,10 @@ import { SectionCard } from '../components/SectionCard'
 import { StatCard } from '../components/admin/StatCard'
 import EmptyState from '../components/EmptyState'
 import { formatDuration, formatInstant } from '../lib/format'
+import { formatReais, formatUsd } from '../lib/usageFormat'
 import { EXECUTION_STATUS_COLOR, executionPollIntervalMs, isTerminalExecutionStatus } from '../lib/executionStatus'
 import { buildStepRows, parseStepOutput, type StepRecord, type StepRow } from '../lib/stepOutput'
+import { usePermissions } from '../lib/permissions'
 
 /** A materialized ExecutionPath node (design-0005 step 4). */
 interface PathNode {
@@ -81,6 +83,40 @@ const STEP_STATUS_COLOR: Record<string, string> = {
 }
 
 /** Uma decisão do histórico durável do motor (`__archflow.approvalHistory`). */
+/**
+ * O consumo de modelo da execução, como `GET /api/executions/{id}` o devolve em `usage` (RCHFLW-75).
+ * `costReais` nulo = sem preço declarado para o modelo — a tela diz "sem preço", nunca R$ 0.
+ */
+interface ExecutionUsage {
+    inputTokens: number
+    outputTokens: number
+    costCents: number | null
+    costReais: number | null
+    declaredCostUsd: number | null
+    withoutPrice: number
+}
+
+/** Tokens e custo da execução. Sem `usage` (nada chamou modelo, ou ainda não terminou) não aparece. */
+function UsageCard({ usage, locale }: { usage: ExecutionUsage; locale: string }) {
+    const { t } = useTranslation()
+    const cost = usage.costReais == null ? t('usage.noPrice') : formatReais(usage.costReais, locale)
+    return (
+        <SectionCard icon={IconCoins} accent="teal" title={t('executionDetail.usage.title')}
+                     description={t('executionDetail.usage.hint')}>
+            <Group gap="xl" data-testid="execution-usage">
+                <Meta label={t('executionDetail.usage.inputTokens')} value={usage.inputTokens.toLocaleString(locale)} />
+                <Meta label={t('executionDetail.usage.outputTokens')} value={usage.outputTokens.toLocaleString(locale)} />
+                <Meta label={t('executionDetail.usage.cost')}
+                      value={usage.costReais != null && usage.withoutPrice > 0
+                          ? `${cost} · ${t('usage.withoutPriceCount', { count: usage.withoutPrice })}` : cost} />
+                {usage.declaredCostUsd != null && (
+                    <Meta label={t('executionDetail.usage.declaredCost')} value={formatUsd(usage.declaredCostUsd, locale)} />
+                )}
+            </Group>
+        </SectionCard>
+    )
+}
+
 interface ApprovalDecision {
     stepId?: string
     requestId?: string
@@ -273,6 +309,8 @@ export default function ExecutionDetailPage() {
     const [err, setErr]   = useState<string | null>(null)
     const [rawOpen, setRawOpen] = useState(false)
     const [rerunning, setRerunning] = useState(false)
+    // RCHFLW-74: reexecutar é executar o fluxo (workflow:execute); quem só lê não vê o botão.
+    const canExecute = usePermissions()('workflow:execute')
 
     const load = useCallback(async () => {
         try {
@@ -356,21 +394,24 @@ export default function ExecutionDetailPage() {
                             {t('executionDetail.viewTrace')}
                         </Button>
                     )}
-                    <Button
-                        leftSection={<IconPlayerPlay size={14} />}
-                        loading={rerunning}
-                        onClick={() => setRerunInputOpen(true)}
-                        disabled={!data.workflowId}
-                        data-testid="execution-rerun"
-                    >
-                        {t('executionDetail.rerun')}
-                    </Button>
-                    {rerunWorkflowId && (
+                    {canExecute && (
+                        <Button
+                            leftSection={<IconPlayerPlay size={14} />}
+                            loading={rerunning}
+                            onClick={() => setRerunInputOpen(true)}
+                            disabled={!data.workflowId}
+                            data-testid="execution-rerun"
+                        >
+                            {t('executionDetail.rerun')}
+                        </Button>
+                    )}
+                    {canExecute && rerunWorkflowId && (
                         <RunInputModal
                             workflowId={rerunWorkflowId}
                             opened={rerunInputOpen}
                             onClose={() => setRerunInputOpen(false)}
                             onConfirm={(text) => { void handleRerun(text) }}
+                            runs="production"
                         />
                     )}
                 </>
@@ -420,6 +461,14 @@ export default function ExecutionDetailPage() {
     const workflowName = String(data.workflowName ?? data.workflowId ?? '—')
     const decisions = Array.isArray(data.approvals) ? (data.approvals as ApprovalDecision[]) : []
     const pendingApproval = data.pendingApproval as { requestId?: string; stepId?: string } | undefined
+    // O que rodou, como o backend gravou na criação (RCHFLW-89). Um registro anterior a essa gravação não
+    // diz nada, e a tela também não: deduzir pela versão em produção de hoje poderia nomear a errada.
+    const ranVersion = data.workflowDraft === true
+        ? t('executionDetail.version.draft')
+        : data.workflowDraft === false && typeof data.workflowVersionNumber === 'number'
+            ? t('executionDetail.version.published', { number: data.workflowVersionNumber })
+            : null
+    const usage = data.usage as ExecutionUsage | undefined
     const stepLabels = new Map(stepRows.filter((r) => r.label).map((r) => [r.stepId, r.label as string]))
 
     return (
@@ -462,13 +511,21 @@ export default function ExecutionDetailPage() {
                     value={<Text component="span" inherit fz={18} lineClamp={1} title={workflowName}>{workflowName}</Text>}
                     icon={IconTopologyRing}
                     accent="teal"
-                    hint={data.workflowId ? (
-                        <Anchor component={Link} to={`/editor/${data.workflowId as string}`} size="xs">
-                            {t('executionDetail.openWorkflow')}
-                        </Anchor>
+                    hint={ranVersion || data.workflowId ? (
+                        <>
+                            {ranVersion && <span data-testid="execution-version">{ranVersion}</span>}
+                            {ranVersion && data.workflowId ? ' · ' : null}
+                            {data.workflowId ? (
+                                <Anchor component={Link} to={`/editor/${data.workflowId as string}`} size="xs">
+                                    {t('executionDetail.openWorkflow')}
+                                </Anchor>
+                            ) : null}
+                        </>
                     ) : undefined}
                 />
             </SimpleGrid>
+
+            {usage && <UsageCard usage={usage} locale={locale} />}
 
             {/* STOPPED é a recusa no portão de aprovação (por alguém ou pelo prazo): o texto diz quem
                 recusou e por quê, e não é uma falha — não pode vir sob "A execução falhou". */}

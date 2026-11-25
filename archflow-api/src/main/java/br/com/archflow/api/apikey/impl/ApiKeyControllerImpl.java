@@ -2,16 +2,22 @@ package br.com.archflow.api.apikey.impl;
 
 import br.com.archflow.api.apikey.ApiKeyController;
 import br.com.archflow.api.apikey.dto.ApiKeyResponse;
+import br.com.archflow.api.apikey.dto.ApiKeyScopeResponse;
 import br.com.archflow.api.apikey.dto.CreateApiKeyRequest;
 import br.com.archflow.api.apikey.dto.CreateApiKeyResponse;
 import br.com.archflow.api.audit.AuditTrail;
+import br.com.archflow.api.config.ApiKeyScopeRequirement;
+import br.com.archflow.model.security.ApiKeyScope;
 import br.com.archflow.observability.audit.AuditAction;
 import br.com.archflow.security.apikey.ApiKeyService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Arrays;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -44,13 +50,33 @@ public class ApiKeyControllerImpl implements ApiKeyController {
     }
 
     @Override
-    public CreateApiKeyResponse createApiKey(String userId, CreateApiKeyRequest request) {
+    public List<ApiKeyScopeResponse> listScopes(String userId) {
+        Set<ApiKeyScope> grantable = apiKeyService.grantableScopes(userId);
+        return Arrays.stream(ApiKeyScope.values())
+                .map(scope -> ApiKeyScopeResponse.of(scope, grantable.contains(scope),
+                        ApiKeyScopeRequirement.opensAnyEndpoint(scope)))
+                .toList();
+    }
+
+    @Override
+    public CreateApiKeyResponse createApiKey(String tenantId, String userId, CreateApiKeyRequest request) {
+        // As anotações do DTO não são validadas por ninguém (não há @Valid no adaptador): sem estas
+        // checagens, um nome vazio ou uma chave sem escopo — que não abriria endpoint nenhum — eram
+        // criados calados. A mensagem volta legível pelo GlobalExceptionHandler (400).
+        if (request == null || request.name() == null || request.name().isBlank()) {
+            throw new IllegalArgumentException("API key name is required");
+        }
+        if (request.scopes() == null || request.scopes().isEmpty()) {
+            throw new IllegalArgumentException("At least one scope is required");
+        }
+        Set<ApiKeyScope> scopes = resolveScopes(request.scopes());
         log.info("Creating API key for user: {} with name: {}", userId, request.name());
 
         ApiKeyService.ApiKeyWithSecret result = apiKeyService.createApiKey(
+                tenantId,
                 userId,
-                request.name(),
-                request.scopes(),
+                request.name().trim(),
+                scopes,
                 request.expiresAt()
         );
 
@@ -64,7 +90,8 @@ public class ApiKeyControllerImpl implements ApiKeyController {
         return new CreateApiKeyResponse(
                 apiKey.getId(),
                 apiKey.getKeyId(),
-                result.secret(),  // Secret shown only once
+                result.secret(),       // Secret shown only once
+                result.credential(),   // Credential shown only once
                 apiKey.getName(),
                 apiKey.getScopes(),
                 apiKey.getCreatedAt(),
@@ -75,10 +102,10 @@ public class ApiKeyControllerImpl implements ApiKeyController {
     }
 
     @Override
-    public List<ApiKeyResponse> listApiKeys(String userId) {
+    public List<ApiKeyResponse> listApiKeys(String tenantId, String userId) {
         log.debug("Listing API keys for user: {}", userId);
 
-        List<br.com.archflow.model.security.ApiKey> apiKeys = apiKeyService.listApiKeys(userId);
+        List<br.com.archflow.model.security.ApiKey> apiKeys = apiKeyService.listApiKeys(tenantId, userId);
 
         return apiKeys.stream()
                 .map(this::toResponse)
@@ -86,11 +113,11 @@ public class ApiKeyControllerImpl implements ApiKeyController {
     }
 
     @Override
-    public ApiKeyResponse getApiKey(String userId, String keyId) {
+    public ApiKeyResponse getApiKey(String tenantId, String userId, String keyId) {
         log.debug("Getting API key: {} for user: {}", keyId, userId);
 
         try {
-            br.com.archflow.model.security.ApiKey apiKey = apiKeyService.getApiKey(keyId, userId);
+            br.com.archflow.model.security.ApiKey apiKey = apiKeyService.getApiKey(tenantId, userId, keyId);
             return toResponse(apiKey);
         } catch (ApiKeyService.ApiKeyNotFoundException e) {
             log.warn("API key not found: {} for user: {}", keyId, userId);
@@ -99,11 +126,11 @@ public class ApiKeyControllerImpl implements ApiKeyController {
     }
 
     @Override
-    public void revokeApiKey(String userId, String keyId) {
+    public void revokeApiKey(String tenantId, String userId, String keyId) {
         log.info("Revoking API key: {} for user: {}", keyId, userId);
 
         try {
-            apiKeyService.revokeApiKey(keyId, userId);
+            apiKeyService.revokeApiKey(tenantId, userId, keyId);
             auditTrail.record(userId, null, AuditAction.DELETE, "apikey", keyId,
                     true, null, null);
         } catch (ApiKeyService.ApiKeyNotFoundException e) {
@@ -112,6 +139,26 @@ public class ApiKeyControllerImpl implements ApiKeyController {
                     false, "API key not found", null);
             throw new NotFoundException(e.getMessage());
         }
+    }
+
+    /**
+     * Um vocabulário só: o nome da constante de {@link ApiKeyScope}, exatamente como
+     * {@link #listScopes()} o publica. Nenhuma grafia alternativa é aceita ({@code workflow.read},
+     * {@code workflow:read}, minúsculas) — nenhuma chave foi criada com elas, porque a criação sempre
+     * falhava. O erro diz o valor recusado e os válidos.
+     */
+    private static Set<ApiKeyScope> resolveScopes(Set<String> names) {
+        Set<ApiKeyScope> scopes = EnumSet.noneOf(ApiKeyScope.class);
+        for (String name : names) {
+            ApiKeyScope scope = Arrays.stream(ApiKeyScope.values())
+                    .filter(candidate -> candidate.name().equals(name))
+                    .findFirst()
+                    .orElseThrow(() -> new IllegalArgumentException("Unknown scope '" + name
+                            + "'. Valid scopes: " + Arrays.stream(ApiKeyScope.values())
+                                    .map(Enum::name).collect(Collectors.joining(", "))));
+            scopes.add(scope);
+        }
+        return scopes;
     }
 
     /**

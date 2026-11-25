@@ -50,14 +50,29 @@ public record GlobalConfigDto() {
             String details
     ) {}
 
+    /**
+     * O consumo medido de um tenant no mês (RCHFLW-75).
+     *
+     * @param costCents              soma do custo pela tabela de preços, em centavos; {@code null}
+     *                               quando nenhuma execução do tenant tinha preço
+     * @param costReais              a mesma soma em reais, sem arredondar; {@code null} idem
+     * @param declaredCostUsd        soma do custo declarado pelo provedor; {@code null} se nenhum declarou
+     * @param executionsWithoutPrice execuções fora da soma de custo por não ter preço
+     * @param percentOfTotal         parte dos tokens do mês que é deste tenant (0..100)
+     * @param planLimit              tokens/mês do plano do tenant; {@code null} quando o tenant não tem
+     *                               cadastro — o limite não é mostrado, em vez de inventado
+     */
     public record UsageRowDto(
             String tenantId,
             String tenantName,
             int executions,
             long tokensInput,
             long tokensOutput,
-            double estimatedCost,
+            Long costCents,
+            Double costReais,
+            Double declaredCostUsd,
+            int executionsWithoutPrice,
             double percentOfTotal,
-            long planLimit
+            Long planLimit
     ) {}
 }

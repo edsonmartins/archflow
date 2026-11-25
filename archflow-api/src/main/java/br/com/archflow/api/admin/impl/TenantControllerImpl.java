@@ -4,6 +4,7 @@ import br.com.archflow.api.admin.TenantController;
 import br.com.archflow.api.admin.dto.TenantDto;
 import br.com.archflow.api.admin.dto.TenantDto.*;
 import br.com.archflow.api.audit.AuditTrail;
+import br.com.archflow.model.tenant.DefaultTenant;
 import br.com.archflow.observability.audit.AuditAction;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -15,11 +16,18 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 public class TenantControllerImpl implements TenantController {
     private static final Logger log = LoggerFactory.getLogger(TenantControllerImpl.class);
     private final Map<String, TenantDto> tenants = new ConcurrentHashMap<>();
     private volatile AuditTrail auditTrail = AuditTrail.noop();
+    /**
+     * De onde vem o uso de cada tenant — medido (RCHFLW-75). Sem fonte, o uso é o guardado no
+     * cadastro, que nasce zerado: nunca um número de demonstração.
+     */
+    private volatile Function<String, TenantUsageDto> usoMedido;
 
     /** No-arg constructor seeds demo tenants — used by tests / dev profile. */
     public TenantControllerImpl() {
@@ -37,7 +45,8 @@ public class TenantControllerImpl implements TenantController {
             // Ids do catálogo da plataforma (lista do código, RCHFLW-79): "claude-sonnet-4-6" não existia nele.
             var limits = new TenantLimitsDto(500, 5_000_000, 20, 10,
                     List.of("gpt-4o", "claude-sonnet-4-20250514"), List.of("hitl", "brainSentry"));
-            var usage = new TenantUsageDto(340, 4_200_000, 12, 5);
+            // Uso zerado: o que aparece na lista é o medido (setUsoMedido), não um número inventado.
+            var usage = new TenantUsageDto(0, 0, 0, 0);
             tenants.put("tenant_rio_quality", new TenantDto("tenant_rio_quality", "Rio Quality", "enterprise", "active",
                     "admin@rioquality.com.br", "Food Distribution", limits, usage, limits.allowedModels(), "2025-06"));
         }
@@ -50,17 +59,48 @@ public class TenantControllerImpl implements TenantController {
         }
     }
 
+    /**
+     * Liga o uso medido: a lista, o detalhe e os totais passam a mostrar o que o tenant de fato
+     * consumiu (execuções de hoje, tokens do mês, workflows, usuários).
+     */
+    public void setUsoMedido(Function<String, TenantUsageDto> usoMedido) {
+        this.usoMedido = usoMedido;
+    }
+
+    /** O cadastro com o uso medido no lugar do guardado. */
+    private TenantDto comUsoMedido(TenantDto tenant) {
+        Function<String, TenantUsageDto> fonte = usoMedido;
+        if (fonte == null || tenant == null) {
+            return tenant;
+        }
+        return new TenantDto(tenant.id(), tenant.name(), tenant.plan(), tenant.status(), tenant.adminEmail(),
+                tenant.sector(), tenant.limits(), fonte.apply(tenant.id()), tenant.allowedModels(), tenant.createdAt());
+    }
+
+    /** O cadastro do tenant, se existir — sem lançar, para quem só precisa saber o plano/limites. */
+    public Optional<TenantDto> findTenant(String tenantId) {
+        return tenantId == null ? Optional.empty() : Optional.ofNullable(tenants.get(tenantId));
+    }
+
     @Override
     public List<TenantDto> listTenants() {
-        return new ArrayList<>(tenants.values());
+        return tenants.values().stream().map(this::comUsoMedido).collect(Collectors.toCollection(ArrayList::new));
     }
 
     @Override
     public TenantStatsDto getStats() {
-        long active = tenants.values().stream().filter(t -> "active".equals(t.status())).count();
-        long trial = tenants.values().stream().filter(t -> "trial".equals(t.status())).count();
-        int execToday = tenants.values().stream().mapToInt(t -> t.usage() != null ? t.usage().executionsToday() : 0).sum();
-        long tokensMonth = tenants.values().stream().mapToLong(t -> t.usage() != null ? t.usage().tokensThisMonth() : 0).sum();
+        List<TenantDto> all = listTenants();
+        long active = all.stream().filter(t -> "active".equals(t.status())).count();
+        long trial = all.stream().filter(t -> "trial".equals(t.status())).count();
+        List<TenantUsageDto> usos = all.stream().map(TenantDto::usage).collect(Collectors.toCollection(ArrayList::new));
+        // O tenant padrão não está no cadastro, mas é onde cai todo login sem claim de tenant: sem ele, os
+        // totais "de todos os tenants" ficavam em zero enquanto Uso e cobrança mostrava o consumo dele.
+        Function<String, TenantUsageDto> fonte = usoMedido;
+        if (fonte != null && !tenants.containsKey(DefaultTenant.ID)) {
+            usos.add(fonte.apply(DefaultTenant.ID));
+        }
+        int execToday = usos.stream().mapToInt(u -> u != null ? u.executionsToday() : 0).sum();
+        long tokensMonth = usos.stream().mapToLong(u -> u != null ? u.tokensThisMonth() : 0).sum();
         return new TenantStatsDto((int) active, (int) trial, execToday, tokensMonth);
     }
 
@@ -82,14 +122,14 @@ public class TenantControllerImpl implements TenantController {
         tenants.put(request.tenantId(), tenant);
         auditTrail.record(AuditAction.CREATE, "tenant", request.tenantId(), true, null,
                 Map.of("name", String.valueOf(request.name()), "plan", String.valueOf(request.plan())));
-        return tenant;
+        return comUsoMedido(tenant);
     }
 
     @Override
     public TenantDto getTenant(String tenantId) {
         TenantDto tenant = tenants.get(tenantId);
         if (tenant == null) throw new IllegalArgumentException("Tenant not found: " + tenantId);
-        return tenant;
+        return comUsoMedido(tenant);
     }
 
     @Override
@@ -123,7 +163,7 @@ public class TenantControllerImpl implements TenantController {
                     existing.createdAt());
         });
         auditTrail.record(AuditAction.UPDATE, "tenant", tenantId, true, null, null);
-        return updated;
+        return comUsoMedido(updated);
     }
 
     /**

@@ -10,6 +10,7 @@ import { NodeIcon } from './FlowCanvas/nodeIcons'
 import { FIELD_STYLES, MONO_INPUT } from './PropertyPanel/fieldStyles'
 import { useWorkflowConfig } from './PropertyPanel/useWorkflowConfig'
 import { FlowDefaultsPanel } from './PropertyPanel/FlowDefaultsPanel'
+import { ReadOnlyFieldset } from './PropertyPanel/ReadOnlyFieldset'
 import { useCatalog } from './PropertyPanel/useCatalog'
 import { AgentFields } from './PropertyPanel/fields/AgentFields'
 import {
@@ -56,9 +57,15 @@ const EMBEDDING_MODELS = [
 interface PropertyPanelProps {
   nodeId:   string | null
   nodeData: FlowNodeData | null
+  /**
+   * Sem workflow:update (RCHFLW-74) o painel só mostra: o canvas só leitura ainda seleciona o nó (o
+   * React Flow chama onNodeClick mesmo com elementsSelectable=false) e, sem isto, os campos mudavam o
+   * canvas sem nada que gravasse — e o Executar do EXECUTOR rodava a versão gravada, descartando-os.
+   */
+  readOnly?: boolean
 }
 
-export function PropertyPanel({ nodeId, nodeData }: PropertyPanelProps) {
+export function PropertyPanel({ nodeId, nodeData, readOnly = false }: PropertyPanelProps) {
   const { t } = useTranslation()
   const { executionState } = useFlowStore()
   const execState = nodeId ? executionState[nodeId] : null
@@ -86,7 +93,7 @@ export function PropertyPanel({ nodeId, nodeData }: PropertyPanelProps) {
 
             <Tabs.Panel value="properties" style={{ flex: 1, overflow: 'hidden' }}>
               <ScrollArea style={{ height: '100%' }} p="md">
-                <NodeFields nodeId={nodeId} nodeData={nodeData} />
+                <NodeFields nodeId={nodeId} nodeData={nodeData} readOnly={readOnly} />
               </ScrollArea>
             </Tabs.Panel>
 
@@ -104,7 +111,7 @@ export function PropertyPanel({ nodeId, nodeData }: PropertyPanelProps) {
           </Tabs>
         </>
       ) : (
-        <FlowDefaultsPanel />
+        <FlowDefaultsPanel readOnly={readOnly} />
       )}
     </div>
   )
@@ -133,7 +140,7 @@ function NodeHeader({ nodeData }: { nodeData: FlowNodeData }) {
 }
 
 // ── Node Fields (all gaps implemented) ──────────────────────────
-function NodeFields({ nodeId, nodeData }: { nodeId: string; nodeData: FlowNodeData }) {
+function NodeFields({ nodeId, nodeData, readOnly }: { nodeId: string; nodeData: FlowNodeData; readOnly: boolean }) {
   const { t } = useTranslation()
   const { updateNodeConfig, updateNodeLabel } = useFlowStore()
   const { providers } = useWorkflowConfig()
@@ -219,15 +226,18 @@ function NodeFields({ nodeId, nodeData }: { nodeId: string; nodeData: FlowNodeDa
       )}
 
       {/* ── Common: Node name ─────────────────────────────────── */}
-      <TextInput
-        label={f('nodeName')}
-        value={nodeData.label}
-        onChange={e => updateNodeLabel(nodeId, e.currentTarget.value)}
-        size="xs"
-        styles={FIELD_STYLES}
-      />
+      <ReadOnlyFieldset readOnly={readOnly}>
+        <TextInput
+          label={f('nodeName')}
+          value={nodeData.label}
+          onChange={e => updateNodeLabel(nodeId, e.currentTarget.value)}
+          size="xs"
+          styles={FIELD_STYLES}
+        />
+      </ReadOnlyFieldset>
 
-      {/* Id só leitura: é por ele (e não pelo nome) que as expressões referenciam a saída */}
+      {/* Id só leitura: é por ele (e não pelo nome) que as expressões referenciam a saída. Fica fora do
+          fieldset de propósito: copiar o id não edita nada e serve a quem só lê. */}
       <NodeIdField nodeId={nodeId} />
 
       {/* Tipo sem execução no servidor (RCHFLW-11): o nó salva, mas o Executar é impedido enquanto ele estiver no fluxo */}
@@ -243,6 +253,9 @@ function NodeFields({ nodeId, nodeData }: { nodeId: string; nodeData: FlowNodeDa
           <Text size="xs">{f('llmStreamingAlias')}</Text>
         </Alert>
       )}
+
+      {/* Daqui ao fim, todos os campos do tipo do nó: travados sem workflow:update (RCHFLW-74). */}
+      <ReadOnlyFieldset readOnly={readOnly}>
 
       {/* ════════════════════════════════════════════════════════ */}
       {/*  AGENT FIELDS (extraído para fields/AgentFields)        */}
@@ -1003,6 +1016,7 @@ function NodeFields({ nodeId, nodeData }: { nodeId: string; nodeData: FlowNodeDa
           )}
         </>
       )}
+      </ReadOnlyFieldset>
     </div>
   )
 }

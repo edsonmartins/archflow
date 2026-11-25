@@ -6,6 +6,17 @@ import { useTranslation } from 'react-i18next'
 export const COPILOT_GENERATE_EVENT = 'archflow:copilot-generate'
 
 /**
+ * Agente do "Gerar com IA", separado do agente do chat lateral ({@code archflow}). Mesmo endpoint, mesmas
+ * ferramentas e o mesmo contexto da tela, mas uma conversa própria, zerada a cada geração (RCHFLW-95).
+ *
+ * <p>Antes o pedido entrava na conversa global do copiloto: com o histórico de outro fluxo, o modelo tentava
+ * ligar ids de nós que não existiam mais, chamava createFlow e montava tudo num fluxo NOVO, deixando vazio o
+ * que o usuário tinha aberto. Zerar a conversa global (o chat lateral) apagaria o que o usuário conversou;
+ * uma conversa por geração não toca nela.</p>
+ */
+export const COPILOT_GENERATE_AGENT_ID = 'archflow-generate'
+
+/**
  * Prefixo do id do toast "O copilot está montando seu fluxo". Quem dispara a geração (editor) mostra
  * o toast com um id derivado deste e o entrega em {@link requestCopilotGeneration}, para que a ponte
  * consiga fechá-lo quando a execução falha — senão o aviso de "montando" fica na tela ao lado do
@@ -100,7 +111,7 @@ export function requestCopilotGeneration(prompt: string, notificationId?: string
  * chat não mostra resposta nenhuma. Vale também para execuções disparadas pelo chat lateral.</p>
  */
 export default function CopilotGenerateBridge() {
-    const { agent } = useAgent({ agentId: 'archflow' })
+    const { agent } = useAgent({ agentId: COPILOT_GENERATE_AGENT_ID })
     const { copilotkit } = useCopilotKit()
     const { t } = useTranslation()
     // A execução em andamento veio do "Gerar com IA" (e não do chat)? Define o título do erro.
@@ -109,6 +120,8 @@ export default function CopilotGenerateBridge() {
     const notificationIdRef = useRef<string | undefined>(undefined)
     // Um mesmo RUN_ERROR costuma chegar duas vezes (evento + falha da execução): um toast por execução.
     const reportedRef = useRef(false)
+    // A geração em andamento foi parada pelo usuário: termina sem erro, mas também sem aviso de "montado".
+    const abortedRef = useRef(false)
     const tRef = useRef<Translate>(t)
     tRef.current = t
 
@@ -133,7 +146,11 @@ export default function CopilotGenerateBridge() {
                 reportedRef.current = false
             },
             onError: ({ code, error, context }) => {
-                if (!RUN_ERROR_CODES.has(code) || isCopilotAbort(error, context)) return
+                if (isCopilotAbort(error, context)) {
+                    abortedRef.current = true
+                    return
+                }
+                if (!RUN_ERROR_CODES.has(code)) return
                 report(error)
             },
         })
@@ -142,12 +159,29 @@ export default function CopilotGenerateBridge() {
             const detail = (e as CustomEvent<{ prompt?: string; notificationId?: string }>).detail
             const prompt = detail?.prompt
             if (!prompt || !agent) return
+            // Conversa nova a cada geração: só o pedido e o que a tela mostra agora (o fluxo aberto).
+            agent.setMessages([])
+            agent.threadId = `gen-thread-${Date.now()}`
             agent.addMessage({ id: `gen-${Date.now()}`, role: 'user', content: prompt })
             generatingRef.current = true
-            notificationIdRef.current = detail?.notificationId
+            const notificationId = detail?.notificationId
+            notificationIdRef.current = notificationId
             reportedRef.current = false
+            abortedRef.current = false
             void copilotkit
                 .runAgent({ agent })
+                .then(() => {
+                    if (reportedRef.current || abortedRef.current) return
+                    // O resumo do modelo ia para o chat lateral; agora a conversa é só desta geração, então ele
+                    // aparece aqui — o usuário vê o que o copiloto diz ter feito ao lado do canvas montado.
+                    if (notificationId) notifications.hide(notificationId)
+                    notifications.show({
+                        color: 'teal',
+                        autoClose: 12000,
+                        title: tRef.current('editor.ai.done'),
+                        message: resumoDaGeracao(agent.messages) || tRef.current('editor.ai.doneMsg'),
+                    })
+                })
                 .catch((error: unknown) => {
                     if (!isCopilotAbort(error)) report(error)
                 })
@@ -164,4 +198,16 @@ export default function CopilotGenerateBridge() {
     }, [agent, copilotkit])
 
     return null
+}
+
+/** O último texto do assistente na conversa da geração (o resumo que o prompt pede), limitado para um aviso. */
+function resumoDaGeracao(messages: ReadonlyArray<{ role?: string; content?: unknown }>): string {
+    for (let i = messages.length - 1; i >= 0; i--) {
+        const m = messages[i]
+        if (m.role === 'assistant' && typeof m.content === 'string' && m.content.trim()) {
+            const texto = m.content.trim()
+            return texto.length > 400 ? `${texto.slice(0, 400)}…` : texto
+        }
+    }
+    return ''
 }

@@ -34,12 +34,21 @@ public class SpringExecutionController {
     /** Nulo numa instalação sem MCP: o nó falha dizendo isso, e o resto do fluxo segue existindo. */
     private final McpAgentHost mcpAgentHost;
 
+    /** O consumo de modelo medido (RCHFLW-75); {@code null} numa montagem sem registro. */
+    private volatile br.com.archflow.api.usage.RegistroDeUso registroDeUso;
+
     public SpringExecutionController(WorkflowRuntimeStore store, FlowEngine flowEngine,
                                      StateManager stateManager, McpAgentHost mcpAgentHost) {
         this.store = store;
         this.flowEngine = flowEngine;
         this.stateManager = stateManager;
         this.mcpAgentHost = mcpAgentHost;
+    }
+
+    /** Liga o uso medido no detalhe da execução. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setRegistroDeUso(br.com.archflow.api.usage.RegistroDeUso registroDeUso) {
+        this.registroDeUso = registroDeUso;
     }
 
     @GetMapping
@@ -85,6 +94,7 @@ public class SpringExecutionController {
         if (execution == null) {
             return ResponseEntity.notFound().build();
         }
+        execution = withUsage(tenantId, id, execution);
         FlowState state = stateManager.loadState(id);
         if (state == null) {
             return ResponseEntity.ok(execution);
@@ -113,6 +123,30 @@ public class SpringExecutionController {
             enriched.put("pendingApproval", pending);
         }
         return ResponseEntity.ok(enriched);
+    }
+
+    /**
+     * O consumo de modelo da execução em {@code usage} (somando as retomadas): tokens e custo, com
+     * {@code costCents}/{@code costReais} nulos quando não há preço declarado — a tela diz "sem preço",
+     * nunca zero. Sem nada medido (fluxo que não chamou modelo, ou ainda não terminou), o campo não vem.
+     */
+    private Map<String, Object> withUsage(String tenantId, String id, Map<String, Object> execution) {
+        var registro = registroDeUso;
+        if (registro == null) {
+            return execution;
+        }
+        return registro.daExecucao(tenantId, id).map(uso -> {
+            Map<String, Object> usage = new LinkedHashMap<>();
+            usage.put("inputTokens", uso.tokensEntrada());
+            usage.put("outputTokens", uso.tokensSaida());
+            usage.put("costCents", uso.custoCentavos());
+            usage.put("costReais", uso.custoReais());
+            usage.put("declaredCostUsd", uso.custoDeclaradoUsd());
+            usage.put("withoutPrice", uso.execucoesSemPreco());
+            Map<String, Object> copy = new LinkedHashMap<>(execution);
+            copy.put("usage", usage);
+            return copy;
+        }).orElse(execution);
     }
 
     /**

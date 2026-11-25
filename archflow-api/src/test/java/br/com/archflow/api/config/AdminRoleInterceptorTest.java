@@ -93,7 +93,8 @@ class AdminRoleInterceptorTest {
         new AdminSecurityConfiguration(true).addInterceptors(registry);
 
         List<Object> registered = registry.interceptors();
-        assertThat(registered).hasSize(1);
+        // O segundo é o WorkflowPermissionInterceptor (RCHFLW-74), nos paths de fluxos e execuções.
+        assertThat(registered).hasSize(2);
         // MappedInterceptor embrulha o nosso quando há path patterns.
         Object first = registered.get(0);
         assertThat(first).isInstanceOf(org.springframework.web.servlet.handler.MappedInterceptor.class);
@@ -101,6 +102,9 @@ class AdminRoleInterceptorTest {
         assertThat(mapped.getInterceptor()).isInstanceOf(AdminRoleInterceptor.class);
         assertThat(mapped.matches(withParsedPath("/api/admin/global/models"))).isTrue();
         assertThat(mapped.matches(withParsedPath("/api/admin/tenants/t-1"))).isTrue();
+        // RCHFLW-85: convidar/trocar papel/remover mudam o acesso real do login — só ADMIN.
+        assertThat(mapped.matches(withParsedPath("/api/admin/workspace/users/invite"))).isTrue();
+        assertThat(mapped.matches(withParsedPath("/api/admin/workspace/summary"))).isTrue();
         assertThat(mapped.matches(withParsedPath("/api/workflows"))).isFalse();
     }
 
