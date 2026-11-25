@@ -1,10 +1,14 @@
 package br.com.archflow.api.flow;
 
+import br.com.archflow.agent.orchestration.SubAgentEligibility;
 import br.com.archflow.agent.streaming.ArchflowEvent;
 import br.com.archflow.agent.streaming.ArchflowEventType;
 import br.com.archflow.agent.streaming.EventStreamRegistry;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+
+import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.eq;
@@ -39,6 +43,20 @@ class StreamingOrchestrationListenerTest {
         verify(registry).broadcast(eq("exec-1"), event.capture());
         assertThat(event.getValue().getType()).isEqualTo(ArchflowEventType.PROGRESS);
         return event.getValue().getData();
+    }
+
+    /** RCHFLW-108: os componentes fora do roteamento vão ao feed num evento só, cada um com o motivo. */
+    @Test
+    void streamsTheRoutingExclusionsWithTheirReasons() {
+        EventStreamRegistry registry = mock(EventStreamRegistry.class);
+
+        new StreamingOrchestrationListener(registry, "exec-1").onExcludedFromRouting(List.of(
+                new SubAgentEligibility.Exclusion("mcp-agent", "sem host")));
+
+        assertThat(dataOf(registry))
+                .containsEntry("phase", "excluded-from-routing")
+                .containsEntry("round", 0)
+                .containsEntry("excluded", List.of(Map.of("componentId", "mcp-agent", "reason", "sem host")));
     }
 
     /** RCHFLW-64: o SSE do nó orchestrate diz qual componente atendeu a subtarefa. */

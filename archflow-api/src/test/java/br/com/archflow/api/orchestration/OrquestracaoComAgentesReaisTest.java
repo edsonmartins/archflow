@@ -3,6 +3,11 @@ package br.com.archflow.api.orchestration;
 import br.com.archflow.agent.confidence.ConfidenceResult;
 import br.com.archflow.agent.confidence.ConfidenceScorer;
 import br.com.archflow.agent.orchestration.CatalogAgentWorker;
+import br.com.archflow.agent.orchestration.OrchestrationTrace;
+import br.com.archflow.agent.orchestration.SubAgentContext;
+import br.com.archflow.agent.orchestration.SubAgentEligibility;
+import br.com.archflow.agent.streaming.ArchflowEvent;
+import br.com.archflow.agent.streaming.EventStreamRegistry;
 import br.com.archflow.api.agent.mcp.McpAgentComponent;
 import br.com.archflow.api.flow.CatalogComponents;
 import br.com.archflow.api.flow.OrchestrateStep;
@@ -27,6 +32,7 @@ import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.response.ChatResponse;
+import org.assertj.core.api.InstanceOfAssertFactories;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -37,6 +43,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -107,18 +114,101 @@ class OrquestracaoComAgentesReaisTest {
         assertThat(result.error()).isEqualTo("no agent matched subtask: zzz qqq");
     }
 
+    /**
+     * RCHFLW-108: o critério de {@link SubAgentEligibility} contra o catálogo real. Dos agentes que o
+     * {@code seedBuiltIns} registra, só o mcp-agent fica fora — e o id é conferido contra a constante do
+     * componente, para um renome não reabrir o defeito em silêncio. Os outros quatro são exatamente os que
+     * {@link #eachRealAgentAcceptsTheSubtaskItIsRoutedTo} mostra rodando como sub-agente.
+     */
     @Test
-    void theMcpAgentRunsThroughExecuteAndFailsWithItsOwnReason() {
+    void theSubAgentCriterionExcludesExactlyTheMcpAgentFromTheRealCatalog() {
+        assertThat(SubAgentEligibility.excludedIn(catalog))
+                .extracting(SubAgentEligibility.Exclusion::componentId)
+                .containsExactly(McpAgentComponent.COMPONENT_ID);
+        assertThat(catalog.listComponents()).filteredOn(md -> md.type() == ComponentType.AGENT)
+                .extracting(md -> md.id())
+                .filteredOn(SubAgentEligibility::canRunAsSubAgent)
+                .containsExactlyInAnyOrder("conversational-agent", "research-agent", "data-analysis-agent",
+                        "monitoring-agent");
+    }
+
+    /**
+     * A exclusão diz a verdade: a instância do catálogo, no contexto de sub-agente, falha antes de
+     * qualquer trabalho — era o "mcp-agent não inicializado" de toda subtarefa enviada a ela no Labs.
+     */
+    @Test
+    void theExcludedMcpAgentReallyCannotRunInTheSubAgentContext() {
+        AIComponent mcp = catalog.getComponent(McpAgentComponent.COMPONENT_ID).orElseThrow();
+
+        assertThatThrownBy(() -> mcp.execute("execute", "mcp tools", SubAgentContext.of(ctx)))
+                .hasMessageContaining("não inicializado");
+    }
+
+    /** O mcp-agent é o melhor do roteador para "mcp tools", e mesmo assim não é escolhido. */
+    @Test
+    void theMcpAgentIsNeverChosenEvenWhenItIsTheRoutersBestMatch() {
         assertThat(router.route("mcp tools", ComponentType.AGENT)).get()
                 .extracting(ComponentQueryRouter.ScoredComponent::componentId).isEqualTo("mcp-agent");
 
         Result<Object> result = new CatalogAgentWorker(router, catalog, ctx).apply("mcp tools");
 
-        // Antes: "component is not an AIAgent: mcp-agent". Agora ele é executado; sem um nó que lhe dê
-        // systemPrompt ele recusa — e o motivo é o dele, não o do worker.
+        // Antes: "mcp-agent: mcp-agent não inicializado". Sem outro agente pontuado, a falha é a explícita
+        // que já existia — não um score mínimo novo nem uma configuração inventada.
         assertThat(result.ok()).isFalse();
-        assertThat(result.error()).startsWith("mcp-agent: ").doesNotContain("not an AIAgent")
-                .contains("não inicializado");
+        assertThat(result.error()).isEqualTo("no agent matched subtask: mcp tools");
+    }
+
+    /**
+     * Com o mcp-agent no topo e um agente que roda logo abaixo, a subtarefa vai para o de baixo — a ordem
+     * do roteador entre os que rodam é mantida.
+     */
+    @Test
+    void aSubtaskWhoseBestMatchIsTheMcpAgentGoesToTheNextRunnableAgent() {
+        String subtask = "Comparar com um sql de custo os fornecedores de frete";
+        assertThat(router.rank(subtask, ComponentType.AGENT))
+                .extracting(ComponentQueryRouter.ScoredComponent::componentId)
+                .startsWith("mcp-agent", "data-analysis-agent");
+
+        Result<Object> result = new CatalogAgentWorker(router, catalog, ctx).apply(subtask);
+
+        assertThat(result.ok()).as("erro: %s", result.error()).isTrue();
+        assertThat(result.value()).isInstanceOfSatisfying(Map.class,
+                out -> assertThat(out).containsEntry("task_type", "analyze"));
+    }
+
+    /**
+     * RCHFLW-108 como foi visto no Labs: com o objetivo dos fornecedores de frete, o roteador mandava a
+     * maioria das subtarefas para o mcp-agent, e todas falhavam. Agora nenhuma vai para ele; o trace diz,
+     * uma vez e antes do planejamento, que ele ficou fora e por quê; as que têm um agente que roda chegam a
+     * ele e são verificadas; as que só casavam com o mcp-agent falham com "no agent matched".
+     */
+    @Test
+    void labsFreightGoalNeverDispatchesToTheMcpAgentAndTracesTheExclusionOnce() {
+        DynamicWorkflowService service = service(String.join("\n",
+                "Levantar os preços de frete de cada um dos três fornecedores",
+                "Comparar com um sql de custo os fornecedores de frete",
+                "Research the freight rates of each of the three carriers",
+                "Recomendar um fornecedor com base na comparação",
+                "Evaluate the customer service and support quality of each carrier",
+                "Avaliar a confiabilidade e o histórico de cada fornecedor"));
+
+        DynamicWorkflowResponse response = service.run(request("Comparar três fornecedores de frete e recomendar um"));
+
+        assertThat(response.trace()).filteredOn(e -> e.type().equals("dispatched"))
+                .extracting(e -> e.componentId())
+                .doesNotContain(McpAgentComponent.COMPONENT_ID)
+                .containsExactlyInAnyOrder("data-analysis-agent", "research-agent", "conversational-agent",
+                        null, null, null);
+        assertThat(response.trace().get(0)).satisfies(e -> {
+            assertThat(e.type()).isEqualTo(OrchestrationTrace.EXCLUDED_FROM_ROUTING);
+            assertThat(e.componentId()).isEqualTo(McpAgentComponent.COMPONENT_ID);
+            assertThat(e.detail()).contains("sub-agente").contains("McpAgentHost");
+        });
+        assertThat(response.trace()).filteredOn(e -> e.type().equals(OrchestrationTrace.EXCLUDED_FROM_ROUTING))
+                .hasSize(1);
+        assertThat(response.confirmedCount()).isEqualTo(3);
+        assertThat(response.failures()).hasSize(3)
+                .allSatisfy(f -> assertThat(f.error()).startsWith("no agent matched subtask: "));
     }
 
     @Test
@@ -147,9 +237,9 @@ class OrquestracaoComAgentesReaisTest {
         assertThat(response.confirmedCount()).isZero();
         assertThat(response.subtasks()).isEqualTo(2);
         assertThat(response.failedCount()).isEqualTo(2);
+        // "mcp tools" ia para o mcp-agent e falhava com o motivo dele; fora do roteamento, nenhum agente casa.
         assertThat(response.failures()).extracting(f -> f.error())
-                .anyMatch(e -> e.contains("no agent matched"))
-                .anyMatch(e -> e.startsWith("mcp-agent: "));
+                .containsExactlyInAnyOrder("no agent matched subtask: zzz qqq", "no agent matched subtask: mcp tools");
         assertThat(response.trace()).noneMatch(e -> e.type().equals("verified"));
     }
 
@@ -166,8 +256,44 @@ class OrquestracaoComAgentesReaisTest {
         assertThat(result.getErrors()).singleElement().extracting(e -> e.message()).asString()
                 .contains("2 subtarefa(s) falharam")
                 .contains("no agent matched subtask: zzz qqq")
-                .contains("mcp-agent: ");
+                .contains("no agent matched subtask: mcp tools")
+                .doesNotContain("mcp-agent: ");
         assertThat(ctx.get("o1")).isEmpty();
+    }
+
+    /**
+     * RCHFLW-108 no stream do nó: o {@code orchestrate} manda UM evento, antes do planejamento, dizendo que
+     * o mcp-agent ficou fora do roteamento e por quê — passando pelo listener que materializa o estado, que
+     * precisa repassá-lo ao stream.
+     */
+    @Test
+    void anOrchestrateStepStreamsTheRoutingExclusionOnceBeforePlanning() {
+        DynamicWorkflowService service = service("research and planning for freight carriers\nmcp tools");
+        ((DefaultExecutionContext) ctx).setState(
+                br.com.archflow.model.flow.FlowState.builder().flowId("flow-1").build());
+        EventStreamRegistry registry = new EventStreamRegistry();
+        List<ArchflowEvent> events = new java.util.concurrent.CopyOnWriteArrayList<>();
+        registry.addGlobalListener(events::add);
+        var step = new OrchestrateStep("o1", List.of(), Map.of("goal", "Comparar fornecedores de frete"),
+                service, registry, null);
+
+        try {
+            step.execute(ctx).join();
+        } finally {
+            registry.shutdown();
+        }
+
+        List<Object> phases = events.stream().map(e -> e.getData().get("phase")).toList();
+        assertThat(phases).first().isEqualTo("excluded-from-routing");
+        assertThat(phases).filteredOn("excluded-from-routing"::equals).hasSize(1);
+        assertThat(events.get(0).getData().get("excluded")).asInstanceOf(InstanceOfAssertFactories.LIST)
+                .singleElement().isInstanceOfSatisfying(Map.class, m -> {
+                    assertThat(m).containsEntry("componentId", McpAgentComponent.COMPONENT_ID);
+                    assertThat(m.get("reason")).asString().contains("McpAgentHost");
+                });
+        assertThat(events).filteredOn(e -> "dispatched".equals(e.getData().get("phase")))
+                .extracting(e -> e.getData().get("componentId"))
+                .doesNotContain(McpAgentComponent.COMPONENT_ID);
     }
 
     /**

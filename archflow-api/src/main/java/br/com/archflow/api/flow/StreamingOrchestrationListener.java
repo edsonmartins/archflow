@@ -1,6 +1,7 @@
 package br.com.archflow.api.flow;
 
 import br.com.archflow.agent.orchestration.OrchestrationListener;
+import br.com.archflow.agent.orchestration.SubAgentEligibility;
 import br.com.archflow.agent.streaming.ArchflowDomain;
 import br.com.archflow.agent.streaming.ArchflowEvent;
 import br.com.archflow.agent.streaming.ArchflowEventType;
@@ -57,6 +58,20 @@ public final class StreamingOrchestrationListener implements OrchestrationListen
             // deliver, não broadcast: os ouvintes globais já receberam o evento acima.
             registry.deliver(EventStreamRegistry.tenantChannel(tenantId, executionId), event);
         }
+    }
+
+    /**
+     * PROGRESS com {@code phase=excluded-from-routing}, uma vez no início: os componentes que o roteamento
+     * não vai escolher, cada um com o motivo (RCHFLW-108). Sem isso, quem acompanha o nó pelo SSE via um
+     * agente do catálogo nunca ser escolhido sem saber por quê.
+     */
+    @Override
+    public void onExcludedFromRouting(List<SubAgentEligibility.Exclusion> excluded) {
+        List<Map<String, Object>> components = excluded.stream()
+                .<Map<String, Object>>map(e -> Map.of("componentId", e.componentId(), "reason", e.reason()))
+                .toList();
+        emit(ArchflowEventType.PROGRESS, Map.of("phase", "excluded-from-routing", "round", 0,
+                "excluded", components));
     }
 
     @Override

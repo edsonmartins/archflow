@@ -41,8 +41,8 @@ class DynamicWorkflowServiceTest {
         when(model.chat(anyMessages()))
                 .thenReturn(dev.langchain4j.model.chat.response.ChatResponse.builder()
                         .aiMessage(dev.langchain4j.data.message.AiMessage.from("task one\ntask two")).build());
-        when(router.route(anyString(), eq(ComponentType.AGENT)))
-                .thenReturn(Optional.of(new ScoredComponent("agent", null, 0.9)));
+        when(router.rank(anyString(), eq(ComponentType.AGENT)))
+                .thenReturn(List.of(new ScoredComponent("agent", null, 0.9)));
         when(catalog.getComponent("agent")).thenReturn(Optional.of(agent));
         // O worker despacha no tipo que o agente declara (RCHFLW-61); sem declaração ele recusa.
         when(agent.supportedTaskTypes()).thenReturn(List.of("task"));
@@ -159,8 +159,8 @@ class DynamicWorkflowServiceTest {
                             .build();
             when(model.chat(anyMessages()))
                     .thenReturn(response);
-            when(router.route(anyString(), eq(ComponentType.AGENT)))
-                    .thenReturn(Optional.of(new ScoredComponent("agent", null, 0.9)));
+            when(router.rank(anyString(), eq(ComponentType.AGENT)))
+                    .thenReturn(List.of(new ScoredComponent("agent", null, 0.9)));
             when(catalog.getComponent("agent")).thenReturn(Optional.of(agent));
             when(agent.supportedTaskTypes()).thenReturn(List.of("task"));
             when(agent.executeTask(any(), any()))

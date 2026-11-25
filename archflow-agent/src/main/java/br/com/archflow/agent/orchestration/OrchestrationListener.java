@@ -9,6 +9,14 @@ import java.util.List;
  */
 public interface OrchestrationListener {
 
+    /**
+     * Componentes que o roteamento desta orquestração não vai escolher, e por quê — emitido uma vez, no
+     * início, antes do primeiro planejamento, e só quando há algum. O critério é o de
+     * {@link SubAgentEligibility}. Sem este evento o roteador mandava subtarefas a um agente que não roda
+     * como sub-agente, e, depois da correção, a ausência dele seria silenciosa (RCHFLW-108).
+     */
+    default void onExcludedFromRouting(List<SubAgentEligibility.Exclusion> excluded) {}
+
     /** A planning round produced these fresh (not-yet-seen) subtasks. */
     default void onPlanned(int round, List<?> items) {}
 

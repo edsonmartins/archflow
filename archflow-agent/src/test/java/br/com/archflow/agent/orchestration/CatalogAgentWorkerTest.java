@@ -50,16 +50,16 @@ class CatalogAgentWorkerTest {
     }
 
     private void routeTo(String componentId, AIComponent component) {
-        when(router.route(any(), eq(ComponentType.AGENT)))
-                .thenReturn(Optional.of(new ScoredComponent(componentId, null, 0.8)));
+        when(router.rank(any(), eq(ComponentType.AGENT)))
+                .thenReturn(List.of(new ScoredComponent(componentId, null, 0.8)));
         when(catalog.getComponent(componentId)).thenReturn(Optional.of(component));
     }
 
     @Test
     void routesSubtaskToBestAgentAndReturnsItsOutput() {
         AIAgent agent = agentDeclaring("classify");
-        when(router.route("classify ticket", ComponentType.AGENT))
-                .thenReturn(Optional.of(new ScoredComponent("classifier", null, 0.9)));
+        when(router.rank("classify ticket", ComponentType.AGENT))
+                .thenReturn(List.of(new ScoredComponent("classifier", null, 0.9)));
         when(catalog.getComponent("classifier")).thenReturn(Optional.of(agent));
         // O sub-agente recebe um contexto RECORTADO (SubAgentContext), não o do
         // fluxo — antes recebia o contexto inteiro, com toda variável e a
@@ -117,7 +117,7 @@ class CatalogAgentWorkerTest {
 
     @Test
     void failsWhenNoAgentMatches() {
-        when(router.route(any(), eq(ComponentType.AGENT))).thenReturn(Optional.empty());
+        when(router.rank(any(), eq(ComponentType.AGENT))).thenReturn(List.of());
 
         Result<Object> result = worker.apply("something");
 
@@ -126,15 +126,16 @@ class CatalogAgentWorkerTest {
     }
 
     /**
-     * RCHFLW-61: um componente AGENT que não é AIAgent (o mcp-agent) era recusado com "not an AIAgent".
-     * Ele roda pelo {@code execute()} de AIComponent, com a operação padrão — o caminho dele num fluxo.
+     * RCHFLW-61: um componente AGENT que não é AIAgent era recusado com "not an AIAgent". Ele roda pelo
+     * {@code execute()} de AIComponent, com a operação padrão — o caminho dele num fluxo. (O mcp-agent era
+     * o caso concreto; desde a RCHFLW-108 ele fica fora do roteamento, e o caminho vale para os outros.)
      */
     @Test
     void runsANonAgentComponentThroughExecuteWithItsDefaultOperation() throws Exception {
         AIComponent component = mock(AIComponent.class);
         when(component.getMetadata()).thenReturn(metadataWithOperations("execute"));
         when(component.execute(eq("execute"), eq("do it"), any())).thenReturn(Map.of("text", "feito"));
-        routeTo("mcp-agent", component);
+        routeTo("plugin-agent", component);
 
         Result<Object> result = worker.apply("do it");
 
@@ -147,12 +148,12 @@ class CatalogAgentWorkerTest {
         AIComponent component = mock(AIComponent.class);
         when(component.getMetadata()).thenReturn(metadataWithOperations("execute"));
         when(component.execute(anyString(), any(), any())).thenThrow(new IllegalStateException("não inicializado"));
-        routeTo("mcp-agent", component);
+        routeTo("plugin-agent", component);
 
         Result<Object> result = worker.apply("do");
 
         assertThat(result.ok()).isFalse();
-        assertThat(result.error()).isEqualTo("mcp-agent: não inicializado");
+        assertThat(result.error()).isEqualTo("plugin-agent: não inicializado");
     }
 
     @Test
@@ -240,13 +241,13 @@ class CatalogAgentWorkerTest {
         AIAgent bad = agentDeclaring("t");
         when(bad.executeTask(any(Task.class), any()))
                 .thenReturn(br.com.archflow.model.ai.domain.Result.failure("recusou"));
-        when(router.route(eq("ok"), eq(ComponentType.AGENT)))
-                .thenReturn(Optional.of(new ScoredComponent("agent-ok", null, 0.75)));
-        when(router.route(eq("bad"), eq(ComponentType.AGENT)))
-                .thenReturn(Optional.of(new ScoredComponent("agent-bad", null, 0.5)));
-        when(router.route(eq("gone"), eq(ComponentType.AGENT)))
-                .thenReturn(Optional.of(new ScoredComponent("agent-gone", null, 0.25)));
-        when(router.route(eq("zzz"), eq(ComponentType.AGENT))).thenReturn(Optional.empty());
+        when(router.rank(eq("ok"), eq(ComponentType.AGENT)))
+                .thenReturn(List.of(new ScoredComponent("agent-ok", null, 0.75)));
+        when(router.rank(eq("bad"), eq(ComponentType.AGENT)))
+                .thenReturn(List.of(new ScoredComponent("agent-bad", null, 0.5)));
+        when(router.rank(eq("gone"), eq(ComponentType.AGENT)))
+                .thenReturn(List.of(new ScoredComponent("agent-gone", null, 0.25)));
+        when(router.rank(eq("zzz"), eq(ComponentType.AGENT))).thenReturn(List.of());
         when(catalog.getComponent("agent-ok")).thenReturn(Optional.of(ok));
         when(catalog.getComponent("agent-bad")).thenReturn(Optional.of(bad));
         when(catalog.getComponent("agent-gone")).thenReturn(Optional.empty());
@@ -271,9 +272,9 @@ class CatalogAgentWorkerTest {
     @Test
     void aRouterOrCatalogExceptionStillReportsTheDispatchAndFailsWithTheReason() {
         Recorder rec = new Recorder();
-        when(router.route(eq("boom"), eq(ComponentType.AGENT))).thenThrow(new IllegalStateException("índice"));
-        when(router.route(eq("gone"), eq(ComponentType.AGENT)))
-                .thenReturn(Optional.of(new ScoredComponent("agent-x", null, 0.5)));
+        when(router.rank(eq("boom"), eq(ComponentType.AGENT))).thenThrow(new IllegalStateException("índice"));
+        when(router.rank(eq("gone"), eq(ComponentType.AGENT)))
+                .thenReturn(List.of(new ScoredComponent("agent-x", null, 0.5)));
         when(catalog.getComponent("agent-x")).thenThrow(new IllegalStateException("catálogo fora"));
 
         Result<Object> routerFailed = listenedBy(rec).apply(1, "boom");
@@ -292,7 +293,7 @@ class CatalogAgentWorkerTest {
     @Test
     void theCoreApplyDispatchesAsRoundZero() {
         Recorder rec = new Recorder();
-        when(router.route(any(), eq(ComponentType.AGENT))).thenReturn(Optional.empty());
+        when(router.rank(any(), eq(ComponentType.AGENT))).thenReturn(List.of());
 
         listenedBy(rec).apply("zzz");
 
@@ -339,7 +340,7 @@ class CatalogAgentWorkerTest {
         Recorder rec = new Recorder();
         // Agente que não declara tipos é recusado antes de rodar.
         routeTo("silent", agentDeclaring());
-        when(router.route(eq("zzz"), eq(ComponentType.AGENT))).thenReturn(Optional.empty());
+        when(router.rank(eq("zzz"), eq(ComponentType.AGENT))).thenReturn(List.of());
 
         listenedBy(rec).apply(1, "zzz");
         listenedBy(rec).apply(1, "silent");
@@ -363,6 +364,75 @@ class CatalogAgentWorkerTest {
                 .containsExactly("dispatched", "usage-unknown", "failed");
         assertThat(trace.entries()).allSatisfy(e -> assertThat(e.componentId()).isEqualTo("research-agent"));
         assertThat(trace.entries().get(0).detail()).isEqualTo("compare (score=0.80, success=false)");
+    }
+
+    /**
+     * RCHFLW-108: o roteador punha o mcp-agent no topo (score 0,05 no Labs) e toda subtarefa enviada a ele
+     * falhava. O worker pula quem não roda como sub-agente e fica com o próximo do ranking — na ordem do
+     * roteador, sem score mínimo novo.
+     */
+    @Test
+    void skipsAComponentThatCannotRunAsSubAgentAndTakesTheNextInTheRoutersOrder() {
+        Recorder rec = new Recorder();
+        AIAgent agent = agentDeclaring("t");
+        AIAgent third = agentDeclaring("t");
+        when(router.rank(eq("compare carriers"), eq(ComponentType.AGENT))).thenReturn(List.of(
+                new ScoredComponent("mcp-agent", null, 0.05),
+                new ScoredComponent("conversational-agent", null, 0.04),
+                new ScoredComponent("research-agent", null, 0.03)));
+        when(catalog.getComponent("conversational-agent")).thenReturn(Optional.of(agent));
+        when(catalog.getComponent("research-agent")).thenReturn(Optional.of(third));
+        when(agent.executeTask(any(Task.class), any()))
+                .thenReturn(br.com.archflow.model.ai.domain.Result.success("ok"));
+
+        Result<Object> result = listenedBy(rec).apply(1, "compare carriers");
+
+        assertThat(result.ok()).as("erro: %s", result.error()).isTrue();
+        assertThat(rec.dispatched).containsExactly("1|compare carriers|conversational-agent|0.04|true");
+        // O excluído nem é buscado no catálogo: não roda, não gasta, não aparece como falha.
+        verify(catalog, never()).getComponent("mcp-agent");
+        verify(third, never()).executeTask(any(), any());
+    }
+
+    /** Sobrando só quem não roda como sub-agente, vale a falha explícita que já existia. */
+    @Test
+    void onlyExcludedCandidatesIsTheExistingNoAgentMatchedFailure() {
+        Recorder rec = new Recorder();
+        when(router.rank(eq("mcp tools"), eq(ComponentType.AGENT)))
+                .thenReturn(List.of(new ScoredComponent("mcp-agent", null, 0.6)));
+
+        Result<Object> result = listenedBy(rec).apply(1, "mcp tools");
+
+        assertThat(result.ok()).isFalse();
+        assertThat(result.error()).isEqualTo("no agent matched subtask: mcp tools");
+        assertThat(rec.dispatched).containsExactly("1|mcp tools|null|null|false");
+        verify(catalog, never()).getComponent("mcp-agent");
+    }
+
+    /** O que o supervisor relata no início: os AGENT do catálogo (recortado) que o worker não escolhe. */
+    @Test
+    void reportsTheCatalogAgentsExcludedFromRoutingWithTheirReason() {
+        when(catalog.listComponents()).thenReturn(List.of(
+                metadata("research-agent", ComponentType.AGENT),
+                metadata("mcp-agent", ComponentType.AGENT),
+                metadata("text-transform", ComponentType.TOOL)));
+
+        assertThat(worker.excludedFromRouting()).singleElement().satisfies(e -> {
+            assertThat(e.componentId()).isEqualTo("mcp-agent");
+            assertThat(e.reason()).contains("sub-agente").contains("systemPrompt").contains("McpAgentHost");
+        });
+    }
+
+    @Test
+    void aCatalogWithoutExcludedAgentsReportsNothing() {
+        when(catalog.listComponents()).thenReturn(List.of(metadata("research-agent", ComponentType.AGENT)));
+
+        assertThat(worker.excludedFromRouting()).isEmpty();
+    }
+
+    private static ComponentMetadata metadata(String id, ComponentType type) {
+        return new ComponentMetadata(id, id, id, type, "1", java.util.Set.of(), List.of(), Map.of(),
+                java.util.Set.of());
     }
 
     private static ComponentMetadata metadataWithOperations(String... operations) {

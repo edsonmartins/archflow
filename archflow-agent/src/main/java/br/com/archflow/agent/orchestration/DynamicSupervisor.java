@@ -13,6 +13,8 @@ import br.com.archflow.orchestration.Usage;
 import br.com.archflow.orchestration.Verdict;
 import br.com.archflow.orchestration.Voter;
 import br.com.archflow.orchestration.Worker;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -42,6 +44,8 @@ import java.util.concurrent.atomic.AtomicReference;
  * ({@link OrchestrationListener#onUsageUnknown}), nunca um número inventado.</p>
  */
 public final class DynamicSupervisor {
+
+    private static final Logger log = LoggerFactory.getLogger(DynamicSupervisor.class);
 
     private final Orchestrator orchestrator;
 
@@ -78,6 +82,13 @@ public final class DynamicSupervisor {
         AtomicInteger notDispatched = new AtomicInteger();
         List<SupervisorResult.SubtaskFailure> failures = new CopyOnWriteArrayList<>();
         PlanSpec spec = new PlanSpec(config.decomposePrompt(), config.maxSubtasks());
+
+        // Uma vez, antes do primeiro planejamento: quem o roteamento não vai escolher e por quê. Por
+        // subtarefa repetiria a mesma linha N vezes; no fim, ficaria depois das falhas que ela explica
+        // (RCHFLW-108). Round 0 porque nenhuma rodada começou.
+        if (worker instanceof SubtaskWorker sw) {
+            reportExcludedFromRouting(sw, obs);
+        }
 
         Round<List<Object>> round = (confirmed, r) -> {
             roundsRun.set(r);
@@ -175,6 +186,31 @@ public final class DynamicSupervisor {
         obs.onConverged(roundsRun.get(), confirmed.size());
         return new SupervisorResult(confirmed, roundsRun.get(), dispatched.get(), notDispatched.get(), failures,
                 ledger.spentTokens(), exhaustionAnnounced.get());
+    }
+
+    /**
+     * Relata quem fica fora do roteamento ({@link OrchestrationListener#onExcludedFromRouting}).
+     *
+     * <p>Uma falha ao montar a lista (o catálogo que lança em {@code listComponents}) não derruba a
+     * execução: antes da RCHFLW-108 essa mesma falha aparecia no {@code router.rank} de cada subtarefa e
+     * virava {@link Result#fail} com linha no trace e no SSE (RCHFLW-64) — abortar aqui trocaria isso por
+     * uma exceção sem trace nenhum. Não é fallback que esconde algo: a exclusão em si continua aplicada
+     * subtarefa a subtarefa pelo worker, só o relato se perde; e o catálogo quebrado, que o roteador lista
+     * de novo, faz cada subtarefa falhar com o motivo explícito. O aviso no log diz por que a linha de
+     * exclusão não está no trace.</p>
+     */
+    private static void reportExcludedFromRouting(SubtaskWorker worker, OrchestrationListener obs) {
+        List<SubAgentEligibility.Exclusion> excluded;
+        try {
+            excluded = worker.excludedFromRouting();
+        } catch (RuntimeException e) {
+            log.warn("Não foi possível listar os componentes fora do roteamento da orquestração; as subtarefas "
+                    + "seguem pelo caminho de falha do roteador", e);
+            return;
+        }
+        if (excluded != null && !excluded.isEmpty()) {
+            obs.onExcludedFromRouting(List.copyOf(excluded));
+        }
     }
 
     /**

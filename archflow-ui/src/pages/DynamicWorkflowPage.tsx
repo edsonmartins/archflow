@@ -4,7 +4,7 @@ import {
     Alert, Button, Code, Grid, Group, List, Loader, NumberInput, SimpleGrid, Stack, Text, Textarea,
 } from '@mantine/core'
 import {
-    IconAdjustmentsHorizontal, IconAlertCircle, IconAlertTriangle, IconCircleCheck, IconCoins,
+    IconAdjustmentsHorizontal, IconAlertCircle, IconAlertTriangle, IconCircleCheck, IconCoins, IconFilterOff,
     IconListDetails, IconPlayerPlay, IconRepeat, IconSitemap, IconTarget,
 } from '@tabler/icons-react'
 import { PageHeader } from '../components/PageHeader'
@@ -28,6 +28,12 @@ function motivosDeFalha(failures: SubtaskFailure[]): { error: string; count: num
     }
     return [...porMotivo].map(([error, count]) => ({ error, count }))
 }
+
+/**
+ * Tipo da linha do trace de um componente que o roteamento da orquestração não escolhe — a constante
+ * `OrchestrationTrace.EXCLUDED_FROM_ROUTING` do backend (RCHFLW-108).
+ */
+const EXCLUIDO_DO_ROTEAMENTO = 'excluded-from-routing'
 
 /**
  * Por que nada foi confirmado. A tela dizia sempre "os verificadores rejeitaram", inclusive quando
@@ -131,6 +137,9 @@ export default function DynamicWorkflowPage() {
 
     const trace = result?.trace ?? []
     const failures = result?.failures ?? []
+    // Quem ficou fora do roteamento e por quê (RCHFLW-108). Só no trace, a linha se perdia entre os
+    // eventos — e o agente que nunca aparece nos despachos parecia ter sido ignorado sem motivo.
+    const excluidos = trace.filter(e => e.type === EXCLUIDO_DO_ROTEAMENTO)
 
     return (
         <Stack p="md" gap="lg">
@@ -285,6 +294,23 @@ export default function DynamicWorkflowPage() {
                                                 <List.Item key={error}>
                                                     <Text span size="sm" fw={600}>{count}×</Text> {error}
                                                 </List.Item>
+                                            ))}
+                                        </List>
+                                    </Alert>
+                                )}
+
+                                {excluidos.length > 0 && (
+                                    <Alert
+                                        color="blue"
+                                        variant="light"
+                                        icon={<IconFilterOff size={16} />}
+                                        title={t('dynamicWorkflow.excludedTitle', { count: excluidos.length })}
+                                        data-testid="dw-excluded"
+                                    >
+                                        <Text size="sm" mb={4}>{t('dynamicWorkflow.excludedHint')}</Text>
+                                        <List size="sm" spacing={2}>
+                                            {excluidos.map((e, i) => (
+                                                <List.Item key={`${e.componentId ?? ''}-${i}`}>{e.detail}</List.Item>
                                             ))}
                                         </List>
                                     </Alert>

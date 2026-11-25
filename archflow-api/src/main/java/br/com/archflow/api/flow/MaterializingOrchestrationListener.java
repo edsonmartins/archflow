@@ -1,6 +1,7 @@
 package br.com.archflow.api.flow;
 
 import br.com.archflow.agent.orchestration.OrchestrationListener;
+import br.com.archflow.agent.orchestration.SubAgentEligibility;
 import br.com.archflow.model.flow.ExecutionPath;
 import br.com.archflow.model.flow.FlowState;
 import br.com.archflow.model.flow.PathStatus;
@@ -39,6 +40,15 @@ public final class MaterializingOrchestrationListener implements OrchestrationLi
             state.setExecutionPaths(new CopyOnWriteArrayList<>());
         }
         return state.getExecutionPaths();
+    }
+
+    /**
+     * Só repassa: a exclusão vale para a orquestração inteira e não tem ramo onde morar. Sem repassar, o
+     * stream do nó — que é o delegate — nunca a veria (RCHFLW-108).
+     */
+    @Override
+    public void onExcludedFromRouting(List<SubAgentEligibility.Exclusion> excluded) {
+        delegate.onExcludedFromRouting(excluded);
     }
 
     @Override
