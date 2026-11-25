@@ -780,6 +780,7 @@
         "listHint": "Click a row to edit; use the icons to fire, edit or delete",
         "emptyHint": "Create one to invoke an agent on a schedule.",
         "tenantHint": "Tenant the invocation runs as",
+        "tenantLockedHint": "The tenant of your access; another tenant requires the administrator role",
         "agentLabel": "agent",
         "assistantLabel": "assistant",
         "stats": {
@@ -803,7 +804,14 @@
             "tenant": "Tenant",
             "agent": "Agent",
             "status": "Status",
-            "lastFired": "Last fired"
+            "lastFired": "Last fired",
+            "lastResult": "Last result"
+        },
+        "lastStatus": {
+            "QUEUED": "queued",
+            "RUNNING": "running",
+            "COMPLETED": "completed",
+            "FAILED": "failed"
         },
         "status": {
             "enabled": "enabled",
@@ -1549,6 +1557,7 @@
         "title": "Agent Playground",
         "info": "Trigger an agent directly (on-demand) or send a conversational message. Both go through the <code>AgentInvocationQueue</code>; the agent runs in the background and its result shows up here when it finishes.",
         "tenantId": "Tenant ID",
+        "tenantLockedHint": "The tenant of your access; another tenant requires the administrator role",
         "sessionId": "Session ID (optional)",
         "sessionPlaceholder": "auto-generated if blank",
         "agent": "Agent",
@@ -1688,7 +1697,7 @@
         "title": "Run input",
         "subtitle": "A JSON object becomes context variables (one per key); any other text reaches the flow as input. Leave empty to run without input.",
         "placeholder": "{\"customer\": \"ACME\"}  or  free text",
-        "asEmpty": "No input: the flow runs with no initial variables.",
+        "asEmpty": "No input: the flow runs with an empty input (\"\") and no other variables.",
         "asVariables": "JSON object: variables {{keys}}.",
         "asText": "Text: reaches the flow as input.",
         "cancel": "Cancel",

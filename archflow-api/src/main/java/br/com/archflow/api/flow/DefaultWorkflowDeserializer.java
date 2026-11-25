@@ -26,6 +26,11 @@ public class DefaultWorkflowDeserializer implements WorkflowDeserializer {
 
     private static final Logger logger = LoggerFactory.getLogger(DefaultWorkflowDeserializer.class);
 
+    /** O que o passo diz quando o fluxo não declara a lista e o servidor a exige (RCHFLW-105). */
+    static final String REQUIRE_ALLOWLIST_REASON = "este fluxo não declara configuration.allowedComponents e "
+            + "o servidor roda com archflow.components.require-allowlist=true, que exige a lista: declare "
+            + "em configuration.allowedComponents os componentes que o fluxo usa";
+
     private final FlowStepFactory stepFactory;
     private final boolean requireAllowlist;
 
@@ -125,7 +130,9 @@ public class DefaultWorkflowDeserializer implements WorkflowDeserializer {
                 logger.warn("Fluxo {} não declara configuration.allowedComponents e "
                                 + "archflow.components.require-allowlist=true — nenhum componente será resolvido",
                         str(json.get("id"), "?"));
-                return ComponentAccessPolicy.allowOnly(List.of());
+                // O motivo vai na falha do passo, não só no log: quem roda o fluxo via
+                // "component not found: decision" e procurava o componente, não a configuração.
+                return ComponentAccessPolicy.denyAll(REQUIRE_ALLOWLIST_REASON);
             }
             return ComponentAccessPolicy.allowAll();
         }

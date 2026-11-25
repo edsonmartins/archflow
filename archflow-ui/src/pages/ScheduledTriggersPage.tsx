@@ -21,6 +21,9 @@ import { SectionCard } from '../components/SectionCard'
 import { StatCard } from '../components/admin/StatCard'
 import { VxTable, colunaAcoes, colunaApagada, colunaDupla, colunaStatus, type VxColumn } from '../components/VTable'
 import { formatInstant } from '../lib/format'
+import { useActingTenant } from '../lib/actingTenant'
+import { approvalTenantParam } from '../lib/approvalTenant'
+import { useTenantStore } from '../stores/useTenantStore'
 
 /** Acompanhamento do "Disparar agora": os mesmos intervalo, prazo e 404s tolerados do Agent lab. */
 const RUN_POLL_INTERVAL_MS = 1000
@@ -72,6 +75,11 @@ export async function followTriggerRun(
     }
 }
 
+/** O texto da coluna "Último resultado": o status do último disparo, ou "—" se nunca disparou. */
+export function lastRunLabel(trigger: Pick<ScheduledTrigger, 'lastStatus'>, t: TFunction): string {
+    return trigger.lastStatus ? t(`triggers.lastStatus.${trigger.lastStatus}`) : '—'
+}
+
 /**
  * Cron-scheduled trigger admin surface.
  *
@@ -90,6 +98,13 @@ export default function ScheduledTriggersPage() {
     const [draft, setDraft]   = useState<NewDraft>(blankDraft)
 
     const catalog = useCatalog()
+    // RCHFLW-103: o gatilho roda no tenant da identidade. Quem não é admin vê o próprio tenant e não o
+    // troca (o servidor recusaria com 403); a listagem segue o recorte da fila de aprovações.
+    const acting = useActingTenant()
+    const impersonating = useTenantStore(s => s.impersonating)
+    const currentRole = useTenantStore(s => s.currentRole)
+    const listTenant = approvalTenantParam(impersonating, currentRole)
+    const draftTenant = acting.locked ? (acting.tenantId ?? '') : draft.tenantId
 
     const agentOptions = [
         ...catalog.agents.map(a => ({ value: a.id, label: `${a.displayName} (${t('triggers.agentLabel')})` })),
@@ -99,14 +114,17 @@ export default function ScheduledTriggersPage() {
     const reload = async () => {
         setL(true); setError(null)
         try {
-            setItems(await triggersApi.list())
+            setItems(await triggersApi.list(listTenant))
         } catch (e) {
             setError(e instanceof ApiError ? e.message : String(e))
         } finally { setL(false) }
     }
-    useEffect(() => { reload() }, [])
+    useEffect(() => { reload() }, [listTenant])
 
-    const openCreate = () => { setDraft(blankDraft); setEdit({} as ScheduledTrigger) }
+    const openCreate = () => {
+        setDraft({ ...blankDraft, tenantId: acting.tenantId ?? '' })
+        setEdit({} as ScheduledTrigger)
+    }
     const openEdit = (trig: ScheduledTrigger) => {
         setDraft({
             name: trig.name,
@@ -131,7 +149,7 @@ export default function ScheduledTriggersPage() {
         const body = {
             name: draft.name,
             cronExpression: draft.cronExpression,
-            tenantId: draft.tenantId,
+            tenantId: draftTenant,
             agentId: draft.agentId,
             payload: parsedPayload,
             enabled: draft.enabled,
@@ -173,7 +191,11 @@ export default function ScheduledTriggersPage() {
             notifications.show({ color: 'green', title: t('triggers.fired'),
                 message: t('triggers.firedMsg', { name: trigger.name }) })
             await reload()
-            if (fired.lastRequestId) void followTriggerRun(fired, fired.lastRequestId, t)
+            // Terminado o agente, a lista é relida: o gatilho já guarda o desfecho (RCHFLW-104), e o card
+            // "Com falha" e a linha passam a refleti-lo sem esperar alguém clicar em Atualizar.
+            if (fired.lastRequestId) {
+                void followTriggerRun(fired, fired.lastRequestId, t).then(r => { if (r) void reload() })
+            }
         } catch (e) {
             notifications.show({ color: 'red', title: t('triggers.fireFailed'),
                 message: e instanceof ApiError ? e.message : String(e) })
@@ -197,6 +219,13 @@ export default function ScheduledTriggersPage() {
         ),
         colunaApagada({ field: 'lastFiredAt', title: t('triggers.table.lastFired'), width: 190,
           fieldFormat: (r) => formatInstant(r.lastFiredAt as string | null, locale) }),
+        // O desfecho do último disparo, inclusive o automático (RCHFLW-104): antes a falha do agente só
+        // aparecia no aviso do "Disparar agora", e a do cron em lugar nenhum.
+        colunaDupla(
+            { field: 'lastStatus', title: t('triggers.table.lastResult'), width: 240 },
+            (r) => lastRunLabel(r as unknown as ScheduledTrigger, t),
+            (r) => (r.lastError ? String(r.lastError) : undefined),
+        ),
         colunaAcoes([
             { nome: 'fire', icone: 'play', rotulo: t('triggers.fireNow'), cor: 'violet' },
             { nome: 'edit', icone: 'pencil', rotulo: t('triggers.edit') },
@@ -297,10 +326,12 @@ export default function ScheduledTriggersPage() {
                                    styles={{ input: { fontFamily: 'var(--font-mono)' } }}
                                    data-testid="trigger-cron" />
                         <TextInput size="sm" label={t('triggers.tenant')}
-                                   value={draft.tenantId}
+                                   value={draftTenant}
+                                   readOnly={acting.locked}
                                    onChange={e => setDraft({ ...draft, tenantId: e.currentTarget.value })}
-                                   description={t('triggers.tenantHint')}
-                                   placeholder="tenant_demo" />
+                                   description={t(acting.locked ? 'triggers.tenantLockedHint' : 'triggers.tenantHint')}
+                                   placeholder="tenant_demo"
+                                   data-testid="trigger-tenant" />
                     </SimpleGrid>
                     <Select size="sm" label={t('triggers.agent')}
                             value={draft.agentId || null}
@@ -320,7 +351,7 @@ export default function ScheduledTriggersPage() {
                         <Button variant="default" onClick={() => setEdit(null)}>{t('common.cancel')}</Button>
                         <Button onClick={save} data-testid="trigger-save"
                                 disabled={!draft.name.trim() || !draft.cronExpression.trim()
-                                        || !draft.tenantId.trim() || !draft.agentId.trim()}>
+                                        || !draftTenant.trim() || !draft.agentId.trim()}>
                             {t('common.save')}
                         </Button>
                     </Group>

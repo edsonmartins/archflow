@@ -780,6 +780,7 @@
         "listHint": "Clique numa linha para editar; use os ícones para disparar, editar ou excluir",
         "emptyHint": "Crie um para invocar um agente num horário.",
         "tenantHint": "Tenant em nome do qual a invocação roda",
+        "tenantLockedHint": "O tenant do seu acesso; outro tenant exige o papel de administrador",
         "agentLabel": "agente",
         "assistantLabel": "assistente",
         "stats": {
@@ -803,7 +804,14 @@
             "tenant": "Tenant",
             "agent": "Agente",
             "status": "Status",
-            "lastFired": "Último disparo"
+            "lastFired": "Último disparo",
+            "lastResult": "Último resultado"
+        },
+        "lastStatus": {
+            "QUEUED": "na fila",
+            "RUNNING": "executando",
+            "COMPLETED": "concluído",
+            "FAILED": "falhou"
         },
         "status": {
             "enabled": "ativo",
@@ -1549,6 +1557,7 @@
         "title": "Agent Playground",
         "info": "Dispare um agente diretamente (on-demand) ou envie uma mensagem conversacional. Os dois entram na <code>AgentInvocationQueue</code>; o agente roda em segundo plano e o resultado aparece ao lado quando terminar.",
         "tenantId": "ID do tenant",
+        "tenantLockedHint": "O tenant do seu acesso; outro tenant exige o papel de administrador",
         "sessionId": "ID da sessão (opcional)",
         "sessionPlaceholder": "gerado automaticamente se vazio",
         "agent": "Agente",
@@ -1688,7 +1697,7 @@
         "title": "Entrada da execução",
         "subtitle": "Um objeto JSON vira variáveis do contexto (uma por chave); qualquer outro texto chega ao fluxo como input. Pode ficar vazio.",
         "placeholder": "{\"cliente\": \"ACME\"}  ou  texto livre",
-        "asEmpty": "Sem entrada: o fluxo roda sem variáveis iniciais.",
+        "asEmpty": "Sem entrada: o fluxo roda com input vazio (\"\") e sem outras variáveis.",
         "asVariables": "Objeto JSON: variáveis {{keys}}.",
         "asText": "Texto: chega ao fluxo como input.",
         "cancel": "Cancelar",

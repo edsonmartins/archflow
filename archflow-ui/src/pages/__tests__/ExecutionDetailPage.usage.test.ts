@@ -88,6 +88,19 @@ describe('ExecutionDetailPage — uso de modelo', () => {
     expect(text).not.toContain('usage.noPrice')
   })
 
+  // RCHFLW-105: com preço declarado, R$ 0,0000214 aparecia como R$ 0,00 (exec-a6578e9b).
+  it('custo positivo abaixo de R$ 0,0001 aparece como "< R$0.0001", nunca R$ 0,00', async () => {
+    executionApiMock.get.mockResolvedValue(execution({
+      inputTokens: 14, outputTokens: 50, costCents: 1, costReais: 0.0000214, declaredCostUsd: null,
+      withoutPrice: 0,
+    }))
+    await render()
+
+    const text = usageCard()!.textContent
+    expect(text).toContain('< R$0.0001')
+    expect(text).not.toMatch(/R\$0\.00(?!01)/)
+  })
+
   it('custo nulo aparece como "sem preço", nunca R$ 0', async () => {
     executionApiMock.get.mockResolvedValue(execution({
       inputTokens: 400, outputTokens: 80, costCents: null, costReais: null, declaredCostUsd: null,
