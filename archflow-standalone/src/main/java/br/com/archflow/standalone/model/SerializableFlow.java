@@ -13,7 +13,8 @@ import java.util.Objects;
  * Serializable implementation of Flow for standalone export.
  *
  * <p>Wraps all flow data in a concrete class that Jackson can serialize/deserialize.
- * The execute() logic on steps is resolved at runtime by the StandaloneRunner.
+ * It is the transport model (export, YAML bridge); execution goes through
+ * {@code StandaloneFlowMaterializer}, which turns the document into the server's steps (RCHFLW-37).
  */
 public class SerializableFlow implements Flow {
 

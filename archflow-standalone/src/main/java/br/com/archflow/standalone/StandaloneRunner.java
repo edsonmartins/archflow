@@ -21,7 +21,13 @@ import java.util.concurrent.TimeUnit;
  * Standalone runner for exported archflow workflows.
  *
  * <p>Loads a workflow from a JSON file and executes it without Spring Boot,
- * databases, or any external infrastructure — only needs Java 17+ and LLM API keys.
+ * databases, or any external infrastructure — only needs Java 25+ and LLM API keys.
+ *
+ * <p><b>Os passos são os do servidor (RCHFLW-37).</b> O documento é materializado pela mesma fábrica do
+ * archflow-api ({@link StandaloneFlowMaterializer}) antes de chegar ao motor: Entrada/Saída, condição/switch,
+ * decisão, nós de chat dos adapters LangChain4j e componentes de plugin executam aqui como lá. Um nó que
+ * precisa do servidor (aprovação com fila, orquestração, {@code mcp-agent}, base de conhecimento) recusa o
+ * fluxo antes do primeiro passo, dizendo o nó e o motivo.</p>
  *
  * <h3>Usage:</h3>
  * <pre>
@@ -36,11 +42,14 @@ import java.util.concurrent.TimeUnit;
  *   --plugins PATH        Path to plugins directory
  * </pre>
  *
- * <p>Environment variables:
+ * <p>Environment variables (a chave vem só daqui, nunca do JSON do fluxo — ver {@link StandaloneEnvironment}):
  * <ul>
- *   <li>{@code ARCHFLOW_API_KEY} — LLM API key</li>
- *   <li>{@code ARCHFLOW_MODEL} — LLM model name</li>
- *   <li>{@code ARCHFLOW_PROVIDER} — LLM provider (openai, anthropic, etc.)</li>
+ *   <li>{@code ARCHFLOW_API_KEY} / {@code ARCHFLOW_LLM_API_KEY} — LLM API key of the default provider</li>
+ *   <li>{@code ARCHFLOW_MODEL} / {@code ARCHFLOW_LLM_MODEL} — LLM model name</li>
+ *   <li>{@code ARCHFLOW_PROVIDER} / {@code ARCHFLOW_LLM_PROVIDER} — LLM provider (openai, anthropic, etc.)</li>
+ *   <li>{@code ARCHFLOW_LLM_KEYS_<PROVIDER>} — key of one provider</li>
+ *   <li>{@code ARCHFLOW_LLM_BASE_URL}, {@code ARCHFLOW_LLM_ALLOWED_BASE_URLS} — destinations that may receive
+ *       the key</li>
  * </ul>
  */
 public class StandaloneRunner implements AutoCloseable {
@@ -48,11 +57,18 @@ public class StandaloneRunner implements AutoCloseable {
     private static final Logger log = LoggerFactory.getLogger(StandaloneRunner.class);
 
     private final FlowSerializer serializer;
+    private final Map<String, String> environment;
     private ArchFlowAgent agent;
     private ProtobufEventPublisher eventPublisher;
 
     public StandaloneRunner() {
+        this(System.getenv());
+    }
+
+    /** Com um ambiente dado no lugar das variáveis do processo (testes). */
+    StandaloneRunner(Map<String, String> environment) {
         this.serializer = new FlowSerializer();
+        this.environment = environment;
     }
 
     /**
@@ -84,14 +100,16 @@ public class StandaloneRunner implements AutoCloseable {
      * Runs a workflow from CLI arguments.
      */
     public FlowResult run(CliArgs args) throws Exception {
-        // Load workflow
-        SerializableFlow flow = loadWorkflow(args.workflowPath);
-        log.info("Loaded workflow: {} ({})", flow.getId(),
-                flow.getMetadata() != null ? flow.getMetadata().name() : "unnamed");
+        // Load workflow — o documento cru, como o servidor o guarda e lê: é ele que a fábrica materializa.
+        Map<String, Object> document = loadDocument(args.workflowPath);
+        Object meta = document.get("metadata");
+        log.info("Loaded workflow: {} ({})", document.get("id"),
+                meta instanceof Map<?, ?> m && m.get("name") != null ? m.get("name") : "unnamed");
+        String flowId = String.valueOf(document.get("id"));
 
         // Create agent
         AgentConfig config = AgentConfig.builder()
-                .agentId("standalone-" + flow.getId())
+                .agentId("standalone-" + flowId)
                 .pluginsPath(args.pluginsPath)
                 .maxConcurrentFlows(1)
                 .defaultFlowTimeout(args.timeoutSeconds * 1000L)
@@ -103,7 +121,7 @@ public class StandaloneRunner implements AutoCloseable {
 
         // Wire up protobuf publisher if --events-url was provided
         if (args.eventsUrl != null) {
-            String agentId = args.agentId != null ? args.agentId : "standalone-" + flow.getId();
+            String agentId = args.agentId != null ? args.agentId : "standalone-" + flowId;
             eventPublisher = new ProtobufEventPublisher(
                     agent.getEventStreamRegistry(),
                     URI.create(args.eventsUrl),
@@ -117,13 +135,17 @@ public class StandaloneRunner implements AutoCloseable {
             input.put("input", args.inputText);
         }
 
-        // Inject environment-based LLM config
-        injectEnvConfig(input);
+        // Materializa os passos com a fábrica do servidor. Anotações do canvas ficam no arquivo para o
+        // designer, mas não são passos; um nó que precisa do servidor recusa o fluxo aqui, antes de qualquer
+        // passo rodar. A chave de LLM vem do ambiente — antes ela ia parar nas variáveis da execução
+        // (api_key), onde nenhum passo a lia e qualquer saída podia carregá-la.
+        br.com.archflow.model.flow.Flow flow = StandaloneFlowMaterializer
+                .create(agent.getPluginCatalog(), StandaloneEnvironment.of(environment))
+                .materialize(document);
 
         // Execute
         log.info("Executing workflow with {} variables...", input.size());
-        // Anotações do canvas ficam no arquivo para o designer, mas não são passos a executar.
-        FlowResult result = submit(agent, flow.withoutAnnotations(), input)
+        FlowResult result = submit(agent, flow, input)
                 .get(args.timeoutSeconds, TimeUnit.SECONDS);
 
         log.info("Workflow completed with status: {}", result.getStatus());
@@ -132,11 +154,11 @@ public class StandaloneRunner implements AutoCloseable {
 
     /**
      * Entrega o fluxo ao agente. Separado do {@link #run} só para um teste ver o fluxo que chega ao agente
-     * (sem as anotações do canvas) sem depender de componentes reais.
+     * (materializado, sem as anotações do canvas) sem executá-lo.
      */
     protected java.util.concurrent.CompletableFuture<FlowResult> submit(ArchFlowAgent agent,
             br.com.archflow.model.flow.Flow flow, Map<String, Object> input) {
-        return agent.executeFlow(flow, input);
+        return agent.executeFlow(flow, StandaloneFlowMaterializer.executionContext(flow.getId(), input));
     }
 
     /**
@@ -151,20 +173,28 @@ public class StandaloneRunner implements AutoCloseable {
     }
 
     /**
+     * O documento do fluxo, de um arquivo ou de um recurso do classpath, sem passar pelo modelo de transporte:
+     * a fábrica lê o mesmo mapa que o servidor lê do banco.
+     */
+    @SuppressWarnings("unchecked")
+    public Map<String, Object> loadDocument(String path) throws Exception {
+        Path filePath = Path.of(path);
+        if (Files.exists(filePath)) {
+            return serializer.getMapper().readValue(Files.readString(filePath), Map.class);
+        }
+        try (var is = getClass().getClassLoader().getResourceAsStream(path)) {
+            if (is == null) {
+                throw new java.io.IOException("Workflow not found (file or classpath resource): " + path);
+            }
+            return serializer.getMapper().readValue(is, Map.class);
+        }
+    }
+
+    /**
      * Exports a Flow to a standalone JSON file.
      */
     public void exportWorkflow(br.com.archflow.model.flow.Flow flow, Path outputPath) throws Exception {
         serializer.exportToFile(flow, outputPath);
-    }
-
-    private void injectEnvConfig(Map<String, Object> input) {
-        String apiKey = System.getenv("ARCHFLOW_API_KEY");
-        String model = System.getenv("ARCHFLOW_MODEL");
-        String provider = System.getenv("ARCHFLOW_PROVIDER");
-
-        if (apiKey != null) input.putIfAbsent("api_key", apiKey);
-        if (model != null) input.putIfAbsent("model", model);
-        if (provider != null) input.putIfAbsent("provider", provider);
     }
 
     @Override
@@ -194,10 +224,16 @@ public class StandaloneRunner implements AutoCloseable {
                   --threads N           Max threads (default: 4)
                   --plugins PATH        Path to plugins directory
 
-                Environment:
-                  ARCHFLOW_API_KEY      LLM API key
-                  ARCHFLOW_MODEL        LLM model name
-                  ARCHFLOW_PROVIDER     LLM provider (openai, anthropic, etc.)
+                Environment (the LLM key comes only from here, never from the workflow file):
+                  ARCHFLOW_API_KEY      LLM API key of the default provider (or ARCHFLOW_LLM_API_KEY)
+                  ARCHFLOW_MODEL        LLM model name (or ARCHFLOW_LLM_MODEL)
+                  ARCHFLOW_PROVIDER     LLM provider: openai, anthropic, openrouter (or ARCHFLOW_LLM_PROVIDER)
+                  ARCHFLOW_LLM_KEYS_<PROVIDER>     key of one provider (e.g. ARCHFLOW_LLM_KEYS_OPENAI)
+                  ARCHFLOW_LLM_BASE_URL            endpoint of the default provider (a gateway)
+                  ARCHFLOW_LLM_ALLOWED_BASE_URLS   other endpoints allowed to receive the key
+
+                Nodes that need the archflow server (approval queue, orchestrate, mcp-agent,
+                knowledge base) refuse the workflow before the first step.
 
                 Example:
                   java -jar my-workflow.jar customer-support.json --input "Track order #123"

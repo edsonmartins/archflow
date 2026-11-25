@@ -32,6 +32,30 @@
             <artifactId>archflow-events-proto</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <!--
+          Os passos de verdade (RCHFLW-37): a mesma fábrica do servidor materializa o documento antes de
+          ele chegar ao motor. Antes o runner entregava o SerializableStep cru, que só sabia falhar.
+        -->
+        <dependency>
+            <groupId>br.com.archflow</groupId>
+            <artifactId>archflow-flow-runtime</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!--
+          Os adapters de chat que um fluxo exportado usa (descobertos por SPI). O do OpenRouter já vem
+          com o archflow-flow-runtime. Os de dados (embedding, vector store, memória) ficam de fora: eles
+          precisam de conexões que o servidor configura, e um nó deles aqui falha dizendo o backend.
+        -->
+        <dependency>
+            <groupId>br.com.archflow</groupId>
+            <artifactId>archflow-langchain4j-openai</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>br.com.archflow</groupId>
+            <artifactId>archflow-langchain4j-anthropic</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
@@ -94,6 +118,20 @@
                                 </transformer>
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
                             </transformers>
+                            <!-- Os adapters de LLM (RCHFLW-37) trazem dependências assinadas; as assinaturas
+                                 delas não valem para o jar sombreado e a JVM recusava subir
+                                 ("Invalid signature file digest for Manifest main attributes"). -->
+                            <filters>
+                                <filter>
+                                    <artifact>*:*</artifact>
+                                    <excludes>
+                                        <exclude>META-INF/*.SF</exclude>
+                                        <exclude>META-INF/*.DSA</exclude>
+                                        <exclude>META-INF/*.RSA</exclude>
+                                        <exclude>META-INF/*.EC</exclude>
+                                    </excludes>
+                                </filter>
+                            </filters>
                             <createDependencyReducedPom>false</createDependencyReducedPom>
                         </configuration>
                     </execution>

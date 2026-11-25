@@ -29,8 +29,11 @@ import java.nio.file.Path;
  * <h3>Import a workflow:</h3>
  * <pre>{@code
  * SerializableFlow flow = serializer.importFromFile(Path.of("workflow.json"));
- * agent.executeFlow(flow, Map.of("input", "Hello"));
  * }</pre>
+ *
+ * <p>O {@link SerializableFlow} é transporte (exportação, ponte YAML): seus passos não executam. Para
+ * executar, use o {@link StandaloneRunner}, que materializa o documento com a fábrica de passos do servidor
+ * ({@link StandaloneFlowMaterializer}, RCHFLW-37).</p>
  */
 public class FlowSerializer {
 

@@ -204,7 +204,10 @@ public class InMemoryStateRepository implements StateRepository {
         return FlowMetrics.builder()
             .startTime(metrics.getStartTime())
             .endTime(metrics.getEndTime())
-            .stepMetrics(new HashMap<>(metrics.getStepMetrics()))
+            // O motor cria o estado inicial com FlowMetrics.builder().build(), sem métricas de passo: copiar o
+            // nulo como nulo. Antes o HashMap(null) lançava e o estado terminal de toda execução que começou
+            // assim (standalone, SDK) não era salvo — só um SEVERE no log.
+            .stepMetrics(metrics.getStepMetrics() == null ? null : new HashMap<>(metrics.getStepMetrics()))
             .totalSteps(metrics.getTotalSteps())
             .completedSteps(metrics.getCompletedSteps())
             .build();

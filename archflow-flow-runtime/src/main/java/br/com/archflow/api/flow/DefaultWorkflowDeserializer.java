@@ -8,7 +8,6 @@ import br.com.archflow.model.flow.CanvasAnnotation;
 import br.com.archflow.plugin.api.catalog.ComponentAccessPolicy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Component;
 
 import java.util.List;
 import java.util.Map;
@@ -20,8 +19,11 @@ import java.util.stream.Collectors;
  * Turns the stored workflow JSON ({@code { id, metadata, steps, configuration }})
  * into an executable {@link SimpleFlow}, delegating per-node construction to the
  * {@link FlowStepFactory} (design-0004 step 1).
+ *
+ * <p>Sem Spring (RCHFLW-37): o mesmo leitor serve o servidor, o runner standalone e o SDK embarcado.
+ * No archflow-api o bean é declarado em {@code FlowRuntimeConfiguration}, que lê
+ * {@code archflow.components.require-allowlist}.</p>
  */
-@Component
 public class DefaultWorkflowDeserializer implements WorkflowDeserializer {
 
     private static final Logger logger = LoggerFactory.getLogger(DefaultWorkflowDeserializer.class);
@@ -44,11 +46,7 @@ public class DefaultWorkflowDeserializer implements WorkflowDeserializer {
      *                         componente nenhum (fail-closed). Default
      *                         {@code false} — ver {@link #componentPolicyOf}.
      */
-    @org.springframework.beans.factory.annotation.Autowired
-    public DefaultWorkflowDeserializer(
-            FlowStepFactory stepFactory,
-            @org.springframework.beans.factory.annotation.Value(
-                    "${archflow.components.require-allowlist:false}") boolean requireAllowlist) {
+    public DefaultWorkflowDeserializer(FlowStepFactory stepFactory, boolean requireAllowlist) {
         this.stepFactory = stepFactory;
         this.requireAllowlist = requireAllowlist;
     }

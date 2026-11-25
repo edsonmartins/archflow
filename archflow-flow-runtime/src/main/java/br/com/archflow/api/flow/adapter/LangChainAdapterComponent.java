@@ -280,6 +280,39 @@ public final class LangChainAdapterComponent implements AIComponent {
         this.modelPolicy = modelPolicy != null ? modelPolicy : TenantModelPolicy.UNRESTRICTED;
     }
 
+    /**
+     * A config do nó sem os campos de segredo que um nó pode carregar ({@code apiKey}, {@code api.key}, o
+     * nome próprio de cada adapter, {@link #KEY_PROPERTY_BY_ADAPTER}, e {@code fallback.api.key}).
+     *
+     * <p>O servidor ainda aceita a chave inline para desenvolvimento (com aviso, e o resolver vence). O runner
+     * standalone e o SDK embarcado não (RCHFLW-37): lá a chave vem só do ambiente, e um arquivo de fluxo que
+     * circula entre máquinas não pode decidir com que credencial o processo fala.</p>
+     */
+    public static Map<String, Object> withoutInlineKeys(Map<String, Object> config) {
+        if (config == null || config.isEmpty()) {
+            return config == null ? Map.of() : config;
+        }
+        Map<String, Object> semChave = new LinkedHashMap<>(config);
+        semChave.keySet().removeAll(INLINE_KEY_FIELDS);
+        return semChave.size() == config.size() ? config : Map.copyOf(semChave);
+    }
+
+    /**
+     * A chave que o {@code OpenRouterChatAdapter} manda ao {@code fallback.base.url}. Também é segredo do
+     * arquivo: sem ela o adapter usa o padrão dele (um Ollama local não pede chave) — o ambiente não tem chave
+     * para esse destino, e mandar a do provider principal a outro endereço seria vazá-la.
+     */
+    static final String FALLBACK_API_KEY_PROPERTY = "fallback.api.key";
+
+    /**
+     * Os nomes com que um nó pode trazer a chave: o alias do designer, o do adapter, os por adapter e a chave
+     * do modelo reserva do OpenRouter ({@link #FALLBACK_API_KEY_PROPERTY}).
+     */
+    private static final Set<String> INLINE_KEY_FIELDS = java.util.stream.Stream.concat(
+                    java.util.stream.Stream.of("apiKey", API_KEY_PROPERTY, FALLBACK_API_KEY_PROPERTY),
+                    KEY_PROPERTY_BY_ADAPTER.values().stream())
+            .collect(java.util.stream.Collectors.toUnmodifiableSet());
+
     /** Id estável deste nó adapter, no formato {@code provider:tipo}. */
     public String componentId() {
         return provider + ":" + adapterType;
@@ -380,7 +413,7 @@ public final class LangChainAdapterComponent implements AIComponent {
                     // Só vector-search e rag têm o seletor de base; sugerir a base a um vector-store seria um
                     // conselho que o painel não deixa seguir.
                     + (nodeType != null
-                            && br.com.archflow.api.flow.KnowledgeNodeComponent.NODE_TYPES.contains(nodeType)
+                            && br.com.archflow.api.flow.KnowledgeNodes.NODE_TYPES.contains(nodeType)
                             ? ", ou escolha uma Base de conhecimento no nó — aí a busca recebe o texto." : "."));
         }
         var builder = dev.langchain4j.store.embedding.EmbeddingSearchRequest.builder().queryEmbedding(embedding);

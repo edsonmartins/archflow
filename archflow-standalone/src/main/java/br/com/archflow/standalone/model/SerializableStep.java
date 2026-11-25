@@ -115,11 +115,16 @@ public class SerializableStep implements FlowStep {
         return connections == null ? List.of() : connections;
     }
 
+    /**
+     * Este passo é transporte (JSON↔YAML), não execução. Quem executa materializa o documento com a fábrica
+     * do servidor — {@code StandaloneFlowMaterializer}, usado pelo {@code StandaloneRunner} e pelo
+     * {@code EmbeddedWorkflowRunner} (RCHFLW-37) — e entrega ao motor os passos de verdade.
+     */
     @Override
     public CompletableFuture<StepResult> execute(ExecutionContext context) {
-        // Resolved at runtime by StandaloneRunner via componentId + operation
-        return CompletableFuture.failedFuture(
-                new UnsupportedOperationException("Use StandaloneRunner to execute steps"));
+        return CompletableFuture.failedFuture(new UnsupportedOperationException(
+                "SerializableStep é só transporte: execute o documento pelo StandaloneRunner ou pelo "
+                        + "EmbeddedWorkflowRunner, que o materializam com a fábrica de passos do servidor"));
     }
 
     /**

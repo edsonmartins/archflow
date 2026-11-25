@@ -43,21 +43,24 @@ import java.util.stream.Collectors;
  */
 public final class KnowledgeNodeComponent implements AIComponent {
 
+    // Os identificadores moram em KnowledgeNodes (archflow-flow-runtime, RCHFLW-37): a fábrica comum reconhece
+    // o nó sem depender do KnowledgeService. Estes nomes ficam para quem já os usa.
+
     /** Id para {@code configuration.allowedComponents}: um fluxo restrito precisa listá-lo. */
-    public static final String COMPONENT_ID = "knowledge-base";
+    public static final String COMPONENT_ID = KnowledgeNodes.COMPONENT_ID;
 
     /** Os tipos de nó que aceitam uma base (o painel mostra o seletor nos mesmos). */
-    public static final Set<String> NODE_TYPES = Set.of("vector-search", "rag");
+    public static final Set<String> NODE_TYPES = KnowledgeNodes.NODE_TYPES;
 
     /** A chave que o painel grava. */
-    public static final String BASE_KEY = "knowledgeBaseId";
+    public static final String BASE_KEY = KnowledgeNodes.BASE_KEY;
 
     /**
      * A chave que os templates do backend gravavam ({@code CustomerSupport}, {@code KnowledgeBase}) e que
      * nenhum código lia. Os templates agora gravam {@link #BASE_KEY}; esta continua lida para os fluxos
      * já instalados com ela — o documento salvo não muda.
      */
-    public static final String LEGACY_BASE_KEY = "vectorStoreId";
+    public static final String LEGACY_BASE_KEY = KnowledgeNodes.LEGACY_BASE_KEY;
 
     static final int DEFAULT_LIMIT = 5;
     static final double DEFAULT_MIN_SCORE = 0.0;
@@ -101,12 +104,7 @@ public final class KnowledgeNodeComponent implements AIComponent {
 
     /** A base que o nó escolheu ({@link #BASE_KEY}, senão {@link #LEGACY_BASE_KEY}), ou {@code null}. */
     static String baseIdOf(Map<String, Object> config) {
-        for (String key : List.of(BASE_KEY, LEGACY_BASE_KEY)) {
-            if (config.get(key) instanceof String id && !id.isBlank()) {
-                return id.trim();
-            }
-        }
-        return null;
+        return KnowledgeNodes.baseIdOf(config);
     }
 
     @Override
