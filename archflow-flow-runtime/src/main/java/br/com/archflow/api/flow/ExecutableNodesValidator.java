@@ -22,10 +22,15 @@ import java.util.Map;
  *
  * <p>Embrulha o validador do motor em vez de mudá-lo: o archflow-core não conhece os passos do
  * archflow-api, e a regra é deste runtime. Os erros dos dois se somam numa só falha.</p>
+ *
+ * <p>Fora do servidor (runner standalone, SDK embarcado) vale a mesma regra para o nó que precisa do
+ * servidor ({@link ServerOnlyNodeStep}, RCHFLW-37): um erro por nó, com o motivo. No servidor esse passo
+ * não existe — a fábrica recebe os {@link ServerNodes} — e nada muda.</p>
  */
 public final class ExecutableNodesValidator implements FlowValidator {
 
     static final String CODE = "NODE_TYPE_NOT_EXECUTABLE";
+    static final String SERVER_CODE = "NODE_REQUIRES_SERVER";
 
     private final FlowValidator delegate;
 
@@ -42,6 +47,7 @@ public final class ExecutableNodesValidator implements FlowValidator {
             errors.addAll(e.getErrors());
         }
         errors.addAll(unsupported(flow));
+        errors.addAll(serverOnly(flow));
         if (!errors.isEmpty()) {
             throw new FlowValidationException(errors);
         }
@@ -66,6 +72,18 @@ public final class ExecutableNodesValidator implements FlowValidator {
                 NodesWithoutExecution.message(kind) + " — nó(s): " + String.join(", ", nodes),
                 CODE,
                 Map.of("type", kind, "nodes", List.copyOf(nodes)))));
+        return errors;
+    }
+
+    /** Um erro por nó que precisa do servidor, na ordem dos passos. */
+    private static List<ValidationError> serverOnly(Flow flow) {
+        List<ValidationError> errors = new ArrayList<>();
+        for (FlowStep step : flow.getSteps()) {
+            if (step instanceof ServerOnlyNodeStep node) {
+                errors.add(new ValidationError("step.type", node.message(), SERVER_CODE,
+                        Map.of("node", node.getId(), "capability", node.capability().name())));
+            }
+        }
         return errors;
     }
 }

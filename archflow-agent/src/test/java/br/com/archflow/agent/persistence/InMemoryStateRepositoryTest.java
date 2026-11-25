@@ -1,6 +1,7 @@
 package br.com.archflow.agent.persistence;
 
 import br.com.archflow.model.error.ExecutionError;
+import br.com.archflow.model.flow.FlowMetrics;
 import br.com.archflow.model.flow.FlowState;
 import br.com.archflow.model.flow.FlowStatus;
 import org.junit.jupiter.api.BeforeEach;
@@ -29,6 +30,20 @@ class InMemoryStateRepositoryTest {
                 .status(status)
                 .variables(new HashMap<>())
                 .build();
+    }
+
+    @Test
+    @DisplayName("salva e devolve o estado com métricas sem stepMetrics — o estado inicial do motor")
+    void metricasSemPassos() {
+        FlowState state = buildState("t", "f", FlowStatus.COMPLETED);
+        state.setMetrics(FlowMetrics.builder().build());
+
+        repo.saveState("t", "f", state);
+
+        FlowState retrieved = repo.getState("t", "f");
+        assertThat(retrieved.getStatus()).isEqualTo(FlowStatus.COMPLETED);
+        assertThat(retrieved.getMetrics()).isNotNull();
+        assertThat(retrieved.getMetrics().getStepMetrics()).isNull();
     }
 
     @Nested

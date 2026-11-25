@@ -6,8 +6,11 @@ import br.com.archflow.agent.config.ResourceConfig;
 import br.com.archflow.agent.config.RetryConfig;
 import br.com.archflow.dsl.WorkflowDocument;
 import br.com.archflow.model.flow.FlowResult;
+import br.com.archflow.engine.exceptions.FlowValidationException;
+import br.com.archflow.model.flow.Flow;
 import br.com.archflow.standalone.FlowSerializer;
-import br.com.archflow.standalone.model.SerializableFlow;
+import br.com.archflow.standalone.StandaloneEnvironment;
+import br.com.archflow.standalone.StandaloneFlowMaterializer;
 
 import java.time.Duration;
 import java.util.HashMap;
@@ -24,6 +27,17 @@ import java.util.concurrent.TimeUnit;
  *     System.out.println(result.getStatus());
  * }
  * }</pre>
+ *
+ * <h2>Os passos são os do servidor</h2>
+ * O documento é materializado pela mesma fábrica de passos do archflow-api
+ * ({@code StandaloneFlowMaterializer}, RCHFLW-37): Entrada/Saída, condição/switch,
+ * decisão, nós de chat dos adapters LangChain4j e componentes de plugin rodam
+ * aqui como no servidor. Um nó que precisa do servidor (aprovação com fila,
+ * orquestração, {@code mcp-agent}, base de conhecimento) faz {@link #run} falhar
+ * <b>antes do primeiro passo</b>, com a mensagem nomeando o nó e o motivo. A
+ * chave de LLM vem só das variáveis de ambiente ({@code ARCHFLOW_API_KEY},
+ * {@code ARCHFLOW_LLM_*} — ver {@code StandaloneEnvironment}); a escrita num nó é
+ * descartada.
  *
  * <h2>Requer archflow-standalone no classpath</h2>
  * A dependência é {@code optional} no pom do SDK, de propósito: ela traz o motor
@@ -51,10 +65,14 @@ public final class EmbeddedWorkflowRunner implements AutoCloseable {
 
     private final ArchFlowAgent agent;
     private final FlowSerializer serializer = new FlowSerializer();
+    private final StandaloneFlowMaterializer materializer;
     private final Duration timeout;
 
-    private EmbeddedWorkflowRunner(ArchFlowAgent agent, Duration timeout) {
+    private EmbeddedWorkflowRunner(ArchFlowAgent agent, Map<String, String> environment, Duration timeout) {
         this.agent = agent;
+        // Uma vez por runner: os plugins do agente entram no catálogo (e são inicializados) uma vez só.
+        this.materializer = StandaloneFlowMaterializer.create(agent.getPluginCatalog(),
+                StandaloneEnvironment.of(environment));
         this.timeout = timeout;
     }
 
@@ -70,24 +88,36 @@ public final class EmbeddedWorkflowRunner implements AutoCloseable {
      *
      * @param document o fluxo, tal como a DSL o produziu
      * @param input    variáveis iniciais; {@code null} equivale a vazio
-     * @throws ArchflowClientException se a execução falhar, estourar o timeout
-     *                                 ou a thread for interrompida
+     * @throws ArchflowClientException se o fluxo não puder rodar embarcado (nó que
+     *                                 precisa do servidor, tipo sem execução — antes
+     *                                 do primeiro passo), se a execução falhar,
+     *                                 estourar o timeout ou a thread for interrompida
      */
+    @SuppressWarnings("unchecked")
     public FlowResult run(WorkflowDocument document, Map<String, Object> input) {
         Objects.requireNonNull(document, "document");
-        SerializableFlow flow;
+        Map<String, Object> json;
         try {
             // Passa pelo JSON de propósito: é o mesmo caminho que um fluxo
             // carregado de arquivo percorre, então executar da DSL e executar
             // do arquivo exercitam a mesma desserialização.
-            flow = serializer.deserialize(document.toJson());
+            json = serializer.getMapper().readValue(document.toJson(), Map.class);
         } catch (Exception e) {
             throw new ArchflowClientException(
                     "o documento do fluxo " + document.id() + " não pôde ser lido pelo motor", e);
         }
+        Flow flow;
+        try {
+            flow = materializer.materialize(json);
+        } catch (FlowValidationException e) {
+            // Antes do primeiro passo: nenhum passo rodou, nenhuma chamada ao modelo saiu.
+            throw new ArchflowClientException(
+                    "o fluxo " + document.id() + " não pode rodar embarcado: " + e.getMessage(), e);
+        }
 
         try {
-            return agent.executeFlow(flow, input == null ? Map.of() : new HashMap<>(input))
+            return agent.executeFlow(flow, StandaloneFlowMaterializer.executionContext(flow.getId(),
+                            input == null ? Map.of() : new HashMap<>(input)))
                     .get(timeout.toMillis(), TimeUnit.MILLISECONDS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -119,8 +149,16 @@ public final class EmbeddedWorkflowRunner implements AutoCloseable {
         private Duration timeout = Duration.ofMinutes(5);
         private int maxConcurrentFlows = 1;
         private int maxThreads = Runtime.getRuntime().availableProcessors();
+        /** De onde vêm as chaves de LLM; as variáveis do processo, salvo nos testes. */
+        private Map<String, String> environment = System.getenv();
 
         private Builder() {
+        }
+
+        /** Um ambiente no lugar das variáveis do processo — só para os testes deste pacote. */
+        Builder environment(Map<String, String> environment) {
+            this.environment = environment;
+            return this;
         }
 
         public Builder agentId(String agentId) {
@@ -167,7 +205,7 @@ public final class EmbeddedWorkflowRunner implements AutoCloseable {
                     .resourceConfig(new ResourceConfig(maxThreads, Runtime.getRuntime().maxMemory()))
                     .build();
             try {
-                return new EmbeddedWorkflowRunner(new ArchFlowAgent(config), timeout);
+                return new EmbeddedWorkflowRunner(new ArchFlowAgent(config), environment, timeout);
             } catch (NoClassDefFoundError e) {
                 // A dependência é optional E não está no Maven Central: sem esta
                 // mensagem o erro cru não diz nem o que falta nem por que não

@@ -41,4 +41,12 @@ public final class DecisionProviders {
     public Optional<DecisionProvider> find(String id) {
         return Optional.ofNullable(id == null ? null : porId.get(id));
     }
+
+    /**
+     * Os ids registrados, em ordem alfabética — para quem precisa dizer o que existe neste hospedeiro (a
+     * recusa de um nó cujo provedor só o servidor registra, RCHFLW-37).
+     */
+    public java.util.SortedSet<String> ids() {
+        return java.util.Collections.unmodifiableSortedSet(new java.util.TreeSet<>(porId.keySet()));
+    }
 }

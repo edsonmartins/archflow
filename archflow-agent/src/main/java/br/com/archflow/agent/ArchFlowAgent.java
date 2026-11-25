@@ -115,6 +115,19 @@ public class ArchFlowAgent implements AutoCloseable {
     }
 
     /**
+     * Os componentes dos plugins do diretório configurado ({@link AgentConfig#pluginsPath()}), carregando-os
+     * agora se ainda não foram — o carregamento acontece uma vez só, e o {@link #executeFlow} reaproveita.
+     *
+     * <p>Existe para o runner standalone e o SDK embarcado (RCHFLW-37): eles materializam os passos antes de
+     * submeter o fluxo, e um nó de componente resolve o componente neste catálogo. Abrir o diretório aqui,
+     * e não num segundo gerenciador, evita executar o {@code onLoad} de cada plugin duas vezes.</p>
+     */
+    public br.com.archflow.plugin.api.catalog.ComponentCatalog getPluginCatalog() {
+        pluginManager.loadPluginsForFlow(null);
+        return pluginManager.getCatalog();
+    }
+
+    /**
      * Executa um fluxo de forma assíncrona.
      *
      * <p>Setup síncrono (metrics start, plugin load, repository save) é
@@ -125,6 +138,21 @@ public class ArchFlowAgent implements AutoCloseable {
      * bloqueio prolongado sem timeout propagável).</p>
      */
     public CompletableFuture<FlowResult> executeFlow(Flow flow, Map<String, Object> input) {
+        return startExecution(flow, () -> flowEngine.startFlow(flow.getId(), input));
+    }
+
+    /**
+     * Executa um fluxo com um contexto já montado por quem chama — o que o servidor faz: o runner
+     * standalone e o SDK embarcado semeiam as variáveis da entrada no contexto pela mesma regra do servidor
+     * ({@code RunInputSeeding}, RCHFLW-37). Pelo {@link #executeFlow(Flow, Map)} a entrada ia só para o
+     * estado inicial, e nenhum passo a via como {@code input}.
+     */
+    public CompletableFuture<FlowResult> executeFlow(Flow flow, ExecutionContext context) {
+        return startExecution(flow, () -> flowEngine.execute(flow, context));
+    }
+
+    private CompletableFuture<FlowResult> startExecution(Flow flow,
+            java.util.function.Supplier<CompletableFuture<FlowResult>> start) {
         String flowId = flow.getId();
         logger.info("Iniciando execução do fluxo: " + flowId);
 
@@ -140,7 +168,7 @@ public class ArchFlowAgent implements AutoCloseable {
         }
 
         try {
-            return flowEngine.startFlow(flowId, input)
+            return start.get()
                     .whenComplete((result, error) -> {
                         if (error != null) {
                             logger.severe("Erro executando fluxo " + flowId + ": " + error.getMessage());

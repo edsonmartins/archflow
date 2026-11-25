@@ -141,6 +141,41 @@ public class DecisionComponent implements AIComponent {
         initialized = true;
     }
 
+    /**
+     * Os provedores que uma configuração de nó cita: o do nó (padrão {@link HttpDecisionProvider#ID}), os de
+     * {@code fallbacks}, os dos degraus de {@code cascade} e os dos votos de {@code consensus} (sem provider, o
+     * voto usa o do nó) — na ordem em que aparecem, sem repetir. Lê as mesmas chaves que {@link #initialize}.
+     *
+     * <p>Existe para o hospedeiro sem servidor (RCHFLW-37) recusar o nó <i>antes do primeiro passo</i> quando
+     * um deles não está registrado ali: com {@code onError: ESCALATE} (o padrão) o provedor ausente virava uma
+     * rota ESCALATE normal e o fluxo terminava COMPLETED pelo ramo de escalada.</p>
+     */
+    @SuppressWarnings("unchecked")
+    public static List<String> providersNamedBy(Map<String, Object> config) {
+        Map<String, Object> cfg = config == null ? Map.of() : config;
+        String doNo = str(cfg.get("provider"), HttpDecisionProvider.ID);
+        java.util.LinkedHashSet<String> ids = new java.util.LinkedHashSet<>();
+        ids.add(doNo);
+        for (Map<String, Object> reserva : tiers(cfg.get("fallbacks"))) {
+            String id = str(reserva.get("provider"), null);
+            if (id != null) {
+                ids.add(id);
+            }
+        }
+        for (Map<String, Object> degrau : tiers(cfg.get("cascade"))) {
+            String id = str(degrau.get("provider"), null);
+            if (id != null) {
+                ids.add(id);
+            }
+        }
+        Map<String, Object> consenso = cfg.get("consensus") instanceof Map<?, ?> m
+                ? (Map<String, Object>) m : Map.of();
+        for (Map<String, Object> voto : tiers(consenso.get("models"))) {
+            ids.add(str(voto.get("provider"), doNo));
+        }
+        return List.copyOf(ids);
+    }
+
     @SuppressWarnings("unchecked")
     private static List<Map<String, Object>> tiers(Object raw) {
         return raw instanceof List<?> l

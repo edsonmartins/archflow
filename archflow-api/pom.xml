@@ -82,6 +82,16 @@
             <artifactId>archflow-events-proto</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <!--
+          A fábrica de passos e os passos que não dependem do servidor (RCHFLW-37): o servidor, o runner
+          standalone e o SDK embarcado materializam o documento pelo mesmo código. O que só o servidor
+          constrói entra pela ServerNodes, implementada no DefaultFlowStepFactory daqui.
+        -->
+        <dependency>
+            <groupId>br.com.archflow</groupId>
+            <artifactId>archflow-flow-runtime</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         <dependency>
             <groupId>br.com.archflow</groupId>
             <artifactId>archflow-standalone</artifactId>
