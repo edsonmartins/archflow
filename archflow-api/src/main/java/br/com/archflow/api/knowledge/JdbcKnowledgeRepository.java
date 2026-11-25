@@ -187,6 +187,7 @@ public class JdbcKnowledgeRepository implements KnowledgeRepository {
     }
 
     private static RuntimeException failure(String operation, Exception cause) {
-        return new RuntimeException("Failed to " + operation, cause);
+        // A causa do driver vai na mensagem: é ela que o documento com falha mostra (RCHFLW-110).
+        return FailureCause.wrap("Failed to " + operation, cause);
     }
 }

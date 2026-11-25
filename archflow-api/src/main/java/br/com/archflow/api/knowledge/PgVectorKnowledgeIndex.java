@@ -3,6 +3,7 @@ package br.com.archflow.api.knowledge;
 import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.ResultSet;
+import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -36,7 +37,10 @@ public class PgVectorKnowledgeIndex implements KnowledgeVectorIndex {
                     insert.setString(2, tenantId);
                     insert.setString(3, baseId);
                     insert.setString(4, active == null ? null : active.id());
-                    insert.setObject(5, createdAt);
+                    // O pgjdbc não infere tipo SQL para java.time.Instant: setObject(Instant)
+                    // derrubava toda ingestão com JDBC ligado (RCHFLW-110). Timestamp, como nos
+                    // demais stores JDBC.
+                    insert.setTimestamp(5, Timestamp.from(createdAt));
                     insert.executeUpdate();
                 }
                 if (active != null) {
@@ -65,7 +69,7 @@ public class PgVectorKnowledgeIndex implements KnowledgeVectorIndex {
                 throw failure;
             }
         } catch (Exception e) {
-            throw new RuntimeException("Failed to create pgvector index candidate", e);
+            throw FailureCause.wrap("Failed to create pgvector index candidate", e);
         }
     }
 
@@ -110,7 +114,7 @@ public class PgVectorKnowledgeIndex implements KnowledgeVectorIndex {
                 throw failure;
             }
         } catch (Exception e) {
-            throw new RuntimeException("Failed to replace pgvector document index", e);
+            throw FailureCause.wrap("Failed to replace pgvector document index", e);
         }
     }
 
@@ -154,7 +158,7 @@ public class PgVectorKnowledgeIndex implements KnowledgeVectorIndex {
                            SET status='ACTIVE', activated_at=?
                          WHERE id=? AND tenant_id=? AND knowledge_base_id=?
                         """)) {
-                    activate.setObject(1, Instant.now());
+                    activate.setTimestamp(1, Timestamp.from(Instant.now()));
                     activate.setString(2, versionId);
                     activate.setString(3, tenantId);
                     activate.setString(4, baseId);
@@ -167,7 +171,7 @@ public class PgVectorKnowledgeIndex implements KnowledgeVectorIndex {
                 throw failure;
             }
         } catch (Exception e) {
-            throw new RuntimeException("Failed to activate pgvector index version", e);
+            throw FailureCause.wrap("Failed to activate pgvector index version", e);
         }
     }
 
@@ -175,7 +179,7 @@ public class PgVectorKnowledgeIndex implements KnowledgeVectorIndex {
         try (var connection = dataSource.getConnection()) {
             return activeVersion(connection, tenantId, baseId, false);
         } catch (Exception e) {
-            throw new RuntimeException("Failed to load active pgvector index version", e);
+            throw FailureCause.wrap("Failed to load active pgvector index version", e);
         }
     }
 
@@ -196,7 +200,7 @@ public class PgVectorKnowledgeIndex implements KnowledgeVectorIndex {
             }
             return result;
         } catch (Exception e) {
-            throw new RuntimeException("Failed to list pgvector index versions", e);
+            throw FailureCause.wrap("Failed to list pgvector index versions", e);
         }
     }
 
@@ -236,7 +240,7 @@ public class PgVectorKnowledgeIndex implements KnowledgeVectorIndex {
             }
             return hits;
         } catch (Exception e) {
-            throw new RuntimeException("Failed to search pgvector knowledge index", e);
+            throw FailureCause.wrap("Failed to search pgvector knowledge index", e);
         }
     }
 
@@ -244,7 +248,7 @@ public class PgVectorKnowledgeIndex implements KnowledgeVectorIndex {
         try (var connection = dataSource.getConnection()) {
             return version(connection, tenantId, baseId, versionId, false);
         } catch (Exception e) {
-            throw new RuntimeException("Failed to load pgvector index version", e);
+            throw FailureCause.wrap("Failed to load pgvector index version", e);
         }
     }
 
