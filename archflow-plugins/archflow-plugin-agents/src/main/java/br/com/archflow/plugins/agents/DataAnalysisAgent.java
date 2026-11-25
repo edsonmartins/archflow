@@ -145,7 +145,25 @@ public class DataAnalysisAgent implements AIAgent, ComponentPlugin {
                         )
                 ),
                 Map.of(),
-                Set.of("agent", "data-analysis", "sql", "visualization")
+                Set.of("agent", "data-analysis", "sql", "visualization"),
+                // keywords — para roteamento por query em linguagem natural, em pt-BR e en (RCHFLW-109).
+                // Uma entrada por coisa que o agente faz, com as formas das duas línguas: o roteador conta a
+                // entrada como casada quando qualquer palavra dela está na query, então o score mede
+                // conceitos casados, e listar um plural ou um verbo não enfraquece o agente. Cada termo
+                // vem de uma operação, de um tipo de tarefa ou da descrição acima — nada que ele não faça.
+                // Sem "custo" nem "comparar": custo é assunto da subtarefa, não o que o agente faz, e comparar
+                // é tipo de tarefa do research-agent.
+                Set.of(
+                        "data dados",
+                        "analysis analyze análise analisar",            // tipo analyze
+                        "query sql consulta consultar",                 // text-to-SQL, tipo query
+                        "statistics estatística estatísticas",          // executeAnalyzeTask
+                        "calculate calcular cálculo",                   // as agregações do METRIC_PATTERN
+                        "total sum soma",                               // METRIC_PATTERN: sum, total
+                        "average mean média mediana median",            // METRIC_PATTERN: avg, mean, median
+                        "count contagem",                               // METRIC_PATTERN: count
+                        "chart gráfico visualizar visualização",        // tipo visualize
+                        "forecast forecasting previsão prever tendência trend")   // tipo forecast
         );
     }
 

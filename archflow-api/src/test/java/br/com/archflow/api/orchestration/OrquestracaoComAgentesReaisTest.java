@@ -59,6 +59,9 @@ import static org.mockito.Mockito.when;
 @DisplayName("Orquestração dinâmica com os agentes reais do catálogo")
 class OrquestracaoComAgentesReaisTest {
 
+    /** Subtarefa do Labs que empata data-analysis e research (ver o teste do empate). */
+    private static final String COLETAR_DADOS = "Coletar dados de preço, prazo e condições de cada fornecedor";
+
     private ComponentCatalog catalog;
     private ComponentQueryRouter router;
     private ExecutionContext ctx;
@@ -115,6 +118,138 @@ class OrquestracaoComAgentesReaisTest {
     }
 
     /**
+     * RCHFLW-109: as consultas em inglês que já iam para um agente continuam indo para o mesmo, depois da
+     * dobra de acentos, das palavras funcionais e dos keywords bilíngues. As quatro de
+     * {@link #eachRealAgentAcceptsTheSubtaskItIsRoutedTo} também; estas são as em inglês do Labs.
+     */
+    @ParameterizedTest(name = "{0} → {1}")
+    @CsvSource({
+            "Research the freight rates of each of the three carriers, research-agent",
+            "Evaluate the customer service and support quality of each carrier, conversational-agent",
+            "Analyze freight cost data with SQL, data-analysis-agent",
+            "mcp tools, mcp-agent",
+    })
+    void englishQueriesKeepTheirTop(String query, String agentId) {
+        assertThat(router.route(query, ComponentType.AGENT)).get()
+                .extracting(ComponentQueryRouter.ScoredComponent::componentId).isEqualTo(agentId);
+    }
+
+    /**
+     * RCHFLW-109: as 8 subtarefas em português vistas no Labs em 25/11/2026 (objetivo "Comparar três
+     * fornecedores de frete e recomendar um"), todas com "no agent matched" antes. O porquê de cada uma:
+     * <ul>
+     *   <li>critérios/escopo → research ("critérios", "escopo": define_scope, comparison criteria);</li>
+     *   <li>propostas comerciais → nenhum: pedir proposta a fornecedor não é o que algum dos quatro faz;</li>
+     *   <li>necessidades de volume e prazos → nenhum: idem, "mapear necessidades" não está em nenhum;</li>
+     *   <li>coletar dados → empate, à parte em {@link #aSubtaskTwoAgentsMatchEquallyGoesToOneOfThem};</li>
+     *   <li>calcular o custo total → data-analysis ("calcular", "total": as agregações do METRIC_PATTERN);</li>
+     *   <li>prós e contras numa matriz → research ("comparar", "matriz": comparison matrix);</li>
+     *   <li>redigir/elaborar o relatório → research, só por "relatório". Casamento fraco, e dito aqui para
+     *       não passar por ganho: o termo vem do synthesize → structured_report do {@code planActions},
+     *       mas o worker chama {@code executeTask} com o tipo padrão ("research"), que devolve os passos
+     *       canônicos de pesquisa ("Compile results" no fim), não um relatório; e a recomendação, que é o
+     *       pedido da subtarefa, nenhum dos quatro faz.</li>
+     * </ul>
+     * Nenhuma vai para o mcp-agent, e as duas sem agente continuam com a falha explícita.
+     */
+    @ParameterizedTest(name = "{0} → {1}")
+    @CsvSource(nullValues = "-", value = {
+            "Definir os critérios de avaliação e o escopo do frete, research-agent, research",
+            "Solicitar propostas comerciais aos três fornecedores, -, -",
+            "Mapear as necessidades de volume e prazos da empresa, -, -",
+            "Calcular o custo total de transporte por fornecedor, data-analysis-agent, analyze",
+            "Redigir o relatório final com a recomendação do melhor fornecedor, research-agent, research",
+            "Comparar os prós e contras das três opções em uma matriz de decisão, research-agent, research",
+            "Elaborar o relatório final com a recomendação justificada do melhor fornecedor, research-agent, "
+                    + "research",
+    })
+    void portugueseLabsSubtasksReachTheAgentThatDoesTheWork(String subtask, String agentId, String taskType) {
+        assertThat(router.rank(subtask, ComponentType.AGENT))
+                .extracting(ComponentQueryRouter.ScoredComponent::componentId)
+                .doesNotContain(McpAgentComponent.COMPONENT_ID);
+
+        Result<Object> result = new CatalogAgentWorker(router, catalog, ctx).apply(subtask);
+
+        if (agentId == null) {
+            assertThat(result.ok()).isFalse();
+            assertThat(result.error()).isEqualTo("no agent matched subtask: " + subtask);
+            return;
+        }
+        assertThat(router.route(subtask, ComponentType.AGENT)).get()
+                .extracting(ComponentQueryRouter.ScoredComponent::componentId).isEqualTo(agentId);
+        assertThat(result.ok()).as("erro: %s", result.error()).isTrue();
+        assertThat(result.value()).isInstanceOfSatisfying(Map.class,
+                out -> assertThat(out).containsEntry("task_type", taskType));
+    }
+
+    /**
+     * "Coletar dados de preço, prazo e condições de cada fornecedor" casa o data-analysis ("dados") e o
+     * research ("coletar") com o mesmo score — 1 de 10 entradas cada — e quem fica com ela é o desempate
+     * por id do roteador. Os dois são plausíveis (dados para analisar × "Collect data for each item" do
+     * compare), e um keyword a mais ou a menos em qualquer um muda o denominador e desfaz o empate. Por
+     * isso o teste aceita qualquer um dos dois e só exige que quem ganhou rode a subtarefa.
+     */
+    @Test
+    void aSubtaskTwoAgentsMatchEquallyGoesToOneOfThem() {
+        String subtask = COLETAR_DADOS;
+        Map<String, String> tipoPorAgente = Map.of("data-analysis-agent", "analyze", "research-agent", "research");
+        assertThat(router.rank(subtask, ComponentType.AGENT))
+                .extracting(ComponentQueryRouter.ScoredComponent::componentId)
+                .doesNotContain(McpAgentComponent.COMPONENT_ID);
+        String vencedor = router.route(subtask, ComponentType.AGENT).orElseThrow().componentId();
+        assertThat(vencedor).isIn(tipoPorAgente.keySet());
+
+        Result<Object> result = new CatalogAgentWorker(router, catalog, ctx).apply(subtask);
+
+        assertThat(result.ok()).as("erro: %s", result.error()).isTrue();
+        assertThat(result.value()).isInstanceOfSatisfying(Map.class,
+                out -> assertThat(out).containsEntry("task_type", tipoPorAgente.get(vencedor)));
+    }
+
+    /**
+     * RCHFLW-109 de ponta a ponta: o objetivo em português do Labs confirma subtarefas. O agente de cada
+     * uma é conferido por subtarefa, não como multiconjunto, para o empate do {@link #COLETAR_DADOS} poder
+     * cair para qualquer um dos dois sem derrubar as outras conferências.
+     */
+    @Test
+    void labsPortugueseFreightGoalConfirmsSubtasks() {
+        DynamicWorkflowService service = service(String.join("\n",
+                "Definir os critérios de avaliação e o escopo do frete",
+                "Solicitar propostas comerciais aos três fornecedores",
+                "Mapear as necessidades de volume e prazos da empresa",
+                COLETAR_DADOS,
+                "Calcular o custo total de transporte por fornecedor",
+                "Redigir o relatório final com a recomendação do melhor fornecedor",
+                "Comparar os prós e contras das três opções em uma matriz de decisão",
+                "Elaborar o relatório final com a recomendação justificada do melhor fornecedor"));
+
+        DynamicWorkflowResponse response = service.run(request("Comparar três fornecedores de frete e recomendar um"));
+
+        // Antes: 0 confirmadas e 8 "no agent matched".
+        assertThat(response.confirmedCount()).isPositive().isEqualTo(6);
+        assertThat(response.trace()).filteredOn(e -> e.type().equals("dispatched")).hasSize(8)
+                .extracting(e -> e.componentId())
+                .doesNotContain(McpAgentComponent.COMPONENT_ID);
+        assertThat(dispatchedTo(response, "Definir os critérios de avaliação e o escopo do frete"))
+                .isEqualTo("research-agent");
+        assertThat(dispatchedTo(response, "Solicitar propostas comerciais aos três fornecedores")).isNull();
+        assertThat(dispatchedTo(response, "Mapear as necessidades de volume e prazos da empresa")).isNull();
+        assertThat(dispatchedTo(response, COLETAR_DADOS)).isIn("data-analysis-agent", "research-agent");
+        assertThat(dispatchedTo(response, "Calcular o custo total de transporte por fornecedor"))
+                .isEqualTo("data-analysis-agent");
+        assertThat(dispatchedTo(response, "Redigir o relatório final com a recomendação do melhor fornecedor"))
+                .isEqualTo("research-agent");
+        assertThat(dispatchedTo(response, "Comparar os prós e contras das três opções em uma matriz de decisão"))
+                .isEqualTo("research-agent");
+        assertThat(dispatchedTo(response,
+                "Elaborar o relatório final com a recomendação justificada do melhor fornecedor"))
+                .isEqualTo("research-agent");
+        assertThat(response.failures()).extracting(f -> f.error()).containsExactlyInAnyOrder(
+                "no agent matched subtask: Solicitar propostas comerciais aos três fornecedores",
+                "no agent matched subtask: Mapear as necessidades de volume e prazos da empresa");
+    }
+
+    /**
      * RCHFLW-108: o critério de {@link SubAgentEligibility} contra o catálogo real. Dos agentes que o
      * {@code seedBuiltIns} registra, só o mcp-agent fica fora — e o id é conferido contra a constante do
      * componente, para um renome não reabrir o defeito em silêncio. Os outros quatro são exatamente os que
@@ -160,11 +295,13 @@ class OrquestracaoComAgentesReaisTest {
 
     /**
      * Com o mcp-agent no topo e um agente que roda logo abaixo, a subtarefa vai para o de baixo — a ordem
-     * do roteador entre os que rodam é mantida.
+     * do roteador entre os que rodam é mantida. A subtarefa casa o mcp-agent por "mcp" e "tools" (as
+     * capabilities dele); a de antes ("Comparar com um sql de custo os fornecedores de frete") só o punha
+     * no topo por "com", "um" e "de", ruído que o RCHFLW-109 tirou do tokenizador.
      */
     @Test
     void aSubtaskWhoseBestMatchIsTheMcpAgentGoesToTheNextRunnableAgent() {
-        String subtask = "Comparar com um sql de custo os fornecedores de frete";
+        String subtask = "Usar as tools do mcp para gerar o sql de custo";
         assertThat(router.rank(subtask, ComponentType.AGENT))
                 .extracting(ComponentQueryRouter.ScoredComponent::componentId)
                 .startsWith("mcp-agent", "data-analysis-agent");
@@ -181,6 +318,15 @@ class OrquestracaoComAgentesReaisTest {
      * maioria das subtarefas para o mcp-agent, e todas falhavam. Agora nenhuma vai para ele; o trace diz,
      * uma vez e antes do planejamento, que ele ficou fora e por quê; as que têm um agente que roda chegam a
      * ele e são verificadas; as que só casavam com o mcp-agent falham com "no agent matched".
+     *
+     * <p>RCHFLW-109: "Levantar os preços" agora casa com o research-agent por "levantar" (gather_info).
+     * "Recomendar um fornecedor com base na comparação" também vai para ele, mas não porque ele recomende —
+     * o ResearchAgent diz que não escolhe por ninguém, e por isso não tem "recomendar". O casamento é
+     * incidental: só o substantivo "comparação", que está ali como contexto ("com base na"), não como a
+     * tarefa. O roteador conta palavras e não distingue uma coisa da outra; tirar "comparação" do agente
+     * para evitar isto faria "Fazer a comparação dos fornecedores" errar. Ele roda o modelo de pesquisa e
+     * é confirmado, mas a recomendação em si continua sem agente. "Avaliar a confiabilidade e o histórico"
+     * continua sem agente: nenhum dos quatro avalia confiabilidade.</p>
      */
     @Test
     void labsFreightGoalNeverDispatchesToTheMcpAgentAndTracesTheExclusionOnce() {
@@ -197,8 +343,8 @@ class OrquestracaoComAgentesReaisTest {
         assertThat(response.trace()).filteredOn(e -> e.type().equals("dispatched"))
                 .extracting(e -> e.componentId())
                 .doesNotContain(McpAgentComponent.COMPONENT_ID)
-                .containsExactlyInAnyOrder("data-analysis-agent", "research-agent", "conversational-agent",
-                        null, null, null);
+                .containsExactlyInAnyOrder("research-agent", "data-analysis-agent", "research-agent",
+                        "research-agent", "conversational-agent", null);
         assertThat(response.trace().get(0)).satisfies(e -> {
             assertThat(e.type()).isEqualTo(OrchestrationTrace.EXCLUDED_FROM_ROUTING);
             assertThat(e.componentId()).isEqualTo(McpAgentComponent.COMPONENT_ID);
@@ -206,9 +352,9 @@ class OrquestracaoComAgentesReaisTest {
         });
         assertThat(response.trace()).filteredOn(e -> e.type().equals(OrchestrationTrace.EXCLUDED_FROM_ROUTING))
                 .hasSize(1);
-        assertThat(response.confirmedCount()).isEqualTo(3);
-        assertThat(response.failures()).hasSize(3)
-                .allSatisfy(f -> assertThat(f.error()).startsWith("no agent matched subtask: "));
+        assertThat(response.confirmedCount()).isEqualTo(5);
+        assertThat(response.failures()).singleElement().satisfies(f -> assertThat(f.error())
+                .isEqualTo("no agent matched subtask: Avaliar a confiabilidade e o histórico de cada fornecedor"));
     }
 
     @Test
@@ -357,6 +503,15 @@ class OrquestracaoComAgentesReaisTest {
         when(scorer.score(any())).thenReturn(new ConfidenceResult(0.9, List.of(), false, "ok"));
         return new DynamicWorkflowService(resolver, new ResolvedLLMConfig("test", "m", 0.0, 256, 30, Map.of()),
                 catalog, router, scorer);
+    }
+
+    /** O agente que a linha de despacho do trace dá para a subtarefa; null quando nenhum casou. */
+    private static String dispatchedTo(DynamicWorkflowResponse response, String subtask) {
+        List<OrchestrationTrace.Entry> lines = response.trace().stream()
+                .filter(e -> e.type().equals("dispatched") && e.detail().startsWith(subtask + " ("))
+                .toList();
+        assertThat(lines).as("despacho de %s", subtask).hasSize(1);
+        return lines.get(0).componentId();
     }
 
     private static DynamicWorkflowRequest request(String goal) {

@@ -255,7 +255,19 @@ public class MonitoringAgent implements AIAgent, ComponentPlugin {
                         )
                 ),
                 Map.of(),
-                Set.of("agent", "monitoring", "observability")
+                Set.of("agent", "monitoring", "observability"),
+                // keywords — para roteamento por query em linguagem natural, em pt-BR e en (RCHFLW-109).
+                // Uma entrada por coisa que o agente faz, com as formas das duas línguas: o roteador conta a
+                // entrada como casada quando qualquer palavra dela está na query, então o score mede
+                // conceitos casados, e listar um plural ou um verbo não enfraquece o agente. Cada termo
+                // vem de uma operação, de um tipo de tarefa ou da descrição acima — nada que ele não faça.
+                Set.of(
+                        "monitoring monitor monitorar monitoramento",   // tipo monitor
+                        "alert alerting alerta alertas alertar",        // dispara alertas
+                        "anomaly anomalia anomalias",                   // detecta anomalias
+                        "metrics métrica métricas",                     // coleta métricas, tipo analyze_metrics
+                        "health saúde",                                 // tipo health_check
+                        "observability observabilidade")
         );
     }
 
