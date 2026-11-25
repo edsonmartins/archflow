@@ -21,6 +21,12 @@ import java.util.function.Supplier;
  * the stdio process is launched with {@code LINKTOR_API_URL},
  * {@code LINKTOR_API_KEY} and {@code LINKTOR_ACCESS_TOKEN} environment
  * variables — credentials are never placed on the command line.
+ *
+ * <p>Em memória de propósito: o que se salva pela tela some no restart e cada tenant volta ao
+ * {@code initial} (as propriedades {@code archflow.linktor.*}). O mapa é desta JVM, então com várias réplicas
+ * o Salvar só chega à que atendeu o PUT. A chave e o token são segredos e o projeto
+ * não tem cifragem em repouso, então não vão para o banco; o permanente é a variável de ambiente, e a tela
+ * Administração › Linktor diz isso ao operador (RCHFLW-114).
  */
 public class LinktorConfigControllerImpl implements LinktorConfigController {
 

@@ -27,6 +27,15 @@ acceptable for two reasons:
 2. The admin surfaces are configuration-only; loss is recoverable from
    the operator's UI session.
 
+**Linktor** is the exception that matters in production: a restart turns the integration (and the
+Inbox) off unless it comes from the server configuration. What is saved under Admin › Linktor lasts
+until the next restart and only on the replica that handled the save, and the screen says so; the
+permanent path is the `archflow.linktor.*` properties, as the environment variables `ARCHFLOW_LINKTOR_ENABLED`, `ARCHFLOW_LINKTOR_APIBASEURL`,
+`ARCHFLOW_LINKTOR_APIKEY`, `ARCHFLOW_LINKTOR_ACCESSTOKEN`, `ARCHFLOW_LINKTOR_MCPCOMMAND` and
+`ARCHFLOW_LINKTOR_TIMEOUTSECONDS` (no `_` between the words of the camelCase property). The key and
+token are secrets and are not persisted to the database — there is no at-rest encryption for them. See
+the readme's *Production Checklist*.
+
 Production deployments that require durability must override the bean
 definitions in `ArchflowBeanConfiguration` with JDBC-backed
 implementations. The interfaces are stable; only the persistence layer
