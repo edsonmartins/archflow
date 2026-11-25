@@ -32,8 +32,12 @@ public class DataAnalysisAgent implements AIAgent, ComponentPlugin {
     private static final String COMPONENT_ID = "data-analysis-agent";
     private static final String VERSION = "1.0.0";
 
-    private static final Set<String> SUPPORTED_TASK_TYPES = Set.of(
-            "query", "analyze", "visualize", "forecast"
+    /**
+     * Ordem importa: o primeiro é o tipo padrão (o que {@code execute("executeTask", ...)} usa) e é o que
+     * {@link #supportedTaskTypes()} declara a quem despacha sem conhecer o agente (RCHFLW-61).
+     */
+    private static final List<String> SUPPORTED_TASK_TYPES = List.of(
+            "analyze", "query", "visualize", "forecast"
     );
 
     private static final Pattern TABLE_REF_PATTERN = Pattern.compile(
@@ -160,6 +164,11 @@ public class DataAnalysisAgent implements AIAgent, ComponentPlugin {
             case "planActions" -> planActions(ComponentInputs.goal(input), context);
             default -> throw new IllegalArgumentException("Unsupported operation: " + operation);
         };
+    }
+
+    @Override
+    public List<String> supportedTaskTypes() {
+        return SUPPORTED_TASK_TYPES;
     }
 
     @Override

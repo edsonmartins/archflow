@@ -18,6 +18,15 @@ export interface TraceEntry {
     round: number
     detail: string
     confirmed: boolean | null
+    /** O componente que atendeu a subtarefa da linha (dispatched/failed/usage-unknown) — RCHFLW-64. */
+    componentId?: string | null
+}
+
+/** Uma subtarefa que falhou antes da verificação (RCHFLW-61). */
+export interface SubtaskFailure {
+    round: number
+    subtask: string
+    error: string
 }
 
 export interface DynamicWorkflowResponse {
@@ -25,6 +34,19 @@ export interface DynamicWorkflowResponse {
     confirmedCount: number
     rounds: number
     trace: TraceEntry[]
+    /** Subtarefas despachadas, somadas em todas as rodadas. */
+    subtasks: number
+    /** Quantas falharam antes da verificação. */
+    failedCount: number
+    failures: SubtaskFailure[]
+    /** Tokens debitados no orçamento: o que o planejador e os agentes informaram (RCHFLW-62). */
+    tokensSpent: number
+    /** Chamadas que não informaram uso; com alguma, `tokensSpent` é um piso. */
+    usageUnknown: number
+    /** O orçamento acabou e a execução parou de despachar por isso. */
+    budgetExhausted: boolean
+    /** Subtarefas planejadas que não saíram porque o orçamento acabou (não são falhas). */
+    notDispatched: number
 }
 
 /**

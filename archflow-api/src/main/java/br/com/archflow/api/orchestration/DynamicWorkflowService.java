@@ -25,6 +25,7 @@ import br.com.archflow.orchestration.ConvergePolicy;
 import br.com.archflow.orchestration.DefaultOrchestrator;
 import br.com.archflow.orchestration.Goal;
 import br.com.archflow.orchestration.Planner;
+import br.com.archflow.orchestration.Usage;
 import br.com.archflow.orchestration.VerifyPolicy;
 import br.com.archflow.orchestration.Voter;
 import br.com.archflow.orchestration.Worker;
@@ -108,8 +109,7 @@ public class DynamicWorkflowService {
         OrchestrationTrace trace = new OrchestrationTrace();
         try {
             SupervisorResult result = runOn(req, ctx, trace);
-            return new DynamicWorkflowResponse(
-                    result.confirmed(), result.confirmedCount(), result.rounds(), trace.entries());
+            return DynamicWorkflowResponse.of(result, trace.entries());
         } finally {
             RegistroDeUso registro = registroDeUso;
             if (registro != null) {
@@ -169,7 +169,7 @@ public class DynamicWorkflowService {
                 .tenantId(ctx.getTenantId())
                 .build();
         ChatModel model = llmConfigResolver.resolveModel(llmRequest);
-        ChatFunction chat = plannerChat(model, ctx, configParaUso(llmRequest));
+        LlmPlanner.MeteredChat chat = plannerChat(model, ctx, configParaUso(llmRequest));
 
         ComponentAccessPolicy policy = componentPolicy != null
                 ? componentPolicy : ComponentAccessPolicy.allowAll();
@@ -178,8 +178,10 @@ public class DynamicWorkflowService {
                 ? router
                 : new DefaultComponentQueryRouter(scopedCatalog);
 
-        Planner<String> planner = new LlmPlanner(chat);
-        Worker<String, Object> worker = new CatalogAgentWorker(scopedRouter, scopedCatalog, ctx);
+        Planner<String> planner = LlmPlanner.metered(chat);
+        // O mesmo listener do supervisor: é por ele que sai qual agente atendeu cada subtarefa (RCHFLW-64)
+        // e o aviso de uso não informado (RCHFLW-62). Antes o worker era criado sem listener nenhum.
+        Worker<String, Object> worker = new CatalogAgentWorker(scopedRouter, scopedCatalog, ctx, null, listener);
         Voter<String> voter = new ConfidenceVoter(scorer, req.goal());
 
         BudgetLedger budget = req.budgetTokens() != null
@@ -192,31 +194,33 @@ public class DynamicWorkflowService {
 
     /**
      * O canal de chat do planejador, relatando cada chamada ao {@link ModelUsageListener} do contexto
-     * (RCHFLW-75). Antes era {@code model::chat} — texto entra, texto sai — e o uso que o provedor
-     * devolve se perdia: o planejamento gastava a chave do tenant sem aparecer no detalhe da execução,
-     * nas telas de uso nem no teto de custo.
+     * (RCHFLW-75) e devolvendo o uso ao planejador, que o supervisor debita no orçamento (RCHFLW-62).
+     * Antes era {@code model::chat} — texto entra, texto sai — e o uso que o provedor devolve se perdia:
+     * o planejamento gastava a chave do tenant sem aparecer no detalhe da execução, nas telas de uso, no
+     * teto de custo nem no orçamento da orquestração.
      *
-     * <p>Sem ouvinte a chamada é a de antes ({@code chat(String)}). Com ele, vai como lista de uma
-     * {@link UserMessage} — a mesma requisição, com a resposta inteira, de onde sai o uso (a mesma regra
-     * de {@code ChatTurn}, dos nós {@code llm-chat}). O ouvinte é lido a cada chamada, não na montagem.
+     * <p>A chamada vai sempre como lista de uma {@link UserMessage} — a mesma requisição de
+     * {@code chat(String)}, com a resposta inteira, de onde sai o uso (a mesma regra de {@code ChatTurn},
+     * dos nós {@code llm-chat}). Antes isso só acontecia com ouvinte; sem ele o orçamento ficava cego. O
+     * ouvinte é lido a cada chamada, não na montagem. Provedor que não informa o total devolve uso
+     * {@code null} (desconhecido), não zero.</p>
      */
-    static ChatFunction plannerChat(ChatModel model, ExecutionContext ctx, ResolvedLLMConfig config) {
+    static LlmPlanner.MeteredChat plannerChat(ChatModel model, ExecutionContext ctx, ResolvedLLMConfig config) {
         String provedor = config == null || config.provider() == null || config.provider().isBlank()
                 ? null : config.provider();
         String rotulo = config == null || config.model() == null || config.model().isBlank() ? null
                 : provedor == null ? config.model() : provedor + "/" + config.model();
         return prompt -> {
-            var listener = ModelUsageListener.from(ctx);
-            if (listener.isEmpty()) {
-                return model.chat(prompt);
-            }
             ChatResponse response = model.chat(List.of(UserMessage.from(prompt)));
             TokenUsage tokens = response.tokenUsage();
-            listener.get().onModelCall(provedor, rotulo,
-                    tokens == null || tokens.inputTokenCount() == null ? null : tokens.inputTokenCount().longValue(),
-                    tokens == null || tokens.outputTokenCount() == null ? null
-                            : tokens.outputTokenCount().longValue());
-            return response.aiMessage().text();
+            Long entrada = tokens == null || tokens.inputTokenCount() == null
+                    ? null : tokens.inputTokenCount().longValue();
+            Long saida = tokens == null || tokens.outputTokenCount() == null
+                    ? null : tokens.outputTokenCount().longValue();
+            ModelUsageListener.from(ctx).ifPresent(l -> l.onModelCall(provedor, rotulo, entrada, saida));
+            Integer total = tokens == null ? null : tokens.totalTokenCount();
+            return new LlmPlanner.Reply(response.aiMessage().text(),
+                    total == null ? null : Usage.tokens(total.longValue()));
         };
     }
 

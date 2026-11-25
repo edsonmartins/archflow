@@ -6,6 +6,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * Ramo de execução de um fluxo (caminhos paralelos e a árvore que a orquestração
@@ -31,4 +32,11 @@ public class ExecutionPath {
     private PathStatus status;
     private List<String> completedSteps;
     private List<ExecutionPath> parallelBranches;
+
+    /**
+     * O que se sabe do ramo além do status — na orquestração dinâmica, o motivo de uma subtarefa que
+     * falhou ({@code error}). Sem isto o estado durável dizia FAILED sem dizer por quê (RCHFLW-61).
+     * {@code null} quando não há nada a dizer.
+     */
+    private Map<String, Object> metadata;
 }

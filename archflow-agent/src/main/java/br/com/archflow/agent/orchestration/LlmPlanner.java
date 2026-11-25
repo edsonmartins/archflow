@@ -4,6 +4,7 @@ import br.com.archflow.conversation.agent.ConversationalAgent.ChatFunction;
 import br.com.archflow.orchestration.Goal;
 import br.com.archflow.orchestration.PlanSpec;
 import br.com.archflow.orchestration.Planner;
+import br.com.archflow.orchestration.Usage;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -19,18 +20,46 @@ import java.util.Map;
  * defensively (bullets/numbering stripped, blanks and code fences dropped) and
  * capped to {@link PlanSpec#maxItems()}.
  */
-public final class LlmPlanner implements Planner<String> {
+public final class LlmPlanner implements MeteredPlanner {
 
-    private final ChatFunction chat;
+    /**
+     * O canal de chat que devolve, além do texto, o uso que o provedor informou (RCHFLW-62). O
+     * {@link ChatFunction} é texto entra, texto sai — com ele o gasto do planejador não chegava ao
+     * orçamento.
+     */
+    @FunctionalInterface
+    public interface MeteredChat {
+        Reply reply(String prompt);
+    }
 
+    /** @param usage o uso informado pelo provedor, ou {@code null} quando ele não informou */
+    public record Reply(String text, Usage usage) {
+    }
+
+    private final MeteredChat chat;
+
+    /** Canal sem medição: o uso de cada decomposição sai desconhecido ({@code null}), não zero. */
     public LlmPlanner(ChatFunction chat) {
+        this((MeteredChat) prompt -> new Reply(chat.reply(prompt), null));
+    }
+
+    private LlmPlanner(MeteredChat chat) {
         this.chat = chat;
     }
 
+    /**
+     * Planejador cujo uso entra no orçamento. Fábrica, e não outro construtor: com dois construtores de
+     * interfaces funcionais de um argumento, {@code new LlmPlanner(prompt -> ...)} fica ambíguo.
+     */
+    public static LlmPlanner metered(MeteredChat chat) {
+        return new LlmPlanner(chat);
+    }
+
     @Override
-    public List<String> decompose(Goal goal, PlanSpec spec) {
-        String response = chat.reply(buildPrompt(goal, spec));
-        return parse(response, spec.maxItems());
+    public Decomposition decomposeMetered(Goal goal, PlanSpec spec) {
+        Reply reply = chat.reply(buildPrompt(goal, spec));
+        String text = reply == null ? null : reply.text();
+        return new Decomposition(parse(text, spec.maxItems()), reply == null ? null : reply.usage());
     }
 
     private static String buildPrompt(Goal goal, PlanSpec spec) {
