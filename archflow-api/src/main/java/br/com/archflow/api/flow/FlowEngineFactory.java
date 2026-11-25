@@ -17,9 +17,11 @@ import br.com.archflow.engine.lifecycle.FlowLifecycleListener;
 import br.com.archflow.engine.lifecycle.FlowLifecycleListeners;
 import br.com.archflow.engine.persistence.FlowRepository;
 import br.com.archflow.engine.validation.DefaultFlowValidator;
+import br.com.archflow.model.engine.ExecutionContext;
 
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.function.Consumer;
 
 /**
  * Builds a ready-to-run {@link FlowEngine} from its collaborators (design-0005
@@ -100,6 +102,25 @@ public final class FlowEngineFactory {
                                     TraceRecorder traceRecorder,
                                     int maxConcurrentFlows, long flowTimeoutMs, int maxParallelSteps,
                                     boolean strictConditions) {
+        return create(flowRepository, streamRegistry, runningFlows, stateManager, metricsCollector,
+                traceRecorder, maxConcurrentFlows, flowTimeoutMs, maxParallelSteps, strictConditions, null);
+    }
+
+    /**
+     * @param resumeContextHook aplicado pelo motor ao contexto de toda retomada — inclusive a que
+     *                          a fila de aprovações dispara com um contexto novo. É onde o servidor
+     *                          põe a infraestrutura {@code transient} que não sobrevive ao checkpoint
+     *                          (o host de MCP, RCHFLW-48); {@code null} para nenhum
+     */
+    public static FlowEngine create(FlowRepository flowRepository,
+                                    EventStreamRegistry streamRegistry,
+                                    RunningFlowsRegistry runningFlows,
+                                    StateManager stateManager,
+                                    MetricsCollector metricsCollector,
+                                    TraceRecorder traceRecorder,
+                                    int maxConcurrentFlows, long flowTimeoutMs, int maxParallelSteps,
+                                    boolean strictConditions,
+                                    Consumer<ExecutionContext> resumeContextHook) {
         ExecutorService executorService = Executors.newVirtualThreadPerTaskExecutor();
         MetricsCollector metrics = metricsCollector != null
                 ? metricsCollector
@@ -141,6 +162,7 @@ public final class FlowEngineFactory {
                 traceRecorder,
                 maxConcurrentFlows,
                 flowTimeoutMs,
-                lifecycle);
+                lifecycle,
+                resumeContextHook);
     }
 }

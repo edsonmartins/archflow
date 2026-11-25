@@ -236,6 +236,57 @@ class DefaultFlowExecutorGraphTest {
         assertThat(flowResult.getStatus()).isEqualTo(ExecutionStatus.CANCELLED);
     }
 
+    /**
+     * RCHFLW-54: o Parar chega enquanto o passo roda. O passo termina (a interrupção é cooperativa),
+     * mas o resultado dele é descartado: não vira a saída do fluxo, não entra no checkpoint de
+     * concluídos e o passo seguinte não roda.
+     */
+    @Test
+    @DisplayName("grafo: cancelar durante um passo descarta o resultado dele e o seguinte não roda")
+    void stopDuringStepDiscardsItsResultInGraphMode() {
+        var control = new MutableControl();
+        FlowStep a = stoppingStep("A", control, conn("A", "B", null, false));
+        FlowStep b = step("B", StepStatus.COMPLETED, "saida-de-B", new StepConnection[0]);
+        ExecutionContext ctx = context("g54");
+
+        FlowResult flowResult = executor.execute(flow("g54", List.of(a, b)), ctx, control);
+
+        assertThat(executionOrder).containsExactly("A");
+        assertThat(flowResult.getStatus()).isEqualTo(ExecutionStatus.CANCELLED);
+        assertThat(flowResult.getOutput()).isEmpty();
+        assertThat(ctx.get(DefaultFlowExecutor.COMPLETED_STEPS_KEY)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("linear: cancelar durante um passo descarta o resultado dele e o seguinte não roda")
+    void stopDuringStepDiscardsItsResultInLinearMode() {
+        var control = new MutableControl();
+        FlowStep a = stoppingStep("A", control);
+        FlowStep b = step("B", StepStatus.COMPLETED, "saida-de-B", new StepConnection[0]);
+        ExecutionContext ctx = context("l54");
+
+        FlowResult flowResult = executor.execute(flow("l54", List.of(a, b)), ctx, control);
+
+        assertThat(executionOrder).containsExactly("A");
+        assertThat(flowResult.getStatus()).isEqualTo(ExecutionStatus.CANCELLED);
+        assertThat(flowResult.getOutput()).isEmpty();
+        assertThat(ctx.get(DefaultFlowExecutor.COMPLETED_STEPS_KEY)).isEmpty();
+    }
+
+    /** Step que conclui com saída depois de o cancelamento ter sido pedido enquanto ele rodava. */
+    private FlowStep stoppingStep(String id, MutableControl control, StepConnection... connections) {
+        return new FlowStep() {
+            @Override public String getId() { return id; }
+            @Override public StepType getType() { return StepType.TOOL; }
+            @Override public List<StepConnection> getConnections() { return List.of(connections); }
+            @Override public CompletableFuture<StepResult> execute(ExecutionContext context) {
+                executionOrder.add(id);
+                control.stopped = true;
+                return CompletableFuture.completedFuture(result(id, StepStatus.COMPLETED, "saida-de-" + id));
+            }
+        };
+    }
+
     @Test
     @DisplayName("sem sinal de controle, terminar a fila continua sendo COMPLETED")
     void noSignalStillCompletes() {

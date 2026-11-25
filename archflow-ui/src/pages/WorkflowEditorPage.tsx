@@ -11,7 +11,7 @@ import {
     IconSparkles,
     IconWorldUpload,
 } from '@tabler/icons-react'
-import { runAgUiWorkflow, type AgUiEvent } from '../services/agui-client'
+import { runAgUiWorkflow, type AgUiEvent, type StopAgUiRun } from '../services/agui-client'
 import {
     newCopilotGenerateNotificationId,
     requestCopilotGeneration,
@@ -360,8 +360,8 @@ export function WorkflowEditor() {
   // pills / animated edges via useFlowStore.executionState (keyed by
   // step id, which equals the canvas node id — getCanvasSnapshot
   // persists steps with the node's id).
-  const abortRunRef = useRef<(() => void) | null>(null)
-  useEffect(() => () => { abortRunRef.current?.() }, [])
+  const abortRunRef = useRef<StopAgUiRun | null>(null)
+  useEffect(() => () => { void abortRunRef.current?.() }, [])
 
   // Os eventos STEP_* não carregam a saída do passo; ela fica no registro da execução
   // (StepRecordingListener). Ao fim do run, lê o registro e preenche a aba "Saída" de cada nó —
@@ -465,15 +465,21 @@ export function WorkflowEditor() {
   const handleExecute = useCallback(async () => {
     if (!current) return
     if (isExecuting) {
-      // Second click while running = stop: abort the SSE stream (the
-      // backend cancels the run on disconnect) and mark running nodes.
-      abortRunRef.current?.()
+      // Second click while running = stop: fecha o stream E cancela a execução no servidor pelo id
+      // do RUN_STARTED. Só fechar não bastava: durante um passo longo o servidor não escreve nada,
+      // não nota a desconexão, e o passo ia até o fim com a execução COMPLETED (RCHFLW-54).
+      const stop = abortRunRef.current
       abortRunRef.current = null
       abortExecution()
-      notifications.show({
-        title:   t('editor.notif.execStopped'),
-        message: t('editor.notif.execStoppedMsg'),
-        color:   'yellow',
+      void Promise.resolve(stop?.() ?? 'stopped').then((desfecho) => {
+        // O "interrompida" só sai quando o servidor aceitou; se recusou, a execução pode seguir
+        // rodando, e dizer "cancelada" seria repetir o defeito. Recusa por permissão (403) não é
+        // isso: a desconexão cancela, só um pouco depois (ver StopOutcome no agui-client).
+        notifications.show(desfecho === 'failed'
+          ? { title: t('editor.notif.execStopError'), message: t('editor.notif.execStopErrorMsg'), color: 'red' }
+          : desfecho === 'byDisconnect'
+            ? { title: t('editor.notif.execStopping'), message: t('editor.notif.execStoppingMsg'), color: 'yellow' }
+            : { title: t('editor.notif.execStopped'), message: t('editor.notif.execStoppedMsg'), color: 'yellow' })
       })
       return
     }

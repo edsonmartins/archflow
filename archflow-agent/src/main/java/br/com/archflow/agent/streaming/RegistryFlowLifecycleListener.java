@@ -25,9 +25,19 @@ import java.util.stream.Collectors;
  * <ol>
  *   <li>Mutates the {@code RunningFlowsRegistry} to reflect current state.</li>
  *   <li>Broadcasts to the flow-specific channel ({@code executionId = flowId}).</li>
+ *   <li>Delivers to the execution's tenant channel ({@code tenantId + ":" + flowId}) — the one
+ *       {@code GET /api/stream/{executionId}} subscribes to.</li>
  *   <li>Broadcasts to the admin channel ({@code executionId = "__admin__:" + tenantId})
  *       so the Running Flows dashboard receives updates without subscribing individually.</li>
  * </ol>
+ *
+ * <p><b>Canal do tenant da execução (RCHFLW-50).</b> O stream SSE só abre canais
+ * {@code tenant:sessão}, e só do tenant de quem assina; o canal nu {@code flowId} não tem assinante
+ * por HTTP. Sem a entrega em {@code tenantId:flowId} a tela de eventos ao vivo conectava na execução
+ * e só recebia o {@code connected}. O tenant é o do {@link ExecutionContext#getTenantId()} — o da
+ * requisição que criou a execução —, nunca a variável {@code "tenantId"}, que é dado de entrada de
+ * quem chama a API: lida dela, o chamador escolheria em que tenant os eventos (e a linha do Running)
+ * apareceriam.
  *
  * <p>All broadcasts are wrapped in try/catch — a stream error never propagates
  * back to the execution engine.
@@ -64,8 +74,7 @@ public class RegistryFlowLifecycleListener implements FlowLifecycleListener {
             runningFlowsRegistry.flowStarted(flowId, tenantId, stepCount);
 
             ArchflowEvent event = FlowEvent.flowStarted(flowId, tenantId, stepCount, flowId);
-            safeBroadcast(flowId, event);
-            safeAdminBroadcast(tenantId, event);
+            publish(tenantId, flowId, event);
         } catch (Exception e) {
             log.warn("[{}] onFlowStarted listener error (swallowed)", flowId, e);
         }
@@ -90,8 +99,7 @@ public class RegistryFlowLifecycleListener implements FlowLifecycleListener {
                             failureType(result), durationMs, flowId)
                     : FlowEvent.flowCompleted(flowId, tenantId,
                             status != null ? status.name() : null, durationMs, flowId);
-            safeBroadcast(flowId, event);
-            safeAdminBroadcast(tenantId, event);
+            publish(tenantId, flowId, event);
         } catch (Exception e) {
             log.warn("[{}] onFlowCompleted listener error (swallowed)", flowId, e);
         }
@@ -109,8 +117,7 @@ public class RegistryFlowLifecycleListener implements FlowLifecycleListener {
             String msg = error != null ? error.getMessage() : "unknown";
             String type = error != null ? error.getClass().getSimpleName() : "unknown";
             ArchflowEvent event = FlowEvent.flowFailed(flowId, tenantId, msg, type, durationMs, flowId);
-            safeBroadcast(flowId, event);
-            safeAdminBroadcast(tenantId, event);
+            publish(tenantId, flowId, event);
         } catch (Exception e) {
             log.warn("[{}] onFlowFailed listener error (swallowed)", flowId, e);
         }
@@ -130,8 +137,7 @@ public class RegistryFlowLifecycleListener implements FlowLifecycleListener {
             String stepName = step.getId(); // use ID as label — full name not always available
             ArchflowEvent event = FlowEvent.stepStarted(
                     flowId, stepId, stepName, stepIndex, stepCount, flowId);
-            safeBroadcast(flowId, event);
-            safeAdminBroadcast(tenantIdOf(context), event);
+            publish(tenantIdOf(context), flowId, event);
         } catch (Exception e) {
             log.warn("[{}] onStepStarted listener error (swallowed)", flowId, e);
         }
@@ -146,8 +152,7 @@ public class RegistryFlowLifecycleListener implements FlowLifecycleListener {
             int stepIndex = finishedStepIndex(flow, step);
             ArchflowEvent event = FlowEvent.stepCompleted(flowId, step.getId(),
                     stepIndex, durationMs, flowId);
-            safeBroadcast(flowId, event);
-            safeAdminBroadcast(tenantIdOf(context), event);
+            publish(tenantIdOf(context), flowId, event);
         } catch (Exception e) {
             log.warn("[{}] onStepCompleted listener error (swallowed)", flowId, e);
         }
@@ -163,8 +168,7 @@ public class RegistryFlowLifecycleListener implements FlowLifecycleListener {
             String type = error != null ? error.getClass().getSimpleName() : "unknown";
             ArchflowEvent event = FlowEvent.stepFailed(flowId, step.getId(),
                     stepIndex, msg, type, durationMs, flowId);
-            safeBroadcast(flowId, event);
-            safeAdminBroadcast(tenantIdOf(context), event);
+            publish(tenantIdOf(context), flowId, event);
         } catch (Exception e) {
             log.warn("[{}] onStepFailed listener error (swallowed)", flowId, e);
         }
@@ -176,8 +180,7 @@ public class RegistryFlowLifecycleListener implements FlowLifecycleListener {
         try {
             int stepIndex = finishedStepIndex(flow, step);
             ArchflowEvent event = FlowEvent.stepSkipped(flowId, step.getId(), stepIndex, flowId);
-            safeBroadcast(flowId, event);
-            safeAdminBroadcast(tenantIdOf(context), event);
+            publish(tenantIdOf(context), flowId, event);
         } catch (Exception e) {
             log.warn("[{}] onStepSkipped listener error (swallowed)", flowId, e);
         }
@@ -192,8 +195,7 @@ public class RegistryFlowLifecycleListener implements FlowLifecycleListener {
             int stepIndex = finishedStepIndex(flow, step);
             ArchflowEvent event = FlowEvent.stepSuspended(flowId, step.getId(),
                     stepIndex, durationMs, flowId);
-            safeBroadcast(flowId, event);
-            safeAdminBroadcast(tenantIdOf(context), event);
+            publish(tenantIdOf(context), flowId, event);
         } catch (Exception e) {
             log.warn("[{}] onStepSuspended listener error (swallowed)", flowId, e);
         }
@@ -203,11 +205,32 @@ public class RegistryFlowLifecycleListener implements FlowLifecycleListener {
     // Helpers
     // ----------------------------------------------------------------
 
+    /** Os três canais de um evento de fluxo/passo; ver o javadoc da classe. */
+    private void publish(String tenantId, String flowId, ArchflowEvent event) {
+        safeBroadcast(flowId, event);
+        safeTenantDelivery(tenantId, flowId, event);
+        safeAdminBroadcast(tenantId, event);
+    }
+
     private void safeBroadcast(String executionId, ArchflowEvent event) {
         try {
             streamRegistry.broadcast(executionId, event);
         } catch (Exception e) {
             log.debug("broadcast to {} failed (swallowed): {}", executionId, e.getMessage());
+        }
+    }
+
+    /**
+     * {@code deliver}, e não {@code broadcast}: os ouvintes globais já receberam o evento no canal
+     * do fluxo, e o publicador protobuf o mandaria de novo.
+     */
+    private void safeTenantDelivery(String tenantId, String flowId, ArchflowEvent event) {
+        if (tenantId == null || flowId == null) return;
+        String channel = EventStreamRegistry.tenantChannel(tenantId, flowId);
+        try {
+            streamRegistry.deliver(channel, event);
+        } catch (Exception e) {
+            log.debug("tenant delivery to {} failed (swallowed): {}", channel, e.getMessage());
         }
     }
 
@@ -221,17 +244,15 @@ public class RegistryFlowLifecycleListener implements FlowLifecycleListener {
         }
     }
 
+    /**
+     * O tenant da execução: o do contexto, que quem a criou preencheu com o tenant da requisição
+     * (RCHFLW-13). A variável {@code "tenantId"} não serve — chega do input de quem chama a API; ver
+     * o javadoc da classe.
+     */
     private String tenantIdOf(ExecutionContext context) {
         if (context == null) return null;
         try {
-            return context.get("tenantId")
-                    .filter(v -> v instanceof String)
-                    .map(v -> (String) v)
-                    .orElseGet(() -> {
-                        // fallback: try from state tenantId
-                        if (context.getState() != null) return context.getState().getTenantId();
-                        return null;
-                    });
+            return context.getTenantId();
         } catch (Exception e) {
             return null;
         }

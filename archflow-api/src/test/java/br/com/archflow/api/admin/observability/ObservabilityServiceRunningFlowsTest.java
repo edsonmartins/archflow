@@ -3,6 +3,9 @@ package br.com.archflow.api.admin.observability;
 import br.com.archflow.agent.streaming.RunningFlowsRegistry;
 import br.com.archflow.api.admin.observability.ObservabilityDtos.RunningFlowDto;
 import br.com.archflow.api.admin.observability.impl.ObservabilityService;
+import br.com.archflow.engine.api.FlowEngine;
+import br.com.archflow.engine.exceptions.FlowEngineException;
+import br.com.archflow.engine.exceptions.FlowNotFoundException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -11,17 +14,24 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 
 @DisplayName("ObservabilityService — running flows")
 class ObservabilityServiceRunningFlowsTest {
 
     private RunningFlowsRegistry registry;
+    private FlowEngine engine;
     private ObservabilityService service;
 
     @BeforeEach
     void setUp() {
         registry = new RunningFlowsRegistry();
-        service = new ObservabilityService(null, null, null, null, registry);
+        engine = mock(FlowEngine.class);
+        service = new ObservabilityService(null, null, null, null, registry, engine);
     }
 
     @Nested
@@ -120,18 +130,25 @@ class ObservabilityServiceRunningFlowsTest {
                     .isInstanceOf(SecurityException.class)
                     .hasMessageContaining("tenant-b")
                     .hasMessageContaining("tenant-a");
+            verify(engine, never()).cancel(anyString());
         }
 
+        /**
+         * RCHFLW-72: o cancelar só tirava a linha do registro e o fluxo seguia rodando, invisível.
+         * Agora o pedido vai ao motor e a linha fica até o fluxo parar de fato (quem a tira é o
+         * RegistryFlowLifecycleListener, no fim da execução).
+         */
         @Test
-        @DisplayName("succeeds for matching tenant")
+        @DisplayName("matching tenant: cancels in the engine and leaves the row until the flow stops")
         void succeedsForMatchingTenant() {
             registry.flowStarted("flow-1", "tenant-a", 2);
 
             assertThatCode(() -> service.cancelFlow("tenant-a", "flow-1"))
                     .doesNotThrowAnyException();
 
-            // Optimistic remove: flow should no longer be in registry
-            assertThat(service.listRunningFlows(null)).isEmpty();
+            verify(engine).cancel("flow-1");
+            assertThat(service.listRunningFlows(null)).extracting(RunningFlowDto::flowId)
+                    .containsExactly("flow-1");
         }
 
         @Test
@@ -141,6 +158,41 @@ class ObservabilityServiceRunningFlowsTest {
 
             assertThatCode(() -> service.cancelFlow(null, "flow-1"))
                     .doesNotThrowAnyException();
+            verify(engine).cancel("flow-1");
+        }
+
+        @Test
+        @DisplayName("engine no longer has the flow active → not running (404 upstream)")
+        void engineNotFoundIsNotRunning() {
+            registry.flowStarted("flow-1", "tenant-a", 2);
+            doThrow(new FlowEngineException("Error canceling flow: flow-1", new FlowNotFoundException("flow-1")))
+                    .when(engine).cancel("flow-1");
+
+            assertThatThrownBy(() -> service.cancelFlow("tenant-a", "flow-1"))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("flow-1");
+        }
+
+        @Test
+        @DisplayName("any other engine failure propagates — never reported as cancelled")
+        void otherEngineFailurePropagates() {
+            registry.flowStarted("flow-1", "tenant-a", 2);
+            doThrow(new FlowEngineException("Error canceling flow: flow-1", new IllegalStateException("db down")))
+                    .when(engine).cancel("flow-1");
+
+            assertThatThrownBy(() -> service.cancelFlow("tenant-a", "flow-1"))
+                    .isInstanceOf(FlowEngineException.class);
+        }
+
+        @Test
+        @DisplayName("without an engine the cancel fails explicitly instead of pretending")
+        void withoutEngineFailsExplicitly() {
+            registry.flowStarted("flow-1", "tenant-a", 2);
+            ObservabilityService semMotor = new ObservabilityService(null, null, null, null, registry);
+
+            assertThatThrownBy(() -> semMotor.cancelFlow("tenant-a", "flow-1"))
+                    .isInstanceOf(IllegalStateException.class);
+            assertThat(registry.find("flow-1")).isPresent();
         }
 
         @Test
