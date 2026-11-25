@@ -255,6 +255,7 @@ class ArchflowDesignerElement extends HTMLElement {
         --amber: #D97706; --amber-l: #FFFBEB; --amber-text: #92400E;
         --red:   #DC2626; --red-l:   #FEF2F2; --red-text:   #991B1B;
         --gray:  #6B7280; --gray-l:  #F9FAFB;
+        --purple: #7C3AED; --purple-l: #F5F3FF; --purple-text: #5B21B6;
         --border2: rgba(0, 0, 0, 0.13);
         --text3: #6B7280;
         --text4: #9CA3AF;

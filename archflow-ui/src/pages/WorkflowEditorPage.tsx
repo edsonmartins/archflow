@@ -20,7 +20,7 @@ import { PublishModal } from '../components/PublishModal'
 import { RunInputModal } from '../components/RunInputModal'
 import { toAgUiRunInput } from '../lib/runInput'
 import { stepOutputsFromExecution } from '../lib/stepOutput'
-import { runOutcomeOf } from '../lib/runOutcome'
+import { nodeStatusOfStepFinished, runOutcomeOf } from '../lib/runOutcome'
 import { executionApi }      from '../services/api'
 import { FlowCanvas }        from '../components/FlowCanvas/FlowCanvas'
 import { NodePalette }       from '../components/NodePalette'
@@ -424,12 +424,12 @@ export function WorkflowEditor() {
         break
       case 'STEP_FINISHED': {
         if (!stepId) break
-        const status = ev.status === 'STEP_FAILED' ? 'error'
-          : ev.status === 'STEP_SKIPPED' ? 'skipped'
-          : 'success'
+        // O portão de aprovação à espera chega como STEP_SUSPENDED: 'awaiting', não ✓ (RCHFLW-32).
+        // Sem duração — ele não terminou, e o tempo até suspender não diz nada a quem olha.
+        const status = nodeStatusOfStepFinished(ev.status)
         updateNodeStatus(stepId, {
           status,
-          durationMs: typeof ev.durationMs === 'number' ? ev.durationMs : undefined,
+          durationMs: status !== 'awaiting' && typeof ev.durationMs === 'number' ? ev.durationMs : undefined,
           error: typeof ev.error === 'string' ? ev.error : undefined,
         })
         break

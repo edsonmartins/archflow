@@ -1,7 +1,8 @@
 import { memo, useMemo } from 'react'
 import { Handle, Position } from '@xyflow/react'
 import { useMantineColorScheme } from '@mantine/core'
-import { IconLoader2, IconCheck, IconX, IconMinus } from '@tabler/icons-react'
+import { useTranslation } from 'react-i18next'
+import { IconLoader2, IconCheck, IconX, IconMinus, IconHourglass } from '@tabler/icons-react'
 import { NODE_CATEGORIES, EXECUTION_STATUS_COLORS } from '../constants'
 import { NodeIcon, hasNodeImage } from '../nodeIcons'
 import type { FlowNodeData } from '../types'
@@ -95,7 +96,10 @@ function configChips(category: CategoryKey, data: FlowNodeData): string[] {
         if (cfg.loopParallel) chips.push('parallel')
       }
       if (data.nodeType === 'approval') {
-        chips.push(`timeout ${asStr(cfg.approvalTimeoutMinutes) ?? 30}m`)
+        // Só o prazo que o nó tem de verdade: sem valor, vale o global do servidor
+        // (archflow.approval.timeout) — o chip "30m" de antes não correspondia a nada.
+        const minutes = asStr(cfg.approvalTimeoutMinutes)
+        if (minutes) chips.push(`timeout ${minutes}m`)
       }
       if (data.nodeType === 'subflow') chips.push(asStr(cfg.subflowId))
       if (data.nodeType === 'decision') {
@@ -147,6 +151,7 @@ export const ShapedNode = memo(function ShapedNode({
   data, selected, category,
 }: ShapedNodeProps) {
   const cat = NODE_CATEGORIES[category]
+  const { t } = useTranslation()
   const exec = data.executionStatus ?? 'idle'
   const execColors = EXECUTION_STATUS_COLORS[exec]
   const chips = useMemo(() => configChips(category, data), [category, data])
@@ -355,6 +360,8 @@ export const ShapedNode = memo(function ShapedNode({
       {/* Execution status pill in the top-right corner. */}
       {exec !== 'idle' && (
         <div
+          data-testid="node-exec-status"
+          data-status={exec}
           style={{
             position:   'absolute',
             top:        -7,
@@ -379,8 +386,12 @@ export const ShapedNode = memo(function ShapedNode({
               ? <IconCheck size={11} stroke={2.5} aria-hidden />
               : exec === 'skipped'
                 ? <IconMinus size={11} stroke={2.5} aria-hidden />
-                : <IconX size={11} stroke={2.5} aria-hidden />}
+                : exec === 'awaiting'
+                  ? <IconHourglass size={11} stroke={2.5} aria-hidden />
+                  : <IconX size={11} stroke={2.5} aria-hidden />}
           {data.executionMs != null && exec === 'success' ? `${Math.round(data.executionMs)}ms` : ''}
+          {/* Sem duração e sem pulso: o portão não terminou nem está rodando — espera uma pessoa. */}
+          {exec === 'awaiting' ? t('editor.outline.status.awaiting') : ''}
         </div>
       )}
 

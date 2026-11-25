@@ -129,6 +129,50 @@ class StepRecordingListenerTest {
     }
 
     @Test
+    @DisplayName("portão suspenso fica PAUSED com o requestId, sem finishedAt — e conclui na retomada")
+    void suspendedGateIsRecordedAsPausedThenCompletes() {
+        // Antes o portão ia pelo caminho de "concluído": o detalhe da execução mostrava ✓ enquanto
+        // ninguém tinha decidido (RCHFLW-32).
+        FlowStep gate = step("gate", StepType.APPROVAL);
+        ExecutionContext waiting = contextWithOutput("gate", Map.of("requestId", "req-1"));
+
+        listener.onStepStarted(flow, gate, waiting, 0, 2);
+        listener.onStepSuspended(flow, gate, waiting, 3L);
+
+        Map<String, Object> paused = steps().get(0);
+        assertThat(paused.get("status")).isEqualTo("PAUSED");
+        assertThat(paused.get("output")).isEqualTo("{\"requestId\":\"req-1\"}");
+        assertThat(paused.get("suspendedAt")).isNotNull();
+        assertThat(paused).doesNotContainKeys("finishedAt", "durationMs");
+
+        ExecutionContext decided = contextWithOutput("gate", Map.of("decision", "APPROVED"));
+        listener.onStepStarted(flow, gate, decided, 0, 2);
+        listener.onStepCompleted(flow, gate, decided, 1L);
+
+        assertThat(steps()).hasSize(1);
+        assertThat(steps().get(0).get("status")).isEqualTo("COMPLETED");
+        assertThat(steps().get(0).get("output")).isEqualTo("{\"decision\":\"APPROVED\"}");
+    }
+
+    @Test
+    @DisplayName("recusa que chega antes do onStepSuspended: o portão fica REJECTED com o decisor")
+    void rejectionBeforeTheSuspendCallbackKeepsTheGateRejected() {
+        // O pedido entra na fila no requestApproval, antes de o step devolver. Um aprovador
+        // automático recusa nesse intervalo: a fila grava REJECTED e só então o executor chama
+        // onStepSuspended — cujo PAUSED deixava o portão "aguardando" para sempre, sem o decisor.
+        FlowStep gate = step("gate", StepType.APPROVAL);
+        ExecutionContext waiting = contextWithOutput("gate", Map.of("requestId", "req-1"));
+        listener.onStepStarted(flow, gate, waiting, 0, 1);
+        store.recordStep(executionId, "gate", Map.of("status", "REJECTED", "decidedBy", "aprovador.automatico"));
+
+        listener.onStepSuspended(flow, gate, waiting, 3L);
+
+        assertThat(steps()).hasSize(1);
+        assertThat(steps().get(0).get("status")).isEqualTo("REJECTED");
+        assertThat(steps().get(0).get("decidedBy")).isEqualTo("aprovador.automatico");
+    }
+
+    @Test
     @DisplayName("saída textual é gravada como está, sem aspas de JSON")
     void recordsStringOutputVerbatim() {
         FlowStep stepA = step("step-a", StepType.AGENT);

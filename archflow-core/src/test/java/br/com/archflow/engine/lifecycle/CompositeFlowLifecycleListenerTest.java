@@ -59,6 +59,30 @@ class CompositeFlowLifecycleListenerTest {
     }
 
     @Test
+    @DisplayName("repassa onStepSuspended a todos os delegados (sem o override, o default no-op o engolia)")
+    void forwardsStepSuspended() {
+        // O composite sobrescreve cada callback; esquecer este faria o portão de aprovação sumir
+        // do canvas e do registro para todos os listeners da cadeia (RCHFLW-32).
+        AtomicInteger hitsA = new AtomicInteger();
+        AtomicInteger hitsB = new AtomicInteger();
+        FlowLifecycleListener a = new FlowLifecycleListener() {
+            @Override public void onStepSuspended(Flow f, br.com.archflow.model.flow.FlowStep s,
+                                                  ExecutionContext c, long d) { hitsA.incrementAndGet(); }
+        };
+        FlowLifecycleListener b = new FlowLifecycleListener() {
+            @Override public void onStepSuspended(Flow f, br.com.archflow.model.flow.FlowStep s,
+                                                  ExecutionContext c, long d) { hitsB.incrementAndGet(); }
+        };
+
+        CompositeFlowLifecycleListener composite = new CompositeFlowLifecycleListener();
+        composite.add(a); composite.add(b);
+        composite.onStepSuspended(null, null, null, 12);
+
+        assertThat(hitsA.get()).isEqualTo(1);
+        assertThat(hitsB.get()).isEqualTo(1);
+    }
+
+    @Test
     @DisplayName("remove drops a listener from the chain")
     void removeDrops() {
         FlowLifecycleListener a = new FlowLifecycleListener() {};

@@ -42,15 +42,20 @@ public class ApprovalTimeoutSweeper implements AutoCloseable {
         this.scheduler = Executors.newSingleThreadScheduledExecutor(threads);
     }
 
-    /** Agenda a varredura. Sem timeout configurado, não agenda nada. */
+    /**
+     * Agenda a varredura — sempre. Antes, sem prazo global, nada era agendado; mas um nó de
+     * aprovação pode ter o próprio prazo, e ele nunca venceria. Sem prazo global e sem nó com
+     * prazo, a varredura só lê a fila e não expira nada.
+     */
     public void start() {
-        if (!queue.hasTimeout()) {
-            log.info("Expiração de aprovações desligada (archflow.approval.timeout=0)");
-            return;
-        }
         scheduler.scheduleWithFixedDelay(this::sweepQuietly,
                 interval.toMillis(), interval.toMillis(), TimeUnit.MILLISECONDS);
-        log.info("Sweeper de aprovações ativo (intervalo={})", interval);
+        if (queue.hasTimeout()) {
+            log.info("Sweeper de aprovações ativo (intervalo={})", interval);
+        } else {
+            log.info("Sweeper de aprovações ativo (intervalo={}); sem prazo global "
+                    + "(archflow.approval.timeout=0) — só vencem os nós com prazo próprio", interval);
+        }
     }
 
     /**

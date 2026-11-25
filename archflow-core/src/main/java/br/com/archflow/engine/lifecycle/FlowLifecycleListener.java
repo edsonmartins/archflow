@@ -106,4 +106,24 @@ public interface FlowLifecycleListener {
      * @param context execution context
      */
     default void onStepSkipped(Flow flow, FlowStep step, ExecutionContext context) {}
+
+    /**
+     * Called when a step suspends the flow instead of finishing it — today, a human
+     * approval gate waiting for a decision. The step is <b>not</b> completed: it is not
+     * checkpointed as done and runs again on resume, when it finishes normally
+     * ({@link #onStepCompleted}) with the decision.
+     *
+     * <p>Por que um callback próprio, e não {@code onStepCompleted}: o portão de aprovação
+     * passava pelo caminho de conclusão e aparecia como ✓ no canvas, no registro da execução
+     * e no AG-UI enquanto ninguém tinha decidido nada (RCHFLW-32). O default é no-op de
+     * propósito — delegar para {@code onStepCompleted} devolveria o defeito a todo listener
+     * que não sobrescrever este método.</p>
+     *
+     * @param flow       the containing flow
+     * @param step       the step that suspended
+     * @param context    execution context
+     * @param durationMs wall-clock time spent in the step until it suspended
+     */
+    default void onStepSuspended(Flow flow, FlowStep step, ExecutionContext context,
+                                 long durationMs) {}
 }

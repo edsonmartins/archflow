@@ -195,4 +195,28 @@ public final class FlowEvent {
                 .addData("stepIndex", stepIndex)
                 .build();
     }
+
+    /**
+     * Creates a STEP_SUSPENDED event: the step stopped the flow to wait (human approval).
+     *
+     * @param flowId      flow identifier
+     * @param stepId      step identifier
+     * @param stepIndex   0-based index of this step (the same one STEP_STARTED carried)
+     * @param durationMs  time spent in the step until it suspended
+     * @param executionId execution tracking ID
+     * @return ArchflowEvent
+     */
+    public static ArchflowEvent stepSuspended(String flowId, String stepId,
+                                              int stepIndex, long durationMs,
+                                              String executionId) {
+        return ArchflowEvent.builder()
+                .domain(ArchflowDomain.FLOW)
+                .type(ArchflowEventType.STEP_SUSPENDED)
+                .executionId(executionId)
+                .addData("flowId", flowId)
+                .addData("stepId", stepId)
+                .addData("stepIndex", stepIndex)
+                .addData("durationMs", durationMs)
+                .build();
+    }
 }

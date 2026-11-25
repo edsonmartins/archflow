@@ -186,6 +186,66 @@ class DefaultFlowExecutorGraphTest {
     }
 
     @Test
+    @DisplayName("pausa pedida durante o ÚLTIMO step (folha do grafo) termina PAUSED, com o step no checkpoint")
+    void pauseRequestedDuringLastStepEndsPaused() {
+        // O nó de aprovação pede a pausa de dentro do step. Sendo a folha, a fila
+        // esvazia logo depois — e a pausa não pode se perder por falta de próximo step.
+        var control = new MutableControl();
+        FlowStep a = step("A", StepStatus.COMPLETED, null, conn("A", "B", null, false));
+        FlowStep b = signallingStep("B", () -> control.paused = true);
+        Flow flow = flow("g12", List.of(a, b));
+        ExecutionContext ctx = context("g12");
+
+        FlowResult flowResult = executor.execute(flow, ctx, control);
+
+        assertThat(flowResult.getStatus()).isEqualTo(ExecutionStatus.PAUSED);
+        assertThat(executionOrder).containsExactly("A", "B");
+        // Concluído no checkpoint: a retomada não reexecuta o step que pediu a pausa
+        assertThat(ctx.get(DefaultFlowExecutor.COMPLETED_STEPS_KEY)).hasValue(List.of("A", "B"));
+    }
+
+    @Test
+    @DisplayName("pausa pedida durante o único step de um fluxo legado (sem conexões) termina PAUSED")
+    void pauseRequestedDuringOnlyLegacyStepEndsPaused() {
+        var control = new MutableControl();
+        FlowStep only = signallingStep("gate", () -> control.paused = true);
+        Flow flow = flow("g13", List.of(only));
+
+        FlowResult flowResult = executor.execute(flow, context("g13"), control);
+
+        assertThat(flowResult.getStatus()).isEqualTo(ExecutionStatus.PAUSED);
+    }
+
+    @Test
+    @DisplayName("cancelamento pedido durante o último step termina CANCELLED, não COMPLETED")
+    void stopRequestedDuringLastStepEndsCancelled() {
+        var control = new MutableControl();
+        FlowStep a = step("A", StepStatus.COMPLETED, null, conn("A", "B", null, false));
+        // Stop e pause juntos: stop vence, como no topo do laço
+        FlowStep b = signallingStep("B", () -> {
+            control.paused = true;
+            control.stopped = true;
+        });
+        Flow flow = flow("g14", List.of(a, b));
+
+        FlowResult flowResult = executor.execute(flow, context("g14"), control);
+
+        assertThat(flowResult.getStatus()).isEqualTo(ExecutionStatus.CANCELLED);
+    }
+
+    @Test
+    @DisplayName("sem sinal de controle, terminar a fila continua sendo COMPLETED")
+    void noSignalStillCompletes() {
+        var control = new MutableControl();
+        FlowStep a = step("A", StepStatus.COMPLETED, null, conn("A", "B", null, false));
+        FlowStep b = step("B", StepStatus.COMPLETED, "fim", new StepConnection[0]);
+
+        FlowResult flowResult = executor.execute(flow("g15", List.of(a, b)), context("g15"), control);
+
+        assertThat(flowResult.getStatus()).isEqualTo(ExecutionStatus.COMPLETED);
+    }
+
+    @Test
     @DisplayName("fluxo legado sem conexões continua executando a lista em ordem")
     void legacyLinearFlowStillWorks() {
         FlowStep s1 = step("s1", StepStatus.COMPLETED, null, new StepConnection[0]);
@@ -270,6 +330,20 @@ class DefaultFlowExecutorGraphTest {
             @Override public String getTargetId() { return target; }
             @Override public Optional<String> getCondition() { return Optional.ofNullable(condition); }
             @Override public boolean isErrorPath() { return errorPath; }
+        };
+    }
+
+    /** Step folha que conclui COMPLETED depois de levantar um sinal de controle. */
+    private FlowStep signallingStep(String id, Runnable signal) {
+        return new FlowStep() {
+            @Override public String getId() { return id; }
+            @Override public StepType getType() { return StepType.TOOL; }
+            @Override public List<StepConnection> getConnections() { return List.of(); }
+            @Override public CompletableFuture<StepResult> execute(ExecutionContext context) {
+                executionOrder.add(id);
+                signal.run();
+                return CompletableFuture.completedFuture(result(id, StepStatus.COMPLETED, null));
+            }
         };
     }
 

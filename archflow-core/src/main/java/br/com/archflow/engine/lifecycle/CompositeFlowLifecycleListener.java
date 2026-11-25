@@ -85,4 +85,9 @@ public class CompositeFlowLifecycleListener implements FlowLifecycleListener {
     @Override public void onStepSkipped(Flow flow, FlowStep step, ExecutionContext context) {
         forEach("onStepSkipped", d -> d.onStepSkipped(flow, step, context));
     }
+    // Obrigatório repassar: o composite sobrescreve todos os callbacks, e sem este o default
+    // no-op engoliria a suspensão para todos os delegados — o portão sumiria do canvas.
+    @Override public void onStepSuspended(Flow flow, FlowStep step, ExecutionContext context, long durationMs) {
+        forEach("onStepSuspended", d -> d.onStepSuspended(flow, step, context, durationMs));
+    }
 }

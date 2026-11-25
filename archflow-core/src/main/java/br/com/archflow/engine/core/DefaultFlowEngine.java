@@ -190,6 +190,13 @@ public class DefaultFlowEngine implements FlowEngine {
             if (state.getStatus().isFinal()) {
                 throw new FlowEngineException("Cannot resume flow in final state: " + state.getStatus());
             }
+            // Um portão à espera só sai por submitApproval, que consome o pedido antes de
+            // chamar este método. Retomar com o pedido ainda aberto pulava o portão (ele já
+            // está nos passos concluídos): o fluxo concluía sem decisão e sem decisor.
+            if (ExecutionKeys.aguardaDecisaoHumana(state)) {
+                throw new FlowEngineException("Flow " + flowId
+                        + " is awaiting a human decision; submit it through the approval queue");
+            }
 
             if (state.getStatus() == FlowStatus.PAUSED || state.getStatus() == FlowStatus.AWAITING_APPROVAL) {
                 state = FlowState.builder()
@@ -292,8 +299,17 @@ public class DefaultFlowEngine implements FlowEngine {
                 safeLifecycle(() -> lifecycleListener.onFlowStarted(flow, context, stepCount));
 
                 try {
-                    FlowResult result = executionManager.executeFlow(flow, context);
-                    persistTerminalState(flowId, context, result);
+                    FlowResult result = keepApprovalSuspension(
+                            flowId, context, executionManager.executeFlow(flow, context));
+                    synchronized (transitionLock) {
+                        // Decidida enquanto esta travessia ainda desenrolava, a execução já
+                        // tem dono: submitApproval gravou a decisão (e, se aprovou, a retomada
+                        // escreve neste mesmo contexto). Persistir aqui apagaria quem decidiu
+                        // ou reabriria o pedido já consumido.
+                        if (!execution.isDecided()) {
+                            persistTerminalState(flowId, context, result);
+                        }
+                    }
                     long durationMs = System.currentTimeMillis() - startMs;
                     notifyTraceEnd(flowId, tenantId, result, durationMs);
                     safeLifecycle(() -> lifecycleListener.onFlowCompleted(flow, context, result, durationMs));
@@ -429,6 +445,10 @@ public class DefaultFlowEngine implements FlowEngine {
             }
 
             String requestId = java.util.UUID.randomUUID().toString();
+            // Um portão anterior do mesmo fluxo deixou a decisão dele nas variáveis.
+            // Ela não vale para este pedido: sem limpar, o pedido novo apareceria
+            // na fila já "decidido" por quem decidiu o anterior (RCHFLW-47).
+            clearPreviousGateDecision(execution.getContext());
             // O requestId vai para as variáveis (persistidas com o estado)
             // para ser validado em submitApproval.
             execution.getContext().set(APPROVAL_REQUEST_KEY, requestId);
@@ -437,6 +457,9 @@ public class DefaultFlowEngine implements FlowEngine {
             // a fila de aprovações sobreviva ao restart com o payload intacto.
             if (proposal != null) {
                 execution.getContext().set(ExecutionKeys.APPROVAL_PROPOSAL, proposal);
+            } else if (execution.getContext().get(ExecutionKeys.APPROVAL_PROPOSAL).isPresent()) {
+                // Sem proposta própria, este pedido não pode exibir a do portão anterior.
+                execution.getContext().set(ExecutionKeys.APPROVAL_PROPOSAL, "");
             }
             if (stepId != null) {
                 execution.getContext().set(ExecutionKeys.APPROVAL_STEP_ID, stepId);
@@ -494,79 +517,159 @@ public class DefaultFlowEngine implements FlowEngine {
             // (ex.: mock que bloqueia em testes), é apenas um atalho.
             FlowExecution execution = activeExecutions.get(flowId);
             ExecutionContext liveContext = execution != null ? execution.getContext() : null;
-            FlowState currentState = liveContext != null
-                    ? liveContext.getState()
-                    : stateManager.loadState(flowId);
-            if (currentState == null) {
-                throw new FlowNotFoundException(flowId);
-            }
-
-            if (currentState.getStatus() != FlowStatus.AWAITING_APPROVAL) {
-                throw new FlowEngineException("Flow is not awaiting approval: " + flowId);
-            }
-
-            // Valida o requestId emitido por requestApproval — uma aprovação
-            // com id de outra solicitação (ou nenhuma) é rejeitada. O id vive
-            // nas variáveis do contexto (fluxo vivo) ou do estado persistido.
-            Object storedRequestId = liveContext != null
-                    ? liveContext.get(APPROVAL_REQUEST_KEY).orElse(null)
-                    : variableOf(currentState, APPROVAL_REQUEST_KEY);
-            if (storedRequestId == null || String.valueOf(storedRequestId).isBlank()
-                    || !storedRequestId.equals(requestId)) {
-                throw new FlowEngineException("Unknown approval requestId for flow " + flowId
-                        + ": " + requestId);
-            }
-
-            if (!approved) {
-                Map<String, Object> rejectedVars = new HashMap<>(
-                        currentState.getVariables() != null ? currentState.getVariables() : Map.of());
-                rejectedVars.put(APPROVAL_REQUEST_KEY, "");
-                rejectedVars.put(ExecutionKeys.APPROVAL_DECISION, "REJECTED");
-                recordDecider(rejectedVars, decidedBy, comment);
-                FlowState rejectedState = rebuildState(currentState, FlowStatus.STOPPED, rejectedVars);
-                stateManager.saveState(flowId, rejectedState);
-                if (liveContext != null) {
-                    liveContext.setState(rejectedState);
-                    // Sinaliza a thread original (ainda em executeFlow) para
-                    // desbloquear; seu finally libera o permit e remove a
-                    // entrada do mapa exatamente uma vez.
-                    executionManager.stopFlow(flowId);
+            // Com a travessia ainda viva, ler, validar e gravar a decisão acontece sob o monitor
+            // do contexto — o mesmo do checkpoint por passo (CheckpointingLifecycleListener). Sem
+            // ele, um checkpoint que já tinha lido o estado AWAITING_APPROVAL o regravava por cima
+            // da decisão: o pedido recusado voltava à fila, decidível de novo, e o estado durável
+            // perdia quem o recusou. Sem travessia viva não há checkpoint concorrente.
+            Object checkpointLock = liveContext != null ? liveContext : new Object();
+            synchronized (checkpointLock) {
+                FlowState currentState = liveContext != null
+                        ? liveContext.getState()
+                        : stateManager.loadState(flowId);
+                if (currentState == null) {
+                    throw new FlowNotFoundException(flowId);
                 }
-                return CompletableFuture.completedFuture(null);
-            }
 
-            // Consome o requestId e grava a decisão NO STORE (o mapa de
-            // variáveis não aceita null). Persistir a consumação sob o lock
-            // fecha a janela assíncrona entre remove()/resume e o putIfAbsent
-            // do submitFlow: uma submissão duplicada nessa janela recarrega o
-            // estado, vê o requestId já consumido e é rejeitada acima.
-            Map<String, Object> vars = new HashMap<>(
-                    currentState.getVariables() != null ? currentState.getVariables() : Map.of());
-            vars.put(APPROVAL_REQUEST_KEY, "");
-            // A decisão fica no estado para os steps seguintes ramificarem
-            // (`${__archflow.approvalDecision} == APPROVED`) e para a auditoria.
-            vars.put(ExecutionKeys.APPROVAL_DECISION, "APPROVED");
-            recordDecider(vars, decidedBy, comment);
-            if (editedPayload != null) {
-                vars.put(ExecutionKeys.APPROVAL_PAYLOAD, editedPayload);
-            }
-            // Mantém AWAITING_APPROVAL para que resumeFlow faça a transição
-            // padrão AWAITING_APPROVAL → RUNNING e restaure as variáveis.
-            FlowState consumedState = rebuildState(currentState, FlowStatus.AWAITING_APPROVAL, vars);
-            stateManager.saveState(flowId, consumedState);
+                if (currentState.getStatus() != FlowStatus.AWAITING_APPROVAL) {
+                    throw new FlowEngineException("Flow is not awaiting approval: " + flowId);
+                }
 
-            if (liveContext != null) {
-                // Remove a entrada viva para que resumeFlow → submitFlow possa
-                // re-registrar via putIfAbsent sem esbarrar em "already running".
-                liveContext.setState(consumedState);
-                activeExecutions.remove(flowId);
-                contextForResume = liveContext;
-            } else {
-                // Fluxo reidratado do store: contexto novo; resumeFlow recarrega
-                // estado e variáveis a partir do StateManager.
-                contextForResume = createResumeContext(consumedState);
+                // Valida o requestId emitido por requestApproval — uma aprovação
+                // com id de outra solicitação (ou nenhuma) é rejeitada. O id vive
+                // nas variáveis do contexto (fluxo vivo) ou do estado persistido.
+                Object storedRequestId = liveContext != null
+                        ? liveContext.get(APPROVAL_REQUEST_KEY).orElse(null)
+                        : variableOf(currentState, APPROVAL_REQUEST_KEY);
+                if (storedRequestId == null || String.valueOf(storedRequestId).isBlank()
+                        || !storedRequestId.equals(requestId)) {
+                    throw new FlowEngineException("Unknown approval requestId for flow " + flowId
+                            + ": " + requestId);
+                }
+
+                if (!approved) {
+                    Map<String, Object> rejectedVars = new HashMap<>(
+                            currentState.getVariables() != null ? currentState.getVariables() : Map.of());
+                    rejectedVars.put(APPROVAL_REQUEST_KEY, "");
+                    rejectedVars.put(ExecutionKeys.APPROVAL_DECISION, "REJECTED");
+                    recordDecider(rejectedVars, requestId, "REJECTED", decidedBy, comment);
+                    FlowState rejectedState = rebuildState(currentState, FlowStatus.STOPPED, rejectedVars);
+                    stateManager.saveState(flowId, rejectedState);
+                    if (liveContext != null) {
+                        liveContext.setState(rejectedState);
+                        decideLive(execution, rejectedVars);
+                        // Sinaliza a thread original (ainda em executeFlow) para
+                        // desbloquear; seu finally libera o permit e remove a
+                        // entrada do mapa exatamente uma vez.
+                        executionManager.stopFlow(flowId);
+                    }
+                    return CompletableFuture.completedFuture(null);
+                }
+
+                // A retomada busca o fluxo no FlowRepository. Sem ele, consumir o pedido deixava a
+                // execução presa em AWAITING_APPROVAL sem pedido — fora da fila, sem como decidir de
+                // novo, sem virar FAILED — e a falha só existia numa future que ninguém olhava
+                // (RCHFLW-59: execuções do editor não registravam o fluxo). Recusar ANTES de consumir
+                // mantém o pedido na fila e devolve o erro a quem decidiu. A rejeição acima não
+                // precisa da definição: ela só encerra.
+                if (flowRepository.findById(flowId).isEmpty()) {
+                    throw new FlowEngineException("Flow definition " + flowId + " is not registered, so it "
+                            + "cannot be resumed; the approval " + requestId + " stays pending");
+                }
+
+                // Consome o requestId e grava a decisão NO STORE (o mapa de
+                // variáveis não aceita null). Persistir a consumação sob o lock
+                // fecha a janela assíncrona entre remove()/resume e o putIfAbsent
+                // do submitFlow: uma submissão duplicada nessa janela recarrega o
+                // estado, vê o requestId já consumido e é rejeitada acima.
+                Map<String, Object> vars = new HashMap<>(
+                        currentState.getVariables() != null ? currentState.getVariables() : Map.of());
+                vars.put(APPROVAL_REQUEST_KEY, "");
+                // A decisão fica no estado para os steps seguintes ramificarem
+                // (`${__archflow.approvalDecision} == APPROVED`) e para a auditoria.
+                vars.put(ExecutionKeys.APPROVAL_DECISION, "APPROVED");
+                recordDecider(vars, requestId, "APPROVED", decidedBy, comment);
+                if (editedPayload != null) {
+                    vars.put(ExecutionKeys.APPROVAL_PAYLOAD, editedPayload);
+                } else {
+                    // O payload é a edição DESTA decisão. Sem edição não há payload — o
+                    // que estiver aqui é do portão anterior (ou o marcador vazio que
+                    // requestApproval deixou) e os steps seguintes o leriam como deste.
+                    vars.remove(ExecutionKeys.APPROVAL_PAYLOAD);
+                }
+                // Mantém AWAITING_APPROVAL para que resumeFlow faça a transição
+                // padrão AWAITING_APPROVAL → RUNNING e restaure as variáveis.
+                FlowState consumedState = rebuildState(currentState, FlowStatus.AWAITING_APPROVAL, vars);
+                stateManager.saveState(flowId, consumedState);
+
+                if (liveContext != null) {
+                    // Remove a entrada viva para que resumeFlow → submitFlow possa
+                    // re-registrar via putIfAbsent sem esbarrar em "already running".
+                    liveContext.setState(consumedState);
+                    decideLive(execution, vars);
+                    activeExecutions.remove(flowId);
+                    contextForResume = liveContext;
+                } else {
+                    // Fluxo reidratado do store: contexto novo; resumeFlow recarrega
+                    // estado e variáveis a partir do StateManager.
+                    contextForResume = createResumeContext(consumedState);
+                }
             }
-            return resumeFlow(flowId, contextForResume);
+            CompletableFuture<FlowResult> resumed = resumeFlow(flowId, contextForResume);
+            // A falha da retomada não pode ficar só na future: quem decidiu pela fila em geral
+            // já recebeu a resposta, e ninguém mais a observa.
+            resumed.whenComplete((ignored, err) -> {
+                if (err != null) {
+                    failConsumedApproval(flowId, requestId, err);
+                }
+            });
+            return resumed;
+        }
+    }
+
+    /**
+     * A retomada depois de uma aprovação falhou antes de a travessia começar: a montagem da
+     * retomada (repositório, estado, restauração de memória, limite de concorrência) roda fora
+     * do try que chama {@code saveErrorState}. O pedido já foi consumido, então o estado ficaria
+     * em AWAITING_APPROVAL sem pedido para sempre — fora da fila, sem como decidir de novo e sem
+     * nunca virar FAILED (RCHFLW-59). Grava FAILED com o erro.
+     *
+     * <p>Só quando o estado ainda é exatamente o que a aprovação deixou e nenhuma travessia está
+     * viva: uma falha no meio da travessia já foi gravada por {@code saveErrorState}, e outra
+     * execução ativa sob o mesmo id é dona do estado. A decisão e o decisor continuam nas
+     * variáveis — falhar a retomada não apaga quem autorizou.</p>
+     */
+    private void failConsumedApproval(String flowId, String requestId, Throwable err) {
+        Throwable cause = err;
+        while (cause.getCause() != null && cause.getCause() != cause) {
+            cause = cause.getCause();
+        }
+        synchronized (transitionLock) {
+            try {
+                if (activeExecutions.containsKey(flowId)) {
+                    return;
+                }
+                FlowState state = stateManager.loadState(flowId);
+                if (state == null || state.getStatus() != FlowStatus.AWAITING_APPROVAL
+                        || ExecutionKeys.aguardaDecisaoHumana(state)) {
+                    return;
+                }
+                FlowState failed = FlowState.builder()
+                        .tenantId(state.getTenantId())
+                        .flowId(state.getFlowId())
+                        .status(FlowStatus.FAILED)
+                        .currentStepId(state.getCurrentStepId())
+                        .variables(state.getVariables())
+                        .executionPaths(state.getExecutionPaths())
+                        .metrics(state.getMetrics())
+                        .error(ExecutionError.fromException("APPROVAL_RESUME_ERROR", cause, "FlowEngine"))
+                        .build();
+                stateManager.saveState(flowId, failed);
+                logger.severe("Flow " + flowId + " approved (requestId=" + requestId
+                        + ") but could not be resumed; marked FAILED: " + cause);
+            } catch (Exception e) {
+                logger.severe("Error saving failed resume state for flow " + flowId + ": " + e.getMessage());
+            }
         }
     }
 
@@ -592,11 +695,120 @@ public class DefaultFlowEngine implements FlowEngine {
      * o mesmo lock — um log paralelo poderia divergir do estado persistido, e é
      * o estado que responde "quem autorizou isto".
      */
-    private static void recordDecider(Map<String, Object> vars, String decidedBy, String comment) {
-        vars.put(ExecutionKeys.APPROVAL_DECIDED_AT, java.time.Instant.now().toString());
+    private static void recordDecider(Map<String, Object> vars, String requestId, String decision,
+                                      String decidedBy, String comment) {
+        String decidedAt = java.time.Instant.now().toString();
         // O mapa de variáveis vai para JSON e não aceita null; ausente vira "".
-        vars.put(ExecutionKeys.APPROVAL_DECIDED_BY, decidedBy != null ? decidedBy : "");
-        vars.put(ExecutionKeys.APPROVAL_COMMENT, comment != null ? comment : "");
+        String by = decidedBy != null ? decidedBy : "";
+        String why = comment != null ? comment : "";
+        vars.put(ExecutionKeys.APPROVAL_DECIDED_AT, decidedAt);
+        vars.put(ExecutionKeys.APPROVAL_DECIDED_BY, by);
+        vars.put(ExecutionKeys.APPROVAL_COMMENT, why);
+
+        // As chaves acima descrevem só o portão corrente e são limpas no próximo
+        // requestApproval. Sem o histórico, um fluxo com dois portões perderia do
+        // estado durável quem autorizou o primeiro assim que o segundo pedisse.
+        List<Object> history = new ArrayList<>();
+        if (vars.get(ExecutionKeys.APPROVAL_HISTORY) instanceof java.util.Collection<?> previous) {
+            history.addAll(previous);
+        }
+        Map<String, Object> entry = new java.util.LinkedHashMap<>();
+        Object stepId = vars.get(ExecutionKeys.APPROVAL_STEP_ID);
+        entry.put("stepId", stepId != null ? String.valueOf(stepId) : "");
+        entry.put("requestId", requestId != null ? requestId : "");
+        entry.put("decision", decision);
+        entry.put("decidedBy", by);
+        entry.put("comment", why);
+        entry.put("decidedAt", decidedAt);
+        history.add(entry);
+        vars.put(ExecutionKeys.APPROVAL_HISTORY, history);
+    }
+
+    /**
+     * Apaga a decisão do portão anterior antes de abrir um novo pedido. O mapa de
+     * variáveis do contexto não aceita remoção nem null, então o marcador é "" —
+     * a mesma convenção de {@link ExecutionKeys#APPROVAL_REQUEST_ID} consumido. Só
+     * toca chaves presentes: um fluxo de portão único não ganha chaves novas. A
+     * auditoria do portão anterior continua em {@link ExecutionKeys#APPROVAL_HISTORY}.
+     */
+    private static void clearPreviousGateDecision(ExecutionContext context) {
+        for (String key : List.of(ExecutionKeys.APPROVAL_DECISION, ExecutionKeys.APPROVAL_DECIDED_BY,
+                ExecutionKeys.APPROVAL_COMMENT, ExecutionKeys.APPROVAL_DECIDED_AT,
+                ExecutionKeys.APPROVAL_PAYLOAD)) {
+            if (context.get(key).isPresent()) {
+                context.set(key, "");
+            }
+        }
+    }
+
+    /**
+     * Decisão tomada enquanto a travessia original ainda está em {@code executeFlow}
+     * (o humano — ou um cliente automático — decidiu entre o pedido e o desenrolar).
+     *
+     * <p>A decisão vai também para as variáveis do contexto vivo, não só para o estado:
+     * a thread original ainda pode copiar o contexto para o estado (checkpoint do
+     * próprio portão) e, sem isto, gravaria por cima as variáveis antigas — sem
+     * {@code REJECTED}, sem decisor e com o pedido reaberto. E a execução é marcada
+     * decidida para o estado terminal dela não sobrescrever o desta decisão.</p>
+     */
+    private static void decideLive(FlowExecution execution, Map<String, Object> decidedVars) {
+        ExecutionContext live = execution.getContext();
+        for (String key : List.of(APPROVAL_REQUEST_KEY, ExecutionKeys.APPROVAL_DECISION,
+                ExecutionKeys.APPROVAL_DECIDED_BY, ExecutionKeys.APPROVAL_COMMENT,
+                ExecutionKeys.APPROVAL_DECIDED_AT, ExecutionKeys.APPROVAL_HISTORY)) {
+            Object value = decidedVars.get(key);
+            if (value != null) {
+                live.set(key, value);
+            }
+        }
+        Object payload = decidedVars.get(ExecutionKeys.APPROVAL_PAYLOAD);
+        if (payload != null) {
+            live.set(ExecutionKeys.APPROVAL_PAYLOAD, payload);
+        } else if (live.get(ExecutionKeys.APPROVAL_PAYLOAD).isPresent()) {
+            live.set(ExecutionKeys.APPROVAL_PAYLOAD, "");
+        }
+        execution.markDecided();
+    }
+
+    /**
+     * Um fluxo que pediu aprovação não termina COMPLETED. Se o executor devolver
+     * COMPLETED com o estado em AWAITING_APPROVAL — o pedido saiu do último step e
+     * a travessia não tinha próximo step para notar a pausa —, o resultado vira
+     * PAUSED. Sem isto o estado terminal sobrescrevia AWAITING_APPROVAL, o pedido
+     * sumia da fila (que filtra por status) e não sobrava nada para retomar
+     * (RCHFLW-14). O {@code DefaultFlowExecutor} já trata o caso; esta guarda torna
+     * a invariante do motor independente do executor plugado.
+     */
+    private static FlowResult keepApprovalSuspension(String flowId, ExecutionContext context,
+                                                     FlowResult result) {
+        if (result == null || result.getStatus() != ExecutionStatus.COMPLETED
+                || context.getState() == null
+                || context.getState().getStatus() != FlowStatus.AWAITING_APPROVAL) {
+            return result;
+        }
+        logger.warning("Executor devolveu COMPLETED para o fluxo " + flowId
+                + " aguardando aprovação; mantendo a suspensão (PAUSED)");
+        return new FlowResult() {
+            @Override
+            public ExecutionStatus getStatus() {
+                return ExecutionStatus.PAUSED;
+            }
+
+            @Override
+            public Optional<Object> getOutput() {
+                return result.getOutput();
+            }
+
+            @Override
+            public ExecutionMetrics getMetrics() {
+                return result.getMetrics();
+            }
+
+            @Override
+            public List<ExecutionError> getErrors() {
+                return result.getErrors();
+            }
+        };
     }
 
     private static Object variableOf(FlowState state, String key) {
@@ -640,7 +852,9 @@ public class DefaultFlowEngine implements FlowEngine {
     }
 
     private ExecutionContext createInitialContext(Flow flow, Map<String, Object> input) {
-        Map<String, Object> vars = input != null ? new HashMap<>(input) : new HashMap<>();
+        // Mesma fronteira da entrada HTTP: a decisão e o histórico de aprovação são do motor,
+        // não de quem dispara a execução.
+        Map<String, Object> vars = new HashMap<>(ExecutionKeys.semChavesDoMotor(input));
         String tenantId = vars.containsKey("tenantId") ? String.valueOf(vars.get("tenantId")) : "SYSTEM";
         String userId = vars.containsKey("userId") ? String.valueOf(vars.get("userId")) : null;
         String sessionId = vars.containsKey("sessionId") ? String.valueOf(vars.get("sessionId")) : null;
@@ -820,10 +1034,20 @@ public class DefaultFlowEngine implements FlowEngine {
     private static class FlowExecution {
         private final Flow flow;
         private final ExecutionContext context;
+        /** Uma decisão humana chegou enquanto esta travessia ainda estava viva. */
+        private volatile boolean decided;
 
         public FlowExecution(Flow flow, ExecutionContext context) {
             this.flow = flow;
             this.context = context;
+        }
+
+        void markDecided() {
+            decided = true;
+        }
+
+        boolean isDecided() {
+            return decided;
         }
 
         public void pause() {

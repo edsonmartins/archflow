@@ -4,13 +4,20 @@ import type { NODE_CATEGORIES } from './constants'
 // xyflow's `Node<TData>` constrains data to `Record<string, unknown>`.
 // The index signature satisfies that constraint without weakening the
 // known keys.
+/**
+ * Status de execução de um nó no canvas. `awaiting` é o portão de aprovação humana parado à espera
+ * da decisão: não concluiu (não é `success`, não ganha ✓ nem duração) e não está rodando (sem pulso).
+ * Antes ele aparecia como concluído enquanto ninguém tinha decidido nada (RCHFLW-32).
+ */
+export type NodeRunStatus = 'idle' | 'running' | 'success' | 'error' | 'skipped' | 'awaiting'
+
 export interface FlowNodeData {
   label:           string
   componentId:     string
   nodeType:        string
-  status:          'idle' | 'running' | 'success' | 'error' | 'skipped'
+  status:          NodeRunStatus
   config:          Record<string, unknown>
-  executionStatus?: 'idle' | 'running' | 'success' | 'error' | 'skipped'
+  executionStatus?: NodeRunStatus
   executionMs?:     number
   [key: string]:    unknown
 }
@@ -44,7 +51,7 @@ export interface WorkflowData {
 
 // ── Estado de execução por nó ────────────────────────────────────
 export interface NodeExecutionState {
-  status:     'idle' | 'running' | 'success' | 'error' | 'skipped'
+  status:     NodeRunStatus
   startedAt?: number
   durationMs?: number
   output?:    unknown

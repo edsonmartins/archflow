@@ -481,12 +481,17 @@ public class ArchflowBeanConfiguration {
             br.com.archflow.engine.api.FlowEngine flowEngine,
             @Value("${archflow.approval.timeout:PT24H}") java.time.Duration approvalTimeout,
             org.springframework.beans.factory.ObjectProvider<
-                    br.com.archflow.api.agent.mcp.RetomadaDoLaco> retomadaDoLaco) {
+                    br.com.archflow.api.agent.mcp.RetomadaDoLaco> retomadaDoLaco,
+            org.springframework.beans.factory.ObjectProvider<
+                    br.com.archflow.api.web.workflow.WorkflowRuntimeStore> executionRecords) {
         // Os dois gates humanos — o nó de fluxo e o do laço de agente — numa fila só. O
         // ObjectProvider mantém a resolução tardia: a retomada depende do host de MCP, cujo grafo
         // passa pelo catálogo de componentes.
+        // O registro de execuções vai junto porque a decisão chega por aqui: sem ele, aprovar,
+        // recusar ou expirar deixava a execução PAUSED para sempre (RCHFLW-40).
         return new ApprovalQueueService(stateManager, flowEngine, approvalTimeout,
-                java.time.Clock.systemUTC(), retomadaDoLaco.getIfAvailable());
+                java.time.Clock.systemUTC(), retomadaDoLaco.getIfAvailable(),
+                executionRecords.getIfAvailable());
     }
 
     /**
@@ -512,7 +517,9 @@ public class ArchflowBeanConfiguration {
      * ficava pendurada para sempre, segurando estado e poluindo uma fila que
      * nunca esvaziava. O prazo default é generoso (24h) e a decisão de timeout é
      * sempre REJECTED — "ninguém olhou" não pode virar "pode executar".
-     * {@code archflow.approval.timeout=PT0S} restaura o comportamento anterior.
+     * {@code archflow.approval.timeout=PT0S} desliga só o prazo global: um nó de
+     * aprovação com prazo próprio ({@code approvalTimeoutMinutes}) ainda vence,
+     * e também como REJECTED.
      */
     @Bean(initMethod = "start", destroyMethod = "close")
     @ConditionalOnMissingBean

@@ -24,6 +24,9 @@ export function ExecutionLogs({ execState }: { execState: NodeExecutionState | n
       {execState.status === 'error' && (
         <div style={{ color: 'var(--color-text-danger)' }}>[{ts}] {execState.error}</div>
       )}
+      {execState.status === 'awaiting' && (
+        <div style={{ color: 'var(--purple-text)' }}>{t('editor.properties.fields.logs.awaiting', { ts })}</div>
+      )}
       {execState.status === 'running' && (
         <div style={{ color: 'var(--color-text-warning)' }}>{t('editor.properties.fields.logs.running', { ts })}</div>
       )}

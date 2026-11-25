@@ -87,6 +87,19 @@ public final class ExecutionKeys {
     /** {@code String} — descrição legível exibida ao decisor. */
     public static final String APPROVAL_DESCRIPTION = "__archflow.approvalDescription";
 
+    /** {@code String} — título curto do pedido, exibido na fila (o que o designer chama de título). */
+    public static final String APPROVAL_TITLE = "__archflow.approvalTitle";
+
+    /**
+     * {@code String} ISO-8601 ({@code PT30M}) — prazo <b>deste</b> pedido, configurado no nó. Ausente
+     * ou vazio, vale o prazo global ({@code archflow.approval.timeout}).
+     *
+     * <p>Fica no estado durável, e não só no nó, porque quem expira é a fila, lendo o estado: ela
+     * não tem a definição do fluxo, e o prazo precisa sobreviver a um restart junto com o pedido.
+     * Vencido, a decisão é sempre REJECTED — o nó escolhe <i>quando</i>, nunca <i>o quê</i>.</p>
+     */
+    public static final String APPROVAL_TIMEOUT = "__archflow.approvalTimeout";
+
     /** {@code String} {@code APPROVED}|{@code REJECTED} — decisão humana registrada. */
     public static final String APPROVAL_DECISION = "__archflow.approvalDecision";
 
@@ -99,6 +112,68 @@ public final class ExecutionKeys {
     /** {@code String} ISO-8601 — quando a decisão foi submetida. */
     public static final String APPROVAL_DECIDED_AT = "__archflow.approvalDecidedAt";
 
+    /**
+     * {@code List<Map<String, String>>} — uma entrada por decisão já tomada nesta execução
+     * ({@code stepId}, {@code requestId}, {@code decision}, {@code decidedBy},
+     * {@code comment}, {@code decidedAt}), na ordem em que foram tomadas.
+     *
+     * <p>As chaves {@code APPROVAL_DECISION}/{@code _DECIDED_BY}/{@code _COMMENT}/
+     * {@code _DECIDED_AT} descrevem só o portão corrente: o pedido seguinte as limpa, para
+     * que um segundo portão não herde a decisão do primeiro. É este histórico que mantém
+     * "quem autorizou o primeiro portão" respondível a partir do estado durável.</p>
+     */
+    public static final String APPROVAL_HISTORY = "__archflow.approvalHistory";
+
     /** Payload editado pelo humano ao aprovar, quando houver. */
     public static final String APPROVAL_PAYLOAD = "approvalPayload";
+
+    /**
+     * Prefixo das variáveis que <b>só o motor escreve</b>: checkpoint de passos concluídos,
+     * memória de conversa, pedido e decisão de aprovação, infraestrutura transitória.
+     */
+    public static final String RESERVED_PREFIX = "__archflow.";
+
+    /**
+     * Se a chave pertence ao motor — o prefixo reservado e o payload editado na aprovação, que
+     * ficou sem o prefixo por compatibilidade com os fluxos que já o leem.
+     */
+    public static boolean reservadaAoMotor(String chave) {
+        return chave != null && (chave.startsWith(RESERVED_PREFIX) || APPROVAL_PAYLOAD.equals(chave));
+    }
+
+    /**
+     * A entrada de uma execução sem as chaves do motor.
+     *
+     * <p>Quem dispara a execução não é quem a aprova. Se a entrada pudesse semear estas chaves,
+     * o chamador escreveria a própria decisão ({@code approvalDecision} + {@code approvalStepId})
+     * e o portão passaria sem pedido na fila, ou plantaria entradas falsas em
+     * {@link #APPROVAL_HISTORY} — justamente o registro que responde "quem autorizou isto". O
+     * mesmo vale para {@code completedSteps}, que pularia o portão. Uma regra só, para os pontos
+     * de entrada não divergirem.</p>
+     */
+    public static java.util.Map<String, Object> semChavesDoMotor(java.util.Map<String, Object> entrada) {
+        java.util.Map<String, Object> copia = new java.util.LinkedHashMap<>();
+        if (entrada != null) {
+            entrada.forEach((chave, valor) -> {
+                if (!reservadaAoMotor(chave)) {
+                    copia.put(chave, valor);
+                }
+            });
+        }
+        return copia;
+    }
+
+    /**
+     * Se o estado espera uma decisão humana ainda não tomada: AWAITING_APPROVAL com o pedido
+     * não consumido. Um estado assim só segue por {@code submitApproval} — retomá-lo por outro
+     * caminho concluiria o fluxo sem ninguém ter decidido, e o estado durável não saberia dizer
+     * quem autorizou.
+     */
+    public static boolean aguardaDecisaoHumana(br.com.archflow.model.flow.FlowState estado) {
+        if (estado == null || estado.getStatus() != br.com.archflow.model.flow.FlowStatus.AWAITING_APPROVAL) {
+            return false;
+        }
+        Object pedido = estado.getVariables() != null ? estado.getVariables().get(APPROVAL_REQUEST_ID) : null;
+        return pedido != null && !String.valueOf(pedido).isBlank();
+    }
 }

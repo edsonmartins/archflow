@@ -200,13 +200,21 @@ public class InMemoryWorkflowRuntimeStore implements WorkflowRuntimeStore {
         return execution;
     }
 
-    /** Marks a running execution terminal (status + completedAt + optional error). */
+    /**
+     * Marks a running execution terminal (status + completedAt + optional error). Um status velho
+     * que chega depois do desfecho não o apaga — ver {@link WorkflowRuntimeStore#isStaleStatus}.
+     */
     public void completeExecution(String id, String status, String error) {
         var execution = executions.get(id);
         if (execution == null) {
             return;
         }
         synchronized (execution) {
+            // A checagem fica sob o mesmo lock da escrita: fora dele, a fila poderia gravar
+            // STOPPED entre a leitura e a escrita e o PAUSED velho passaria mesmo assim.
+            if (WorkflowRuntimeStore.isStaleStatus(execution.get("status"), status)) {
+                return;
+            }
             execution.put("status", status);
             execution.put("completedAt", Instant.now().toString());
             execution.put("error", error);
@@ -270,6 +278,11 @@ public class InMemoryWorkflowRuntimeStore implements WorkflowRuntimeStore {
                 steps.add(created);
                 return created;
             });
+            // Sob o lock da escrita, como em completeExecution: a fila poderia gravar o desfecho
+            // do portão entre uma checagem de fora e esta escrita.
+            if (WorkflowRuntimeStore.isStaleStepStatus(step.get("status"), patch.get("status"))) {
+                return;
+            }
             step.putAll(patch);
         }
     }

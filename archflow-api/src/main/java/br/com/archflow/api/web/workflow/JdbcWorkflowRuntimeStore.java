@@ -21,6 +21,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
+import java.util.function.Predicate;
 
 /**
  * {@link WorkflowRuntimeStore} durável sobre as tabelas {@code workflow_documents}
@@ -360,12 +361,20 @@ public class JdbcWorkflowRuntimeStore implements WorkflowRuntimeStore {
 
     @Override
     public void completeExecution(String id, String status, String error) {
-        mutateExecution(id, execution -> {
+        // A checagem roda sob o lock do read-modify-write: fora dele, a fila poderia gravar
+        // STOPPED entre a leitura e a escrita e o PAUSED velho passaria mesmo assim. Ignorado,
+        // nem regrava a linha — o desfecho fica intacto, inclusive o updated_at.
+        boolean applied = mutateExecutionIf(id, execution -> {
+            if (WorkflowRuntimeStore.isStaleStatus(execution.get("status"), status)) {
+                return false;
+            }
             execution.put("status", status);
             execution.put("completedAt", Instant.now().toString());
             execution.put("error", error);
+            return true;
         });
-        if (TERMINAL_STATUSES.contains(status)) {
+        // Ignorado, o registro já é terminal: o lock que a escrita recriou também sai.
+        if (!applied || TERMINAL_STATUSES.contains(status)) {
             executionLocks.remove(id);
         }
     }
@@ -381,20 +390,34 @@ public class JdbcWorkflowRuntimeStore implements WorkflowRuntimeStore {
         if (stepId == null) {
             return;
         }
-        mutateExecution(executionId, execution -> {
+        boolean[] terminal = {false};
+        boolean applied = mutateExecutionIf(executionId, execution -> {
             var steps = (List<Map<String, Object>>) execution.computeIfAbsent(
                     "steps", k -> new ArrayList<Map<String, Object>>());
-            Map<String, Object> step = steps.stream()
+            Map<String, Object> existingStep = steps.stream()
                     .filter(existing -> stepId.equals(String.valueOf(existing.get("stepId"))))
                     .findFirst()
-                    .orElseGet(() -> {
-                        var created = new LinkedHashMap<String, Object>();
-                        created.put("stepId", stepId);
-                        steps.add(created);
-                        return created;
-                    });
+                    .orElse(null);
+            // Sob o lock do read-modify-write, como em completeExecution. Ignorado, nem regrava a
+            // linha: o desfecho do passo (e quem decidiu o portão) fica intacto.
+            if (existingStep != null
+                    && WorkflowRuntimeStore.isStaleStepStatus(existingStep.get("status"), patch.get("status"))) {
+                terminal[0] = TERMINAL_STATUSES.contains(String.valueOf(execution.get("status")));
+                return false;
+            }
+            Map<String, Object> step = existingStep;
+            if (step == null) {
+                step = new LinkedHashMap<>();
+                step.put("stepId", stepId);
+                steps.add(step);
+            }
             step.putAll(patch);
+            return true;
         });
+        // O patch velho chegou depois do fim da execução: o lock que ele recriou também sai.
+        if (!applied && terminal[0]) {
+            executionLocks.remove(executionId);
+        }
     }
 
     // ------------------------------------------------------------------ plumbing
@@ -404,14 +427,25 @@ public class JdbcWorkflowRuntimeStore implements WorkflowRuntimeStore {
      * No-op quando a execução não existe (mesma semântica do in-memory).
      */
     private void mutateExecution(String id, Consumer<Map<String, Object>> mutation) {
+        mutateExecutionIf(id, execution -> {
+            mutation.accept(execution);
+            return true;
+        });
+    }
+
+    /**
+     * Como {@link #mutateExecution}, mas a mutação pode desistir ({@code false}) depois de ler o
+     * registro sob o lock — e então nada é gravado. Devolve se a mutação foi gravada.
+     */
+    private boolean mutateExecutionIf(String id, Predicate<Map<String, Object>> mutation) {
         Object lock = executionLocks.computeIfAbsent(id, k -> new Object());
         synchronized (lock) {
             Map<String, Object> execution = getExecution(id);
-            if (execution == null) {
-                return;
+            if (execution == null || !mutation.test(execution)) {
+                return false;
             }
-            mutation.accept(execution);
             saveExecution(id, execution);
+            return true;
         }
     }
 

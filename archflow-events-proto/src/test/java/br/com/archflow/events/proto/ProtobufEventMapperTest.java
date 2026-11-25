@@ -90,7 +90,7 @@ class ProtobufEventMapperTest {
                 ArchflowEventType.FLOW_STARTED, ArchflowEventType.FLOW_COMPLETED,
                 ArchflowEventType.FLOW_FAILED, ArchflowEventType.STEP_STARTED,
                 ArchflowEventType.STEP_COMPLETED, ArchflowEventType.STEP_FAILED,
-                ArchflowEventType.STEP_SKIPPED
+                ArchflowEventType.STEP_SKIPPED, ArchflowEventType.STEP_SUSPENDED
         };
         for (ArchflowEventType type : flowTypes) {
             ArchflowEvent event = ArchflowEvent.builder()

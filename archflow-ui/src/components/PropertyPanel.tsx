@@ -17,6 +17,7 @@ import { McpToolFields } from './PropertyPanel/fields/McpToolFields'
 import { SubflowFields } from './PropertyPanel/fields/SubflowFields'
 import { SkillsFields } from './PropertyPanel/fields/SkillsFields'
 import { DecisionFields } from './PropertyPanel/fields/DecisionFields'
+import { ApprovalFields } from './PropertyPanel/fields/ApprovalFields'
 import { ExecutionLogs, OutputPreview } from './PropertyPanel/fields/ExecutionPanels'
 import { NodeIdField, UpstreamRefs } from './PropertyPanel/fields/NodeReferences'
 
@@ -623,55 +624,7 @@ function NodeFields({ nodeId, nodeData }: { nodeId: string; nodeData: FlowNodeDa
 
       {isDecision && <DecisionFields nodeData={nodeData} update={update} />}
 
-      {isApproval && (
-        <>
-          <TextInput
-            label={f('approvalTitle')}
-            value={getConfig(nodeData, 'approvalTitle', 'Please review')}
-            onChange={e => update('approvalTitle', e.currentTarget.value)}
-            size="xs"
-            styles={FIELD_STYLES}
-          />
-          <Textarea
-            label={f('approvalDescription')}
-            value={getConfig(nodeData, 'approvalDescription', '')}
-            onChange={e => update('approvalDescription', e.currentTarget.value)}
-            autosize minRows={2}
-            size="xs"
-            styles={FIELD_STYLES}
-            description={f('approvalDescriptionHint')}
-          />
-          <Textarea
-            label={f('proposalPayload')}
-            value={getConfig(nodeData, 'approvalProposal', '{}')}
-            onChange={e => update('approvalProposal', e.currentTarget.value)}
-            autosize minRows={2}
-            size="xs"
-            styles={MONO_INPUT}
-            description={f('proposalPayloadHint')}
-          />
-          <NumberInput
-            label={f('timeoutMin')}
-            value={getConfig(nodeData, 'approvalTimeoutMinutes', 30)}
-            onChange={v => update('approvalTimeoutMinutes', v)}
-            min={1} max={24 * 60}
-            size="xs"
-            styles={FIELD_STYLES}
-          />
-          <Select
-            label={f('onTimeout')}
-            value={getConfig(nodeData, 'approvalOnTimeout', 'reject')}
-            onChange={v => update('approvalOnTimeout', v)}
-            size="xs"
-            data={[
-              { value: 'reject',   label: f('onTimeoutOptions.reject') },
-              { value: 'approve',  label: f('onTimeoutOptions.approve') },
-              { value: 'escalate', label: f('onTimeoutOptions.escalate') },
-            ]}
-            styles={FIELD_STYLES}
-          />
-        </>
-      )}
+      {isApproval && <ApprovalFields nodeData={nodeData} update={update} />}
 
       {/* ════════════════════════════════════════════════════════ */}
       {/*  SUBFLOW                                               */}

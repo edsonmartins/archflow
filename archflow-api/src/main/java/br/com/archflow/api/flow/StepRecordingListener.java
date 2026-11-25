@@ -89,6 +89,25 @@ public final class StepRecordingListener implements FlowLifecycleListener {
         store.recordStep(flow.getId(), step.getId(), finished("SKIPPED", null, null));
     }
 
+    /**
+     * Portão de aprovação à espera: "PAUSED", não "COMPLETED" — antes o detalhe da execução
+     * mostrava o portão concluído com ✓ enquanto ninguém tinha decidido (RCHFLW-32). Sem
+     * {@code finishedAt} nem duração: o passo não terminou. A saída (o {@code requestId}) vai
+     * junto para quem abre o detalhe saber qual pedido está na fila. Na retomada o passo recomeça
+     * e o registro segue PAUSED → RUNNING → COMPLETED; numa recusa a fila grava REJECTED.
+     */
+    @Override
+    public void onStepSuspended(Flow flow, FlowStep step, ExecutionContext context, long durationMs) {
+        Map<String, Object> patch = new LinkedHashMap<>();
+        patch.put("status", "PAUSED");
+        patch.put("suspendedAt", Instant.now().toString());
+        String output = outputOf(step, context);
+        if (output != null) {
+            patch.put("output", output);
+        }
+        store.recordStep(flow.getId(), step.getId(), patch);
+    }
+
     @Override
     public void onFlowCompleted(Flow flow, ExecutionContext context, FlowResult result, long durationMs) {
         store.recordDuration(flow.getId(), durationMs);

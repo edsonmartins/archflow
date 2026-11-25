@@ -47,7 +47,34 @@ public final class CheckpointingLifecycleListener implements FlowLifecycleListen
         checkpoint(flow, context);
     }
 
+    /**
+     * O portão de aprovação suspendeu: o estado já é AWAITING_APPROVAL (gravado por
+     * {@code requestApproval}), e o checkpoint leva junto a conversa e as saídas até aqui —
+     * o que o passo "concluído" levava antes de a suspensão ter callback próprio.
+     */
+    @Override
+    public void onStepSuspended(Flow flow, FlowStep step, ExecutionContext context, long durationMs) {
+        checkpoint(flow, context);
+    }
+
+    /**
+     * Ler o estado, copiar as variáveis e gravar é uma unidade sob o monitor do contexto — o mesmo
+     * que {@code DefaultFlowEngine.submitApproval} segura ao gravar uma decisão enquanto a travessia
+     * ainda está viva. Fora dele, uma decisão que chegasse entre a leitura e a gravação era apagada:
+     * o checkpoint regravava o AWAITING_APPROVAL que tinha lido por cima do STOPPED (ou do pedido
+     * já consumido), o pedido recusado voltava à fila decidível de novo e o estado durável perdia
+     * quem decidiu. Com o lock, o checkpoint que vem depois da decisão lê o estado já decidido.
+     */
     private void checkpoint(Flow flow, ExecutionContext context) {
+        if (context == null) {
+            return;
+        }
+        synchronized (context) {
+            checkpointLocked(flow, context);
+        }
+    }
+
+    private void checkpointLocked(Flow flow, ExecutionContext context) {
         try {
             FlowState state = context.getState();
             if (state == null) {

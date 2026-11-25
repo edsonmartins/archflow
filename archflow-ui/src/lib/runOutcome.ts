@@ -35,3 +35,27 @@ export function runOutcomeOf(event: AgUiEvent): RunOutcome {
             return 'unknown'
     }
 }
+
+/**
+ * Status do nó no canvas para um STEP_FINISHED do AG-UI.
+ *
+ * <p>STEP_FINISHED fecha o STEP_STARTED de qualquer passo, inclusive o portão de aprovação humana que
+ * suspendeu o fluxo — esse chega com <code>status</code> = <code>STEP_SUSPENDED</code>. Mapear "tudo
+ * que não é falha nem pulo" para sucesso pintava o portão com ✓ e duração enquanto ninguém tinha
+ * decidido (RCHFLW-32). Um status desconhecido continua sendo conclusão, como antes: é o que um
+ * servidor AG-UI genérico manda.</p>
+ */
+export type FinishedNodeStatus = 'success' | 'error' | 'skipped' | 'awaiting'
+
+export function nodeStatusOfStepFinished(status: unknown): FinishedNodeStatus {
+    switch (status) {
+        case 'STEP_FAILED':
+            return 'error'
+        case 'STEP_SKIPPED':
+            return 'skipped'
+        case 'STEP_SUSPENDED':
+            return 'awaiting'
+        default:
+            return 'success'
+    }
+}
