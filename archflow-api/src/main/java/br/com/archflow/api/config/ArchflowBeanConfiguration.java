@@ -550,8 +550,22 @@ public class ArchflowBeanConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public ConversationControllerImpl conversationControllerImpl(ConversationService conversationService) {
-        return new ConversationControllerImpl(conversationService);
+    public ConversationControllerImpl conversationControllerImpl(
+            ConversationService conversationService,
+            br.com.archflow.conversation.form.FormRegistry formRegistry) {
+        return new ConversationControllerImpl(conversationService, formRegistry);
+    }
+
+    /**
+     * Formulários que o {@code formId} de uma suspensão resolve (RCHFLW-67): os de
+     * {@code FormData.Templates} que não pedem segredo (ver {@code InMemoryFormRegistry.withTemplates}).
+     * Não há cadastro pela API ou pela tela — outro conjunto entra por um bean próprio, que vence este
+     * {@code @ConditionalOnMissingBean}.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public br.com.archflow.conversation.form.FormRegistry formRegistry() {
+        return br.com.archflow.conversation.form.InMemoryFormRegistry.withTemplates();
     }
 
     /**
@@ -967,18 +981,33 @@ public class ArchflowBeanConfiguration {
                         new br.com.archflow.langchain4j.skills.FileSystemSkillLoader(
                                 java.nio.file.Path.of(skillsDirectory));
                 manager.loadFrom(loader);
-            } catch (Exception ignored) {
-                // Directory missing / unreadable — leave manager empty.
+            } catch (Exception e) {
+                // Segue com o catálogo vazio (a API não deve cair por um diretório de skills), mas não em
+                // silêncio: sem o log a página Skills ficava vazia e nada dizia por quê (RCHFLW-66).
+                log.error("Failed to load skills from archflow.skills.directory={}: {}",
+                        skillsDirectory, e.getMessage(), e);
             }
         }
         return manager;
     }
 
+    /**
+     * Skills ativas por tenant. Em memória por default (dev); o durável vive em
+     * {@link JdbcPersistenceConfiguration} (migration V6_14) — é o que faz o switch sobreviver a restart.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(name = JDBC_ENABLED, havingValue = "false", matchIfMissing = true)
+    public br.com.archflow.api.skills.store.SkillActivationStore skillActivationStore() {
+        return new br.com.archflow.api.skills.store.InMemorySkillActivationStore();
+    }
+
     @Bean
     @ConditionalOnMissingBean
     public br.com.archflow.api.skills.SkillsController skillsController(
-            br.com.archflow.langchain4j.skills.SkillsManager skillsManager) {
-        return new br.com.archflow.api.skills.impl.SkillsControllerImpl(skillsManager);
+            br.com.archflow.langchain4j.skills.SkillsManager skillsManager,
+            br.com.archflow.api.skills.store.SkillActivationStore skillActivationStore) {
+        return new br.com.archflow.api.skills.impl.SkillsControllerImpl(skillsManager, skillActivationStore);
     }
 
     // =========================================================================

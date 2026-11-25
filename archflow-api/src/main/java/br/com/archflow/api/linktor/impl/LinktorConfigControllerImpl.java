@@ -56,7 +56,16 @@ public class LinktorConfigControllerImpl implements LinktorConfigController {
         // operador saber por quê.
         if (incoming.enabled() && incoming.mcpCommand() != null && !incoming.mcpCommand().isBlank()) {
             String[] argv = incoming.mcpCommand().trim().split("\\s+");
-            McpCommandPolicy.validateCommand(argv);
+            try {
+                McpCommandPolicy.validateCommand(argv);
+            } catch (SecurityException e) {
+                // Aqui o comando é entrada do operador num formulário, não uma tentativa de execução:
+                // é erro de validação (400, frase legível, que já nomeia os launchers permitidos e
+                // ARCHFLOW_MCP_ALLOWED_COMMANDS), não falha do servidor. Sem a tradução, a
+                // SecurityException não tem handler e virava 500 (RCHFLW-69). Traduzida só neste ponto:
+                // um handler global de SecurityException mudaria o status de outros endpoints.
+                throw new IllegalArgumentException(e.getMessage(), e);
+            }
         }
         String tenantId = TenantContext.currentTenantId();
         LinktorConfigDto next = byTenant.compute(tenantId, (k, prev) -> {
@@ -100,7 +109,7 @@ public class LinktorConfigControllerImpl implements LinktorConfigController {
 
     private static String preserveIfMasked(String incoming, String previous) {
         if (incoming == null || incoming.isBlank()) return previous;
-        if (incoming.contains("…")) return previous;
+        if (LinktorConfigDto.isMasked(incoming)) return previous;
         return incoming;
     }
 }

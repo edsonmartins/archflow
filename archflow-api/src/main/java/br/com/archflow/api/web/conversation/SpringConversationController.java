@@ -2,10 +2,13 @@ package br.com.archflow.api.web.conversation;
 
 import br.com.archflow.api.config.TenantContext;
 import br.com.archflow.api.conversation.ConversationController;
+import br.com.archflow.api.conversation.ConversationResumeService;
 import br.com.archflow.api.conversation.dto.ConversationResponse;
 import br.com.archflow.api.conversation.dto.ResumeRequest;
 import br.com.archflow.api.conversation.dto.SuspendRequest;
+import br.com.archflow.api.web.approval.SpringApprovalController;
 import br.com.archflow.conversation.form.FormData;
+import br.com.archflow.conversation.form.FormRegistry;
 import br.com.archflow.conversation.message.ConversationMessage;
 import br.com.archflow.conversation.service.ConversationService;
 import br.com.archflow.conversation.state.SuspendedConversation;
@@ -13,9 +16,12 @@ import br.com.archflow.model.tenant.DefaultTenant;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 import java.time.Instant;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -51,13 +57,19 @@ public class SpringConversationController {
     private final ConversationController delegate;
     private final ConversationService conversationService;
     private final br.com.archflow.api.conversation.ConversationReplyService replyService;
+    private final ConversationResumeService resumeService;
+    private final FormRegistry forms;
 
     public SpringConversationController(ConversationController delegate,
                                         ConversationService conversationService,
-                                        br.com.archflow.api.conversation.ConversationReplyService replyService) {
+                                        br.com.archflow.api.conversation.ConversationReplyService replyService,
+                                        ConversationResumeService resumeService,
+                                        FormRegistry forms) {
         this.delegate = delegate;
         this.conversationService = conversationService;
         this.replyService = replyService;
+        this.resumeService = resumeService;
+        this.forms = forms;
     }
 
     /**
@@ -110,37 +122,72 @@ public class SpringConversationController {
      * de abertura marcada, gravada antes de delegar: o contexto não basta, porque some com o estado no
      * cancelamento ou na expiração (ver o javadoc da classe), e gravar antes garante o dono mesmo que
      * a suspensão falhe depois de salvar o estado.
+     *
+     * <p>O formulário ({@code formId}) e a execução que o envio dele vai continuar são conferidos
+     * antes de tudo (RCHFLW-67): um pedido inválido é 400/409 e não cria conversa nenhuma. Suspensa, a
+     * conversa publica o formulário no stream do chat — o {@code ConversationManager} publicava para
+     * uma lista de assinantes vazia.</p>
      */
     @PostMapping("/suspend")
     public ConversationResponse suspend(@RequestBody SuspendRequest request) {
+        String tenantId = TenantContext.currentTenantId();
+        if (request != null) {
+            forms.require(request.formId());
+        }
         if (request != null && request.conversationId() != null) {
             String id = request.conversationId();
-            if (exists(id)) {
-                if (!belongsToCaller(id)) {
-                    throw notFound(id);
-                }
-            } else {
+            boolean existed = exists(id);
+            if (existed && !belongsToCaller(id)) {
+                throw notFound(id);
+            }
+            resumeService.validateTarget(tenantId, request.workflowId(), request.executionId());
+            if (!existed) {
                 conversationService.addMessage(
                         openingMessage(id, ConversationMessage.Role.SYSTEM, "Conversa iniciada"));
             }
         }
-        return delegate.suspend(request);
+        ConversationResponse response = delegate.suspend(request);
+        conversationService.getById(response.conversationId())
+                .map(SuspendedConversation::getForm)
+                .ifPresent(form -> resumeService.announceForm(tenantId, response.conversationId(),
+                        response.resumeToken(), formEvent(toFormData(form))));
+        return response;
     }
 
     /**
      * O token de retomada não basta: a conversa também precisa ser do tenant de quem retoma. A
      * resposta para o token de outro tenant é a mesma do token inválido.
+     *
+     * <p>O envio continua a execução associada com os dados do formulário — ou, sem execução, pede a
+     * resposta do agente — e a resposta chega pelo stream do chat (RCHFLW-67). Quem enviou é o do
+     * token, como o decisor da fila de aprovações, e fica gravado como quem decidiu o portão.</p>
      */
     @PostMapping("/resume")
     public ConversationResponse resume(@RequestBody ResumeRequest request) {
-        if (request != null && request.resumeToken() != null) {
-            Optional<SuspendedConversation> state = conversationService.getByToken(request.resumeToken());
-            if (state.isPresent() && !belongsToCaller(state.get().getConversationId())) {
-                throw new ConversationController.NotFoundException(
-                        "Conversation not found or expired for token: " + request.resumeToken());
-            }
+        if (request == null || request.resumeToken() == null) {
+            throw new IllegalArgumentException("resumeToken é obrigatório");
         }
-        return delegate.resume(request);
+        Optional<SuspendedConversation> state = conversationService.getByToken(request.resumeToken());
+        if (state.isPresent() && !belongsToCaller(state.get().getConversationId())) {
+            throw new ConversationController.NotFoundException(
+                    "Conversation not found or expired for token: " + request.resumeToken());
+        }
+        return resumeService.resume(request, TenantContext.currentTenantId(),
+                SpringApprovalController.authenticatedDecider(
+                        RequestContextHolder.getRequestAttributes() instanceof ServletRequestAttributes sra
+                                ? sra.getRequest() : null));
+    }
+
+    /** As chaves do evento {@code interaction/form} do protocolo, com os campos do {@code formData}. */
+    private static Map<String, Object> formEvent(FormDataDto form) {
+        Map<String, Object> event = new LinkedHashMap<>();
+        event.put("formId", form.id());
+        event.put("title", form.title());
+        event.put("description", form.description());
+        event.put("fields", form.fields());
+        event.put("submitLabel", form.submitLabel());
+        event.put("cancelLabel", form.cancelLabel());
+        return event;
     }
 
     @GetMapping("/{id}")

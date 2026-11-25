@@ -359,12 +359,25 @@ export function isChatDelta(
 
 export function isChatMessage(
     evt: ArchflowEvent,
-): evt is ArchflowEvent<{ content: string; role: string; model?: string; totalTokens?: number }> {
+): evt is ArchflowEvent<{
+    content: string;
+    role: string;
+    messageId?: string;
+    model?: string;
+    totalTokens?: number;
+}> {
     return evt.envelope.domain === 'chat' && evt.envelope.type === 'message';
 }
 
 export function isChatStart(evt: ArchflowEvent): boolean {
     return evt.envelope.domain === 'chat' && evt.envelope.type === 'start';
+}
+
+/** Falha que encerra a resposta em curso (geração do agente ou execução retomada). */
+export function isChatError(
+    evt: ArchflowEvent,
+): evt is ArchflowEvent<{ message?: string; conversationId?: string }> {
+    return evt.envelope.domain === 'chat' && evt.envelope.type === 'error';
 }
 
 export function isChatEnd(
@@ -423,7 +436,15 @@ export function isToolEnd(
 
 export function isInteractionForm(
     evt: ArchflowEvent,
-): evt is ArchflowEvent<{ formId: string; fields: unknown[]; resumeToken?: string }> {
+): evt is ArchflowEvent<{
+    formId: string;
+    fields: unknown[];
+    resumeToken?: string;
+    title?: string;
+    description?: string;
+    submitLabel?: string;
+    cancelLabel?: string;
+}> {
     return evt.envelope.domain === 'interaction' && evt.envelope.type === 'form';
 }
 

@@ -85,7 +85,7 @@ public class SpringApprovalController {
     }
 
     /** Nome de usuário do token, senão o subject, senão o marcador de servidor sem autenticação. */
-    static String authenticatedDecider(HttpServletRequest http) {
+    public static String authenticatedDecider(HttpServletRequest http) {
         Object username = http != null ? http.getAttribute(JwtAuthenticationFilter.ATTR_USERNAME) : null;
         if (username instanceof String s && !s.isBlank()) {
             return s;

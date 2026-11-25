@@ -57,9 +57,11 @@ class ConversationReplyCanalDoTenantTest {
         ChatModel model = mock(ChatModel.class);
         when(model.chat(anyString())).thenReturn("resposta");
         LLMConfigResolver resolver = mock(LLMConfigResolver.class);
+        ResolvedLLMConfig plataforma = new ResolvedLLMConfig("test", "m", 0.0, 256, 30, Map.of());
+        // Provider fora do catálogo: o caminho bloqueante, que basta para conferir o canal.
+        when(resolver.resolve(any())).thenReturn(plataforma);
         when(resolver.resolveModel(any())).thenReturn(model);
-        service = new ConversationReplyService(mock(ConversationService.class), registry, resolver,
-                new ResolvedLLMConfig("test", "m", 0.0, 256, 30, Map.of()));
+        service = new ConversationReplyService(mock(ConversationService.class), registry, resolver, plataforma);
     }
 
     @AfterEach

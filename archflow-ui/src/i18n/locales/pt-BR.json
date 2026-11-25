@@ -1868,14 +1868,14 @@
         }
     },
     "skills": {
-        "subtitle": "Skills carregadas pelo adaptador de skills. Desligue uma para escondê-la dos agentes.",
+        "subtitle": "Skills carregadas do diretório de skills. O switch grava, para este tenant, quais ficam ativas; nenhum agente ou nó de fluxo lê skills ainda, então ligar ou desligar não muda nenhuma execução.",
         "listTitle": "Skills registradas",
-        "listHint": "Alterne uma skill para ativá-la ou desativá-la",
+        "listHint": "Alterne uma skill para ativá-la ou desativá-la neste tenant. O estado só sobrevive a um restart com persistência JDBC (archflow.persistence.jdbc.enabled=true, padrão do perfil prod); sem banco, como no perfil dev, todas voltam a inativas quando o backend reinicia",
         "stats": {
             "total": "Skills",
             "totalHint": "Carregadas nesta instância",
             "active": "Ativas",
-            "activeHint": "Disponíveis aos agentes",
+            "activeHint": "Ligadas neste tenant",
             "inactive": "Inativas",
             "inactiveHint": "Carregadas, mas desligadas",
             "resources": "Recursos",
@@ -1912,12 +1912,13 @@
             "accessToken": "Token de acesso (opcional)",
             "accessTokenHint": "LINKTOR_ACCESS_TOKEN para acesso em escopo de usuário.",
             "mcpCommand": "Comando MCP",
-            "mcpCommandHint": "Caminho ou comando para o binário linktor-mcp. Argumentos separados por espaço são suportados.",
+            "mcpCommandHint": "Comando que inicia o servidor MCP do Linktor; argumentos separados por espaço são suportados. O executável (a primeira palavra) precisa estar na allow-list de comandos MCP do backend.",
+            "mcpCommandPlaceholder": "node /caminho/para/linktor-mcp-server/dist/index.js",
             "timeout": "Timeout (segundos)",
             "saved": "Configuração salva — será aplicada na próxima requisição.",
             "saveFailed": "Falha ao salvar",
             "installTitle": "Instale o servidor MCP",
-            "installHint": "<code>npm install -g @linktor/mcp-server</code> — o binário <code>linktor-mcp</code> é adicionado ao PATH. Alternativamente, rode <code>node /caminho/para/linktor-mcp-server/dist/index.js</code>."
+            "installHint": "<code>npm install -g @linktor/mcp-server</code> instala o binário <code>linktor-mcp</code>, mas ele não está na allow-list padrão de comandos MCP (que traz launchers como node e npx). Rode <code>node /caminho/para/linktor-mcp-server/dist/index.js</code> ou libere o binário na variável <code>ARCHFLOW_MCP_ALLOWED_COMMANDS</code> do backend (separada por vírgula; ela substitui a lista padrão, ex.: <code>npx,node,linktor-mcp</code>)."
         },
         "inbox": {
             "subtitle": "Conversas, contatos e canais omnichannel do Linktor.",
@@ -2028,6 +2029,7 @@
         "noMessages": "Nenhuma mensagem ainda.",
         "sendFailed": "Falha ao enviar a mensagem. Tente novamente.",
         "submitFormFailed": "Falha ao enviar o formulário. Tente novamente.",
+        "awaitingForm": "Preencha o formulário acima para continuar a conversa.",
         "conversationCancelled": "Conversa cancelada.",
         "stream": {
             "idle": "ocioso",

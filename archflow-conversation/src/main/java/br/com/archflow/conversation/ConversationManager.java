@@ -148,14 +148,24 @@ public class ConversationManager {
      * @param resumeToken The resume token from the suspended conversation
      * @param formData The user-submitted form data
      * @return Optional containing the resumed conversation, or empty if token is invalid
+     * @throws IllegalStateException se a conversa não está mais esperando (já retomada ou cancelada)
      */
-    public Optional<SuspendedConversation> resume(String resumeToken, Map<String, Object> formData) {
+    public synchronized Optional<SuspendedConversation> resume(String resumeToken, Map<String, Object> formData) {
         SuspendedConversation suspended = store.findByToken(resumeToken).orElse(null);
 
         if (suspended == null) {
             registerFailedResume();
             log.warn("Invalid resume token: {}", redactToken(resumeToken));
             return Optional.empty();
+        }
+
+        // O token continua no store depois da retomada (RESUMED), e retomar de novo regravava o estado
+        // e reenviava o formulário — o que, com a execução ligada ao envio (RCHFLW-67), continuaria o
+        // fluxo duas vezes. O synchronized fecha a corrida entre duas retomadas no mesmo processo.
+        if (suspended.getStatus() != SuspendedConversation.ConversationStatus.WAITING) {
+            throw new IllegalStateException("A conversa " + suspended.getConversationId()
+                    + " não está aguardando o formulário (status " + suspended.getStatus()
+                    + "): o token de retomada já foi usado");
         }
 
         if (suspended.isExpired()) {

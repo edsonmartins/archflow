@@ -15,7 +15,8 @@ import java.util.List;
 /**
  * HTTP binding for {@link SkillsController}. Lives under
  * {@code /api/admin/skills} because the skills adapter is treated as an
- * admin-level resource (toggles affect all agents on the instance).
+ * admin-level resource. Os toggles valem para o tenant da requisição e ficam
+ * persistidos no {@code SkillActivationStore}; hoje nenhum agente lê skills.
  */
 @RestController
 @RequestMapping("/api/admin/skills")

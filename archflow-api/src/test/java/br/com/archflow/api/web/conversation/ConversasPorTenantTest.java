@@ -4,6 +4,12 @@ import br.com.archflow.api.config.ImpersonationFilter;
 import br.com.archflow.api.config.JwtAuthenticationFilter;
 import br.com.archflow.api.conversation.ConversationController;
 import br.com.archflow.api.conversation.ConversationReplyService;
+import br.com.archflow.api.conversation.ConversationResumeService;
+import br.com.archflow.api.approval.impl.ApprovalQueueService;
+import br.com.archflow.api.web.workflow.InMemoryWorkflowRuntimeStore;
+import br.com.archflow.agent.streaming.EventStreamRegistry;
+import br.com.archflow.conversation.form.FormRegistry;
+import br.com.archflow.conversation.form.InMemoryFormRegistry;
 import br.com.archflow.api.conversation.dto.ResumeRequest;
 import br.com.archflow.api.conversation.dto.SuspendRequest;
 import br.com.archflow.api.conversation.impl.ConversationControllerImpl;
@@ -60,7 +66,13 @@ class ConversasPorTenantTest {
         service = new DefaultConversationService(
                 new ConversationManager(Duration.ofMinutes(30), new InMemorySuspendedConversationStore()));
         reply = mock(ConversationReplyService.class);
-        controller = new SpringConversationController(new ConversationControllerImpl(service), service, reply);
+        FormRegistry forms = InMemoryFormRegistry.withTemplates();
+        ConversationControllerImpl impl = new ConversationControllerImpl(service, forms);
+        // A fila simulada: aqui só importa o tenant da conversa, não a execução que o envio continua
+        // (essa está em ConversaSuspensaRetomaOFluxoTest).
+        ConversationResumeService resume = new ConversationResumeService(impl, service, reply,
+                mock(ApprovalQueueService.class), new InMemoryWorkflowRuntimeStore(), mock(EventStreamRegistry.class));
+        controller = new SpringConversationController(impl, service, reply, resume, forms);
     }
 
     @AfterEach
@@ -185,16 +197,15 @@ class ConversasPorTenantTest {
     @Test
     @DisplayName("POST /suspend grava no contexto o tenant de quem suspendeu")
     void suspendGravaOTenantNoContexto() throws Exception {
-        // Serviço simulado: o POST /suspend real, sem formulário, estoura um NPE no evento de
-        // suspensão (ArchflowEvent.suspend usa Map.of com form nulo) — defeito anterior e alheio a
-        // este; aqui só importa o contexto que o controller entrega ao serviço.
+        // Serviço simulado: aqui só importa o contexto que o controller entrega ao serviço.
         ConversationService simulado = mock(ConversationService.class);
-        var impl = new ConversationControllerImpl(simulado);
+        var impl = new ConversationControllerImpl(simulado, InMemoryFormRegistry.withTemplates());
         when(simulado.suspend(anyString(), anyString(), anyString(), any(), any(), any()))
                 .thenReturn(SuspendedConversation.builder().conversationId("conv-form").resumeToken("tok")
                         .expiresAt(Instant.now().plusSeconds(60)).build());
 
-        comoTenant("tenant-a", () -> impl.suspend(new SuspendRequest("conv-form", "wf-1", "exec-1", null, 10)));
+        comoTenant("tenant-a", () -> impl.suspend(
+                new SuspendRequest("conv-form", "wf-1", "exec-1", "support-ticket", 10)));
 
         verify(simulado).suspend(eq("conv-form"), eq("wf-1"), eq("exec-1"), any(), any(),
                 eq(Map.of("tenantId", "tenant-a")));
@@ -216,7 +227,7 @@ class ConversasPorTenantTest {
                 () -> controller.resume(new ResumeRequest(token, Map.of("ok", true)))))
                 .isInstanceOf(ConversationController.NotFoundException.class);
         assertThatThrownBy(() -> comoTenant("tenant-b", () -> controller.suspend(
-                new SuspendRequest("conv-form", "wf-1", "exec-1", null, 10))))
+                new SuspendRequest("conv-form", "wf-1", "exec-1", "support-ticket", 10))))
                 .isInstanceOf(ConversationController.NotFoundException.class);
         assertThatThrownBy(() -> comoTenant("tenant-b", () -> controller.cancel("conv-form")))
                 .isInstanceOf(ConversationController.NotFoundException.class);
@@ -230,16 +241,10 @@ class ConversasPorTenantTest {
     @Test
     @DisplayName("a conversa criada pelo POST /suspend continua do tenant depois que o estado é removido")
     void suspensaPeloControllerNaoMudaDeTenantAoCancelar() throws Exception {
-        // O POST /suspend real ainda estoura o NPE do evento de suspensão (ver o teste acima) — mas
-        // depois de salvar o estado, então a conversa existe e precisa ter dono. O NPE é ignorado aqui.
-        comoTenant("tenant-a", () -> {
-            try {
-                controller.suspend(new SuspendRequest("conv-x", "wf-1", "exec-1", null, 10));
-            } catch (RuntimeException ignorado) {
-                // defeito anterior e alheio ao tenant
-            }
-        });
-        assertThat(service.getById("conv-x")).as("o estado foi salvo antes do NPE").isPresent();
+        // Sem execução: a conversa nasce suspensa só com o formulário.
+        comoTenant("tenant-a", () -> controller.suspend(
+                new SuspendRequest("conv-x", null, null, "support-ticket", 10)));
+        assertThat(service.getById("conv-x")).isPresent();
 
         // O cancelamento apaga o estado (e o tenant do contexto junto) e deixa uma mensagem de sistema
         // sem metadados; a expiração e a limpeza apagam do mesmo jeito.

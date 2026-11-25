@@ -79,6 +79,9 @@ class JdbcPersistenceConfigurationTest {
                     // Config admin durável (modelos/planos/toggles).
                     assertThat(ctx.getBean(br.com.archflow.api.admin.store.GlobalConfigStore.class))
                             .isInstanceOf(br.com.archflow.api.admin.store.JdbcGlobalConfigStore.class);
+                    // Skills ativas por tenant (RCHFLW-66): o switch sobrevive a restart.
+                    assertThat(ctx.getBean(br.com.archflow.api.skills.store.SkillActivationStore.class))
+                            .isInstanceOf(br.com.archflow.api.skills.store.JdbcSkillActivationStore.class);
                 });
     }
 
