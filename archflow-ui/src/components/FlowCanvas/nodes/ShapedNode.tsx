@@ -3,9 +3,10 @@ import { Handle, Position } from '@xyflow/react'
 import { useMantineColorScheme } from '@mantine/core'
 import { useTranslation } from 'react-i18next'
 import { IconLoader2, IconCheck, IconX, IconMinus, IconHourglass } from '@tabler/icons-react'
-import { NODE_CATEGORIES, EXECUTION_STATUS_COLORS } from '../constants'
+import { NODE_CATEGORIES, EXECUTION_STATUS_COLORS, isNotExecutableNode } from '../constants'
 import { NodeIcon, hasNodeImage } from '../nodeIcons'
 import type { FlowNodeData } from '../types'
+import { CONNECTION_FIELD_BY_BACKEND, knowledgeBaseOf } from '../dataNodeKeys'
 
 /**
  * Canvas-facing node component inspired by modern AI workflow editors
@@ -70,20 +71,37 @@ function configChips(category: CategoryKey, data: FlowNodeData): string[] {
       }
       break
     case 'vector': {
+      // Chip só do que o motor usa (RCHFLW-56): com Base de conhecimento o backend é ignorado, e um backend que
+      // precisa de conexão do servidor só aparece com ela — "pgvector" sozinho parecia configurado e não rodava.
+      const kb = data.nodeType === 'vector-search' || data.nodeType === 'rag' ? knowledgeBaseOf(cfg) : null
+      const backend = (key: string) => {
+        const id = asStr(cfg[key])
+        const connKey = id ? CONNECTION_FIELD_BY_BACKEND[id] : undefined
+        if (!connKey) return id === 'jdbc' ? null : id
+        const conn = asStr(cfg[connKey])
+        return conn ? `${id} · ${conn}` : null
+      }
       if (data.nodeType === 'rag') {
-        chips.push(asStr(cfg.embeddingProvider))
-        chips.push(asStr(cfg.vectorBackend))
+        if (kb) {
+          chips.push(`kb ${kb}`)
+          chips.push(asStr(cfg.llmProvider))
+        } else {
+          chips.push(asStr(cfg.embeddingProvider))
+          chips.push(backend('vectorBackend'))
+        }
         const k = cfg.retrieverMaxResults
         if (typeof k === 'number') chips.push(`top-${k}`)
       } else if (data.nodeType === 'embedding') {
         chips.push(asStr(cfg.embeddingProvider))
         chips.push(asStr(cfg.embeddingModel))
       } else if (data.nodeType === 'memory') {
-        chips.push(asStr(cfg.memoryBackend))
+        chips.push(backend('memoryBackend'))
         const max = cfg.memoryMaxMessages
         if (typeof max === 'number') chips.push(`max ${max}`)
       } else {
-        chips.push(asStr(cfg.vectorBackend))
+        chips.push(kb ? `kb ${kb}` : backend('vectorBackend'))
+        const k = cfg.topK
+        if (kb && typeof k === 'number') chips.push(`top-${k}`)
       }
       break
     }
@@ -156,6 +174,8 @@ export const ShapedNode = memo(function ShapedNode({
   const execColors = EXECUTION_STATUS_COLORS[exec]
   const chips = useMemo(() => configChips(category, data), [category, data])
   const accent = accentPattern(category)
+  // O nó fica no canvas e salva, mas o motor não o executa (RCHFLW-11): o card diz isso antes do Executar.
+  const notExecutable = isNotExecutableNode(data)
 
   // Theme-aware palette: the card floats on the React Flow canvas
   // which is dark in dark-mode, so the card background has to switch
@@ -336,6 +356,7 @@ export const ShapedNode = memo(function ShapedNode({
           {chips.map((chip, i) => (
             <span
               key={i}
+              data-testid="node-chip"
               style={{
                 padding:      '2px 7px',
                 borderRadius: 6,
@@ -354,6 +375,24 @@ export const ShapedNode = memo(function ShapedNode({
               {chip}
             </span>
           ))}
+        </div>
+      )}
+
+      {notExecutable && (
+        <div
+          data-testid="node-not-executable"
+          style={{
+            margin:       '0 12px 10px 14px',
+            padding:      '2px 7px',
+            borderRadius: 6,
+            background:   'var(--amber-l)',
+            color:        'var(--amber-text)',
+            fontSize:     10,
+            fontWeight:   600,
+            display:      'inline-block',
+          }}
+        >
+          {t('editor.palette.notExecutable')}
         </div>
       )}
 

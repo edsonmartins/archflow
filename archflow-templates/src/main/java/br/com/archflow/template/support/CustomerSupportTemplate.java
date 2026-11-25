@@ -133,13 +133,15 @@ public class CustomerSupportTemplate extends AbstractWorkflowTemplate {
                 )
         ));
 
-        // Knowledge base search node
+        // Knowledge base search node. A chave é a que o painel grava e o motor lê (knowledgeBaseId): a busca
+        // vai à base do tenant da execução pelo KnowledgeService (RCHFLW-55). Antes gravava vectorStoreId, que
+        // nenhum código lia — o motor ainda aceita essa chave nos fluxos já instalados.
         nodes.put("kb-search", new WorkflowTemplateDefinition.TemplateNode(
                 "kb-search",
                 "vector-search",
                 "Knowledge Base Search",
                 Map.of(
-                        "vectorStoreId", "{{knowledgeBaseId}}",
+                        "knowledgeBaseId", "{{knowledgeBaseId}}",
                         "topK", 5,
                         "minScore", 0.7
                 )

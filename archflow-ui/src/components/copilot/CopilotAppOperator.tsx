@@ -9,6 +9,7 @@ import { api, workflowApi } from '../../services/api'
 import { useFlowStore, type CanvasOp } from '../FlowCanvas/store/useFlowStore'
 import { useWorkflowStore } from '../../stores/workflow-store'
 import { newNodeId } from '../FlowCanvas/nodePlacement'
+import { NOT_EXECUTABLE_NODE_TYPES } from '../FlowCanvas/constants'
 import {
     applyConfig, configKeysSummary, COPILOT_NODE_TYPES, isAnnotationType, parseConfigArg, validateNodeConfig,
     visibleConfig, REDACTED, type ConfigValueType,
@@ -311,7 +312,7 @@ export default function CopilotAppOperator() {
             + '(so you can call createFlow then addNode); the returned id stays valid. '
             + 'Returns {ok:false, error} for an unknown node type or config key: fix it and retry.',
         parameters: z.object({
-            nodeType: z.string().describe('the node type to add, e.g. agent, llm-chat, tool, condition'),
+            nodeType: z.string().describe('the node type to add, e.g. input, llm-chat, condition, output'),
             label: z.string().optional().describe('optional label for the node'),
             config: z.union([z.string(), z.record(z.string(), z.unknown())]).optional()
                 .describe('optional JSON object with the node config, e.g. {"systemPrompt":"..."}'),
@@ -321,7 +322,12 @@ export default function CopilotAppOperator() {
             // Um tipo fora da paleta virava, calado, um nó da categoria 'tool' (toast "Added") que o motor
             // não sabe executar: o fluxo parecia pronto e falhava com "component not found".
             if (!COPILOT_NODE_TYPES.includes(nodeType)) {
-                return refuse('Add node', `unknown node type "${nodeType}"`, { nodeTypes: COPILOT_NODE_TYPES })
+                // Tipo da paleta sem execução (RCHFLW-11): o motor recusaria o fluxo. Diz isso, em vez de
+                // "desconhecido", para o agente trocar por um tipo que roda.
+                const reason = NOT_EXECUTABLE_NODE_TYPES.has(nodeType)
+                    ? `node type "${nodeType}" is not yet supported at run time`
+                    : `unknown node type "${nodeType}"`
+                return refuse('Add node', reason, { nodeTypes: COPILOT_NODE_TYPES })
             }
             const parsed = parseConfigArg(config)
             if (!parsed.ok) return refuse('Add node', parsed.error)

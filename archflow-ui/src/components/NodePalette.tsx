@@ -2,7 +2,7 @@ import { useState, useMemo }  from 'react'
 import { ScrollArea, TextInput, Accordion } from '@mantine/core'
 import { IconSearch }          from '@tabler/icons-react'
 import { useTranslation }      from 'react-i18next'
-import { NODE_CATEGORIES }     from './FlowCanvas/constants'
+import { NODE_CATEGORIES, NOT_EXECUTABLE_NODE_TYPES } from './FlowCanvas/constants'
 import { NodeIcon, hasNodeImage } from './FlowCanvas/nodeIcons'
 import { useFlowStore }        from './FlowCanvas/store/useFlowStore'
 import {
@@ -162,8 +162,11 @@ export function NodePalette() {
 
 // ── Item arrastável (e clicável) da palette ──────────────────────
 function DraggableNode({ node }: { node: PaletteEntry }) {
+  const { t } = useTranslation()
   const cat = NODE_CATEGORIES[node.category]
   const { label, description } = node
+  // Continua arrastável — fluxos que já têm o nó precisam editá-lo —, mas diz que não roda (RCHFLW-11).
+  const notExecutable = NOT_EXECUTABLE_NODE_TYPES.has(node.componentId)
 
   const onDragStart = (event: React.DragEvent) => {
     event.dataTransfer.setData(
@@ -236,6 +239,14 @@ function DraggableNode({ node }: { node: PaletteEntry }) {
         >
           {description}
         </div>
+        {notExecutable && (
+          <div
+            data-testid={`palette-not-executable-${node.componentId}`}
+            style={{ fontSize: 10, fontWeight: 500, color: 'var(--amber-text)', marginTop: 1 }}
+          >
+            {t('editor.palette.notExecutable')}
+          </div>
+        )}
       </div>
     </div>
   )
