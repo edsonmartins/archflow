@@ -50,13 +50,20 @@ public final class FlowEvent {
     /**
      * Creates a FLOW_COMPLETED event.
      *
+     * <p>O motor encerra a travessia "sem exceção" também quando o fluxo terminou
+     * CANCELLED ou PAUSED (aguardando aprovação). Sem o status no evento, quem consome o
+     * stream lia todos esses desfechos como sucesso (RCHFLW-33). FAILED não passa por
+     * aqui: vira {@link #flowFailed}.
+     *
      * @param flowId      flow identifier
      * @param tenantId    tenant identifier
+     * @param status      final status of the run ({@code ExecutionStatus} name: COMPLETED,
+     *                    CANCELLED, PAUSED)
      * @param durationMs  total execution duration in milliseconds
      * @param executionId execution tracking ID
      * @return ArchflowEvent
      */
-    public static ArchflowEvent flowCompleted(String flowId, String tenantId,
+    public static ArchflowEvent flowCompleted(String flowId, String tenantId, String status,
                                               long durationMs, String executionId) {
         return ArchflowEvent.builder()
                 .domain(ArchflowDomain.FLOW)
@@ -64,6 +71,7 @@ public final class FlowEvent {
                 .executionId(executionId)
                 .tenantId(tenantId)
                 .addData("flowId", flowId)
+                .addData("status", status)
                 .addData("durationMs", durationMs)
                 .build();
     }
@@ -71,10 +79,18 @@ public final class FlowEvent {
     /**
      * Creates a FLOW_FAILED event.
      *
+     * <p>Duas origens, dois vocabulários em {@code errorType}: quando o motor lança, é o nome
+     * simples da classe da exceção (ex.: {@code FlowEngineException}); quando o fluxo volta como
+     * {@code FlowResult} FAILED (um passo falhou sem aresta de erro — RCHFLW-33), não há exceção
+     * nenhuma — o executor não repassa a causa do passo —, e o valor é o {@code ExecutionErrorType}
+     * do primeiro erro do resultado (ex.: {@code EXECUTION}). {@code "unknown"} quando nenhum dos
+     * dois existe. Quem agrupa ou filtra por esse campo precisa tratar os dois conjuntos.
+     *
      * @param flowId       flow identifier
      * @param tenantId     tenant identifier
      * @param errorMessage error message
-     * @param errorType    simple class name of the exception
+     * @param errorType    exception simple class name, or {@code ExecutionErrorType} name for a
+     *                     FAILED result (see above)
      * @param durationMs   total execution duration until failure in milliseconds
      * @param executionId  execution tracking ID
      * @return ArchflowEvent

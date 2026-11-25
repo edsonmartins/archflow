@@ -131,7 +131,7 @@ class StandaloneIngestIT {
         publisher = new ProtobufEventPublisher(registry, ingestUri, "my-standalone-agent");
 
         ArchflowEvent event = br.com.archflow.agent.streaming.domain.FlowEvent
-                .flowCompleted("flow-x", "tenant-a", 100L, "exec-x");
+                .flowCompleted("flow-x", "tenant-a", "COMPLETED", 100L, "exec-x");
         registry.broadcast("exec-x", event);
 
         publisher.close();

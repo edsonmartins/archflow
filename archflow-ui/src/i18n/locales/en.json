@@ -341,6 +341,10 @@
             "tidy": "Tidy up layout",
             "addNode": "Add node"
         },
+        "disconnectedWarning": {
+            "title": "Nodes without connections",
+            "message": "Not connected: {{names}}. With no edges at all, the flow runs its nodes in the order they were created; with edges, a loose node runs on its own, with the run input. Connect the nodes to set the order."
+        },
         "publish": {
             "button": "Publish",
             "title": "Publish this workflow",
