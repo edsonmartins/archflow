@@ -111,7 +111,7 @@ class TenantPadraoMigracaoPostgresTest {
      * O caminho que a produção percorre de fato: o banco já está em 6.12 quando chega a release com
      * a V1_3_1, que fica <em>abaixo</em> da versão aplicada. O teste acima aplica em ordem de versão
      * e por isso não pega isto. Prova as duas metades do contrato: sem {@code outOfOrder} o Flyway
-     * recusa e o boot para (é por isso que {@code application-prod.yml} liga
+     * recusa e o boot para (é por isso que {@code application.yml} liga, para todos os perfis,
      * {@code spring.flyway.out-of-order}); com ele, a V1_3_1 roda fora de ordem e converte o dado.
      */
     @Test
@@ -143,7 +143,7 @@ class TenantPadraoMigracaoPostgresTest {
         assertThat(count(ds, "SELECT count(*) FROM flow_states WHERE tenant_id = 'SYSTEM'"))
                 .as("recusada, não aplicou nada").isEqualTo(1);
 
-        // Como o perfil prod sobe: spring.flyway.out-of-order=true.
+        // Como a aplicação sobe, em qualquer perfil: spring.flyway.out-of-order=true.
         Flyway foraDeOrdem = Flyway.configure().dataSource(ds).locations("classpath:db/migration")
                 .outOfOrder(true).load();
         foraDeOrdem.migrate();
