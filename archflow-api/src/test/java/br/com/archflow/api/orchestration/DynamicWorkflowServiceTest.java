@@ -44,6 +44,8 @@ class DynamicWorkflowServiceTest {
         when(router.route(anyString(), eq(ComponentType.AGENT)))
                 .thenReturn(Optional.of(new ScoredComponent("agent", null, 0.9)));
         when(catalog.getComponent("agent")).thenReturn(Optional.of(agent));
+        // O worker despacha no tipo que o agente declara (RCHFLW-61); sem declaração ele recusa.
+        when(agent.supportedTaskTypes()).thenReturn(List.of("task"));
         when(agent.executeTask(any(), any()))
                 .thenReturn(br.com.archflow.model.ai.domain.Result.success("done"));
         when(scorer.score(any())).thenReturn(new ConfidenceResult(0.9, List.of(), false, "ok"));
@@ -138,6 +140,7 @@ class DynamicWorkflowServiceTest {
     /** O serviço com um planejador que responde duas subtarefas e informa 10/5 tokens por chamada. */
     private static final class Fixture {
         final DynamicWorkflowService service;
+        final AIAgent agent = mock(AIAgent.class);
 
         Fixture() {
             LLMConfigResolver resolver = mock(LLMConfigResolver.class);
@@ -145,7 +148,6 @@ class DynamicWorkflowServiceTest {
             ComponentQueryRouter router = mock(ComponentQueryRouter.class);
             ConfidenceScorer scorer = mock(ConfidenceScorer.class);
             ChatModel model = mock(ChatModel.class);
-            AIAgent agent = mock(AIAgent.class);
             ResolvedLLMConfig platformDefault = new ResolvedLLMConfig("test", "m", 0.0, 256, 30, Map.of());
 
             when(resolver.resolveModel(any())).thenReturn(model);
@@ -160,11 +162,79 @@ class DynamicWorkflowServiceTest {
             when(router.route(anyString(), eq(ComponentType.AGENT)))
                     .thenReturn(Optional.of(new ScoredComponent("agent", null, 0.9)));
             when(catalog.getComponent("agent")).thenReturn(Optional.of(agent));
+            when(agent.supportedTaskTypes()).thenReturn(List.of("task"));
             when(agent.executeTask(any(), any()))
                     .thenReturn(br.com.archflow.model.ai.domain.Result.success("done"));
             when(scorer.score(any())).thenReturn(new ConfidenceResult(0.9, List.of(), false, "ok"));
             service = new DynamicWorkflowService(resolver, platformDefault, catalog, router, scorer);
         }
+    }
+
+    private static DynamicWorkflowRequest withBudget(Long budgetTokens) {
+        return new DynamicWorkflowRequest("audit secrets", null, 10, 1, 1, 5, 1, budgetTokens, "acme");
+    }
+
+    /**
+     * RCHFLW-62: o planejador gastava sem debitar e o orçamento nunca parava nada. Com um teto menor que a
+     * primeira chamada do planejador (15 tokens), nenhuma subtarefa é despachada e nenhuma rodada nova
+     * começa — e a resposta diz isso e quanto foi gasto.
+     */
+    @Test
+    void aBudgetSpentByThePlannerDispatchesNothingAndTheResponseSaysSo() {
+        Fixture f = new Fixture();
+
+        DynamicWorkflowResponse response = f.service.run(withBudget(10L));
+
+        verify(f.agent, org.mockito.Mockito.never()).executeTask(any(), any());
+        assertThat(response.rounds()).isEqualTo(1);
+        assertThat(response.subtasks()).isZero();
+        // As planejadas que não saíram vão na resposta: é o que a tela usa para não dizer "o planejador
+        // não gerou nenhuma subtarefa".
+        assertThat(response.notDispatched()).isEqualTo(2);
+        assertThat(response.trace()).filteredOn(e -> e.type().equals("not-dispatched")).hasSize(2);
+        assertThat(response.tokensSpent()).isEqualTo(15L);
+        assertThat(response.budgetExhausted()).isTrue();
+        assertThat(response.trace()).anyMatch(e -> e.type().equals("budget-exhausted")
+                && e.detail().contains("spent=15") && e.detail().contains("limit=10"));
+    }
+
+    /**
+     * Rodada 1: planejador 15 + duas subtarefas que não informam uso. Rodada 2: planejador → 30 ≥ 20, para.
+     * O agente sem {@code tokensUsed} não ganha número inventado: vira aviso, contado na resposta.
+     */
+    @Test
+    void theBudgetStopsNewRoundsAndUnreportedAgentUsageIsCountedAsUnknown() {
+        Fixture f = new Fixture();
+
+        DynamicWorkflowResponse response = f.service.run(withBudget(20L));
+
+        assertThat(response.rounds()).isEqualTo(2);
+        assertThat(response.subtasks()).isEqualTo(2);
+        assertThat(response.tokensSpent()).isEqualTo(30L);
+        assertThat(response.budgetExhausted()).isTrue();
+        assertThat(response.usageUnknown()).isEqualTo(2);
+        assertThat(response.trace()).filteredOn(e -> e.type().equals("usage-unknown"))
+                .allSatisfy(e -> assertThat(e.componentId()).isEqualTo("agent"));
+    }
+
+    /**
+     * RCHFLW-64: o worker era criado sem listener e o agente escolhido se perdia. O trace do Labs agora tem
+     * uma linha de despacho por subtarefa, com o componente — a coluna "Agente".
+     */
+    @Test
+    void theLabsTraceNamesTheAgentThatServedEachSubtask() {
+        Fixture f = new Fixture();
+
+        DynamicWorkflowResponse response = f.service.run(withBudget(null));
+
+        assertThat(response.trace()).filteredOn(e -> e.type().equals("dispatched"))
+                .extracting(e -> e.round() + "|" + e.componentId() + "|" + e.detail())
+                .containsExactlyInAnyOrder(
+                        "1|agent|task one (score=0.90, success=true)",
+                        "1|agent|task two (score=0.90, success=true)");
+        // Sem teto, o gasto informado sai do mesmo jeito: 3 chamadas do planejador × 15.
+        assertThat(response.tokensSpent()).isEqualTo(45L);
+        assertThat(response.budgetExhausted()).isFalse();
     }
 
     @Test

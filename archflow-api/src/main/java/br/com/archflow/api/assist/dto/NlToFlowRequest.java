@@ -14,7 +14,8 @@ import java.util.List;
  *
  * @param descricao descrição em linguagem natural do que se deseja construir
  * @param catalogo  catálogo de plugins disponíveis (manifest); pode ser
- *                  {@code null}/vazio
+ *                  {@code null}/vazio — nesse caso vale o catálogo do próprio servidor, só com o
+ *                  que o motor executa (RCHFLW-107)
  * @param idioma    idioma da resposta (ex.: "pt-BR"); default "pt-BR"
  */
 public record NlToFlowRequest(

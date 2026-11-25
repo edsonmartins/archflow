@@ -120,6 +120,38 @@ public class TenantScope {
     }
 
     /**
+     * O tenant em nome do qual uma ação <em>roda</em> — o dono de um gatilho agendado, de uma invocação
+     * do Agent lab (RCHFLW-103). É a regra de {@link #forListing}, com uma diferença: {@link #ALL} não
+     * é um tenant, e uma invocação "em todos" não tem dono; aceitá-lo gravaria um gatilho que invoca o
+     * agente num tenant que não existe.
+     *
+     * @param requested o {@code tenantId} que o cliente mandou (pode ser nulo)
+     * @return com auth ligada, o tenant da requisição (ausente ou igual) ou o pedido (admin); com auth
+     *         desligada, o pedido como veio, sem espaços — o comportamento de antes
+     * @throws TenantAccessDeniedException outro tenant sem o papel ADMIN/SUPERADMIN (403)
+     * @throws IllegalArgumentException para {@link #ALL}
+     */
+    public String forAction(String requested) {
+        if (requested != null && ALL.equalsIgnoreCase(requested.trim())) {
+            throw new IllegalArgumentException("tenantId 'all' is not a tenant; an invocation runs in one tenant");
+        }
+        return forListing(requested);
+    }
+
+    /**
+     * {@code true} quando quem pede pode agir sobre um item já gravado com o tenant {@code itemTenant}:
+     * o do próprio tenant, ou qualquer um para o admin; sempre, com a auth desligada. Ao contrário de
+     * {@link #forItem}, não lança nem registra aviso: serve para recortar uma listagem e para responder
+     * como inexistente (404) o item de outro tenant, sem dizer a quem não pode que o id é válido.
+     */
+    public boolean mayActOn(String itemTenant) {
+        if (!authEnabled) {
+            return true;
+        }
+        return TenantContext.currentTenantId().equals(itemTenant) || callerIsAdmin();
+    }
+
+    /**
      * {@code true} quando um item de {@code itemTenant} está dentro do recorte de {@link #forItem}.
      * Fora dele, o item é respondido como inexistente — dizer "existe, mas é de outro" já
      * entregaria a quem não pode que o id é válido.

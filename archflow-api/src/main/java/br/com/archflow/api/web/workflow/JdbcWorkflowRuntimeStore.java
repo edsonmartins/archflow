@@ -478,7 +478,8 @@ public class JdbcWorkflowRuntimeStore implements WorkflowRuntimeStore {
 
     @Override
     public void recordDuration(String id, long durationMs) {
-        mutateExecution(id, execution -> execution.put("duration", durationMs));
+        mutateExecution(id, execution -> execution.put("duration",
+                WorkflowRuntimeStore.executionDuration(execution, durationMs, Instant.now())));
     }
 
     @Override

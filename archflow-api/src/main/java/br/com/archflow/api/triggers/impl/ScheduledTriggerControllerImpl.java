@@ -2,6 +2,8 @@ package br.com.archflow.api.triggers.impl;
 
 import br.com.archflow.agent.queue.AgentInvocationQueue;
 import br.com.archflow.agent.queue.InvocationRequest;
+import br.com.archflow.api.agent.invocation.AgentInvocationResult;
+import br.com.archflow.api.agent.invocation.AgentInvocationResultStore;
 import br.com.archflow.api.triggers.ScheduledTriggerController;
 import br.com.archflow.api.triggers.dto.ScheduledTriggerDto;
 import org.quartz.CronExpression;
@@ -25,6 +27,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -40,6 +43,15 @@ import java.util.concurrent.ConcurrentHashMap;
  * <p>The queue is resolved via a static registry so Quartz's
  * per-execution job instance — created by reflection, with no Spring
  * wiring — can still find it.</p>
+ *
+ * <p><b>Desfecho do disparo (RCHFLW-104).</b> O disparo só enfileira; quem roda o agente é o consumidor
+ * da fila, e a falha dele só chegava ao resultado da invocação. O gatilho ficava com
+ * {@code lastError} nulo e a tela dizia "0 com falha" com todas as invocações falhando — nos disparos
+ * automáticos, a falha não aparecia em lugar nenhum. Agora, ao ler um gatilho cujo último disparo
+ * ainda não tem desfecho, o registro consulta o resultado do {@code lastRequestId} e grava status e
+ * erro no gatilho. Ler o resultado, e não receber um aviso do consumidor, é o que vale também para o
+ * cron e para outra réplica: o resultado é o mesmo que a consulta por requestId devolve. Gravado o
+ * desfecho final, ele fica no gatilho mesmo depois de a retenção apagar o resultado.</p>
  */
 public class ScheduledTriggerControllerImpl implements ScheduledTriggerController {
 
@@ -52,15 +64,27 @@ public class ScheduledTriggerControllerImpl implements ScheduledTriggerControlle
     private static final Map<String, ScheduledTriggerDto> STORE = new ConcurrentHashMap<>();
 
     private final Scheduler scheduler;
+    /** De onde sai o desfecho do último disparo; {@code null} = sem resultado a consultar. */
+    private final AgentInvocationResultStore results;
 
     public ScheduledTriggerControllerImpl(Scheduler scheduler, AgentInvocationQueue queue) {
+        this(scheduler, queue, null);
+    }
+
+    public ScheduledTriggerControllerImpl(Scheduler scheduler, AgentInvocationQueue queue,
+                                          AgentInvocationResultStore results) {
         this.scheduler = scheduler;
+        this.results = results;
         QUEUE = queue;
     }
 
     @Override
     public List<ScheduledTriggerDto> list() {
-        return new ArrayList<>(STORE.values());
+        List<ScheduledTriggerDto> out = new ArrayList<>();
+        for (ScheduledTriggerDto dto : STORE.values()) {
+            out.add(comDesfecho(dto));
+        }
+        return out;
     }
 
     @Override
@@ -69,7 +93,55 @@ public class ScheduledTriggerControllerImpl implements ScheduledTriggerControlle
         if (dto == null) {
             throw new IllegalArgumentException("Trigger not found: " + id);
         }
-        return dto;
+        return comDesfecho(dto);
+    }
+
+    /**
+     * O gatilho com o desfecho do último disparo, lido do resultado da invocação enquanto ele não é
+     * final. {@code COMPLETED} limpa o erro; {@code FAILED} grava a mensagem do agente.
+     *
+     * <p>A gravação só substitui o gatilho se o {@code lastRequestId} ainda for o consultado: um
+     * disparo que chegou no meio já é o "último", e o desfecho do anterior não pode cobri-lo.</p>
+     */
+    private ScheduledTriggerDto comDesfecho(ScheduledTriggerDto dto) {
+        if (results == null || dto.lastRequestId() == null || terminal(dto.lastStatus())) {
+            return dto;
+        }
+        Optional<AgentInvocationResult> resultado;
+        try {
+            resultado = results.find(dto.lastRequestId());
+        } catch (RuntimeException e) {
+            // Banco fora, por exemplo: a lista continua, com o que o gatilho já sabia.
+            log.warn("Desfecho do disparo {} do gatilho {} indisponível: {}",
+                    dto.lastRequestId(), dto.id(), e.getMessage());
+            return dto;
+        }
+        if (resultado.isEmpty() || resultado.get().status().name().equals(dto.lastStatus())) {
+            return dto;
+        }
+        AgentInvocationResult r = resultado.get();
+        String erro = r.status() == AgentInvocationResult.Status.FAILED
+                ? (r.error() == null || r.error().isBlank() ? "agent failed without an error message" : r.error())
+                : null;
+        ScheduledTriggerDto atualizado = STORE.computeIfPresent(dto.id(), (k, atual) ->
+                dto.lastRequestId().equals(atual.lastRequestId())
+                        ? comUltimo(atual, atual.lastFiredAt(), erro, atual.lastRequestId(), r.status().name())
+                        : atual);
+        return atualizado == null ? dto : atualizado;
+    }
+
+    private static boolean terminal(String status) {
+        return AgentInvocationResult.Status.COMPLETED.name().equals(status)
+                || AgentInvocationResult.Status.FAILED.name().equals(status);
+    }
+
+    private static ScheduledTriggerDto comUltimo(ScheduledTriggerDto dto, Instant lastFiredAt, String lastError,
+                                                 String lastRequestId, String lastStatus) {
+        return new ScheduledTriggerDto(
+                dto.id(), dto.name(), dto.cronExpression(),
+                dto.tenantId(), dto.agentId(), dto.payload(),
+                dto.enabled(), dto.createdAt(),
+                lastFiredAt, lastError, lastRequestId, lastStatus);
     }
 
     @Override
@@ -116,7 +188,8 @@ public class ScheduledTriggerControllerImpl implements ScheduledTriggerControlle
                 existing.createdAt(),
                 existing.lastFiredAt(),
                 existing.lastError(),
-                existing.lastRequestId());
+                existing.lastRequestId(),
+                existing.lastStatus());
         STORE.put(id, stored);
         // Recreate the Quartz job to pick up the new schedule/payload.
         removeFromScheduler(id);
@@ -138,19 +211,10 @@ public class ScheduledTriggerControllerImpl implements ScheduledTriggerControlle
         ScheduledTriggerDto dto = get(id);
         try {
             String requestId = submitInvocation(dto);
-            STORE.put(id, new ScheduledTriggerDto(
-                    dto.id(), dto.name(), dto.cronExpression(),
-                    dto.tenantId(), dto.agentId(), dto.payload(),
-                    dto.enabled(), dto.createdAt(),
-                    Instant.now(), null, requestId));
+            recordFire(id, requestId);
             return STORE.get(id);
         } catch (Exception e) {
-            ScheduledTriggerDto failed = new ScheduledTriggerDto(
-                    dto.id(), dto.name(), dto.cronExpression(),
-                    dto.tenantId(), dto.agentId(), dto.payload(),
-                    dto.enabled(), dto.createdAt(),
-                    dto.lastFiredAt(), e.getMessage(), dto.lastRequestId());
-            STORE.put(id, failed);
+            recordError(id, e.getMessage());
             throw new IllegalStateException(
                     "Failed to fire trigger " + id + ": " + e.getMessage(), e);
         }
@@ -214,22 +278,23 @@ public class ScheduledTriggerControllerImpl implements ScheduledTriggerControlle
         return request.requestId();
     }
 
-    /** Records a successful firing against the DTO store. */
+    /**
+     * Records a successful firing against the DTO store: a invocação está na fila, e o erro de um
+     * disparo anterior deixa de ser o "último" — o desfecho desta vem do resultado dela.
+     */
     static void recordFire(String triggerId, String requestId) {
-        STORE.computeIfPresent(triggerId, (k, dto) -> new ScheduledTriggerDto(
-                dto.id(), dto.name(), dto.cronExpression(),
-                dto.tenantId(), dto.agentId(), dto.payload(),
-                dto.enabled(), dto.createdAt(),
-                Instant.now(), null, requestId));
+        STORE.computeIfPresent(triggerId, (k, dto) -> comUltimo(dto, Instant.now(), null, requestId,
+                AgentInvocationResult.Status.QUEUED.name()));
     }
 
-    /** Records an error during firing. */
+    /**
+     * Records an error during firing. O status vai a {@code FAILED} (final): sem isso a leitura
+     * consultaria o resultado do {@code lastRequestId} anterior, e um disparo bem-sucedido antigo
+     * apagaria a falha deste.
+     */
     static void recordError(String triggerId, String message) {
-        STORE.computeIfPresent(triggerId, (k, dto) -> new ScheduledTriggerDto(
-                dto.id(), dto.name(), dto.cronExpression(),
-                dto.tenantId(), dto.agentId(), dto.payload(),
-                dto.enabled(), dto.createdAt(),
-                dto.lastFiredAt(), message, dto.lastRequestId()));
+        STORE.computeIfPresent(triggerId, (k, dto) -> comUltimo(dto, dto.lastFiredAt(), message,
+                dto.lastRequestId(), AgentInvocationResult.Status.FAILED.name()));
     }
 
     /**

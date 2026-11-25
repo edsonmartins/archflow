@@ -37,6 +37,12 @@ public class SerializableConnection implements StepConnection {
 
     @Override public String getSourceId() { return sourceId; }
     @Override public String getTargetId() { return targetId; }
+    /**
+     * Sem condição, a chave não sai ({@code NON_ABSENT}): o round trip do YAML devolve a aresta como o
+     * designer a gravou — só com {@code branch}, quando é o caso — em vez de acrescentar
+     * {@code condition: null} (RCHFLW-102).
+     */
+    @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_ABSENT)
     @Override public Optional<String> getCondition() { return Optional.ofNullable(condition); }
     @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
     public String getBranch() { return branch; }

@@ -887,9 +887,13 @@ public class ArchflowBeanConfiguration {
     @ConditionalOnMissingBean
     public br.com.archflow.api.triggers.ScheduledTriggerController scheduledTriggerController(
             org.quartz.Scheduler scheduler,
-            AgentInvocationQueue agentInvocationQueue) {
+            AgentInvocationQueue agentInvocationQueue,
+            org.springframework.beans.factory.ObjectProvider<
+                    br.com.archflow.api.agent.invocation.AgentInvocationResultStore> agentInvocationResultStore) {
+        // O store de resultados dá ao gatilho o desfecho do último disparo (RCHFLW-104): sem ele o
+        // "Com falha" da tela contava só a falha de enfileirar, nunca a do agente.
         return new br.com.archflow.api.triggers.impl.ScheduledTriggerControllerImpl(
-                scheduler, agentInvocationQueue);
+                scheduler, agentInvocationQueue, agentInvocationResultStore.getIfAvailable());
     }
 
     // =========================================================================
@@ -1080,7 +1084,9 @@ public class ArchflowBeanConfiguration {
     @Bean
     @ConditionalOnMissingBean
     public br.com.archflow.api.mcp.McpInspectionController mcpInspectionController(
-            br.com.archflow.api.linktor.LinktorConfigController linktorConfigController) {
+            br.com.archflow.api.linktor.LinktorConfigController linktorConfigController,
+            org.springframework.beans.factory.ObjectProvider<br.com.archflow.api.agent.mcp.McpAgentHost>
+                    mcpAgentHost) {
         // Built-in integrations register their suppliers here. Other
         // deployments are free to override this bean entirely.
         java.util.Map<String, java.util.function.Supplier<br.com.archflow.langchain4j.mcp.McpClient>> registry =
@@ -1096,7 +1102,58 @@ public class ArchflowBeanConfiguration {
                     }
                     return client;
                 });
-        return new br.com.archflow.api.mcp.impl.McpInspectionControllerImpl(registry);
+        java.util.Map<String, java.util.function.Function<String, br.com.archflow.langchain4j.mcp.McpClient>>
+                porTenant = new java.util.LinkedHashMap<>();
+        registrarServidoresDoHost(registry, porTenant, mcpAgentHost.getIfAvailable());
+        return new br.com.archflow.api.mcp.impl.McpInspectionControllerImpl(
+                registry, porTenant, TenantContext::currentTenantId);
+    }
+
+    /**
+     * Põe na inspeção os servidores de {@code archflow.mcp.servers.<ref>}, sob o mesmo {@code ref}
+     * que o nó 'mcp-agent' usa.
+     *
+     * <p>Antes a tela só via o Linktor: os servidores do agente moravam em outro bean e nunca entravam
+     * no registro, então justamente os que o fluxo chama não podiam ser inspecionados (RCHFLW-100).
+     * A fonte é o próprio host, e não uma segunda leitura da configuração, para que a tela e a
+     * execução não discordem sobre quais servidores existem.</p>
+     *
+     * <p>O client é próprio da inspeção, e não o do host: o registro fecha os seus no shutdown, e
+     * fechar um client do host derrubaria a sessão de uma execução. Vai com o tenant de quem olha (o
+     * mesmo {@code X-TENANT-ID} que o host manda numa execução desse tenant): sem ele, um servidor
+     * que responde por tenant — o próprio {@code /mcp} do archflow — mostraria o catálogo do tenant
+     * padrão, não o que o nó recebe.</p>
+     *
+     * <p>Só o {@link br.com.archflow.api.agent.mcp.ConfiguredMcpAgentHost} expõe a lista de
+     * servidores. Outro host (um bean sobrescrito, um decorador) deixa a tela só com as integrações
+     * embutidas — e isso fica no log, senão o sintoma do RCHFLW-100 voltaria sem rastro.</p>
+     *
+     * <p>Um {@code ref} com o nome do Linktor não substitui a integração existente: fica de fora com
+     * aviso, porque trocar em silêncio o que a tela mostra sob esse nome confundiria os dois.</p>
+     */
+    static void registrarServidoresDoHost(
+            java.util.Map<String, java.util.function.Supplier<br.com.archflow.langchain4j.mcp.McpClient>> registry,
+            java.util.Map<String, java.util.function.Function<String, br.com.archflow.langchain4j.mcp.McpClient>>
+                    porTenant,
+            br.com.archflow.api.agent.mcp.McpAgentHost host) {
+        if (host == null) {
+            log.info("Inspeção MCP: sem bean McpAgentHost; a tela mostra só as integrações embutidas");
+            return;
+        }
+        if (!(host instanceof br.com.archflow.api.agent.mcp.ConfiguredMcpAgentHost configurado)) {
+            log.warn("Inspeção MCP: o McpAgentHost é {} e não expõe os servidores; a tela mostra só as "
+                    + "integrações embutidas, sem os de archflow.mcp.servers", host.getClass().getName());
+            return;
+        }
+        configurado.servers().forEach((ref, server) -> {
+            if (registry.containsKey(ref)) {
+                log.warn("Inspeção MCP: o servidor '{}' de archflow.mcp.servers tem o nome de uma "
+                        + "integração já registrada e não aparece na tela de inspeção", ref);
+                return;
+            }
+            porTenant.put(ref, tenant -> new br.com.archflow.langchain4j.mcp.client.HttpMcpClient(
+                    server.baseUrl(), server.serviceToken(), tenant));
+        });
     }
 
     // =========================================================================
@@ -1381,9 +1438,18 @@ public class ArchflowBeanConfiguration {
     public br.com.archflow.api.assist.AssistService assistService(
             br.com.archflow.langchain4j.provider.LLMConfigResolver llmConfigResolver,
             br.com.archflow.model.config.ResolvedLLMConfig platformDefaultLLMConfig,
-            com.fasterxml.jackson.databind.ObjectMapper objectMapper) {
+            com.fasterxml.jackson.databind.ObjectMapper objectMapper,
+            org.springframework.beans.factory.ObjectProvider<br.com.archflow.api.catalog.CatalogController>
+                    catalogController,
+            org.springframework.beans.factory.ObjectProvider<br.com.archflow.api.flow.NodeSupport> nodeSupport) {
+        // O catálogo executável do servidor (RCHFLW-107): o nl-to-flow sem catálogo no corpo usa este, e o
+        // explain-error o descreve ao modelo em vez de deixá-lo inventar componentes.
+        var catalogo = catalogController.getIfAvailable();
+        var suporte = nodeSupport.getIfAvailable();
         return new br.com.archflow.api.assist.impl.AssistServiceImpl(
-                llmConfigResolver, platformDefaultLLMConfig, objectMapper);
+                llmConfigResolver, platformDefaultLLMConfig, objectMapper,
+                catalogo == null || suporte == null ? null
+                        : new br.com.archflow.api.assist.ServerFlowCatalog(catalogo, suporte));
     }
 
     // =========================================================================

@@ -51,6 +51,14 @@ public final class ScopedComponentCatalog implements ComponentCatalog {
         return policy.isAllowed(componentId) ? delegate.getComponent(componentId) : Optional.empty();
     }
 
+    /**
+     * Por que esta vista não resolve {@code componentId}, quando a política sabe dizer — ver
+     * {@link ComponentAccessPolicy#denialReason}. Vazio quando o componente é permitido.
+     */
+    public Optional<String> denialReason(String componentId) {
+        return policy.isAllowed(componentId) ? Optional.empty() : policy.denialReason(componentId);
+    }
+
     @Override
     public Optional<ComponentMetadata> getMetadata(String componentId) {
         return policy.isAllowed(componentId) ? delegate.getMetadata(componentId) : Optional.empty();

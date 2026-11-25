@@ -45,19 +45,20 @@ class RunInputSeedingTest {
         assertThat(ctx.get("canal")).contains("web");
     }
 
+    /** RCHFLW-101: sem entrada, o input é "" — e não indefinido, que fazia {@code ${input} != ''} dar true. */
     @Test
-    @DisplayName("sem entrada, nada muda (nem input vazio)")
+    @DisplayName("sem entrada: o input é a string vazia")
     void semEntrada() {
         ExecutionContext ctx = ctx();
 
         RunInputSeeding.seedVariables(ctx, null);
 
-        assertThat(ctx.get("input")).isEmpty();
+        assertThat(ctx.get("input")).contains("");
     }
 
     /** {} é o corpo padrão do MCP sem argumentos e do SDK — não pode virar a entrada "{}". */
     @Test
-    @DisplayName("objeto vazio não vira input")
+    @DisplayName("objeto vazio não vira a entrada \"{}\": é a execução sem entrada, input \"\"")
     void objetoVazioNaoViraInput() {
         ExecutionContext rest = ctx();
         ExecutionContext agUi = ctx();
@@ -65,8 +66,8 @@ class RunInputSeedingTest {
         RunInputSeeding.seedVariables(rest, Map.of());
         AgUiSeedInputAccess.seed(agUi, new RunAgentInput(null, Map.of(), null, null, null, null));
 
-        assertThat(rest.get("input")).isEmpty();
-        assertThat(agUi.get("input")).isEmpty();
+        assertThat(rest.get("input")).contains("");
+        assertThat(agUi.get("input")).contains("");
     }
 
     /**

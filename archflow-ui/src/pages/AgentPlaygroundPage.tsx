@@ -17,6 +17,7 @@ import { JsonViewer } from '../components/JsonViewer'
 import { PageHeader } from '../components/PageHeader'
 import { SectionCard } from '../components/SectionCard'
 import EmptyState from '../components/EmptyState'
+import { useActingTenant } from '../lib/actingTenant'
 
 /** Which endpoint produced the last response — shown as a tag on the response panel. */
 type Origem = 'invoke' | 'message'
@@ -100,7 +101,11 @@ function useInvocationResult(acompanhada: Acompanhada | null) {
 export default function AgentPlaygroundPage() {
     const { t } = useTranslation()
     const catalog = useCatalog()
-    const [tenantId, setTenant] = useState('tenant_demo')
+    // RCHFLW-103: a invocação roda no tenant da identidade. Quem não é admin vê o próprio tenant e não
+    // o troca (o servidor recusaria com 403); o admin começa no tenant em que está; sem login (dev), livre.
+    const acting = useActingTenant()
+    const [tenantInput, setTenant] = useState(() => acting.tenantId ?? 'tenant_demo')
+    const tenantId = acting.locked ? (acting.tenantId ?? tenantInput) : tenantInput
     const [sessionId, setSess]  = useState('')
     const [agentId, setAgent]   = useState<string | null>(null)
     const [payload, setPayload] = useState('{"topic":"weather"}')
@@ -186,6 +191,8 @@ export default function AgentPlaygroundPage() {
 
                             <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">
                                 <TextInput size="sm" label={t('agentPlayground.tenantId')} value={tenantId}
+                                        readOnly={acting.locked}
+                                        description={acting.locked ? t('agentPlayground.tenantLockedHint') : undefined}
                                         onChange={e => setTenant(e.currentTarget.value)}
                                         data-testid="pg-tenant" />
                                 <TextInput size="sm" label={t('agentPlayground.sessionId')} value={sessionId}

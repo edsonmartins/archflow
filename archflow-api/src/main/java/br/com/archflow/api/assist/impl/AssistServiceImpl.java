@@ -2,12 +2,14 @@ package br.com.archflow.api.assist.impl;
 
 import br.com.archflow.api.assist.AssistService;
 import br.com.archflow.api.assist.AssistUnavailableException;
+import br.com.archflow.api.assist.ServerFlowCatalog;
 import br.com.archflow.api.assist.dto.ExplainErrorRequest;
 import br.com.archflow.api.assist.dto.ExplainErrorResponse;
 import br.com.archflow.api.assist.dto.NlToFlowRequest;
 import br.com.archflow.api.assist.dto.NlToFlowResponse;
 import br.com.archflow.api.assist.dto.SuggestMappingRequest;
 import br.com.archflow.api.assist.dto.SuggestMappingResponse;
+import br.com.archflow.api.catalog.dto.CatalogItemDto;
 import br.com.archflow.langchain4j.provider.LLMConfigResolver;
 import br.com.archflow.langchain4j.provider.LLMResolutionRequest;
 import br.com.archflow.model.config.ResolvedLLMConfig;
@@ -37,18 +39,33 @@ public class AssistServiceImpl implements AssistService {
     private final LLMConfigResolver llmConfigResolver;
     private final ResolvedLLMConfig platformDefault;
     private final ObjectMapper objectMapper;
+    /** O que este servidor executa; {@code null} = sem catálogo do servidor (só o do corpo). */
+    private final ServerFlowCatalog serverCatalog;
 
     public AssistServiceImpl(LLMConfigResolver llmConfigResolver,
                              ResolvedLLMConfig platformDefault,
                              ObjectMapper objectMapper) {
+        this(llmConfigResolver, platformDefault, objectMapper, null);
+    }
+
+    /**
+     * @param serverCatalog o catálogo executável do servidor: o {@code nl-to-flow} o usa quando o
+     *                      corpo não traz catálogo, e o {@code explain-error} o descreve ao modelo
+     *                      (RCHFLW-107); {@code null} mantém só o catálogo do corpo
+     */
+    public AssistServiceImpl(LLMConfigResolver llmConfigResolver,
+                             ResolvedLLMConfig platformDefault,
+                             ObjectMapper objectMapper,
+                             ServerFlowCatalog serverCatalog) {
         this.llmConfigResolver = llmConfigResolver;
         this.platformDefault = platformDefault;
         this.objectMapper = objectMapper != null ? objectMapper : new ObjectMapper();
+        this.serverCatalog = serverCatalog;
     }
 
     @Override
     public ExplainErrorResponse explainError(ExplainErrorRequest request) {
-        String prompt = buildPrompt(request);
+        String prompt = buildPrompt(request, serverCatalog);
         String raw = chat(prompt);
         return parse(raw, currentModelo());
     }
@@ -62,7 +79,7 @@ public class AssistServiceImpl implements AssistService {
 
     @Override
     public NlToFlowResponse nlToFlow(NlToFlowRequest request) {
-        String prompt = buildNlToFlowPrompt(request);
+        String prompt = buildNlToFlowPrompt(request, serverCatalog);
         String raw = chat(prompt);
         return parseNlToFlow(raw);
     }
@@ -154,11 +171,36 @@ public class AssistServiceImpl implements AssistService {
         return raw.substring(start, end + 1);
     }
 
-    private static String buildPrompt(ExplainErrorRequest r) {
+    /**
+     * O prompt do explain-error descreve o archflow (RCHFLW-107). Antes ele pedia um "especialista em
+     * integrações (iPaaS)" e nada mais: para "component not found: transform" o modelo explicava uma
+     * plataforma genérica e sugeria {@code data-transform}, {@code mapper} e {@code jq}, que não existem
+     * aqui. Agora diz como o motor executa um nó, o que a mensagem significa, quais tipos não têm
+     * execução neste servidor e quais componentes existem — e proíbe sugerir nomes fora dessas listas.
+     */
+    static String buildPrompt(ExplainErrorRequest r, ServerFlowCatalog serverCatalog) {
         String idioma = r.idiomaOrDefault();
         StringBuilder sb = new StringBuilder();
-        sb.append("Você é um assistente especialista em troubleshooting de integrações de dados (iPaaS). ")
-          .append("Analise o erro abaixo e responda no idioma '").append(idioma).append("'.\n\n")
+        sb.append("Você é o assistente de diagnóstico do archflow, um framework Java de automação com ")
+          .append("agentes de IA construído sobre LangChain4j. Analise o erro de execução abaixo e responda ")
+          .append("no idioma '").append(idioma).append("'.\n\n")
+          .append("Como o archflow executa um fluxo: o fluxo é um documento JSON com steps[]; cada passo ")
+          .append("tem type, componentId e configuration, e as arestas ficam em steps[].connections. O motor ")
+          .append("executa cada passo por um de três caminhos: (1) um passo próprio do motor (controle, ")
+          .append("aprovação, decisão, agente MCP, orquestração); (2) um adapter LangChain4j, para nós de ")
+          .append("chat, embedding, memória, vector store e RAG cujo provider está registrado no servidor; ")
+          .append("(3) um componente do catálogo (agent, assistant, tool) nomeado em componentId.\n\n")
+          .append("O que \"component not found: X\" significa: o motor não encontrou execução para o nó X ")
+          .append("por nenhum dos três caminhos — X não é um passo do motor, não é um provider de adapter ")
+          .append("registrado para aquele tipo e não é um componente do catálogo deste servidor. Não é falha ")
+          .append("de rede nem de dados. Quando o texto depois de \"—\" diz o motivo (por exemplo, ")
+          .append("configuration.allowedComponents ou archflow.components.require-allowlist), a causa é ")
+          .append("esse motivo. A correção é trocar o nó por um tipo ou componente que executa, ou instalar ")
+          .append("um plugin (fat-jar em archflow.plugins.directory) que forneça o componente.\n\n");
+        appendServerCatalogForDiagnosis(sb, serverCatalog);
+        sb.append("REGRA: sugira SOMENTE tipos de nó e componentes que aparecem nas listas acima. NUNCA ")
+          .append("invente nomes de componente, plugin, conector ou ferramenta. Se nada nas listas resolve, ")
+          .append("diga que este servidor não tem execução para o que o nó pede.\n\n")
           .append("Responda EXCLUSIVAMENTE com um objeto JSON válido, sem cercas de código e sem texto adicional, ")
           .append("com EXATAMENTE estas chaves:\n")
           .append("{\n")
@@ -179,6 +221,38 @@ public class AssistServiceImpl implements AssistService {
         appendField(sb, "Stacktrace", r.stacktrace());
 
         return sb.toString();
+    }
+
+    /**
+     * As listas que o explain-error pode citar, todas tiradas do servidor. Sem catálogo do servidor não
+     * há lista, e a regra de não inventar nomes continua valendo.
+     */
+    private static void appendServerCatalogForDiagnosis(StringBuilder sb, ServerFlowCatalog serverCatalog) {
+        if (serverCatalog == null) {
+            sb.append("(Este servidor não informou o próprio catálogo; não cite componentes por nome.)\n\n");
+            return;
+        }
+        sb.append("Tipos de nó que executam neste servidor sem precisar de componente do catálogo: ")
+          .append(joinOrNone(serverCatalog.executableNodeTypes())).append("\n")
+          .append("Tipos de nó do designer SEM execução neste servidor (o passo falha com ")
+          .append("\"component not found\"; agent, assistant e tool só executam apontando em componentId ")
+          .append("para um componente do catálogo): ")
+          .append(joinOrNone(serverCatalog.nonExecutableNodeTypes())).append("\n")
+          .append("Componentes executáveis deste servidor (type do nó → componente):\n");
+        List<ServerFlowCatalog.ExecutableComponent> componentes = serverCatalog.executableComponents();
+        if (componentes.isEmpty()) {
+            sb.append("(nenhum)\n");
+        }
+        for (ServerFlowCatalog.ExecutableComponent c : componentes) {
+            sb.append("- type=").append(c.nodeType())
+              .append(c.adapter() ? ", configuration.provider=" : ", componentId=").append(c.component())
+              .append(" (").append(nullToEmpty(c.kind())).append(")\n");
+        }
+        sb.append('\n');
+    }
+
+    private static String joinOrNone(List<String> values) {
+        return values == null || values.isEmpty() ? "(nenhum)" : String.join(", ", values);
     }
 
     private static void appendField(StringBuilder sb, String label, String value) {
@@ -283,7 +357,13 @@ public class AssistServiceImpl implements AssistService {
     // #22 — nl-to-flow (restrito ao catálogo, ADR-0001)
     // ---------------------------------------------------------------------
 
-    private String buildNlToFlowPrompt(NlToFlowRequest r) {
+    /**
+     * Sem catálogo no corpo, o catálogo é o do servidor, só com o que o motor executa (RCHFLW-107).
+     * Antes o prompt dizia "catálogo vazio" e a resposta vinha sem nenhum passo, embora o servidor
+     * conheça os próprios componentes. O catálogo do corpo, quando vem, continua mandando: é o contrato
+     * de quem chama (ADR-0001).
+     */
+    static String buildNlToFlowPrompt(NlToFlowRequest r, ServerFlowCatalog serverCatalog) {
         String idioma = r.idiomaOrDefault();
         StringBuilder sb = new StringBuilder();
         sb.append("Você é um assistente que monta rascunhos de workflows de integração (iPaaS). ")
@@ -312,8 +392,12 @@ public class AssistServiceImpl implements AssistService {
         sb.append("Descrição em linguagem natural:\n")
           .append(r.descricao() != null ? r.descricao() : "(vazia)").append("\n\n");
 
-        sb.append("CATÁLOGO de plugins disponíveis:\n");
-        appendCatalogo(sb, r.catalogo());
+        if ((r.catalogo() == null || r.catalogo().isEmpty()) && serverCatalog != null) {
+            appendServerCatalogForFlow(sb, serverCatalog);
+        } else {
+            sb.append("CATÁLOGO de plugins disponíveis:\n");
+            appendCatalogo(sb, r.catalogo());
+        }
 
         return sb.toString();
     }
@@ -358,6 +442,59 @@ public class AssistServiceImpl implements AssistService {
                     sb.append('\n');
                 }
             }
+        }
+    }
+
+    /**
+     * O catálogo do servidor no formato do prompt, com o {@code nodeType} de cada item: é o
+     * {@code type} que o nó grava no documento, e o que decide por onde o motor o executa.
+     */
+    private static void appendServerCatalogForFlow(StringBuilder sb, ServerFlowCatalog serverCatalog) {
+        sb.append("CATÁLOGO deste servidor (somente o que o motor executa). Para cada step, ")
+          .append("'nodeType' é o nodeType do item e 'component' é o seu plugin; 'componentVersion' é null. ")
+          .append("Nunca preencha chaves de API nem segredos em 'parameters': eles vêm da configuração ")
+          .append("do servidor.\n");
+        List<ServerFlowCatalog.ExecutableComponent> componentes = serverCatalog.executableComponents();
+        for (ServerFlowCatalog.ExecutableComponent c : componentes) {
+            sb.append("- plugin=").append(c.component())
+              .append(", componentName=").append(nullToEmpty(c.name()))
+              .append(", pluginKind=").append(nullToEmpty(c.kind()))
+              .append(", nodeType=").append(c.nodeType());
+            if (c.description() != null && !c.description().isBlank()) {
+                sb.append(", descricao=").append(c.description());
+            }
+            sb.append('\n');
+            for (CatalogItemDto.OperationDto op : c.operations()) {
+                if (op == null) {
+                    continue;
+                }
+                sb.append("    operacao=").append(nullToEmpty(op.id()));
+                appendProps(sb, op.inputs() == null ? List.of() : op.inputs().stream()
+                        .map(p -> p.name() + ':' + nullToEmpty(p.type())
+                                + (p.required() ? "(obrigatório)" : "(opcional)"))
+                        .toList());
+                sb.append('\n');
+            }
+            if (c.operations().isEmpty() && !c.config().isEmpty()) {
+                sb.append("    propriedades de configuração");
+                appendProps(sb, c.config().stream()
+                        .map(k -> k.name() + ':' + nullToEmpty(k.type())
+                                + (k.required() ? "(obrigatório)" : "(opcional)"))
+                        .toList());
+                sb.append('\n');
+            }
+        }
+        List<String> tipos = serverCatalog.executableNodeTypes();
+        sb.append("Tipos de nó do motor que executam sem plugin (plugin=nodeType=o tipo, pluginKind=node): ")
+          .append(joinOrNone(tipos)).append('\n');
+        if (componentes.isEmpty() && tipos.isEmpty()) {
+            sb.append("(catálogo vazio — nenhum plugin disponível)\n");
+        }
+    }
+
+    private static void appendProps(StringBuilder sb, List<String> props) {
+        if (!props.isEmpty()) {
+            sb.append(" propriedades=[").append(String.join(", ", props)).append(']');
         }
     }
 

@@ -98,6 +98,18 @@ public final class OrchestrateStep implements FlowStep {
                     : streaming;
 
             SupervisorResult result = service.runOn(req, context, listener, componentPolicy);
+            if (result.allSubtasksFailed()) {
+                // Antes o passo terminava COMPLETED com [] e o fluxo seguia como se a orquestração
+                // tivesse rodado (RCHFLW-61). Nada chegou à verificação: é falha, com os motivos. O
+                // estado vai salvo antes, para os ramos FAILED ficarem inspecionáveis.
+                if (state != null && stateManager != null) {
+                    stateManager.saveState(context.getSessionId(), state);
+                }
+                return CompletableFuture.completedFuture(SimpleStepResult.failed(id,
+                        "ORCHESTRATE: as " + result.dispatched() + " subtarefa(s) falharam antes da "
+                                + "verificação — " + result.failureSummary(),
+                        elapsedMs(start)));
+            }
             List<Object> confirmed = result.confirmed();
             context.set(id, confirmed);
             context.set(ComponentStep.INPUT_KEY, confirmed);

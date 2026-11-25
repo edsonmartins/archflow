@@ -210,7 +210,7 @@ public class DefaultFlowExecutor implements FlowExecutor {
                                      FlowControl control) {
         List<StepResult> results = new ArrayList<>();
         Set<String> completedInPriorRun = readCompletedSteps(context);
-        int stepIndex = 0;
+        int stepIndex = priorStepCount(steps, completedInPriorRun);
         for (FlowStep step : steps) {
             Optional<ExecutionStatus> signalled = controlSignal(flow, control);
             if (signalled.isPresent()) {
@@ -370,6 +370,7 @@ public class DefaultFlowExecutor implements FlowExecutor {
             this.completedInPriorRun = readCompletedSteps(context);
             this.stepData = readStepData(context);
             this.runInput = runInputOf(context, completedInPriorRun);
+            this.stepIndex = priorStepCount(steps, completedInPriorRun);
             buildGraph();
         }
 
@@ -637,6 +638,19 @@ public class DefaultFlowExecutor implements FlowExecutor {
                 .filter(v -> v instanceof Map)
                 .ifPresent(v -> ((Map<Object, Object>) v).forEach((k, value) -> data.put(String.valueOf(k), value)));
         return data;
+    }
+
+    /**
+     * De onde a numeração dos steps continua: quantos deste fluxo já concluíram numa travessia
+     * anterior. Na retomada de uma aprovação a contagem recomeçava em 0, e o detalhe da execução
+     * mostrava "1/3 Rascunho", "1/3 Revisão", "2/3 Final" (RCHFLW-99). O portão que suspendeu não
+     * está concluído, então volta com o mesmo índice que tinha — e o registro dele é o mesmo.
+     */
+    private static int priorStepCount(List<FlowStep> steps, Set<String> completedInPriorRun) {
+        if (completedInPriorRun.isEmpty()) {
+            return 0;
+        }
+        return (int) steps.stream().filter(s -> completedInPriorRun.contains(s.getId())).count();
     }
 
     /**

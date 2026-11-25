@@ -198,21 +198,39 @@
             "rounds": "Rodadas",
             "roundsHint": "Ciclos decompor → verificar",
             "confirmed": "Confirmados",
-            "confirmedHint": "Resultados aprovados na verificação"
+            "confirmedHint": "Resultados aprovados na verificação",
+            "failed": "Falhas",
+            "failedHint": "Subtarefas que não chegaram à verificação",
+            "tokens": "Tokens gastos",
+            "tokensHint": "Informados pelo planejador e pelos agentes",
+            "tokensBudgetHint": "Informados pelo planejador e pelos agentes, de {{budget}} do orçamento",
+            "tokensUnknownHint_one": "{{count}} chamada não informou uso: o total é um piso",
+            "tokensUnknownHint_other": "{{count}} chamadas não informaram uso: o total é um piso"
         },
+        "budgetExhaustedTitle": "Orçamento esgotado",
+        "budgetExhaustedHint": "A execução parou de despachar subtarefas e rodadas ao atingir {{budget}} tokens.",
         "noConfirmed": "Nada confirmado",
         "noConfirmedHint": "Os verificadores rejeitaram todos os resultados candidatos.",
+        "noConfirmedAllFailedHint": "Nenhum resultado chegou à verificação: todas as subtarefas falharam antes.",
+        "noConfirmedNoSubtasksHint": "O planejador não gerou nenhuma subtarefa.",
+        "noConfirmedBudgetHint_one": "{{count}} subtarefa planejada não foi despachada: o orçamento acabou antes.",
+        "noConfirmedBudgetHint_other": "{{count}} subtarefas planejadas não foram despachadas: o orçamento acabou antes.",
+        "noConfirmedBudgetBeforePlanningHint": "O orçamento acabou antes do planejamento: nenhuma subtarefa foi planejada.",
+        "failuresTitle": "{{failed}} de {{total}} subtarefas falharam antes da verificação",
+        "failuresHint": "Motivos informados pelo worker, agrupados:",
         "traceHint_one": "{{count}} evento",
         "traceHint_other": "{{count}} eventos",
         "traceCols": {
             "round": "Rodada",
             "type": "Evento",
             "verdict": "Veredito",
+            "agent": "Agente",
             "detail": "Detalhe"
         },
         "verdict": {
             "confirmed": "confirmado",
-            "rejected": "rejeitado"
+            "rejected": "rejeitado",
+            "failed": "falhou"
         },
         "resultsHint": "Resultados confirmados e o trace da execução",
         "running": "Executando — decompondo, distribuindo e verificando…",
@@ -766,6 +784,7 @@
         "listHint": "Clique numa linha para editar; use os ícones para disparar, editar ou excluir",
         "emptyHint": "Crie um para invocar um agente num horário.",
         "tenantHint": "Tenant em nome do qual a invocação roda",
+        "tenantLockedHint": "O tenant do seu acesso; outro tenant exige o papel de administrador",
         "agentLabel": "agente",
         "assistantLabel": "assistente",
         "stats": {
@@ -789,7 +808,14 @@
             "tenant": "Tenant",
             "agent": "Agente",
             "status": "Status",
-            "lastFired": "Último disparo"
+            "lastFired": "Último disparo",
+            "lastResult": "Último resultado"
+        },
+        "lastStatus": {
+            "QUEUED": "na fila",
+            "RUNNING": "executando",
+            "COMPLETED": "concluído",
+            "FAILED": "falhou"
         },
         "status": {
             "enabled": "ativo",
@@ -1547,6 +1573,7 @@
         "title": "Agent Playground",
         "info": "Dispare um agente diretamente (on-demand) ou envie uma mensagem conversacional. Os dois entram na <code>AgentInvocationQueue</code>; o agente roda em segundo plano e o resultado aparece ao lado quando terminar.",
         "tenantId": "ID do tenant",
+        "tenantLockedHint": "O tenant do seu acesso; outro tenant exige o papel de administrador",
         "sessionId": "ID da sessão (opcional)",
         "sessionPlaceholder": "gerado automaticamente se vazio",
         "agent": "Agente",
@@ -1686,7 +1713,7 @@
         "title": "Entrada da execução",
         "subtitle": "Um objeto JSON vira variáveis do contexto (uma por chave); qualquer outro texto chega ao fluxo como input. Pode ficar vazio.",
         "placeholder": "{\"cliente\": \"ACME\"}  ou  texto livre",
-        "asEmpty": "Sem entrada: o fluxo roda sem variáveis iniciais.",
+        "asEmpty": "Sem entrada: o fluxo roda com input vazio (\"\") e sem outras variáveis.",
         "asVariables": "Objeto JSON: variáveis {{keys}}.",
         "asText": "Texto: chega ao fluxo como input.",
         "cancel": "Cancelar",
