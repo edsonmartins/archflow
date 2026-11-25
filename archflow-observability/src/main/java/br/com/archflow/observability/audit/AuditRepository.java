@@ -115,6 +115,8 @@ public interface AuditRepository {
         private Instant startTime;
         private Instant endTime;
         private String ipAddress;
+        private String contextKey;
+        private String contextValue;
         private int limit = 100;
         private int offset = 0;
         private String sortBy = "timestamp";
@@ -164,6 +166,18 @@ public interface AuditRepository {
             return this;
         }
 
+        /**
+         * Só eventos cujo contexto tem {@code key} exatamente igual a {@code value}. É por aqui que
+         * a leitura da trilha se restringe a um tenant: o produtor grava o tenant no contexto do
+         * evento (não há coluna própria), e a tela de auditoria de um tenant não pode listar a de
+         * outro (RCHFLW-39).
+         */
+        public AuditQuery contextEquals(String key, String value) {
+            this.contextKey = key;
+            this.contextValue = value;
+            return this;
+        }
+
         public AuditQuery limit(int limit) {
             this.limit = limit;
             return this;
@@ -193,6 +207,8 @@ public interface AuditRepository {
         public Instant getStartTime() { return startTime; }
         public Instant getEndTime() { return endTime; }
         public String getIpAddress() { return ipAddress; }
+        public String getContextKey() { return contextKey; }
+        public String getContextValue() { return contextValue; }
         public int getLimit() { return limit; }
         public int getOffset() { return offset; }
         public String getSortBy() { return sortBy; }

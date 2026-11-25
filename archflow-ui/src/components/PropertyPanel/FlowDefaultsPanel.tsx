@@ -4,6 +4,7 @@ import { IconClick } from '@tabler/icons-react'
 import { useWorkflowStore } from '../../stores/workflow-store'
 import { useWorkflowConfig } from './useWorkflowConfig'
 import { FIELD_STYLES } from './fieldStyles'
+import { ReadOnlyFieldset } from './ReadOnlyFieldset'
 
 /**
  * Flow-level LLM defaults — the "flow" tier of the model inheritance chain
@@ -17,7 +18,8 @@ function readLlmConfig(configuration: unknown): Record<string, unknown> {
   return (cfg.llmConfig as Record<string, unknown>) ?? {}
 }
 
-export function FlowDefaultsPanel() {
+/** `readOnly`: sem workflow:update (RCHFLW-74) os padrões aparecem, mas não mudam — ver PropertyPanel. */
+export function FlowDefaultsPanel({ readOnly = false }: { readOnly?: boolean } = {}) {
   const { t } = useTranslation()
   const currentWorkflow = useWorkflowStore(s => s.currentWorkflow)
   const patchFlowLlmConfig = useWorkflowStore(s => s.patchFlowLlmConfig)
@@ -86,52 +88,54 @@ export function FlowDefaultsPanel() {
 
         <Divider />
 
-        <Select
-          label={f('model')}
-          placeholder="—"
-          value={(cfg.model as string) ?? null}
-          onChange={v => patchFlowLlmConfig({ model: v })}
-          data={modelGroups}
-          size="xs"
-          clearable
-          searchable
-          styles={FIELD_STYLES}
-        />
-        {savedNotAllowed && (
-          <Text size="xs" c="red" mt={-8} lh={1.4}>{f('modelNotAllowedHint')}</Text>
-        )}
+        <ReadOnlyFieldset readOnly={readOnly}>
+          <Select
+            label={f('model')}
+            placeholder="—"
+            value={(cfg.model as string) ?? null}
+            onChange={v => patchFlowLlmConfig({ model: v })}
+            data={modelGroups}
+            size="xs"
+            clearable
+            searchable
+            styles={FIELD_STYLES}
+          />
+          {savedNotAllowed && (
+            <Text size="xs" c="red" mt={-8} lh={1.4}>{f('modelNotAllowedHint')}</Text>
+          )}
 
-        <NumberInput
-          label={f('temperature')}
-          value={(cfg.temperature as number) ?? 0.2}
-          onChange={v => patchFlowLlmConfig({ temperature: v })}
-          min={0}
-          max={2}
-          step={0.1}
-          decimalScale={1}
-          size="xs"
-          styles={FIELD_STYLES}
-        />
+          <NumberInput
+            label={f('temperature')}
+            value={(cfg.temperature as number) ?? 0.2}
+            onChange={v => patchFlowLlmConfig({ temperature: v })}
+            min={0}
+            max={2}
+            step={0.1}
+            decimalScale={1}
+            size="xs"
+            styles={FIELD_STYLES}
+          />
 
-        <NumberInput
-          label={f('maxTokens')}
-          value={(cfg.maxTokens as number) ?? 1024}
-          onChange={v => patchFlowLlmConfig({ maxTokens: v })}
-          min={1}
-          step={256}
-          size="xs"
-          styles={FIELD_STYLES}
-        />
+          <NumberInput
+            label={f('maxTokens')}
+            value={(cfg.maxTokens as number) ?? 1024}
+            onChange={v => patchFlowLlmConfig({ maxTokens: v })}
+            min={1}
+            step={256}
+            size="xs"
+            styles={FIELD_STYLES}
+          />
 
-        <NumberInput
-          label={f('timeoutSec')}
-          value={(cfg.timeout as number) ?? 30}
-          onChange={v => patchFlowLlmConfig({ timeout: v })}
-          min={1}
-          step={5}
-          size="xs"
-          styles={FIELD_STYLES}
-        />
+          <NumberInput
+            label={f('timeoutSec')}
+            value={(cfg.timeout as number) ?? 30}
+            onChange={v => patchFlowLlmConfig({ timeout: v })}
+            min={1}
+            step={5}
+            size="xs"
+            styles={FIELD_STYLES}
+          />
+        </ReadOnlyFieldset>
 
         <Text size="xs" c="dimmed" lh={1.4}>
           {t('editor.properties.flowDefaults.inheritHint')}

@@ -1,4 +1,6 @@
 import { api } from './api';
+import { approvalTenantParam } from '../lib/approvalTenant';
+import { useTenantStore } from '../stores/useTenantStore';
 
 /**
  * TypeScript mirror of `ObservabilityDtos` in archflow-api. Types are
@@ -138,12 +140,33 @@ export interface ObservabilityFilter {
     pageSize?: number;
 }
 
+/**
+ * O tenant que vai na query quando a tela não escolheu um: a mesma regra da fila de aprovações
+ * (`approvalTenantParam`). O servidor passou a usar o tenant da requisição quando o parâmetro falta
+ * (RCHFLW-39) — antes a ausência era "todos os tenants" —, então a visão de todos do superadmin
+ * precisa pedir `'all'` explicitamente. O servidor confere o papel; a UI só pede.
+ */
+function escopo(tenantId?: string): string | undefined {
+    if (tenantId) return tenantId;
+    const { impersonating, currentRole } = useTenantStore.getState();
+    return approvalTenantParam(impersonating, currentRole);
+}
+
+function tenantQuery(tenantId?: string): string {
+    const t = escopo(tenantId);
+    return t ? `?tenantId=${encodeURIComponent(t)}` : '';
+}
+
 function buildQuery(filter: ObservabilityFilter | undefined): string {
-    if (!filter) return '';
     const params = new URLSearchParams();
+    const tenantId = escopo(filter?.tenantId);
+    if (tenantId) params.set('tenantId', tenantId);
+    if (!filter) {
+        const qs = params.toString();
+        return qs ? `?${qs}` : '';
+    }
     if (filter.from) params.set('from', filter.from);
     if (filter.to) params.set('to', filter.to);
-    if (filter.tenantId) params.set('tenantId', filter.tenantId);
     if (filter.personaId) params.set('personaId', filter.personaId);
     if (filter.status) params.set('status', filter.status);
     if (filter.actor) params.set('actor', filter.actor);
@@ -158,18 +181,20 @@ function buildQuery(filter: ObservabilityFilter | undefined): string {
 export const observabilityApi = {
     getOverview: (tenantId?: string) =>
         api.get<OverviewDto>(
-            `/admin/observability/overview${tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : ''}`,
+            `/admin/observability/overview${tenantQuery(tenantId)}`,
         ),
 
     listTraces: (filter?: ObservabilityFilter) =>
         api.get<PageDto<TraceSummaryDto>>(`/admin/observability/traces${buildQuery(filter)}`),
 
-    getTrace: (traceId: string) =>
-        api.get<TraceDetailDto>(`/admin/observability/traces/${encodeURIComponent(traceId)}`),
+    getTrace: (traceId: string, tenantId?: string) =>
+        api.get<TraceDetailDto>(
+            `/admin/observability/traces/${encodeURIComponent(traceId)}${tenantQuery(tenantId)}`,
+        ),
 
     getMetricsSnapshot: (tenantId?: string) =>
         api.get<MetricsSnapshotDto>(
-            `/admin/observability/metrics${tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : ''}`,
+            `/admin/observability/metrics${tenantQuery(tenantId)}`,
         ),
 
     getMetricSeries: (metric: string, params?: {
@@ -179,7 +204,8 @@ export const observabilityApi = {
     }) => {
         const qs = new URLSearchParams();
         qs.set('metric', metric);
-        if (params?.tenantId) qs.set('tenantId', params.tenantId);
+        const tenantId = escopo(params?.tenantId);
+        if (tenantId) qs.set('tenantId', tenantId);
         if (params?.bucketSeconds) qs.set('bucketSeconds', String(params.bucketSeconds));
         if (params?.buckets) qs.set('buckets', String(params.buckets));
         return api.get<MetricSeriesDto[]>(`/admin/observability/metrics/series?${qs.toString()}`);
@@ -193,12 +219,12 @@ export const observabilityApi = {
 
     listRunningFlows: (tenantId?: string) =>
         api.get<RunningFlowDto[]>(
-            `/admin/observability/running${tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : ''}`,
+            `/admin/observability/running${tenantQuery(tenantId)}`,
         ),
 
     cancelRunningFlow: (flowId: string, tenantId?: string) =>
         api.post<void>(
-            `/admin/observability/running/${encodeURIComponent(flowId)}/cancel${tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : ''}`,
+            `/admin/observability/running/${encodeURIComponent(flowId)}/cancel${tenantQuery(tenantId)}`,
             {},
         ),
 };

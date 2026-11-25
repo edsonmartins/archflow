@@ -6,6 +6,7 @@
  * <p>Arquivo .ts (createElement em vez de JSX) porque o vitest.config só inclui *.test.ts.</p>
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { entrarComo } from '../../lib/__tests__/papeisDeTeste'
 import { createElement as h, act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { MemoryRouter, Route, Routes, useParams } from 'react-router-dom'
@@ -34,6 +35,8 @@ let root: Root | null = null
 let container: HTMLDivElement
 
 beforeEach(() => {
+  // Papel que concede editar e executar: sem ele as ações somem (RCHFLW-74).
+  entrarComo('DESIGNER')
   vi.clearAllMocks()
   ;(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true
   ;(globalThis as any).ResizeObserver ??= class { observe() {} unobserve() {} disconnect() {} }

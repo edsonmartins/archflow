@@ -15,6 +15,7 @@ import br.com.archflow.api.admin.observability.ObservabilityDtos.PageDto;
 import br.com.archflow.api.admin.observability.ObservabilityDtos.PersonaStatDto;
 import br.com.archflow.api.admin.observability.ObservabilityDtos.TraceDetailDto;
 import br.com.archflow.api.admin.observability.ObservabilityDtos.TraceSummaryDto;
+import br.com.archflow.api.audit.AuditTrail;
 import br.com.archflow.observability.audit.AuditEvent;
 import br.com.archflow.observability.audit.AuditRepository;
 
@@ -122,9 +123,14 @@ public class ObservabilityService {
         long auditCount = 0;
         if (auditRepository != null) {
             try {
-                auditCount = auditRepository.count(AuditRepository.AuditQuery.builder()
+                AuditRepository.AuditQuery hoje = AuditRepository.AuditQuery.builder()
                         .startTime(startOfDay)
-                        .endTime(Instant.now()));
+                        .endTime(Instant.now());
+                // O total do dia é do mesmo tenant dos traces ao lado, não da plataforma toda.
+                if (tenantId != null && !tenantId.isBlank()) {
+                    hoje.contextEquals(AuditTrail.CONTEXT_TENANT, tenantId);
+                }
+                auditCount = auditRepository.count(hoje);
             } catch (Exception ignored) {
                 auditCount = 0;
             }
@@ -326,6 +332,12 @@ public class ObservabilityService {
         if (f.from() != null) q.startTime(f.from());
         if (f.to() != null) q.endTime(f.to());
         if (f.actor() != null && !f.actor().isBlank()) q.userId(f.actor());
+        // O FilterDto sempre trouxe tenantId, mas a consulta o ignorava: a auditoria e o export de
+        // qualquer tenant listavam os eventos de todos (RCHFLW-39). O tenant está no contexto do
+        // evento, gravado pelo AuditTrail; nulo continua sendo "todos" (admin com "all").
+        if (f.tenantId() != null && !f.tenantId().isBlank()) {
+            q.contextEquals(AuditTrail.CONTEXT_TENANT, f.tenantId());
+        }
         if (f.action() != null && !f.action().isBlank()) {
             try {
                 q.action(br.com.archflow.observability.audit.AuditAction.valueOf(f.action()));

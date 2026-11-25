@@ -266,6 +266,7 @@ public class JdbcAuditRepository implements AuditRepository {
             sql.append(" AND ip_address = ?");
             params.add(query.getIpAddress());
         }
+        appendContextFilter(query, sql, params);
 
         // Sort
         sql.append(" ORDER BY ").append(query.getSortBy());
@@ -333,6 +334,7 @@ public class JdbcAuditRepository implements AuditRepository {
             sql.append(" AND ip_address = ?");
             params.add(query.getIpAddress());
         }
+        appendContextFilter(query, sql, params);
 
         try (Connection conn = dataSource.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql.toString())) {
@@ -402,6 +404,27 @@ public class JdbcAuditRepository implements AuditRepository {
                 .sessionId(rs.getString("session_id"))
                 .traceId(rs.getString("trace_id"))
                 .build();
+    }
+
+    /**
+     * O contexto é gravado como o JSON plano de {@link #serializeContext} numa coluna TEXT, sem
+     * coluna própria para o tenant; o filtro procura o par {@code "chave":"valor"} exatamente como
+     * esse serializador o escreve. Aspas dentro de outro valor saem escapadas ({@code \"}), então o
+     * par não casa com um pedaço de outro campo. Os curingas do LIKE ({@code %}, {@code _}) são
+     * escapados — um tenant como {@code tenant_a} não pode casar com {@code tenantXa}.
+     */
+    private void appendContextFilter(AuditQuery query, StringBuilder sql, List<Object> params) {
+        if (query.getContextKey() == null) {
+            return;
+        }
+        String par = "\"" + escapeJson(query.getContextKey()) + "\":\""
+                + escapeJson(query.getContextValue()) + "\"";
+        sql.append(" AND context LIKE ? ESCAPE '!'");
+        params.add("%" + escapeLike(par) + "%");
+    }
+
+    private static String escapeLike(String value) {
+        return value.replace("!", "!!").replace("%", "!%").replace("_", "!_");
     }
 
     private String serializeContext(java.util.Map<String, String> context) {

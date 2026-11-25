@@ -294,6 +294,7 @@
         "code": "Code",
         "run": "Run",
         "stop": "Stop",
+        "readOnly": "Read only",
         "back": "Back to list",
         "saved": "Saved",
         "savedAt": "Saved at {{time}}",

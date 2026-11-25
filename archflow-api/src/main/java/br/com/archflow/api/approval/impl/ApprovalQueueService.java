@@ -200,13 +200,35 @@ public class ApprovalQueueService {
      * @throws NoSuchElementException se o id é desconhecido (ou decidido e sem {@code flowId})
      */
     public ApprovalResponse getDetail(String requestId, String flowId) {
+        return getDetail(requestId, flowId, null);
+    }
+
+    /**
+     * Como {@link #getDetail(String, String)}, restrito a um tenant (RCHFLW-39).
+     *
+     * <p>Um pedido de outro tenant é respondido como inexistente, com a mesma exceção de um id
+     * desconhecido: responder "existe, mas não é seu" já entregaria a quem não pode que o id vale.</p>
+     *
+     * @param tenantScope tenant que o pedido precisa ter; {@code null} aceita qualquer um (admin com
+     *                    "all", ou servidor sem autenticação)
+     */
+    public ApprovalResponse getDetail(String requestId, String flowId, String tenantScope) {
         Objects.requireNonNull(requestId, "requestId");
         return findPendingByRequestId(requestId)
+                .filter(state -> inScope(tenantScope, state.getTenantId()))
                 .map(state -> toResponse(state, "PENDING"))
-                .or(() -> pendenciaDoLaco(requestId).map(ApprovalQueueService::doLaco))
-                .or(() -> decidedDetail(requestId, flowId))
+                .or(() -> pendenciaDoLaco(requestId)
+                        .filter(p -> inScope(tenantScope, p.tenantId()))
+                        .map(ApprovalQueueService::doLaco))
+                .or(() -> decidedDetail(requestId, flowId)
+                        .filter(r -> inScope(tenantScope, r.tenantId())))
                 .orElseThrow(() -> new NoSuchElementException(
                         "Approval not found or already decided: " + requestId));
+    }
+
+    /** {@code null} é "qualquer tenant"; fora isso, o tenant do item tem de ser o do recorte. */
+    private static boolean inScope(String tenantScope, String itemTenant) {
+        return tenantScope == null || tenantScope.equals(itemTenant);
     }
 
     /**
@@ -244,6 +266,19 @@ public class ApprovalQueueService {
      * suspensão; REJECTED o encerra.
      */
     public ApprovalResponse submitDecision(String requestId, ApprovalSubmitRequest request) {
+        return submitDecision(requestId, request, null);
+    }
+
+    /**
+     * Como {@link #submitDecision(String, ApprovalSubmitRequest)}, só para um pedido do tenant do
+     * recorte (RCHFLW-39). Antes, qualquer usuário autenticado que soubesse o {@code requestId}
+     * aprovava — ou editava os argumentos da tool — de um pedido de outro tenant. Fora do recorte, o
+     * pedido é "não encontrado", como um id desconhecido, e nada é decidido.
+     *
+     * @param tenantScope tenant que o pedido precisa ter; {@code null} aceita qualquer um
+     */
+    public ApprovalResponse submitDecision(String requestId, ApprovalSubmitRequest request,
+                                           String tenantScope) {
         Objects.requireNonNull(requestId, "requestId");
         Objects.requireNonNull(request, "request");
 
@@ -256,12 +291,13 @@ public class ApprovalQueueService {
         // O id diz qual mecanismo responde: o gate do laço grava no store do agente, o nó de fluxo
         // no estado do motor. Um id não existe nos dois.
         Optional<br.com.archflow.api.agent.mcp.RetomadaDoLaco.Pendencia> noLaco =
-                pendenciaDoLaco(requestId);
+                pendenciaDoLaco(requestId).filter(p -> inScope(tenantScope, p.tenantId()));
         if (noLaco.isPresent()) {
             return decidirNoLaco(noLaco.get(), decision, request);
         }
 
         FlowState state = findPendingByRequestId(requestId)
+                .filter(s -> inScope(tenantScope, s.getTenantId()))
                 .orElseThrow(() -> new NoSuchElementException("Approval not found: " + requestId));
         if (isExpired(state)) {
             // Uma proposta vencida descreve um mundo que já mudou. Executá-la
