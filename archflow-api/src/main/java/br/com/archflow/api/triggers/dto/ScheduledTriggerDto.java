@@ -24,7 +24,11 @@ import java.util.Objects;
  *                       but paused — Quartz won't schedule it
  * @param createdAt      server clock at creation
  * @param lastFiredAt    last successful fire time, or {@code null}
- * @param lastError      last error message, or {@code null}
+ * @param lastError      last error message, or {@code null} — a falha do <i>disparo</i> (fila fora, por
+ *                       exemplo); o desfecho do agente é o resultado da invocação
+ * @param lastRequestId  requestId da última invocação disparada, ou {@code null}. É por ele que se sabe
+ *                       como o agente terminou ({@code GET /archflow/agents/invocations/{requestId}}):
+ *                       sem ele, "disparado" era tudo o que o gatilho dizia (RCHFLW-80)
  */
 public record ScheduledTriggerDto(
         String id,
@@ -36,7 +40,8 @@ public record ScheduledTriggerDto(
         boolean enabled,
         Instant createdAt,
         Instant lastFiredAt,
-        String lastError) {
+        String lastError,
+        String lastRequestId) {
 
     public ScheduledTriggerDto {
         Objects.requireNonNull(name, "name");

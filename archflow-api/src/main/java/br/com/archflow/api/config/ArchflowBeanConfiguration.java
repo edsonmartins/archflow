@@ -834,6 +834,9 @@ public class ArchflowBeanConfiguration {
             for (var meta : manager.getCatalog().listComponents()) {
                 var component = manager.getCatalog().getComponent(meta.id()).orElse(null);
                 if (component != null) {
+                    // O manager só chama onLoad; sem initialize o plugin falharia em todo uso direto.
+                    // Falha aqui é só aviso: o nó o inicializa com a própria config.
+                    br.com.archflow.api.flow.CatalogComponents.initializeOnRegistration(component);
                     catalog.register(component);
                     copied++;
                 }
@@ -871,6 +874,12 @@ public class ArchflowBeanConfiguration {
                 Class<?> cls = Class.forName(className);
                 Object instance = cls.getDeclaredConstructor().newInstance();
                 if (instance instanceof br.com.archflow.model.ai.AIComponent aic) {
+                    // Registrado sem initialize, todo embutido respondia "not initialized" (RCHFLW-15).
+                    // O mcp-agent fica de fora: sem systemPrompt ele não inicializa, e todo nó dele já
+                    // ganha instância própria no DefaultFlowStepFactory.
+                    if (!(aic instanceof br.com.archflow.api.agent.mcp.McpAgentComponent)) {
+                        br.com.archflow.api.flow.CatalogComponents.initializeOnRegistration(aic);
+                    }
                     catalog.register(aic);
                     registered.add(className);
                 }

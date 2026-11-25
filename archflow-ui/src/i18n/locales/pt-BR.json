@@ -725,7 +725,16 @@
         "deleteFailed": "Falha ao excluir",
         "fireFailed": "Falha ao disparar",
         "fired": "Disparado",
-        "firedMsg": "Invocação submetida para {{name}}"
+        "firedMsg": "Invocação submetida para {{name}}",
+        "run": {
+            "completed": "Agente concluído",
+            "completedMsg": "O disparo de {{name}} terminou com sucesso",
+            "failed": "O agente de {{name}} falhou",
+            "noErrorMessage": "O agente falhou sem mensagem de erro.",
+            "unknown": "Resultado de {{name}} indisponível",
+            "stillRunning": "O agente ainda não terminou. Consulte pelo requestId {{id}}.",
+            "queryFailed": "Não foi possível consultar o resultado (requestId {{id}})."
+        }
     },
     "admin": {
         "layout": {
@@ -1374,11 +1383,11 @@
         "subtitle": "Dispare um agente sob demanda ou envie uma mensagem de chat, e inspecione a resposta bruta.",
         "requestTitle": "Requisição",
         "requestHint": "Tenant, sessão, agente e o que enviar",
-        "responseHint": "Corpo bruto devolvido pelo endpoint de gatilho",
+        "responseHint": "Resultado do agente e o corpo devolvido pelo endpoint de gatilho",
         "emptyTitle": "Nenhuma resposta ainda",
         "emptyHint": "Escolha um agente e invoque-o ou envie uma mensagem — a resposta aparece aqui.",
         "title": "Agent Playground",
-        "info": "Dispare um agente diretamente (on-demand) ou envie uma mensagem conversacional. Ambos exigem um <code>AgentInvocationQueue</code> configurado no backend.",
+        "info": "Dispare um agente diretamente (on-demand) ou envie uma mensagem conversacional. Os dois entram na <code>AgentInvocationQueue</code>; o agente roda em segundo plano e o resultado aparece ao lado quando terminar.",
         "tenantId": "ID do tenant",
         "sessionId": "ID da sessão (opcional)",
         "sessionPlaceholder": "gerado automaticamente se vazio",
@@ -1401,7 +1410,24 @@
         "accepted": "Aceito",
         "requestIdMsg": "requestId: {{id}}",
         "invokeFailed": "Falha ao invocar",
-        "sendFailed": "Falha ao enviar"
+        "sendFailed": "Falha ao enviar",
+        "result": {
+            "title": "Resultado",
+            "status": {
+                "QUEUED": "Na fila",
+                "RUNNING": "Executando",
+                "COMPLETED": "Concluído",
+                "FAILED": "Falhou"
+            },
+            "failedTitle": "O agente falhou",
+            "noErrorMessage": "O agente falhou sem mensagem de erro.",
+            "noOutput": "O agente terminou sem saída.",
+            "notFound": "Invocação não encontrada para este tenant.",
+            "queryFailed": "Não foi possível consultar o resultado: {{message}}",
+            "stillRunning": "O agente ainda não terminou. Consulte de novo em instantes.",
+            "retry": "Consultar de novo",
+            "acceptance": "Resposta do endpoint (aceite)"
+        }
     },
     "voicePlayground": {
         "sessionTitle": "Sessão",

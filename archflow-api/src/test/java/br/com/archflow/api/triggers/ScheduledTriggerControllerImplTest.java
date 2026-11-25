@@ -48,7 +48,7 @@ class ScheduledTriggerControllerImplTest {
     void createGetList() {
         ScheduledTriggerDto created = controller.create(new ScheduledTriggerDto(
                 null, "nightly", "0 0 2 * * ?", "tenant-a", "summary-agent",
-                Map.of("mode", "digest"), true, null, null, null));
+                Map.of("mode", "digest"), true, null, null, null, null));
 
         assertThat(created.id()).startsWith("trg-");
         assertThat(controller.get(created.id()).name()).isEqualTo("nightly");
@@ -60,7 +60,7 @@ class ScheduledTriggerControllerImplTest {
     void rejectsBadCron() {
         assertThatThrownBy(() -> controller.create(new ScheduledTriggerDto(
                 null, "broken", "not a cron", "t", "a",
-                null, true, null, null, null)))
+                null, true, null, null, null, null)))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Invalid cron");
     }
@@ -70,11 +70,11 @@ class ScheduledTriggerControllerImplTest {
     void updateReschedules() {
         ScheduledTriggerDto orig = controller.create(new ScheduledTriggerDto(
                 null, "t1", "0 0 2 * * ?", "tenant", "a1",
-                null, true, null, null, null));
+                null, true, null, null, null, null));
 
         ScheduledTriggerDto updated = controller.update(orig.id(), new ScheduledTriggerDto(
                 orig.id(), "t1-renamed", "0 0 3 * * ?", "tenant", "a1",
-                null, true, null, null, null));
+                null, true, null, null, null, null));
 
         assertThat(updated.name()).isEqualTo("t1-renamed");
         assertThat(updated.cronExpression()).isEqualTo("0 0 3 * * ?");
@@ -86,7 +86,7 @@ class ScheduledTriggerControllerImplTest {
     void fireNow() {
         ScheduledTriggerDto created = controller.create(new ScheduledTriggerDto(
                 null, "manual", "0 0 0 * * ?", "tenant-x", "agent-y",
-                Map.of("k", "v"), true, null, null, null));
+                Map.of("k", "v"), true, null, null, null, null));
 
         int before = queue.size();
         ScheduledTriggerDto fired = controller.fireNow(created.id());
@@ -99,7 +99,7 @@ class ScheduledTriggerControllerImplTest {
     @DisplayName("delete removes from store and scheduler")
     void delete() {
         ScheduledTriggerDto created = controller.create(new ScheduledTriggerDto(
-                null, "x", "0 0 0 * * ?", "t", "a", null, true, null, null, null));
+                null, "x", "0 0 0 * * ?", "t", "a", null, true, null, null, null, null));
         controller.delete(created.id());
         assertThatThrownBy(() -> controller.get(created.id()))
                 .isInstanceOf(IllegalArgumentException.class);

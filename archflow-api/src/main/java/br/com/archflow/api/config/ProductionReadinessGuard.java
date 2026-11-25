@@ -107,6 +107,9 @@ public class ProductionReadinessGuard implements SmartInitializingSingleton {
         checkBean(br.com.archflow.agent.queue.AgentInvocationQueue.class,
                 br.com.archflow.agent.queue.InMemoryAgentInvocationQueue.class,
                 "AgentInvocationQueue — invocações assíncronas de agentes", violations);
+        checkBean(br.com.archflow.api.agent.invocation.AgentInvocationResultStore.class,
+                br.com.archflow.api.agent.invocation.InMemoryAgentInvocationResultStore.class,
+                "AgentInvocationResultStore — resultados das invocações de agentes", violations);
         checkBean(br.com.archflow.observability.audit.AuditRepository.class,
                 br.com.archflow.observability.audit.InMemoryAuditRepository.class,
                 "AuditRepository — trilha de auditoria", violations);

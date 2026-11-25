@@ -725,7 +725,16 @@
         "deleteFailed": "Delete failed",
         "fireFailed": "Fire failed",
         "fired": "Fired",
-        "firedMsg": "Submitted invocation for {{name}}"
+        "firedMsg": "Submitted invocation for {{name}}",
+        "run": {
+            "completed": "Agent completed",
+            "completedMsg": "The run of {{name}} finished successfully",
+            "failed": "The agent of {{name}} failed",
+            "noErrorMessage": "The agent failed without an error message.",
+            "unknown": "Result of {{name}} unavailable",
+            "stillRunning": "The agent has not finished yet. Look it up by requestId {{id}}.",
+            "queryFailed": "Could not query the result (requestId {{id}})."
+        }
     },
     "admin": {
         "layout": {
@@ -1374,11 +1383,11 @@
         "subtitle": "Fire an agent on demand or send it a chat message, and inspect the raw response.",
         "requestTitle": "Request",
         "requestHint": "Tenant, session, agent and what to send",
-        "responseHint": "Raw body returned by the trigger endpoint",
+        "responseHint": "The agent's result and the body returned by the trigger endpoint",
         "emptyTitle": "No response yet",
         "emptyHint": "Pick an agent, then invoke it or send a message — the response shows up here.",
         "title": "Agent Playground",
-        "info": "Trigger an agent directly (on-demand) or send a conversational message. Both require an <code>AgentInvocationQueue</code> wired on the backend.",
+        "info": "Trigger an agent directly (on-demand) or send a conversational message. Both go through the <code>AgentInvocationQueue</code>; the agent runs in the background and its result shows up here when it finishes.",
         "tenantId": "Tenant ID",
         "sessionId": "Session ID (optional)",
         "sessionPlaceholder": "auto-generated if blank",
@@ -1401,7 +1410,24 @@
         "accepted": "Accepted",
         "requestIdMsg": "requestId: {{id}}",
         "invokeFailed": "Invoke failed",
-        "sendFailed": "Send failed"
+        "sendFailed": "Send failed",
+        "result": {
+            "title": "Result",
+            "status": {
+                "QUEUED": "Queued",
+                "RUNNING": "Running",
+                "COMPLETED": "Completed",
+                "FAILED": "Failed"
+            },
+            "failedTitle": "The agent failed",
+            "noErrorMessage": "The agent failed without an error message.",
+            "noOutput": "The agent finished with no output.",
+            "notFound": "Invocation not found for this tenant.",
+            "queryFailed": "Could not fetch the result: {{message}}",
+            "stillRunning": "The agent has not finished yet. Check again in a moment.",
+            "retry": "Check again",
+            "acceptance": "Endpoint response (acceptance)"
+        }
     },
     "voicePlayground": {
         "sessionTitle": "Session",

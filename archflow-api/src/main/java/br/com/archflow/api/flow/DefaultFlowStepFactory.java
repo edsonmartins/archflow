@@ -189,10 +189,12 @@ public class DefaultFlowStepFactory implements FlowStepFactory {
                     operationOf(config, node), connections, scopedCatalog, interceptors, decision,
                     config);
         }
+        // Componente do catálogo: sem operação no nó, passa null e o passo usa a operação padrão do
+        // componente (CatalogComponents) — nenhum embutido declara o "execute" que valia antes.
         return new ComponentStep(
                 id, StepType.TOOL,
                 componentId == null ? "" : componentId.toString(),
-                operationOf(config, node), connections, scopedCatalog, interceptors, null, config);
+                explicitOperationOf(config, node), connections, scopedCatalog, interceptors, null, config);
     }
 
     /**
@@ -201,7 +203,14 @@ public class DefaultFlowStepFactory implements FlowStepFactory {
      * {@code label}, então ele nunca chega aqui.
      */
     private static String operationOf(Map<String, Object> config, Map<String, Object> node) {
-        return str(config.get("operation"), str(node.get("operation"), "execute"));
+        String explicit = explicitOperationOf(config, node);
+        return explicit == null ? CatalogComponents.LEGACY_OPERATION : explicit;
+    }
+
+    /** A operação que o nó declara, ou {@code null} quando não declara (em branco conta como ausente). */
+    private static String explicitOperationOf(Map<String, Object> config, Map<String, Object> node) {
+        String op = str(config.get("operation"), str(node.get("operation"), null));
+        return op == null || op.isBlank() ? null : op;
     }
 
     private static String str(Object v, String fallback) {

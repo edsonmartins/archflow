@@ -79,6 +79,14 @@ public class JdbcPersistenceConfiguration {
         return new br.com.archflow.api.queue.JdbcAgentInvocationQueue(dataSource);
     }
 
+    /** Resultado das invocações da fila durável: sobrevive ao restart e é visto de qualquer réplica. */
+    @Bean
+    public br.com.archflow.api.agent.invocation.AgentInvocationResultStore agentInvocationResultStore(
+            DataSource dataSource) {
+        log.info("JDBC persistence ativo: resultados de invocação duráveis (JdbcAgentInvocationResultStore)");
+        return new br.com.archflow.api.agent.invocation.JdbcAgentInvocationResultStore(dataSource);
+    }
+
     @Bean
     public UserRepository userRepository(DataSource dataSource) {
         log.info("JDBC persistence ativo: UserRepository durável (JdbcUserRepository)");
