@@ -40,6 +40,7 @@ import { ANNOTATION_COMPONENT_IDS, NODE_CATEGORIES, NODE_TYPE_TO_CATEGORY } from
 import type { FlowNodeData, WorkflowData } from './types'
 import { CanvasOutline } from './CanvasOutline'
 import { AddNodeMenu } from './AddNodeMenu'
+import { DisconnectedNodesWarning } from './DisconnectedNodesWarning'
 import { freePosition, isInView, newNodeId, nodeCentre } from './nodePlacement'
 
 // ── Registro de tipos ────────────────────────────────────────────
@@ -804,6 +805,12 @@ export function FlowCanvas({
                 </ActionIcon>
               </Tooltip>
             </Group>
+          </Panel>
+        )}
+
+        {!readonly && (
+          <Panel position="bottom-center">
+            <DisconnectedNodesWarning nodes={nodes} edges={edges} />
           </Panel>
         )}
 

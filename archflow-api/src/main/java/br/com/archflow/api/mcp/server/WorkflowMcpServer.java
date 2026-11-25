@@ -10,6 +10,8 @@ import br.com.archflow.langchain4j.mcp.McpModel;
 import br.com.archflow.langchain4j.mcp.server.AbstractMcpServer;
 import br.com.archflow.model.engine.DefaultExecutionContext;
 import br.com.archflow.model.engine.ExecutionContext;
+import br.com.archflow.model.enums.ExecutionStatus;
+import br.com.archflow.model.error.ExecutionError;
 import br.com.archflow.model.flow.Flow;
 import br.com.archflow.model.flow.FlowResult;
 import br.com.archflow.model.tenant.DefaultTenant;
@@ -23,6 +25,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
+import java.util.stream.Collectors;
 
 /**
  * Exposes every stored workflow as an MCP tool ({@code workflow_<id>}),
@@ -158,6 +161,18 @@ public class WorkflowMcpServer extends AbstractMcpServer {
             }
             String status = result != null && result.getStatus() != null
                     ? result.getStatus().name() : "COMPLETED";
+            // Um passo que falha sem aresta de erro não lança: o fluxo volta como FlowResult FAILED.
+            // Devolver isso como resultado normal (isError=false, status só dentro do texto) fazia o
+            // cliente MCP ler sucesso, e o registro da execução ficava sem o motivo (RCHFLW-34).
+            // CANCELLED também não é uma resposta que o chamador possa usar como saída.
+            if (result != null && (result.getStatus() == ExecutionStatus.FAILED
+                    || result.getStatus() == ExecutionStatus.CANCELLED)) {
+                String error = errorsOf(result);
+                store.completeExecution(executionId, status, error);
+                String verb = result.getStatus() == ExecutionStatus.FAILED ? "failed" : "was cancelled";
+                return McpModel.ToolResult.error("Workflow " + verb + " (" + executionId + ")"
+                        + (error != null ? ": " + error : ""));
+            }
             store.completeExecution(executionId, status, null);
 
             Map<String, Object> payload = new LinkedHashMap<>();
@@ -195,6 +210,23 @@ public class WorkflowMcpServer extends AbstractMcpServer {
             return meta.get("name").toString();
         }
         return String.valueOf(workflow.get("id"));
+    }
+
+    /**
+     * Mensagens dos erros que o motor pôs no resultado (os passos que falharam). Sem nenhuma, nulo:
+     * inventar um texto apagaria a diferença entre "falhou sem dizer" e "falhou dizendo isto" — a
+     * mesma regra de {@code SimpleStepResult.failed}.
+     */
+    private static String errorsOf(FlowResult result) {
+        List<ExecutionError> errors = result.getErrors();
+        if (errors == null || errors.isEmpty()) {
+            return null;
+        }
+        String joined = errors.stream()
+                .map(ExecutionError::message)
+                .filter(m -> m != null && !m.isBlank())
+                .collect(Collectors.joining("; "));
+        return joined.isEmpty() ? null : joined;
     }
 
     private static String rootMessage(Throwable err) {

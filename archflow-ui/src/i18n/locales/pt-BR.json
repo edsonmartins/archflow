@@ -341,6 +341,10 @@
             "tidy": "Organizar layout",
             "addNode": "Adicionar nó"
         },
+        "disconnectedWarning": {
+            "title": "Nós sem conexão",
+            "message": "Sem conexão: {{names}}. Sem nenhuma aresta, o fluxo roda os nós na ordem em que foram criados; com arestas, um nó solto roda à parte, com a entrada da execução. Ligue os nós para definir a ordem."
+        },
         "publish": {
             "button": "Publicar",
             "title": "Publicar este workflow",

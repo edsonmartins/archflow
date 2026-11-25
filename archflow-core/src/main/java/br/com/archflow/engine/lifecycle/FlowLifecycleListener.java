@@ -38,11 +38,13 @@ public interface FlowLifecycleListener {
     default void onFlowStarted(Flow flow, ExecutionContext context, int stepCount) {}
 
     /**
-     * Called when a flow completes successfully.
+     * Called when the traversal returns a {@link FlowResult} without throwing — whatever its status.
+     * A step that fails without an error edge ends here with {@code FAILED}; CANCELLED and PAUSED
+     * (awaiting approval) too. Implementations must read {@code result.getStatus()} (RCHFLW-33).
      *
      * @param flow       the flow that completed
      * @param context    execution context
-     * @param result     the successful result
+     * @param result     the result, with its final status
      * @param durationMs wall-clock duration of the flow in milliseconds
      */
     default void onFlowCompleted(Flow flow, ExecutionContext context,

@@ -60,6 +60,11 @@ final class ChatNodeContext implements ExecutionContext {
     }
 
     @Override
+    public void remove(String key) {
+        delegate.remove(key);
+    }
+
+    @Override
     public ChatMemory getChatMemory() {
         return delegate.getChatMemory();
     }
