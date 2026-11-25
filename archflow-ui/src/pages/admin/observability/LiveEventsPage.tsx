@@ -19,9 +19,13 @@ import { VxTable, colunaApagada, colunaStatus, type Registro, type VxColumn } fr
 
 /**
  * Live SSE event viewer for debugging. Reuses {@link ArchflowEventStream}
- * from P0 — the user types a (tenantId, sessionId) and sees every frame
- * arriving in real time. Scrollback is capped at 500 entries. Clicking an
- * event opens its payload in the side panel.
+ * from P0 — the user types a session id (and, optionally, a tenant id) and
+ * sees every frame arriving in real time. Scrollback is capped at 500 entries.
+ * Clicking an event opens its payload in the side panel.
+ *
+ * O tenant em branco é o da própria sessão (o servidor resolve). Informado, o servidor só aceita o
+ * tenant efetivo da requisição — o próprio, ou o personificado por um superadmin — e responde 403 a
+ * qualquer outro (RCHFLW-49); `__admin__` + o próprio tenant abre o canal administrativo dele.
  */
 export default function LiveEventsPage() {
     const { t, i18n } = useTranslation();
@@ -33,10 +37,10 @@ export default function LiveEventsPage() {
     const [status, setStatus] = useState<StreamStatus>('idle');
     const [events, setEvents] = useState<ArchflowEvent[]>([]);
     const [error, setError] = useState<string | null>(null);
-    const [attached, setAttached] = useState<{ tenantId: string; sessionId: string } | null>(null);
+    const [attached, setAttached] = useState<{ tenantId?: string; sessionId: string } | null>(null);
     const streamRef = useRef<ArchflowEventStream | null>(null);
 
-    const canAttach = tenantId.trim().length > 0 && sessionId.trim().length > 0;
+    const canAttach = sessionId.trim().length > 0;
 
     useEffect(() => {
         if (!attached) return;
@@ -73,7 +77,7 @@ export default function LiveEventsPage() {
         setError(null);
         setEvents([]);
         setExpandedId(null);
-        setAttached({ tenantId: tenantId.trim(), sessionId: sessionId.trim() });
+        setAttached({ tenantId: tenantId.trim() || undefined, sessionId: sessionId.trim() });
     };
 
     const handleDetach = () => {

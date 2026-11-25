@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { workflowApi, executionApi } from '../services/api';
 import type { WorkflowSummary, WorkflowDetail, ExecutionSummary } from '../services/api';
+import { useTenantStore } from './useTenantStore';
 
 interface WorkflowState {
     workflows: WorkflowSummary[];
@@ -37,6 +38,11 @@ interface WorkflowState {
 // requests into a single GET instead of firing one per consumer.
 let workflowsFetchInFlight: Promise<void> | null = null;
 
+// Fluxos e execuções são do tenant da requisição (RCHFLW-73). Cada troca de personificação inicia uma
+// "geração"; uma resposta pedida na geração anterior é do tenant anterior e é descartada, em vez de
+// repovoar a lista do tenant novo com fluxos que ali respondem 404.
+let tenantGeneration = 0;
+
 export const useWorkflowStore = create<WorkflowState>((set) => ({
     workflows: [],
     currentWorkflow: null,
@@ -47,14 +53,18 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
     fetchWorkflows: async () => {
         if (workflowsFetchInFlight) return workflowsFetchInFlight;
         set({ loading: true, error: null });
+        const generation = tenantGeneration;
         workflowsFetchInFlight = (async () => {
             try {
                 const workflows = await workflowApi.list();
-                set({ workflows, loading: false });
+                if (generation === tenantGeneration) set({ workflows, loading: false });
             } catch (e) {
-                set({ loading: false, error: e instanceof Error ? e.message : 'Failed to load workflows' });
+                if (generation === tenantGeneration) {
+                    set({ loading: false, error: e instanceof Error ? e.message : 'Failed to load workflows' });
+                }
             } finally {
-                workflowsFetchInFlight = null;
+                // Só limpa o pedido da própria geração: o de um tenant anterior já foi substituído.
+                if (generation === tenantGeneration) workflowsFetchInFlight = null;
             }
         })();
         return workflowsFetchInFlight;
@@ -141,11 +151,14 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
 
     fetchExecutions: async (workflowId, limit) => {
         set({ loading: true, error: null });
+        const generation = tenantGeneration;
         try {
             const executions = await executionApi.list({ workflowId, limit });
-            set({ executions, loading: false });
+            if (generation === tenantGeneration) set({ executions, loading: false });
         } catch (e) {
-            set({ loading: false, error: e instanceof Error ? e.message : 'Failed to load executions' });
+            if (generation === tenantGeneration) {
+                set({ loading: false, error: e instanceof Error ? e.message : 'Failed to load executions' });
+            }
         }
     },
 
@@ -178,3 +191,23 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
     clearCurrent: () => set({ currentWorkflow: null }),
     clearError: () => set({ error: null }),
 }));
+
+/**
+ * Ao entrar num tenant (personificação) ou sair dele, o que está em memória é do tenant anterior: a
+ * lista, o fluxo aberto e as execuções. Limpa tudo e recarrega a lista — a busca do layout e o
+ * copiloto a leem sem remontar, e mostrariam os fluxos do outro tenant até um F5.
+ */
+export function onTenantChanged(): void {
+    tenantGeneration += 1;
+    workflowsFetchInFlight = null;
+    useWorkflowStore.setState({ workflows: [], currentWorkflow: null, executions: [], loading: false, error: null });
+    useWorkflowStore.getState().fetchWorkflows().catch(() => { /* a página que precisar mostra o erro */ });
+}
+
+let impersonatedTenant = useTenantStore.getState().impersonating?.id ?? null;
+useTenantStore.subscribe((state) => {
+    const tenant = state.impersonating?.id ?? null;
+    if (tenant === impersonatedTenant) return;
+    impersonatedTenant = tenant;
+    onTenantChanged();
+});

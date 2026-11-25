@@ -33,10 +33,9 @@ export interface ApprovalSubmitRequest {
  * list + detail + submit + count surface used by the admin UI.
  */
 export const approvalApi = {
-    listPending: (tenantId: string) =>
-        api.get<ApprovalResponse[]>(
-            `/approvals/pending?tenantId=${encodeURIComponent(tenantId)}`,
-        ),
+    // tenantId ausente = o servidor usa o tenant da requisição (ver approvalTenantParam).
+    listPending: (tenantId?: string) =>
+        api.get<ApprovalResponse[]>(`/approvals/pending${tenantQuery(tenantId)}`),
 
     get: (requestId: string) =>
         api.get<ApprovalResponse>(`/approvals/${encodeURIComponent(requestId)}`),
@@ -47,8 +46,10 @@ export const approvalApi = {
             request,
         ),
 
-    pendingCount: (tenantId: string) =>
-        api.get<{ count: number }>(
-            `/approvals/pending/count?tenantId=${encodeURIComponent(tenantId)}`,
-        ),
+    pendingCount: (tenantId?: string) =>
+        api.get<{ count: number }>(`/approvals/pending/count${tenantQuery(tenantId)}`),
 };
+
+function tenantQuery(tenantId?: string): string {
+    return tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : '';
+}

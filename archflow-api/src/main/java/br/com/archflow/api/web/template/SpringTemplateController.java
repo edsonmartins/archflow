@@ -58,7 +58,9 @@ public class SpringTemplateController {
         document.put("status", "draft");
         document.put("template", id);
         document.put("updatedAt", java.time.Instant.now().toString());
-        workflowStore.putWorkflow(workflowId, document);
+        // O rascunho instalado é do tenant de quem instalou (RCHFLW-73); sem isso ele nasceria num
+        // tenant que o próprio instalador não lista.
+        workflowStore.putWorkflow(br.com.archflow.api.config.TenantContext.currentTenantId(), workflowId, document);
 
         return ResponseEntity.status(HttpStatus.CREATED).body(Map.of(
                 "workflowId", workflowId,

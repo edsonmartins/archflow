@@ -1,5 +1,6 @@
 package br.com.archflow.api.config;
 
+import br.com.archflow.model.tenant.DefaultTenant;
 import org.springframework.web.context.request.RequestAttributes;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
@@ -17,8 +18,12 @@ import org.springframework.web.context.request.ServletRequestAttributes;
  */
 public final class TenantContext {
 
-    /** Default fallback used when no tenant header was set, e.g. by tests. */
-    public static final String DEFAULT_TENANT = "__default__";
+    /**
+     * Tenant de quem não declarou nenhum. É o mesmo id que o motor grava quando o contexto de execução
+     * chega sem tenant ({@link DefaultTenant#ID}) — antes eram valores diferentes ("SYSTEM" no motor),
+     * e a aprovação criada por uma execução da UI nunca aparecia na fila do tenant (RCHFLW-13).
+     */
+    public static final String DEFAULT_TENANT = DefaultTenant.ID;
 
     private TenantContext() {}
 

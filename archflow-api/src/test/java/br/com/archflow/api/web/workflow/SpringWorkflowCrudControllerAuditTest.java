@@ -5,6 +5,7 @@ import br.com.archflow.api.flow.WorkflowDeserializer;
 import br.com.archflow.engine.api.FlowEngine;
 import br.com.archflow.engine.persistence.FlowRepository;
 import br.com.archflow.model.flow.Flow;
+import br.com.archflow.model.tenant.DefaultTenant;
 import br.com.archflow.observability.audit.AuditAction;
 import br.com.archflow.observability.audit.AuditEvent;
 import br.com.archflow.observability.audit.AuditRepository;
@@ -123,10 +124,10 @@ class SpringWorkflowCrudControllerAuditTest {
                 "environment", "PRODUCTION"));
 
         assertThat(response.getStatusCode().value()).isEqualTo(201);
-        assertThat(store.workflowVersions(id)).singleElement().satisfies(version -> {
+        assertThat(store.workflowVersions(DefaultTenant.ID, id)).singleElement().satisfies(version -> {
             assertThat(version.number()).isEqualTo(1);
             assertThat(version.comment()).isEqualTo("ready");
-            assertThat(store.getDeployment(id, "production").versionId())
+            assertThat(store.getDeployment(DefaultTenant.ID, id, "production").versionId())
                     .isEqualTo(version.id());
         });
         assertThat(events())
@@ -141,15 +142,15 @@ class SpringWorkflowCrudControllerAuditTest {
         var created = controller.create(new java.util.HashMap<>(
                 Map.of("metadata", Map.of("name", "Flow A"))));
         String id = String.valueOf(created.getBody().get("id"));
-        var first = store.publishWorkflow(id, "v1");
-        var second = store.publishWorkflow(id, "v2");
-        store.deployWorkflow(id, "PRODUCTION", second.id());
+        var first = store.publishWorkflow(DefaultTenant.ID, id, "v1");
+        var second = store.publishWorkflow(DefaultTenant.ID, id, "v2");
+        store.deployWorkflow(DefaultTenant.ID, id, "PRODUCTION", second.id());
 
         var response = controller.deploy(
                 id, "production", Map.of("versionId", first.id()));
 
         assertThat(response.getStatusCode().is2xxSuccessful()).isTrue();
-        assertThat(store.getDeployment(id, "PRODUCTION").versionId())
+        assertThat(store.getDeployment(DefaultTenant.ID, id, "PRODUCTION").versionId())
                 .isEqualTo(first.id());
         assertThat(events())
                 .filteredOn(event -> event.getAction() == AuditAction.UPDATE)

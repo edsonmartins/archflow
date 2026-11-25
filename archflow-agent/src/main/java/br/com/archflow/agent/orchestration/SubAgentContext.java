@@ -67,7 +67,7 @@ public final class SubAgentContext {
         }
         Map<String, Object> variables = filterVariables(parent.getVariables(), allowedKeys);
         return new ImmutableExecutionContext(
-                parent.getTenantId() != null ? parent.getTenantId() : "SYSTEM",
+                br.com.archflow.model.tenant.DefaultTenant.orDefault(parent.getTenantId()),
                 parent.getUserId(),
                 parent.getSessionId(),
                 parent.getRequestId(),

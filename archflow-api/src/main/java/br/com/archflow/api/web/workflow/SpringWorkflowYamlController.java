@@ -1,5 +1,6 @@
 package br.com.archflow.api.web.workflow;
 
+import br.com.archflow.api.config.TenantContext;
 import br.com.archflow.api.workflow.WorkflowYamlBridge;
 import br.com.archflow.api.workflow.WorkflowYamlDto;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -49,7 +50,7 @@ public class SpringWorkflowYamlController {
 
     @GetMapping("/{id}/yaml")
     public WorkflowYamlDto getYaml(@PathVariable String id) {
-        Map<String, Object> doc = store.getWorkflow(id);
+        Map<String, Object> doc = store.getWorkflow(TenantContext.currentTenantId(), id);
         if (doc == null) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Workflow not found: " + id);
         }
@@ -70,7 +71,9 @@ public class SpringWorkflowYamlController {
         if (request == null || request.yaml() == null || request.yaml().isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "YAML payload is empty");
         }
-        if (!store.hasWorkflow(id)) {
+        // Tenant da requisição (RCHFLW-73): o YAML de um fluxo de outro tenant é 404, como no CRUD.
+        String tenantId = TenantContext.currentTenantId();
+        if (!store.hasWorkflow(tenantId, id)) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Workflow not found: " + id);
         }
 
@@ -92,13 +95,13 @@ public class SpringWorkflowYamlController {
         // Preserve UI-only metadata the YAML representation doesn't carry
         // (status, updatedAt). Anything the YAML body provides wins; the
         // existing values fill the gaps.
-        Map<String, Object> existing = store.getWorkflow(id);
+        Map<String, Object> existing = store.getWorkflow(tenantId, id);
         LinkedHashMap<String, Object> merged = new LinkedHashMap<>(existing);
         merged.putAll(parsed);
         merged.put("updatedAt", Instant.now().toString());
         merged.putIfAbsent("status", "draft");
 
-        store.putWorkflow(id, merged);
+        store.putWorkflow(tenantId, id, merged);
         return new WorkflowYamlDto(id, bridge.jsonToYaml(toJson(merged)), extractVersion(merged));
     }
 

@@ -37,6 +37,30 @@ class WorkspaceControllerImplTest {
             assertThat(summary.apiKeyCount()).isEqualTo(controller.listApiKeys().size());
             assertThat(summary.limits().maxUsers()).isGreaterThan(0);
         }
+
+        /**
+         * RCHFLW-44: o tenant vem só do atributo que o ImpersonationFilter resolveu. O header cru
+         * pulava a checagem contra o JWT (e o X-Impersonate-Tenant, a do papel).
+         */
+        @Test
+        @DisplayName("ignores raw X-Tenant-Id / X-Impersonate-Tenant headers and uses the resolved attribute")
+        void ignoresRawTenantHeaders() {
+            var req = new org.springframework.mock.web.MockHttpServletRequest("GET", "/api/admin/workspace");
+            req.addHeader("X-Tenant-Id", "tenant_b");
+            req.addHeader("X-Impersonate-Tenant", "tenant_c");
+            org.springframework.web.context.request.RequestContextHolder.setRequestAttributes(
+                    new org.springframework.web.context.request.ServletRequestAttributes(req));
+            try {
+                assertThat(controller.getSummary().tenantId())
+                        .as("sem atributo resolvido, cai no fallback — nunca no header")
+                        .isEqualTo("tenant_demo");
+
+                req.setAttribute(br.com.archflow.api.config.ImpersonationFilter.ATTR_TENANT_ID, "tenant_a");
+                assertThat(controller.getSummary().tenantId()).isEqualTo("tenant_a");
+            } finally {
+                org.springframework.web.context.request.RequestContextHolder.resetRequestAttributes();
+            }
+        }
     }
 
     @Nested

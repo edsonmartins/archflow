@@ -2,6 +2,7 @@ package br.com.archflow.api.mcp.server;
 
 import br.com.archflow.api.flow.WorkflowDeserializer;
 import br.com.archflow.api.web.workflow.InMemoryWorkflowRuntimeStore;
+import br.com.archflow.model.tenant.DefaultTenant;
 import br.com.archflow.engine.api.FlowEngine;
 import br.com.archflow.engine.persistence.FlowRepository;
 import br.com.archflow.langchain4j.mcp.McpModel;
@@ -87,8 +88,8 @@ class WorkflowMcpServerTest {
 
         // The run is tracked like any other execution.
         String executionId = text.replaceAll(".*\"executionId\":\"([^\"]+)\".*", "$1");
-        assertThat(store.getExecution(executionId)).isNotNull();
-        assertThat(store.getExecution(executionId).get("status")).isEqualTo("COMPLETED");
+        assertThat(store.getExecution(DefaultTenant.ID, executionId)).isNotNull();
+        assertThat(store.getExecution(DefaultTenant.ID, executionId).get("status")).isEqualTo("COMPLETED");
     }
 
     @Test

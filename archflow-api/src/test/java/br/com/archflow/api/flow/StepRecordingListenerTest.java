@@ -1,6 +1,7 @@
 package br.com.archflow.api.flow;
 
 import br.com.archflow.api.web.workflow.InMemoryWorkflowRuntimeStore;
+import br.com.archflow.model.tenant.DefaultTenant;
 import br.com.archflow.model.engine.ExecutionContext;
 import br.com.archflow.model.flow.Flow;
 import br.com.archflow.model.flow.FlowStep;
@@ -32,7 +33,7 @@ class StepRecordingListenerTest {
     void setUp() {
         store = new InMemoryWorkflowRuntimeStore();
         listener = new StepRecordingListener(store);
-        executionId = String.valueOf(store.createExecution("wf-1", "Test Flow").get("id"));
+        executionId = String.valueOf(store.createExecution(DefaultTenant.ID, "wf-1", "Test Flow").get("id"));
         flow = mock(Flow.class);
         // In both execution paths (/execute and AG-UI) the flow id is the execution id.
         when(flow.getId()).thenReturn(executionId);
@@ -47,7 +48,7 @@ class StepRecordingListenerTest {
 
     @SuppressWarnings("unchecked")
     private List<Map<String, Object>> steps() {
-        return (List<Map<String, Object>>) store.getExecution(executionId).get("steps");
+        return (List<Map<String, Object>>) store.getExecution(DefaultTenant.ID, executionId).get("steps");
     }
 
     @Test
@@ -90,7 +91,7 @@ class StepRecordingListenerTest {
     void recordsFlowDuration() {
         listener.onFlowCompleted(flow, null, null, 987L);
 
-        assertThat(store.getExecution(executionId).get("duration")).isEqualTo(987L);
+        assertThat(store.getExecution(DefaultTenant.ID, executionId).get("duration")).isEqualTo(987L);
     }
 
     @Test
@@ -102,7 +103,7 @@ class StepRecordingListenerTest {
         listener.onStepStarted(ghost, step("s", StepType.AGENT), null, 0, 1);
         listener.onFlowCompleted(ghost, null, null, 1L);
 
-        assertThat(store.getExecution("no-such-exec")).isNull();
+        assertThat(store.getExecution(DefaultTenant.ID, "no-such-exec")).isNull();
     }
 
     // ------------------------------------------------------------------ saída do passo
@@ -204,7 +205,7 @@ class StepRecordingListenerTest {
         listener.onStepCompleted(flow, stepA, contextWithOutput("step-a", new Exploding()), 1L);
 
         ObjectMapper jdbcLikeMapper = new ObjectMapper();
-        String json = jdbcLikeMapper.writeValueAsString(store.getExecution(executionId));
+        String json = jdbcLikeMapper.writeValueAsString(store.getExecution(DefaultTenant.ID, executionId));
         @SuppressWarnings("unchecked")
         Map<String, Object> back = jdbcLikeMapper.readValue(json, Map.class);
         @SuppressWarnings("unchecked")

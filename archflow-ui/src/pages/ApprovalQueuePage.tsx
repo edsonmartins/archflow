@@ -12,6 +12,7 @@ import {
 } from '@tabler/icons-react';
 import { approvalApi, type ApprovalResponse } from '../services/approval-api';
 import { useTenantStore } from '../stores/useTenantStore';
+import { approvalTenantParam } from '../lib/approvalTenant';
 import { PageHeader } from '../components/PageHeader';
 import { SectionCard } from '../components/SectionCard';
 import { StatCard } from '../components/admin/StatCard';
@@ -22,7 +23,7 @@ export default function ApprovalQueuePage() {
     const { t } = useTranslation();
     const { impersonating, currentRole } = useTenantStore();
     // impersonating é um TenantInfo — a API espera o ID (passar o objeto virava "[object Object]")
-    const tenantId = impersonating?.id ?? (currentRole === 'superadmin' ? 'all' : 'default');
+    const tenantId = approvalTenantParam(impersonating, currentRole);
 
     const [items, setItems] = useState<ApprovalResponse[]>([]);
     const [loading, setLoading] = useState(false);

@@ -1,5 +1,6 @@
 package br.com.archflow.api.mcp.server;
 
+import br.com.archflow.api.config.TenantContext;
 import br.com.archflow.langchain4j.mcp.JsonRpc;
 import jakarta.annotation.PreDestroy;
 import org.springframework.http.MediaType;
@@ -72,8 +73,11 @@ public class SpringMcpServerController {
                             JsonRpc.JsonRpcError.Codes.INVALID_REQUEST, e.getMessage(), null))));
         }
 
+        // Capturado AQUI, na thread do servlet: dentro do supplyAsync (thread virtual) não há
+        // requisição, e o TenantContext cairia sempre no tenant padrão (RCHFLW-13).
+        String tenantId = TenantContext.currentTenantId();
         return CompletableFuture
-                .supplyAsync(() -> server.handleRequest(request), executor)
+                .supplyAsync(() -> server.handleRequest(request, tenantId), executor)
                 .orTimeout(REQUEST_TIMEOUT_SECONDS, TimeUnit.SECONDS)
                 .exceptionally(err -> {
                     String detail = err instanceof TimeoutException

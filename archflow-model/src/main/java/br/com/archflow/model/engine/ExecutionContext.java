@@ -69,10 +69,12 @@ public interface ExecutionContext {
 
     /**
      * Identificador do tenant. Obrigatório em produção multi-tenant.
-     * Default: "SYSTEM" para compatibilidade com código existente.
+     * Default: o tenant padrão canônico ({@link br.com.archflow.model.tenant.DefaultTenant#ID}) — o
+     * mesmo valor que a API usa para uma requisição sem tenant, para o produtor de um estado e o
+     * leitor que filtra por tenant concordarem.
      */
     default String getTenantId() {
-        return "SYSTEM";
+        return br.com.archflow.model.tenant.DefaultTenant.ID;
     }
 
     /**

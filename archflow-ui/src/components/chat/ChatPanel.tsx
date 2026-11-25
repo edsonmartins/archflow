@@ -28,8 +28,6 @@ interface ChatPanelProps {
     conversationId?: string;
     /** Workflow id this conversation runs against. */
     workflowId?: string;
-    /** Tenant id used for SSE scoping. Falls back to "default" when undefined. */
-    tenantId?: string;
 }
 
 interface PendingAssistant {
@@ -42,7 +40,7 @@ interface PendingAssistant {
     finished: boolean;
 }
 
-export default function ChatPanel({ conversationId, workflowId, tenantId }: ChatPanelProps) {
+export default function ChatPanel({ conversationId, workflowId }: ChatPanelProps) {
     const { t } = useTranslation();
     const [messages, setMessages] = useState<ConversationMessage[]>([]);
     const [pending, setPending] = useState<PendingAssistant | null>(null);
@@ -51,6 +49,8 @@ export default function ChatPanel({ conversationId, workflowId, tenantId }: Chat
     const [suspendedForm, setSuspendedForm] = useState<FormDataType | null>(null);
     const [resumeToken, setResumeToken] = useState<string | null>(null);
     const [initialLoading, setInitialLoading] = useState(false);
+    // Conversa cujo histórico já foi carregado (com sucesso ou não): o stream só abre depois dele.
+    const [historyLoadedFor, setHistoryLoadedFor] = useState<string | undefined>(undefined);
     const [streamStatus, setStreamStatus] = useState<StreamStatus>('idle');
 
     const scrollRef = useRef<HTMLDivElement>(null);
@@ -97,7 +97,10 @@ export default function ChatPanel({ conversationId, workflowId, tenantId }: Chat
                 console.error('Failed to load conversation:', err);
             })
             .finally(() => {
-                if (!cancelled) setInitialLoading(false);
+                if (!cancelled) {
+                    setInitialLoading(false);
+                    setHistoryLoadedFor(conversationId);
+                }
             });
         return () => {
             cancelled = true;
@@ -106,9 +109,14 @@ export default function ChatPanel({ conversationId, workflowId, tenantId }: Chat
 
     // ── SSE subscription (real-time deltas, tool calls, suspends) ──
     useEffect(() => {
-        if (!conversationId) return;
+        // Só depois do histórico: o setMessages da carga inicial substitui a lista inteira, e uma resposta
+        // que chegasse pelo stream antes dele sumiria da tela. Antes isso acontecia por acaso — o stream só
+        // abria quando a conversa (e o tenantId dela) carregava.
+        if (!conversationId || historyLoadedFor !== conversationId) return;
+        // Sem tenantId: o servidor assina o canal do tenant da requisição — o mesmo em que publica a
+        // resposta da mensagem enviada por este usuário. A UI mandava o tenant da conversa ou
+        // 'default', um tenant inventado que o stream agora recusa (RCHFLW-49).
         const stream = new ArchflowEventStream({
-            tenantId: tenantId ?? 'default',
             sessionId: conversationId,
             autoReconnect: true,
         });
@@ -293,7 +301,7 @@ export default function ChatPanel({ conversationId, workflowId, tenantId }: Chat
             offEvent();
             stream.close();
         };
-    }, [conversationId, tenantId]);
+    }, [conversationId, historyLoadedFor]);
 
     useEffect(() => {
         scrollToBottom();

@@ -936,7 +936,7 @@
             },
             "live": {
                 "connection": "Connection",
-                "connectionHint": "Attach to a tenant and session to stream its events",
+                "connectionHint": "Attach to a session to stream its events. Only your own tenant (or the impersonated one) is accepted; leave the tenant blank to use your session's.",
                 "eventFeedHint": "Newest at the bottom · up to 500 events · click one to inspect",
                 "payload": "Payload",
                 "payloadHint": "Event data",
@@ -944,7 +944,7 @@
                 "openFailed": "Failed to open stream",
                 "tenantId": "Tenant id",
                 "sessionId": "Session id",
-                "tenantPlaceholder": "acme",
+                "tenantPlaceholder": "blank = your session's tenant",
                 "sessionPlaceholder": "conversation-123",
                 "pause": "Pause",
                 "resume": "Resume",

@@ -1,6 +1,7 @@
 package br.com.archflow.api.web.workflow;
 
 import br.com.archflow.api.agent.mcp.McpAgentHost;
+import br.com.archflow.api.config.TenantContext;
 import br.com.archflow.engine.api.FlowEngine;
 import br.com.archflow.engine.core.StateManager;
 import br.com.archflow.model.engine.DefaultExecutionContext;
@@ -18,6 +19,9 @@ import java.util.Map;
 
 /**
  * In-memory execution history controller for development and demos.
+ *
+ * <p>Lista, detalhe, cancelamento e retomada só enxergam as execuções do tenant da requisição; a de
+ * outro tenant responde 404 (RCHFLW-73).
  */
 @RestController
 @RequestMapping("/api/executions")
@@ -42,7 +46,7 @@ public class SpringExecutionController {
                                           @RequestParam(required = false) Integer limit) {
         // Filtering + limiting happen inside the store on the raw records, so a
         // bounded poll only deep-copies the survivors, not the whole history.
-        return store.executions(workflowId, limit).stream()
+        return store.executions(TenantContext.currentTenantId(), workflowId, limit).stream()
                 .map(SpringExecutionController::withoutStepOutputs)
                 .toList();
     }
@@ -75,7 +79,8 @@ public class SpringExecutionController {
 
     @GetMapping("/{id}")
     public ResponseEntity<Map<String, Object>> get(@PathVariable String id) {
-        var execution = store.getExecution(id);
+        String tenantId = TenantContext.currentTenantId();
+        var execution = store.getExecution(tenantId, id);
         if (execution == null) {
             return ResponseEntity.notFound().build();
         }
@@ -96,7 +101,8 @@ public class SpringExecutionController {
      */
     @PostMapping("/{id}/cancel")
     public ResponseEntity<Map<String, Object>> cancel(@PathVariable String id) {
-        var execution = store.getExecution(id);
+        String tenantId = TenantContext.currentTenantId();
+        var execution = store.getExecution(tenantId, id);
         if (execution == null) {
             return ResponseEntity.notFound().build();
         }
@@ -112,7 +118,7 @@ public class SpringExecutionController {
             // ignore — fall through to mark the record cancelled
         }
         store.completeExecution(id, "CANCELLED", null);
-        return ResponseEntity.ok(store.getExecution(id));
+        return ResponseEntity.ok(store.getExecution(tenantId, id));
     }
 
     /**
@@ -122,7 +128,8 @@ public class SpringExecutionController {
      */
     @PostMapping("/{id}/resume")
     public ResponseEntity<Map<String, Object>> resume(@PathVariable String id) {
-        var execution = store.getExecution(id);
+        String tenantId = TenantContext.currentTenantId();
+        var execution = store.getExecution(tenantId, id);
         if (execution == null) {
             return ResponseEntity.notFound().build();
         }
@@ -150,7 +157,7 @@ public class SpringExecutionController {
         flowEngine.resumeFlow(id, ctx).whenComplete((result, err) ->
                 store.completeExecution(id, statusOf(result, err), errorOf(err)));
 
-        return ResponseEntity.ok(store.getExecution(id));
+        return ResponseEntity.ok(store.getExecution(tenantId, id));
     }
 
     private static String statusOf(FlowResult result, Throwable err) {

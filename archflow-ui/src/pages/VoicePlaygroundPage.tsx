@@ -88,8 +88,11 @@ export default function VoicePlaygroundPage() {
 
     const ensureClient = useCallback(() => {
         if (clientRef.current) return clientRef.current;
+        // O caminho do WebSocket ainda exige um segmento de tenant. Sem personificação, o tenant
+        // padrão canônico ('__default__', o mesmo que o servidor resolve para a requisição sem
+        // tenant) — 'default' era um tenant inventado que não batia com nenhum outro leitor.
         const tenantId =
-            sessionStorage.getItem('archflow_impersonate_tenant') ?? 'default';
+            sessionStorage.getItem('archflow_impersonate_tenant') ?? '__default__';
         const client = new RealtimeClient({ tenantId, personaId: persona });
 
         const offStatus = client.onStatus(setStatus);

@@ -1,5 +1,6 @@
 package br.com.archflow.api.agent.mcp;
 
+import br.com.archflow.model.tenant.DefaultTenant;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -52,7 +53,7 @@ public final class JdbcMcpAgentStateStore implements McpAgentStateStore {
         try (Connection conn = dataSource.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, state.runId());
-            ps.setString(2, state.tenantId() != null ? state.tenantId() : "SYSTEM");
+            ps.setString(2, DefaultTenant.orDefault(state.tenantId()));
             ps.setString(3, state.pending() != null ? state.pending().requestId() : null);
             ps.setString(4, mapper.writeValueAsString(state));
             ps.setTimestamp(5, Timestamp.from(
