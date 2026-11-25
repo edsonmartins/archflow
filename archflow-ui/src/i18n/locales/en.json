@@ -363,6 +363,10 @@
         "loadingYaml": "Loading YAML…",
         "emptyTitle": "No workflow loaded",
         "emptyHint": "Create a new workflow or load an existing one to get started",
+        "notFoundTitle": "Workflow not found",
+        "notFoundHint": "This workflow does not exist or is not available in your workspace. It may have been deleted, or the link may belong to another workspace.",
+        "backToList": "Back to workflow list",
+        "loadFailed": "Failed to load the workflow",
         "notif": {
             "yamlSaved": "YAML saved",
             "yamlSavedMsg": "Workflow updated from YAML",
