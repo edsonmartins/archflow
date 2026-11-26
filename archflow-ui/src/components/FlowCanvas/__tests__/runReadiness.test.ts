@@ -9,6 +9,7 @@ import {
 } from '../runReadiness'
 import { NOT_EXECUTABLE_NODE_TYPES, PALETTE_NODES, isNotExecutableNode } from '../constants'
 import ptBR from '../../../i18n/locales/pt-BR.json'
+import en from '../../../i18n/locales/en.json'
 
 const t = ((k: string, o?: Record<string, string>) =>
   o ? `${k}[${Object.values(o).join('|')}]` : k) as unknown as TFunction
@@ -33,8 +34,8 @@ describe('runReadiness', () => {
   it('campos que o motor exige e o nó não tem impedem o run, nomeando nó e campo', () => {
     const blockers = runBlockers([
       { id: 'c', label: 'Urgente?', componentId: 'condition', type: 'condition', config: {} },
-      { id: 's', label: 'Rota', componentId: 'switch', type: 'switch', config: { switchExpression: '${a.b}', switchCases: '  ' } },
-      { id: 'd', label: 'Triagem', componentId: 'decision', type: 'decision', config: { questions: {} } },
+      { id: 's', label: 'Rota', componentId: 'switch', type: 'switch', config: { switchExpression: '${d.route}', switchCases: '  ' } },
+      { id: 'd', label: 'Triagem', componentId: 'decision', type: 'decision', config: { provider: 'llm', questions: {} } },
     ])
 
     expect(blockers.notExecutable).toEqual([])
@@ -48,6 +49,46 @@ describe('runReadiness', () => {
       + '"Triagem" → editor.properties.fields.decisionQuestions]')
   })
 
+  // RCHFLW-116: a condição que o "Gerar com IA" montou mandava o pedido urgente para o ramo errado, em silêncio.
+  it('expressão fora do formato do avaliador ou lendo passo inexistente impede o run, nomeando nó e campo', () => {
+    const blockers = runBlockers([
+      { id: 'a', label: 'Receber Ticket', componentId: 'input', type: 'input' },
+      { id: 'b', label: 'Classificar Assunto', componentId: 'llm-chat', type: 'llm-chat', config: {} },
+      { id: 'c', label: 'É Urgente?', componentId: 'condition', type: 'condition',
+        config: { conditionExpression: 'ticket.urgente == true' } },
+      { id: 's', label: 'Rota', componentId: 'switch', type: 'switch',
+        config: { switchExpression: '${Triagem.route}', switchCases: 'AUTO' } },
+      // A anotação não é passo: o id dela não vale como referência.
+      { id: 'n', componentId: 'sticky-note', type: 'sticky-note' },
+      { id: 'd', label: 'Lê nota', componentId: 'condition', type: 'condition',
+        config: { conditionExpression: "${n.text} == 'x'" } },
+    ])
+
+    expect(hasRunBlockers(blockers)).toBe(true)
+    expect(blockers.missing).toEqual([])
+    expect(blockers.invalidExpressions).toEqual([
+      { id: 'c', label: 'É Urgente?', labelKey: 'editor.properties.fields.expression',
+        problem: 'BARE_OPERAND', fragment: 'ticket.urgente' },
+      { id: 's', label: 'Rota', labelKey: 'editor.properties.fields.switchExpression',
+        problem: 'UNKNOWN_STEP', fragment: 'Triagem.route' },
+      { id: 'd', label: 'Lê nota', labelKey: 'editor.properties.fields.expression',
+        problem: 'UNKNOWN_STEP', fragment: 'n.text' },
+    ])
+    expect(runBlockersMessage(t, blockers)).toBe('editor.notif.runBlockedInvalidExpression['
+      + '"É Urgente?" → editor.properties.fields.expression: editor.notif.expressionProblem.BARE_OPERAND[ticket.urgente|ticket]; '
+      + '"Rota" → editor.properties.fields.switchExpression: editor.notif.expressionProblem.UNKNOWN_STEP[Triagem.route|Triagem]; '
+      + '"Lê nota" → editor.properties.fields.expression: editor.notif.expressionProblem.UNKNOWN_STEP[n.text|n]]')
+  })
+
+  it('cada motivo de expressão recusada tem texto no pt-BR', () => {
+    const problems = (ptBR as any).editor.notif.expressionProblem
+    for (const code of ['MALFORMED', 'BARE_OPERAND', 'UNKNOWN_STEP', 'TEXT_OUTPUT_FIELD', 'NO_REFERENCE']) {
+      expect(problems[code]).toContain('{{fragment}}')
+    }
+    // A chave a declarar na Entrada é a raiz do caminho: sem o {{root}}, o aviso não diria qual.
+    expect(problems.UNKNOWN_STEP).toContain('{{root}}')
+  })
+
   it('fluxo executável não tem bloqueio: Entrada, LLM, Condição preenchida, llm-streaming e anotação', () => {
     const blockers = runBlockers([
       { id: 'a', componentId: 'input', type: 'input' },
@@ -55,7 +96,8 @@ describe('runReadiness', () => {
       { id: 'c', componentId: 'condition', type: 'condition', config: { conditionExpression: '${b} != ""' } },
       { id: 'd', componentId: 'llm-streaming', type: 'llm-streaming' },
       { id: 'n', componentId: 'sticky-note', type: 'sticky-note' },
-      { id: 'q', componentId: 'decision', type: 'decision', config: { questions: { a: { type: 'noul' } } } },
+      // Com o provider llm (o LLM da plataforma): o padrão, http-decisions, exigiria o model (RCHFLW-116).
+      { id: 'q', componentId: 'decision', type: 'decision', config: { provider: 'llm', questions: { a: { type: 'noul' } } } },
     ])
 
     expect(hasRunBlockers(blockers)).toBe(false)
@@ -88,5 +130,149 @@ describe('runReadiness', () => {
     expect([...NOT_EXECUTABLE_NODE_TYPES].filter(t => !palette.has(t))).toEqual([])
     expect(palette.has('llm-streaming')).toBe(false)
     expect(palette.has('llm-chat')).toBe(true)
+  })
+})
+
+/**
+ * RCHFLW-116 (2ª rodada): o "Gerar com IA" montou um decision sem provider nem model e o editor deixou executar. O
+ * padrão do motor é o http-decisions, que recusa a chamada sem o model; com onError ESCALATE, todo pedido — urgente ou
+ * comum — saiu pela escalada e o fluxo terminou COMPLETED. As regras vêm do DecisionComponent (initialize,
+ * parseQuestions), de Question/RoutePolicy e dos provedores.
+ */
+describe('runReadiness — decision que o motor recusa', () => {
+  const decision = (id: string, config: Record<string, unknown>) =>
+    ({ id, label: id, componentId: 'decision', type: 'decision', config })
+  const assunto = { assunto: { type: 'choice', criteria: { financeiro: 'f', suporte_tecnico: 's', outro: 'o' } } }
+
+  it('o nó do defeito: sem provider (http-decisions) nem model, o Executar é impedido nomeando o campo Modelo', () => {
+    const blockers = runBlockers([decision('Triagem', { questions: assunto, primary: 'assunto' })])
+
+    expect(hasRunBlockers(blockers)).toBe(true)
+    expect(blockers.missing).toEqual([{ id: 'Triagem', label: 'Triagem', labelKey: 'editor.properties.fields.decisionModel' }])
+    expect(runBlockersMessage(t, blockers))
+      .toBe('editor.notif.runBlockedMissing["Triagem" → editor.properties.fields.decisionModel]')
+  })
+
+  it('o model só é exigido pelos provedores que o exigem; llm (LLM da plataforma) e rules rodam sem ele', () => {
+    const model = (config: Record<string, unknown>) =>
+      runBlockers([decision('d', { questions: assunto, ...config })]).missing.map(m => m.labelKey)
+    const modelo = ['editor.properties.fields.decisionModel']
+
+    expect(model({ provider: 'http-decisions' })).toEqual(modelo)
+    expect(model({ provider: 'langchain4j-decisions', model: '  ' })).toEqual(modelo)
+    expect(model({ provider: 'http-decisions', model: 'typesafe/jev-1.13' })).toEqual([])
+    expect(model({ provider: 'llm' })).toEqual([])
+    expect(model({ provider: 'rules', providerOptions: { rules: { rules: { assunto: { otherwise: 'outro' } } } } }))
+      .toEqual([])
+  })
+
+  it('pergunta sem tipo, sem critérios ou que não é objeto: cada uma nomeada, como o componente a recusaria', () => {
+    const blockers = runBlockers([decision('d', {
+      provider: 'llm',
+      questions: {
+        semTipo: { instructions: 'É urgente?' },
+        tipoErrado: { type: 'yes-no' },
+        choiceSemCriterios: { type: 'choice' },
+        choiceEmLista: { type: 'choice', criteria: ['a', 'b'] },
+        scoreCurto: { type: 'score', criteria: ['só um'] },
+        texto: 'é urgente?',
+      },
+    })])
+
+    expect(blockers.missing).toEqual([])
+    expect(blockers.invalidDecisions!.map(d => [d.problem, d.subject, d.labelKey])).toEqual([
+      ['QUESTION_TYPE', 'semTipo', 'editor.properties.fields.decisionQuestions'],
+      ['QUESTION_TYPE', 'tipoErrado', 'editor.properties.fields.decisionQuestions'],
+      ['CHOICE_CRITERIA', 'choiceSemCriterios', 'editor.properties.fields.decisionQuestions'],
+      ['CHOICE_CRITERIA', 'choiceEmLista', 'editor.properties.fields.decisionQuestions'],
+      ['SCORE_CRITERIA', 'scoreCurto', 'editor.properties.fields.decisionQuestions'],
+      ['QUESTION_NOT_OBJECT', 'texto', 'editor.properties.fields.decisionQuestions'],
+    ])
+    expect(runBlockersMessage(t, { notExecutable: [], missing: [], invalidDecisions: blockers.invalidDecisions!.slice(0, 1) }))
+      .toBe('editor.notif.runBlockedInvalidDecision['
+        + '"d" → editor.properties.fields.decisionQuestions: editor.notif.decisionProblem.QUESTION_TYPE[semTipo]]')
+  })
+
+  it('o resto que o initialize recusa: perguntas em lista, primary/gate fora das perguntas, limiares e escolhas', () => {
+    const problems = (config: Record<string, unknown>) =>
+      runBlockers([decision('d', { provider: 'llm', ...config })]).invalidDecisions!.map(d => `${d.problem}:${d.subject}`)
+
+    expect(problems({ questions: [{ id: 'urgente', type: 'noul' }] })).toEqual(['QUESTIONS_NOT_OBJECT:'])
+    expect(problems({ questions: assunto, primary: 'urgente', gate: ['assunto', 'urgente'] }))
+      .toEqual(['UNKNOWN_GATE:urgente', 'UNKNOWN_PRIMARY:urgente'])
+    expect(problems({ questions: assunto, onError: 'IGNORE' })).toEqual(['ON_ERROR:IGNORE'])
+    expect(problems({ questions: assunto, thresholds: { auto: 0.4, review: 0.6 } }))
+      .toEqual(['THRESHOLDS:auto=0.4, review=0.6'])
+    // Sem auto, o padrão (0,9) vale: review 0,95 > 0,9.
+    expect(problems({ questions: assunto, thresholds: { review: 0.95 } })).toEqual(['THRESHOLDS:auto=0.9, review=0.95'])
+    expect(problems({ questions: assunto, acceptAt: 1.5 })).toEqual(['ACCEPT_AT:1.5'])
+    expect(problems({ questions: assunto, consensus: { onDisagree: 'AUTO' } })).toEqual(['ON_DISAGREE:AUTO'])
+    // O rules recusa a pergunta sem regra ("sem regras para a pergunta") — e o nó escalaria sempre.
+    expect(problems({ provider: 'rules', questions: { ...assunto, urgente: { type: 'noul' } },
+      providerOptions: { rules: { rules: { assunto: { otherwise: 'outro' } } } } })).toEqual(['RULES_MISSING:urgente'])
+  })
+
+  it('cascade/fallbacks que respondem no lugar do principal: o motor marca o principal FAILED e decide, não trava',
+    () => {
+      const blockers = (config: Record<string, unknown>) => {
+        const b = runBlockers([decision('d', { questions: { ...assunto, urgente: { type: 'noul' } }, ...config })])
+        return [...b.missing.map(m => m.labelKey), ...b.invalidDecisions!.map(d => `${d.problem}:${d.subject}`)]
+      }
+      const soAssunto = { rules: { rules: { assunto: { otherwise: 'outro' } } } }
+      const modelo = 'editor.properties.fields.decisionModel'
+
+      // rules sem a regra de urgente, com o llm na cascata (a cascata típica rules → llm).
+      expect(blockers({ provider: 'rules', providerOptions: soAssunto, cascade: [{ provider: 'llm' }] })).toEqual([])
+      // http-decisions sem model, com o llm de reserva (comReserva).
+      expect(blockers({ provider: 'http-decisions', fallbacks: [{ provider: 'llm' }] })).toEqual([])
+      // Um degrau com as regras completas nas próprias options também responde.
+      expect(blockers({ provider: 'http-decisions', cascade: [{ provider: 'rules', options: { rules: {
+        assunto: { otherwise: 'outro' }, urgente: { otherwise: false } } } }] })).toEqual([])
+
+      // Degraus que também são recusados não salvam o nó: escalaria sempre.
+      expect(blockers({ provider: 'http-decisions', fallbacks: [{ provider: 'langchain4j-decisions' }] }))
+        .toEqual([modelo])
+      expect(blockers({ provider: 'http-decisions', cascade: [{ model: 'sem-provider' }] })).toEqual([modelo])
+      expect(blockers({ provider: 'rules', providerOptions: soAssunto, fallbacks: [{ provider: 'rules' }] }))
+        .toEqual(['RULES_MISSING:urgente'])
+      // As options do degrau substituem a chave rules do nó inteira (tentar junta chave a chave).
+      expect(blockers({ provider: 'http-decisions', cascade: [{ provider: 'rules', options: { rules: 'x' } }],
+        providerOptions: { rules: { rules: { assunto: {}, urgente: {} } } } })).toEqual([modelo])
+    })
+
+  it('o que o motor aceita não é recusado: caixa do tipo, noul sem critérios, sinônimos, chaves extras', () => {
+    const blockers = runBlockers([decision('d', {
+      provider: 'llm',
+      questions: {
+        a: { type: 'Choice', criteria: { x: '' } },
+        b: { type: 'noul' },
+        c: { type: 'boolean', criteria: { true: 'sim' } },
+        d: { type: 'yesno', instructions: 'x', extra: 1 },
+        e: { type: 'score', criteria: ['baixa', 'alta'] },
+      },
+      primary: 'e', gate: ['b'], onError: 'fail', thresholds: { auto: 0.8, review: 0.4 }, acceptAt: 0.7,
+      consensus: { onDisagree: 'escalate' }, timeoutMs: 5000,
+    })])
+
+    expect(hasRunBlockers(blockers)).toBe(false)
+  })
+
+  it('cada motivo de decisão recusada tem texto nos dois idiomas, com o assunto quando há um', () => {
+    const codes = ['QUESTIONS_NOT_OBJECT', 'QUESTION_ID', 'QUESTION_NOT_OBJECT', 'QUESTION_TYPE', 'CHOICE_CRITERIA',
+      'SCORE_CRITERIA', 'UNKNOWN_PRIMARY', 'UNKNOWN_GATE', 'ON_ERROR', 'THRESHOLDS', 'ACCEPT_AT', 'ON_DISAGREE',
+      'RULES_MISSING']
+    for (const locale of [ptBR, en] as any[]) {
+      expect(locale.editor.notif.runBlockedInvalidDecision).toContain('{{fields}}')
+      for (const code of codes) expect(locale.editor.notif.decisionProblem[code]).toBeTruthy()
+      for (const code of codes.filter(c => c !== 'QUESTIONS_NOT_OBJECT' && c !== 'QUESTION_ID')) {
+        expect(locale.editor.notif.decisionProblem[code]).toContain('{{subject}}')
+      }
+    }
+    // Os campos que a mensagem nomeia existem no painel.
+    const fields = (ptBR as any).editor.properties.fields
+    for (const key of ['decisionQuestions', 'decisionPrimary', 'decisionGate', 'decisionOnError', 'thresholdAuto',
+      'decisionAcceptAt', 'decisionOnDisagree', 'decisionRules', 'decisionModel']) {
+      expect(fields[key]).toBeTruthy()
+    }
   })
 })

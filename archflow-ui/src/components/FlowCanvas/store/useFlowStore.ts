@@ -23,7 +23,25 @@ export interface CanvasApi {
      */
     placement?: 'free'
   }) => string
-  connectNodes: (sourceId: string, targetId: string) => boolean
+  /**
+   * {@code branch}: o ramo da aresta (true/false de um condition, um caso do switch, AUTO/REVIEW/ESCALATE de um
+   * decision). Sem ele vale o ramo padrão do nó de origem (defaultBranch). Devolve false se uma ponta não existe
+   * ou o ramo não é do nó de origem (RCHFLW-116: o copiloto precisa escolher o ramo da decisão).
+   */
+  connectNodes: (sourceId: string, targetId: string, branch?: string) => boolean
+  /** Os ramos que o nó oferece (branchOptions); null para id desconhecido. */
+  branchesOf: (nodeId: string) => string[] | null
+  /**
+   * A config viva do nó (cópia), ou null para id desconhecido. O espelho do store só acompanha depois do render: o
+   * copiloto confere a config RESULTANTE de um decision (RCHFLW-116) e, no mesmo lote do addNode, leria a antiga.
+   */
+  configOf: (nodeId: string) => Record<string, unknown> | null
+  /**
+   * Põe {@code nodeId} logo antes de {@code targetId}: toda aresta que chegava a {@code targetId} passa a chegar a
+   * {@code nodeId} (com o ramo e a condição que tinha) e {@code nodeId} → {@code targetId} é criada, num passo de
+   * undo. Devolve quantas arestas foram religadas, ou null se um dos dois não existe (RCHFLW-116).
+   */
+  insertBefore: (nodeId: string, targetId: string) => number | null
   listNodes: () => { id: string; label: string; nodeType: string }[]
   /** Arestas do canvas (origem → destino e o ramo, se houver) — para o copiloto saber o que remover. */
   listEdges: () => { id: string; sourceId: string; targetId: string; branch?: string }[]
@@ -59,7 +77,7 @@ export type CanvasOp =
      */
     config?: Record<string, unknown>
   }
-  | { kind: 'connect'; sourceId: string; targetId: string; workflowId?: string }
+  | { kind: 'connect'; sourceId: string; targetId: string; workflowId?: string; branch?: string }
 
 interface FlowStore {
   // ── Estado de execução ─────────────────────────────────────────

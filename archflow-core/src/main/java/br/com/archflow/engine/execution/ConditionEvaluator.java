@@ -41,11 +41,13 @@ public final class ConditionEvaluator {
 
     private static final Logger logger = Logger.getLogger(ConditionEvaluator.class.getName());
 
-    private static final Pattern COMPARISON = Pattern.compile(
+    // Pacote, e não privados: o ControlExpressionRules lê a expressão com a MESMA gramática, para a
+    // checagem estática não aceitar nem recusar diferente do que o avaliador faz ao executar.
+    static final Pattern COMPARISON = Pattern.compile(
             "^(.+?)\\s*(==|!=|>=|<=|>|<)\\s*(.+)$");
-    private static final Pattern CONTAINS = Pattern.compile(
+    static final Pattern CONTAINS = Pattern.compile(
             "^(.+?)\\s+contains\\s+(.+)$", Pattern.CASE_INSENSITIVE);
-    private static final Pattern PLACEHOLDER = Pattern.compile("^\\$\\{(.+)}$");
+    static final Pattern PLACEHOLDER = Pattern.compile("^\\$\\{(.+)}$");
 
     /**
      * Quando ligado, uma condição não avaliável <b>bloqueia</b> a transição em
@@ -168,7 +170,7 @@ public final class ConditionEvaluator {
      * <p>Sem isso, uma condição como {@code ${msg} == 'a && b'} se partiria no
      * meio do literal e viraria duas expressões sem sentido.
      */
-    private static List<String> splitTopLevel(String expr, String operator) {
+    static List<String> splitTopLevel(String expr, String operator) {
         List<String> parts = new ArrayList<>();
         int start = 0;
         char quote = 0;

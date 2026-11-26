@@ -2,6 +2,9 @@ import { useEffect, useRef } from 'react'
 import { useAgent, useCopilotKit } from '@copilotkit/react-core/v2'
 import { notifications } from '@mantine/notifications'
 import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
+import { useFlowStore } from '../FlowCanvas/store/useFlowStore'
+import { hasRunBlockers, runBlockers, runBlockersMessage } from '../FlowCanvas/runReadiness'
 
 export const COPILOT_GENERATE_EVENT = 'archflow:copilot-generate'
 
@@ -175,6 +178,19 @@ export default function CopilotGenerateBridge() {
                     // O resumo do modelo ia para o chat lateral; agora a conversa é só desta geração, então ele
                     // aparece aqui — o usuário vê o que o copiloto diz ter feito ao lado do canvas montado.
                     if (notificationId) notifications.hide(notificationId)
+                    // O agente pode desistir de corrigir uma condição que as ferramentas recusaram (ou o fluxo já
+                    // tinha uma): o fluxo montado não roda. Dizer "montado" aí seria o silêncio do RCHFLW-116 — o
+                    // aviso nomeia o nó e o campo, como o Executar do editor, junto com o resumo do copiloto.
+                    const invalid = generatedFlowProblems(tRef.current as unknown as TFunction)
+                    if (invalid) {
+                        notifications.show({
+                            color: 'orange',
+                            autoClose: false,
+                            title: tRef.current('editor.ai.doneInvalid'),
+                            message: [resumoDaGeracao(agent.messages), invalid].filter(Boolean).join(' — '),
+                        })
+                        return
+                    }
                     notifications.show({
                         color: 'teal',
                         autoClose: 12000,
@@ -198,6 +214,19 @@ export default function CopilotGenerateBridge() {
     }, [agent, copilotkit])
 
     return null
+}
+
+/**
+ * O que impede o fluxo montado de executar — a mesma regra do Executar do editor (runBlockers), em texto para o
+ * aviso; vazio quando nada impede. Inclui a condição sem expressão: quando o configureNode recusa a expressão e o
+ * agente desiste, o nó fica sem ela, e isso também não pode sair como "fluxo montado".
+ */
+export function generatedFlowProblems(t: TFunction): string {
+    const steps = useFlowStore.getState().getCanvasSnapshot().steps.map(s => ({
+        id: s.id, label: s.label, componentId: s.componentId, type: s.type, config: s.config,
+    }))
+    const blockers = runBlockers(steps)
+    return hasRunBlockers(blockers) ? runBlockersMessage(t, blockers) : ''
 }
 
 /** O último texto do assistente na conversa da geração (o resumo que o prompt pede), limitado para um aviso. */

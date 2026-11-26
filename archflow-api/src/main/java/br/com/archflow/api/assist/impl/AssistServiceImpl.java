@@ -10,6 +10,10 @@ import br.com.archflow.api.assist.dto.NlToFlowResponse;
 import br.com.archflow.api.assist.dto.SuggestMappingRequest;
 import br.com.archflow.api.assist.dto.SuggestMappingResponse;
 import br.com.archflow.api.catalog.dto.CatalogItemDto;
+import br.com.archflow.decision.DecisionComponent;
+import br.com.archflow.decision.DecisionProviders;
+import br.com.archflow.decision.HttpDecisionProvider;
+import br.com.archflow.engine.execution.ControlExpressionRules;
 import br.com.archflow.langchain4j.provider.LLMConfigResolver;
 import br.com.archflow.langchain4j.provider.LLMResolutionRequest;
 import br.com.archflow.model.config.ResolvedLLMConfig;
@@ -20,8 +24,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Implementação de {@link AssistService}.
@@ -81,7 +88,114 @@ public class AssistServiceImpl implements AssistService {
     public NlToFlowResponse nlToFlow(NlToFlowRequest request) {
         String prompt = buildNlToFlowPrompt(request, serverCatalog);
         String raw = chat(prompt);
-        return parseNlToFlow(raw);
+        return comAvisosDeExpressao(parseNlToFlow(raw));
+    }
+
+    /**
+     * O rascunho com cada expressão de condition/switch recusada pela regra do motor dita em
+     * {@code observacoes} (RCHFLW-116). O modelo pode errar a expressão, e o rascunho que chega a quem o
+     * converte não pode carregar em silêncio uma condição que o {@code ExecutableNodesValidator} vai recusar
+     * só ao executar. Vai em {@code observacoes}, e não num campo novo, porque o formato é o contrato do
+     * Mentors (ver {@link NlToFlowResponse}); {@code lacunas} é outra coisa (capacidade sem plugin). O mesmo vale
+     * para um step decision que não roda ({@link #avisosDeDecisao}).
+     */
+    static NlToFlowResponse comAvisosDeExpressao(NlToFlowResponse r) {
+        List<String> avisos = new ArrayList<>(avisosDeExpressao(r.workflow().steps()));
+        avisos.addAll(avisosDeDecisao(r.workflow().steps()));
+        if (avisos.isEmpty()) {
+            return r;
+        }
+        String modelo = r.observacoes() == null || r.observacoes().isBlank() ? "" : r.observacoes().trim() + "\n";
+        return new NlToFlowResponse(r.workflow(), r.lacunas(), modelo + String.join("\n", avisos));
+    }
+
+    /** Os provedores de decisão que recusam a chamada sem o {@code model} do nó. */
+    private static final Set<String> DECISAO_EXIGE_MODELO = Set.of(HttpDecisionProvider.ID,
+            br.com.archflow.api.decision.LangChain4jDecisionProvider.ID);
+
+    /**
+     * Um aviso por step decision que o motor não executaria (RCHFLW-116, 2ª rodada). O "Gerar com IA" montou um
+     * decision sem provider nem model: o padrão é o http-decisions, que não decide sem model, e com
+     * {@code onError: ESCALATE} todo pedido — urgente ou comum — saiu pela escalada, com o fluxo COMPLETED. O que o
+     * nó recusa ao inicializar vem do próprio {@link DecisionComponent} (nenhuma cópia da regra); o model, dos
+     * provedores que o exigem.
+     */
+    static List<String> avisosDeDecisao(List<NlToFlowResponse.Step> steps) {
+        List<String> avisos = new ArrayList<>();
+        for (NlToFlowResponse.Step st : steps) {
+            String tipo = st.nodeType() == null ? "" : st.nodeType().trim().toLowerCase(Locale.ROOT);
+            if (!DecisionComponent.COMPONENT_ID.equals(tipo)) {
+                continue;
+            }
+            Map<String, Object> p = st.parameters() == null ? Map.of() : st.parameters();
+            try {
+                // Sem provedores: initialize só lê a configuração; nenhum provedor é chamado aqui.
+                new DecisionComponent(DecisionProviders.empty(), null).initialize(p);
+            } catch (RuntimeException e) {
+                avisos.add("Aviso do archflow: o step \"" + st.name() + "\" (decision) será recusado ao executar: "
+                        + e.getMessage());
+                continue;
+            }
+            String provider = p.get("provider") instanceof String s && !s.isBlank() ? s : HttpDecisionProvider.ID;
+            boolean semModelo = !(p.get("model") instanceof String m && !m.isBlank());
+            if (DECISAO_EXIGE_MODELO.contains(provider) && semModelo) {
+                avisos.add("Aviso do archflow: o step \"" + st.name() + "\" (decision) usa o provedor " + provider
+                        + ", que não decide sem 'model': todo pedido sairia pelo route ESCALATE. Use o provider "
+                        + "'llm' (o LLM da plataforma) ou informe o model de decisão.");
+            }
+        }
+        return avisos;
+    }
+
+    /**
+     * Um aviso por step de controle com expressão recusada. No rascunho o id do passo é o {@code name}
+     * (é o que vira {@code id} na conversão, ver {@link NlToFlowResponse}); os campos esperados da Entrada
+     * vêm de {@code parameters.ioFields}, como no documento.
+     */
+    static List<String> avisosDeExpressao(List<NlToFlowResponse.Step> steps) {
+        Set<String> ids = new HashSet<>();
+        Set<String> texto = new HashSet<>();
+        Set<String> campos = new HashSet<>();
+        for (NlToFlowResponse.Step st : steps) {
+            if (st.name() == null) {
+                continue;
+            }
+            ids.add(st.name());
+            String tipo = st.nodeType() == null ? "" : st.nodeType().trim().toLowerCase(Locale.ROOT);
+            if (ControlExpressionRules.TEXT_OUTPUT_NODE_TYPES.contains(tipo)) {
+                texto.add(st.name());
+            }
+            if ("input".equals(tipo) && st.parameters() != null
+                    && st.parameters().get("ioFields") instanceof List<?> lista) {
+                lista.forEach(c -> {
+                    if (c instanceof String campo && !campo.isBlank()) {
+                        campos.add(campo.trim());
+                    }
+                });
+            }
+        }
+        ControlExpressionRules.FlowRefs refs = new ControlExpressionRules.FlowRefs(ids, texto, campos);
+        List<String> avisos = new ArrayList<>();
+        for (NlToFlowResponse.Step st : steps) {
+            String tipo = st.nodeType() == null ? "" : st.nodeType().trim().toLowerCase(Locale.ROOT);
+            String campo = switch (tipo) {
+                case "condition" -> "conditionExpression";
+                case "switch" -> "switchExpression";
+                default -> null;
+            };
+            if (campo == null || st.parameters() == null || !(st.parameters().get(campo) instanceof String expr)) {
+                continue;
+            }
+            List<ControlExpressionRules.Finding> achados = "condition".equals(tipo)
+                    ? ControlExpressionRules.checkCondition(expr, refs)
+                    : ControlExpressionRules.checkSwitch(expr, refs);
+            if (!achados.isEmpty()) {
+                avisos.add("Aviso do archflow: o step \"" + st.name() + "\", campo " + campo
+                        + ", será recusado ao executar: " + String.join("; ",
+                        achados.stream().map(ControlExpressionRules.Finding::message).toList()));
+            }
+        }
+        return avisos;
     }
 
     /**
@@ -394,6 +508,8 @@ public class AssistServiceImpl implements AssistService {
 
         if ((r.catalogo() == null || r.catalogo().isEmpty()) && serverCatalog != null) {
             appendServerCatalogForFlow(sb, serverCatalog);
+            appendRegrasDeExpressao(sb, serverCatalog.executableNodeTypes());
+            appendRegrasDeDecisao(sb, serverCatalog.executableNodeTypes());
         } else {
             sb.append("CATÁLOGO de plugins disponíveis:\n");
             appendCatalogo(sb, r.catalogo());
@@ -490,6 +606,61 @@ public class AssistServiceImpl implements AssistService {
         if (componentes.isEmpty() && tipos.isEmpty()) {
             sb.append("(catálogo vazio — nenhum plugin disponível)\n");
         }
+    }
+
+    /**
+     * A gramática das expressões dos nós condition/switch, quando o catálogo os oferece (RCHFLW-116). Sem ela o
+     * modelo escrevia {@code ticket.urgente == true}: sem {@code ${}}, lendo um campo que nenhum passo produz, e
+     * o ramo nunca mudava. As regras são as do {@code ConditionEvaluator} e do {@code ControlExpressionRules}.
+     */
+    private static void appendRegrasDeExpressao(StringBuilder sb, List<String> tipos) {
+        if (!tipos.contains("condition") && !tipos.contains("switch")) {
+            return;
+        }
+        sb.append("Expressões dos nós condition e switch (recusadas antes de executar se fugirem disto): ")
+          .append("'parameters.conditionExpression' é operando op operando, com op ==, !=, >, >=, <, <= ou ")
+          .append("contains, unidos por && ou ||, sem parênteses; cada operando é ${caminho}, texto entre aspas ")
+          .append("('urgente'), número ou true/false — nunca palavra solta. 'parameters.switchExpression' é um ")
+          .append("texto com ao menos um ${caminho}. O caminho começa pelo 'name' de um step anterior: ${<name>} ")
+          .append("é a saída dele, ${<name>.<campo>} um campo dela. A saída de um llm-chat é o texto da resposta, ")
+          .append("sem campos. Para classificar e ramificar, use um step decision e ramifique pela RESPOSTA dele ")
+          .append("(ver as regras do decision).\n");
+    }
+
+    /**
+     * Como classificar e ramificar com o step decision, quando o catálogo o oferece (RCHFLW-116, 2ª rodada). O
+     * modelo montava um decision sem provider nem model (o http-decisions padrão não decide sem model) e
+     * ramificava pelo {@code route} — que é a confiança da resposta, não a categoria. Os campos são os que o
+     * {@code DecisionComponent} grava; a regra das expressões, a do {@code ConditionEvaluator}. O provedor é o
+     * {@code llm}, o único que roda sem um model que ninguém tem como escolher (não há catálogo de modelos de
+     * decisão).
+     */
+    private static void appendRegrasDeDecisao(StringBuilder sb, List<String> tipos) {
+        if (!tipos.contains(DecisionComponent.COMPONENT_ID)) {
+            return;
+        }
+        sb.append("Step decision (classificar e ramificar): o 'route' dele (AUTO, REVIEW ou ESCALATE) mede a ")
+          .append("CONFIANÇA da resposta, não diz a categoria — um pedido urgente e um comum respondidos com a ")
+          .append("mesma confiança têm o mesmo route. Ramifique pela RESPOSTA, num step condition ou switch logo ")
+          .append("depois do decision. 'parameters' do decision: provider 'llm' (o LLM da plataforma; sem 'model', ")
+          .append("herda o modelo da plataforma). Não use http-decisions nem langchain4j-decisions sem um model de ")
+          .append("decisão dado na descrição: eles não decidem sem 'model', e nunca invente um model. Com o provider ")
+          .append("llm a confiança fica limitada a 0,89, abaixo do AUTO padrão (0,9): o route AUTO nunca sai. ")
+          .append("questions: objeto id → {type: choice|score|noul, instructions, criteria} (choice: opção → ")
+          .append("descrição; score: lista de níveis, do menor ao maior; noul: {true, false}); primary: a pergunta ")
+          .append("cujo valor vira 'decision'; gate: as perguntas que decidem o route. A saída, pelo 'name' do ")
+          .append("step: ${<name>.answers.<pergunta>.result} (noul: true/false), ${<name>.answers.<pergunta>.choice} ")
+          .append("(choice: a opção), ${<name>.decision} (o valor da primary — a opção de um choice, mas a ")
+          .append("PROBABILIDADE de um noul), ${<name>.route}; uma decisão que falhou tem route ESCALATE e nenhuma ")
+          .append("resposta. Exemplo para \"mandar ao humano quando for urgente; senão, responder com um LLM\": step ")
+          .append("'triagem' (decision) com parameters {\"provider\":\"llm\",\"questions\":{\"urgente\":")
+          .append("{\"type\":\"noul\",\"instructions\":\"O pedido é urgente?\",\"criteria\":{\"true\":")
+          .append("\"algo parado ou fora do ar\",\"false\":\"pode esperar\"}}},\"gate\":[\"urgente\"]}; depois ")
+          .append("um step 'e_urgente' (condition) com conditionExpression \"${triagem.answers.urgente.result} == ")
+          .append("true || ${triagem.route} == 'ESCALATE'\" (a falha também vai ao humano), ligado ao approval ")
+          .append("(ramo true) e ao llm-chat (ramo false). Os links não levam o ramo: diga em 'observacoes' qual ")
+          .append("link sai pelo true e qual pelo false. Por categoria: switch com switchExpression ")
+          .append("\"${<name>.decision}\" (primary = um choice) e um caso por opção.\n");
     }
 
     private static void appendProps(StringBuilder sb, List<String> props) {

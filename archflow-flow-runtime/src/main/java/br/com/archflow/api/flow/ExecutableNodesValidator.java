@@ -2,15 +2,19 @@ package br.com.archflow.api.flow;
 
 import br.com.archflow.engine.exceptions.FlowValidationException;
 import br.com.archflow.engine.exceptions.ValidationError;
+import br.com.archflow.engine.execution.ControlExpressionRules;
 import br.com.archflow.engine.validation.FlowValidator;
 import br.com.archflow.engine.validation.ValidationContext;
 import br.com.archflow.model.flow.Flow;
 import br.com.archflow.model.flow.FlowStep;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * A validação que o motor faz antes do primeiro passo, mais uma regra: nenhum nó de tipo sem execução
@@ -26,11 +30,22 @@ import java.util.Map;
  * <p>Fora do servidor (runner standalone, SDK embarcado) vale a mesma regra para o nó que precisa do
  * servidor ({@link ServerOnlyNodeStep}, RCHFLW-37): um erro por nó, com o motivo. No servidor esse passo
  * não existe — a fábrica recebe os {@link ServerNodes} — e nada muda.</p>
+ *
+ * <p>E a expressão de cada {@code condition}/{@code switch} ({@link ControlExpressionRules}, RCHFLW-116):
+ * fora do formato do avaliador, ela escolhia um ramo em silêncio — o pedido urgente seguia para o LLM e
+ * nunca chegava ao humano. Um erro por nó, nomeando o nó e o campo. É a mesma regra que impede o Executar
+ * do editor; quem roda pela API, pelo YAML ou pelo standalone passa por aqui. Diferença deliberada: a
+ * referência a um passo que o fluxo não tem ({@code UNKNOWN_STEP}) só é recusada no editor — aqui vira
+ * aviso no log, porque ela resolve se a entrada do run trouxer a chave, e fluxos criados por API contam
+ * com isso.</p>
  */
 public final class ExecutableNodesValidator implements FlowValidator {
 
     static final String CODE = "NODE_TYPE_NOT_EXECUTABLE";
     static final String SERVER_CODE = "NODE_REQUIRES_SERVER";
+    static final String EXPRESSION_CODE = "CONTROL_EXPRESSION_INVALID";
+
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(ExecutableNodesValidator.class);
 
     private final FlowValidator delegate;
 
@@ -48,6 +63,7 @@ public final class ExecutableNodesValidator implements FlowValidator {
         }
         errors.addAll(unsupported(flow));
         errors.addAll(serverOnly(flow));
+        errors.addAll(controlExpressions(flow));
         if (!errors.isEmpty()) {
             throw new FlowValidationException(errors);
         }
@@ -73,6 +89,114 @@ public final class ExecutableNodesValidator implements FlowValidator {
                 CODE,
                 Map.of("type", kind, "nodes", List.copyOf(nodes)))));
         return errors;
+    }
+
+    /**
+     * Um erro por nó de controle com expressão recusada, na ordem dos passos. Os ids vêm dos passos (uma
+     * anotação não é passo); o tipo, o rótulo e os campos esperados de cada nó, do documento — o passo do LLM
+     * Chat não guarda o tipo do nó, e é ele que diz que a saída é texto; o da Entrada não guarda os
+     * {@code ioFields}, que tornam conhecida uma chave da entrada do run. Sem documento (fluxo montado em
+     * código), só os ids.
+     */
+    private static List<ValidationError> controlExpressions(Flow flow) {
+        List<ControlStep> controles = flow.getSteps().stream()
+                .filter(ControlStep.class::isInstance).map(ControlStep.class::cast).toList();
+        if (controles.isEmpty()) {
+            return List.of();
+        }
+        Set<String> ids = new HashSet<>();
+        flow.getSteps().forEach(s -> ids.add(s.getId()));
+        Map<String, String> rotulos = new LinkedHashMap<>();
+        Set<String> texto = new HashSet<>();
+        Set<String> camposDeEntrada = new HashSet<>();
+        for (Map<?, ?> no : nodesOf(flow)) {
+            String id = no.get("id") == null ? null : no.get("id").toString();
+            if (id == null || !ids.contains(id)) {
+                continue;
+            }
+            if (isTextOutput(no.get("componentId")) || isTextOutput(no.get("type"))) {
+                texto.add(id);
+            }
+            if (isKind(no.get("componentId"), "input") || isKind(no.get("type"), "input")) {
+                camposDeEntrada.addAll(declaredFields(no));
+            }
+            if (no.get("label") instanceof String label && !label.isBlank()) {
+                rotulos.put(id, label.trim());
+            }
+        }
+        ControlExpressionRules.FlowRefs refs = new ControlExpressionRules.FlowRefs(ids, texto, camposDeEntrada);
+        List<ValidationError> errors = new ArrayList<>();
+        for (ControlStep step : controles) {
+            String expressao = step.expression();
+            List<ControlExpressionRules.Finding> todos = step.kind() == ControlStep.Kind.CONDITION
+                    ? ControlExpressionRules.checkCondition(expressao, refs)
+                    : ControlExpressionRules.checkSwitch(expressao, refs);
+            String no = rotulos.containsKey(step.getId())
+                    ? "\"" + rotulos.get(step.getId()) + "\" (" + step.getId() + ")"
+                    : step.getId();
+            // UNKNOWN_STEP aqui é só aviso: um ${X.y} cujo X não é passo, raiz do motor nem campo declarado na
+            // Entrada ainda resolve no run se o JSON de entrada trouxer a chave X — e fluxos criados por API
+            // (VendaX Core, YAML, standalone) fazem isso sem declarar. Recusar no servidor quebraria fluxos que
+            // funcionam hoje; o editor continua impedindo (lá o designer declara o campo). Os outros problemas
+            // nunca funcionam — comparam o próprio texto ou leem campo de saída de texto — e são recusados.
+            todos.stream().filter(f -> f.problem() == ControlExpressionRules.Problem.UNKNOWN_STEP)
+                    .forEach(f -> log.warn("Fluxo {}: o nó {}, campo {}: {} — se não vier na entrada do run, a "
+                            + "condição não resolve", flow.getId(), no, step.expressionField(), f.message()));
+            List<ControlExpressionRules.Finding> achados = todos.stream()
+                    .filter(f -> f.problem() != ControlExpressionRules.Problem.UNKNOWN_STEP).toList();
+            if (achados.isEmpty()) {
+                continue;
+            }
+            String motivos = String.join("; ",
+                    achados.stream().map(ControlExpressionRules.Finding::message).toList());
+            errors.add(new ValidationError("step.configuration." + step.expressionField(),
+                    "o nó " + no + ", campo " + step.expressionField() + ": " + motivos,
+                    EXPRESSION_CODE,
+                    Map.of("node", step.getId(), "field", step.expressionField(), "expression", expressao,
+                            "problems", achados.stream().map(f -> f.problem().name()).toList())));
+        }
+        return errors;
+    }
+
+    private static boolean isKind(Object kind, String expected) {
+        return kind instanceof String s && expected.equals(s.trim().toLowerCase(Locale.ROOT));
+    }
+
+    /**
+     * Os {@code ioFields} do nó, em {@code configuration} ou no sinônimo {@code config} — os dois que o motor e o
+     * YAML leem (ver {@code workflowSerde.ts}).
+     */
+    private static List<String> declaredFields(Map<?, ?> no) {
+        List<String> campos = new ArrayList<>();
+        for (String chave : List.of("configuration", "config")) {
+            if (no.get(chave) instanceof Map<?, ?> config && config.get("ioFields") instanceof List<?> lista) {
+                lista.forEach(c -> {
+                    if (c instanceof String campo && !campo.isBlank()) {
+                        campos.add(campo.trim());
+                    }
+                });
+            }
+        }
+        return campos;
+    }
+
+    private static boolean isTextOutput(Object kind) {
+        return kind instanceof String s
+                && ControlExpressionRules.TEXT_OUTPUT_NODE_TYPES.contains(s.trim().toLowerCase(Locale.ROOT));
+    }
+
+    private static List<Map<?, ?>> nodesOf(Flow flow) {
+        if (flow instanceof SimpleFlow simple && simple.getSourceDocument() != null
+                && simple.getSourceDocument().get("steps") instanceof List<?> steps) {
+            List<Map<?, ?>> nodes = new ArrayList<>();
+            steps.forEach(m -> {
+                if (m instanceof Map<?, ?> node) {
+                    nodes.add(node);
+                }
+            });
+            return nodes;
+        }
+        return List.of();
     }
 
     /** Um erro por nó que precisa do servidor, na ordem dos passos. */

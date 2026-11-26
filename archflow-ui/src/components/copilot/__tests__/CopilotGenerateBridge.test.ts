@@ -42,6 +42,7 @@ vi.mock('@copilotkit/react-core/v2', () => ({
   }),
 }))
 
+import { useFlowStore } from '../../FlowCanvas/store/useFlowStore'
 import CopilotGenerateBridge, {
   COPILOT_GENERATE_AGENT_ID,
   COPILOT_GENERATE_NOTIFICATION_ID,
@@ -183,6 +184,34 @@ describe('CopilotGenerateBridge', () => {
     expect(notificationsMock.show).toHaveBeenCalledWith(expect.objectContaining({
       color: 'teal', title: 'editor.ai.done', message: 'Montei 3 nós ligados: Entrada, Resumo e Saída.',
     }))
+  })
+
+  // RCHFLW-116: o agente desistiu de corrigir a condição (ou ela já estava no fluxo) — "fluxo montado" seria silêncio.
+  it('fluxo montado com condição que o motor recusa: aviso laranja que não some, no lugar do "montado"', async () => {
+    const node = (id: string, nodeType: string, label: string, config: Record<string, unknown> = {}) => ({
+      id, type: 'control', position: { x: 0, y: 0 }, data: { label, nodeType, componentId: nodeType, config },
+    })
+    useFlowStore.setState({
+      nodes: [node('a', 'input', 'Receber Ticket'),
+        node('c', 'condition', 'É Urgente?', { conditionExpression: 'ticket.urgente == true' })] as never,
+      edges: [],
+    })
+    kit.runAgent.mockImplementation(async () => {
+      kit.agent.messages = [{ role: 'assistant', content: 'Montei a triagem.' }]
+    })
+
+    try {
+      await act(async () => { requestCopilotGeneration('monte a triagem', 'toast-3') })
+    } finally {
+      useFlowStore.setState({ nodes: [], edges: [] })
+    }
+
+    expect(notificationsMock.hide).toHaveBeenCalledWith('toast-3')
+    expect(notificationsMock.show).toHaveBeenCalledWith(expect.objectContaining({
+      color: 'orange', autoClose: false, title: 'editor.ai.doneInvalid',
+      message: 'Montei a triagem. — editor.notif.runBlockedInvalidExpression',
+    }))
+    expect(notificationsMock.show).not.toHaveBeenCalledWith(expect.objectContaining({ title: 'editor.ai.done' }))
   })
 
   it('erro de execução vinda do chat lateral também aparece, com título do chat', async () => {

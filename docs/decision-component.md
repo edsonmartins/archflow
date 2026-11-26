@@ -68,7 +68,7 @@ O nó grava no contexto, sob o seu `id`:
 | `confidence` | a **menor** confiança entre as perguntas do `gate` (uma incerta rebaixa a decisão toda) |
 | `decision` | o valor da pergunta `primary` |
 | `primary` | o id da pergunta cujo valor virou `decision` |
-| `answers.<id>` | `type`, `value`, `confidence`, **`route`** (a rota que *esta* pergunta teria sozinha, pelos limiares do nó), `probabilities`, `choice`/`score`/`probability` |
+| `answers.<id>` | `type`, `value`, `confidence`, **`route`** (a rota que *esta* pergunta teria sozinha, pelos limiares do nó), `probabilities`, `choice`/`score`/`probability`, e no `noul` `result` (`probability ≥ 0,5`, `true`/`false`) |
 | `provider`, `model`, `calibrated`, `usage` | quem respondeu, e o consumo (`costUsd` quando informado) |
 | `error` | só quando a decisão não saiu |
 
@@ -80,6 +80,40 @@ O nó grava no contexto, sob o seu `id`:
 
 `REVIEW` e `ESCALATE` ligam naturalmente a um nó `APPROVAL` (decisão humana, que já é durável).
 
+### O ramo vem da resposta; a rota é a confiança
+`route` diz **o quanto a resposta é confiável** (`RoutePolicy` sobre `confidence`), não **qual** foi a resposta.
+Um pedido comum e um urgente respondidos com a mesma confiança seguem a mesma rota, então ramificar as
+categorias pela rota manda os dois para o mesmo lugar (RCHFLW-116: o "Gerar com IA" ligou `AUTO` ao LLM e
+`ESCALATE` ao humano, e todo pedido seguiu o mesmo ramo). Ramifique pela **resposta** — `${D.decision}`
+(o valor da `primary`), `${D.answers.<id>.choice}` ou, num `noul`, `${D.answers.<id>.result}` — e use a rota
+só como portão de confiança. A triagem "urgente vai ao humano, o resto o LLM responde":
+
+```json
+{ "id": "triagem", "type": "decision", "componentId": "decision", "configuration": {
+    "provider": "llm",
+    "questions": {
+      "assunto": { "type": "choice", "instructions": "Qual o assunto do pedido?",
+                   "criteria": { "financeiro": "cobrança, pagamento", "suporte_tecnico": "defeito, sistema fora do ar",
+                                 "outro": "qualquer outro assunto" } },
+      "urgente": { "type": "noul", "instructions": "O pedido é urgente?",
+                   "criteria": { "true": "algo parado ou fora do ar", "false": "dúvida que pode esperar" } } },
+    "primary": "assunto", "gate": ["urgente"] },
+  "connections": [ { "sourceId": "triagem", "targetId": "e_urgente" } ] },
+{ "id": "e_urgente", "type": "condition", "componentId": "condition", "configuration": {
+    "conditionExpression": "${triagem.answers.urgente.result} == true || ${triagem.route} == 'ESCALATE'" },
+  "connections": [ { "sourceId": "e_urgente", "targetId": "humano",    "branch": "true" },
+                   { "sourceId": "e_urgente", "targetId": "responder", "branch": "false" } ] }
+```
+
+O `|| ${triagem.route} == 'ESCALATE'` manda ao humano a decisão que falhou ou saiu com confiança abaixo de
+`review`: uma falha nunca vira o caminho comum. Com o provedor `llm` a confiança é limitada a 0,89, abaixo do
+`auto` padrão (0,9) — uma aresta `AUTO` desse nó **nunca** é seguida, e não pode ser o único caminho do caso
+comum. Por categoria, o mesmo vale com um `switch` sobre `${triagem.decision}` (um caso por opção; a decisão
+que falhou tem `decision` nulo e cai no `default`). `TriagemPelaRespostaDaDecisaoTest` executa esse desenho.
+
+Limite conhecido: o `condition` repassa a saída da decisão sem mudar, e o `llm-chat` depois dele recebe esse
+mapa (`route`, `answers`, …) como mensagem, não o texto do cliente — não há modelo de entrada por passo.
+
 ### O ramo da aresta (`branch`)
 Em vez de montar a condição à mão, a aresta pode declarar o ramo que quer dizer, e a factory a converte:
 
@@ -88,8 +122,8 @@ Em vez de montar a condição à mão, a aresta pode declarar o ramo que quer di
 { "targetId": "humano",    "branch": "ESCALATE" }
 ```
 
-Vale para `decision` (rotas `AUTO`/`REVIEW`/`ESCALATE`) e para os nós `condition`/`switch` (abaixo). Uma
-`condition` escrita à mão na mesma aresta **vence** o ramo.
+Vale para `decision` (rotas `AUTO`/`REVIEW`/`ESCALATE` — o portão de confiança, não a categoria) e para os
+nós `condition`/`switch` (abaixo). Uma `condition` escrita à mão na mesma aresta **vence** o ramo.
 
 ## Nós `condition` e `switch`
 Até aqui existiam só no designer: sem tratamento na factory, caíam no catálogo como componentes
@@ -101,6 +135,45 @@ continua sendo a condição da aresta.
 - `switch`: resolve `switchExpression` e, se o valor é um dos `switchCases` (um por linha, sem
   diferenciar maiúsculas), grava `branch = <o caso>`; senão `"default"`.
 - A **entrada segue intacta**: um nó de controle decide o caminho, não transforma o dado.
+
+### A expressão é conferida antes de executar (RCHFLW-116)
+O avaliador é permissivo: um operando sem `${}` é procurado como variável e, se não existe, vira o próprio
+texto. `ticket.urgente == true` comparava a string `"ticket.urgente"` com `true` e dava sempre `false` — o
+pedido urgente seguia o ramo errado sem erro nem aviso. Agora a expressão de um `condition`/`switch` é recusada
+**antes do primeiro passo** (`ExecutableNodesValidator`, no servidor e no standalone; `runBlockers`, no
+Executar do editor), com o nó e o campo, quando:
+
+| código | o que é | exemplo recusado | forma certa |
+|---|---|---|---|
+| `MALFORMED` | fora da gramática (`operando op operando`, unidos por `&&`/`\|\|`) | `${x} == 1 &&` | `${x} == 1` |
+| `BARE_OPERAND` | operando que não é `${caminho}`, texto entre aspas, número nem `true`/`false` | `ticket.urgente == true`, `${t.route} == ESCALATE` | `${t.route} == 'ESCALATE'` |
+| `UNKNOWN_STEP` | `${X.campo}` em que nenhum prefixo é id de passo nem campo declarado no nó Entrada, e `X` não é raiz que o servidor grava (`input`, `step`, `llm`, `archflow`, `__archflow`, `approvalPayload`, `payload`, `vendax`) | `${triagem.route}` com o **rótulo** do nó | `${node-1712345678901.route}` |
+| `TEXT_OUTPUT_FIELD` | `${X.campo}` com `X` um LLM Chat — a saída dele é o texto da resposta | `${classificar.urgente} == true` | `${classificar} contains 'URGENTE'`, ou um nó `decision` |
+| `NO_REFERENCE` | switch sem nenhum `${…}` | `triagem.decision` | `${triagem.decision}` |
+
+Para não recusar entrada legítima: `${nome}` **sem ponto** é aceito mesmo sem passo com esse id — as chaves do
+JSON de entrada viram variáveis e só existem na execução. Um campo **aninhado** de uma chave da entrada
+(`${ticket.urgente}` com a entrada `{"ticket": {"urgente": true}}`) resolve na execução, mas estaticamente não se
+distingue de uma variável inventada: ele passa quando a chave (`ticket`) está em **Campos de entrada esperados**
+do nó Entrada (`ioFields`). É a forma que funciona com qualquer entrada — `${<id da Entrada>.ticket.urgente}` não
+resolve quando a entrada também traz a chave `input` (a Entrada guarda só o valor dela), e o fluxo sem nó Entrada
+não tem id para prefixar. As raízes que o servidor grava fora dos passos também passam: o `approvalPayload` da
+aprovação e, no invoke do VendaX, o `payload` lido como objeto (`${payload.pergunta}`) e as chaves `vendax.*`.
+**`UNKNOWN_STEP` só é recusado no editor.** No servidor (`ExecutableNodesValidator`) ele vira um aviso no log:
+fluxos criados por API — o VendaX Core, um YAML, o standalone — leem chaves da entrada sem declará-las na Entrada,
+e o `${X.campo}` resolve quando a entrada do run traz `X`. Recusar no servidor quebraria fluxos que funcionam
+hoje. Os outros quatro códigos nunca funcionam (comparam o próprio texto ou leem campo de uma saída de texto) e
+são recusados nos dois lugares. A condição escrita à mão numa **aresta** não passa por esta regra (fluxos
+existentes usam `route == 'billing'`). A regra mora em `ControlExpressionRules` (archflow-core) e em
+`controlExpressions.ts` (designer); os dois leem os mesmos casos (`controlExpressionCases.json`).
+
+O copiloto passa pela mesma regra: `addNode`/`configureNode` recusam a expressão com o motivo e os ids
+válidos, e o agente corrige na rodada seguinte; se o "Gerar com IA" terminar com um fluxo que não executa, o
+aviso diz o nó e o campo em vez de "fluxo montado". Para classificar, o copiloto monta o nó `decision` com o
+provedor `llm` (o LLM da plataforma; `http-decisions`/`langchain4j-decisions` só com um model que o usuário
+deu) e ramifica pela **resposta** com um `condition`/`switch` logo depois (acima); a aresta pela rota fica para
+o portão de confiança, e o `AUTO` de um decision `llm` é recusado. "Adicione X antes de Y" usa `addNode` com
+`insertBefore`.
 
 ## Cascata por confiança
 `fallbacks` entra quando um provedor **falha**. `cascade` entra quando o provedor **respondeu, mas com
@@ -139,13 +212,15 @@ Workflows.define("triagem-do-pedido")
             .consensus("liquid/d1"))
     .step("fecha",  McpAgent.node().systemPrompt("..."))
     .step("humano", Nodes.approval())
-    .route("intencao", "fecha",  Decision.AUTO)                 // vira ${intencao.route} == 'AUTO'
-    .route("intencao", "humano", Decision.REVIEW)
-    .route("intencao", "humano", Decision.ESCALATE)
+    // O ramo vem da resposta (decision = a opção da primary); a rota só diz se ela é confiável.
+    .edge("intencao", "fecha",  "${intencao.decision} == 'PEDIDO' && ${intencao.route} == 'AUTO'")
+    .edge("intencao", "humano", "${intencao.decision} != 'PEDIDO' || ${intencao.route} != 'AUTO'")
     .build();
 ```
 
-`route(from, to, ramo)` emite `branch` na aresta; é o **motor** que o converte na condição ao carregar.
+`edge(from, to, condição)` grava a condição na aresta. `route(from, to, ramo)` emite `branch`, que o **motor**
+converte na condição ao carregar (`Decision.REVIEW` → `${intencao.route} == 'REVIEW'`): serve ao portão de
+confiança, não a escolher a categoria.
 `DslDecisionConformanceTest` (archflow-api) passa o documento emitido pelo desserializador real e executa o
 nó — se a DSL e o componente divergirem num nome de chave, é lá que aparece.
 

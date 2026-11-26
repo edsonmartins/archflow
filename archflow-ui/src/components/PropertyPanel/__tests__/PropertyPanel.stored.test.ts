@@ -102,7 +102,7 @@ describe('PropertyPanel — só o que está gravado (RCHFLW-92)', () => {
 
     const expr = field(view, 'expression')
     expect(expr.value).toBe('')
-    expect(expr.placeholder).toBe('editor.properties.fields.exampleValue:${agent.confidence} > 0.8')
+    expect(expr.placeholder).toBe("editor.properties.fields.exampleValue:${<nodeId>.route} == 'AUTO'")
     expect(expr.required || container.textContent!.includes('*')).toBe(true)
   })
 
@@ -116,7 +116,7 @@ describe('PropertyPanel — só o que está gravado (RCHFLW-92)', () => {
     const view = await panel(data('switch'))
 
     expect(field(view, 'switchExpression').value).toBe('')
-    expect(field(view, 'switchExpression').placeholder).toBe('editor.properties.fields.exampleValue:${agent.intent}')
+    expect(field(view, 'switchExpression').placeholder).toBe('editor.properties.fields.exampleValue:${<nodeId>.decision}')
     expect(field(view, 'switchCases').value).toBe('')
     expect(field(view, 'switchCases').placeholder).toContain('order_tracking')
   })

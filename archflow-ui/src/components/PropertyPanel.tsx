@@ -183,7 +183,7 @@ function NodeFields({ nodeId, nodeData, readOnly }: { nodeId: string; nodeData: 
 
   const update = (key: string, value: unknown) => updateNodeConfig(nodeId, key, value)
   // A referência entra no fim da expressão já escrita; se o campo ainda mostra só o exemplo
-  // (nada gravado), substitui — colar ao lado de `${agent.confidence} > 0.8` daria lixo.
+  // (nada gravado), substitui — colar ao lado de `${<nodeId>.route} == 'AUTO'` daria lixo.
   const insertRef = (key: string, snippet: string, replace = false) => {
     const atual = nodeData.config?.[key]
     const texto = typeof atual === 'string' ? atual : ''
@@ -760,7 +760,7 @@ function NodeFields({ nodeId, nodeData, readOnly }: { nodeId: string; nodeData: 
             label={f('expression')}
             withAsterisk
             value={storedText(nodeData, 'conditionExpression')}
-            placeholder={ex('${agent.confidence} > 0.8')}
+            placeholder={ex("${<nodeId>.route} == 'AUTO'")}
             onChange={e => update('conditionExpression', e.currentTarget.value)}
             autosize minRows={2}
             size="xs"
@@ -783,7 +783,7 @@ function NodeFields({ nodeId, nodeData, readOnly }: { nodeId: string; nodeData: 
             label={f('switchExpression')}
             withAsterisk
             value={storedText(nodeData, 'switchExpression')}
-            placeholder={ex('${agent.intent}')}
+            placeholder={ex('${<nodeId>.decision}')}
             onChange={e => update('switchExpression', e.currentTarget.value)}
             size="xs"
             styles={MONO_INPUT}

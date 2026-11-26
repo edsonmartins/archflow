@@ -1,0 +1,105 @@
+{
+  "_comment": "RCHFLW-116: o fluxo que o copiloto monta para a triagem (CopilotAppOperator.conditions.test.ts, ids trocados pelos daqui) e que o TriagemPelaRespostaDaDecisaoTest (archflow-api) executa no motor de verdade. Se um dos dois mudar o documento, o outro teste falha.",
+  "id": "triagem-suporte",
+  "metadata": {
+    "name": "Triagem de pedidos de suporte"
+  },
+  "steps": [
+    {
+      "id": "receber",
+      "type": "input",
+      "componentId": "input",
+      "label": "Receber pedido",
+      "configuration": {},
+      "connections": [
+        {
+          "sourceId": "receber",
+          "targetId": "triagem",
+          "isErrorPath": false
+        }
+      ]
+    },
+    {
+      "id": "humano",
+      "type": "approval",
+      "componentId": "approval",
+      "label": "Atendimento humano",
+      "configuration": {
+        "approvalTitle": "Pedido urgente"
+      },
+      "connections": []
+    },
+    {
+      "id": "responder",
+      "type": "llm-chat",
+      "componentId": "llm-chat",
+      "label": "Responder com LLM",
+      "configuration": {
+        "systemPrompt": "Responda ao pedido do cliente em uma frase."
+      },
+      "connections": []
+    },
+    {
+      "id": "triagem",
+      "type": "decision",
+      "componentId": "decision",
+      "label": "Triagem",
+      "configuration": {
+        "provider": "llm",
+        "questions": {
+          "assunto": {
+            "type": "choice",
+            "instructions": "Qual o assunto do pedido?",
+            "criteria": {
+              "financeiro": "cobrança, pagamento",
+              "suporte_tecnico": "defeito, sistema fora do ar",
+              "outro": "qualquer outro assunto"
+            }
+          },
+          "urgente": {
+            "type": "noul",
+            "instructions": "O pedido é urgente?",
+            "criteria": {
+              "true": "algo parado ou fora do ar, prazo vencendo",
+              "false": "dúvida ou pedido que pode esperar"
+            }
+          }
+        },
+        "primary": "assunto",
+        "gate": [
+          "urgente"
+        ]
+      },
+      "connections": [
+        {
+          "sourceId": "triagem",
+          "targetId": "e_urgente",
+          "isErrorPath": false
+        }
+      ]
+    },
+    {
+      "id": "e_urgente",
+      "type": "condition",
+      "componentId": "condition",
+      "label": "É urgente?",
+      "configuration": {
+        "conditionExpression": "${triagem.answers.urgente.result} == true || ${triagem.route} == 'ESCALATE'"
+      },
+      "connections": [
+        {
+          "sourceId": "e_urgente",
+          "targetId": "humano",
+          "isErrorPath": false,
+          "branch": "true"
+        },
+        {
+          "sourceId": "e_urgente",
+          "targetId": "responder",
+          "isErrorPath": false,
+          "branch": "false"
+        }
+      ]
+    }
+  ]
+}

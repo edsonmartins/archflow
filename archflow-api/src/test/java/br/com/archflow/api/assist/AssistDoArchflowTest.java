@@ -39,6 +39,7 @@ import static org.mockito.Mockito.when;
 class AssistDoArchflowTest {
 
     private final List<String> prompts = new ArrayList<>();
+    private String resposta = "{\"workflow\":{\"steps\":[],\"links\":[]},\"lacunas\":[],\"diagnostico\":\"x\"}";
     private ServerFlowCatalog serverCatalog;
     private AssistServiceImpl assist;
 
@@ -54,7 +55,7 @@ class AssistDoArchflowTest {
         ChatModel model = mock(ChatModel.class);
         when(model.chat(anyString())).thenAnswer(inv -> {
             prompts.add(inv.getArgument(0));
-            return "{\"workflow\":{\"steps\":[],\"links\":[]},\"lacunas\":[],\"diagnostico\":\"x\"}";
+            return resposta;
         });
         LLMConfigResolver resolver = mock(LLMConfigResolver.class);
         when(resolver.resolveModel(any())).thenReturn(model);
@@ -76,6 +77,67 @@ class AssistDoArchflowTest {
         // Só o que executa: um tipo da paleta sem execução não entra como opção de nó.
         assertThat(serverCatalog.nonExecutableNodeTypes()).contains("transform");
         assertThat(prompt).doesNotContain("plugin=transform,");
+    }
+
+    @Test
+    @DisplayName("nl-to-flow ensina a gramática das expressões e avisa da condição que o motor recusaria")
+    void nlToFlowCondicaoGeradaComAviso() {
+        resposta = """
+                {"workflow":{"steps":[
+                  {"name":"receber","component":"input","nodeType":"input","parameters":{}},
+                  {"name":"classificar","component":"llm-chat","nodeType":"llm-chat","parameters":{}},
+                  {"name":"urgente","component":"condition","nodeType":"condition",
+                   "parameters":{"conditionExpression":"ticket.urgente == true"}},
+                  {"name":"ok","component":"condition","nodeType":"condition",
+                   "parameters":{"conditionExpression":"${classificar} contains 'URGENTE'"}}],
+                 "links":[]},"lacunas":[],"observacoes":"rascunho"}
+                """;
+
+        var r = assist.nlToFlow(new NlToFlowRequest("rotear urgentes para um humano", null, "pt-BR"));
+
+        assertThat(prompts.getFirst())
+                .contains("cada operando é ${caminho}, texto entre aspas")
+                .contains("O caminho começa pelo 'name' de um step anterior");
+        // O rascunho segue o contrato (os steps como vieram); o aviso diz o step, o campo e o motivo.
+        assertThat(r.workflow().steps()).hasSize(4);
+        assertThat(r.observacoes()).startsWith("rascunho\n")
+                .contains("o step \"urgente\", campo conditionExpression, será recusado ao executar")
+                .contains("«ticket.urgente» não é um valor")
+                .doesNotContain("\"ok\"");
+    }
+
+    /**
+     * RCHFLW-116, 2ª rodada: o decision gerado vinha sem provider nem model (o http-decisions padrão não decide sem
+     * model) e o ramo era o route, que é a confiança. O prompt ensina a ramificar pela resposta, com o provider llm e
+     * os campos que o DecisionComponent grava; o decision que não roda vira aviso, com o motivo do próprio componente.
+     */
+    @Test
+    @DisplayName("nl-to-flow ensina a ramificar pela resposta da decisão e avisa do decision que não roda")
+    void nlToFlowDecisaoPelaResposta() {
+        resposta = """
+                {"workflow":{"steps":[
+                  {"name":"semModelo","component":"decision","nodeType":"decision",
+                   "parameters":{"questions":{"assunto":{"type":"choice","criteria":{"a":"x","b":"y"}}}}},
+                  {"name":"semTipo","component":"decision","nodeType":"decision",
+                   "parameters":{"provider":"llm","questions":{"urgente":{"instructions":"É urgente?"}}}},
+                  {"name":"triagem","component":"decision","nodeType":"decision",
+                   "parameters":{"provider":"llm","questions":{"urgente":{"type":"noul"}},"gate":["urgente"]}}],
+                 "links":[]},"lacunas":[],"observacoes":null}
+                """;
+
+        var r = assist.nlToFlow(new NlToFlowRequest("triagem: urgente ao humano, o resto ao LLM", null, "pt-BR"));
+
+        assertThat(prompts.getFirst())
+                .contains("mede a CONFIANÇA da resposta, não diz a categoria")
+                .contains("provider 'llm' (o LLM da plataforma; sem 'model', herda o modelo da plataforma)")
+                .contains("o route AUTO nunca sai")
+                .contains("${triagem.answers.urgente.result} == true || ${triagem.route} == 'ESCALATE'")
+                .doesNotContain("leia ${<name>.decision} ou ${<name>.route}");
+        assertThat(r.observacoes())
+                .contains("o step \"semModelo\" (decision) usa o provedor http-decisions, que não decide sem 'model'")
+                .contains("o step \"semTipo\" (decision) será recusado ao executar: decision: tipo '' da pergunta "
+                        + "'urgente' inválido")
+                .doesNotContain("\"triagem\"");
     }
 
     @Test

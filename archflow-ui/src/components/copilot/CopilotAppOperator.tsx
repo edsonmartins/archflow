@@ -10,9 +10,18 @@ import { useFlowStore, type CanvasOp } from '../FlowCanvas/store/useFlowStore'
 import { useWorkflowStore } from '../../stores/workflow-store'
 import { newNodeId } from '../FlowCanvas/nodePlacement'
 import { NOT_EXECUTABLE_NODE_TYPES } from '../FlowCanvas/constants'
+import { branchOptions } from '../FlowCanvas/branches'
+import {
+    CONTROL_EXPRESSION_FIELD, controlExpressionFindings, describeFindingForAgent, flowRefsOf,
+    type ExpressionProblem,
+} from '../FlowCanvas/controlExpressions'
+import {
+    decisionAutoUnreachable, decisionConfigFindings, decisionModelMissing, decisionProviderOf,
+    describeDecisionFindingForAgent, type DecisionFinding,
+} from '../FlowCanvas/decisionReadiness'
 import {
     applyConfig, configKeysSummary, COPILOT_NODE_TYPES, isAnnotationType, parseConfigArg, validateNodeConfig,
-    visibleConfig, REDACTED, type ConfigValueType,
+    visibleConfig, REDACTED, type ConfigValueType, type ValidatedConfig,
 } from './nodeConfigKeys'
 import { confirmCopilotNodeRemoval } from './confirmCopilotRemoval'
 import CopilotClockContext from './CopilotClockContext'
@@ -36,8 +45,8 @@ type NavigateToParams = { page: string }
 type RunWorkflowParams = { workflowId: string }
 type ShowStatusParams = { message: string }
 type CreateFlowParams = { name?: string }
-type AddNodeParams = { nodeType: string; label?: string; config?: unknown }
-type ConnectNodesParams = { sourceId: string; targetId: string }
+type AddNodeParams = { nodeType: string; label?: string; config?: unknown; insertBefore?: string }
+type ConnectNodesParams = { sourceId: string; targetId: string; branch?: string }
 type ConfigureNodeParams = { nodeId: string; config?: unknown; label?: unknown }
 type RemoveNodeParams = { nodeId: string }
 type RemoveEdgeParams = { sourceId: string; targetId: string }
@@ -63,10 +72,16 @@ export type ToolRefusal = {
     declined?: boolean
 }
 export type CreateFlowResult = { workflowId: string; name: string }
-export type AddNodeResult = { ok: true; id: string; nodeType: string; label: string; queued: boolean } | ToolRefusal
+export type AddNodeResult =
+    | {
+        ok: true; id: string; nodeType: string; label: string; queued: boolean
+        /** Com insertBefore: o nó antes do qual entrou e quantas arestas passaram a chegar nele. */
+        insertedBefore?: string; rewiredEdges?: number
+    }
+    | ToolRefusal
 export type ConnectNodesResult =
-    | { ok: true; sourceId: string; targetId: string; queued: boolean }
-    | { ok: false; error: string; nodes?: CanvasNodeRef[] }
+    | { ok: true; sourceId: string; targetId: string; branch?: string; queued: boolean }
+    | { ok: false; error: string; nodes?: CanvasNodeRef[]; branches?: string[] }
 export type ConfigureNodeResult =
     | { ok: true; nodeId: string; label: string; config: Record<string, unknown>; queued: boolean }
     | ToolRefusal
@@ -123,6 +138,153 @@ function queuedNodeRefs(): CanvasNodeRef[] {
 /** Reescreve a fila sem passar pelo enqueue (que carimbaria o destino de novo). */
 function rewriteQueue(fn: (ops: CanvasOp[]) => CanvasOp[]) {
     useFlowStore.setState(s => ({ pendingCanvasOps: fn(s.pendingCanvasOps) }))
+}
+
+/**
+ * Como classificar e ramificar, para o agente (RCHFLW-116). Na 1ª rodada ele escrevia `ticket.urgente == true` depois
+ * de um llm-chat; na 2ª, montou um decision sem provider nem model e ramificou por AUTO/ESCALATE. As duas falharam em
+ * silêncio: sem model o http-decisions (o padrão) nem decide e, com onError ESCALATE, todo pedido escala; e a rota é a
+ * CONFIANÇA da resposta (RoutePolicy), não a categoria — um pedido comum e um urgente, respondidos com a mesma
+ * confiança, seguem a mesma rota. O ramo vem da resposta, que o DecisionComponent devolve em `answers` (montar), e a
+ * rota fica como portão de confiança. Os exemplos usam só campos que o componente grava e a gramática do avaliador
+ * (ConditionEvaluator / controlExpressions); o provedor é o `llm`, o único que roda sem um model que ninguém tem como
+ * escolher (não há catálogo de modelos de decisão), e cujo teto de confiança (0,89) nunca chega ao AUTO padrão (0,9).
+ */
+const EXPRESSION_RULES: string[] = [
+    'To classify and then branch, use a decision node and branch on its ANSWER with a condition or switch node right '
+        + 'after it. The decision route (AUTO/REVIEW/ESCALATE) is the CONFIDENCE of the answer, not the category: an '
+        + 'urgent and an ordinary request answered with the same confidence get the same route, so never branch the '
+        + 'categories on the route.',
+    'Decision provider: set "provider":"llm" (the platform LLM as classifier) and leave "model" out to inherit the '
+        + 'platform model. Do not use http-decisions or langchain4j-decisions unless the user gave you a decision model '
+        + 'id: they refuse to run without "model" and there is no model catalog to pick one from — never invent a model. '
+        + 'With provider llm the confidence is capped at 0.89, below thresholds.auto 0.9: the AUTO route never happens, '
+        + 'so an AUTO edge is never followed.',
+    'Decision output, under its node id D: ${D.answers.<qid>.result} (noul: true/false), ${D.answers.<qid>.choice} '
+        + '(choice: the option), ${D.answers.<qid>.score} (score: the level index), ${D.answers.<qid>.confidence}; '
+        + '${D.decision} is the value of the "primary" question (the option of a choice — but the PROBABILITY of a noul, '
+        + 'so read a noul through answers.<qid>.result); ${D.route} and ${D.confidence} come from the minimum confidence '
+        + 'over the "gate" questions (default: all). A failed decision has route ESCALATE, decision null and no answers.',
+    'Example — "send urgent requests to a human, answer the others with an LLM": decision D with config '
+        + '{"provider":"llm","questions":{"assunto":{"type":"choice","instructions":"Qual o assunto do pedido?",'
+        + '"criteria":{"financeiro":"cobrança, pagamento","suporte_tecnico":"defeito, sistema fora do ar",'
+        + '"outro":"qualquer outro assunto"}},"urgente":{"type":"noul","instructions":"O pedido é urgente?",'
+        + '"criteria":{"true":"algo parado ou fora do ar, prazo vencendo","false":"dúvida ou pedido que pode esperar"}}},'
+        + '"primary":"assunto","gate":["urgente"]}; then a condition C with conditionExpression '
+        + '"${D.answers.urgente.result} == true || ${D.route} == \'ESCALATE\'"; connectNodes D -> C without branch, '
+        + 'C -> approval with branch "true", C -> llm-chat with branch "false". The ESCALATE part sends a failed or '
+        + 'low-confidence (< 0.5) decision to the human: a failure never becomes the ordinary path.',
+    'Example by category: primary = a choice question, then a switch with switchExpression "${D.decision}" and '
+        + 'switchCases = the options, one per line; connect one edge per case (branch = the case) and the "default" '
+        + 'edge to the human (a failed decision has decision null and falls in default). The decision route edges '
+        + '(connectNodes branch AUTO/REVIEW/ESCALATE from the decision itself) are only a confidence gate.',
+    'conditionExpression grammar: <operand> <op> <operand> with op ==, !=, >, >=, <, <= or contains, joined by && or '
+        + "||, no parentheses. Each operand is ${path}, quoted text ('urgent'), a number or true/false — never a bare "
+        + 'word (ticket.urgente == true compares the literal text and never branches).',
+    'A path starts with the id (from addNode, never the label) of a node that runs before: ${<nodeId>} is its whole '
+        + 'output, ${<nodeId>.<field>} a field of it. llm-chat output is the reply TEXT, with no fields: compare '
+        + "${<llmId>} contains 'URGENT' (tell it in systemPrompt to answer with that word), or use a decision node. "
+        + 'A top-level key of the run input JSON is ${<key>}; a nested field of it, ${<key>.<field>}, needs <key> '
+        + 'declared in the input node ioFields. ${input} is the output of the previous step.',
+    'Invalid expressions and decision configs the engine would refuse are refused by addNode/configureNode with the '
+        + 'reason: fix them; never leave a node the engine cannot run. To add a node BEFORE an existing one, use addNode '
+        + 'with insertBefore.',
+]
+
+/**
+ * Os provedores de decisão que o servidor registra de fato (ArchflowBeanConfiguration.decisionProviders): o agente
+ * escrevia o provider de LLM ("openai") no nó decision, que o motor não acha e escala sempre.
+ */
+const DECISION_PROVIDER_IDS = ['llm', 'rules', 'http-decisions', 'langchain4j-decisions'] as const
+
+const findingKey = (f: DecisionFinding) => `${f.problem}:${f.subject}`
+
+/**
+ * Por que a config de decision que o agente quer gravar não roda (RCHFLW-116), ou undefined: a regra do Executar do
+ * editor (decisionReadiness), mais o provider que não é de decisão. Confere a config RESULTANTE, porque o defeito
+ * nasce da combinação (perguntas sem provider = http-decisions sem model). O que já estava errado num nó do usuário
+ * ({@code before}) não é recusado: renomear ou mexer noutro campo não pode travar por um problema que o patch não
+ * criou. Num nó novo, ou criado pelo copiloto, {@code before} é undefined e tudo conta.
+ */
+function decisionRefusal(
+    nodeType: string, patch: ValidatedConfig, merged: Record<string, unknown>,
+    before: Record<string, unknown> | undefined,
+): string | undefined {
+    if (nodeType !== 'decision' || (Object.keys(patch.set).length === 0 && patch.unset.length === 0)) return undefined
+    const problems: string[] = []
+    const provider = patch.set.provider
+    if (typeof provider === 'string' && !(DECISION_PROVIDER_IDS as readonly string[]).includes(provider)) {
+        problems.push(`provider "${provider}" is not a decision provider (a decision node does not take the LLM provider): use "llm" — the `
+            + `platform LLM, model optional — or one of ${DECISION_PROVIDER_IDS.join(', ')}`)
+    } else if (decisionModelMissing(merged) && !(before && decisionModelMissing(before))) {
+        problems.push(`provider ${decisionProviderOf(merged)}${merged.provider === undefined ? ' (the default)' : ''} `
+            + 'refuses to run without "model", and every request would go to ESCALATE: set "provider":"llm" (the '
+            + 'platform LLM, no model needed) unless the user gave you a decision model id')
+    }
+    const preexisting = new Set(before ? decisionConfigFindings(before).map(findingKey) : [])
+    for (const f of decisionConfigFindings(merged)) {
+        if (!preexisting.has(findingKey(f))) problems.push(describeDecisionFindingForAgent(f))
+    }
+    return problems.length ? `decision config not applied: ${problems.join('; ')}` : undefined
+}
+
+/** A recusa do ramo AUTO de um decision que nunca chega a AUTO (provider llm, teto 0,89 < limiar 0,9). */
+function unreachableAutoError(sourceId: string, nodeType: string | undefined, branch: string | undefined,
+    config: Record<string, unknown> | undefined): string | undefined {
+    if (nodeType !== 'decision' || branch !== 'AUTO' || !decisionAutoUnreachable(config)) return undefined
+    return `branch "AUTO" of decision ${sourceId} is never followed: its provider llm caps the confidence at 0.89, `
+        + 'below thresholds.auto (0.9). Branch on the answer instead (a condition or switch reading '
+        + `\${${sourceId}.answers.<question>…} or \${${sourceId}.decision}), or use REVIEW/ESCALATE as a confidence gate`
+}
+
+/** O ramo pedido não é do nó de origem: a recusa diz quais são, para o agente escolher na rodada seguinte. */
+function branchError(sourceId: string, branch: string, branches: readonly string[]): string {
+    return branches.length
+        ? `branch "${branch}" is not an output of node ${sourceId}; its branches are: ${branches.join(', ')}`
+        : `node ${sourceId} does not branch: connect it without a branch`
+}
+
+/** Sem fluxo conhecido (fila sem destino), só se sabe o formato: os passos do canvas que vai abrir são outros. */
+const FORMAT_PROBLEMS: ReadonlySet<ExpressionProblem> = new Set(['MALFORMED', 'BARE_OPERAND', 'NO_REFERENCE'])
+
+/**
+ * A config dos nós Entrada, para os campos esperados (ioFields) valerem como raiz — como no Executar e no servidor.
+ * O CanvasNodeRef não leva config (é o que volta ao agente); ela vem do canvas aberto ou da fila. Sem isso, o
+ * copiloto recusaria a {@code ${ticket.urgente}} que o editor aceita, e o agente, que declarou a chave como a recusa
+ * pede, ficaria preso.
+ */
+function inputNodeConfigs(): Map<string, Record<string, unknown>> {
+    const configs = new Map<string, Record<string, unknown>>()
+    for (const s of useFlowStore.getState().getCanvasSnapshot().steps) {
+        if (s.config) configs.set(s.id, s.config)
+    }
+    for (const op of queuedAdds()) {
+        if (op.config) configs.set(op.id!, { ...(configs.get(op.id!) ?? {}), ...op.config })
+    }
+    return configs
+}
+
+/**
+ * Por que a expressão de condition/switch que o agente quer gravar não serve (RCHFLW-116), ou undefined. É a regra
+ * do Executar do editor e do servidor (controlExpressions / ControlExpressionRules): o agente montava
+ * `ticket.urgente == true`, o toast dizia "Configured" e o pedido urgente seguia o ramo errado, em silêncio.
+ * Recusar com a forma certa e os ids válidos deixa o agente corrigir na rodada seguinte. Só a chave da expressão
+ * presente no patch é conferida — renomear um nó não pode ser recusado por uma expressão que o patch não toca.
+ *
+ * @param nodes os passos que a expressão pode citar; {@code refsKnown} false = só o formato
+ */
+function expressionRefusal(
+    nodeType: string, set: Record<string, unknown>, nodes: CanvasNodeRef[], refsKnown: boolean,
+): string | undefined {
+    const field = CONTROL_EXPRESSION_FIELD[nodeType]
+    if (!field || typeof set[field] !== 'string') return undefined
+    const configs = inputNodeConfigs()
+    const steps = nodes.filter(n => !isAnnotationType(n.nodeType))
+        .map(n => ({ id: n.id, componentId: n.nodeType, config: n.nodeType === 'input' ? configs.get(n.id) : undefined }))
+    const findings = controlExpressionFindings(nodeType, { [field]: set[field] }, flowRefsOf(steps))
+        .filter(f => refsKnown || FORMAT_PROBLEMS.has(f.problem))
+    if (findings.length === 0) return undefined
+    return `${field} not applied: ${findings.map(describeFindingForAgent).join('; ')}`
 }
 
 /**
@@ -191,7 +353,9 @@ export default function CopilotAppOperator() {
     useAgentContext({
         description: 'Config keys (key:type) you can set per node type, with addNode `config` or configureNode. '
             + 'json keys must follow the shape shown next to them. '
-            + 'provider/model are plain ids (e.g. openai / gpt-4o-mini); omit them to inherit the flow default',
+            + 'provider/model are plain ids (e.g. openai / gpt-4o-mini); omit them to inherit the flow default. '
+            + 'On a decision node, provider is a DECISION provider (llm, rules, http-decisions), not the LLM provider: '
+            + 'see the branching rules',
         value: configKeys,
     })
     useAgentContext({
@@ -203,6 +367,10 @@ export default function CopilotAppOperator() {
             // A config veio do painel/JSON do fluxo: é dado serializável, só o tipo do FlowNodeData é aberto.
             config: visibleConfig(String(n.data?.nodeType ?? ''), n.data?.config) as JsonSerializable,
         })),
+    })
+    useAgentContext({
+        description: 'How to classify and branch a flow (decision answers, condition/switch expressions, decision routes)',
+        value: EXPRESSION_RULES,
     })
     useAgentContext({
         description: 'Edges currently on the editor canvas (sourceId -> targetId) — use them with removeEdge',
@@ -310,14 +478,21 @@ export default function CopilotAppOperator() {
             + 'node configuration right away (a JSON object using only the config keys listed for that node '
             + 'type). If no flow is open the node is queued and applied as soon as a flow is opened/created '
             + '(so you can call createFlow then addNode); the returned id stays valid. '
-            + 'Returns {ok:false, error} for an unknown node type or config key: fix it and retry.',
+            + 'Optional `insertBefore` (an existing node id): the new node goes right BEFORE that node — every edge '
+            + 'that reached it now reaches the new node, and the new node is connected to it. Use it for "add X '
+            + 'before Y" instead of connecting by hand (do not call connectNodes for those edges). '
+            + 'Returns {ok:false, error} for an unknown node type, config key or an invalid condition/switch '
+            + 'expression: fix it and retry.',
         parameters: z.object({
             nodeType: z.string().describe('the node type to add, e.g. input, llm-chat, condition, output'),
             label: z.string().optional().describe('optional label for the node'),
             config: z.union([z.string(), z.record(z.string(), z.unknown())]).optional()
                 .describe('optional JSON object with the node config, e.g. {"systemPrompt":"..."}'),
+            insertBefore: z.string().optional()
+                .describe('optional id of an existing node: insert the new node between its predecessors and it'),
         }),
-        handler: async ({ nodeType, label, config }: AddNodeParams, ctx?: ToolContext): Promise<AddNodeResult> => {
+        handler: async ({ nodeType, label, config, insertBefore }: AddNodeParams, ctx?: ToolContext)
+            : Promise<AddNodeResult> => {
             guardEdit(ctx, 'addNode')
             // Um tipo fora da paleta virava, calado, um nó da categoria 'tool' (toast "Added") que o motor
             // não sabe executar: o fluxo parecia pronto e falhava com "component not found".
@@ -336,11 +511,34 @@ export default function CopilotAppOperator() {
                 const checked = validateNodeConfig(nodeType, parsed.value)
                 if (!checked.ok) return refuse('Add node', checked.error, { allowedKeys: checked.allowedKeys })
                 initial = Object.keys(checked.config.set).length ? checked.config.set : undefined
+                // Nó novo: tudo o que a config cria conta (sem `before`).
+                const badDecision = decisionRefusal(nodeType, checked.config, checked.config.set, undefined)
+                if (badDecision) return refuse('Add node', badDecision)
             }
             const canvas = useFlowStore.getState().canvasApi
+            const known = canvas ? canvas.listNodes() : queuedNodeRefs()
+            const badExpression = initial && expressionRefusal(nodeType, initial, known,
+                !!canvas || !!useFlowStore.getState().pendingCanvasTarget)
+            if (badExpression) return refuse('Add node', badExpression, { nodes: known })
+            if (insertBefore !== undefined) {
+                // Inserir religa as arestas que já estão no canvas; na fila não há arestas a religar com certeza.
+                if (!canvas) return refuse('Add node', 'insertBefore needs the flow open in the editor')
+                const target = known.find(n => n.id === insertBefore)
+                if (!target || isAnnotationType(target.nodeType)) {
+                    return refuse('Add node', `insertBefore: unknown node id ${insertBefore}`, { nodes: known })
+                }
+            }
             if (canvas) {
                 const id = canvas.addNode({ nodeType, label, placement: 'free', ...(initial ? { config: initial } : {}) })
                 createdByCopilotRef.current.add(id)
+                if (insertBefore !== undefined) {
+                    const rewiredEdges = canvas.insertBefore(id, insertBefore) ?? 0
+                    notifications.show({ color: 'teal', message: `Added "${nodeType}" node (${id}) before ${insertBefore}` })
+                    return {
+                        ok: true, id, nodeType, label: label ?? nodeType, queued: false,
+                        insertedBefore: insertBefore, rewiredEdges,
+                    }
+                }
                 notifications.show({ color: 'teal', message: `Added "${nodeType}" node (${id})` })
                 return { ok: true, id, nodeType, label: label ?? nodeType, queued: false }
             }
@@ -364,13 +562,21 @@ export default function CopilotAppOperator() {
         description: 'Connect two nodes on the editor canvas with an edge (source -> target). '
             + 'Use the ids returned by addNode (or the ids of the nodes already on the canvas, from the '
             + 'context). Annotations (sticky-note, group-frame, section-divider) cannot be connected. '
+            + 'Optional `branch` picks which output of a branching source the edge follows: "true"/"false" for '
+            + 'condition, one of the cases or "default" for switch, AUTO/REVIEW/ESCALATE for decision (a decision '
+            + 'edge without branch always runs; its branches are the confidence route, not the answer — branch on the '
+            + 'answer with a condition/switch after it). '
             + 'Returns {ok: true} or {ok: false, error, nodes}: on failure, retry with an id from `nodes`.',
         parameters: z.object({
             sourceId: z.string().describe('id of the source node, as returned by addNode'),
             targetId: z.string().describe('id of the target node, as returned by addNode'),
+            branch: z.string().optional()
+                .describe('optional branch of the source node: true/false, a switch case, AUTO/REVIEW/ESCALATE'),
         }),
-        handler: async ({ sourceId, targetId }: ConnectNodesParams, ctx?: ToolContext): Promise<ConnectNodesResult> => {
+        handler: async ({ sourceId, targetId, branch: rawBranch }: ConnectNodesParams, ctx?: ToolContext)
+            : Promise<ConnectNodesResult> => {
             guardEdit(ctx, 'connectNodes')
+            const branch = typeof rawBranch === 'string' && rawBranch.trim() ? rawBranch.trim() : undefined
             const store = useFlowStore.getState()
             const canvas = store.canvasApi
             if (!canvas) {
@@ -385,32 +591,43 @@ export default function CopilotAppOperator() {
                 const unknown = target
                     ? [sourceId, targetId].filter(id => !queued.some(n => n.id === id))
                     : []
+                // O ramo só se confere quando a origem está na fila (é ela que diz o tipo e os casos do nó).
+                const queuedSource = queuedAdds().find(op => op.id === sourceId)
+                const queuedBranches = queuedSource ? branchOptions(queuedSource.nodeType, queuedSource.config) : undefined
                 const refused = unknown.length
                     ? `unknown node id: ${unknown.join(', ')}`
                     : annotationError(sourceId, targetId, queued)
+                        ?? (branch !== undefined && queuedBranches && !queuedBranches.includes(branch)
+                            ? branchError(sourceId, branch, queuedBranches) : undefined)
+                        ?? unreachableAutoError(sourceId, queuedSource?.nodeType, branch, queuedSource?.config)
                 if (refused) {
                     notifications.show({ color: 'red', message: `Connect failed — ${refused}` })
-                    return { ok: false, error: refused, nodes: queued }
+                    return { ok: false, error: refused, nodes: queued, ...(queuedBranches ? { branches: queuedBranches } : {}) }
                 }
-                store.enqueueCanvasOp({ kind: 'connect', sourceId, targetId })
+                store.enqueueCanvasOp({ kind: 'connect', sourceId, targetId, ...(branch !== undefined ? { branch } : {}) })
                 notifications.show({ color: 'blue', message: 'Queued connection — open a flow to apply it.' })
-                return { ok: true, sourceId, targetId, queued: true }
+                return { ok: true, sourceId, targetId, ...(branch !== undefined ? { branch } : {}), queued: true }
             }
             const nodes = canvas.listNodes()
             const known = new Set(nodes.map(n => n.id))
             const unknown = [sourceId, targetId].filter(id => !known.has(id))
             // Devolvido ao agente (e não lançado): um erro encerraria o laço sem followUp, e é justamente o
             // resultado com os ids válidos que deixa o agente corrigir a ligação na rodada seguinte.
+            const branches = unknown.length ? undefined : canvas.branchesOf(sourceId) ?? undefined
+            const source = nodes.find(n => n.id === sourceId)
             const error = unknown.length
                 ? `unknown node id: ${unknown.join(', ')}`
                 : annotationError(sourceId, targetId, nodes)
-            if (error || !canvas.connectNodes(sourceId, targetId)) {
+                    ?? (branch !== undefined && !(branches ?? []).includes(branch)
+                        ? branchError(sourceId, branch, branches ?? []) : undefined)
+                    ?? unreachableAutoError(sourceId, source?.nodeType, branch, canvas.configOf(sourceId) ?? undefined)
+            if (error || !canvas.connectNodes(sourceId, targetId, branch)) {
                 const message = error ?? 'the canvas refused the connection'
                 notifications.show({ color: 'red', message: `Connect failed — ${message}` })
-                return { ok: false, error: message, nodes }
+                return { ok: false, error: message, nodes, ...(branches?.length ? { branches } : {}) }
             }
-            notifications.show({ color: 'teal', message: `Connected ${sourceId} → ${targetId}` })
-            return { ok: true, sourceId, targetId, queued: false }
+            notifications.show({ color: 'teal', message: `Connected ${sourceId} → ${targetId}${branch ? ` (${branch})` : ''}` })
+            return { ok: true, sourceId, targetId, ...(branch !== undefined ? { branch } : {}), queued: false }
         },
     })
 
@@ -455,6 +672,15 @@ export default function CopilotAppOperator() {
             const checked = parsed.value ? validateNodeConfig(node.nodeType, parsed.value) : undefined
             if (checked && !checked.ok) return refuse(tool, checked.error, { allowedKeys: checked.allowedKeys })
             const patch = checked?.ok ? checked.config : { set: {}, unset: [] }
+            const badExpression = expressionRefusal(node.nodeType, patch.set, nodes,
+                !!canvas || !!useFlowStore.getState().pendingCanvasTarget)
+            if (badExpression) return refuse(tool, badExpression, { nodes })
+            const current = canvas
+                ? canvas.configOf(nodeId) ?? undefined
+                : queuedAdds().find(op => op.id === nodeId)?.config
+            const badDecision = decisionRefusal(node.nodeType, patch, applyConfig(current, patch),
+                createdByCopilotRef.current.has(nodeId) ? undefined : (current ?? {}))
+            if (badDecision) return refuse(tool, badDecision)
 
             if (canvas) {
                 const result = canvas.configureNode(nodeId, { config: patch.set, unset: patch.unset, label: newLabel })

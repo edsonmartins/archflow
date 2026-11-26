@@ -442,11 +442,12 @@ describe('RCHFLW-78 — addNode', () => {
     await mountEditor()
 
     const ok = await call<{ id: string }>('addNode', {
-      nodeType: 'condition', label: 'Urgente?', config: { conditionExpression: "${t.prioridade} == 'alta'" },
+      // ${input.…} e não ${t.…}: com o canvas vazio, "t" não é passo nenhum, e a expressão seria recusada (RCHFLW-116).
+      nodeType: 'condition', label: 'Urgente?', config: { conditionExpression: "${input.prioridade} == 'alta'" },
     })
     const bad = await call('addNode', { nodeType: 'condition', config: { prompt: 'x' } })
 
-    expect(configOf(ok.id)).toEqual({ conditionExpression: "${t.prioridade} == 'alta'" })
+    expect(configOf(ok.id)).toEqual({ conditionExpression: "${input.prioridade} == 'alta'" })
     expect(bad).toEqual(expect.objectContaining({ ok: false, allowedKeys: { conditionExpression: 'string' } }))
     expect(useFlowStore.getState().nodes).toHaveLength(1)
   })
