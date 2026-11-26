@@ -65,6 +65,8 @@
         "resolveConversationMessage": "Mark this conversation as resolved? It will be closed."
     },
     "common": {
+        "requiresPermission": "Requires the {{permission}} permission",
+        "requiresAdmin": "Requires the ADMIN role",
         "confirm": "Confirm",
         "noData": "No data",
         "create": "Create",
@@ -486,6 +488,7 @@
             "title": "Nodes without connections",
             "message": "Not connected: {{names}}. With no edges at all, the flow runs its nodes in the order they were created; with edges, the server refuses to run the flow while a node is loose (it would run on its own, before any gate). Connect the nodes or remove the loose ones."
         },
+        "edgeAlreadyExists": "This connection already exists. To send another case of a switch to the same node, declare the case on the switch first: the new edge gets the first case still free.",
         "publish": {
             "button": "Publish",
             "title": "Publish this workflow",
@@ -533,7 +536,15 @@
             "done": "Copilot finished building the flow",
             "doneMsg": "Check the nodes and connections on the canvas.",
             "doneInvalid": "Flow built, but it does not run yet",
-            "promptTemplate": "Build a workflow on the editor canvas for the following goal. Create each node with the addNode tool, using the available node types and a short descriptive label; addNode returns the id of the created node. Configure each node with what the goal asks for (prompt and model of an llm-chat, expression of a condition…), in the addNode config parameter or with configureNode, using only the config keys listed for that node type. Then connect the nodes in a logical order with connectNodes, using exactly the ids returned by addNode (never invent ids). To fix a node you created or a wrong edge, use removeNode/removeEdge instead of adding another node; do not remove nodes that were already in the flow unless the goal asks for it (the user will have to confirm). To classify and branch, use a decision node with provider llm (the platform LLM; without model it inherits the default) and a question whose ANSWER is the branch criterion (noul for yes/no, choice with the option), and branch on the answer with a condition or switch right after it, as in the examples of the branching rules in the context: the decision route measures the answer's confidence, it does not tell the category. A condition or switch expression reads the output of an earlier node by its id (${id.field}), never a bare word — fix an expression or config the tool refuses instead of leaving it behind. To put a node before an existing one, use addNode with insertBefore. When you are done, reply with a short summary of the flow. Goal: {{goal}}"
+            "doneEmpty": "The copilot did not build any node",
+            "doneEmptyMsg": "The canvas is still empty. Rephrase the goal and generate again.",
+            "doneUnchanged": "The copilot did not change the flow",
+            "doneUnchangedMsg": "No node or connection changed on the canvas.",
+            "doneHumanPath": "Flow built, but a failed decision does not reach the human",
+            "failedDecisionMissesHuman": "In {{nodes}}, a decision that fails (no answer) does not go only to the approval, although another branch does: connect the switch default branch, or the condition branch that gets ESCALATE, to the approval alone.",
+            "doneCasesWithoutEdge": "Flow built, but some cases have no connection",
+            "casesWithoutEdge": "In {{node}}, the cases {{cases}} have no edge: a value in one of them ends the flow with no reply.",
+            "promptTemplate": "Build a workflow on the editor canvas for the following goal. Create each node with the addNode tool, using the available node types and a short descriptive label; addNode returns the id of the created node. Configure each node with what the goal asks for (prompt and model of an llm-chat, expression of a condition…), in the addNode config parameter or with configureNode, using only the config keys listed for that node type. Then connect the nodes in a logical order with connectNodes, using exactly the ids returned by addNode (never invent ids). To fix a node you created or a wrong edge, use removeNode/removeEdge instead of adding another node; do not remove nodes that were already in the flow unless the goal asks for it (the user will have to confirm). To classify and branch, use a decision node with provider llm (the platform LLM; without model it inherits the default) and a question whose ANSWER is the branch criterion (noul for yes/no, choice with the option), and branch on the answer with a condition or switch right after it, as in the examples of the branching rules in the context: the decision route measures the answer's confidence, it does not tell the category. A condition or switch expression reads the output of an earlier node by its id (${id.field}), never a bare word — fix an expression or config the tool refuses instead of leaving it behind. To put a node before an existing one, use addNode with insertBefore. The flow you build is the one open in the editor: start with addNode, without createFlow. Several cases of a switch may go to the same node (one edge per case, each with its own branch); the default branch, where a failed decision falls, goes to the human only. An approval is not the end of the flow: approving resumes the run at the next node, so connect the approval to the step that answers the customer (an llm-chat with userMessage ${<input node id>}) — without it an approved request never gets an answer. Each branch leads to a single node: to move a branch, first remove its edge with removeEdge passing the branch. systemPrompt and the approval texts are sent as written and never resolve ${...}: put the references in the llm-chat userMessage (or in the decision state). For knowledgeBaseId use the id of a knowledge base listed in the context; if none fits or the goal does not say which one, ask the user instead of inventing one. An llm-chat only generates text and an output only returns the result: if the goal asks for an effect no available node type performs (sending an e-mail, registering in a CRM such as Salesforce, calling another system), do not build a node that pretends to do it — leave the step out and say in the summary that this integration is not available. When you are done, reply with a short summary of what is on the canvas, without claiming anything no node does. Goal: {{goal}}"
         },
         "properties": {
             "title": "Properties",
@@ -1958,11 +1969,14 @@
         "subtitle": "Your workspace at a glance: workflows, recent runs and what is waiting for you.",
         "recentExecutionsHint": "The last runs across all workflows",
         "quickActions": "Quick actions",
+        "loadFailedTitle": "Could not load the home page",
+        "loadFailed": "The server did not respond, so the numbers below are not up to date. Reload the page when it is back.",
         "hints": {
             "workflows": "{{count}} published",
             "published": "With a version published to production",
             "failedRuns": "In the last {{count}} runs",
             "failedNone": "No failures — all good",
+            "unavailable": "No data — the server did not respond",
             "pendingApprovals": "Waiting for a human decision"
         },
         "stats": {
@@ -2217,9 +2231,9 @@
             "baseUrl": "Linktor API base URL",
             "baseUrlHint": "Forwarded to the MCP server as LINKTOR_API_URL",
             "apiKey": "API key",
-            "apiKeyHint": "LINKTOR_API_KEY. Leave masked placeholder to preserve.",
+            "apiKeyHint": "LINKTOR_API_KEY. Leave the masked placeholder to keep it; clear the field to remove it.",
             "accessToken": "Access token (optional)",
-            "accessTokenHint": "LINKTOR_ACCESS_TOKEN for user-scoped access.",
+            "accessTokenHint": "LINKTOR_ACCESS_TOKEN for user-scoped access. Clear the field to remove it.",
             "mcpCommand": "MCP command",
             "mcpCommandHint": "Command that starts the Linktor MCP server; space-separated args are supported. The executable (the first word) must be on the backend's MCP command allow-list.",
             "mcpCommandPlaceholder": "node /path/to/linktor-mcp-server/dist/index.js",
@@ -2231,6 +2245,8 @@
             "restartEnvVar": "Environment variable",
             "restartEnvHint": "Write the variable name exactly as in the table, without _ between words: ARCHFLOW_LINKTOR_API_BASE_URL, for example, is not read.",
             "saveFailed": "Save failed",
+            "loadFailedTitle": "Could not load the current configuration",
+            "loadFailedBody": "Saving now would store the default values and erase the stored API key and token. Reload the page to try again.",
             "installTitle": "Install the MCP server",
             "installHint": "<code>npm install -g @linktor/mcp-server</code> installs the <code>linktor-mcp</code> binary, but it is not on the default MCP command allow-list (which has launchers such as node and npx). Run <code>node /path/to/linktor-mcp-server/dist/index.js</code>, or allow the binary through the backend's <code>ARCHFLOW_MCP_ALLOWED_COMMANDS</code> variable (comma-separated; it replaces the default list, e.g. <code>npx,node,linktor-mcp</code>)."
         },

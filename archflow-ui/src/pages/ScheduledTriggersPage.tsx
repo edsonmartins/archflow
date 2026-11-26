@@ -24,6 +24,8 @@ import { formatInstant } from '../lib/format'
 import { useActingTenant } from '../lib/actingTenant'
 import { approvalTenantParam } from '../lib/approvalTenant'
 import { useTenantStore } from '../stores/useTenantStore'
+import { usePermissions } from '../lib/permissions'
+import { PermissionTooltip } from '../components/PermissionTooltip'
 
 /** Acompanhamento do "Disparar agora": os mesmos intervalo, prazo e 404s tolerados do Agent lab. */
 const RUN_POLL_INTERVAL_MS = 1000
@@ -91,6 +93,11 @@ export function lastRunLabel(trigger: Pick<ScheduledTrigger, 'lastStatus'>, t: T
 export default function ScheduledTriggersPage() {
     const { t, i18n } = useTranslation()
     const locale = i18n.resolvedLanguage ?? i18n.language
+    // O que o servidor exige (QA2 RCHFLW-158): criar, editar e apagar o agendamento pedem workflow:update;
+    // disparar agora é executar o fluxo, workflow:execute.
+    const can = usePermissions()
+    const canUpdate = can('workflow:update')
+    const canFire = can('workflow:execute')
     const [items, setItems]   = useState<ScheduledTrigger[]>([])
     const [loading, setL]     = useState(true)
     const [error, setError]   = useState<string | null>(null)
@@ -227,11 +234,11 @@ export default function ScheduledTriggersPage() {
             (r) => (r.lastError ? String(r.lastError) : undefined),
         ),
         colunaAcoes([
-            { nome: 'fire', icone: 'play', rotulo: t('triggers.fireNow'), cor: 'violet' },
-            { nome: 'edit', icone: 'pencil', rotulo: t('triggers.edit') },
-            { nome: 'delete', icone: 'trash', rotulo: t('triggers.delete'), cor: 'red' },
+            { nome: 'fire', icone: 'play', rotulo: t('triggers.fireNow'), cor: 'violet', mostrar: () => canFire },
+            { nome: 'edit', icone: 'pencil', rotulo: t('triggers.edit'), mostrar: () => canUpdate },
+            { nome: 'delete', icone: 'trash', rotulo: t('triggers.delete'), cor: 'red', mostrar: () => canUpdate },
         ]),
-    ], [t, locale])
+    ], [t, locale, canFire, canUpdate])
 
     const enabledCount = items.filter(i => i.enabled).length
     const failingCount = items.filter(i => i.lastError).length
@@ -249,9 +256,12 @@ export default function ScheduledTriggersPage() {
                         <Button variant="default" leftSection={<IconRefresh size={16} />} onClick={reload}>
                             {t('common.refresh')}
                         </Button>
-                        <Button leftSection={<IconPlus size={16} />} onClick={openCreate} data-testid="trigger-new">
-                            {t('triggers.newTrigger')}
-                        </Button>
+                        <PermissionTooltip missing={canUpdate ? null : 'workflow:update'}>
+                            <Button leftSection={<IconPlus size={16} />} onClick={openCreate} data-testid="trigger-new"
+                                    disabled={!canUpdate}>
+                                {t('triggers.newTrigger')}
+                            </Button>
+                        </PermissionTooltip>
                     </>
                 }
             />
@@ -284,7 +294,7 @@ export default function ScheduledTriggersPage() {
                     loading={loading}
                     error={error}
                     onRetry={reload}
-                    onRowClick={(r) => openEdit(r as unknown as ScheduledTrigger)}
+                    onRowClick={canUpdate ? (r) => openEdit(r as unknown as ScheduledTrigger) : undefined}
                     onIconClick={(nome, r) => {
                         const trig = r as unknown as ScheduledTrigger
                         if (nome === 'fire') fire(trig)
@@ -295,11 +305,11 @@ export default function ScheduledTriggersPage() {
                     emptyDescription={t('triggers.emptyHint')}
                     emptyIcon={<IconClockPlay />}
                     emptyAccent="slate"
-                    emptyAction={
+                    emptyAction={canUpdate ? (
                         <Button variant="light" size="xs" leftSection={<IconPlus size={14} />} onClick={openCreate}>
                             {t('triggers.newTrigger')}
                         </Button>
-                    }
+                    ) : undefined}
                     testid="triggers-table"
                     rowTestId={(r) => `trigger-${r.id}`}
                 />

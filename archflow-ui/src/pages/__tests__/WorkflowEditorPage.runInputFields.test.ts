@@ -49,7 +49,7 @@ class ResizeObserverStub {
 }
 
 function step(id: string, type: string, label: string, configuration: Record<string, unknown> = {},
-  connections: { targetId: string; branch?: string }[] = []) {
+  connections: { targetId: string; branch?: string; condition?: string }[] = []) {
   return {
     id, type: type.toUpperCase(), componentId: type, label, position: { x: 0, y: 0 }, configuration,
     connections: connections.map(c => ({ sourceId: id, ...c })),
@@ -134,16 +134,54 @@ describe('WorkflowEditor — Executar avisa os campos da Entrada (RCHFLW-123)', 
     await act(async () => {
       fireEvent.change(text, { target: { value: 'Olá, quero reembolso de 900 reais do pedido 555.' } })
     })
-    expect(body.getByTestId('run-input-missing-fields').textContent).toBe('runInput.missingFields[valor, cliente]')
+    // Só o campo que a condição lê (RCHFLW-189): "cliente" é declarado e nada o lê — não falha passo nenhum.
+    expect(body.getByTestId('run-input-missing-fields').textContent).toBe('runInput.missingFields[valor]')
 
     // JSON com os campos: o aviso some.
-    await act(async () => { fireEvent.change(text, { target: { value: '{"valor": 900, "cliente": "Carla"}' } }) })
+    await act(async () => { fireEvent.change(text, { target: { value: '{"valor": 900}' } }) })
     expect(body.queryByTestId('run-input-missing-fields')).toBeNull()
 
     // É aviso, não bloqueio: com o texto livre de novo, Executar dispara o run.
     await act(async () => { fireEvent.change(text, { target: { value: 'reembolso de 900 reais' } }) })
     await act(async () => { fireEvent.click(body.getByTestId('run-input-confirm')) })
     await waitFor(() => expect(runMock).toHaveBeenCalled())
+  })
+
+  // RCHFLW-189 (2): o copiloto declara ioFields em toda Entrada, e o aviso saía num fluxo Entrada → llm-chat que nada
+  // compara — a execução com texto livre terminava normalmente.
+  it('campos declarados que nenhuma referência lê: nenhum aviso', async () => {
+    const { body, text } = await openRun([
+      step('receber', 'input', 'Receber pedido', { ioFields: ['pergunta'] }, [{ targetId: 'responder' }]),
+      step('responder', 'llm-chat', 'Responder', { systemPrompt: 'Responda a dúvida sobre trocas.' },
+        [{ targetId: 'fim' }]),
+      step('fim', 'output', 'Saída'),
+    ])
+    await act(async () => {
+      fireEvent.change(text, { target: { value: 'Comprei um tênis tamanho 40 e ficou apertado. Posso trocar por 41?' } })
+    })
+    expect(body.queryByTestId('run-input-missing-fields')).toBeNull()
+  })
+
+  // O gate do RCHFLW-123 escrito pelo id da Entrada (${receber.valor}) e uma condition à mão numa aresta: ambos leem
+  // o campo, e o aviso tem de continuar saindo (só a raiz ${valor} contava, e o aviso sumia nesses fluxos).
+  it.each([
+    ['pelo id da Entrada', [
+      step('receber', 'input', 'Receber pedido', { ioFields: ['valor'] }, [{ targetId: 'acima' }]),
+      step('acima', 'condition', 'Acima de 500?', { conditionExpression: '${receber.valor} > 500' },
+        [{ targetId: 'fim', branch: 'true' }, { targetId: 'fim2', branch: 'false' }]),
+      step('fim', 'output', 'Gerente'),
+      step('fim2', 'output', 'Automático'),
+    ]],
+    ['na condition de uma aresta', [
+      step('receber', 'input', 'Receber pedido', { ioFields: ['valor'] },
+        [{ targetId: 'fim', condition: '${valor} > 500' }, { targetId: 'fim2', condition: '${valor} <= 500' }]),
+      step('fim', 'output', 'Gerente'),
+      step('fim2', 'output', 'Automático'),
+    ]],
+  ])('campo lido %s: avisa', async (_caso, steps) => {
+    const { body, text } = await openRun(steps)
+    await act(async () => { fireEvent.change(text, { target: { value: 'Quero reembolso de 900 reais.' } }) })
+    expect(body.getByTestId('run-input-missing-fields').textContent).toBe('runInput.missingFields[valor]')
   })
 
   it('fluxo sem campos declarados: nenhum aviso', async () => {

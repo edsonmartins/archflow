@@ -93,8 +93,9 @@ class AdminRoleInterceptorTest {
         new AdminSecurityConfiguration(true).addInterceptors(registry);
 
         List<Object> registered = registry.interceptors();
-        // O segundo é o WorkflowPermissionInterceptor (RCHFLW-74), nos paths de fluxos e execuções.
-        assertThat(registered).hasSize(2);
+        // O segundo é o de escritas de admin (catálogo de extensões); o terceiro, o
+        // WorkflowPermissionInterceptor (RCHFLW-74), nos paths de fluxos, execuções e demais escritas.
+        assertThat(registered).hasSize(3);
         // MappedInterceptor embrulha o nosso quando há path patterns.
         Object first = registered.get(0);
         assertThat(first).isInstanceOf(org.springframework.web.servlet.handler.MappedInterceptor.class);
@@ -106,6 +107,36 @@ class AdminRoleInterceptorTest {
         assertThat(mapped.matches(withParsedPath("/api/admin/workspace/users/invite"))).isTrue();
         assertThat(mapped.matches(withParsedPath("/api/admin/workspace/summary"))).isTrue();
         assertThat(mapped.matches(withParsedPath("/api/workflows"))).isFalse();
+        // QA2 P2: a configuração do Linktor grava o comando que o servidor executa e o destino da chave.
+        assertThat(mapped.matches(withParsedPath("/api/admin/linktor"))).isTrue();
+        assertThat(mapped.matches(withParsedPath("/api/admin/linktor/inbox/conversations"))).isTrue();
+        assertThat(mapped.matches(withParsedPath("/api/admin/brainsentry"))).isTrue();
+
+        var escritas = (org.springframework.web.servlet.handler.MappedInterceptor) registered.get(1);
+        assertThat(escritas.getInterceptor()).isInstanceOf(AdminRoleInterceptor.class);
+        assertThat(escritas.matches(withParsedPath("/api/extensions/install"))).isTrue();
+        assertThat(escritas.matches(withParsedPath("/api/admin/linktor"))).isFalse();
+    }
+
+    @Test
+    @DisplayName("só escritas: GET passa sem admin, POST/DELETE exigem (catálogo de extensões)")
+    void writesOnly() throws Exception {
+        AdminRoleInterceptor interceptor = new AdminRoleInterceptor(true, true);
+        MockHttpServletRequest leitura = new MockHttpServletRequest("GET", "/api/extensions");
+        leitura.setAttribute(JwtAuthenticationFilter.ATTR_ROLES, List.of("VIEWER"));
+        assertThat(interceptor.preHandle(leitura, new MockHttpServletResponse(), null)).isTrue();
+
+        for (String metodo : List.of("POST", "DELETE")) {
+            MockHttpServletRequest escrita = new MockHttpServletRequest(metodo, "/api/extensions/install");
+            escrita.setAttribute(JwtAuthenticationFilter.ATTR_ROLES, List.of("DESIGNER"));
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            assertThat(interceptor.preHandle(escrita, response, null)).as(metodo).isFalse();
+            assertThat(response.getStatus()).isEqualTo(403);
+
+            MockHttpServletRequest admin = new MockHttpServletRequest(metodo, "/api/extensions/install");
+            admin.setAttribute(JwtAuthenticationFilter.ATTR_ROLES, List.of("ADMIN"));
+            assertThat(interceptor.preHandle(admin, new MockHttpServletResponse(), null)).as(metodo).isTrue();
+        }
     }
 
     private static MockHttpServletRequest withParsedPath(String uri) {

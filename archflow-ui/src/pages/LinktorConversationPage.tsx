@@ -23,6 +23,8 @@ import {
 } from '../services/linktor-inbox-api'
 import { mensagemDoErro } from '../lib/errorMessage'
 import { confirmAction } from '../lib/confirm'
+import { useIsAdmin } from '../lib/permissions'
+import { PermissionTooltip } from '../components/PermissionTooltip'
 import { formatInstant } from '../lib/format'
 import { PageHeader } from '../components/PageHeader'
 import { SectionCard } from '../components/SectionCard'
@@ -40,6 +42,10 @@ import { canalDoLinktor } from '../components/linktor/canal'
  */
 export default function LinktorConversationPage() {
     const { t, i18n } = useTranslation()
+    // /api/admin/linktor/** fala com o Linktor usando a chave guardada: o servidor exige o papel ADMIN
+    // (QA2 RCHFLW-137). Responder, resolver e atribuir ficam desabilitados para quem não o tem.
+    const isAdmin = useIsAdmin()
+    const missing = isAdmin ? null : 'ADMIN' as const
     const locale = i18n.resolvedLanguage ?? i18n.language
     const { id = '' } = useParams()
     const navigate = useNavigate()
@@ -264,9 +270,11 @@ export default function LinktorConversationPage() {
                             data-testid="lk-reply-input"
                         />
                         <Group justify="flex-end">
-                            <Button onClick={send} color="teal" leftSection={<IconSend size={15} />}
-                                    disabled={busy || !draft.trim() || resolved}
-                                    data-testid="lk-reply-send">{t('chat.send')}</Button>
+                            <PermissionTooltip missing={missing}>
+                                <Button onClick={send} color="teal" leftSection={<IconSend size={15} />}
+                                        disabled={busy || !draft.trim() || resolved || !isAdmin}
+                                        data-testid="lk-reply-send">{t('chat.send')}</Button>
+                            </PermissionTooltip>
                         </Group>
                     </Stack>
                 </Paper>
@@ -328,15 +336,19 @@ export default function LinktorConversationPage() {
                                 </>
                             )}
                             <Group justify="flex-end" gap="sm">
-                                <Button color="green" variant="light" onClick={resolve}
-                                        leftSection={<IconCircleCheck size={15} />}
-                                        disabled={busy || resolved} data-testid="lk-resolve">
-                                    {t('linktor.conversation.markResolved')}
-                                </Button>
-                                <Button onClick={assign} disabled={busy || !assignee.trim()} data-testid="lk-assign"
-                                        leftSection={<IconUserShare size={15} />}>
-                                    {t('linktor.conversation.assign')}
-                                </Button>
+                                <PermissionTooltip missing={missing}>
+                                    <Button color="green" variant="light" onClick={resolve}
+                                            leftSection={<IconCircleCheck size={15} />}
+                                            disabled={busy || resolved || !isAdmin} data-testid="lk-resolve">
+                                        {t('linktor.conversation.markResolved')}
+                                    </Button>
+                                </PermissionTooltip>
+                                <PermissionTooltip missing={missing}>
+                                    <Button onClick={assign} disabled={busy || !assignee.trim() || !isAdmin}
+                                            data-testid="lk-assign" leftSection={<IconUserShare size={15} />}>
+                                        {t('linktor.conversation.assign')}
+                                    </Button>
+                                </PermissionTooltip>
                             </Group>
                         </Stack>
                     </SectionCard>

@@ -169,7 +169,8 @@ class JwtAuthenticationFilterTest {
     void rejectsRevokedAccessToken() throws Exception {
         String token = jwtService.generateAccessToken("user-1", "alice", "tenant_admin");
         AuthService authService = mock(AuthService.class);
-        when(authService.validateAccessToken(token))
+        // O filtro autoriza por getUserInfoFromToken (token + estado atual do usuário).
+        when(authService.getUserInfoFromToken(token))
                 .thenThrow(new AuthService.AuthenticationException("Token has been revoked"));
 
         JwtAuthenticationFilter filter = new JwtAuthenticationFilter(jwtService, authService, true, "");

@@ -7,6 +7,12 @@ import br.com.archflow.api.web.workflow.SpringWorkflowCrudController;
 import br.com.archflow.api.web.workflow.SpringWorkflowYamlController;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.config.BeanDefinition;
+import org.springframework.context.annotation.ClassPathScanningCandidateComponentProvider;
+import org.springframework.core.type.filter.AnnotationTypeFilter;
+import org.springframework.http.server.PathContainer;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.util.pattern.PathPatternParser;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -16,8 +22,10 @@ import org.springframework.web.bind.annotation.RequestMapping;
 
 import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -126,6 +134,92 @@ class WorkflowPermissionInterceptorTest {
             }
         }
         assertThat(rotas(SpringTemplateController.class)).contains(new Rota("POST", "/api/templates/x/install"));
+    }
+
+    @Test
+    @DisplayName("QA2 P1–P4: aprovações, /mcp, agentes/LLM, conversas, gatilhos, bases, arquivos, jobs, skills")
+    void tabelaQa2() {
+        assertThat(WorkflowPermissionInterceptor.requiredPermission("POST", "/api/approvals/x"))
+                .contains("execution:manage");
+        assertThat(WorkflowPermissionInterceptor.requiredPermission("POST", "/archflow/approvals/x"))
+                .contains("execution:manage");
+        assertThat(WorkflowPermissionInterceptor.requiredPermission("POST", "/mcp")).contains("workflow:execute");
+        for (String rota : List.of("/archflow/agents/x/invoke", "/archflow/events/message", "/ag-ui/agent",
+                "/api/orchestration/run", "/api/agents/qp/quote", "/api/conversations", "/api/conversations/resume",
+                "/api/conversations/x/messages", "/api/admin/triggers/x/fire")) {
+            assertThat(WorkflowPermissionInterceptor.requiredPermission("POST", rota)).as(rota)
+                    .contains("workflow:execute");
+        }
+        assertThat(WorkflowPermissionInterceptor.requiredPermission("POST", "/api/admin/triggers"))
+                .contains("workflow:update");
+        assertThat(WorkflowPermissionInterceptor.requiredPermission("POST", "/api/knowledge-bases"))
+                .contains("workflow:update");
+        assertThat(WorkflowPermissionInterceptor.requiredPermission("POST", "/api/files"))
+                .contains("workflow:update");
+        assertThat(WorkflowPermissionInterceptor.requiredPermission("POST", "/api/jobs"))
+                .contains("execution:manage");
+        assertThat(WorkflowPermissionInterceptor.requiredPermission("POST", "/api/admin/skills/x/activate"))
+                .contains("agent:manage");
+        // A busca da base é um POST que só lê; o invoke do VendaX Core não é deste interceptor.
+        assertThat(WorkflowPermissionInterceptor.requiredPermission("POST", "/api/knowledge-bases/x/search"))
+                .isEmpty();
+        assertThat(WorkflowPermissionInterceptor.requiredPermission("POST", "/api/agents/invoke")).isEmpty();
+        assertThat(WorkflowPermissionInterceptor.requiredPermission("POST", "/api/agents/invoke/stream")).isEmpty();
+    }
+
+    /**
+     * Escritas que de propósito não passam por papel nenhum, cada uma com o motivo. Uma escrita nova fora
+     * desta lista e fora dos interceptors faz {@link #todaEscritaDaApiTemDono} falhar: ou ganha uma regra,
+     * ou entra aqui com a justificativa.
+     */
+    private static final Set<Rota> SEM_PAPEL = Set.of(
+            // Login/refresh/logout e aceite de convite: quem chama ainda não tem (ou está largando) a sessão.
+            new Rota("POST", "/api/auth/login"), new Rota("POST", "/api/auth/refresh"),
+            new Rota("POST", "/api/auth/logout"), new Rota("POST", "/api/auth/invitations/accept"),
+            // Chaves de API do próprio usuário: o ApiKeyService limita os escopos ao que o papel do dono concede.
+            new Rota("POST", "/api/apikeys"), new Rota("DELETE", "/api/apikeys/x"),
+            // VendaX Core: chamada de máquina, fora do JWT, autenticada pela chave de serviço no controller.
+            new Rota("POST", "/api/agents/invoke"), new Rota("POST", "/api/agents/invoke/stream"),
+            new Rota("POST", "/api/agents/invoke/x/cancel"),
+            // Assist (ADR-0004): caminho público, protegido pela chave estática X-ArchFlow-Key no controller.
+            new Rota("POST", "/archflow/assist/explain-error"), new Rota("POST", "/archflow/assist/suggest-mapping"),
+            new Rota("POST", "/archflow/assist/nl-to-flow"),
+            // Ingestão de eventos do emissor standalone: fixa o tenant da identidade (RCHFLW-44).
+            new Rota("POST", "/api/events/ingest"),
+            // Só calcula os nós sem executor de um documento; não grava nada.
+            new Rota("POST", "/api/templates/unsupported-node-types"));
+
+    private static boolean casa(String[] padroes, String path) {
+        PathContainer caminho = PathContainer.parsePath(path);
+        return Arrays.stream(padroes).anyMatch(p -> PathPatternParser.defaultInstance.parse(p).matches(caminho));
+    }
+
+    @Test
+    @DisplayName("toda escrita de todo controller da API tem papel exigido, ou está na lista justificada")
+    void todaEscritaDaApiTemDono() throws Exception {
+        var scanner = new ClassPathScanningCandidateComponentProvider(false);
+        scanner.addIncludeFilter(new AnnotationTypeFilter(RestController.class));
+        List<Rota> escritas = new ArrayList<>();
+        for (BeanDefinition bd : scanner.findCandidateComponents("br.com.archflow.api")) {
+            for (Rota r : rotas(Class.forName(bd.getBeanClassName()))) {
+                if (!"GET".equals(r.method())) {
+                    escritas.add(r);
+                }
+            }
+        }
+        assertThat(escritas).hasSizeGreaterThan(60);
+        List<Rota> semDono = new ArrayList<>();
+        for (Rota r : escritas) {
+            boolean admin = casa(AdminSecurityConfiguration.ADMIN_PATHS, r.path())
+                    || casa(AdminSecurityConfiguration.ADMIN_WRITE_PATHS, r.path());
+            boolean permissao = casa(AdminSecurityConfiguration.WORKFLOW_PATHS, r.path())
+                    && WorkflowPermissionInterceptor.requiredPermission(r.method(), r.path()).isPresent();
+            boolean busca = r.equals(new Rota("POST", "/api/knowledge-bases/x/search"));
+            if (!admin && !permissao && !busca && !SEM_PAPEL.contains(r)) {
+                semDono.add(r);
+            }
+        }
+        assertThat(semDono).as("escritas sem papel exigido").isEmpty();
     }
 
     @Test

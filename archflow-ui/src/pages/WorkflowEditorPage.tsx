@@ -36,7 +36,7 @@ import { workflowYamlApi }   from '../services/workflow-yaml-api'
 import type { FlowNodeData, WorkflowData } from '../components/FlowCanvas/types'
 import { canvasToDocumentSteps, workflowDataFromDocument } from '../components/FlowCanvas/workflowSerde'
 import { hasRunBlockers, runBlockers, runBlockersMessage } from '../components/FlowCanvas/runReadiness'
-import { declaredInputFields } from '../components/FlowCanvas/controlExpressions'
+import { referencedInputFields } from '../components/FlowCanvas/controlExpressions'
 import { usePermissions }    from '../lib/permissions'
 import { unknownNodeTypeSteps } from '../lib/unknownNodeTypes'
 import type { WorkflowDetail } from '../services/api'
@@ -739,8 +739,9 @@ export function WorkflowEditor() {
   // Executar pede a entrada antes (RunInputModal); o Parar continua imediato. Sem o modal o fluxo
   // rodava sempre sem entrada e um nó que lê ${input} não tinha como ser testado pelo editor.
   const [runInputOpen, setRunInputOpen] = useState(false)
-  // Os campos que as Entradas declaram (ioFields), lidos do canvas ao abrir o modal: ele avisa quando a entrada
-  // digitada não os traz (RCHFLW-123).
+  // Os campos que as Entradas declaram (ioFields) e que alguma referência lê, tirados do canvas ao abrir o modal:
+  // ele avisa quando a entrada digitada não os traz (RCHFLW-123). Só os lidos (RCHFLW-189): um campo que nada lê
+  // não falha passo nenhum.
   const [runExpectedFields, setRunExpectedFields] = useState<string[]>([])
 
   const handleExecute = useCallback(async () => {
@@ -784,9 +785,10 @@ export function WorkflowEditor() {
         return
       }
     }
-    setRunExpectedFields(useFlowStore.getState().getCanvasSnapshot().steps.flatMap(s => declaredInputFields({
+    const snapshot = useFlowStore.getState().getCanvasSnapshot()
+    setRunExpectedFields(referencedInputFields(snapshot.steps.map(s => ({
       id: s.id, label: s.label, componentId: s.componentId, type: s.type, config: s.config,
-    })))
+    })), snapshot.connections.flatMap(c => (c.condition ? [c.condition] : []))))
     setRunInputOpen(true)
   }, [current, isExecuting, abortExecution, view, yamlDirty, t])
 

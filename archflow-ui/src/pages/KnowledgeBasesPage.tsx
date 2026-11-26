@@ -18,6 +18,8 @@ import {
     VxTable, colunaAcoes, colunaApagada, colunaDupla, colunaStatus, type Registro, type VxColumn,
 } from '../components/VTable'
 import { confirmAction } from '../lib/confirm'
+import { usePermissions } from '../lib/permissions'
+import { PermissionTooltip } from '../components/PermissionTooltip'
 import {
     knowledgeApi,
     type IndexVersion,
@@ -48,6 +50,10 @@ const formatBytes = (value?: number) => {
 
 export default function KnowledgeBasesPage() {
     const { t } = useTranslation()
+    // Criar base, enviar arquivo (upload + ingestão) e trocar a versão ativa do índice são escritas que o
+    // servidor exige workflow:update (QA2 RCHFLW-158). A busca é um POST que só lê: segue para todos.
+    const canUpdate = usePermissions()('workflow:update')
+    const missing = canUpdate ? null : 'workflow:update' as const
     const [bases, setBases] = useState<KnowledgeBase[]>([])
     const [selectedId, setSelectedId] = useState<string | null>(null)
     const [documents, setDocuments] = useState<KnowledgeDocument[]>([])
@@ -280,7 +286,7 @@ export default function KnowledgeBasesPage() {
         colunaApagada({ field: 'basedOnVersionId', title: t('knowledge.basedOnCol'), width: 'auto', minWidth: 180,
             fieldFormat: (r: Registro) => (r.basedOnVersionId ? String(r.basedOnVersionId) : '—') }),
         colunaAcoes([{ nome: 'rollback', icone: 'refresh', rotulo: t('knowledge.rollback'), cor: 'blue',
-            mostrar: r => r.status === 'INACTIVE' }]),
+            mostrar: r => canUpdate && r.status === 'INACTIVE' }]),
     ]
 
     return (
@@ -290,8 +296,11 @@ export default function KnowledgeBasesPage() {
                 accent="teal"
                 title={t('knowledge.title')}
                 subtitle={t('knowledge.subtitle')}
-                actions={<Button leftSection={<IconPlus size={16} />}
-                    onClick={() => setCreateOpen(true)}>{t('knowledge.newBase')}</Button>}
+                actions={<PermissionTooltip missing={missing}>
+                    <Button leftSection={<IconPlus size={16} />} disabled={!canUpdate}
+                        data-testid="knowledge-new-base"
+                        onClick={() => setCreateOpen(true)}>{t('knowledge.newBase')}</Button>
+                </PermissionTooltip>}
             />
 
             {error && <Alert color="red" variant="light" icon={<IconAlertCircle size={16} />}>{error}</Alert>}
@@ -381,13 +390,16 @@ export default function KnowledgeBasesPage() {
                             title={selected.name}
                             description={selected.id}
                             actions={
-                                <FileButton onChange={upload}
-                                    accept=".txt,.md,.markdown,.pdf,.docx,text/plain,text/markdown,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document">
-                                    {props => <Button {...props} size="sm" loading={uploading}
-                                        leftSection={<IconCloudUpload size={16} />}>
-                                        {t('knowledge.upload')}
-                                    </Button>}
-                                </FileButton>
+                                <PermissionTooltip missing={missing}>
+                                    <FileButton onChange={upload} disabled={!canUpdate}
+                                        accept=".txt,.md,.markdown,.pdf,.docx,text/plain,text/markdown,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document">
+                                        {props => <Button {...props} size="sm" loading={uploading}
+                                            disabled={!canUpdate} data-testid="knowledge-upload"
+                                            leftSection={<IconCloudUpload size={16} />}>
+                                            {t('knowledge.upload')}
+                                        </Button>}
+                                    </FileButton>
+                                </PermissionTooltip>
                             }
                         >
                             {detailLoading ? (

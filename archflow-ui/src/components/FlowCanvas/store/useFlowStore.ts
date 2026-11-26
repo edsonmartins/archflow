@@ -56,8 +56,11 @@ export interface CanvasApi {
   ) => Record<string, unknown> | null
   /** Remove o nó e as arestas dele, num passo de undo. Devolve false para id desconhecido. */
   removeNode: (nodeId: string) => boolean
-  /** Remove as arestas source → target, num passo de undo. Devolve quantas removeu. */
-  removeEdge: (sourceId: string, targetId: string) => number
+  /**
+   * Remove as arestas source → target, num passo de undo; com {@code branch}, só a desse ramo — o par pode ter
+   * várias (um caso por aresta, RCHFLW-149). Devolve quantas removeu.
+   */
+  removeEdge: (sourceId: string, targetId: string, branch?: string) => number
 }
 
 /**

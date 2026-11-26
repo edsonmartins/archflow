@@ -6,6 +6,7 @@ import {
   getSmoothStepPath,
   useNodesData,
   useReactFlow,
+  useStore,
   type EdgeProps,
 } from '@xyflow/react'
 import { useFlowStore } from '../store/useFlowStore'
@@ -31,6 +32,7 @@ const CHIP_STYLE = {
 export const FlowEdge = memo(function FlowEdge({
   id,
   source,
+  target,
   sourceX, sourceY,
   targetX, targetY,
   sourcePosition,
@@ -69,6 +71,14 @@ export const FlowEdge = memo(function FlowEdge({
     targetX, targetY, targetPosition,
   })
 
+  // Ramos paralelos (RCHFLW-149): dois casos do mesmo switch para o mesmo destino fazem o mesmo traço, e os
+  // rótulos cairiam um em cima do outro — cada aresta do par desce o seu um degrau, para os dois ramos aparecerem.
+  const parallelIndex = useStore(s => {
+    const siblings = s.edges.filter(e => e.source === source && e.target === target)
+    return siblings.length > 1 ? Math.max(0, siblings.findIndex(e => e.id === id)) : 0
+  })
+  const chipY = labelY + parallelIndex * 18
+
   const strokeColor = selected
     ? 'var(--blue)'
     : isError
@@ -101,7 +111,7 @@ export const FlowEdge = memo(function FlowEdge({
             data-testid={staleBranch != null ? 'edge-undeclared-branch' : undefined}
             style={{
               ...CHIP_STYLE,
-              transform: `translate(-50%, -50%) translate(${labelX}px,${labelY - (isError ? 16 : 0)}px)`,
+              transform: `translate(-50%, -50%) translate(${labelX}px,${chipY - (isError ? 16 : 0)}px)`,
               color: staleBranch != null ? 'var(--red)' : 'var(--blue)',
               background: staleBranch != null ? 'var(--red-l)' : 'var(--color-background-secondary, var(--bg2))',
               border: `1px solid ${staleBranch != null ? 'var(--red)' : 'var(--blue)'}`,
@@ -124,7 +134,7 @@ export const FlowEdge = memo(function FlowEdge({
             className="nodrag nopan"
             style={{
               ...CHIP_STYLE,
-              transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
+              transform: `translate(-50%, -50%) translate(${labelX}px,${chipY}px)`,
               display: 'flex', flexDirection: 'column', gap: 4,
               background: 'var(--color-background-primary, var(--bg1))',
               border: '1px solid var(--blue)',

@@ -16,6 +16,8 @@
  * adapted to a TypeScript class.
  */
 
+import { tokenTenantId } from './api';
+
 export type RealtimeStatus =
     | 'idle'
     | 'requesting_mic'
@@ -47,6 +49,18 @@ export interface RealtimeConfig {
 }
 
 const DEFAULT_BASE = (import.meta.env.VITE_REALTIME_BASE as string | undefined) ?? '/api';
+
+/**
+ * O segmento de tenant do caminho (`/realtime/{tenant}/{persona}`). O handshake exige que ele seja o tenant do
+ * token — outro responde 403, salvo personificação por admin —, então: o tenant personificado; senão o da claim
+ * `tenantId` do access token; sem a claim, o padrão canônico ('__default__', o que o servidor resolve para o
+ * token sem tenant). Antes ia '__default__' para todo usuário que não personificava, e quem é de outro tenant
+ * tinha a sessão recusada.
+ */
+export function realtimeTenantId(impersonating: string | null, accessToken: string | null): string {
+    if (impersonating) return impersonating;
+    return (accessToken ? tokenTenantId(accessToken) : null) ?? '__default__';
+}
 
 /**
  * High-level realtime client. Lifecycle:

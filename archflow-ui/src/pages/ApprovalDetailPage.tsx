@@ -34,6 +34,8 @@ import { formatInstant } from '../lib/format';
 import { confirmAction } from '../lib/confirm';
 import { PageHeader } from '../components/PageHeader';
 import { SectionCard } from '../components/SectionCard';
+import { PermissionTooltip } from '../components/PermissionTooltip';
+import { usePermissions } from '../lib/permissions';
 
 /** O texto do campo de edição: a própria proposta quando ela é texto; senão, o JSON dela. */
 function editableProposal(proposal: unknown): string {
@@ -52,6 +54,10 @@ export default function ApprovalDetailPage() {
     // senão o servidor só procura no tenant da requisição e responde 404 (RCHFLW-39).
     const { impersonating, currentRole } = useTenantStore();
     const tenantId = approvalTenantParam(impersonating, currentRole);
+    // Decidir retoma ou encerra a execução: o servidor exige execution:manage (hoje só o ADMIN; decisão de
+    // produto em aberto, RCHFLW-196). Quem não tem vê o pedido, mas os botões ficam desabilitados.
+    const canDecide = usePermissions()('execution:manage');
+    const missing = canDecide ? null : 'execution:manage' as const;
 
     const [approval, setApproval] = useState<ApprovalResponse | null>(null);
     const [loading, setLoading] = useState(true);
@@ -349,15 +355,18 @@ export default function ApprovalDetailPage() {
                         description={editMode ? t('approvals.detail.proposalEditHint') : t('approvals.detail.proposalHint')}
                         actions={
                             !editMode && !expired && (
-                                <Button
-                                    size="xs"
-                                    variant="light"
-                                    leftSection={<IconEdit size={14} />}
-                                    onClick={() => setEditMode(true)}
-                                    data-testid="approval-edit-toggle"
-                                >
-                                    {t('approvals.detail.editBeforeApprove')}
-                                </Button>
+                                <PermissionTooltip missing={missing}>
+                                    <Button
+                                        size="xs"
+                                        variant="light"
+                                        leftSection={<IconEdit size={14} />}
+                                        onClick={() => setEditMode(true)}
+                                        disabled={!canDecide}
+                                        data-testid="approval-edit-toggle"
+                                    >
+                                        {t('approvals.detail.editBeforeApprove')}
+                                    </Button>
+                                </PermissionTooltip>
                             )
                         }
                     >
@@ -408,27 +417,31 @@ export default function ApprovalDetailPage() {
                                         {t('approvals.detail.cancelEdit')}
                                     </Button>
                                 )}
-                                <Button
-                                    leftSection={<IconX size={14} />}
-                                    color="red"
-                                    variant="light"
-                                    loading={submitting}
-                                    disabled={submitting || expired}
-                                    onClick={() => confirmDecide('REJECTED')}
-                                    data-testid="approval-reject"
-                                >
-                                    {t('approvals.detail.reject')}
-                                </Button>
-                                <Button
-                                    leftSection={<IconCheck size={14} />}
-                                    color="teal"
-                                    loading={submitting}
-                                    disabled={submitting || expired}
-                                    onClick={() => confirmDecide(editMode ? 'EDITED' : 'APPROVED')}
-                                    data-testid="approval-approve"
-                                >
-                                    {editMode ? t('approvals.detail.saveAndApprove') : t('approvals.detail.approve')}
-                                </Button>
+                                <PermissionTooltip missing={missing}>
+                                    <Button
+                                        leftSection={<IconX size={14} />}
+                                        color="red"
+                                        variant="light"
+                                        loading={submitting}
+                                        disabled={submitting || expired || !canDecide}
+                                        onClick={() => confirmDecide('REJECTED')}
+                                        data-testid="approval-reject"
+                                    >
+                                        {t('approvals.detail.reject')}
+                                    </Button>
+                                </PermissionTooltip>
+                                <PermissionTooltip missing={missing}>
+                                    <Button
+                                        leftSection={<IconCheck size={14} />}
+                                        color="teal"
+                                        loading={submitting}
+                                        disabled={submitting || expired || !canDecide}
+                                        onClick={() => confirmDecide(editMode ? 'EDITED' : 'APPROVED')}
+                                        data-testid="approval-approve"
+                                    >
+                                        {editMode ? t('approvals.detail.saveAndApprove') : t('approvals.detail.approve')}
+                                    </Button>
+                                </PermissionTooltip>
                             </Group>
                         </Stack>
                     </SectionCard>

@@ -33,14 +33,30 @@ class ApiError extends Error {
 const REFRESH_MARGIN_MS = 60_000;
 let refreshInFlight: Promise<void> | null = null;
 
-/** Lê o `exp` do payload do JWT sem validar assinatura (só para agendar o refresh). */
-export function tokenExpiresAt(token: string): number | null {
+/** Payload do JWT sem validar assinatura — quem valida é o servidor; aqui só se lê para decidir o que mandar. */
+function tokenPayload(token: string): Record<string, unknown> | null {
     try {
-        const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
-        return typeof payload.exp === 'number' ? payload.exp * 1000 : null;
+        const payload: unknown = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+        return payload && typeof payload === 'object' ? payload as Record<string, unknown> : null;
     } catch {
         return null;
     }
+}
+
+/** Lê o `exp` do payload do JWT sem validar assinatura (só para agendar o refresh). */
+export function tokenExpiresAt(token: string): number | null {
+    const payload = tokenPayload(token);
+    return payload && typeof payload.exp === 'number' ? payload.exp * 1000 : null;
+}
+
+/**
+ * O tenant do usuário, pela claim `tenantId` do access token; `null` sem a claim (usuário do tenant padrão).
+ * Existe para o caminho que leva o tenant por extenso (o WebSocket de voz): o servidor exige que ele seja o do
+ * token, e o SPA não guarda o tenant próprio do usuário em outro lugar.
+ */
+export function tokenTenantId(token: string): string | null {
+    const tenant = tokenPayload(token)?.tenantId;
+    return typeof tenant === 'string' && tenant.trim() !== '' ? tenant.trim() : null;
 }
 
 async function ensureFreshToken(): Promise<void> {

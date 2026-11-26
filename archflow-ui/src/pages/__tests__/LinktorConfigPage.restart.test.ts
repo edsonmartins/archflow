@@ -8,6 +8,7 @@
  * <p>Arquivo .ts (createElement em vez de JSX) porque o vitest.config só inclui *.test.ts.</p>
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { entrarComo } from '../../lib/__tests__/papeisDeTeste'
 import { createElement as h, act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { MemoryRouter } from 'react-router-dom'
@@ -67,6 +68,8 @@ async function render() {
 }
 
 beforeEach(() => {
+    // As ações que acionam o servidor só aparecem para quem tem a permissão (QA2 RCHFLW-136/158).
+    entrarComo('ADMIN')
     ;(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true
     window.matchMedia ??= ((q: string) => ({
         matches: false, media: q, onchange: null,

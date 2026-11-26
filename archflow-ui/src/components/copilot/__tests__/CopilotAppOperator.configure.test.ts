@@ -418,7 +418,8 @@ describe('RCHFLW-78 — addNode', () => {
     const result = await call('addNode', { nodeType: 'http-request', label: 'HTTP' })
 
     expect(result).toEqual(expect.objectContaining({
-      ok: false, error: 'unknown node type "http-request"', nodeTypes: expect.arrayContaining(['llm-chat', 'input']),
+      ok: false, error: expect.stringMatching(/^unknown node type "http-request"/),
+      nodeTypes: expect.arrayContaining(['llm-chat', 'input']),
     }))
     expect(useFlowStore.getState().nodes).toEqual([])
     expect(notificationsMock.show).not.toHaveBeenCalledWith(expect.objectContaining({ color: 'teal' }))
@@ -432,9 +433,10 @@ describe('RCHFLW-78 — addNode', () => {
 
     expect(result.ok).toBe(false)
     expect(result.nodeTypes).not.toContain(nodeType)
-    expect(result.error).toBe(nodeType === 'llm-streaming'
+    // RCHFLW-153: o motivo vem primeiro; depois, o que fazer com a lacuna (dizer ao usuário, não imitar).
+    expect(result.error.startsWith(nodeType === 'llm-streaming'
       ? 'unknown node type "llm-streaming"'
-      : `node type "${nodeType}" is not yet supported at run time`)
+      : `node type "${nodeType}" is not yet supported at run time`)).toBe(true)
     expect(useFlowStore.getState().nodes).toEqual([])
   })
 
