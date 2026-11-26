@@ -61,13 +61,6 @@ Saída: `text`, `toolCalls`, `suspended` e — quando suspenso — `approvalRequ
 A suspensão é explícita de propósito: tratar um laço suspenso como conclusão entregaria ao passo
 seguinte uma resposta parcial como se fosse final, e a aprovação pendente sumiria sem ninguém a ver.
 
-**Numa execução durável de fluxo a suspensão não chega a ser saída (RCHFLW-185).** O passo do nó
-(`McpAgentStep`) abre o portão do motor (`FlowEngine.requestApproval` → `AWAITING_APPROVAL`): os nós
-seguintes não rodam, o pedido entra na fila de aprovações com prazo e decisor, e a aprovação continua
-o laço (`McpAgentRunner.resume`) — a saída do passo é a resposta final do agente. Um edge que ramifica
-em `${agente.suspended} == true` nunca dispara nesse caso. `suspended: true` como saída só sobra sem
-execução durável (componente chamado fora do motor).
-
 ### A.3 As três decisões que o levantamento deixou em aberto
 
 **1. De onde vem o cliente MCP — resolvido: do contexto de execução.**
@@ -86,12 +79,11 @@ Sem lista no nó vale o teto; sem os dois vale `allowAll()` **declarado**, não 
 impede que, num produto onde o cliente edita o fluxo, ele conceda ao agente tools que a plataforma
 não lhe deu.
 
-**3. Aprovação humana: nó `approval()` ou `ToolApprovalPolicy` — resolvido no runtime (RCHFLW-185).**
-A `ToolApprovalPolicy` continua decidindo *o que* exige gente e o laço continua suspendendo antes da
-tool; quem segura o fluxo é o portão do motor, o mesmo do nó `approval()`. Não há terceiro mecanismo:
-fila, prazo, decisor e comentário são os do portão. O laço suspenso fica marcado como do fluxo
-(`Retomada.execucaoDoFluxo`) e sai da fila avulsa do laço. Ainda em aberto: a suspensão não aparece
-no designer como nó próprio.
+**3. Aprovação humana: nó `approval()` ou `ToolApprovalPolicy` — AINDA ABERTO.**
+Continuam existindo dois mecanismos para "parado esperando gente". O componente já devolve
+`suspended` e `approvalRequestId`, o que torna viável materializar a suspensão num nó de approval —
+mas a decisão não foi tomada, e enquanto não for, uma suspensão decidida dentro do runner não
+aparece no designer.
 
 **4. Estado — AINDA ABERTO.** `McpAgentStateStore` e o `StateManager` do motor guardam coisas
 diferentes do mesmo agente. Falta decidir quem é a fonte da verdade num replay.

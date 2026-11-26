@@ -43,9 +43,8 @@ class ServerNodesNoServidorTest {
 
         assertThat(orquestra).isInstanceOf(OrchestrateStep.class);
         assertThat(aprova).isInstanceOf(HumanApprovalStep.class);
-        // O mcp-agent vem dentro do passo que segura o fluxo quando a tool pede aprovação (RCHFLW-185).
-        assertThat(agente).isInstanceOfSatisfying(McpAgentStep.class,
-                step -> assertThat(step.componente().resolvesComponent()).isTrue());
+        assertThat(agente).isInstanceOfSatisfying(ComponentStep.class,
+                step -> assertThat(step.resolvesComponent()).isTrue());
         assertThat(busca).isInstanceOfSatisfying(ComponentStep.class,
                 step -> assertThat(step.resolvesComponent()).isTrue());
     }

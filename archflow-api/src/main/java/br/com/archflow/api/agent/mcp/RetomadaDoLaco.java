@@ -85,45 +85,20 @@ public class RetomadaDoLaco {
     }
 
     /**
-     * Os laços avulsos deste tenant esperando decisão; {@code tenantId} nulo, em branco ou
-     * {@code "all"} atravessa todos os tenants, como a fila do fluxo (RCHFLW-141).
-     *
-     * <p>O laço de um nó {@code mcp-agent} fica de fora: quem o segura é o portão da execução, que
-     * já está na fila com o prazo, o fluxo e o decisor gravado. Listá-lo aqui também daria dois
-     * pedidos para a mesma tool — e decidir o daqui executaria a tool com o fluxo parado.</p>
+     * Os laços deste tenant esperando decisão; {@code tenantId} nulo, em branco ou {@code "all"}
+     * atravessa todos os tenants, como a fila do fluxo (RCHFLW-141).
      */
     public List<Pendencia> pendentes(String tenantId) {
         return store.findPendingByTenant(tenantId).stream()
-                .filter(RetomadaDoLaco::decididoAqui)
+                .filter(e -> e.pending() != null)
                 .map(Pendencia::de)
                 .toList();
     }
 
-    /** Só laços avulsos: o de um fluxo é achado pelo pedido do portão dele. */
     public Optional<Pendencia> detalhe(String requestId) {
         return store.findByRequestId(requestId)
-                .filter(RetomadaDoLaco::decididoAqui)
+                .filter(e -> e.pending() != null)
                 .map(Pendencia::de);
-    }
-
-    /**
-     * Apaga o laço que um portão de fluxo segurava, quando o portão foi recusado (por alguém ou pelo
-     * prazo): o fluxo parou, ninguém mais vai retomar aquele laço, e o estado dele seria lixo durável
-     * com a proposta e o transcript dentro. Só apaga o laço que é <b>daquela</b> execução — um avulso
-     * é decidido por {@link #decidir}, e o de outro fluxo pelo portão dele, nunca descartados por aqui.
-     *
-     * @return {@code true} se havia o laço e ele foi apagado
-     */
-    public boolean descartarDoFluxo(String requestId, String execucaoDoFluxo) {
-        return store.findByRequestId(requestId)
-                .filter(e -> e.retomada() != null && e.retomada().seguroPor(execucaoDoFluxo))
-                .map(e -> store.delete(e.runId()))
-                .orElse(false);
-    }
-
-    private static boolean decididoAqui(McpAgentState estado) {
-        return estado.pending() != null
-                && (estado.retomada() == null || !estado.retomada().seguroPorFluxo());
     }
 
     /**
@@ -140,12 +115,6 @@ public class RetomadaDoLaco {
                 .orElseThrow(() -> new NoSuchElementException(
                         "Nenhum laço suspenso para a aprovação " + requestId));
         McpAgentState.Retomada retomada = estado.retomada();
-        if (retomada != null && retomada.seguroPorFluxo()) {
-            // Mesmo com o id em mãos, não: a decisão é do portão da execução, que grava quem decidiu
-            // sob o lock dela e continua o grafo. Por aqui a tool rodaria e o fluxo seguiria parado.
-            throw new IllegalStateException("O laço " + estado.runId() + " é de um nó da execução "
-                    + retomada.execucaoDoFluxo() + ": decida pelo pedido de aprovação dessa execução");
-        }
         if (retomada == null) {
             // Estado gravado antes de a retomada existir: não há como reconstruir a allowlist, e
             // adivinhá-la é o que esta classe existe para não fazer.

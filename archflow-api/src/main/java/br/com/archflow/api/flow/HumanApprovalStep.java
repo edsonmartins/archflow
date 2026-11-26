@@ -195,18 +195,13 @@ public final class HumanApprovalStep implements FlowStep {
      * de conversa, que aprovam sem substituir proposta nenhuma — só a fila grava {@code EDITED}.
      */
     private Object editedProposal(ExecutionContext context) {
-        return editedProposal(context, id);
-    }
-
-    /** A regra acima para o portão de {@code stepId} — o nó {@code mcp-agent} lê a edição igual. */
-    static Object editedProposal(ExecutionContext context, String stepId) {
         Object history = context.get(ExecutionKeys.APPROVAL_HISTORY).orElse(null);
         if (!(history instanceof java.util.Collection<?> all)) {
             return null;
         }
         List<?> entries = List.copyOf(all);
         for (int i = entries.size() - 1; i >= 0; i--) {
-            if (entries.get(i) instanceof Map<?, ?> entry && stepId.equals(String.valueOf(entry.get("stepId")))) {
+            if (entries.get(i) instanceof Map<?, ?> entry && id.equals(String.valueOf(entry.get("stepId")))) {
                 return "EDITED".equals(String.valueOf(entry.get("decision"))) ? entry.get("editedPayload") : null;
             }
         }
@@ -259,7 +254,7 @@ public final class HumanApprovalStep implements FlowStep {
      * Grava o valor do pedido, ou limpa o do portão anterior. O mapa de variáveis não aceita
      * remoção nem null, então "limpo" é "" — a mesma convenção do pedido consumido.
      */
-    static void setOrClear(ExecutionContext context, String key, String value) {
+    private static void setOrClear(ExecutionContext context, String key, String value) {
         if (value != null) {
             context.set(key, value);
         } else if (context.get(key).isPresent()) {

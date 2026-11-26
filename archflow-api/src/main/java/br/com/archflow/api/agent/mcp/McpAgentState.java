@@ -88,28 +88,12 @@ public record McpAgentState(
      * @param lembreteDaSaida      texto da cobrança de saída escrito pelo nó; {@code null} = a
      *                             frase padrão. Vai no estado porque a cobrança pode acontecer
      *                             depois da retomada
-     * @param execucaoDoFluxo      a execução de fluxo que segura este laço no portão dela
-     *                             ({@code AWAITING_APPROVAL}); {@code null} = laço avulso (API de
-     *                             agente, AG-UI), decidido pela fila do próprio laço. Um laço de nó
-     *                             {@code mcp-agent} é decidido <b>só</b> pelo portão do fluxo: decidi-lo
-     *                             por fora executaria a tool com o fluxo ainda parado, e a retomada do
-     *                             fluxo depois não acharia mais o laço (RCHFLW-185)
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record Retomada(String serverRef, Set<String> toolsPermitidas,
                            Set<String> toolsComAprovacao, Set<String> saidaPorTool,
                            String tier, int maxIteracoes, Set<Integer> codigosQueEncerram,
-                           Set<String> toolsQueEncerram, String lembreteDaSaida,
-                           String execucaoDoFluxo) {
-
-        /** Compat: laço avulso, sem fluxo que o segure — a forma gravada antes do RCHFLW-185. */
-        public Retomada(String serverRef, Set<String> toolsPermitidas,
-                        Set<String> toolsComAprovacao, Set<String> saidaPorTool,
-                        String tier, int maxIteracoes, Set<Integer> codigosQueEncerram,
-                        Set<String> toolsQueEncerram, String lembreteDaSaida) {
-            this(serverRef, toolsPermitidas, toolsComAprovacao, saidaPorTool, tier, maxIteracoes,
-                    codigosQueEncerram, toolsQueEncerram, lembreteDaSaida, null);
-        }
+                           Set<String> toolsQueEncerram, String lembreteDaSaida) {
 
         /** Compat: sem lembrete próprio da saída — a forma gravada antes do VEN-1083. */
         public Retomada(String serverRef, Set<String> toolsPermitidas,
@@ -137,17 +121,6 @@ public record McpAgentState(
             if (maxIteracoes <= 0) {
                 throw new IllegalArgumentException("maxIteracoes deve ser positivo");
             }
-            execucaoDoFluxo = execucaoDoFluxo == null || execucaoDoFluxo.isBlank() ? null : execucaoDoFluxo;
-        }
-
-        /** {@code true} quando quem decide é o portão de uma execução de fluxo, não a fila do laço. */
-        public boolean seguroPorFluxo() {
-            return execucaoDoFluxo != null;
-        }
-
-        /** {@code true} quando quem segura este laço é o portão da execução {@code execucao}. */
-        public boolean seguroPor(String execucao) {
-            return execucaoDoFluxo != null && execucaoDoFluxo.equals(execucao);
         }
     }
 
