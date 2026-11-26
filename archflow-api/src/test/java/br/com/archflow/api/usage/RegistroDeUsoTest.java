@@ -41,6 +41,23 @@ class RegistroDeUsoTest {
     }
 
     @Test
+    @DisplayName("a soma da execução diz quais modelos rodaram, sem repetir (RCHFLW-190)")
+    void somaDizOsModelos() {
+        var registro = new RegistroDeUso(new InMemoryRepositorioDeUso(), precos);
+        var agente = new ContadorDeUso();
+        agente.somar("openrouter", "openrouter/m", 10, 10);
+        agente.somar("openai", "openai/outro", 10, 10);
+        registro.registrar("acme", "exec-1", LancamentoDeUso.ORIGEM_FLUXO, agente);
+        var retomada = new ContadorDeUso();
+        retomada.somar("openrouter", "openrouter/m", 10, 10);
+        registro.registrar("acme", "exec-1", LancamentoDeUso.ORIGEM_FLUXO, retomada);
+
+        assertThat(registro.daExecucao("acme", "exec-1").orElseThrow().modelos())
+                .as("antes: a soma descartava LancamentoDeUso.modelo")
+                .containsExactlyInAnyOrder("openrouter/m", "openai/outro");
+    }
+
+    @Test
     @DisplayName("sem preço declarado o custo é nulo, nunca zero; a soma diz quantas ficaram de fora")
     void unknownPriceStaysNull() {
         var registro = new RegistroDeUso(new InMemoryRepositorioDeUso(), precos);

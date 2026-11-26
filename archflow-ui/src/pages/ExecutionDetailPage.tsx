@@ -94,6 +94,8 @@ interface ExecutionUsage {
     costReais: number | null
     declaredCostUsd: number | null
     withoutPrice: number
+    /** Os `provedor/modelo` chamados, sem repetir (RCHFLW-190). Ausente num servidor anterior ao campo. */
+    models?: string[]
 }
 
 /** Tokens e custo da execução. Sem `usage` (nada chamou modelo, ou ainda não terminou) não aparece. */
@@ -111,6 +113,10 @@ function UsageCard({ usage, locale }: { usage: ExecutionUsage; locale: string })
                           ? `${cost} · ${t('usage.withoutPriceCount', { count: usage.withoutPrice })}` : cost} />
                 {usage.declaredCostUsd != null && (
                     <Meta label={t('executionDetail.usage.declaredCost')} value={formatUsd(usage.declaredCostUsd, locale)} />
+                )}
+                {/* Qual modelo rodou: sem ele, "sem preço" não dizia de qual modelo falta o preço. */}
+                {usage.models && usage.models.length > 0 && (
+                    <Meta label={t('executionDetail.usage.models')} value={usage.models.join(', ')} />
                 )}
             </Group>
         </SectionCard>

@@ -173,7 +173,10 @@ public class VendaxAgentDispatcher {
                         registro.map(r -> br.com.archflow.api.agent.mcp.SaidaDeTexto
                                 .soCancelamento(r.cancelamento())).orElse(null), false);
                 if (porFluxo != null) {
-                    enviar(porFluxo, uso, invoke);
+                    enviar(porFluxo, uso, invoke, registro);
+                } else {
+                    // Só a suspensão termina sem result aqui (runFluxo).
+                    relatarSemResult(invoke, VendaxUsoRelato.Motivo.SUSPENSO, uso, registro);
                 }
                 if (metrics != null) metrics.completed(startedAt);
                 return;
@@ -196,14 +199,18 @@ public class VendaxAgentDispatcher {
                 default -> naoImplementado(invoke);
             };
             if (result != null) {
-                enviar(result, uso, invoke);
+                enviar(result, uso, invoke, registro);
+            } else {
+                // Só o QP sem cotação termina sem result aqui (runQp).
+                relatarSemResult(invoke, VendaxUsoRelato.Motivo.SEM_RESULT, uso, registro);
             }
             if (metrics != null) metrics.completed(startedAt);
         } catch (Exception e) {
             if (metrics != null) metrics.failed(startedAt, e);
             log.error("Agente {} falhou (conv={}): {}",
                     invoke.agent(), invoke.conversationId(), e.getMessage(), e);
-            enviar(VendaxResult.error(invoke, causeOf(e)), uso, invoke);
+            relatarOQueAindaRoda(invoke, uso, e);
+            enviar(VendaxResult.error(invoke, causeOf(e)), uso, invoke, registro);
         } finally {
             // A thread é reusada entre invokes. Sem limpar, o PRÓXIMO agente a rodar aqui mandaria
             // a correlação deste — e o evento da cotação sairia amarrado à conversa errada. Um
@@ -214,7 +221,9 @@ public class VendaxAgentDispatcher {
             // seria creditada à task — sem erro, sem log, e sem nada que destoe na conferência.
             br.com.archflow.langchain4j.mcp.client.CorrelacaoMcp.limpar();
             if (registro.isPresent()) {
-                execucoes.concluir(registro.get().chave());
+                // Pela identidade: enviar() já liberou a chave antes do webhook, e uma execução nova
+                // da mesma chave pode ter entrado no registro enquanto ele saía — não é esta.
+                execucoes.concluir(registro.get());
                 // Se um cancelamento interrompeu esta thread depois de a execução acabar, o flag
                 // não pode vazar para a próxima tarefa do pool.
                 Thread.interrupted();
@@ -253,7 +262,13 @@ public class VendaxAgentDispatcher {
             if (metrics != null) metrics.failed(startedAt, e);
             log.error("Agente {} falhou em fluxo (conv={}): {}",
                     invoke.agent(), invoke.conversationId(), e.getMessage(), e);
-            return new ResultadoEmFluxo(comUso(VendaxResult.error(invoke, causeOf(e)), uso), true);
+            relatarOQueAindaRoda(invoke, uso, e);
+            // Documento que não passa (não se lê, ou recusado na validação) falha igual na próxima
+            // vez: `recuperavel: false`. Antes, toda exceção dizia ao chamador que valia repetir
+            // (RCHFLW-190). O resto — passo que falhou, prazo, provedor — segue recuperável: pode ser
+            // transitório, e daqui não se distingue.
+            return new ResultadoEmFluxo(comUso(VendaxResult.error(invoke, causeOf(e)), uso),
+                    !AgentFlowRunner.FluxoInvalido.em(e));
         } finally {
             br.com.archflow.langchain4j.mcp.client.CorrelacaoMcp.limpar();
         }
@@ -307,15 +322,62 @@ public class VendaxAgentDispatcher {
         return opcoes.comUso(uso).comContextoRecuperado(invoke.memoria()).comTier(invoke.tier());
     }
 
-    /** Envia carregando o consumo — em todo result, OK ou ERROR. */
-    private void enviar(VendaxResult result, ContadorDeUso uso, VendaxInvoke invoke) {
+    /**
+     * Envia carregando o consumo — em todo result, OK ou ERROR.
+     *
+     * @param registro a execução no registro de canceláveis, quando ela entrou nele
+     */
+    private void enviar(
+            VendaxResult result, ContadorDeUso uso, VendaxInvoke invoke,
+            java.util.Optional<br.com.archflow.api.agent.stream.ExecucoesEmAndamento.Execucao> registro) {
         // Cancelado pelo chamador: o que sair daqui, que não seja um OK completo, é o cancelamento.
-        if (execucoes != null && !VendaxResult.OK.equals(result.status())
-                && execucoes.cancelada(VendaxResult.idempotencyKeyOf(invoke))) {
+        if (liberar(registro) && !VendaxResult.OK.equals(result.status())) {
             result = VendaxResult.cancelado(invoke, null);
         }
         // O traceId não está no result; vai junto para a desistência, se houver, dizer qual foi.
         resultSender.send(comUso(result, uso), invoke.traceId());
+    }
+
+    /**
+     * Na rota assíncrona, a execução que termina sem result: o gasto vai pelo relato. Depois de
+     * liberar a chave, pelo mesmo motivo do {@link #enviar}: um cancelamento que chegasse durante o
+     * {@code POST /uso} interromperia o HTTP, o sender desistiria (INTERROMPIDA, só um WARN) e o
+     * gasto sumiria sem relato nenhum.
+     */
+    private void relatarSemResult(
+            VendaxInvoke invoke, VendaxUsoRelato.Motivo motivo, ContadorDeUso uso,
+            java.util.Optional<br.com.archflow.api.agent.stream.ExecucoesEmAndamento.Execucao> registro) {
+        liberar(registro);
+        relatar(invoke, motivo, uso.resumo().orElse(null));
+    }
+
+    /**
+     * Tira a execução do registro antes de falar com o Core, e diz se ela foi cancelada.
+     *
+     * <p>A EXECUÇÃO SAI DO REGISTRO ANTES DO ENVIO, e só depois se lê se ela foi cancelada. O
+     * cancelamento interrompe esta thread, e o envio ao Core é um HTTP que desiste ao ver a flag
+     * (VendaxResultSender → INTERROMPIDA, sem nova tentativa): o CANCELADO saía com a flag que o
+     * próprio cancelamento deixou ligada e nunca chegava — nem ele nem o uso que levava
+     * (RCHFLW-165). {@code concluir} e {@code cancelar} usam o mesmo cadeado: depois de concluir,
+     * nenhum cancelamento novo interrompe esta thread (a rota responde 404), e um que veio antes já
+     * está visível em {@code cancelamento()}. Ler antes de concluir deixava uma janela em que o
+     * cancelamento chegava entre a leitura e o envio — e derrubava até um OK.</p>
+     *
+     * <p>Pela identidade, e não pela chave: o {@code finally} de {@link #runAndReport} conclui de
+     * novo, e a chave liberada aqui pode já ser de outra execução quando ele rodar.</p>
+     */
+    private boolean liberar(
+            java.util.Optional<br.com.archflow.api.agent.stream.ExecucoesEmAndamento.Execucao> registro) {
+        if (registro.isEmpty()) {
+            return false;
+        }
+        execucoes.concluir(registro.get());
+        if (!registro.get().cancelamento().isDone()) {
+            return false;
+        }
+        // A interrupção era o pedido de parar, e a execução já parou: o que resta é entregar.
+        Thread.interrupted();
+        return true;
     }
 
     VendaxResult comUso(VendaxResult result, ContadorDeUso uso) {
@@ -323,11 +385,36 @@ public class VendaxAgentDispatcher {
             // Já veio com o recorte certo — o ERROR por prazo leva só o gasto até o prazo.
             return result;
         }
-        return uso.resumo().map(r -> result.comUso(usoDe(r))).orElse(result);
+        // Com prazo estourado, o corte: o que veio depois dele é do relato APOS_PRAZO, e anexá-lo
+        // aqui o contaria duas vezes (ContadorDeUso.cortar).
+        return uso.resumoDoResultado().map(r -> result.comUso(usoDe(r))).orElse(result);
     }
 
     private VendaxResult.Uso usoDe(ContadorDeUso.Resumo r) {
         return VendaxResult.Uso.de(r, precos.custoEmCentavos(r), precos.custoEmReais(r));
+    }
+
+    /**
+     * O result vai sair, mas o trabalho por trás dele pode seguir gastando: o {@code timeout_ms}
+     * venceu, ou a execução foi interrompida (cancelamento, {@code validoAte}) e a espera pelo motor
+     * bateu no teto do prazo. Corta o contador — o result leva o retrato do corte — e pendura o
+     * relato {@code APOS_PRAZO} do resto em quem terminar por último.
+     *
+     * <p>Antes, no {@code timeout_ms}, o {@code ERROR} saía sem uso e o turno que terminava depois
+     * se perdia; na interrupção, o que o motor gastava depois do teto da espera também (RCHFLW-167).
+     * O result em si (mensagem, recuperável, CANCELADO) não muda. Trabalho que já terminou não deixa
+     * resto, e não há relato.</p>
+     */
+    private void relatarOQueAindaRoda(VendaxInvoke invoke, ContadorDeUso uso, Throwable e) {
+        AgentFlowRunner.ExecucaoEmCurso emCurso = AgentFlowRunner.ExecucaoEmCurso.emCursoEm(e);
+        if (emCurso == null) {
+            return;
+        }
+        if (emCurso instanceof AgentFlowRunner.PrazoDoFluxo) {
+            log.warn("Fluxo de {} passou do timeout_ms da política (trace={})",
+                    invoke.agent(), invoke.traceId());
+        }
+        relatarDepoisDoPrazo(invoke, uso, uso.cortar().orElse(null), emCurso.trabalho());
     }
 
     /** Relata o consumo de uma execução que não vai num result; nada gasto, nada relatado. */
@@ -397,7 +484,7 @@ public class VendaxAgentDispatcher {
         } catch (PrazoEstourado e) {
             log.warn("Roteiro do CPA passou do prazo de {} ms (trace={})",
                     prazo.toMillis(), invoke.traceId());
-            ContadorDeUso.Resumo ate = uso.resumo().orElse(null);
+            ContadorDeUso.Resumo ate = uso.cortar().orElse(null);
             relatarDepoisDoPrazo(invoke, uso, ate, e.execucao());
             VendaxResult erro = VendaxResult.error(invoke, "O CPA não respondeu em "
                     + prazo.toMillis() + " ms");
@@ -415,7 +502,11 @@ public class VendaxAgentDispatcher {
      */
     private void relatarDepoisDoPrazo(VendaxInvoke invoke, ContadorDeUso uso,
                                       ContadorDeUso.Resumo ate, CompletableFuture<?> execucao) {
-        execucao.whenCompleteAsync((ignorado, erro) -> uso.resumo()
+        // Quem termina por último, e não só `execucao`: a thread do validoAte desiste do motor no
+        // teto do timeout_ms e termina antes dele; pendurado só nela, o relato disparava vazio e o
+        // turno que o motor anotava depois se perdia (RCHFLW-167).
+        AgentFlowRunner.ExecucaoEmCurso.quandoTudoParar(execucao).whenCompleteAsync(
+                (ignorado, erro) -> uso.resumo()
                         .map(depois -> depois.menos(ate))
                         .ifPresent(resto -> relatar(invoke, VendaxUsoRelato.Motivo.APOS_PRAZO, resto)),
                 tarefa -> Thread.ofVirtual().name("vendax-uso-apos-prazo").start(tarefa));
@@ -461,6 +552,7 @@ public class VendaxAgentDispatcher {
                 br.com.archflow.langchain4j.mcp.client.CorrelacaoMcp.limpar();
             }
         });
+        long limite = System.nanoTime() + prazo.toNanos();
         thread.start();
         try {
             return futuro.get(prazo.toMillis(), TimeUnit.MILLISECONDS);
@@ -469,8 +561,16 @@ public class VendaxAgentDispatcher {
             throw new PrazoEstourado(futuro);
         } catch (InterruptedException e) {
             thread.interrupt();
+            // CANCELADO COM PRAZO NO ENVELOPE (o caso comum: o Core manda `validoAte`). Quem monta o
+            // CANCELADO lê o contador assim que isto lança; sem esperar o trabalho terminar, o turno
+            // que ele ainda anota (o abandonado no meio do stream, ou o que o passo em curso termina)
+            // ficava de fora e o CANCELADO saía com uso nulo (RCHFLW-166). A espera vai até o prazo,
+            // não além: passado ele, o resultado já não teria dono.
+            AgentFlowRunner.aguardarOMotor(futuro, limite);
             Thread.currentThread().interrupt();
-            throw new IllegalStateException("Execução interativa interrompida", e);
+            // Passado o prazo o trabalho pode seguir gastando; a exceção o leva para quem monta o
+            // result pendurar nele o relato do resto (relatarOQueAindaRoda).
+            throw new AgentFlowRunner.ExecucaoEmCurso("Execução interativa interrompida", e, futuro);
         } catch (ExecutionException e) {
             Throwable causa = e.getCause();
             if (causa instanceof RuntimeException runtime) {
@@ -535,25 +635,39 @@ public class VendaxAgentDispatcher {
         } catch (PrazoEstourado e) {
             log.warn("Fluxo de {} passou do prazo do envelope (validoAte={}, trace={})",
                     invoke.agent(), invoke.validoAte(), invoke.traceId());
-            ContadorDeUso.Resumo ate = uso.resumo().orElse(null);
+            // O corte, e não uma leitura solta: é o mesmo retrato que o result leva e que o relato
+            // subtrai — ver ContadorDeUso.cortar.
+            ContadorDeUso.Resumo ate = uso.cortar().orElse(null);
+            // `e.execucao()` é a thread do fluxo; ela desiste do motor no teto do timeout_ms e
+            // termina com a execução dele (ExecucaoEmCurso), e o relato espera as duas: vê o turno
+            // que estava em voo mesmo que ele termine depois desse teto.
             relatarDepoisDoPrazo(invoke, uso, ate, e.execucao());
             VendaxResult erro = VendaxResult.error(invoke, "O fluxo de " + invoke.agent()
                     + " não respondeu até " + invoke.validoAte());
             return ate == null ? erro : erro.comUso(usoDe(ate));
         }
+        // O `politica.timeout_ms` vencido e a interrupção (cancelamento, desligamento) saem daqui
+        // como exceção e são tratados em relatarOQueAindaRoda, por quem monta o result.
 
         if (resposta.suspenso()) {
             log.info("Fluxo de {} suspenso aguardando decisão humana (conv={})",
                     invoke.agent(), invoke.conversationId());
-            // O gasto até aqui. Hoje uma retomada não manda result ao Core, e o que ela gastar não
-            // é relatado — o contador desta execução não sobrevive à suspensão.
-            relatar(invoke, VendaxUsoRelato.Motivo.SUSPENSO, uso.resumo().orElse(null));
             if (emFluxo) {
+                // UM CANAL SÓ PARA O GASTO. Em fluxo a suspensão sai como ERROR, e o ERROR leva o uso
+                // (executarEmFluxo → comUso) — relatar SUSPENSO aqui também fazia o Core contar o
+                // mesmo gasto duas vezes, porque a deduplicação dele é por execucaoId + motivo e
+                // SUSPENSO ≠ RESULT (RCHFLW-171). O relato é para "consumo que não vai num result"
+                // (VendaxUsoRelato), e aqui vai.
+                //
                 // Quem espera na conexão não tem como esperar uma decisão humana: o fluxo fica
                 // suspenso (durável) e a resposta diz isso, em vez de calar.
                 return VendaxResult.error(invoke, "O fluxo de " + invoke.agent()
                         + " suspendeu aguardando decisão humana e não cabe numa resposta em fluxo");
             }
+            // O gasto até aqui vai pelo relato SUSPENSO, que runAndReport manda ao receber null —
+            // depois de liberar a chave (relatarSemResult): na rota assíncrona a suspensão não manda
+            // result. Hoje uma retomada não manda result ao Core, e o que ela gastar não é relatado
+            // — o contador desta execução não sobrevive à suspensão.
             return null;
         }
         if (saidaDeTexto) {
@@ -643,8 +757,9 @@ public class VendaxAgentDispatcher {
             // erro: virar agent.error poluiria a conversa a cada mensagem sem intenção de pedido.
             log.info("QP concluiu sem cotação (conv={}): {}",
                     invoke.conversationId(), qp.finalText());
-            // Sem result, o uso não teria onde ir — e é o caso mais comum do QP.
-            relatar(invoke, VendaxUsoRelato.Motivo.SEM_RESULT, uso.resumo().orElse(null));
+            // Sem result, o uso não teria onde ir — e é o caso mais comum do QP. Vai pelo relato
+            // SEM_RESULT, que runAndReport manda ao receber null, depois de liberar a chave
+            // (relatarSemResult).
             return null;
         }
         return VendaxResult.ok(invoke, TYPE_QUOTE, qp.quote());

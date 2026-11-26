@@ -353,4 +353,19 @@ public record VendaxResult(
                 : invoke.traceId() != null ? invoke.traceId() : invoke.conversationId();
         return invoke.agent() + ":" + source;
     }
+
+    /**
+     * A chave de {@link #idempotencyKeyOf} identifica <b>esta mensagem</b>? Só quando veio do chamador
+     * ({@code idempotencyKey}) ou da mensagem de origem ({@code sourceMessageId}).
+     *
+     * <p>Sem os dois, a chave cai em {@code traceId} ou {@code conversationId}, que identificam a sessão
+     * e a conversa — duas mensagens diferentes dão a mesma chave. Ela continua servindo para cancelar e
+     * para o 409 de execução em andamento, mas não pode reaproveitar resultado: a rota em fluxo
+     * devolvia a resposta da pergunta anterior, ou a de outra conversa com o mesmo {@code traceId}
+     * (RCHFLW-168).</p>
+     */
+    public static boolean chaveIdentificaAMensagem(VendaxInvoke invoke) {
+        return (invoke.idempotencyKey() != null && !invoke.idempotencyKey().isBlank())
+                || (invoke.sourceMessageId() != null && !invoke.sourceMessageId().isBlank());
+    }
 }

@@ -15,6 +15,10 @@ modelo escreve. O motor **não interpreta o texto**: não corta em frases, não 
 | `POST /api/agents/invoke/stream` | Mesmo corpo do `invoke` assíncrono, sem campo novo. Resposta `200 text/event-stream`. |
 | `POST /api/agents/invoke/{idempotencyKey}/cancel` | Cancela a execução da chave, em fluxo **ou** assíncrona. `202` se a chave está em andamento nesta instância, `404` se não. |
 
+Uma chave **com barra** (`pedido/123`) é cancelada com as barras **sem codificar**:
+`POST /api/agents/invoke/pedido/123/cancel`. Codificada (`pedido%2F123`) ela não chega à rota: o servidor
+(Tomcat) recusa barra codificada no caminho com um `400` em HTML, antes da aplicação.
+
 Autenticação: a mesma do `invoke` assíncrono — `Authorization: Bearer <archflow.vendax.invoke-key>`.
 Sem a chave configurada a rota recusa tudo (`503`). A definição do corpo precisa ser do tipo `FLUXO`
 (`400` caso contrário).
@@ -30,6 +34,11 @@ Cada evento traz `seq`, crescente a partir de 0, dentro do JSON de `data`.
 | `delta` | `texto` | cada pedaço de texto da resposta final |
 | `fim` | o resultado completo, **igual ao do webhook**, mais `seq` | terminou |
 | `erro` | `error`, `recuperavel` | falhou; encerra a conexão |
+
+`recuperavel: false` quando repetir o mesmo invoke dá o mesmo erro: o documento do fluxo não se lê ou é
+recusado na validação do motor (passo inexistente numa aresta, ciclo, nó solto, fluxo sem passos), e os
+`ERROR` que o fluxo devolve sem exceção (prazo do envelope, suspensão, saída que não é JSON). Falha de
+passo, de provedor e `politica.timeout_ms` vencido seguem `recuperavel: true` — podem ser transitórias.
 
 ```
 event: inicio
@@ -84,6 +93,18 @@ seguinte), mas seus eventos `tool` e o cancelamento funcionam.
 - O resultado parcial é registrado com `encerradoPor = { "name": "CANCELADO" }`, o `uso` do que foi
   consumido e, se algum texto já saiu, `richObjectType = "text"` com o texto parcial. O `status` é
   `ERROR` (não há resposta completa).
+- O turno de modelo interrompido no meio do stream **conta** em `uso.llmTurns`, sem tokens e sem custo
+  (o fim do stream, que os traria, não chega), e aparece em `uso.turnsWithoutCost`. `tokens`,
+  `costCents` e `costReais` somam **só os turnos que o provedor informou** — nulos se nenhum informou,
+  nunca zero; com um turno anterior medido, são um valor **parcial**, que não inclui o interrompido.
+  `declaredCostUsd` fica ausente. Um `turnsWithoutCost` maior que zero é o sinal de que o custo está
+  incompleto.
+- O resultado só é montado depois de o motor parar, para que esse turno esteja nele. A espera tem teto:
+  o `validoAte` do envelope, ou, sem ele, `politica.timeout_ms` (padrão 120 s). Se o passo em curso —
+  uma chamada de modelo bloqueante, que não é interrompida — passa desse teto, o resultado sai com o
+  gasto até ali, e o que esse passo gastar depois vai em `POST /api/v1/public/archflow/uso` com
+  `motivo: APOS_PRAZO` e o mesmo `execucaoId` (cada turno em um canal só). O mesmo vale para o
+  cancelamento da rota assíncrona.
 
 > **Mudança de contrato:** `encerradoPor.name` ganha o valor `CANCELADO`. Quem trata o campo como
 > enumeração fechada precisa aceitá-lo.
@@ -101,6 +122,10 @@ O chamador recebe **exatamente um resultado final por chave**:
 Uma falha da execução emite `erro` (com `recuperavel`) e encerra a conexão; o resultado `ERROR` segue
 pelo webhook.
 
+Um fluxo que **suspende para aprovação** nesta rota também sai como `erro` + `ERROR` pelo webhook, e o
+consumo vai **só** no `uso` desse `ERROR` — não há relato `SUSPENSO` em `/archflow/uso` (esse relato é da
+rota assíncrona, onde a suspensão não manda result).
+
 ## Idempotência
 
 - Mesma chave com execução **em andamento**: `409`.
@@ -108,6 +133,11 @@ pelo webhook.
   modelo. A guarda dura `archflow.agent.stream.result-ttl` (padrão `PT10M`; `PT0S` desliga). Só
   resultado `OK` é guardado: repetir a chave depois de falha ou cancelamento tenta de novo.
 - A chave guardada só vale para o mesmo `tenantId`; outro tenant com a mesma chave recebe `409`.
+- **A guarda do resultado só vale para chave que identifica a mensagem**: o `idempotencyKey` do corpo ou,
+  sem ele, o `sourceMessageId`. Sem os dois, a chave é derivada de `agent` + `traceId` (ou
+  `conversationId`), que identificam a sessão e a conversa, não a mensagem: nada é guardado nem reenviado,
+  e cada chamada executa. Essa chave derivada continua valendo para o `409` de execução em andamento e
+  para o cancelamento.
 
 ## Medição
 

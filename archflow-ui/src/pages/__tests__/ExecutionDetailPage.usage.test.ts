@@ -113,6 +113,29 @@ describe('ExecutionDetailPage — uso de modelo', () => {
     expect(text).not.toContain('R$0')
   })
 
+  // RCHFLW-190: o cartão mostrava tokens e "sem preço" sem dizer qual modelo rodou.
+  it('mostra os modelos que rodaram', async () => {
+    executionApiMock.get.mockResolvedValue(execution({
+      inputTokens: 23, outputTokens: 2, costCents: null, costReais: null, declaredCostUsd: null,
+      withoutPrice: 1, models: ['openrouter/google/gemini-3.5-flash-lite', 'openai/gpt-x'],
+    }))
+    await render()
+
+    const text = usageCard()!.textContent
+    expect(text).toContain('executionDetail.usage.models')
+    expect(text).toContain('openrouter/google/gemini-3.5-flash-lite, openai/gpt-x')
+  })
+
+  it('sem modelos informados (servidor anterior ao campo), o cartão não ganha a linha', async () => {
+    executionApiMock.get.mockResolvedValue(execution({
+      inputTokens: 23, outputTokens: 2, costCents: null, costReais: null, declaredCostUsd: null,
+      withoutPrice: 1,
+    }))
+    await render()
+
+    expect(usageCard()!.textContent).not.toContain('executionDetail.usage.models')
+  })
+
   it('execução sem chamada a modelo não ganha cartão de uso', async () => {
     executionApiMock.get.mockResolvedValue(execution())
     await render()

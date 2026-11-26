@@ -96,10 +96,16 @@ public final class InvocacaoEmFluxo implements AutoCloseable {
 
     public Admissao iniciar(VendaxInvoke invoke) {
         String chave = VendaxResult.idempotencyKeyOf(invoke);
+        // SÓ SE REAPROVEITA O QUE É DA MESMA MENSAGEM. Sem idempotencyKey nem sourceMessageId a chave é
+        // derivada da sessão (traceId) ou da conversa, e a pergunta seguinte da mesma conversa — ou
+        // outra conversa com o mesmo traceId — recebia o fim guardado da anterior, sem executar
+        // (RCHFLW-168). Essa chave ainda vale para o 409 em andamento e para o cancelamento.
+        boolean reaproveitavel = VendaxResult.chaveIdentificaAMensagem(invoke);
 
         // TERMINADA: devolve só o fim guardado, sem chamar o modelo. Outro tenant com a mesma chave
         // não pode ler o resultado alheio.
-        var guardadoDaChave = guardado.buscar(chave);
+        var guardadoDaChave = reaproveitavel ? guardado.buscar(chave)
+                : java.util.Optional.<VendaxResult>empty();
         if (guardadoDaChave.isPresent()) {
             VendaxResult anterior = guardadoDaChave.get();
             if (!java.util.Objects.equals(anterior.tenantId(), invoke.tenantId())) {
@@ -117,13 +123,17 @@ public final class InvocacaoEmFluxo implements AutoCloseable {
         SseEmitter emitter = fabrica.get();
         boolean texto = !temSchema(invoke);
         SessaoSse sessao = new SessaoSse(emitter, texto);
+        // A thread nasce antes do registro (é ela que o cancelamento interrompe) e só conhece a
+        // própria Execucao depois dele; o start() abaixo publica o valor para ela.
+        var dono = new java.util.concurrent.atomic.AtomicReference<ExecucoesEmAndamento.Execucao>();
         Thread thread = Thread.ofVirtual().name("invoke-em-fluxo-", 0)
-                .unstarted(() -> executar(invoke, chave, sessao));
+                .unstarted(() -> executar(invoke, chave, dono.get(), reaproveitavel, sessao));
         var registro = execucoes.registrar(chave, invoke.tenantId(), thread);
         if (registro.isEmpty()) {
             ativas.decrementAndGet();
             return new Admissao.Recusa(409, "idempotencyKey já está em execução", null);
         }
+        dono.set(registro.get());
         // Os dois sentidos do cancelamento: quem pede por chave para a sessão, e a conexão que cai
         // pede por chave para a execução (que interrompe a thread).
         registro.get().cancelamento().thenRun(() -> sessao.cancelamento().complete(null));
@@ -145,7 +155,8 @@ public final class InvocacaoEmFluxo implements AutoCloseable {
         return emitter;
     }
 
-    private void executar(VendaxInvoke invoke, String chave, SessaoSse sessao) {
+    private void executar(VendaxInvoke invoke, String chave, ExecucoesEmAndamento.Execucao registro,
+                          boolean reaproveitavel, SessaoSse sessao) {
         ContadorDeUso uso = new ContadorDeUso();
         long passo = Math.max(100, batimento.toMillis() / 3);
         ScheduledFuture<?> tarefa = relogio.scheduleWithFixedDelay(
@@ -179,10 +190,11 @@ public final class InvocacaoEmFluxo implements AutoCloseable {
 
         // Guardar e liberar a chave ANTES de entregar: o cancelamento interrompe a thread, e uma
         // interrupção durante o envio do webhook o perderia.
-        if (VendaxResult.OK.equals(resultado.status())) {
+        if (reaproveitavel && VendaxResult.OK.equals(resultado.status())) {
             guardado.guardar(chave, resultado);
         }
-        execucoes.concluir(chave);
+        // Pela identidade: só esta execução sai, nunca uma outra que tenha a mesma chave.
+        execucoes.concluir(registro);
         Thread.interrupted();
         tarefa.cancel(false);
         try {

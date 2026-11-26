@@ -267,6 +267,111 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     uma variável para o `JAVA_OPTS`, o `-D` vai nela.
   - Detalhes e exemplos: `docs/decision-component.md`, seção "Falhar fechado".
 
+### Fixed — VendaX: o uso gasto chega ao Core exatamente uma vez (RCHFLW-166, RCHFLW-167, RCHFLW-170, RCHFLW-171)
+O Core pode ter se adaptado ao comportamento anterior; cada item diz o antes e o depois do que ele recebe.
+- **Cancelamento ou queda da conexão em `/invoke/stream` (RCHFLW-166).** Antes: o `fim`/webhook
+  `ERROR` + `encerradoPor: CANCELADO` saía com `"uso": null` quando o cancelamento pegava o primeiro turno
+  no meio do stream (no QA, 21 deltas já emitidos). Depois: `uso` presente, com o turno interrompido em
+  `llmTurns` e em `turnsWithoutCost`, sem tokens nem custo desse turno; `tokens`/`costCents`/`costReais`
+  somam só os turnos que o provedor informou (nulos se nenhum informou) e `declaredCostUsd` fica ausente.
+  Segue `docs/streaming-invoke.md` ("o `uso` do que foi consumido"). O resultado do cancelamento agora é
+  montado depois de o motor parar (o passo em curso termina; no stream o laço desiste na hora), com teto:
+  o `validoAte` do envelope, ou, sem ele, `politica.timeout_ms` (padrão 120 s). Efeito visível: o `fim`
+  `CANCELADO` pode sair um pouco depois do pedido de cancelamento (o tempo de o motor parar).
+- **Cancelamento cujo passo em curso passa do teto da espera (rotas stream e assíncrona).** Antes: o que
+  esse passo gastava depois não era relatado em lugar nenhum. Depois: o result sai com o gasto até o
+  teto, e o resto vai em `POST /api/v1/public/archflow/uso` com `motivo: APOS_PRAZO` e o mesmo
+  `execucaoId` — o teto é um prazo (`validoAte` ou `timeout_ms`), e o que vem depois dele é, literalmente,
+  depois do prazo. **Novo para o Core:** um `APOS_PRAZO` pode seguir um `ERROR` + `encerradoPor:
+  CANCELADO`. Vale também para QP, CS e o roteiro do CPA cancelados com `validoAte`.
+- **Cancelamento na rota assíncrona (`POST /api/agents/invoke` + `/{key}/cancel`).** Antes: o worker
+  desistia na hora e liberava a thread do pool `vendax-agent`. Depois: a thread espera o motor parar —
+  o passo em curso terminar —, até o teto acima; o mesmo vale para o desligamento (`shutdownNow`) do
+  executor. Cancelamentos de chamadas bloqueantes longas ocupam threads do pool (padrão
+  `max-concurrency` 32) por até esse teto, e sob muitos deles a fila pode recusar invokes novos. O
+  `CANCELADO` dessa rota passou a chegar ao Core (RCHFLW-165, abaixo); o relato `APOS_PRAZO` do resto sai
+  numa thread própria.
+- **Prazo estourado (RCHFLW-167).** Antes: com `validoAte` (rotas assíncrona e stream) ou com
+  `definicao.politica.timeout_ms`, o `ERROR` saía e o turno que terminava depois **não era relatado em
+  lugar nenhum**; no `timeout_ms` o motor ainda seguia para os passos seguintes. Depois: o `ERROR` leva o
+  uso até o prazo (como antes, quando havia) e o que o passo em curso gastar depois vai em
+  `POST /api/v1/public/archflow/uso` com `motivo: APOS_PRAZO` e o mesmo `execucaoId` — o que o javadoc do
+  dispatcher e `docs/RESPOSTA-2026-09-25-vendax-prazo-no-fluxo-e-estado.md` já prometiam. O relato espera o
+  motor, e não só a thread do prazo: com `validoAte`, o passo que termina depois também do `timeout_ms`
+  (onde essa thread desiste) ainda é relatado, e o mesmo quando os dois prazos vencem juntos. O motor é parado
+  depois do passo em curso (`FlowEngine.cancel`), nos dois prazos. **Novo para o Core:** relato
+  `APOS_PRAZO` também para o `timeout_ms` (antes só existia para `validoAte` e para o CPA). O texto do
+  `ERROR` do `timeout_ms` muda à parte (RCHFLW-190, abaixo). O retrato do prazo
+  é um corte único: um turno que termina entre o prazo e o envio do `ERROR` vai só no relato, nunca nos
+  dois.
+- **Decisão por `provider: llm` (RCHFLW-170).** Antes: o consumo ia ao contador rotulado `llm/<modelo do nó>`
+  (ou sem modelo, quando o nó não declarava `model`), que nunca casa com a tabela de preços — `uso` com
+  `costCents: null`, `modelUsage[].requestedProvider: "llm"`, `requestedModel: null`; e a decisão que
+  falhava depois de o modelo responder (`o LLM não devolveu JSON`, pergunta faltando) não relatava uso
+  nenhum. Depois: rotulado pelo LLM resolvido (`provider: "openrouter"`,
+  `model: "openrouter/<modelo>"`, `modelUsage[].requestedProvider: "openrouter"`,
+  `requestedModel: "openrouter/<modelo>"`), precificado pela tabela quando o modelo tem preço; a chamada
+  que falhou depois de responder entra em `llmTurns` e nos tokens. No envelope `decisao@1`, `modelo` passa
+  a vir preenchido com o modelo que respondeu (antes, ausente quando o nó não declarava `model`), como
+  `docs/decision-component.md` documenta; `provedor` continua `llm`.
+- **Suspensão para aprovação em `/invoke/stream` (RCHFLW-171).** Antes: dois POSTs com o mesmo
+  `execucaoId` e o mesmo gasto — `/archflow/uso` com `motivo: SUSPENSO` **e** o `/result` `ERROR` ("suspendeu
+  aguardando decisão humana") com `uso` —, e o Core contava duas vezes (a deduplicação é por `execucaoId` +
+  motivo). Depois: só o `ERROR`, com o `uso`. Na rota assíncrona nada muda: sem result, o gasto continua
+  indo como `SUSPENSO`.
+
+### Fixed — VendaX: cancelamento, chave derivada, envelope de decisão e erros do invoke (RCHFLW-165, RCHFLW-168, RCHFLW-169, RCHFLW-190)
+O Core pode ter se adaptado ao comportamento anterior; cada item diz o antes e o depois do que ele recebe.
+- **`CANCELADO` da rota assíncrona (RCHFLW-165).** Antes: `POST /api/agents/invoke` cancelado por
+  `/{idempotencyKey}/cancel` respondia `202 {"status":"cancelling"}` e **nenhum** `POST /result` chegava —
+  nem o `ERROR` + `encerradoPor: CANCELADO`, nem o `uso` que ele levava (log: `Envio do resultado
+  interrompido`). O cancelamento interrompe a thread, e o envio desistia ao ver a flag que ele deixou
+  ligada. Depois: chega **um** `POST /result` com `status: ERROR`, `encerradoPor: {"name": "CANCELADO"}`,
+  `error: "Execução cancelada pelo chamador"`, a mesma `idempotencyKey` e o `uso` até ali, com as
+  reentregas de sempre em 5xx — o que `docs/streaming-invoke.md` documenta. A execução sai do registro
+  **antes** do envio: um segundo `/cancel` durante o envio responde `404` (já respondia depois dele), e um
+  cancelamento que chega depois de um `OK` pronto não derruba mais o envio do `OK`. Outra execução com a
+  mesma chave (por exemplo uma em fluxo) cancelada não transforma mais o `ERROR` desta em `CANCELADO`.
+  Liberar a chave antes do envio abre a admissão de uma **nova** execução dessa chave enquanto o webhook
+  ainda sai (com 5xx, até 1+3+9 s). Antes: uma `/invoke/stream` com essa chave nessa janela levava `409`.
+  Depois: ela é admitida (como já era logo depois do envio), e continua registrada — cancelável por chave
+  e pela conexão, e uma terceira chamada em fluxo com a chave leva `409` —, porque a execução anterior sai
+  do registro pela identidade, e não pela chave. O mesmo vale para os dois caminhos sem result da rota assíncrona
+  (fluxo suspenso → `/uso` `SUSPENSO`; QP sem cotação → `/uso` `SEM_RESULT`): antes, um `/cancel` durante
+  o `POST /uso` respondia `202`, interrompia o HTTP e o relato se perdia (log `Relato de uso ...
+  interrompido`); depois, a chave sai do registro antes do relato, esse `/cancel` responde `404` e o relato
+  chega, com as reentregas de sempre. O conteúdo do relato não muda.
+- **Chave derivada na rota em fluxo (RCHFLW-168).** Antes: sem `idempotencyKey` nem `sourceMessageId`, a
+  chave virava `agent:traceId` (ou `agent:conversationId`), e `/invoke/stream` devolvia por até
+  `archflow.agent.stream.result-ttl` (10 min) **só o `fim` guardado** da chamada anterior com essa chave —
+  a resposta de outra pergunta da mesma conversa, ou de outra conversa com o mesmo `traceId` (o `fim`
+  levava até o `conversationId` da outra). Depois: só se guarda e reenvia o resultado de chave que
+  identifica a mensagem (`idempotencyKey` ou `sourceMessageId`); sem as duas, cada chamada executa. A
+  chave derivada, o `409` de chave em andamento e o cancelamento por ela não mudam, nem a rota assíncrona
+  (que não guarda resultado). O documento era omisso sobre a chave derivada; a regra está agora em
+  `docs/streaming-invoke.md`, "Idempotência".
+- **`valor` do `noul` no envelope `decisao@1` (RCHFLW-169).** Antes: `"urgente": {"tipo": "noul",
+  "valor": 0.9450000000000001, ...}` — a probabilidade, que lida como booleano é `false`. Depois:
+  `"valor": true` (o `answers.<id>.result` do passo, `probability ≥ 0,5`), como `docs/decision-component.md`
+  e `docs/RESPOSTA-2026-10-18-vendax-no-de-decisao.md` §3 documentam. `confianca`, `rota` e os outros tipos
+  (`choice`, `score`, recusa) não mudam. **No motor nada muda:** `answers.<id>.value` e `decision` (quando a
+  `primary` é `noul`) seguem com a probabilidade — é o que `${D.decision}` lê hoje.
+- **Erros do invoke (RCHFLW-190, item 1).** O texto do `politica.timeout_ms` vencido, nas duas rotas: antes
+  `Falha ao executar o fluxo: TimeoutException`; depois `Falha ao executar o fluxo: não terminou em <N> ms
+  (politica.timeout_ms)` — ou `(teto padrão, sem politica.timeout_ms)` quando a política não o declara e
+  vale o teto de 120 s. O prefixo não muda. Na rota em fluxo, o evento `erro` de um documento que não se lê
+  ou que o motor recusa na validação (aresta para passo inexistente, ciclo, nó solto, fluxo sem passos)
+  passa de `recuperavel: true` a `recuperavel: false`; o texto desses erros não muda (já trazia o motivo do
+  motor desde o RCHFLW-123). Falha de passo, de provedor e o `timeout_ms` seguem `recuperavel: true`.
+- **Cancelamento de chave com barra (RCHFLW-190, item 2).** Antes: uma chave como `pedido/123`, aceita
+  pelas duas rotas de invoke, não tinha como ser cancelada — `POST /api/agents/invoke/pedido/123/cancel`
+  dava `404` e `.../pedido%2F123/cancel` um `400` em HTML do Tomcat. Depois: a forma **sem codificar**
+  responde `202` (ou `404` se a chave não está em andamento), em fluxo e assíncrona; a codificada continua
+  `400` do Tomcat (configuração do servidor, não da rota). Nenhuma chave passou a ser recusada na admissão.
+- **Modelos no uso da execução (RCHFLW-190, item 3; não é contrato do Core).** `GET /api/executions/{id}`
+  ganha `usage.models` (os `provedor/modelo` chamados, sem repetir; lista vazia quando nenhum foi
+  registrado), e o cartão "Uso de modelo" do detalhe da execução mostra a linha "Modelos".
+
 ### Added
 - **`APPROVAL` step type** — the producer the human-in-the-loop gate was missing. A flow node of
   this type suspends the run in `AWAITING_APPROVAL` with a proposal, durably, and continues only

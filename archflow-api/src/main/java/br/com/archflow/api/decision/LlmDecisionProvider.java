@@ -72,6 +72,7 @@ public class LlmDecisionProvider implements DecisionProvider {
                 ? Math.max(0, Math.min(1, n.doubleValue())) : DEFAULT_MAX_CONFIDENCE;
         UntrustedContentFence fence = UntrustedContentFence.create();
         ChatResponse resposta;
+        ResolvedLLMConfig resolvido;
         try {
             LLMResolutionRequest.Builder b = LLMResolutionRequest.builder(platformDefault)
                     .tenantId(call.tenantId());
@@ -80,21 +81,51 @@ public class LlmDecisionProvider implements DecisionProvider {
             } else {
                 b.stepPatch(LLMConfigPatch.builder().temperature(0.0).build());
             }
-            ChatModel model = resolver.resolveModel(b.build());
+            LLMResolutionRequest pedido = b.build();
+            resolvido = configDoUso(pedido);
+            ChatModel model = resolver.resolveModel(pedido);
             resposta = model.chat(ChatRequest.builder().messages(
                     SystemMessage.from(sistema(request) + fence.preamble()),
                     UserMessage.from(fence.wrap("estado", texto(request.state())))).build());
         } catch (RuntimeException e) {
             throw new DecisionException("o LLM de decisão falhou: " + e.getMessage(), true, e);
         }
-        String bruto = resposta.aiMessage() == null ? null : resposta.aiMessage().text();
-        Map<String, Answer> answers = parse(bruto, request, teto);
+        // O CONSUMO É MONTADO ANTES DO PARSE, e vai junto quando o parse falha: a chamada já foi
+        // feita e cobrada, e uma resposta sem JSON não a desfaz (RCHFLW-170). Quem cobra é o LLM
+        // resolvido — `openrouter` + o modelo —, que é o par da tabela de preços; o `llm` só serve a
+        // decisão.
         var uso = resposta.tokenUsage() == null ? null : new DecisionResult.Usage(
                 resposta.tokenUsage().inputTokenCount() == null ? null
                         : resposta.tokenUsage().inputTokenCount().longValue(),
                 resposta.tokenUsage().outputTokenCount() == null ? null
-                        : resposta.tokenUsage().outputTokenCount().longValue(), null);
-        return new DecisionResult(answers, call.model(), ID, false, uso);
+                        : resposta.tokenUsage().outputTokenCount().longValue(), null,
+                resolvido == null ? null : resolvido.provider(),
+                resolvido == null ? null : resolvido.model());
+        String bruto = resposta.aiMessage() == null ? null : resposta.aiMessage().text();
+        Map<String, Answer> answers;
+        try {
+            answers = parse(bruto, request, teto);
+        } catch (DecisionException e) {
+            throw e.withUsage(uso);
+        }
+        // `model` é o que de fato respondeu (DecisionResult): o nome que o provedor devolveu, ou o
+        // modelo resolvido. Era o `model` do nó — nulo quando valia o padrão da plataforma, e aí o
+        // envelope do Core saía sem `modelo`.
+        String modeloResolvido = resolvido != null && resolvido.model() != null ? resolvido.model() : call.model();
+        return new DecisionResult(answers, resposta.modelName() != null ? resposta.modelName() : modeloResolvido,
+                ID, false, uso);
+    }
+
+    /**
+     * A configuração que o resolvedor escolheu, para rotular o consumo — a mesma consulta que o laço
+     * MCP faz ({@code McpAgentRunner.configParaUso}). Sem ela o consumo vai sem par cobrado, como antes.
+     */
+    private ResolvedLLMConfig configDoUso(LLMResolutionRequest pedido) {
+        try {
+            return resolver.resolve(pedido);
+        } catch (RuntimeException e) {
+            return null;
+        }
     }
 
     private static String sistema(DecisionRequest request) {
