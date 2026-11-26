@@ -96,6 +96,9 @@ describe('Início com a API fora do ar (RCHFLW-199)', () => {
     expect(ui.queryByTestId('linha-exec-velha')).toBeNull()
     expect(ui.getByTestId('vazio').textContent).toBe('dashboard.hints.unavailable')
     expect(ui.queryByTestId('cta')).toBeNull()
+    // Nem os números da carga anterior nas dicas ("37 publicados", "351 workflows no seu workspace").
+    expect(container.textContent).not.toContain('dashboard.hints.workflows')
+    expect(container.textContent).not.toContain('dashboard.shortcuts.workflowsHint')
   })
 
   it('com a API respondendo, segue como antes: números reais e o vazio com o atalho', async () => {

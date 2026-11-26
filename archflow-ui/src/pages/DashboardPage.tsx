@@ -127,7 +127,7 @@ export default function DashboardPage() {
                     value={unavailable ? '—' : workflows.length}
                     icon={IconTopologyRing}
                     accent="blue"
-                    hint={t('dashboard.hints.workflows', { count: publishedWorkflows })}
+                    hint={unavailable ? t('dashboard.hints.unavailable') : t('dashboard.hints.workflows', { count: publishedWorkflows })}
                 />
                 <StatCard
                     label={t('dashboard.stats.published')}
@@ -197,7 +197,8 @@ export default function DashboardPage() {
                         icon={<IconTopologyRing size={20} />}
                         color="archBlue"
                         title={t('dashboard.shortcuts.workflows')}
-                        description={t('dashboard.shortcuts.workflowsHint', { count: workflows.length })}
+                        description={unavailable ? t('dashboard.hints.unavailable')
+                            : t('dashboard.shortcuts.workflowsHint', { count: workflows.length })}
                         onClick={() => navigate('/workflows')}
                         testId="dashboard-workflows"
                     />
