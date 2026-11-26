@@ -64,6 +64,9 @@ describe('controlExpressions', () => {
     expect(describeFindingForAgent(bare)).toContain('"ticket.urgente" is not a value')
     expect(describeFindingForAgent(unknown)).toContain('{"ioFields": ["pedido"]}')
     expect(describeFindingForAgent(text)).toContain("${classificar} contains 'URGENT'")
+    // RCHFLW-133: o = sozinho diz ao agente a forma certa, não "reference data as ${…}".
+    const [single] = checkCondition("${input} = 'x'", refs)
+    expect(describeFindingForAgent(single)).toContain(`write == ("\${input} == 'x'")`)
   })
 
   it('a chave declarada em ioFields da Entrada vale como raiz; em outro tipo de nó, não', () => {

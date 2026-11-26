@@ -18,27 +18,24 @@ import { StatCard } from '../components/admin/StatCard';
 import EmptyState from '../components/EmptyState';
 import { RunInputModal } from '../components/RunInputModal';
 import { toExecuteBody } from '../lib/runInput';
+import { productionRunDocument } from '../lib/runTarget';
 import { usePermissions } from '../lib/permissions';
+import { notifications } from '@mantine/notifications';
+import { hasRunBlockers, runBlockers, runBlockersMessage } from '../components/FlowCanvas/runReadiness';
+import { workflowDataFromDocument } from '../components/FlowCanvas/workflowSerde';
 
+/*
+ * Dois conceitos que o card misturava (RCHFLW-132), lidos do código e não inventados aqui:
+ *  - o que o Rodar executa: a versão implantada em PRODUCTION ("Publicar" no editor) ou, sem ela, o rascunho
+ *    salvo — a regra do SpringWorkflowCrudController.execute, que a lista devolve em `publishedVersion`;
+ *  - o rótulo do ciclo de vida (`status`: draft/active/archived) que o "Ativar" troca. Nada na execução o lê.
+ * O selo principal é o primeiro, porque é o que muda o resultado do Rodar; o rótulo aparece à parte, e só
+ * quando não é o padrão.
+ */
 const STATUS_COLOR: Record<string, string> = {
     active: 'teal',
-    draft:  'gray',
     paused: 'yellow',
     failed: 'red',
-};
-
-const STATUS_ACCENT: Record<string, Accent> = {
-    active: 'teal',
-    draft:  'slate',
-    paused: 'amber',
-    failed: 'rose',
-};
-
-const STATUS_ICON: Record<string, typeof IconRobot> = {
-    active: IconRobot,
-    draft:  IconFileText,
-    paused: IconPlayerPause,
-    failed: IconAlertTriangle,
 };
 
 export default function WorkflowListPage() {
@@ -63,8 +60,8 @@ export default function WorkflowListPage() {
     }, [search, workflows]);
 
     const counts = useMemo(() => ({
-        active: workflows.filter(w => w.status === 'active').length,
-        draft: workflows.filter(w => w.status === 'draft').length,
+        published: workflows.filter(w => w.publishedVersion != null).length,
+        unpublished: workflows.filter(w => w.publishedVersion == null).length,
         attention: workflows.filter(w => w.status === 'failed' || w.status === 'paused').length,
     }), [workflows]);
     const totalSteps = useMemo(() => workflows.reduce((n, w) => n + (w.stepCount ?? 0), 0), [workflows]);
@@ -77,6 +74,31 @@ export default function WorkflowListPage() {
     };
     // Rodar pede a entrada antes (RunInputModal); sem ela o fluxo rodava sempre sem input.
     const [runId, setRunId] = useState<string | null>(null);
+    /**
+     * Antes do modal, a mesma checagem do Executar do editor (RCHFLW-133): nó sem execução, campo obrigatório
+     * vazio, condição que o motor não avalia. Pelo editor o run era impedido com o aviso nomeando o nó; pela lista
+     * a execução era criada e terminava FAILED. Confere o documento que o Rodar executa — a versão em produção,
+     * ou o rascunho —, não o canvas. Sem conseguir ler esse documento, segue para o modal: o servidor recusa o
+     * mesmo no início da execução, e a tela não afirma o que não sabe.
+     */
+    const handleRunClick = async (id: string) => {
+        const run = await productionRunDocument(id);
+        if (run) {
+            const blockers = runBlockers(workflowDataFromDocument(run.document).steps.map(s => ({
+                id: s.id, label: s.label, componentId: s.componentId, type: s.type, config: s.config,
+            })));
+            if (hasRunBlockers(blockers)) {
+                notifications.show({
+                    title: t('editor.notif.runBlocked'),
+                    message: runBlockersMessage(t, blockers),
+                    color: 'red',
+                    autoClose: false,
+                });
+                return;
+            }
+        }
+        setRunId(id);
+    };
     const handleExecute = async (id: string, inputText: string) => {
         setRunId(null);
         try { const eid = await executeWorkflow(id, toExecuteBody(inputText)); navigate(`/executions/${encodeURIComponent(eid)}`); } catch { /* surfaced via store error state */ }
@@ -139,10 +161,10 @@ export default function WorkflowListPage() {
             <SimpleGrid cols={{ base: 1, xs: 2, md: 4 }} spacing="md">
                 <StatCard label={t('workflows.stats.total')} value={workflows.length} icon={IconTopologyRing}
                           accent="blue" hint={t('workflows.hints.total', { count: totalSteps })} />
-                <StatCard label={t('workflows.stats.active')} value={counts.active} icon={IconBolt}
-                          accent="teal" hint={t('workflows.hints.active')} />
-                <StatCard label={t('workflows.stats.draft')} value={counts.draft} icon={IconFileText}
-                          accent="slate" hint={t('workflows.hints.draft')} />
+                <StatCard label={t('workflows.stats.published')} value={counts.published} icon={IconBolt}
+                          accent="teal" hint={t('workflows.hints.published')} />
+                <StatCard label={t('workflows.stats.unpublished')} value={counts.unpublished} icon={IconFileText}
+                          accent="slate" hint={t('workflows.hints.unpublished')} />
                 <StatCard label={t('workflows.stats.attention')} value={counts.attention} icon={IconAlertTriangle}
                           accent="rose" color={counts.attention > 0 ? 'red' : undefined}
                           hint={t('workflows.hints.attention')} />
@@ -164,6 +186,11 @@ export default function WorkflowListPage() {
                     </Text>
                 )}
             </Group>
+            {workflows.length > 0 && (
+                <Text size="xs" c="dimmed" mt={-8} data-testid="workflows-publish-vs-activate">
+                    {t('workflows.publishVsActivate')}
+                </Text>
+            )}
 
             {filtered.length === 0 && !loading ? (
                 <Paper withBorder>
@@ -198,9 +225,9 @@ export default function WorkflowListPage() {
             ) : (
                 <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="md">
                     {filtered.map(w => {
-                        const color = STATUS_COLOR[w.status] ?? 'gray';
-                        const accent = STATUS_ACCENT[w.status] ?? 'slate';
-                        const StatusIcon = STATUS_ICON[w.status] ?? IconFileText;
+                        const published = w.publishedVersion != null;
+                        const accent: Accent = published ? 'teal' : 'slate';
+                        const RunsIcon = published ? IconRobot : IconFileText;
                         const open = () => navigate(`/editor/${w.id}`);
                         const toggleLabel = w.status === 'active'
                             ? t('workflows.actions.deactivate')
@@ -232,10 +259,28 @@ export default function WorkflowListPage() {
                                             {w.description || t('workflows.noDescription')}
                                         </Text>
                                     </Stack>
-                                    <Badge size="sm" variant="light" color={color} leftSection={<StatusIcon size={11} />}
-                                           style={{ flexShrink: 0 }}>
-                                        {t(`workflows.status.${w.status}`, { defaultValue: w.status.charAt(0).toUpperCase() + w.status.slice(1) })}
-                                    </Badge>
+                                    <Stack gap={4} align="flex-end" style={{ flexShrink: 0 }}>
+                                        <Tooltip multiline w={260} label={published
+                                            ? t('runInput.target.published', { number: w.publishedVersion })
+                                            : t('runInput.target.unpublished')}>
+                                            <Badge size="sm" variant="light" color={published ? 'teal' : 'gray'}
+                                                   leftSection={<RunsIcon size={11} />}
+                                                   data-testid={`workflow-runs-${w.id}`}>
+                                                {published
+                                                    ? t('workflows.runs.published', { number: w.publishedVersion })
+                                                    : t('workflows.runs.draft')}
+                                            </Badge>
+                                        </Tooltip>
+                                        {w.status !== 'draft' && (
+                                            <Tooltip multiline w={260} label={t('workflows.lifecycleHint')}>
+                                                <Badge size="xs" variant="outline"
+                                                       color={STATUS_COLOR[w.status] ?? 'gray'}
+                                                       data-testid={`workflow-lifecycle-${w.id}`}>
+                                                    {t(`workflows.status.${w.status}`, { defaultValue: w.status.charAt(0).toUpperCase() + w.status.slice(1) })}
+                                                </Badge>
+                                            </Tooltip>
+                                        )}
+                                    </Stack>
                                 </Group>
 
                                 <Group gap="lg" wrap="wrap" mb="md" mt="auto">
@@ -279,7 +324,7 @@ export default function WorkflowListPage() {
                                             </Tooltip>
                                         )}
                                         {canUpdate && (
-                                            <Tooltip label={toggleLabel}>
+                                            <Tooltip multiline w={260} label={`${toggleLabel} — ${t('workflows.lifecycleHint')}`}>
                                                 <ActionIcon
                                                     variant="subtle"
                                                     color={w.status === 'active' ? 'yellow' : 'teal'}
@@ -305,7 +350,7 @@ export default function WorkflowListPage() {
                                         color="violet"
                                         leftSection={<IconPlayerPlay size={14} />}
                                         aria-label={t('workflows.actions.execute')}
-                                        onClick={() => setRunId(w.id)}
+                                        onClick={() => void handleRunClick(w.id)}
                                     >
                                         {t('workflows.actions.run')}
                                     </Button>}

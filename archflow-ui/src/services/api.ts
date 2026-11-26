@@ -171,7 +171,13 @@ export interface WorkflowSummary {
     name: string;
     description: string;
     version: string;
+    /** Rótulo do ciclo de vida (draft/active/archived) que o "Ativar" troca; não muda o que roda. */
     status: string;
+    /**
+     * O número da versão implantada em PRODUCTION — a que o Rodar da lista executa —, ou {@code null} quando ele
+     * executa o rascunho salvo (RCHFLW-132). Ausente num servidor anterior a esse campo.
+     */
+    publishedVersion?: number | null;
     updatedAt: string;
     stepCount: number;
 }
@@ -229,6 +235,8 @@ export const workflowApi = {
             `/workflows/${id}/execute`, input),
     versions: (id: string) =>
         api.get<WorkflowVersion[]>(`/workflows/${id}/versions`),
+    version: (id: string, versionId: string) =>
+        api.get<WorkflowVersion>(`/workflows/${id}/versions/${versionId}`),
     publish: (id: string, comment?: string, environment = 'PRODUCTION') =>
         api.post<{ version: WorkflowVersion; deployment: WorkflowDeployment }>(
             `/workflows/${id}/publish`, { comment, environment }),

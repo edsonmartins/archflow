@@ -85,6 +85,32 @@ class VersaoQueRodouTest {
                 .doesNotContainKey("workflowVersionNumber");
     }
 
+    /**
+     * RCHFLW-132: o card mostrava o rótulo do "Ativar" (draft/active) como se fosse o que roda — "Rascunho" num
+     * fluxo com a v1 em produção, "Ativo" num que rodava o rascunho. A lista agora diz o número da versão que o
+     * Rodar executa, pela mesma regra do /execute; o rótulo continua o que era.
+     */
+    @Test
+    @DisplayName("a lista diz a versão que o Rodar executa, independente do rótulo do Ativar")
+    void listaDizAVersaoQueORodarExecuta() {
+        assertThat(resumo()).containsEntry("publishedVersion", null).containsEntry("status", "draft");
+
+        crud.publish(workflowId, Map.of("comment", "primeira"));
+        crud.publish(workflowId, Map.of("comment", "segunda"));
+        assertThat(resumo()).containsEntry("publishedVersion", 2).containsEntry("status", "draft");
+
+        crud.setStatus(workflowId, Map.of("status", "active"));
+        String primeira = store.workflowVersions(DefaultTenant.ID, workflowId).stream()
+                .filter(v -> v.number() == 1).findFirst().orElseThrow().id();
+        crud.deploy(workflowId, "PRODUCTION", Map.of("versionId", primeira));
+        assertThat(resumo()).containsEntry("publishedVersion", 1).containsEntry("status", "active");
+        assertThat(crud.execute(workflowId, Map.of()).getBody()).containsEntry("workflowVersionNumber", 1);
+    }
+
+    private Map<String, Object> resumo() {
+        return crud.list().stream().filter(w -> workflowId.equals(w.get("id"))).findFirst().orElseThrow();
+    }
+
     @Test
     @DisplayName("Executar do editor (AG-UI) grava o rascunho mesmo com versão em produção")
     void execucaoDoEditorGravaORascunho() {

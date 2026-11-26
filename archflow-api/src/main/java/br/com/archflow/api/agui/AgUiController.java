@@ -4,6 +4,7 @@ import br.com.archflow.agent.streaming.ArchflowEvent;
 import br.com.archflow.agent.streaming.EventStreamRegistry;
 import br.com.archflow.api.agent.mcp.McpAgentHost;
 import br.com.archflow.api.config.TenantContext;
+import br.com.archflow.api.flow.ErroDoProvedorLegivel;
 import br.com.archflow.api.flow.RunInputSeeding;
 import br.com.archflow.api.flow.WorkflowDeserializer;
 import br.com.archflow.api.web.workflow.WorkflowRuntimeStore;
@@ -208,8 +209,12 @@ public class AgUiController {
                                         "executionPaths", state.getExecutionPaths()))));
                     }
                 }
+                // A mensagem vai para a tela do editor: a do provedor de LLM sai legível, sem o corpo HTTP nem
+                // o user_id da conta da plataforma (RCHFLW-130). O registro passa pela mesma regra no
+                // completeExecution; o texto original fica no log do StepRecordingListener.
                 AgUiEvent terminal = err != null
-                        ? AgUiEvent.of("RUN_ERROR", fields("runId", runId, "message", errorOf(err)))
+                        ? AgUiEvent.of("RUN_ERROR", fields("runId", runId,
+                                "message", ErroDoProvedorLegivel.paraUsuario(errorOf(err))))
                         : AgUiEvent.of("RUN_FINISHED", fields("threadId", threadId, "runId", runId,
                                 "result", Map.of("status", statusOf(result, null))));
                 conexao.escrever(terminal);

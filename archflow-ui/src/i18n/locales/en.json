@@ -267,18 +267,24 @@
     "workflows": {
         "stats": {
             "total": "Workflows",
-            "active": "Active",
-            "draft": "Drafts",
+            "published": "Published",
+            "unpublished": "Draft only",
             "attention": "Need attention"
         },
         "hints": {
             "total_one": "{{count}} step in total",
             "total_other": "{{count}} steps in total",
-            "active": "Ready to run",
-            "draft": "Still being designed",
+            "published": "Run executes the published version",
+            "unpublished": "Run executes the saved draft",
             "attention": "Paused or failed"
         },
         "showing": "{{shown}} of {{total}} workflows",
+        "publishVsActivate": "Publish (in the editor) pins the version that Run executes; Activate only marks the flow as active in this list and does not change what runs.",
+        "lifecycleHint": "Activate label: organizes the list and does not change what Run executes — publish in the editor for that.",
+        "runs": {
+            "published": "Published v{{number}}",
+            "draft": "Draft"
+        },
         "clearSearch": "Clear search",
         "noDescription": "No description",
         "card": {
@@ -319,7 +325,7 @@
         "actions": {
             "run": "Run",
             "activate": "Activate",
-            "deactivate": "Back to draft",
+            "deactivate": "Deactivate",
             "execute": "Execute",
             "edit": "Edit",
             "delete": "Delete"
@@ -430,6 +436,7 @@
                 "UNKNOWN_STEP": "«{{fragment}}» is not the output of any step in the flow — use the node id, not its label; if «{{root}}» is a key of the run input JSON, declare it in «Expected input fields» of the Input node",
                 "TEXT_OUTPUT_FIELD": "«{{fragment}}» reads a field of an LLM Chat output, which is only the reply text — compare the text (contains) or classify with a Decision node",
                 "NO_REFERENCE": "«{{fragment}}» reads no ${…}: the value never changes and neither does the branch",
+                "SINGLE_EQUALS": "«{{fragment}}» uses a single =, which does not compare — to compare, use == («{{suggestion}}»)",
                 "MALFORMED_TEMPLATE": "«{{fragment}}» is not a reference — write ${path}, with the brace closed and a path inside; outside ${} the text goes to the model as is"
             },
             "runBlockedInvalidDecision": "Decision the engine refuses: {{fields}}.",
@@ -1930,15 +1937,15 @@
         "recentExecutionsHint": "The last runs across all workflows",
         "quickActions": "Quick actions",
         "hints": {
-            "workflows": "{{count}} active",
-            "active": "Running in production",
+            "workflows": "{{count}} published",
+            "published": "With a version published to production",
             "failedRuns": "In the last {{count}} runs",
             "failedNone": "No failures — all good",
             "pendingApprovals": "Waiting for a human decision"
         },
         "stats": {
             "workflows": "Workflows",
-            "active": "Active",
+            "published": "Published",
             "failedRuns": "Recent failures",
             "pendingApprovals": "Pending approvals"
         },

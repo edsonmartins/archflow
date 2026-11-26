@@ -11,6 +11,11 @@ import java.util.stream.Collectors;
 
 /**
  * Implementação padrão do validador de fluxos.
+ *
+ * <p>As mensagens são em português porque chegam à tela: a execução recusada guarda a mensagem da
+ * {@link FlowValidationException}, e o detalhe a mostrava em inglês no meio das recusas em português dos
+ * nós ("Target step does not exist: …", RCHFLW-133). Quem decide por programa lê o {@code code} de cada
+ * {@link ValidationError}, que não mudou.</p>
  */
 public class DefaultFlowValidator implements FlowValidator {
 
@@ -53,7 +58,7 @@ public class DefaultFlowValidator implements FlowValidator {
         if (step.getId() == null || step.getId().trim().isEmpty()) {
             errors.add(new ValidationError(
                 "step.id",
-                "Step ID is required",
+                "o passo não tem id",
                 "STEP_ID_REQUIRED",
                 Map.of("step", step)
             ));
@@ -63,7 +68,7 @@ public class DefaultFlowValidator implements FlowValidator {
         if (step.getType() == null) {
             errors.add(new ValidationError(
                 "step.type",
-                "Step type is required",
+                "o passo '" + step.getId() + "' não tem tipo",
                 "STEP_TYPE_REQUIRED",
                 Map.of("step", step)
             ));
@@ -86,7 +91,7 @@ public class DefaultFlowValidator implements FlowValidator {
         if (flow.getId() == null || flow.getId().trim().isEmpty()) {
             errors.add(new ValidationError(
                 "flow.id",
-                "Flow ID is required",
+                "o fluxo não tem id",
                 "FLOW_ID_REQUIRED",
                 Map.of()
             ));
@@ -95,7 +100,7 @@ public class DefaultFlowValidator implements FlowValidator {
         if (flow.getSteps().isEmpty()) {
             errors.add(new ValidationError(
                 "flow.steps",
-                "Flow must have at least one step",
+                "o fluxo precisa de ao menos um passo",
                 "FLOW_EMPTY",
                 Map.of()
             ));
@@ -113,7 +118,7 @@ public class DefaultFlowValidator implements FlowValidator {
                 if (!stepIds.contains(connection.getSourceId())) {
                     errors.add(new ValidationError(
                         "connection.source",
-                        "Source step does not exist: " + connection.getSourceId(),
+                        "o passo de origem não existe: " + connection.getSourceId(),
                         "INVALID_CONNECTION_SOURCE",
                         Map.of("connection", connection)
                     ));
@@ -122,7 +127,8 @@ public class DefaultFlowValidator implements FlowValidator {
                 if (!stepIds.contains(connection.getTargetId())) {
                     errors.add(new ValidationError(
                         "connection.target",
-                        "Target step does not exist: " + connection.getTargetId(),
+                        "a conexão do passo '" + step.getId() + "' aponta para um passo que não existe: "
+                            + connection.getTargetId(),
                         "INVALID_CONNECTION_TARGET",
                         Map.of("connection", connection)
                     ));
@@ -145,7 +151,7 @@ public class DefaultFlowValidator implements FlowValidator {
             if (hasCycle(step, visited, currentPath, flow)) {
                 errors.add(new ValidationError(
                     "flow.cycle",
-                    "Flow contains cycles",
+                    "o fluxo tem um ciclo entre os passos",
                     "FLOW_CYCLE_DETECTED",
                     Map.of("startStep", step.getId())
                 ));
@@ -208,7 +214,7 @@ public class DefaultFlowValidator implements FlowValidator {
             default:
                 errors.add(new ValidationError(
                     "step.type",
-                    "Unsupported step type: " + step.getType(),
+                    "tipo de passo não suportado: " + step.getType(),
                     "UNSUPPORTED_STEP_TYPE",
                     Map.of("step", step)
                 ));
@@ -238,7 +244,7 @@ public class DefaultFlowValidator implements FlowValidator {
             if (connection.getTargetId() == null || connection.getTargetId().isBlank()) {
                 errors.add(new ValidationError(
                     "connection.target",
-                    "Connection of step '" + step.getId() + "' has no target",
+                    "a conexão do passo '" + step.getId() + "' não tem destino",
                     "CONNECTION_TARGET_REQUIRED",
                     Map.of("step", step.getId())
                 ));
@@ -250,8 +256,8 @@ public class DefaultFlowValidator implements FlowValidator {
             if (sourceId != null && !sourceId.isBlank() && !sourceId.equals(step.getId())) {
                 errors.add(new ValidationError(
                     "connection.source",
-                    "Connection stored on step '" + step.getId()
-                        + "' declares a different source: '" + sourceId + "'",
+                    "a conexão gravada no passo '" + step.getId()
+                        + "' declara outra origem: '" + sourceId + "'",
                     "CONNECTION_SOURCE_MISMATCH",
                     Map.of("step", step.getId(), "sourceId", sourceId)
                 ));
@@ -263,7 +269,7 @@ public class DefaultFlowValidator implements FlowValidator {
         if (!conditionEvaluator.isWellFormed(condition)) {
             errors.add(new ValidationError(
                 "connection.condition",
-                "Malformed transition condition: \"" + condition + "\"",
+                "condição de transição malformada: «" + condition + "»",
                 "CONNECTION_CONDITION_MALFORMED",
                 Map.of("condition", condition,
                        "connection", connection.getSourceId() + "->" + connection.getTargetId())

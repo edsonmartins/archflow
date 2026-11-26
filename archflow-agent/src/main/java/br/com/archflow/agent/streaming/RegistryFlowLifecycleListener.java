@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
 
 /**
@@ -60,10 +61,32 @@ public class RegistryFlowLifecycleListener implements FlowLifecycleListener {
 
     private record StepKey(String flowId, String stepId) {}
 
+    /** Aplicado ao texto de erro dos eventos de falha; ver o construtor de três argumentos. */
+    private final UnaryOperator<String> mensagemDeErro;
+
     public RegistryFlowLifecycleListener(EventStreamRegistry streamRegistry,
                                          RunningFlowsRegistry runningFlowsRegistry) {
+        this(streamRegistry, runningFlowsRegistry, UnaryOperator.identity());
+    }
+
+    /**
+     * Com o texto de erro reescrito antes de sair no stream (RCHFLW-130).
+     *
+     * <p>Os eventos de falha chegam a telas de usuário do tenant — o painel Executar do editor (via
+     * AG-UI) e os eventos ao vivo —, e a mensagem de um passo que chamou um provedor de LLM é o corpo
+     * HTTP cru, com o {@code user_id} da conta da plataforma. Quem sabe tornar essa frase legível é o
+     * servidor ({@code archflow-api}), não este módulo; por isso entra como função, e o construtor de
+     * dois argumentos mantém o texto como veio.</p>
+     *
+     * @param mensagemDeErro aplicada ao erro de {@code step_failed}/{@code flow_failed}; recebe e pode
+     *                       devolver {@code null}
+     */
+    public RegistryFlowLifecycleListener(EventStreamRegistry streamRegistry,
+                                         RunningFlowsRegistry runningFlowsRegistry,
+                                         UnaryOperator<String> mensagemDeErro) {
         this.streamRegistry = streamRegistry;
         this.runningFlowsRegistry = runningFlowsRegistry;
+        this.mensagemDeErro = Objects.requireNonNull(mensagemDeErro, "mensagemDeErro");
     }
 
     @Override
@@ -95,7 +118,7 @@ public class RegistryFlowLifecycleListener implements FlowLifecycleListener {
             // registrado no resultado; os demais desfechos levam o status no flow_completed.
             ExecutionStatus status = result != null ? result.getStatus() : null;
             ArchflowEvent event = status == ExecutionStatus.FAILED
-                    ? FlowEvent.flowFailed(flowId, tenantId, failureMessage(result),
+                    ? FlowEvent.flowFailed(flowId, tenantId, mensagemDeErro.apply(failureMessage(result)),
                             failureType(result), durationMs, flowId)
                     : FlowEvent.flowCompleted(flowId, tenantId,
                             status != null ? status.name() : null, durationMs, flowId);
@@ -114,7 +137,7 @@ public class RegistryFlowLifecycleListener implements FlowLifecycleListener {
             runningFlowsRegistry.flowEnded(flowId);
             forgetStartedIndexes(flowId);
 
-            String msg = error != null ? error.getMessage() : "unknown";
+            String msg = error != null ? mensagemDeErro.apply(error.getMessage()) : "unknown";
             String type = error != null ? error.getClass().getSimpleName() : "unknown";
             ArchflowEvent event = FlowEvent.flowFailed(flowId, tenantId, msg, type, durationMs, flowId);
             publish(tenantId, flowId, event);
@@ -164,7 +187,7 @@ public class RegistryFlowLifecycleListener implements FlowLifecycleListener {
         String flowId = flow.getId();
         try {
             int stepIndex = finishedStepIndex(flow, step);
-            String msg = error != null ? error.getMessage() : "unknown";
+            String msg = error != null ? mensagemDeErro.apply(error.getMessage()) : "unknown";
             String type = error != null ? error.getClass().getSimpleName() : "unknown";
             ArchflowEvent event = FlowEvent.stepFailed(flowId, step.getId(),
                     stepIndex, msg, type, durationMs, flowId);

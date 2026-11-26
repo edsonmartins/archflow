@@ -129,6 +129,22 @@ class DefaultFlowValidatorTest {
         }
 
         @Test
+        @DisplayName("destino inexistente: a frase que a tela mostra é em português e nomeia o passo (RCHFLW-133)")
+        void destinoInexistenteEmPortugues() {
+            var step = createStep("step-1", StepType.AGENT, List.of(
+                    createConnection("step-1", "node-inexistente", false)
+            ));
+            var flow = mock(Flow.class);
+            when(flow.getId()).thenReturn("flow-1");
+            when(flow.getSteps()).thenReturn(List.of(step));
+
+            assertThatThrownBy(() -> validator.validate(flow))
+                    .isInstanceOf(FlowValidationException.class)
+                    .hasMessage("O fluxo não passou na validação: 1 erro encontrado: a conexão do passo 'step-1' "
+                            + "aponta para um passo que não existe: node-inexistente");
+        }
+
+        @Test
         @DisplayName("should detect cycles")
         void shouldDetectCycles() {
             var step1 = createStep("step-1", StepType.AGENT, List.of(

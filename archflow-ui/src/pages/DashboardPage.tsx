@@ -52,7 +52,9 @@ export default function DashboardPage() {
             .catch(() => setPendingApprovals(null));
     }, [impersonating, currentRole]);
 
-    const activeWorkflows = workflows.filter((w) => w.status === 'active').length;
+    // Os que o Rodar executa pela versão publicada em produção (RCHFLW-132). Antes contava o rótulo do "Ativar",
+    // que nada na execução lê, sob a dica "Rodando em produção": um fluxo com a v1 em produção contava 0.
+    const publishedWorkflows = workflows.filter((w) => w.publishedVersion != null).length;
     const failedRuns = executions.filter((e) => e.status === 'FAILED').length;
     const recent = executions.slice(0, 5);
 
@@ -115,14 +117,14 @@ export default function DashboardPage() {
                     value={workflows.length}
                     icon={IconTopologyRing}
                     accent="blue"
-                    hint={t('dashboard.hints.workflows', { count: activeWorkflows })}
+                    hint={t('dashboard.hints.workflows', { count: publishedWorkflows })}
                 />
                 <StatCard
-                    label={t('dashboard.stats.active')}
-                    value={activeWorkflows}
+                    label={t('dashboard.stats.published')}
+                    value={publishedWorkflows}
                     icon={IconBolt}
                     accent="teal"
-                    hint={t('dashboard.hints.active')}
+                    hint={t('dashboard.hints.published')}
                 />
                 <StatCard
                     label={t('dashboard.stats.failedRuns')}

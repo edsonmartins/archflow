@@ -267,18 +267,24 @@
     "workflows": {
         "stats": {
             "total": "Workflows",
-            "active": "Ativos",
-            "draft": "Rascunhos",
+            "published": "Publicados",
+            "unpublished": "Só rascunho",
             "attention": "Pedem atenção"
         },
         "hints": {
             "total_one": "{{count}} etapa no total",
             "total_other": "{{count}} etapas no total",
-            "active": "Prontos para rodar",
-            "draft": "Ainda em desenho",
+            "published": "O Rodar executa a versão publicada",
+            "unpublished": "O Rodar executa o rascunho salvo",
             "attention": "Pausados ou com falha"
         },
         "showing": "{{shown}} de {{total}} workflows",
+        "publishVsActivate": "Publicar (no editor) fixa a versão que o Rodar executa; Ativar só marca o fluxo como ativo nesta lista e não muda o que roda.",
+        "lifecycleHint": "Rótulo do Ativar: organiza a lista e não muda o que o Rodar executa — para isso, publique no editor.",
+        "runs": {
+            "published": "Publicada v{{number}}",
+            "draft": "Rascunho"
+        },
         "clearSearch": "Limpar busca",
         "noDescription": "Sem descrição",
         "card": {
@@ -319,7 +325,7 @@
         "actions": {
             "run": "Rodar",
             "activate": "Ativar",
-            "deactivate": "Voltar para rascunho",
+            "deactivate": "Desativar",
             "execute": "Executar",
             "edit": "Editar",
             "delete": "Excluir"
@@ -430,6 +436,7 @@
                 "UNKNOWN_STEP": "«{{fragment}}» não é a saída de nenhum passo do fluxo — use o id do nó, não o rótulo; se «{{root}}» é uma chave do JSON de entrada, declare-a em «Campos de entrada esperados» do nó Entrada",
                 "TEXT_OUTPUT_FIELD": "«{{fragment}}» lê um campo da saída de um LLM Chat, que é só o texto da resposta — compare o texto (contains) ou classifique com um nó Decisão",
                 "NO_REFERENCE": "«{{fragment}}» não lê nenhum ${…}: o valor é sempre o mesmo e o ramo nunca muda",
+                "SINGLE_EQUALS": "«{{fragment}}» usa = sozinho, que não compara — para comparar, use == («{{suggestion}}»)",
                 "MALFORMED_TEMPLATE": "«{{fragment}}» não é uma referência — escreva ${caminho}, com a chave fechada e um caminho dentro; fora de ${} o texto vai ao modelo como está"
             },
             "runBlockedInvalidDecision": "Decisão que o motor recusa: {{fields}}.",
@@ -1930,15 +1937,15 @@
         "recentExecutionsHint": "As últimas execuções de todos os fluxos",
         "quickActions": "Ações rápidas",
         "hints": {
-            "workflows": "{{count}} ativos",
-            "active": "Rodando em produção",
+            "workflows": "{{count}} publicados",
+            "published": "Com versão publicada em produção",
             "failedRuns": "Nas últimas {{count}} execuções",
             "failedNone": "Nenhuma falha — tudo certo",
             "pendingApprovals": "Aguardando decisão humana"
         },
         "stats": {
             "workflows": "Workflows",
-            "active": "Ativos",
+            "published": "Publicados",
             "failedRuns": "Falhas recentes",
             "pendingApprovals": "Aprovações pendentes"
         },

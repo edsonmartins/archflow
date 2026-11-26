@@ -80,6 +80,25 @@ describe('runReadiness', () => {
       + '"Lê nota" → editor.properties.fields.expression: editor.notif.expressionProblem.UNKNOWN_STEP[n.text|n]]')
   })
 
+  // RCHFLW-133: com `${input} = 'x'` a mensagem mandava escrever ${…} a quem já tinha escrito e não dizia "use ==".
+  it('= sozinho na condição: o aviso sugere == com a expressão corrigida, nos dois idiomas', () => {
+    const blockers = runBlockers([
+      { id: 'c', label: 'Confere', componentId: 'condition', type: 'condition',
+        config: { conditionExpression: "${input} = 'x'" } },
+    ])
+    expect(blockers.invalidExpressions).toEqual([{ id: 'c', label: 'Confere',
+      labelKey: 'editor.properties.fields.expression', problem: 'SINGLE_EQUALS', fragment: "${input} = 'x'" }])
+
+    const real = (locale: any) => ((k: string, o?: Record<string, string>) => {
+      const raw = k.split('.').reduce((acc: any, part) => acc?.[part], locale) as string
+      return raw.replace(/\{\{(\w+)\}\}/g, (_: string, name: string) => o?.[name] ?? '')
+    }) as unknown as TFunction
+    const pt = runBlockersMessage(real(ptBR), blockers)
+    expect(pt).toContain("«${input} = 'x'» usa = sozinho, que não compara — para comparar, use == («${input} == 'x'»)")
+    expect(pt).not.toContain('não é um valor')
+    expect(runBlockersMessage(real(en), blockers)).toContain("to compare, use == («${input} == 'x'»)")
+  })
+
   it('RCHFLW-120: a Mensagem do usuário do LLM Chat que não resolve impede o run, nomeando nó e campo', () => {
     const triagem = (userMessage: unknown, type = 'llm-chat') => runBlockers([
       { id: 'receber', label: 'Receber pedido', componentId: 'input', type: 'input' },
@@ -111,7 +130,7 @@ describe('runReadiness', () => {
   it('cada motivo de expressão recusada tem texto no pt-BR', () => {
     const problems = (ptBR as any).editor.notif.expressionProblem
     for (const code of ['MALFORMED', 'BARE_OPERAND', 'UNKNOWN_STEP', 'TEXT_OUTPUT_FIELD', 'NO_REFERENCE',
-      'MALFORMED_TEMPLATE']) {
+      'SINGLE_EQUALS', 'MALFORMED_TEMPLATE']) {
       expect(problems[code]).toContain('{{fragment}}')
       expect((en as any).editor.notif.expressionProblem[code]).toContain('{{fragment}}')
     }
