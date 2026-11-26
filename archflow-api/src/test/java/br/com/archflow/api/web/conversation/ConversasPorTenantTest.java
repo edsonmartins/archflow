@@ -284,7 +284,7 @@ class ConversasPorTenantTest {
                 .isInstanceOf(ConversationController.NotFoundException.class);
         assertThat(comoTenant("tenant-a", () -> controller.getMessages("conv-form")))
                 .extracting(SpringConversationController.MessageDto::content)
-                .anyMatch(content -> content.startsWith("Form submitted:"));
+                .anyMatch(content -> content.startsWith("Formulário enviado:"));
     }
 
     @Test

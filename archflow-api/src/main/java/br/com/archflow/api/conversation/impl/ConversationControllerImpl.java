@@ -74,7 +74,7 @@ public class ConversationControllerImpl implements ConversationController {
 
         SuspendedConversation resumed = conversationService.resume(request.resumeToken(), request.formData())
                 .orElseThrow(() -> new NotFoundException(
-                        "Conversation not found or expired for token: " + request.resumeToken()));
+                        "Conversa não encontrada ou expirada para o token: " + request.resumeToken()));
 
         List<ConversationMessage> messages = conversationService.getMessages(resumed.getConversationId());
 
@@ -86,7 +86,7 @@ public class ConversationControllerImpl implements ConversationController {
         log.debug("Getting conversation: {}", conversationId);
 
         SuspendedConversation conversation = conversationService.getById(conversationId)
-                .orElseThrow(() -> new NotFoundException("Conversation not found: " + conversationId));
+                .orElseThrow(() -> new NotFoundException("Conversa não encontrada: " + conversationId));
 
         List<ConversationMessage> messages = conversationService.getMessages(conversationId);
 
@@ -123,7 +123,7 @@ public class ConversationControllerImpl implements ConversationController {
 
         boolean cancelled = conversationService.cancel(conversationId);
         if (!cancelled) {
-            throw new NotFoundException("Conversation not found: " + conversationId);
+            throw new NotFoundException("Conversa não encontrada: " + conversationId);
         }
     }
 

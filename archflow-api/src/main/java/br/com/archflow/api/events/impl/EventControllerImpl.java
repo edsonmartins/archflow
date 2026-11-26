@@ -60,6 +60,10 @@ public class EventControllerImpl implements EventController {
         if (request.metadata() != null && !request.metadata().isEmpty()) {
             payload.put("metadata", request.metadata());
         }
+        // A operação escolhida no chat — o executor a lê do payload, como no invoke.
+        if (request.operation() != null) {
+            payload.put("operation", request.operation());
+        }
 
         InvocationRequest invocation = new InvocationRequest(
                 requestId, request.tenantId(), request.agentId(), payload,

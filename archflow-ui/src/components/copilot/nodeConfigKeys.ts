@@ -142,7 +142,8 @@ export const NODE_CONFIG_KEYS: Readonly<Record<string, ConfigKeys>> = {
   function: TOOL,
   custom: TOOL,
   // knowledgeBaseId: a Base de conhecimento (RCHFLW-55) — só nos tipos que o motor lê com ela.
-  'vector-search': { ...VECTOR, knowledgeBaseId: 'string' },
+  // minScore: o score mínimo da busca na base, que o painel agora mostra (RCHFLW-194).
+  'vector-search': { ...VECTOR, knowledgeBaseId: 'string', minScore: 'number' },
   'vector-store': VECTOR,
   embedding: { embeddingProvider: 'string', embeddingModel: 'string', embeddingDimensions: 'number' },
   rag: {

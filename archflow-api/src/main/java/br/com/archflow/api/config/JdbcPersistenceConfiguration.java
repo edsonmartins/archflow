@@ -191,6 +191,36 @@ public class JdbcPersistenceConfiguration {
     }
 
     /**
+     * Registro dos gatilhos agendados, durável (migration V6_15): o par do Quartz em {@code JobStoreTX}. Antes
+     * só os jobs sobreviviam ao restart — a tela listava nada e eles seguiam disparando sem achar o gatilho
+     * (RCHFLW-187).
+     */
+    @Bean
+    public br.com.archflow.api.triggers.store.ScheduledTriggerStore scheduledTriggerStore(DataSource dataSource) {
+        log.info("JDBC persistence ativo: ScheduledTriggerStore durável (gatilhos agendados sobrevivem a restart)");
+        return new br.com.archflow.api.triggers.store.JdbcScheduledTriggerStore(dataSource);
+    }
+
+    /**
+     * Na subida, depois das migrations, remove os jobs do Quartz sem gatilho ativo no registro — os que o
+     * registro em memória deixou órfãos no banco antes da V6_15, e que a tela não tinha como apagar.
+     */
+    @Bean
+    public org.springframework.boot.ApplicationRunner scheduledTriggerReconciler(
+            org.springframework.beans.factory.ObjectProvider<br.com.archflow.api.triggers.ScheduledTriggerController>
+                    triggers) {
+        return args -> {
+            if (triggers.getIfAvailable()
+                    instanceof br.com.archflow.api.triggers.impl.ScheduledTriggerControllerImpl impl) {
+                int removidos = impl.reconcileSchedules();
+                if (removidos > 0) {
+                    log.warn("Gatilhos agendados: {} job(s) do Quartz sem gatilho no registro removido(s)", removidos);
+                }
+            }
+        };
+    }
+
+    /**
      * Laços de tool-calling suspensos, duráveis (migration V6_5).
      *
      * <p>O default em memória de {@code ArchflowBeanConfiguration} serve dev; em

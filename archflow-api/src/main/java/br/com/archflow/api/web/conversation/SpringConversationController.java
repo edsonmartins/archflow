@@ -8,6 +8,7 @@ import br.com.archflow.api.conversation.dto.ConversationResponse;
 import br.com.archflow.api.conversation.dto.ResumeRequest;
 import br.com.archflow.api.conversation.dto.SuspendRequest;
 import br.com.archflow.api.web.approval.SpringApprovalController;
+import br.com.archflow.conversation.domain.Conversation;
 import br.com.archflow.conversation.form.FormData;
 import br.com.archflow.conversation.form.FormRegistry;
 import br.com.archflow.conversation.message.ConversationMessage;
@@ -57,6 +58,15 @@ public class SpringConversationController {
     /** Chave do tenant dono nos metadados da mensagem que abre a conversa e no contexto da suspensa. */
     public static final String TENANT_METADATA = "tenantId";
 
+    /**
+     * Tamanho máximo do id escolhido pelo cliente: o das colunas {@code conversations.id},
+     * {@code conversation_messages.conversation_id} e {@code suspended_conversations.conversation_id}
+     * (VARCHAR(64), migrations V2_1/V2_2). Conferido aqui, em memória também: com JDBC um id maior falhava
+     * no banco, na primeira mensagem, como 500; em dev era aceito — o mesmo pedido não pode valer num
+     * ambiente e quebrar no outro.
+     */
+    static final int MAX_CONVERSATION_ID_LENGTH = 64;
+
     private final ConversationController delegate;
     private final ConversationService conversationService;
     private final br.com.archflow.api.conversation.ConversationReplyService replyService;
@@ -103,7 +113,7 @@ public class SpringConversationController {
         Instant sinceInstant = parseInstant(since);
         String tenantId = TenantContext.currentTenantId();
 
-        List<ConversationDto> filtered = conversationService.listConversationIds().stream()
+        List<ConversationDto> filtered = conversationService.listConversationIds(tenantId).stream()
                 .map(this::toConversation)
                 .flatMap(Optional::stream)
                 .filter(conversation -> tenantId.equals(conversation.tenantId()))
@@ -150,6 +160,7 @@ public class SpringConversationController {
             if (existed && !belongsToCaller(id)) {
                 throw notFound(id);
             }
+            requireNotCancelled(id);
             resumeService.validateTarget(tenantId, request.workflowId(), request.executionId());
             if (!existed) {
                 conversationService.addMessage(
@@ -181,7 +192,7 @@ public class SpringConversationController {
         Optional<SuspendedConversation> state = conversationService.getByToken(request.resumeToken());
         if (state.isPresent() && !belongsToCaller(state.get().getConversationId())) {
             throw new ConversationController.NotFoundException(
-                    "Conversation not found or expired for token: " + request.resumeToken());
+                    "Conversa não encontrada ou expirada para o token: " + request.resumeToken());
         }
         if (authEnabled && state.isPresent() && state.get().getWorkflowExecutionId() != null
                 && !state.get().getWorkflowExecutionId().isBlank()) {
@@ -256,7 +267,12 @@ public class SpringConversationController {
 
     /**
      * Enviar para a conversa de outro tenant é 404. Enviar para um id ainda sem conversa a cria — como
-     * antes —, e então a primeira mensagem leva o tenant de quem enviou, que passa a ser o dono.
+     * antes —, e então a primeira mensagem leva o tenant de quem enviou, que passa a ser o dono. Uma
+     * conversa cancelada não recebe novos turnos (409): antes ela aceitava a mensagem e o agente
+     * respondia (RCHFLW-194).
+     *
+     * <p>A mensagem aceita vai ao stream da conversa ({@code chat/message}, papel {@code user}, com o
+     * id gravado): um segundo visualizador da mesma conversa só recebia as respostas do assistente.</p>
      */
     @PostMapping("/{id}/messages")
     public SendMessageResponse sendMessage(@PathVariable String id,
@@ -267,21 +283,49 @@ public class SpringConversationController {
             if (!belongsToCaller(id)) {
                 throw notFound(id);
             }
+            requireNotCancelled(id);
             message = ConversationMessage.user(id, request.content());
         } else {
             message = openingMessage(id, ConversationMessage.Role.USER, request.content());
         }
         conversationService.addMessage(message);
+        replyService.publishUserMessage(id, tenantId, message);
         // Dispara a resposta do agente (assíncrona) — entregue via SSE em
         // GET /api/stream/{tenant}/{conversationId}, no canal do tenant dono.
         replyService.replyAsync(id, tenantId);
         return new SendMessageResponse(message.id());
     }
 
+    /**
+     * Cancela a conversa, suspensa ou ativa, e responde 204 — sem corpo, como o cliente HTTP da UI
+     * espera. Era um 200 de corpo vazio, que o cliente tentava ler como JSON: o cancelamento acontecia,
+     * mas o chat mostrava erro e o badge seguia SUSPENSA (RCHFLW-194). O formulário sai também dos
+     * outros visualizadores ({@code interaction/cancel}), e o aviso de sistema que o cancelamento grava vai
+     * ao stream deles — antes ficava só no histórico, e quem acompanhava não via que a conversa acabou.
+     */
     @DeleteMapping("/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
     public void cancel(@PathVariable String id) {
         requireOwned(id);
+        String tenantId = TenantContext.currentTenantId();
+        int before = conversationService.getMessages(id).size();
         delegate.cancel(id);
+        // O que o cancelamento gravou (o aviso; nada num segundo cancelamento) — o serviço não devolve a
+        // fala, então ela é lida da transcrição.
+        List<ConversationMessage> after = conversationService.getMessages(id);
+        after.subList(Math.min(before, after.size()), after.size()).stream()
+                .filter(m -> m.role() == ConversationMessage.Role.SYSTEM)
+                .forEach(m -> replyService.publishStoredNotice(id, tenantId, m));
+        resumeService.announceFormWithdrawn(tenantId, id);
+    }
+
+    /** Cancelada, a conversa não recebe mensagem, suspensão nem formulário novo. */
+    private void requireNotCancelled(String conversationId) {
+        if (conversationService.getRecord(conversationId)
+                .filter(r -> r.status() == Conversation.ConversationStatus.CANCELLED).isPresent()) {
+            throw new IllegalStateException("A conversa " + conversationId
+                    + " foi cancelada e não recebe novas mensagens");
+        }
     }
 
     @ExceptionHandler(ConversationController.NotFoundException.class)
@@ -290,12 +334,12 @@ public class SpringConversationController {
     }
 
     private boolean exists(String conversationId) {
-        return !conversationService.getMessages(conversationId).isEmpty()
+        return conversationService.getRecord(conversationId).isPresent()
                 || conversationService.getById(conversationId).isPresent();
     }
 
     private boolean belongsToCaller(String conversationId) {
-        return TenantContext.currentTenantId().equals(ownerOf(
+        return TenantContext.currentTenantId().equals(ownerOf(conversationService.getRecord(conversationId),
                 conversationService.getById(conversationId), conversationService.getMessages(conversationId)));
     }
 
@@ -306,15 +350,32 @@ public class SpringConversationController {
         }
     }
 
-    /** Mensagem que abre a conversa, marcada com o tenant da requisição — é ela que registra o dono. */
+    /**
+     * Mensagem que abre a conversa, marcada com o tenant da requisição — é ela que registra o dono. Toda
+     * conversa nova passa por aqui, então é aqui que o id do cliente é conferido (400, antes de qualquer
+     * gravação).
+     */
     private static ConversationMessage openingMessage(String conversationId, ConversationMessage.Role role,
                                                       String content) {
+        if (conversationId.length() > MAX_CONVERSATION_ID_LENGTH) {
+            throw new IllegalArgumentException("O id da conversa tem " + conversationId.length()
+                    + " caracteres; o máximo é " + MAX_CONVERSATION_ID_LENGTH);
+        }
         return new ConversationMessage(java.util.UUID.randomUUID().toString(), conversationId, role,
                 content, Instant.now(), Map.of(TENANT_METADATA, TenantContext.currentTenantId()));
     }
 
     private static ConversationController.NotFoundException notFound(String conversationId) {
-        return new ConversationController.NotFoundException("Conversation not found: " + conversationId);
+        return new ConversationController.NotFoundException("Conversa não encontrada: " + conversationId);
+    }
+
+    /**
+     * Dono da conversa: o tenant do registro durável, gravado com a primeira mensagem (RCHFLW-181); sem
+     * registro, a regra de antes ({@link #ownerOf(Optional, List)}).
+     */
+    static String ownerOf(Optional<Conversation> record, Optional<SuspendedConversation> state,
+                          List<ConversationMessage> messages) {
+        return record.map(Conversation::tenantId).orElseGet(() -> ownerOf(state, messages));
     }
 
     /**
@@ -353,15 +414,20 @@ public class SpringConversationController {
     }
 
     private Optional<ConversationDto> toConversation(String conversationId) {
+        Optional<Conversation> record = conversationService.getRecord(conversationId);
         Optional<SuspendedConversation> state = conversationService.getById(conversationId);
         List<ConversationMessage> messages = conversationService.getMessages(conversationId);
 
-        if (state.isEmpty() && messages.isEmpty()) {
+        if (record.isEmpty() && state.isEmpty() && messages.isEmpty()) {
             return Optional.empty();
         }
 
-        Instant createdAt = state.map(SuspendedConversation::getCreatedAt)
-                .orElseGet(() -> messages.isEmpty() ? Instant.now() : messages.get(0).timestamp());
+        // A criação é a da conversa (registro, primeira mensagem), não a da suspensão: o "Criada em"
+        // passava a ser a hora em que ela foi suspensa (RCHFLW-194).
+        Instant createdAt = record.map(Conversation::createdAt)
+                .or(() -> messages.isEmpty() ? Optional.empty() : Optional.of(messages.get(0).timestamp()))
+                .or(() -> state.map(SuspendedConversation::getCreatedAt))
+                .orElseGet(Instant::now);
         Instant updatedAt = messages.isEmpty()
                 ? createdAt
                 : messages.get(messages.size() - 1).timestamp();
@@ -372,10 +438,10 @@ public class SpringConversationController {
         return Optional.of(new ConversationDto(
                 conversationId,
                 state.map(SuspendedConversation::getWorkflowId).orElse(stringValue(context.get("workflowId"))),
-                ownerOf(state, messages),
+                ownerOf(record, state, messages),
                 stringValue(context.get("userId")),
                 stringValue(context.getOrDefault("channel", "API")),
-                state.map(s -> mapStatus(s.getStatus())).orElse("ACTIVE"),
+                statusOf(record, state),
                 stringValue(context.get("persona")),
                 stringValue(context.get("title")),
                 state.map(SuspendedConversation::getResumeToken).orElse(null),
@@ -420,6 +486,19 @@ public class SpringConversationController {
         } catch (Exception ignored) {
             return null;
         }
+    }
+
+    /**
+     * O cancelamento do registro vence: o estado de suspensão some ao cancelar, e sem o registro a
+     * conversa voltava a ser ACTIVE (RCHFLW-194). Fora isso, o da suspensão, como antes; sem suspensão,
+     * o do registro.
+     */
+    private String statusOf(Optional<Conversation> record, Optional<SuspendedConversation> state) {
+        if (record.filter(r -> r.status() == Conversation.ConversationStatus.CANCELLED).isPresent()) {
+            return Conversation.ConversationStatus.CANCELLED.name();
+        }
+        return state.map(s -> mapStatus(s.getStatus()))
+                .orElseGet(() -> record.map(r -> r.status().name()).orElse("ACTIVE"));
     }
 
     private String mapStatus(SuspendedConversation.ConversationStatus status) {

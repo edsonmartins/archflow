@@ -84,7 +84,10 @@ public class RetomadaDoLaco {
         void concluida(Conclusao conclusao);
     }
 
-    /** Os laços deste tenant esperando decisão. */
+    /**
+     * Os laços deste tenant esperando decisão; {@code tenantId} nulo, em branco ou {@code "all"}
+     * atravessa todos os tenants, como a fila do fluxo (RCHFLW-141).
+     */
     public List<Pendencia> pendentes(String tenantId) {
         return store.findPendingByTenant(tenantId).stream()
                 .filter(e -> e.pending() != null)

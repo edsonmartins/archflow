@@ -109,6 +109,31 @@ public class FormData {
     }
 
     /**
+     * Os campos obrigatórios sem valor em {@code values}, na ordem do formulário (pelo {@code name}).
+     *
+     * <p>É a mesma regra que o chat aplica antes de enviar ({@code FormRenderer}): obrigatório sem
+     * chave, com {@code null} ou com texto vazio falta. Mesma regra de propósito — mais rígida aqui, e
+     * o chat enviaria um formulário que o servidor recusa; mais frouxa, e o servidor aceitaria o que o
+     * chat nunca deixaria passar. Até aqui só o cliente conferia, e um {@code formData: {}} pela API
+     * aprovava o portão da execução (RCHFLW-184).</p>
+     *
+     * @param values os dados enviados; {@code null} conta como nenhum
+     */
+    public List<String> missingRequired(Map<String, ?> values) {
+        List<String> missing = new ArrayList<>();
+        for (FormField field : fields) {
+            if (field == null || !field.isRequired()) {
+                continue;
+            }
+            Object value = values == null ? null : values.get(field.getName());
+            if (value == null || "".equals(value)) {
+                missing.add(field.getName());
+            }
+        }
+        return missing;
+    }
+
+    /**
      * Builder for constructing FormData instances.
      */
     public static class Builder {

@@ -65,6 +65,19 @@ public class JobService {
         return repository.reopen(tenantId, id, additionalAttempts, payload);
     }
 
+    /**
+     * Reabre um job terminal num dos estados de {@code from} — {@code SUCCEEDED} incluído para um
+     * resultado que deixou de valer (ver {@link JobRepository#reopen(String, String, int, Map, Set)}).
+     */
+    public JobRecord reopen(String tenantId, String id, int additionalAttempts,
+                            Map<String, Object> payload, Set<JobStatus> from) {
+        if (additionalAttempts < 1 || additionalAttempts > 20) {
+            throw new IllegalArgumentException("additionalAttempts must be between 1 and 20");
+        }
+        if (payload == null) throw new IllegalArgumentException("payload cannot be null");
+        return repository.reopen(tenantId, id, additionalAttempts, payload, from);
+    }
+
     public JobRecord claim(String workerId) {
         return repository.claimNext(workerId);
     }

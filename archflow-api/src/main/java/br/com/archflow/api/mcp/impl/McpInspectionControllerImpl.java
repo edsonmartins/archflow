@@ -47,6 +47,7 @@ public class McpInspectionControllerImpl implements McpInspectionController {
     private final Map<String, Supplier<McpClient>> suppliers;
     private final Map<String, Function<String, McpClient>> porTenant;
     private final Supplier<String> tenantDaRequisicao;
+    private final Map<String, java.util.function.BooleanSupplier> disponivel;
     private final Map<String, McpClient> cache = new ConcurrentHashMap<>();
 
     public McpInspectionControllerImpl(Map<String, Supplier<McpClient>> suppliers) {
@@ -63,6 +64,20 @@ public class McpInspectionControllerImpl implements McpInspectionController {
     public McpInspectionControllerImpl(Map<String, Supplier<McpClient>> suppliers,
                                        Map<String, Function<String, McpClient>> porTenant,
                                        Supplier<String> tenantDaRequisicao) {
+        this(suppliers, porTenant, tenantDaRequisicao, Map.of());
+    }
+
+    /**
+     * @param disponivel para os servidores que uma configuração liga e desliga em tempo de execução (o
+     *                   Linktor, em /admin/linktor), se estão ligados agora. Desligado, o servidor sai da
+     *                   lista e não é inspecionado — como no seletor do editor
+     *                   ({@code GET /api/workflow/mcp-servers}). Antes a tela listava o Linktor desativado e
+     *                   o Inspect respondia OFFLINE, contra o que a página dele promete (RCHFLW-194).
+     */
+    public McpInspectionControllerImpl(Map<String, Supplier<McpClient>> suppliers,
+                                       Map<String, Function<String, McpClient>> porTenant,
+                                       Supplier<String> tenantDaRequisicao,
+                                       Map<String, java.util.function.BooleanSupplier> disponivel) {
         for (String nome : porTenant.keySet()) {
             if (suppliers.containsKey(nome)) {
                 throw new IllegalArgumentException("MCP server '" + nome + "' registered twice");
@@ -71,12 +86,19 @@ public class McpInspectionControllerImpl implements McpInspectionController {
         this.suppliers = new ConcurrentHashMap<>(suppliers);
         this.porTenant = new ConcurrentHashMap<>(porTenant);
         this.tenantDaRequisicao = tenantDaRequisicao;
+        this.disponivel = Map.copyOf(disponivel);
+    }
+
+    private boolean ligado(String serverName) {
+        java.util.function.BooleanSupplier ligado = disponivel.get(serverName);
+        return ligado == null || ligado.getAsBoolean();
     }
 
     @Override
     public List<String> listServerNames() {
         Set<String> nomes = new LinkedHashSet<>(suppliers.keySet());
         nomes.addAll(porTenant.keySet());
+        nomes.removeIf(nome -> !ligado(nome));
         return new ArrayList<>(nomes);
     }
 
@@ -91,7 +113,7 @@ public class McpInspectionControllerImpl implements McpInspectionController {
             // '\n' não aparece num ref de propriedade, então a chave não colide entre servidores.
             chave = serverName + "\n" + (tenant == null ? "" : tenant);
         }
-        if (supplier == null) {
+        if (supplier == null || !ligado(serverName)) {
             return new McpServerIntrospectionDto(
                     serverName, false, List.of(), List.of(), List.of(),
                     "server not registered");

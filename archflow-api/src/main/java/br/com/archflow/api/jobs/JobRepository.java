@@ -48,5 +48,17 @@ public interface JobRepository {
      * idempotência, que é única por tenant e tipo; o histórico de {@code job_attempts} continua
      * numerado a partir da última tentativa.
      */
-    JobRecord reopen(String tenantId, String id, int additionalAttempts, Map<String, Object> payload);
+    default JobRecord reopen(String tenantId, String id, int additionalAttempts, Map<String, Object> payload) {
+        return reopen(tenantId, id, additionalAttempts, payload,
+                java.util.Set.of(JobStatus.FAILED, JobStatus.CANCELLED));
+    }
+
+    /**
+     * Como {@link #reopen(String, String, int, Map)}, reabrindo só um job num dos estados de
+     * {@code from} (todos terminais). O {@code SUCCEEDED} entra para o resultado que deixou de valer:
+     * o documento cujo índice foi desfeito por um rollback (RCHFLW-157). A condição no estado continua
+     * decidindo quem reabriu.
+     */
+    JobRecord reopen(String tenantId, String id, int additionalAttempts, Map<String, Object> payload,
+                     java.util.Set<JobStatus> from);
 }

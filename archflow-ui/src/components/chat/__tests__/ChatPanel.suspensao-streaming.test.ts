@@ -241,3 +241,128 @@ describe('ChatPanel — resposta em streaming (RCHFLW-68)', () => {
     expect(container.textContent).toContain('O archflow é um framework.')
   })
 })
+
+describe('ChatPanel — outro visualizador e formulário retirado (RCHFLW-194)', () => {
+  it('a mensagem do cliente enviada noutra aba chega pelo stream e entra na transcrição', async () => {
+    apiMock.getConversation.mockResolvedValue(record('ACTIVE'))
+    await render()
+
+    await emit(event('chat', 'message', {
+      role: 'user', content: 'Mensagem da aba A: já enviei as fotos', messageId: 'srv-u1',
+    }))
+    await emit(event('chat', 'start'))
+    await emit(event('chat', 'message', { role: 'assistant', content: 'Ótimo, Joana!', messageId: 'srv-a1' }))
+    await emit(event('chat', 'end'))
+
+    await waitFor(() => expect(container.textContent).toContain('Ótimo, Joana!'))
+    expect(container.textContent).toContain('Mensagem da aba A: já enviei as fotos')
+    // A fala do cliente vem antes da resposta, e só uma vez.
+    const texto = container.textContent ?? ''
+    expect(texto.indexOf('Mensagem da aba A')).toBeLessThan(texto.indexOf('Ótimo, Joana!'))
+    expect(texto.split('Mensagem da aba A').length - 1).toBe(1)
+  })
+
+  it('quem enviou não vê a própria mensagem duas vezes, chegue antes o evento ou a resposta HTTP', async () => {
+    apiMock.getConversation.mockResolvedValue(record('ACTIVE'))
+    let resolveSend: (r: unknown) => void = () => {}
+    apiMock.sendMessage.mockReturnValueOnce(new Promise((r) => { resolveSend = r }))
+    const ui = await render()
+
+    await act(async () => { fireEvent.change(messageInput(), { target: { value: 'primeira' } }) })
+    await act(async () => { fireEvent.click(ui.getByText('chat.send')) })
+    // O stream entrega a fala antes da resposta do POST...
+    await emit(event('chat', 'message', { role: 'user', content: 'primeira', messageId: 'srv-1' }))
+    await act(async () => { resolveSend({ messageId: 'srv-1' }) })
+    await emit(event('chat', 'start'))
+    await emit(event('chat', 'message', { role: 'assistant', content: 'resposta 1', messageId: 'srv-r1' }))
+    await emit(event('chat', 'end'))
+
+    // ... e depois o inverso: o POST responde antes do evento.
+    apiMock.sendMessage.mockResolvedValueOnce({ messageId: 'srv-2' })
+    await act(async () => { fireEvent.change(messageInput(), { target: { value: 'segunda' } }) })
+    await act(async () => { fireEvent.click(ui.getByText('chat.send')) })
+    await emit(event('chat', 'message', { role: 'user', content: 'segunda', messageId: 'srv-2' }))
+
+    const texto = container.textContent ?? ''
+    expect(texto.split('primeira').length - 1).toBe(1)
+    expect(texto.split('segunda').length - 1).toBe(1)
+  })
+
+  it('interaction/cancel retira o formulário e destrava o campo', async () => {
+    apiMock.getConversation.mockResolvedValue(record('SUSPENDED', { formData: FORM, resumeToken: 'tok' }))
+    const ui = await render()
+    await waitFor(() => expect(ui.getByText('Contact Support')).toBeTruthy())
+
+    await emit(event('interaction', 'cancel', { conversationId: 'conv-1' }))
+
+    await waitFor(() => expect(ui.queryByText('Submit Ticket')).toBeNull())
+    expect(messageInput().disabled).toBe(false)
+  })
+
+  it('envio recusado porque a execução terminou: o formulário não volta (o servidor o retirou)', async () => {
+    apiMock.getConversation.mockResolvedValueOnce(record('SUSPENDED', { formData: FORM, resumeToken: 'tok' }))
+    const recusa = 'A execução e1 terminou com STOPPED e não recebe mais este formulário: ele foi retirado da conversa'
+    apiMock.resumeConversation.mockRejectedValue(new ApiError(409, recusa))
+    apiMock.getConversation.mockResolvedValue(record('ACTIVE'))
+    const ui = await render()
+    await waitFor(() => expect(ui.getByText('Contact Support')).toBeTruthy())
+
+    await act(async () => {
+      fireEvent.change(ui.getByLabelText(/Subject/), { target: { value: 'Fatura em dobro' } })
+    })
+    await act(async () => { fireEvent.click(ui.getByText('Submit Ticket')) })
+
+    await waitFor(() => expect(container.textContent).toContain(recusa))
+    expect(ui.queryByText('Submit Ticket')).toBeNull()
+    expect(messageInput().disabled).toBe(false)
+  })
+})
+
+describe('ChatPanel — conversa cancelada não aceita novos turnos (RCHFLW-194)', () => {
+  it('aberta já cancelada: o campo fica travado e diz por quê', async () => {
+    apiMock.getConversation.mockResolvedValue(record('CANCELLED'))
+    await render()
+
+    await waitFor(() => expect(messageInput().disabled).toBe(true))
+    expect(messageInput().placeholder).toBe('chat.cancelledPlaceholder')
+  })
+
+  it('Cancelar sob o formulário trava o campo; o aviso gravado aparece uma vez, mesmo que chegue também pelo '
+    + 'stream', async () => {
+    apiMock.getConversation.mockResolvedValue(record('SUSPENDED', { formData: FORM, resumeToken: 'tok' }))
+    apiMock.cancelConversation.mockResolvedValue(undefined)
+    const ui = await render()
+    await waitFor(() => expect(ui.getByText('Contact Support')).toBeTruthy())
+    const aviso = { id: 'm-cancel', role: 'system', content: 'Conversa cancelada', timestamp: '2026-11-24T10:00:06Z' }
+    apiMock.getMessages.mockResolvedValue([
+      { id: 'm1', role: 'system', content: 'Conversa iniciada', timestamp: '2026-11-24T10:00:00Z' },
+      aviso,
+    ])
+
+    await act(async () => { fireEvent.click(ui.getByText('chat.form.cancel')) })
+    await waitFor(() => expect(container.textContent).toContain('Conversa cancelada'))
+    await emit(event('chat', 'start', { conversationId: 'conv-1' }))
+    await emit(event('chat', 'message', {
+      conversationId: 'conv-1', messageId: 'm-cancel', role: 'system', content: 'Conversa cancelada',
+    }))
+    await emit(event('chat', 'end', { conversationId: 'conv-1' }))
+
+    expect(messageInput().disabled).toBe(true)
+    expect(messageInput().placeholder).toBe('chat.cancelledPlaceholder')
+    expect((container.textContent ?? '').split('Conversa cancelada').length - 1).toBe(1)
+  })
+
+  it('interaction/cancel de uma conversa que o registro diz cancelada trava o campo (outro visualizador)',
+    async () => {
+      apiMock.getConversation.mockResolvedValueOnce(record('SUSPENDED', { formData: FORM, resumeToken: 'tok' }))
+      apiMock.getConversation.mockResolvedValue(record('CANCELLED'))
+      const ui = await render()
+      await waitFor(() => expect(ui.getByText('Contact Support')).toBeTruthy())
+
+      await emit(event('interaction', 'cancel', { conversationId: 'conv-1' }))
+
+      await waitFor(() => expect(messageInput().disabled).toBe(true))
+      expect(ui.queryByText('Submit Ticket')).toBeNull()
+      expect(messageInput().placeholder).toBe('chat.cancelledPlaceholder')
+    })
+})

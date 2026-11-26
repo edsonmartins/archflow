@@ -151,14 +151,18 @@ test.describe('Conversation actions', () => {
         await installApiRouter(page, [
             ...authHandlers(adminUser),
             async ({ path, method, route }) => {
+                // Depois do cancelamento o servidor grava o aviso na transcrição (RCHFLW-194), e a tela a relê.
                 if (path === '/conversations/conv-actions-1/messages' && method === 'GET') {
-                    await fulfillJson(route, []);
+                    await fulfillJson(route, cancelled
+                        ? [{ id: 'msg-cancel', role: 'system', content: 'Conversa cancelada',
+                             timestamp: '2026-11-26T12:00:00Z' }]
+                        : []);
                     return true;
                 }
                 if (path !== '/conversations/conv-actions-1' || method !== 'GET') return false;
                 await fulfillJson(route, {
                     ...conversation,
-                    status: 'SUSPENDED',
+                    status: cancelled ? 'CANCELLED' : 'SUSPENDED',
                     resumeToken: 'resume-token-1',
                     formData: {
                         id: 'form-1',
@@ -192,6 +196,8 @@ test.describe('Conversation actions', () => {
         await page.getByRole('button', { name: 'Cancel' }).click();
 
         await expect.poll(() => cancelled).toBeTruthy();
-        await expect(page.getByText('Conversation cancelled.')).toBeVisible();
+        // O aviso vem do servidor (gravado e relido), e a conversa cancelada não aceita mais mensagens.
+        await expect(page.getByText('Conversa cancelada')).toBeVisible();
+        await expect(page.getByPlaceholder('Conversation cancelled: it no longer accepts new messages.')).toBeDisabled();
     });
 });

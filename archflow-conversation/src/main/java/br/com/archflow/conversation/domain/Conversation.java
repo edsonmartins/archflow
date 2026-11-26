@@ -70,6 +70,12 @@ public record Conversation(
         AWAITING_HUMAN,
         SUSPENDED,
         CLOSED,
-        ESCALATED
+        ESCALATED,
+        /**
+         * Cancelada por quem a acompanhava ({@code DELETE /api/conversations/{id}}): não recebe novos
+         * turnos. Fica no registro, e não só no estado de suspensão — que o cancelamento apaga —, senão
+         * a conversa voltava a aparecer como ACTIVE e aceitava mensagens (RCHFLW-194).
+         */
+        CANCELLED
     }
 }

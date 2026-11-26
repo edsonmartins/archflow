@@ -1,4 +1,5 @@
-import { api, authFetch } from './api'
+import { api, authFetch, ApiError } from './api'
+import { mensagemDoCorpoDeErro } from '../lib/errorMessage'
 
 export interface KnowledgeBase {
     id: string
@@ -77,7 +78,12 @@ export const knowledgeApi = {
         form.append('file', file)
         if (workspaceId) form.append('workspaceId', workspaceId)
         const response = await authFetch('/api/files', { method: 'POST', body: form })
-        if (!response.ok) throw new Error((await response.text()) || response.statusText)
+        if (!response.ok) {
+            // Como o request() do api.ts: a frase do corpo de erro, não o JSON cru no toast.
+            const body = await response.text().catch(() => '')
+            throw new ApiError(response.status,
+                mensagemDoCorpoDeErro(body, response.statusText || `HTTP ${response.status}`), body)
+        }
         return response.json()
     },
     ingest: (baseId: string, fileId: string) =>

@@ -685,10 +685,27 @@ public class ArchflowBeanConfiguration {
         return new ConversationManager(java.time.Duration.ofMinutes(30), suspendedConversationStore);
     }
 
+    /**
+     * Transcrição das conversas (registro + mensagens) — default em memória. Sob
+     * {@code archflow.persistence.jdbc.enabled=true}, {@code JdbcPersistenceConfiguration} fornece a
+     * durável, que vence este {@code @ConditionalOnMissingBean}.
+     */
     @Bean
     @ConditionalOnMissingBean
-    public ConversationService conversationService(ConversationManager conversationManager) {
-        return new DefaultConversationService(conversationManager);
+    @ConditionalOnProperty(name = "archflow.persistence.jdbc.enabled", havingValue = "false", matchIfMissing = true)
+    public br.com.archflow.conversation.domain.ConversationRepository conversationRepository() {
+        return new br.com.archflow.conversation.domain.InMemoryConversationRepository();
+    }
+
+    /**
+     * O repositório é o que torna a transcrição durável: o JDBC existia e era anunciado no log, mas o
+     * serviço guardava as mensagens num mapa próprio, e as tabelas ficavam vazias (RCHFLW-181).
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public ConversationService conversationService(ConversationManager conversationManager,
+            br.com.archflow.conversation.domain.ConversationRepository conversationRepository) {
+        return new DefaultConversationService(conversationManager, conversationRepository);
     }
 
     // =========================================================================
@@ -943,17 +960,33 @@ public class ArchflowBeanConfiguration {
         return scheduler;
     }
 
+    /**
+     * Registro dos gatilhos agendados. Em memória por default (dev), junto do {@code RAMJobStore} acima; o
+     * durável vive em {@link JdbcPersistenceConfiguration} (migration V6_15), junto do {@code JobStoreTX} —
+     * registro e jobs do Quartz sobrevivem, ou não, ao restart juntos (RCHFLW-187).
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(name = JDBC_ENABLED, havingValue = "false", matchIfMissing = true)
+    public br.com.archflow.api.triggers.store.ScheduledTriggerStore scheduledTriggerStore() {
+        return new br.com.archflow.api.triggers.store.InMemoryScheduledTriggerStore();
+    }
+
     @Bean
     @ConditionalOnMissingBean
     public br.com.archflow.api.triggers.ScheduledTriggerController scheduledTriggerController(
             org.quartz.Scheduler scheduler,
             AgentInvocationQueue agentInvocationQueue,
             org.springframework.beans.factory.ObjectProvider<
-                    br.com.archflow.api.agent.invocation.AgentInvocationResultStore> agentInvocationResultStore) {
+                    br.com.archflow.api.agent.invocation.AgentInvocationResultStore> agentInvocationResultStore,
+            br.com.archflow.api.triggers.store.ScheduledTriggerStore scheduledTriggerStore,
+            br.com.archflow.plugin.api.catalog.ComponentCatalog componentCatalog) {
         // O store de resultados dá ao gatilho o desfecho do último disparo (RCHFLW-104): sem ele o
-        // "Com falha" da tela contava só a falha de enfileirar, nunca a do agente.
+        // "Com falha" da tela contava só a falha de enfileirar, nunca a do agente. O catálogo é o mesmo em que
+        // o consumidor da fila procura o agente: um agente desconhecido é recusado ao salvar (RCHFLW-191).
         return new br.com.archflow.api.triggers.impl.ScheduledTriggerControllerImpl(
-                scheduler, agentInvocationQueue, agentInvocationResultStore.getIfAvailable());
+                scheduler, agentInvocationQueue, agentInvocationResultStore.getIfAvailable(), scheduledTriggerStore,
+                agentId -> componentCatalog.getComponent(agentId).isPresent());
     }
 
     // =========================================================================
@@ -1165,8 +1198,15 @@ public class ArchflowBeanConfiguration {
         java.util.Map<String, java.util.function.Function<String, br.com.archflow.langchain4j.mcp.McpClient>>
                 porTenant = new java.util.LinkedHashMap<>();
         registrarServidoresDoHost(registry, porTenant, mcpAgentHost.getIfAvailable());
+        // Desativado em /admin/linktor, o Linktor sai da lista, com a mesma regra do seletor do editor
+        // (workflowConfigControllerImpl), lida a cada pedido (RCHFLW-194).
+        java.util.Map<String, java.util.function.BooleanSupplier> disponivel = java.util.Map.of(
+                br.com.archflow.api.linktor.impl.LinktorConfigControllerImpl.SERVER_NAME, () -> {
+                    var cfg = linktorConfigController.get();
+                    return cfg.enabled() && cfg.mcpCommand() != null && !cfg.mcpCommand().isBlank();
+                });
         return new br.com.archflow.api.mcp.impl.McpInspectionControllerImpl(
-                registry, porTenant, TenantContext::currentTenantId);
+                registry, porTenant, TenantContext::currentTenantId, disponivel);
     }
 
     /**

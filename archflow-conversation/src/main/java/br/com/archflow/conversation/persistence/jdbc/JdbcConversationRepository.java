@@ -111,6 +111,14 @@ public class JdbcConversationRepository implements ConversationRepository {
     }
 
     @Override
+    public Optional<Conversation> findByIdAcrossTenants(String conversationId) {
+        // O id é a chave primária da tabela (única entre tenants): no máximo uma linha.
+        List<Conversation> found = queryConversations("SELECT * FROM conversations WHERE id = ?",
+                ps -> ps.setString(1, conversationId));
+        return found.isEmpty() ? Optional.empty() : Optional.of(found.get(0));
+    }
+
+    @Override
     public List<Conversation> listByTenant(String tenantId) {
         return queryConversations(
                 "SELECT * FROM conversations WHERE tenant_id = ? ORDER BY updated_at DESC",
