@@ -37,6 +37,8 @@ import java.util.regex.Pattern;
  *       A gramática não tem {@code =}, então a expressão inteira vira um operando solto — o mesmo defeito do
  *       {@link Problem#BARE_OPERAND} —, mas a mensagem dele mandava escrever {@code ${…}} a quem já tinha
  *       escrito, e não dizia o que faltava: {@code ==} (RCHFLW-133).</li>
+ *   <li>{@link Problem#MALFORMED_TEMPLATE}: na "Mensagem do usuário" do LLM Chat ({@link #checkTemplate},
+ *       RCHFLW-120), um <code>${</code> que não fecha, vazio ou aninhado — o literal iria ao modelo.</li>
  * </ul>
  *
  * <p><b>O que fica de fora, de propósito (falso positivo).</b> Um {@code ${nome}} <i>sem ponto</i> que não
@@ -59,7 +61,8 @@ public final class ControlExpressionRules {
         UNKNOWN_STEP,
         TEXT_OUTPUT_FIELD,
         NO_REFERENCE,
-        SINGLE_EQUALS
+        SINGLE_EQUALS,
+        MALFORMED_TEMPLATE
     }
 
     /**
@@ -90,6 +93,8 @@ public final class ControlExpressionRules {
                         + "» e o ramo nunca muda";
                 case SINGLE_EQUALS -> "«" + fragment + "» usa = sozinho, que não compara: para comparar, use == ("
                         + "«" + withDoubleEquals(fragment) + "»)";
+                case MALFORMED_TEMPLATE -> "«" + fragment + "» não é uma referência: escreva ${caminho}, com a "
+                        + "chave fechada e um caminho dentro — fora de ${} o texto vai ao modelo como está";
             };
         }
     }
@@ -168,6 +173,29 @@ public final class ControlExpressionRules {
         if (!any) {
             findings.add(new Finding(Problem.NO_REFERENCE, expression.trim()));
         }
+        return findings;
+    }
+
+    /**
+     * As recusas da "Mensagem do usuário" de um LLM Chat (RCHFLW-120): um texto livre com referências
+     * {@code ${…}} lido por {@link MessageTemplate}. A gramática não é a da condição — não há operador, e texto
+     * sem referência nenhuma é aceito (é literal). Cada caminho passa pelas mesmas regras das condições
+     * ({@link Problem#UNKNOWN_STEP}, {@link Problem#TEXT_OUTPUT_FIELD}); um <code>${</code> que não é referência é
+     * {@link Problem#MALFORMED_TEMPLATE} e para a leitura ali, como o {@link Problem#MALFORMED} da condição.
+     */
+    public static List<Finding> checkTemplate(String template, FlowRefs refs) {
+        List<Finding> findings = new ArrayList<>();
+        if (template == null || template.isBlank()) {
+            return findings;
+        }
+        List<String> paths;
+        try {
+            paths = MessageTemplate.references(template);
+        } catch (MessageTemplate.MalformedTemplateException e) {
+            findings.add(new Finding(Problem.MALFORMED_TEMPLATE, e.fragment()));
+            return findings;
+        }
+        paths.forEach(path -> checkPath(path, refs, findings));
         return findings;
     }
 

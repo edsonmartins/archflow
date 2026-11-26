@@ -20,15 +20,17 @@
  *       mas só se distingue de uma variável inventada quando a chave está nos campos esperados da Entrada — é o
  *       contrato que o fluxo já declara, e a forma que funciona com qualquer entrada;</li>
  *   <li>TEXT_OUTPUT_FIELD — {@code ${X.campo}} em que X é um LLM Chat: a saída dele é o texto da resposta;</li>
- *   <li>NO_REFERENCE — switch sem nenhum {@code ${…}}: o valor é sempre o mesmo.</li>
+ *   <li>NO_REFERENCE — switch sem nenhum {@code ${…}}: o valor é sempre o mesmo;</li>
  *   <li>SINGLE_EQUALS — operando com {@code =} sozinho fora de aspas ({@code ${input} = 'x'}): a gramática não tem
  *       {@code =}, e a mensagem do BARE_OPERAND mandava escrever {@code ${…}} a quem já tinha escrito, sem dizer que
  *       faltava o {@code ==} (RCHFLW-133).</li>
+ *   <li>MALFORMED_TEMPLATE — na "Mensagem do usuário" do LLM Chat (userMessage, RCHFLW-120), um `${` que não fecha,
+ *       vazio ou aninhado: o literal iria ao modelo. É o {@code MessageTemplate} do servidor.</li>
  * </ul>
  */
 
 export type ExpressionProblem =
-  'MALFORMED' | 'BARE_OPERAND' | 'UNKNOWN_STEP' | 'TEXT_OUTPUT_FIELD' | 'NO_REFERENCE' | 'SINGLE_EQUALS'
+  'MALFORMED' | 'BARE_OPERAND' | 'UNKNOWN_STEP' | 'TEXT_OUTPUT_FIELD' | 'NO_REFERENCE' | 'SINGLE_EQUALS' | 'MALFORMED_TEMPLATE'
 
 export interface ExpressionFinding {
   problem:  ExpressionProblem
@@ -233,6 +235,46 @@ export function checkSwitch(expression: string, refs: FlowRefs): ExpressionFindi
   return out
 }
 
+/**
+ * O campo da "Mensagem do usuário" dos nós de chat (RCHFLW-120): a chave que o painel grava e que a ponte do servidor
+ * lê (LangChainAdapterComponent.USER_MESSAGE_KEY — o NoDeChatDoDesignerTest confere as duas).
+ */
+export const USER_MESSAGE_FIELD = 'userMessage'
+
+/**
+ * Os caminhos das referências de um template, na ordem e sem repetir — o MessageTemplate.references do servidor. Um
+ * `${` que não fecha, vazio ou com outro `$`/chave dentro não é referência: devolve o trecho como malformado.
+ */
+export function templateReferences(template: string): { paths: string[] } | { malformed: string } {
+  const paths: string[] = []
+  let i = 0
+  while (i < template.length) {
+    const open = template.indexOf('${', i)
+    if (open < 0) break
+    const close = template.indexOf('}', open + 2)
+    if (close < 0) return { malformed: template.substring(open) }
+    const path = template.substring(open + 2, close).trim()
+    // "${a${b}}" fecha na primeira chave e leria a chave "a${b".
+    if (path === '' || path.includes('$') || path.includes('{')) return { malformed: template.substring(open, close + 1) }
+    if (!paths.includes(path)) paths.push(path)
+    i = close + 1
+  }
+  return { paths }
+}
+
+/**
+ * As recusas de uma "Mensagem do usuário" (ControlExpressionRules.checkTemplate): texto livre, sem operador, e texto
+ * sem referência é literal. Cada caminho, pelas regras das condições.
+ */
+export function checkTemplate(template: string, refs: FlowRefs): ExpressionFinding[] {
+  if (template.trim() === '') return []
+  const parsed = templateReferences(template)
+  if ('malformed' in parsed) return [{ problem: 'MALFORMED_TEMPLATE', fragment: parsed.malformed }]
+  const out: ExpressionFinding[] = []
+  for (const path of parsed.paths) checkPath(path, refs, out)
+  return out
+}
+
 /** Um passo do canvas como os validadores o leem (o mesmo recorte do runBlockers). */
 export interface ControlCandidateStep {
   id:           string
@@ -278,7 +320,7 @@ export function controlExpressionFindings(
 export interface InvalidControlExpression {
   id:       string
   label:    string
-  field:    'conditionExpression' | 'switchExpression'
+  field:    'conditionExpression' | 'switchExpression' | typeof USER_MESSAGE_FIELD
   findings: ExpressionFinding[]
 }
 
@@ -291,12 +333,23 @@ export function invalidControlExpressions(steps: readonly ControlCandidateStep[]
   const out: InvalidControlExpression[] = []
   for (const step of steps) {
     const kind = kindOf(step)
+    const label = step.label?.trim() || step.id
     const findings = controlExpressionFindings(kind, step.config, refs)
-    if (findings.length > 0) {
-      out.push({ id: step.id, label: step.label?.trim() || step.id, field: CONTROL_EXPRESSION_FIELD[kind], findings })
-    }
+    if (findings.length > 0) out.push({ id: step.id, label, field: CONTROL_EXPRESSION_FIELD[kind], findings })
+    const message = userMessageFindings(step, refs)
+    if (message.length > 0) out.push({ id: step.id, label, field: USER_MESSAGE_FIELD, findings: message })
   }
   return out
+}
+
+/**
+ * As recusas da "Mensagem do usuário" de um nó de chat (vazio para outro tipo ou sem o campo). O chat é o tipo do nó,
+ * como a saída de texto em flowRefsOf: o motor decide o adapter de chat pelo type, não pelo componentId.
+ */
+export function userMessageFindings(step: ControlCandidateStep, refs: FlowRefs): ExpressionFinding[] {
+  const raw = step.config?.[USER_MESSAGE_FIELD]
+  if (typeof raw !== 'string' || !kindsOf(step).some(k => TEXT_OUTPUT_NODE_TYPES.has(k))) return []
+  return checkTemplate(raw, refs)
 }
 
 /**
@@ -324,5 +377,8 @@ export function describeFindingForAgent(f: ExpressionFinding): string {
       return `switch expression "${f.fragment}" reads no \${…}: its value never changes — use e.g. \${<decisionId>.decision}`
     case 'SINGLE_EQUALS':
       return `"${f.fragment}" uses a single = , which does not compare: write == ("${withDoubleEquals(f.fragment)}")`
+    case 'MALFORMED_TEMPLATE':
+      return `"${f.fragment}" is not a reference: write \${<path>} with the brace closed and a path inside (e.g. `
+        + '${<inputNodeId>}); text outside ${} goes to the model as is'
   }
 }

@@ -8,7 +8,8 @@
 import { describe, it, expect } from 'vitest'
 import cases from './controlExpressionCases.json'
 import {
-  checkCondition, checkSwitch, describeFindingForAgent, flowRefsOf, invalidControlExpressions, isWellFormed,
+  checkCondition, checkSwitch, checkTemplate, describeFindingForAgent, flowRefsOf, invalidControlExpressions,
+  isWellFormed, templateReferences,
 } from '../controlExpressions'
 
 const refs = flowRefsOf(cases.steps.map(s => ({
@@ -18,7 +19,8 @@ const refs = flowRefsOf(cases.steps.map(s => ({
 describe('controlExpressions', () => {
   it.each(cases.cases.map(c => [c.field, c.expression, c.problems] as const))(
     '%s %s → %j (os mesmos casos do servidor)', (field, expression, problems) => {
-      const found = field === 'switchExpression' ? checkSwitch(expression, refs) : checkCondition(expression, refs)
+      const found = field === 'switchExpression' ? checkSwitch(expression, refs)
+        : field === 'userMessage' ? checkTemplate(expression, refs) : checkCondition(expression, refs)
       expect(found.map(f => f.problem)).toEqual(problems)
     })
 
@@ -75,5 +77,27 @@ describe('controlExpressions', () => {
     expect(checkCondition('${ticket.urgente} == true', flowRefsOf(semCampo)).map(f => f.problem)).toEqual(['UNKNOWN_STEP'])
     expect(checkCondition('${ticket.urgente} == true', flowRefsOf(comCampo))).toEqual([])
     expect(checkCondition('${ticket.urgente} == true', flowRefsOf(noErrado)).map(f => f.problem)).toEqual(['UNKNOWN_STEP'])
+  })
+
+  it('RCHFLW-120: a Mensagem do usuário do LLM Chat entra na mesma lista, pelo tipo do nó', () => {
+    const invalid = invalidControlExpressions([
+      { id: 'receber', componentId: 'input', type: 'input' },
+      { id: 'responder', label: 'Responder', componentId: 'openrouter', type: 'llm-chat',
+        config: { userMessage: 'Cliente: ${receber' } },
+      { id: 'ok', componentId: 'llm-chat', type: 'llm-chat', config: { userMessage: '${receber}' } },
+      // A chave num nó que não é de chat não é lida pelo motor.
+      { id: 'agente', componentId: 'agent', type: 'agent', config: { userMessage: '${nada' } },
+    ])
+
+    expect(invalid).toEqual([{ id: 'responder', label: 'Responder', field: 'userMessage',
+      findings: [{ problem: 'MALFORMED_TEMPLATE', fragment: '${receber' }] }])
+    expect(describeFindingForAgent(invalid[0].findings[0])).toContain('"${receber" is not a reference')
+  })
+
+  it('templateReferences lê como o MessageTemplate do servidor: em ordem, sem repetir; ${ quebrado é o trecho', () => {
+    expect(templateReferences('${a} x ${ b.c } ${a}')).toEqual({ paths: ['a', 'b.c'] })
+    expect(templateReferences('custa $10 {sem chave}')).toEqual({ paths: [] })
+    expect(templateReferences('${a${b}}')).toEqual({ malformed: '${a${b}' })
+    expect(templateReferences('x ${}')).toEqual({ malformed: '${}' })
   })
 })

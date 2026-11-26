@@ -1,5 +1,5 @@
 {
-  "_comment": "RCHFLW-116: os mesmos casos para o editor (controlExpressions.test.ts) e para o servidor (ControlExpressionRulesTest). Se um dos dois mudar a regra, o outro teste falha.",
+  "_comment": "RCHFLW-116: os mesmos casos para o editor (controlExpressions.test.ts) e para o servidor (ControlExpressionRulesTest). Se um dos dois mudar a regra, o outro teste falha. RCHFLW-120: userMessage é a Mensagem do usuário do LLM Chat (checkTemplate).",
   "steps": [
     { "id": "entrada", "kind": "input", "ioFields": ["ticket", "linktor.autoPublish"] },
     { "id": "classificar", "kind": "llm-chat" },
@@ -50,6 +50,20 @@
     { "field": "switchExpression", "expression": "triagem.decision", "problems": ["NO_REFERENCE"] },
     { "field": "switchExpression", "expression": "${classificar.categoria}", "problems": ["TEXT_OUTPUT_FIELD"] },
     { "field": "switchExpression", "expression": "${payload.tipo}", "problems": [] },
-    { "field": "switchExpression", "expression": "${agent.intent}", "problems": ["UNKNOWN_STEP"] }
+    { "field": "switchExpression", "expression": "${agent.intent}", "problems": ["UNKNOWN_STEP"] },
+    { "field": "userMessage", "expression": "${entrada}", "problems": [] },
+    { "field": "userMessage", "expression": "Cliente: ${entrada} (assunto ${triagem.answers.assunto.choice})", "problems": [] },
+    { "field": "userMessage", "expression": "Responda sem referência nenhuma", "problems": [] },
+    { "field": "userMessage", "expression": "${input}", "problems": [] },
+    { "field": "userMessage", "expression": "${message}", "problems": [] },
+    { "field": "userMessage", "expression": "${ticket.texto}", "problems": [] },
+    { "field": "userMessage", "expression": "${classificar}", "problems": [] },
+    { "field": "userMessage", "expression": "custa $10 {sem chave}", "problems": [] },
+    { "field": "userMessage", "expression": "${classificar.resposta}", "problems": ["TEXT_OUTPUT_FIELD"] },
+    { "field": "userMessage", "expression": "${Receber.texto}", "problems": ["UNKNOWN_STEP"] },
+    { "field": "userMessage", "expression": "${entrada} e ${pedido.texto} e ${classificar.x}", "problems": ["UNKNOWN_STEP", "TEXT_OUTPUT_FIELD"] },
+    { "field": "userMessage", "expression": "Cliente: ${entrada", "problems": ["MALFORMED_TEMPLATE"] },
+    { "field": "userMessage", "expression": "${}", "problems": ["MALFORMED_TEMPLATE"] },
+    { "field": "userMessage", "expression": "${a${b}}", "problems": ["MALFORMED_TEMPLATE"] }
   ]
 }
