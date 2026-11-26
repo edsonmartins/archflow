@@ -25,7 +25,9 @@ public class WebMvcConfiguration implements WebMvcConfigurer {
     /** Headers que o frontend realmente envia (Authorization, tenant/impersonation, userId). */
     static final String[] ALLOWED_HEADERS = {
             "Authorization", "Content-Type", "Accept",
-            "X-Tenant-Id", "X-Impersonate-Tenant", "X-User-Id"
+            "X-Tenant-Id", "X-Impersonate-Tenant", "X-User-Id",
+            // Versão lida pelo editor no Salvar do fluxo (RCHFLW-125); o componente embutido chama de outra origem.
+            "If-Match"
     };
 
     /**

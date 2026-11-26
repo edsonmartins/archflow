@@ -8,7 +8,7 @@ import { MantineProvider } from '@mantine/core';
 import { ModalsProvider } from '@mantine/modals';
 import { useLocalStorage } from '@mantine/hooks';
 import { Notifications } from '@mantine/notifications';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { createBrowserRouter, RouterProvider, Routes, Route, Navigate } from 'react-router-dom';
 import { lazy, Suspense } from 'react';
 import { theme } from './theme';
 import AppLayout from './components/layout/AppLayout';
@@ -77,7 +77,21 @@ function App() {
         <MantineProvider theme={theme} forceColorScheme={colorScheme}>
             <ModalsProvider>
             <Notifications position="top-right" />
-            <BrowserRouter>
+            <RouterProvider router={router} />
+            </ModalsProvider>
+        </MantineProvider>
+    );
+}
+
+/**
+ * Router de dados (createBrowserRouter) com as rotas de sempre por baixo: o editor bloqueia a saída com
+ * alterações não salvas pelo useBlocker (RCHFLW-124), que só existe num router de dados — com o BrowserRouter
+ * a navegação do menu descartava a edição sem aviso. A rota única '*' mantém a árvore de Routes como estava.
+ */
+const router = createBrowserRouter([{ path: '*', element: <AppRoutes /> }]);
+
+function AppRoutes() {
+    return (
                 <Suspense fallback={<div style={{ padding: 40, textAlign: 'center' }}>Loading...</div>}>
                     <Routes>
                         <Route path="/login" element={<LoginPage />} />
@@ -154,9 +168,6 @@ function App() {
                         </Route>
                     </Routes>
                 </Suspense>
-            </BrowserRouter>
-            </ModalsProvider>
-        </MantineProvider>
     );
 }
 

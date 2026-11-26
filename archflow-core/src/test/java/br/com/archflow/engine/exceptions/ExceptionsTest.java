@@ -97,9 +97,19 @@ class ExceptionsTest {
             var ex = new FlowValidationException(errors);
 
             assertThat(ex.getErrors()).hasSize(2);
-            assertThat(ex.getMessage()).contains("2 errors found");
+            assertThat(ex.getMessage()).contains("2 erros encontrados");
             // O motivo vai na mensagem: é ela que a execução FAILED guarda e a tela mostra.
             assertThat(ex.getMessage()).endsWith(": error1; error2");
+        }
+
+        @Test
+        @DisplayName("um erro só: singular e em português, sem o \"1 errors found\" (RCHFLW-133)")
+        void umErroNoSingular() {
+            var ex = new FlowValidationException(List.of(new ValidationError("f", "motivo", "C", Map.of())));
+
+            assertThat(ex.getMessage())
+                    .isEqualTo("O fluxo não passou na validação: 1 erro encontrado: motivo")
+                    .doesNotContain("errors found");
         }
 
         @Test

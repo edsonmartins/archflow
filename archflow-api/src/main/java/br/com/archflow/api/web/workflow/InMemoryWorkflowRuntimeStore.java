@@ -265,7 +265,7 @@ public class InMemoryWorkflowRuntimeStore implements WorkflowRuntimeStore {
             }
             execution.put("status", status);
             execution.put("completedAt", Instant.now().toString());
-            execution.put("error", error);
+            execution.put("error", WorkflowRuntimeStore.failureSummary(execution, status, error));
         }
         // The per-step index only accelerates lifecycle patches WHILE a run
         // streams; a terminally-finished run receives no more recordStep calls,

@@ -73,7 +73,7 @@ class SpringWorkflowCrudControllerAuditTest {
                 Map.of("metadata", Map.of("name", "Flow A"))));
         String id = String.valueOf(created.getBody().get("id"));
 
-        controller.update(id, new java.util.HashMap<>(Map.of("metadata", Map.of("name", "Flow B"))));
+        controller.update(id, new java.util.HashMap<>(Map.of("metadata", Map.of("name", "Flow B"))), null);
         controller.delete(id);
 
         var events = events();

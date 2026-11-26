@@ -124,6 +124,8 @@ interface ApprovalDecision {
     decidedBy?: string
     comment?: string
     decidedAt?: string
+    /** Numa decisão EDITED, a proposta como quem decidiu a deixou — o que seguiu no fluxo (RCHFLW-121). */
+    editedPayload?: unknown
 }
 
 /** Quem o motor grava quando o prazo vence (ApprovalQueueService.TIMEOUT_DECIDER). */
@@ -144,8 +146,11 @@ function ApprovalDecisions({ decisions, labels, locale }: {
         <Stack gap="xs">
             {decisions.map((d, i) => {
                 const timedOut = d.decidedBy === TIMEOUT_DECIDER
-                const approved = d.decision === 'APPROVED'
+                // Editar antes de aprovar é aprovar: antes, EDITED caía em "Recusado" aqui.
+                const edited = d.decision === 'EDITED'
+                const approved = d.decision === 'APPROVED' || edited
                 const label = timedOut ? t('executionDetail.approvals.timeout')
+                    : edited ? t('executionDetail.approvals.edited')
                     : approved ? t('executionDetail.approvals.approved')
                     : t('executionDetail.approvals.rejected')
                 const stepName = d.stepId ? (labels.get(d.stepId) ?? d.stepId) : '—'
@@ -174,6 +179,14 @@ function ApprovalDecisions({ decisions, labels, locale }: {
                                 <Meta label={t('executionDetail.approvals.comment')} value={d.comment} />
                             )}
                         </Group>
+                        {edited && d.editedPayload != null && (
+                            <Stack gap={2} mt="xs" data-testid="execution-approval-edited-payload">
+                                <Text size="xs" c="dimmed" tt="uppercase" style={{ letterSpacing: 0.5 }}>
+                                    {t('executionDetail.approvals.editedPayload')}
+                                </Text>
+                                <JsonViewer value={d.editedPayload} autoExpandDepth={2} />
+                            </Stack>
+                        )}
                     </Paper>
                 )
             })}
@@ -206,6 +219,12 @@ function StepOutput({ raw }: { raw: string }) {
 function StepBlock({ step, locale }: { step: StepRow; locale: string }) {
     const { t } = useTranslation()
     const [open, setOpen] = useState(step.status === 'FAILED')
+    // Quem chega pelo "Rodar" abre o detalhe com o passo ainda RUNNING: o estado inicial já tinha passado, e o
+    // passo que falhava depois, pelo polling, ficava fechado até recarregar a página (RCHFLW-130). Abre na
+    // chegada da falha; depois disso quem decide é o clique.
+    useEffect(() => {
+        if (step.status === 'FAILED') setOpen(true)
+    }, [step.status])
     const notExecuted = step.notExecuted === true
 
     const statusColor = notExecuted ? 'gray' : (STEP_STATUS_COLOR[step.status] ?? 'gray')
@@ -222,6 +241,7 @@ function StepBlock({ step, locale }: { step: StepRow; locale: string }) {
     return (
         <Paper withBorder radius="md" px="sm" py="xs" data-testid={`execution-step-${step.stepId}`}
                data-not-executed={notExecuted ? 'true' : undefined}
+               data-expanded={open && !notExecuted ? 'true' : undefined}
                style={{ borderLeft: `3px solid var(--mantine-color-${statusColor}-${notExecuted ? 3 : 6})`,
                    boxShadow: 'none', opacity: notExecuted ? 0.6 : undefined }}>
             <Group
@@ -383,9 +403,11 @@ export default function ExecutionDetailPage() {
         <PageHeader
             icon={IconPlayerPlay}
             accent={extra?.accent ?? 'violet'}
-            title={t('executionDetail.title', { id: id.slice(0, 12) })}
+            // O id inteiro (RCHFLW-134): o corte em 12 comia o último caractere de exec-xxxxxxxx (13), e quem
+            // copiava do título ou do breadcrumb levava um id que não existe.
+            title={t('executionDetail.title', { id })}
             subtitle={extra?.subtitle}
-            breadcrumbs={[{ label: t('executions.title'), to: '/executions' }, { label: id.slice(0, 12) }]}
+            breadcrumbs={[{ label: t('executions.title'), to: '/executions' }, { label: id }]}
             actions={data ? (
                 <>
                     {traceId && (
@@ -460,7 +482,8 @@ export default function ExecutionDetailPage() {
     const failedSteps = steps.filter((s) => s.status === 'FAILED').length
     const workflowName = String(data.workflowName ?? data.workflowId ?? '—')
     const decisions = Array.isArray(data.approvals) ? (data.approvals as ApprovalDecision[]) : []
-    const pendingApproval = data.pendingApproval as { requestId?: string; stepId?: string } | undefined
+    const pendingApproval = data.pendingApproval as
+        { requestId?: string; stepId?: string; expired?: boolean } | undefined
     // O que rodou, como o backend gravou na criação (RCHFLW-89). Um registro anterior a essa gravação não
     // diz nada, e a tela também não: deduzir pela versão em produção de hoje poderia nomear a errada.
     const ranVersion = data.workflowDraft === true
@@ -539,11 +562,17 @@ export default function ExecutionDetailPage() {
 
             {/* O pedido ainda aberto: leva direto à fila, onde a decisão é tomada. */}
             {pendingApproval?.requestId && (
-                <Alert color="violet" variant="light" icon={<IconHourglass size={16} />}
-                       title={t('executionDetail.pendingApproval.title')} data-testid="execution-pending-approval">
+                // Vencido e ainda não varrido, o pedido já saiu da fila: dizer "aguardando decisão" ali
+                // mandava decidir algo que ninguém decide mais (RCHFLW-126).
+                <Alert color={pendingApproval.expired ? 'gray' : 'violet'} variant="light"
+                       icon={<IconHourglass size={16} />}
+                       title={t(pendingApproval.expired ? 'executionDetail.pendingApproval.expiredTitle'
+                           : 'executionDetail.pendingApproval.title')}
+                       data-testid="execution-pending-approval">
                     <Group justify="space-between" gap="sm" wrap="wrap">
                         <Text size="sm">
-                            {t('executionDetail.pendingApproval.text', {
+                            {t(pendingApproval.expired ? 'executionDetail.pendingApproval.expiredText'
+                                : 'executionDetail.pendingApproval.text', {
                                 step: pendingApproval.stepId
                                     ? (stepLabels.get(pendingApproval.stepId) ?? pendingApproval.stepId) : '—' })}
                         </Text>

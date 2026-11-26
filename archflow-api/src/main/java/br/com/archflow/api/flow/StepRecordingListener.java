@@ -8,6 +8,8 @@ import br.com.archflow.model.flow.FlowResult;
 import br.com.archflow.model.flow.FlowStep;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.Writer;
@@ -37,6 +39,8 @@ import java.util.Objects;
  * todos os {@code recordStep} seguintes da execução.
  */
 public final class StepRecordingListener implements FlowLifecycleListener {
+
+    private static final Logger log = LoggerFactory.getLogger(StepRecordingListener.class);
 
     /** Limite da saída gravada por passo — é diagnóstico, não o resultado oficial. */
     static final int MAX_OUTPUT_CHARS = 4096;
@@ -77,11 +81,21 @@ public final class StepRecordingListener implements FlowLifecycleListener {
         store.recordStep(flow.getId(), step.getId(), patch);
     }
 
+    /**
+     * O erro do passo vai para o registro na frase que a tela mostra (RCHFLW-130): o erro de um provedor de
+     * LLM chegava como o corpo HTTP cru, com o {@code user_id} da conta da plataforma. O texto original fica
+     * no log — é o detalhe técnico que o suporte precisa, e a tela não.
+     */
     @Override
     public void onStepFailed(Flow flow, FlowStep step, ExecutionContext context,
                              Throwable error, long durationMs) {
-        store.recordStep(flow.getId(), step.getId(),
-                finished("FAILED", durationMs, error != null ? error.getMessage() : null));
+        String original = error != null ? error.getMessage() : null;
+        String legivel = ErroDoProvedorLegivel.paraUsuario(original);
+        if (original != null && !original.equals(legivel)) {
+            log.warn("Passo {} da execução {} falhou; resposta do provedor: {}",
+                    step.getId(), flow.getId(), original);
+        }
+        store.recordStep(flow.getId(), step.getId(), finished("FAILED", durationMs, legivel));
     }
 
     @Override
@@ -150,7 +164,7 @@ public final class StepRecordingListener implements FlowLifecycleListener {
         if (value instanceof CharSequence text) {
             return text.length() <= MAX_OUTPUT_CHARS
                     ? text.toString()
-                    : text.subSequence(0, MAX_OUTPUT_CHARS) + TRUNCATED_SUFFIX;
+                    : cortado(text, MAX_OUTPUT_CHARS) + TRUNCATED_SUFFIX;
         }
         BoundedWriter writer = new BoundedWriter(MAX_OUTPUT_CHARS);
         try {
@@ -169,10 +183,24 @@ public final class StepRecordingListener implements FlowLifecycleListener {
     private static String fallbackText(Object value) {
         try {
             String text = String.valueOf(value);
-            return text.length() <= MAX_OUTPUT_CHARS ? text : text.substring(0, MAX_OUTPUT_CHARS) + TRUNCATED_SUFFIX;
+            return text.length() <= MAX_OUTPUT_CHARS ? text : cortado(text, MAX_OUTPUT_CHARS) + TRUNCATED_SUFFIX;
         } catch (RuntimeException | StackOverflowError e) {
             return "<" + value.getClass().getName() + ">";
         }
+    }
+
+    /**
+     * Os primeiros {@code limite} caracteres de um texto maior que isso, sem terminar em meio par surrogate
+     * (RCHFLW-134). O limite conta {@code char}s: um emoji fora do BMP ocupa dois, e cortar entre eles deixava a
+     * metade alta sozinha — a tela mostrava "🎉?…(truncado)" e o JSON do registro levava um caractere inválido.
+     * Cai um {@code char} a menos, nunca um a mais.
+     */
+    static String cortado(CharSequence texto, int limite) {
+        int fim = limite;
+        if (fim > 0 && Character.isHighSurrogate(texto.charAt(fim - 1))) {
+            fim--;
+        }
+        return texto.subSequence(0, fim).toString();
     }
 
     /**
@@ -197,6 +225,12 @@ public final class StepRecordingListener implements FlowLifecycleListener {
             int room = limit - buffer.length();
             if (len > room) {
                 buffer.append(cbuf, off, room);
+                // Estourou: se o último char guardado é a metade alta de um par, a baixa ficou de fora (veio
+                // neste write ou vem no próximo) — sai a metade, como em cortado().
+                int tamanho = buffer.length();
+                if (tamanho > 0 && Character.isHighSurrogate(buffer.charAt(tamanho - 1))) {
+                    buffer.setLength(tamanho - 1);
+                }
                 overflowed = true;
                 throw new IOException("saída do passo excedeu " + limit + " caracteres");
             }

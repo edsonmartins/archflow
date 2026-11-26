@@ -63,12 +63,14 @@ const baseDetails: Record<string, WorkflowDetail> = {
         },
         steps: [
             {
-                id: 'step-agent',
-                type: 'AGENT',
-                componentId: 'agent',
-                operation: 'Ticket Router',
+                // Um nó que o motor executa: o Rodar da lista bloqueia, como o Executar do editor, um fluxo com
+                // nó sem execução (RCHFLW-133) — com 'agent' aqui o modal de entrada nunca abria.
+                id: 'step-input',
+                type: 'input',
+                componentId: 'input',
+                label: 'Ticket Intake',
                 position: { x: 200, y: 150 },
-                configuration: { provider: 'anthropic', model: 'claude-sonnet-4-6' },
+                config: {},
                 connections: [],
             },
         ],
@@ -262,8 +264,11 @@ test.describe('Auth and workflows', () => {
         await page.getByRole('button', { name: 'New Workflow' }).click();
         // The create modal offers scratch / AI / template — take scratch.
         await page.getByTestId('create-blank').click();
-        await expect(page).toHaveURL(/\/editor\/wf-created$/);
+        // RCHFLW-131: o modal abre um rascunho, sem gravar; o fluxo nasce no primeiro Salvar.
+        await expect(page).toHaveURL(/\/editor\?new=1$/);
         await expect(page.getByText('Untitled Workflow')).toBeVisible();
+        await page.getByTestId('editor-save').click();
+        await expect(page).toHaveURL(/\/editor\/wf-created$/);
 
         await page.goto('/workflows');
         await page.getByRole('button', { name: 'Delete' }).nth(1).click();

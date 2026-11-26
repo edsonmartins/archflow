@@ -123,7 +123,9 @@ test.describe('Workflow editor YAML round-trip', () => {
         await saveBtn.click();
 
         // After save the stored YAML should reflect the edit (mock stores it)
-        await expect(page.getByText('YAML saved')).toBeVisible();
+        // exact: o fluxo de exemplo tem um nó 'agent', sem execução, e o Salvar YAML também avisa
+        // "YAML saved, but the workflow cannot run" (RCHFLW-134).
+        await expect(page.getByText('YAML saved', { exact: true })).toBeVisible();
 
         // Switch back to canvas and return to code — should show updated YAML
         await page.getByTestId('editor-tab-canvas').click();

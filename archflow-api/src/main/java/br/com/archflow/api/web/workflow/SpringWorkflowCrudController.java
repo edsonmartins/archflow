@@ -42,6 +42,8 @@ public class SpringWorkflowCrudController {
     private final AuditTrail auditTrail;
     /** Nulo numa instalação sem MCP: o nó falha dizendo isso, e o resto do fluxo segue existindo. */
     private final McpAgentHost mcpAgentHost;
+    /** Trava da conferência de versão + gravação do PUT (ver {@link #update}). */
+    private final Object gravacao = new Object();
 
     public SpringWorkflowCrudController(WorkflowRuntimeStore store,
                                         WorkflowDeserializer deserializer,
@@ -67,8 +69,11 @@ public class SpringWorkflowCrudController {
 
     @GetMapping
     public List<Map<String, Object>> list() {
-        return store.workflows(tenant()).stream()
-                .map(this::toSummary)
+        String tenantId = tenant();
+        // Uma leitura das versões em produção para a lista inteira, e não duas consultas por fluxo.
+        Map<String, Integer> published = store.productionVersionNumbers(tenantId);
+        return store.workflows(tenantId).stream()
+                .map(wf -> toSummary(published, wf))
                 .sorted(Comparator.comparing((Map<String, Object> m) ->
                         m.getOrDefault("updatedAt", "").toString()).reversed())
                 .toList();
@@ -95,20 +100,60 @@ public class SpringWorkflowCrudController {
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
 
+    /**
+     * Grava o documento inteiro por cima do atual.
+     *
+     * <p>Controle de concorrência otimista (RCHFLW-125): quem manda {@code If-Match} com o {@code updatedAt} que
+     * leu só grava se o fluxo continua nessa versão; se outra sessão gravou no meio, a resposta é 409 com o
+     * {@code updatedAt} atual, e o editor pergunta se recarrega ou sobrescreve. Antes o segundo Salvar apagava
+     * em silêncio a mudança do primeiro. 409, e não o 412 que o HTTP prevê para If-Match: o conflito é de
+     * conteúdo, e é o código que o editor trata. Sem o cabeçalho a gravação é a de sempre — o VendaX e os
+     * scripts que fazem PUT direto não mandam versão e não podem passar a falhar.
+     *
+     * <p>A conferência e a gravação ficam sob a mesma trava; sem ela, dois Salvar simultâneos leriam a mesma
+     * versão e os dois passariam. A trava é desta instância: entre réplicas a janela continua aberta.
+     */
     @PutMapping("/{id}")
-    public ResponseEntity<Map<String, Object>> update(@PathVariable String id, @RequestBody Map<String, Object> body) {
+    public ResponseEntity<Map<String, Object>> update(@PathVariable String id, @RequestBody Map<String, Object> body,
+                                                      @RequestHeader(value = "If-Match", required = false)
+                                                      String ifMatch) {
         String tenantId = tenant();
-        if (!store.hasWorkflow(tenantId, id)) return ResponseEntity.notFound().build();
         var updated = new LinkedHashMap<>(body);
-        updated.put("id", id);
-        updated.put("updatedAt", Instant.now().toString());
-        updated.putIfAbsent("status", "draft");
-        updated.putIfAbsent("steps", List.of());
-        updated.putIfAbsent("configuration", Map.of());
-        store.putWorkflow(tenantId, id, updated);
+        synchronized (gravacao) {
+            var atual = store.getWorkflow(tenantId, id);
+            if (atual == null) return ResponseEntity.notFound().build();
+            String esperado = versaoEsperada(ifMatch);
+            if (esperado != null && !esperado.equals(String.valueOf(atual.get("updatedAt")))) {
+                Map<String, Object> conflito = new LinkedHashMap<>();
+                conflito.put("error", "Workflow was changed elsewhere since it was loaded");
+                conflito.put("code", "WORKFLOW_CONFLICT");
+                conflito.put("updatedAt", atual.get("updatedAt"));
+                return ResponseEntity.status(HttpStatus.CONFLICT).body(conflito);
+            }
+            updated.put("id", id);
+            updated.put("updatedAt", Instant.now().toString());
+            updated.putIfAbsent("status", "draft");
+            updated.putIfAbsent("steps", List.of());
+            updated.putIfAbsent("configuration", Map.of());
+            store.putWorkflow(tenantId, id, updated);
+        }
         auditTrail.record(AuditAction.UPDATE, "workflow", id, true, null,
                 Map.of("name", workflowName(updated)));
         return ResponseEntity.ok(updated);
+    }
+
+    /**
+     * O {@code updatedAt} pedido no {@code If-Match}, sem as aspas da entity tag (e sem o {@code W/}); nulo
+     * quando não há pré-condição — cabeçalho ausente, vazio ou {@code *} (qualquer versão serve).
+     */
+    static String versaoEsperada(String ifMatch) {
+        if (ifMatch == null) return null;
+        String valor = ifMatch.trim();
+        if (valor.startsWith("W/")) valor = valor.substring(2).trim();
+        if (valor.length() >= 2 && valor.startsWith("\"") && valor.endsWith("\"")) {
+            valor = valor.substring(1, valor.length() - 1);
+        }
+        return valor.isEmpty() || "*".equals(valor) ? null : valor;
     }
 
     /**
@@ -242,10 +287,7 @@ public class SpringWorkflowCrudController {
         String tenantId = tenant();
         var draft = store.getWorkflow(tenantId, id);
         if (draft == null) return ResponseEntity.notFound().build();
-        var deployment = store.getDeployment(tenantId, id, "PRODUCTION");
-        var version = deployment == null
-                ? null
-                : store.getWorkflowVersion(tenantId, id, deployment.versionId());
+        var version = productionVersion(tenantId, id);
         // Compatibility window: legacy workflows without a deployment still run
         // their draft. Every new publish pins subsequent executions to a snapshot.
         var workflow = version == null ? draft : version.document();
@@ -324,7 +366,17 @@ public class SpringWorkflowCrudController {
 
     // ── helpers ──────────────────────────────────────────────────
 
-    private Map<String, Object> toSummary(Map<String, Object> wf) {
+    /**
+     * A versão que o {@code /execute} roda: a implantada em PRODUCTION, ou {@code null} quando não há
+     * implantação (ou ela aponta para uma versão que não existe) e roda o rascunho. Uma regra só para o
+     * execute e para a lista: o selo do card diz o que o Rodar executa (RCHFLW-132).
+     */
+    private WorkflowVersionRecord productionVersion(String tenantId, String workflowId) {
+        var deployment = store.getDeployment(tenantId, workflowId, "PRODUCTION");
+        return deployment == null ? null : store.getWorkflowVersion(tenantId, workflowId, deployment.versionId());
+    }
+
+    private Map<String, Object> toSummary(Map<String, Integer> published, Map<String, Object> wf) {
         // Null-safe accessors: a malformed workflow JSON document (e.g.
         // metadata stored as a string instead of a map) would previously
         // ClassCastException through the controller and return 500. Fall
@@ -336,15 +388,21 @@ public class SpringWorkflowCrudController {
                 .count();
         // Map.of recusa nulo, e getOrDefault devolve o nulo quando a chave existe — o "Salvar YAML" grava
         // metadata com description/author nulos, e um único fluxo assim derrubava a lista do tenant (500).
-        return Map.of(
-                "id", valorOu(wf, "id", ""),
-                "name", valorOu(meta, "name", "Untitled"),
-                "description", valorOu(meta, "description", ""),
-                "version", valorOu(meta, "version", "1.0.0"),
-                "status", valorOu(wf, "status", "draft"),
-                "updatedAt", valorOu(wf, "updatedAt", ""),
-                "stepCount", stepCount
-        );
+        Map<String, Object> summary = new LinkedHashMap<>();
+        summary.put("id", valorOu(wf, "id", ""));
+        summary.put("name", valorOu(meta, "name", "Untitled"));
+        summary.put("description", valorOu(meta, "description", ""));
+        summary.put("version", valorOu(meta, "version", "1.0.0"));
+        // "status" é o rótulo do ciclo de vida (draft/active/archived) que o "Ativar" troca: nada na execução
+        // o lê. O que o Rodar executa é a versão em PRODUCTION — "Publicar" no editor —, e o card mostrava o
+        // rótulo como se fosse isso: "Rascunho" num fluxo com a v1 em produção, "Ativo" num que rodava o
+        // rascunho (RCHFLW-132). publishedVersion é o número da versão que o Rodar executa, ou null quando
+        // ele roda o rascunho — a mesma regra do productionVersion do /execute.
+        summary.put("status", valorOu(wf, "status", "draft"));
+        summary.put("publishedVersion", published.get(String.valueOf(valorOu(wf, "id", ""))));
+        summary.put("updatedAt", valorOu(wf, "updatedAt", ""));
+        summary.put("stepCount", stepCount);
+        return summary;
     }
 
     /** O valor da chave, ou o padrão quando ela falta <b>ou</b> é nula. */

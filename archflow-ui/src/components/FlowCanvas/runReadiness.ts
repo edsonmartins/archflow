@@ -4,7 +4,7 @@ import {
   CONNECTION_FIELD_BY_BACKEND, MEMORY_ROLE_NATIVE_KEY, NODE_TYPES_WITHOUT_DEFAULT_OPERATION, PANEL_OPERATIONS,
   knowledgeBaseOf,
 } from './dataNodeKeys'
-import { USER_MESSAGE_FIELD, invalidControlExpressions, type ExpressionProblem } from './controlExpressions'
+import { USER_MESSAGE_FIELD, invalidControlExpressions, withDoubleEquals, type ExpressionProblem } from './controlExpressions'
 import { decisionConfigFindings, decisionModelMissing, type DecisionProblem } from './decisionReadiness'
 
 /**
@@ -241,7 +241,11 @@ export function runBlockersMessage(t: TFunction, blockers: RunBlockers): string 
   if (blockers.invalidExpressions?.length) {
     parts.push(t('editor.notif.runBlockedInvalidExpression', {
       fields: blockers.invalidExpressions.map(m => `"${m.label}" → ${t(m.labelKey)}: `
-        + t(`editor.notif.expressionProblem.${m.problem}`, { fragment: m.fragment, root: m.fragment.split('.')[0] }))
+        + t(`editor.notif.expressionProblem.${m.problem}`, {
+          fragment: m.fragment, root: m.fragment.split('.')[0],
+          // O = sozinho ganha a expressão corrigida: "use ==" sem o exemplo deixava o usuário procurando onde.
+          ...(m.problem === 'SINGLE_EQUALS' ? { suggestion: withDoubleEquals(m.fragment) } : {}),
+        }))
         .join('; '),
     }))
   }

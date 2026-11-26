@@ -306,6 +306,36 @@ public class JdbcWorkflowRuntimeStore implements WorkflowRuntimeStore {
         return getWorkflowVersion(tenantId, workflowId, versionId);
     }
 
+    /**
+     * Uma consulta para a lista inteira: a implantação PRODUCTION de cada fluxo do tenant com o número da versão
+     * para onde ela aponta. O join com a versão faz a implantação órfã cair fora, como no {@code /execute}; o com o
+     * documento restringe ao tenant (a mesma regra do {@code owns}). O documento da versão não é lido.
+     */
+    @Override
+    public Map<String, Integer> productionVersionNumbers(String tenantId) {
+        String sql = """
+                SELECT d.workflow_id, v.version_no
+                  FROM workflow_deployments d
+                  JOIN workflow_versions v ON v.id = d.version_id AND v.workflow_id = d.workflow_id
+                  JOIN workflow_documents w ON w.id = d.workflow_id
+                 WHERE w.tenant_id = ? AND d.environment = ?
+                """;
+        Map<String, Integer> numbers = new java.util.HashMap<>();
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, DefaultTenant.orDefault(tenantId));
+            ps.setString(2, normalizeEnvironment("PRODUCTION"));
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    numbers.put(rs.getString("workflow_id"), rs.getInt("version_no"));
+                }
+            }
+            return numbers;
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to load production versions", e);
+        }
+    }
+
     @Override
     public WorkflowDeploymentRecord getDeployment(String tenantId, String workflowId, String environment) {
         if (!owns(tenantId, workflowId)) {
@@ -498,7 +528,7 @@ public class JdbcWorkflowRuntimeStore implements WorkflowRuntimeStore {
             }
             execution.put("status", status);
             execution.put("completedAt", Instant.now().toString());
-            execution.put("error", error);
+            execution.put("error", WorkflowRuntimeStore.failureSummary(execution, status, error));
             return true;
         });
         // Ignorado, o registro já é terminal: o lock que a escrita recriou também sai.

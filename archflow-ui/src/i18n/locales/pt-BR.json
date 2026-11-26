@@ -267,18 +267,24 @@
     "workflows": {
         "stats": {
             "total": "Workflows",
-            "active": "Ativos",
-            "draft": "Rascunhos",
+            "published": "Publicados",
+            "unpublished": "Só rascunho",
             "attention": "Pedem atenção"
         },
         "hints": {
             "total_one": "{{count}} etapa no total",
             "total_other": "{{count}} etapas no total",
-            "active": "Prontos para rodar",
-            "draft": "Ainda em desenho",
+            "published": "O Rodar executa a versão publicada",
+            "unpublished": "O Rodar executa o rascunho salvo",
             "attention": "Pausados ou com falha"
         },
         "showing": "{{shown}} de {{total}} workflows",
+        "publishVsActivate": "Publicar (no editor) fixa a versão que o Rodar executa; Ativar só marca o fluxo como ativo nesta lista e não muda o que roda.",
+        "lifecycleHint": "Rótulo do Ativar: organiza a lista e não muda o que o Rodar executa — para isso, publique no editor.",
+        "runs": {
+            "published": "Publicada v{{number}}",
+            "draft": "Rascunho"
+        },
         "clearSearch": "Limpar busca",
         "noDescription": "Sem descrição",
         "card": {
@@ -319,7 +325,7 @@
         "actions": {
             "run": "Rodar",
             "activate": "Ativar",
-            "deactivate": "Voltar para rascunho",
+            "deactivate": "Desativar",
             "execute": "Executar",
             "edit": "Editar",
             "delete": "Excluir"
@@ -359,6 +365,32 @@
         "savedRelative": "Salvo {{time}}",
         "untitled": "Fluxo sem título",
         "renameHint": "Clique para renomear",
+        "renameEmpty": "Nome vazio",
+        "renameEmptyMsg": "O fluxo precisa de um nome. O nome anterior foi mantido.",
+        "renameDuplicate": "Nome repetido",
+        "renameDuplicateMsg": "Já existe outro fluxo chamado \"{{name}}\". O nome foi aceito, mas os dois vão se confundir na lista e no filtro de Execuções.",
+        "codeAfterSave": "Salve o fluxo para editar o YAML",
+        "unsaved": {
+            "badge": "Não salvo",
+            "title": "Alterações não salvas",
+            "message": "Este fluxo tem alterações que ainda não foram salvas. Se sair agora, elas se perdem.",
+            "stay": "Continuar editando",
+            "discard": "Descartar e sair",
+            "save": "Salvar e sair"
+        },
+        "conflict": {
+            "title": "Fluxo alterado em outro lugar",
+            "message": "Este fluxo foi alterado em outro lugar depois que você o abriu. Recarregue para ver a versão atual (suas alterações não salvas se perdem) ou sobrescreva para gravar a sua por cima da outra.",
+            "reload": "Recarregar",
+            "overwrite": "Sobrescrever",
+            "reloadFailedMsg": "Não foi possível recarregar a versão atual. O que está na tela continua como estava; tente de novo."
+        },
+        "discardYaml": {
+            "title": "Descartar o YAML não salvo?",
+            "message": "O YAML editado ainda não foi salvo. Ao voltar para o Canvas, essa edição é descartada.",
+            "stay": "Continuar no YAML",
+            "confirm": "Descartar e voltar"
+        },
         "yamlInvalidAt": "YAML inválido na linha {{line}}, coluna {{column}}: {{reason}}",
         "yamlInvalidAtLine": "YAML inválido na linha {{line}}: {{reason}}",
         "yamlInvalid": "YAML inválido: {{reason}}",
@@ -374,6 +406,7 @@
             "yamlSavedMsg": "Fluxo atualizado a partir do YAML",
             "yamlError": "Erro no YAML",
             "yamlErrorMsg": "Falha ao salvar o YAML",
+            "yamlNotExecutable": "YAML salvo, mas o fluxo não executa",
             "saved": "Salvo",
             "savedMsg": "Fluxo salvo com sucesso",
             "saveError": "Erro",
@@ -405,6 +438,7 @@
                 "UNKNOWN_STEP": "«{{fragment}}» não é a saída de nenhum passo do fluxo — use o id do nó, não o rótulo; se «{{root}}» é uma chave do JSON de entrada, declare-a em «Campos de entrada esperados» do nó Entrada",
                 "TEXT_OUTPUT_FIELD": "«{{fragment}}» lê um campo da saída de um LLM Chat, que é só o texto da resposta — compare o texto (contains) ou classifique com um nó Decisão",
                 "NO_REFERENCE": "«{{fragment}}» não lê nenhum ${…}: o valor é sempre o mesmo e o ramo nunca muda",
+                "SINGLE_EQUALS": "«{{fragment}}» usa = sozinho, que não compara — para comparar, use == («{{suggestion}}»)",
                 "MALFORMED_TEMPLATE": "«{{fragment}}» não é uma referência — escreva ${caminho}, com a chave fechada e um caminho dentro; fora de ${} o texto vai ao modelo como está"
             },
             "runBlockedInvalidDecision": "Decisão que o motor recusa: {{fields}}.",
@@ -1800,12 +1834,16 @@
             "comment": "Comentário",
             "approved": "Aprovado",
             "rejected": "Recusado",
-            "timeout": "Recusado pelo prazo (ninguém decidiu)"
+            "timeout": "Recusado pelo prazo (ninguém decidiu)",
+            "edited": "Aprovado com edição",
+            "editedPayload": "Proposta aprovada"
         },
         "pendingApproval": {
             "title": "Aguardando decisão humana",
             "text": "O portão {{step}} espera uma decisão na fila de Aprovações.",
-            "open": "Abrir na fila de Aprovações"
+            "open": "Abrir na fila de Aprovações",
+            "expiredTitle": "Prazo da aprovação vencido",
+            "expiredText": "O prazo do portão {{step}} venceu: ninguém decide mais, e o sistema registra a recusa automática."
         },
         "stepsHint": "Na ordem de execução; etapas com falha já abrem expandidas",
         "noStepsTitle": "Nenhuma etapa registrada",
@@ -1902,15 +1940,15 @@
         "recentExecutionsHint": "As últimas execuções de todos os fluxos",
         "quickActions": "Ações rápidas",
         "hints": {
-            "workflows": "{{count}} ativos",
-            "active": "Rodando em produção",
+            "workflows": "{{count}} publicados",
+            "published": "Com versão publicada em produção",
             "failedRuns": "Nas últimas {{count}} execuções",
             "failedNone": "Nenhuma falha — tudo certo",
             "pendingApprovals": "Aguardando decisão humana"
         },
         "stats": {
             "workflows": "Workflows",
-            "active": "Ativos",
+            "published": "Publicados",
             "failedRuns": "Falhas recentes",
             "pendingApprovals": "Aprovações pendentes"
         },
@@ -2405,7 +2443,7 @@
         },
         "title": "Fila de aprovações",
         "subtitle": "Decisões pendentes de humano (HITL). Clique em uma linha para revisar a proposta e decidir.",
-        "search": "Buscar por id da solicitação, id do fluxo, descrição...",
+        "search": "Buscar por fluxo, id da solicitação, id da execução, descrição...",
         "pending": "{{count}} pendente(s)",
         "empty": "Nenhuma aprovação pendente.",
         "loadError": "Falha ao carregar aprovações",
@@ -2424,7 +2462,7 @@
             "request": "Solicitação",
             "requestHint": "De onde vem esta decisão",
             "proposalHint": "O que o fluxo fará se for aprovado",
-            "proposalEditHint": "Edite o JSON — ele substitui a proposta ao aprovar",
+            "proposalEditHint": "Edite o JSON — ao aprovar, ele substitui a proposta e é o que segue para o próximo passo",
             "decisionHint": "Registrada em nome de quem está autenticado, com o seu comentário",
             "comment": "Comentário",
             "heading": "Aprovação {{id}}",
@@ -2449,7 +2487,18 @@
             "decidedAt": "Quando",
             "decidedComment": "Comentário",
             "submitFailed": "Falha ao enviar decisão",
-            "invalidJson": "Payload editado não é um JSON válido"
+            "invalidJson": "Payload editado não é um JSON válido",
+            "execution": "Execução",
+            "editedPayload": "Proposta aprovada (editada)",
+            "expiredTitle": "Prazo vencido",
+            "expiredText": "O prazo desta aprovação venceu e ela não pode mais ser decidida. O sistema registra a recusa automática."
+        },
+        "status": {
+            "PENDING": "Pendente",
+            "APPROVED": "Aprovada",
+            "EDITED": "Aprovada com edição",
+            "REJECTED": "Rejeitada",
+            "EXPIRED": "Expirada"
         },
         "time": {
             "expired": "expirada",

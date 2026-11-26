@@ -35,7 +35,7 @@ class WebMvcConfigurationCorsTest {
         assertThat(config.getAllowedHeaders())
                 .doesNotContain("*")
                 .containsExactlyInAnyOrder("Authorization", "Content-Type", "Accept",
-                        "X-Tenant-Id", "X-Impersonate-Tenant", "X-User-Id");
+                        "X-Tenant-Id", "X-Impersonate-Tenant", "X-User-Id", "If-Match");
         assertThat(config.getAllowedOrigins()).containsExactly("http://localhost:5173");
         assertThat(config.getAllowCredentials()).isTrue();
         assertThat(config.getExposedHeaders()).containsExactly("Authorization");

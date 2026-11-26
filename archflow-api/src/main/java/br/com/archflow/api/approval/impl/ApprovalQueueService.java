@@ -216,7 +216,10 @@ public class ApprovalQueueService {
         Objects.requireNonNull(requestId, "requestId");
         return findPendingByRequestId(requestId)
                 .filter(state -> inScope(tenantScope, state.getTenantId()))
-                .map(state -> toResponse(state, "PENDING"))
+                // Vencida e ainda não varrida, ela some da fila — e o detalhe dizia PENDING, com os
+                // botões ativos, até o sweeper passar (RCHFLW-126). O status já é EXPIRED; a recusa em
+                // si continua sendo só do sweeper, como system:timeout: ler não decide nada.
+                .map(state -> toResponse(state, isExpired(state) ? "EXPIRED" : "PENDING"))
                 .or(() -> pendenciaDoLaco(requestId)
                         .filter(p -> inScope(tenantScope, p.tenantId()))
                         .map(ApprovalQueueService::doLaco))
@@ -250,10 +253,13 @@ public class ApprovalQueueService {
         // O prazo também "decide" (sempre recusando); a fila o mostra como EXPIRED, não como
         // uma recusa de alguém.
         String status = TIMEOUT_DECIDER.equals(decidedBy) ? "EXPIRED" : blankToNull(entry.get("decision"));
+        // A proposta editada, ao contrário da proposta do portão corrente, é desta entrada: mostrá-la
+        // é mostrar o que foi aprovado de fato (RCHFLW-121).
         return Optional.of(new ApprovalResponse(requestId, state.getTenantId(), state.getFlowId(),
                 blankToNull(entry.get("stepId")), status,
                 null, null, null, null, null,
-                decidedBy, parseInstant(blankToNull(entry.get("decidedAt"))), blankToNull(entry.get("comment"))));
+                decidedBy, parseInstant(blankToNull(entry.get("decidedAt"))), blankToNull(entry.get("comment")),
+                flowNameOf(state.getTenantId(), state.getFlowId()), entry.get("editedPayload")));
     }
 
     private Optional<br.com.archflow.api.agent.mcp.RetomadaDoLaco.Pendencia> pendenciaDoLaco(
@@ -303,19 +309,32 @@ public class ApprovalQueueService {
             // Uma proposta vencida descreve um mundo que já mudou. Executá-la
             // agora pode ser pior do que não fazer nada — quem decide precisa
             // ver a situação atual, não a de ontem.
-            throw new IllegalStateException("Approval expired: " + requestId);
+            // Em português e com o que aconteceu: a tela mostra esta mensagem a quem tentou decidir.
+            throw new IllegalStateException("O prazo desta aprovação venceu"
+                    + Optional.ofNullable(expiresAt(state)).map(at -> " em " + at).orElse("")
+                    + " e ela não pode mais ser decidida: o sistema a recusa automaticamente "
+                    + "(pedido " + requestId + ")");
+        }
+        Object editedPayload = "EDITED".equals(decision) ? request.editedPayload() : null;
+        if ("EDITED".equals(decision) && editedPayload == null) {
+            // Sem a proposta editada, "editado" seria uma aprovação comum registrada com outro nome.
+            throw new IllegalArgumentException("EDITED exige editedPayload com a proposta editada");
         }
         // Capturado ANTES de submeter: a submissão troca o status e consome o
         // requestId, então o estado pendente deixa de ser encontrável.
         ApprovalResponse snapshot = toResponse(state, decision);
 
         boolean approved = !"REJECTED".equals(decision);
-        Object editedPayload = "EDITED".equals(decision) ? request.editedPayload() : null;
 
         CompletableFuture<FlowResult> run;
         try {
-            run = flowEngine.submitApproval(state.getFlowId(), requestId, approved, editedPayload,
-                    request.responderId(), request.comment());
+            // A edição vai ao motor como edição, não como "aprovado com payload": é o que a registra
+            // como EDITED e faz o passo de aprovação entregar a proposta editada (RCHFLW-121).
+            run = editedPayload != null
+                    ? flowEngine.submitEditedApproval(state.getFlowId(), requestId, editedPayload,
+                            request.responderId(), request.comment())
+                    : flowEngine.submitApproval(state.getFlowId(), requestId, approved, null,
+                            request.responderId(), request.comment());
         } catch (RuntimeException e) {
             // O motor é a autoridade: uma corrida (duas submissões simultâneas)
             // é barrada lá, não aqui. Também é lá que uma aprovação que não teria
@@ -426,7 +445,7 @@ public class ApprovalQueueService {
         return new ApprovalResponse(r.requestId(), r.tenantId(), r.flowId(), r.stepId(), r.status(),
                 r.title(), r.description(), r.proposal(), r.createdAt(), r.expiresAt(),
                 blankToNull(decided.get("decidedBy")), parseInstant(blankToNull(decided.get("decidedAt"))),
-                blankToNull(decided.get("comment")));
+                blankToNull(decided.get("comment")), r.flowName(), decided.get("editedPayload"));
     }
 
     private static String blankToNull(Object value) {
@@ -465,7 +484,8 @@ public class ApprovalQueueService {
         return new ApprovalResponse(pendencia.requestId(), pendencia.tenantId(), pendencia.runId(),
                 pendencia.toolName(), decision, null, "Execução da tool " + pendencia.toolName(),
                 pendencia.argumentos(), pendencia.suspensoEm(), null,
-                blankToNull(request.responderId()), clock.instant(), blankToNull(request.comment()));
+                blankToNull(request.responderId()), clock.instant(), blankToNull(request.comment()),
+                null, argumentos);
     }
 
     /** Número de aprovações pendentes — usado pelo badge da navbar. */
@@ -545,6 +565,12 @@ public class ApprovalQueueService {
                 // novo, então é aqui que o passo ganha o desfecho — senão ficaria aguardando para
                 // sempre numa execução encerrada. Antes do completeExecution, que fecha o registro.
                 gateRejected(store, flowId);
+                // A recusa encerra a execução sem lifecycle do motor, então ninguém mais grava a
+                // duração: ficava a do trecho até o portão (19 ms para 5 min de espera, RCHFLW-127).
+                // Zero aqui é "sem travessia medida" — o store conta do startedAt até agora. Antes do
+                // completeExecution: no store JDBC ele solta o lock da execução, e uma escrita depois
+                // o recriaria para nunca mais sair.
+                store.recordDuration(flowId, 0L);
                 store.completeExecution(flowId, "STOPPED", motivoDoEncerramento(flowId));
             });
             return;
@@ -692,6 +718,38 @@ public class ApprovalQueueService {
         return timeout;
     }
 
+    /**
+     * O prazo do pedido que a execução espera, ou {@code null} quando ela não espera decisão ou não
+     * tem prazo. É a mesma regra da fila: o detalhe da execução não pode dizer "aguardando" de um
+     * pedido que a fila já trata como vencido (RCHFLW-126).
+     */
+    public Instant deadlineOf(FlowState state) {
+        return ExecutionKeys.aguardaDecisaoHumana(state) ? expiresAt(state) : null;
+    }
+
+    /** Se o pedido que a execução espera já venceu (e o sweeper ainda não o recusou). */
+    public boolean isPendingExpired(FlowState state) {
+        return ExecutionKeys.aguardaDecisaoHumana(state) && isExpired(state);
+    }
+
+    /**
+     * Quanto falta para o próximo pedido pendente vencer, ou vazio quando nenhum vence no futuro.
+     *
+     * <p>O sweeper usa isto para rodar no vencimento, e não só no intervalo fixo: com 5 min de
+     * intervalo, um pedido vencido ficava minutos fora da fila mas PENDING na API e "aguardando" no
+     * detalhe da execução (RCHFLW-126). Só prazos futuros contam — um vencido que não pôde ser
+     * recusado não pode pôr a varredura em laço.</p>
+     */
+    public Optional<Duration> untilNextExpiry() {
+        Instant now = clock.instant();
+        return pendingStates().stream()
+                .map(this::expiresAt)
+                .filter(Objects::nonNull)
+                .filter(deadline -> deadline.isAfter(now))
+                .min(Comparator.naturalOrder())
+                .map(deadline -> Duration.between(now, deadline));
+    }
+
     private boolean isExpired(FlowState state) {
         Instant deadline = expiresAt(state);
         return deadline != null && clock.instant().isAfter(deadline);
@@ -730,7 +788,26 @@ public class ApprovalQueueService {
                 // Nulo quando não há timeout configurado — o campo informa o
                 // prazo real, não um valor inventado.
                 expiresAt(state),
-                null, null, null);
+                null, null, null,
+                flowNameOf(state.getTenantId(), state.getFlowId()), null);
+    }
+
+    /**
+     * O nome do fluxo da execução, lido do registro de execuções. O estado do motor só conhece a
+     * execução; a fila mostrava "exec-249a1515 · ap" onde a pessoa procura o fluxo (RCHFLW-129).
+     * Nulo sem registro (motor sozinho) ou sem nome — a tela cai no id, nunca num nome inventado.
+     */
+    private String flowNameOf(String tenantId, String executionId) {
+        if (executionRecords == null || executionId == null) {
+            return null;
+        }
+        try {
+            Map<String, Object> execution = executionRecords.getExecution(tenantId, executionId);
+            return execution != null ? blankToNull(execution.get("workflowName")) : null;
+        } catch (RuntimeException e) {
+            log.debug("Nome do fluxo da execução {} indisponível: {}", executionId, e.getMessage());
+            return null;
+        }
     }
 
     private static Object rawVariable(FlowState state, String key) {

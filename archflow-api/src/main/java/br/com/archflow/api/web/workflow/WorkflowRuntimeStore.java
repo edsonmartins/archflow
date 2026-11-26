@@ -143,6 +143,33 @@ public interface WorkflowRuntimeStore {
     WorkflowDeploymentRecord deployWorkflow(
             String tenantId, String workflowId, String environment, String versionId);
 
+    /**
+     * O número da versão implantada em PRODUCTION de cada fluxo do tenant que tem uma — a que o {@code /execute}
+     * roda (RCHFLW-132). Fluxo sem implantação, ou com implantação que aponta para versão inexistente, fica fora
+     * do mapa: roda o rascunho.
+     *
+     * <p>Existe para a lista de fluxos não pagar uma implantação + uma versão (com o documento inteiro) por
+     * fluxo a cada carga da lista e do Dashboard. Esta implementação faz exatamente isso e serve para o store
+     * em memória, onde cada chamada é um acesso a mapa; o JDBC sobrescreve com uma consulta só.</p>
+     */
+    default Map<String, Integer> productionVersionNumbers(String tenantId) {
+        Map<String, Integer> numbers = new java.util.HashMap<>();
+        for (Map<String, Object> wf : workflows(tenantId)) {
+            Object id = wf.get("id");
+            if (id == null) {
+                continue;
+            }
+            WorkflowDeploymentRecord deployment = getDeployment(tenantId, id.toString(), "PRODUCTION");
+            WorkflowVersionRecord version = deployment == null
+                    ? null
+                    : getWorkflowVersion(tenantId, id.toString(), deployment.versionId());
+            if (version != null) {
+                numbers.put(id.toString(), version.number());
+            }
+        }
+        return numbers;
+    }
+
     // ----------------------------------------------------------------- executions
 
     /**
@@ -196,6 +223,39 @@ public interface WorkflowRuntimeStore {
      * {@link #isStaleStatus} diz que ela apagaria um desfecho já gravado.</p>
      */
     void completeExecution(String id, String status, String error);
+
+    /**
+     * O erro a gravar no fim da execução (RCHFLW-130): o que o chamador passou, em frase legível, ou — numa
+     * FAILED sem erro — o dos passos que falharam.
+     *
+     * <p>Quando um passo falha, o motor não lança: devolve um {@code FlowResult} FAILED, e os chamadores
+     * ({@code /execute}, AG-UI, retomada, aprovação) só passam o erro de uma exceção. A execução ficava
+     * "Falhou" com a coluna Erro em branco, e o motivo só aparecia abrindo o passo no detalhe. O passo já
+     * gravou o erro dele ({@code StepRecordingListener}) antes de o fluxo terminar; ler daqui vale para todo
+     * chamador, inclusive um novo, e é a mesma regra do invoke do VendaX ({@code AgentFlowRunner.errosDe}): as
+     * mensagens unidas por "; ". A frase do provedor de LLM sai sem o corpo HTTP cru
+     * ({@link br.com.archflow.api.flow.ErroDoProvedorLegivel}).</p>
+     *
+     * @param execution o registro, lido sob o lock da escrita
+     * @param status    o status que vai ser gravado
+     * @param error     o erro que o chamador passou (pode ser {@code null})
+     */
+    static String failureSummary(Map<String, Object> execution, String status, String error) {
+        if (error != null && !error.isBlank()) {
+            return br.com.archflow.api.flow.ErroDoProvedorLegivel.paraUsuario(error);
+        }
+        if (!"FAILED".equals(status) || !(execution.get("steps") instanceof List<?> steps)) {
+            return error;
+        }
+        String fromSteps = steps.stream()
+                .filter(step -> step instanceof Map<?, ?> m && "FAILED".equals(String.valueOf(m.get("status"))))
+                .map(step -> ((Map<?, ?>) step).get("error"))
+                .filter(e -> e != null && !e.toString().isBlank())
+                .map(e -> br.com.archflow.api.flow.ErroDoProvedorLegivel.paraUsuario(e.toString()))
+                .distinct()
+                .collect(java.util.stream.Collectors.joining("; "));
+        return fromSteps.isEmpty() ? error : fromSteps;
+    }
 
     /**
      * {@code true} quando gravar {@code incoming} sobre {@code current} trocaria um desfecho

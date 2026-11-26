@@ -324,6 +324,48 @@ class RegistryFlowLifecycleListenerTest {
         }
     }
 
+    /**
+     * RCHFLW-130: os eventos de falha chegam à tela (Executar do editor via AG-UI, eventos ao vivo), e a mensagem
+     * de um passo de LLM é o corpo HTTP do provedor com o {@code user_id} da conta. Quem sabe deixá-la legível
+     * é o servidor; aqui só se prova que a função dele é aplicada a todo texto de erro que sai no stream.
+     */
+    @Nested
+    @DisplayName("texto de erro reescrito antes de sair no stream")
+    class MensagemDeErro {
+
+        private final List<ArchflowEvent> eventos = new CopyOnWriteArrayList<>();
+
+        @BeforeEach
+        void comFuncao() {
+            listener = new RegistryFlowLifecycleListener(streamRegistry, runningRegistry,
+                    m -> m == null ? null : "legível(" + m + ")");
+            streamRegistry.createEmitter("flow-1").onSend(eventos::add);
+        }
+
+        @Test
+        @DisplayName("step_failed, flow_failed e o FAILED do onFlowCompleted passam pela função")
+        void todaFalha() {
+            listener.onStepFailed(flow, step, context, new RuntimeException("{corpo}"), 5L);
+            listener.onFlowFailed(flow, context, new RuntimeException("{fluxo}"), 6L);
+            when(result.getStatus()).thenReturn(ExecutionStatus.FAILED);
+            when(result.getErrors()).thenReturn(List.of(
+                    ExecutionError.of("STEP_FAILED", "{resultado}", ExecutionErrorType.EXECUTION)));
+            listener.onFlowCompleted(flow, context, result, 7L);
+
+            assertThat(eventos).extracting(e -> e.getData("error")).containsExactly(
+                    "legível({corpo})", "legível({fluxo})", "legível({resultado})");
+        }
+
+        @Test
+        @DisplayName("sem função (construtor de dois argumentos) o texto sai como veio")
+        void semFuncao() {
+            listener = new RegistryFlowLifecycleListener(streamRegistry, runningRegistry);
+            listener.onStepFailed(flow, step, context, new RuntimeException("{corpo}"), 5L);
+
+            assertThat(eventos).extracting(e -> e.getData("error")).containsExactly("{corpo}");
+        }
+    }
+
     @Nested
     @DisplayName("exception safety")
     class ExceptionSafety {

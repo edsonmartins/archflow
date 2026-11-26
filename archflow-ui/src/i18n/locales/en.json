@@ -267,18 +267,24 @@
     "workflows": {
         "stats": {
             "total": "Workflows",
-            "active": "Active",
-            "draft": "Drafts",
+            "published": "Published",
+            "unpublished": "Draft only",
             "attention": "Need attention"
         },
         "hints": {
             "total_one": "{{count}} step in total",
             "total_other": "{{count}} steps in total",
-            "active": "Ready to run",
-            "draft": "Still being designed",
+            "published": "Run executes the published version",
+            "unpublished": "Run executes the saved draft",
             "attention": "Paused or failed"
         },
         "showing": "{{shown}} of {{total}} workflows",
+        "publishVsActivate": "Publish (in the editor) pins the version that Run executes; Activate only marks the flow as active in this list and does not change what runs.",
+        "lifecycleHint": "Activate label: organizes the list and does not change what Run executes — publish in the editor for that.",
+        "runs": {
+            "published": "Published v{{number}}",
+            "draft": "Draft"
+        },
         "clearSearch": "Clear search",
         "noDescription": "No description",
         "card": {
@@ -319,7 +325,7 @@
         "actions": {
             "run": "Run",
             "activate": "Activate",
-            "deactivate": "Back to draft",
+            "deactivate": "Deactivate",
             "execute": "Execute",
             "edit": "Edit",
             "delete": "Delete"
@@ -359,6 +365,32 @@
         "savedRelative": "Saved {{time}}",
         "untitled": "Untitled workflow",
         "renameHint": "Click to rename",
+        "renameEmpty": "Empty name",
+        "renameEmptyMsg": "The workflow needs a name. The previous name was kept.",
+        "renameDuplicate": "Duplicate name",
+        "renameDuplicateMsg": "Another workflow is already called \"{{name}}\". The name was accepted, but the two will be hard to tell apart in the list and in the Executions filter.",
+        "codeAfterSave": "Save the workflow to edit its YAML",
+        "unsaved": {
+            "badge": "Unsaved",
+            "title": "Unsaved changes",
+            "message": "This workflow has changes that have not been saved. If you leave now, they will be lost.",
+            "stay": "Keep editing",
+            "discard": "Discard and leave",
+            "save": "Save and leave"
+        },
+        "conflict": {
+            "title": "Workflow changed elsewhere",
+            "message": "This workflow was changed elsewhere after you opened it. Reload to see the current version (your unsaved changes are lost) or overwrite to save yours over the other one.",
+            "reload": "Reload",
+            "overwrite": "Overwrite",
+            "reloadFailedMsg": "The current version could not be reloaded. What is on screen stays as it was; try again."
+        },
+        "discardYaml": {
+            "title": "Discard the unsaved YAML?",
+            "message": "The edited YAML has not been saved. Going back to the Canvas discards this edit.",
+            "stay": "Stay in YAML",
+            "confirm": "Discard and go back"
+        },
         "yamlInvalidAt": "Invalid YAML at line {{line}}, column {{column}}: {{reason}}",
         "yamlInvalidAtLine": "Invalid YAML at line {{line}}: {{reason}}",
         "yamlInvalid": "Invalid YAML: {{reason}}",
@@ -374,6 +406,7 @@
             "yamlSavedMsg": "Workflow updated from YAML",
             "yamlError": "YAML error",
             "yamlErrorMsg": "Failed to save YAML",
+            "yamlNotExecutable": "YAML saved, but the workflow cannot run",
             "saved": "Saved",
             "savedMsg": "Workflow saved successfully",
             "saveError": "Error",
@@ -405,6 +438,7 @@
                 "UNKNOWN_STEP": "«{{fragment}}» is not the output of any step in the flow — use the node id, not its label; if «{{root}}» is a key of the run input JSON, declare it in «Expected input fields» of the Input node",
                 "TEXT_OUTPUT_FIELD": "«{{fragment}}» reads a field of an LLM Chat output, which is only the reply text — compare the text (contains) or classify with a Decision node",
                 "NO_REFERENCE": "«{{fragment}}» reads no ${…}: the value never changes and neither does the branch",
+                "SINGLE_EQUALS": "«{{fragment}}» uses a single =, which does not compare — to compare, use == («{{suggestion}}»)",
                 "MALFORMED_TEMPLATE": "«{{fragment}}» is not a reference — write ${path}, with the brace closed and a path inside; outside ${} the text goes to the model as is"
             },
             "runBlockedInvalidDecision": "Decision the engine refuses: {{fields}}.",
@@ -1800,12 +1834,16 @@
             "comment": "Comment",
             "approved": "Approved",
             "rejected": "Rejected",
-            "timeout": "Rejected by the deadline (nobody decided)"
+            "timeout": "Rejected by the deadline (nobody decided)",
+            "edited": "Approved with edits",
+            "editedPayload": "Approved proposal"
         },
         "pendingApproval": {
             "title": "Awaiting a human decision",
             "text": "Gate {{step}} is waiting for a decision in the Approvals queue.",
-            "open": "Open in the Approvals queue"
+            "open": "Open in the Approvals queue",
+            "expiredTitle": "Approval deadline passed",
+            "expiredText": "The deadline of gate {{step}} has passed: nobody can decide it anymore, and the system records the automatic rejection."
         },
         "stepsHint": "In execution order; failed steps open expanded",
         "noStepsTitle": "No steps recorded",
@@ -1902,15 +1940,15 @@
         "recentExecutionsHint": "The last runs across all workflows",
         "quickActions": "Quick actions",
         "hints": {
-            "workflows": "{{count}} active",
-            "active": "Running in production",
+            "workflows": "{{count}} published",
+            "published": "With a version published to production",
             "failedRuns": "In the last {{count}} runs",
             "failedNone": "No failures — all good",
             "pendingApprovals": "Waiting for a human decision"
         },
         "stats": {
             "workflows": "Workflows",
-            "active": "Active",
+            "published": "Published",
             "failedRuns": "Recent failures",
             "pendingApprovals": "Pending approvals"
         },
@@ -2405,7 +2443,7 @@
         },
         "title": "Approval queue",
         "subtitle": "Pending human-in-the-loop decisions. Click a row to review the proposal and decide.",
-        "search": "Search by request id, flow id, description...",
+        "search": "Search by flow, request id, execution id, description...",
         "pending": "{{count}} pending",
         "empty": "No pending approvals.",
         "loadError": "Failed to load approvals",
@@ -2424,7 +2462,7 @@
             "request": "Request",
             "requestHint": "Where this decision comes from",
             "proposalHint": "What the flow will do if approved",
-            "proposalEditHint": "Edit the JSON — it replaces the proposal when approved",
+            "proposalEditHint": "Edit the JSON — when approved, it replaces the proposal and is what goes on to the next step",
             "decisionHint": "Recorded as the signed-in user, with your comment",
             "comment": "Comment",
             "heading": "Approval {{id}}",
@@ -2449,7 +2487,18 @@
             "decidedAt": "When",
             "decidedComment": "Comment",
             "submitFailed": "Failed to submit decision",
-            "invalidJson": "Edited payload is not valid JSON"
+            "invalidJson": "Edited payload is not valid JSON",
+            "execution": "Execution",
+            "editedPayload": "Approved proposal (edited)",
+            "expiredTitle": "Deadline passed",
+            "expiredText": "This approval's deadline has passed and it can no longer be decided. The system records the automatic rejection."
+        },
+        "status": {
+            "PENDING": "Pending",
+            "APPROVED": "Approved",
+            "EDITED": "Approved with edits",
+            "REJECTED": "Rejected",
+            "EXPIRED": "Expired"
         },
         "time": {
             "expired": "expired",

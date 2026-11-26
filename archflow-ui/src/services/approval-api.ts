@@ -26,6 +26,10 @@ export interface ApprovalResponse {
     decidedBy?: string | null;
     decidedAt?: string | null;
     comment?: string | null;
+    /** Nome do fluxo da execução, lido do registro de execuções; nulo quando o servidor não o tem. */
+    flowName?: string | null;
+    /** A proposta como quem decidiu a deixou, numa decisão EDITED — é ela que seguiu no fluxo. */
+    editedPayload?: unknown;
 }
 
 export interface ApprovalSubmitRequest {

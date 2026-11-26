@@ -41,11 +41,21 @@ class ApprovalQueueServiceTest {
     /** Motor falso: registra as submissões e simula o consumo do requestId. */
     private static final class RecordingEngine implements FlowEngine {
         record Submission(String flowId, String requestId, boolean approved, Object payload,
-                          String decidedBy, String comment) {}
+                          String decidedBy, String comment, boolean edited) {}
 
         final List<Submission> submissions = new ArrayList<>();
         private final StateManager stateManager;
         RuntimeException failWith;
+        /** Marca a submissão corrente como edição — o que o motor real registra como EDITED. */
+        private boolean editing;
+
+        @Override
+        public CompletableFuture<FlowResult> submitEditedApproval(String flowId, String requestId,
+                                                                  Object editedPayload,
+                                                                  String decidedBy, String comment) {
+            editing = true;
+            return submitApproval(flowId, requestId, true, editedPayload, decidedBy, comment);
+        }
 
         RecordingEngine(StateManager stateManager) {
             this.stateManager = stateManager;
@@ -59,7 +69,8 @@ class ApprovalQueueServiceTest {
                 throw failWith;
             }
             submissions.add(new Submission(flowId, requestId, approved, editedPayload,
-                    decidedBy, comment));
+                    decidedBy, comment, editing));
+            editing = false;
             // Espelha o motor real: consome o requestId e tira o fluxo de
             // AWAITING_APPROVAL, então ele deixa de ser encontrável na fila.
             FlowState state = stateManager.loadState(flowId);
@@ -224,7 +235,30 @@ class ApprovalQueueServiceTest {
         assertThat(engine.submissions).singleElement().satisfies(s -> {
             assertThat(s.approved()).isTrue();
             assertThat(s.payload()).isEqualTo(Map.of("text", "Edited draft"));
+            // Como edição, não como "aprovado com payload": é o que a registra EDITED (RCHFLW-121)
+            assertThat(s.edited()).isTrue();
         });
+    }
+
+    @Test
+    @DisplayName("APPROVED não vai ao motor como edição")
+    void submitApprovedIsNotAnEdit() {
+        awaitingApproval("flow-a", "acme", "req-1", "step-1", Instant.now());
+
+        service.submitDecision("req-1", new ApprovalSubmitRequest("acme", "APPROVED", null, "carol"));
+
+        assertThat(engine.submissions).singleElement().satisfies(s -> assertThat(s.edited()).isFalse());
+    }
+
+    @Test
+    @DisplayName("EDITED sem a proposta editada é recusado antes de tocar o motor")
+    void submitEditedWithoutPayload() {
+        awaitingApproval("flow-a", "acme", "req-1", "step-1", Instant.now());
+
+        assertThatThrownBy(() -> service.submitDecision("req-1",
+                new ApprovalSubmitRequest("acme", "EDITED", null, "carol")))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThat(engine.submissions).isEmpty();
     }
 
     @Test
@@ -318,10 +352,35 @@ class ApprovalQueueServiceTest {
             assertThatThrownBy(() -> service.submitDecision("req-1",
                     new ApprovalSubmitRequest("acme", "APPROVED", null, "alice")))
                     .isInstanceOf(IllegalStateException.class)
-                    .hasMessageContaining("expired");
+                    // Em português: é o que a tela mostra a quem tentou decidir (RCHFLW-126)
+                    .hasMessageContaining("prazo desta aprovação venceu");
             assertThat(engine.submissions)
                     .as("uma proposta vencida descreve um mundo que ja mudou")
                     .isEmpty();
+        }
+
+        @Test
+        @DisplayName("vencida e ainda não varrida: o detalhe já diz EXPIRED, sem decisão")
+        void expiredDetailBeforeTheSweep() {
+            awaitingApproval("flow-a", "acme", "req-1", "step-1", NOW.minus(Duration.ofHours(25)));
+
+            ApprovalResponse detail = serviceAt(NOW).getDetail("req-1");
+
+            // Antes: PENDING até o sweeper passar, com a fila já vazia (RCHFLW-126)
+            assertThat(detail.status()).isEqualTo("EXPIRED");
+            assertThat(detail.decidedBy()).isNull();
+            assertThat(engine.submissions).as("ler o detalhe não decide nada").isEmpty();
+        }
+
+        @Test
+        @DisplayName("o próximo vencimento é o menor prazo futuro; os já vencidos não contam")
+        void untilNextExpiryIsTheNearestFutureDeadline() {
+            awaitingApproval("flow-a", "acme", "req-1", "step-1", NOW.minus(Duration.ofHours(25)));
+            awaitingApproval("flow-b", "acme", "req-2", "step-1", NOW.minus(Duration.ofHours(23)));
+            awaitingApproval("flow-c", "acme", "req-3", "step-1", NOW.minus(Duration.ofHours(1)));
+
+            assertThat(serviceAt(NOW).untilNextExpiry()).contains(Duration.ofHours(1));
+            assertThat(service.untilNextExpiry()).as("sem prazo, nada vence").isEmpty();
         }
 
         @Test
@@ -367,6 +426,26 @@ class ApprovalQueueServiceTest {
             assertThat(serviceAt(NOW).listPending("acme")).hasSize(1);
             assertThat(serviceAt(NOW).expireStale()).isZero();
         }
+    }
+
+    @Test
+    @DisplayName("recusada: a duração entra antes do fechamento do registro, que é a última escrita")
+    void rejectionWritesTheDurationBeforeClosingTheRecord() {
+        // O store JDBC solta o lock da execução no completeExecution terminal; uma escrita depois o
+        // recriava, e cada recusa deixava um lock para sempre no processo (RCHFLW-127).
+        var store = org.mockito.Mockito.mock(br.com.archflow.api.web.workflow.WorkflowRuntimeStore.class);
+        ApprovalQueueService withRecords = new ApprovalQueueService(stateManager, engine, Duration.ZERO,
+                java.time.Clock.systemUTC(), null, store);
+        awaitingApproval("flow-a", "acme", "req-1", "step-1", Instant.now());
+
+        withRecords.submitDecision("req-1", new ApprovalSubmitRequest("acme", "REJECTED", null, "diretor"));
+
+        Set<String> writes = Set.of("recordStep", "recordDuration", "completeExecution", "markResumed");
+        List<String> written = org.mockito.Mockito.mockingDetails(store).getInvocations().stream()
+                .map(invocation -> invocation.getMethod().getName())
+                .filter(writes::contains)
+                .toList();
+        assertThat(written).contains("recordDuration").last().isEqualTo("completeExecution");
     }
 
     @Test
