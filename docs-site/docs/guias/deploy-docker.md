@@ -94,9 +94,9 @@ services:
       SPRING_DATASOURCE_PASSWORD: archflow
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: 6379
-      JWT_SECRET: "${JWT_SECRET:-change-me-in-production}"
-      JWT_EXPIRATION: 900
-      JWT_REFRESH_EXPIRATION: 86400
+      # Obrigatório fora de dev/test: o app recusa subir com o segredo público do application.yml.
+      ARCHFLOW_JWT_SECRET: "${ARCHFLOW_JWT_SECRET:?defina ARCHFLOW_JWT_SECRET (>= 32 bytes)}"
+      ARCHFLOW_JWT_TTL: 900
     depends_on:
       postgres:
         condition: service_healthy
@@ -157,12 +157,13 @@ volumes:
 | `SPRING_DATASOURCE_PASSWORD` | `archflow` | Senha do banco |
 | `SPRING_DATA_REDIS_HOST` | `localhost` | Host do Redis |
 | `SPRING_DATA_REDIS_PORT` | `6379` | Porta do Redis |
-| `JWT_SECRET` | (obrigatorio) | Chave secreta para JWT |
-| `JWT_EXPIRATION` | `900` | Expiracao do access token (segundos) |
-| `JWT_REFRESH_EXPIRATION` | `86400` | Expiracao do refresh token (segundos) |
+| `ARCHFLOW_JWT_SECRET` | (obrigatorio fora de dev/test) | Chave secreta para JWT (`archflow.security.jwt.secret`) |
+| `ARCHFLOW_JWT_TTL` | `900` | `expiresIn` informado no login (segundos); a validade real do access token e fixa em 15 min |
 
 :::caution
-Em producao, **sempre** defina `JWT_SECRET` com um valor seguro (minimo 256 bits). Nunca use o valor default.
+Fora dos profiles `dev`/`test`, defina **sempre** `ARCHFLOW_JWT_SECRET` com um valor aleatorio (minimo 256 bits,
+ex.: `openssl rand -base64 48`). Com o valor default publicado, o startup falha com
+"Refusing to start: archflow.security.jwt.secret is the public default secret".
 :::
 
 ## Build e Execucao Local
@@ -255,7 +256,7 @@ spec:
                   key: database-password
             - name: SPRING_DATA_REDIS_HOST
               value: "redis-service"
-            - name: JWT_SECRET
+            - name: ARCHFLOW_JWT_SECRET
               valueFrom:
                 secretKeyRef:
                   name: archflow-secrets

@@ -32,6 +32,32 @@ public class InMemoryTokenBlacklist implements TokenBlacklist {
     }
 
     @Override
+    public boolean revokeIfAbsent(String token, Instant expiresAt) {
+        if (token == null || expiresAt == null) {
+            return false;
+        }
+        long now = System.currentTimeMillis();
+        long until = expiresAt.toEpochMilli();
+        if (until <= now) {
+            return false;
+        }
+        if (revokedUntil.size() >= PURGE_THRESHOLD) {
+            purgeExpired();
+        }
+        // compute é atômico por chave no ConcurrentHashMap: só uma chamada encontra a entrada ausente
+        // (ou vencida) e grava; as concorrentes veem a entrada dela.
+        boolean[] revokedNow = {false};
+        revokedUntil.compute(hash(token), (key, existing) -> {
+            if (existing != null && existing > now) {
+                return existing;
+            }
+            revokedNow[0] = true;
+            return until;
+        });
+        return revokedNow[0];
+    }
+
+    @Override
     public boolean isRevoked(String token) {
         if (token == null) {
             return false;

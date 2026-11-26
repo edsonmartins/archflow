@@ -146,13 +146,22 @@ public class ImpersonationFilter implements Filter {
     private boolean callerCanImpersonate(HttpServletRequest http) {
         Object rolesAttr = http.getAttribute(JwtAuthenticationFilter.ATTR_ROLES);
         if (rolesAttr instanceof List<?> roles) {
-            return roles.contains("superadmin") || roles.contains("ROLE_SUPERADMIN")
-                    || roles.contains("ADMIN") || roles.contains("ROLE_ADMIN");
+            return rolesMayImpersonate(roles);
         }
         // Sem roles no request (auth desligada) → NEGA. "Sem autenticação =
         // pode impersonar" permitiria a qualquer cliente ler qualquer tenant
         // via header; em dev com auth off, use o tenant real em vez de
         // impersonation.
         return false;
+    }
+
+    /**
+     * Os papéis que podem agir noutro tenant. Compartilhado com o handshake do WebSocket de voz
+     * ({@link WebSocketConfiguration}), onde o tenant vem do caminho em vez do header — a regra
+     * precisa ser a mesma nos dois, senão o WS vira o atalho para outro tenant.
+     */
+    static boolean rolesMayImpersonate(java.util.Collection<?> roles) {
+        return roles.contains("superadmin") || roles.contains("ROLE_SUPERADMIN")
+                || roles.contains("ADMIN") || roles.contains("ROLE_ADMIN");
     }
 }

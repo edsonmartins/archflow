@@ -3,6 +3,7 @@ package br.com.archflow.security.auth;
 import br.com.archflow.model.security.User;
 import br.com.archflow.security.jwt.JwtService;
 import br.com.archflow.security.password.PasswordService;
+import io.jsonwebtoken.Claims;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -12,6 +13,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.HashSet;
+import java.util.UUID;
 
 /**
  * AuthService handles user authentication and token management.
@@ -21,6 +23,15 @@ import java.util.HashSet;
  * - Token generation (access and refresh tokens)
  * - Token validation and refresh
  * - Password management
+ *
+ * <p>Sessão: o login abre uma sessão (claim {@link JwtService#SESSION_CLAIM}) que o access e o refresh
+ * token compartilham, e que a rotação do refresh mantém. O logout revoga a sessão — o refresh token
+ * dela para junto com o access, embora o cliente só apresente o access. O refresh token é de uso
+ * único: cada refresh o consome, e apresentá-lo de novo é tratado como roubo e encerra a sessão.
+ *
+ * <p>Papéis: o access token carrega os papéis de quando foi emitido, mas quem autoriza
+ * ({@link #getUserInfoFromToken}) relê o usuário a cada chamada — rebaixado, desativado ou removido,
+ * o efeito é imediato, e não só quando o token expirar.
  */
 public class AuthService {
 
@@ -106,9 +117,10 @@ public class AuthService {
 
         // O tenant do usuário vai no token: é o que o ImpersonationFilter lê como tenant da
         // requisição. Sem ele, um usuário convidado no workspace de um tenant entraria no padrão.
+        String sessionId = UUID.randomUUID().toString();
         String accessToken = jwtService.generateTenantAccessToken(
-                user.getId(), user.getUsername(), user.getTenantId(), roles);
-        String refreshToken = jwtService.generateRefreshToken(user.getId(), user.getUsername());
+                user.getId(), user.getUsername(), user.getTenantId(), roles, sessionId);
+        String refreshToken = jwtService.generateRefreshToken(user.getId(), user.getUsername(), sessionId);
 
         log.info("User authenticated successfully: {}", username);
 
@@ -127,6 +139,11 @@ public class AuthService {
     /**
      * Refreshes an access token using a refresh token.
      *
+     * <p>O refresh token apresentado é consumido (rotação): o par novo substitui o antigo, que deixa de
+     * valer. Um refresh token já consumido que volta é sinal de que duas partes o têm — o cliente
+     * legítimo e quem o copiou —, e não há como saber qual das duas apresentou agora; por isso a
+     * sessão inteira é revogada (OAuth 2.0 Security BCP, §4.14.2), e não só esta tentativa recusada.
+     *
      * @param refreshToken The refresh token
      * @return A new AuthenticationResult with a new access token
      * @throws AuthenticationException if refresh fails
@@ -136,15 +153,35 @@ public class AuthService {
 
         // Validate refresh token
         try {
-            String userId = jwtService.extractUserId(refreshToken);
+            // Assinatura, formato e expiração: um token expirado nem chega ao consumo abaixo.
+            Claims claims = jwtService.validateToken(refreshToken);
+            String userId = claims.getSubject();
 
-            if (!jwtService.isRefreshToken(refreshToken)) {
+            if (!"refresh".equals(claims.get("type", String.class))) {
                 throw new AuthenticationException("Invalid token type");
             }
 
-            // Check if token is expired
-            if (jwtService.isTokenExpired(refreshToken)) {
-                throw new AuthenticationException("Refresh token expired");
+            // Refresh token de antes da claim de sessão: recusado, e o usuário entra de novo. Aceitá-lo
+            // deixava o logout sem alcance sobre ele — o logout de um access token legado revoga só
+            // aquele access, e o refresh legado ainda renovava num par novo, por até 7 dias depois do
+            // deploy. O custo é um login a mais por sessão aberta no deploy, quando o access dela vence.
+            String sessionId = claims.get(JwtService.SESSION_CLAIM, String.class);
+            if (sessionId == null || sessionId.isBlank()) {
+                throw new AuthenticationException("Refresh token predates login sessions — log in again");
+            }
+            if (tokenBlacklist.isRevoked(sessionKey(sessionId))) {
+                throw new AuthenticationException("Session has been revoked");
+            }
+
+            // Consumo atômico: entre dois refreshes simultâneos do mesmo token, só um passa. Sem janela
+            // de tolerância: uma resposta de refresh que o cliente não chegou a guardar (aba fechada
+            // ou recarregada com o refresh em voo, resposta perdida) deixa o cliente com o token
+            // consumido, e o próximo refresh dele encerra a sessão — volta ao login. Uma janela de
+            // reuso aceitaria, durante ela, a cópia roubada também.
+            if (!tokenBlacklist.revokeIfAbsent(refreshToken, claims.getExpiration().toInstant())) {
+                revokeSession(sessionId);
+                log.warn("Refresh token reused for user ID {} — session {} revoked", userId, sessionId);
+                throw new AuthenticationException("Refresh token already used");
             }
 
             // Get user
@@ -161,9 +198,11 @@ public class AuthService {
                     .map(role -> role.getName())
                     .toArray(String[]::new);
 
+            // A rotação continua a mesma sessão: o logout precisa alcançar o par novo.
             String newAccessToken = jwtService.generateTenantAccessToken(
-                    user.getId(), user.getUsername(), user.getTenantId(), roles);
-            String newRefreshToken = jwtService.generateRefreshToken(user.getId(), user.getUsername());
+                    user.getId(), user.getUsername(), user.getTenantId(), roles, sessionId);
+            String newRefreshToken = jwtService.generateRefreshToken(
+                    user.getId(), user.getUsername(), sessionId);
 
             log.info("Token refreshed for user: {}", user.getUsername());
 
@@ -186,25 +225,35 @@ public class AuthService {
     /**
      * Validates an access token and returns the user ID.
      *
+     * <p>Confere só o token (tipo, expiração, revogação). Para autorizar, use
+     * {@link #getUserInfoFromToken}, que também confere o estado atual do usuário.
+     *
      * @param accessToken The access token
      * @return The user ID if valid
      * @throws AuthenticationException if token is invalid
      */
     public String validateAccessToken(String accessToken) {
         try {
-            if (!jwtService.isAccessToken(accessToken)) {
+            Claims claims = jwtService.validateToken(accessToken);
+            if (!"access".equals(claims.get("type", String.class))) {
                 throw new AuthenticationException("Invalid token type");
             }
 
-            if (jwtService.isTokenExpired(accessToken)) {
+            if (claims.getExpiration().before(new java.util.Date())) {
                 throw new AuthenticationException("Token expired");
             }
 
-            if (tokenBlacklist.isRevoked(accessToken)) {
+            // Token com sessão: o logout revoga a sessão. Token de antes da claim: o logout revogou o
+            // próprio token. Uma consulta ao store por requisição, nos dois casos.
+            String sessionId = claims.get(JwtService.SESSION_CLAIM, String.class);
+            boolean revoked = sessionId != null
+                    ? tokenBlacklist.isRevoked(sessionKey(sessionId))
+                    : tokenBlacklist.isRevoked(accessToken);
+            if (revoked) {
                 throw new AuthenticationException("Token has been revoked");
             }
 
-            return jwtService.extractUserId(accessToken);
+            return claims.getSubject();
 
         } catch (JwtService.JwtException e) {
             throw new AuthenticationException("Invalid access token", e);
@@ -214,6 +263,12 @@ public class AuthService {
     /**
      * Extracts user info from a valid access token.
      *
+     * <p>Os papéis são os <b>atuais</b> do usuário, relidos do repositório — não os da claim
+     * {@code roles}, que são os de quando o token foi emitido. Até aqui o filtro autorizava pela
+     * claim: um ADMIN rebaixado ou removido seguia ADMIN até o token expirar (15 min), enquanto o
+     * {@code /me} do mesmo token já respondia outra coisa. Usuário removido, desativado ou bloqueado:
+     * o token deixa de valer na hora, como o refresh dele já deixava.
+     *
      * @param accessToken The access token
      * @return UserInfo extracted from the token
      * @throws AuthenticationException if token is invalid
@@ -221,11 +276,19 @@ public class AuthService {
     public UserInfo getUserInfoFromToken(String accessToken) {
         String userId = validateAccessToken(accessToken);
         String username = jwtService.extractUsername(accessToken);
-        String[] roles = jwtService.extractRoles(accessToken);
 
         // Get additional user info from repository
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new AuthenticationException("User not found"));
+        if (!user.isEnabled()) {
+            throw new AuthenticationException("User account is disabled");
+        }
+        if (!user.isAccountNonLocked()) {
+            throw new AuthenticationException("User account is locked");
+        }
+        String[] roles = user.getRoles().stream()
+                .map(role -> role.getName())
+                .toArray(String[]::new);
 
         return new UserInfo(
                 userId,
@@ -239,9 +302,14 @@ public class AuthService {
     }
 
     /**
-     * Logs out a user, revoking the access token until its natural expiration.
-     * Subsequent {@link #validateAccessToken} calls with the same token fail
-     * with "Token has been revoked".
+     * Logs out a user, ending the login session the access token belongs to.
+     *
+     * <p>A sessão inteira é revogada: o access token apresentado, os outros access da mesma sessão e
+     * o refresh token dela — antes só o access era revogado, e o refresh token (7 dias) seguia
+     * emitindo access novos depois do logout. O SPA manda só o access token; a claim de sessão é o
+     * que liga os dois. Outras sessões do mesmo usuário (outro navegador) não são afetadas.
+     *
+     * <p>Token de antes da claim de sessão: só ele é revogado, como antes.
      *
      * @param accessToken The access token to invalidate
      */
@@ -249,13 +317,37 @@ public class AuthService {
         // Validate token first
         String userId = validateAccessToken(accessToken);
         String username = jwtService.extractUsername(accessToken);
+        String sessionId = jwtService.extractSessionId(accessToken);
 
-        java.time.Instant expiresAt = jwtService.validateToken(accessToken)
-                .getExpiration().toInstant();
+        if (sessionId != null) {
+            Instant until = revokeSession(sessionId);
+            log.info("User {} logged out — session revoked until {} (user ID: {})", username, until, userId);
+            return;
+        }
+        Instant expiresAt = jwtService.validateToken(accessToken).getExpiration().toInstant();
         tokenBlacklist.revoke(accessToken, expiresAt);
 
         log.info("User {} logged out — token revoked until {} (user ID: {})",
                 username, expiresAt, userId);
+    }
+
+    /**
+     * Revoga a sessão até o último instante em que um token dela ainda poderia valer: cada rotação
+     * emite um refresh token com validade cheia, então o mais novo vence no máximo daqui a um
+     * período de refresh.
+     */
+    private Instant revokeSession(String sessionId) {
+        Instant until = Instant.now().plusMillis(jwtService.getRefreshTokenExpirationMs());
+        tokenBlacklist.revoke(sessionKey(sessionId), until);
+        return until;
+    }
+
+    /**
+     * Chave da sessão no {@link TokenBlacklist}. O prefixo separa o espaço das sessões do dos tokens
+     * (que são revogados pelo próprio texto do JWT), no mesmo store.
+     */
+    private static String sessionKey(String sessionId) {
+        return "session:" + sessionId;
     }
 
     /**

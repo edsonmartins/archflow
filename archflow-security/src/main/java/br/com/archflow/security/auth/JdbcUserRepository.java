@@ -143,7 +143,11 @@ public class JdbcUserRepository implements UserRepository {
      * SQLSTATE {@code 23505} é a violação de unicidade no PostgreSQL e no H2 (os bancos deste
      * repositório); o MySQL usa a classe genérica {@code 23000} com o código 1062.
      */
-    private static boolean isUniqueViolation(SQLException e) {
+    /**
+     * Violação de unicidade (PostgreSQL/H2: 23505; MySQL: 23000 + 1062). Também usado pelo
+     * {@link JdbcTokenBlacklist}.
+     */
+    static boolean isUniqueViolation(SQLException e) {
         String state = e.getSQLState();
         return "23505".equals(state) || ("23000".equals(state) && e.getErrorCode() == 1062);
     }

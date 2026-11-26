@@ -108,10 +108,10 @@ curl -X POST http://localhost:8080/api/auth/refresh \
 
 | Propriedade | Default | Descricao |
 |-------------|---------|-----------|
-| `JWT_SECRET` | (obrigatorio) | Chave secreta HMAC-SHA256 (min 256 bits) |
-| `JWT_EXPIRATION` | `900` | Expiracao do access token em segundos |
-| `JWT_REFRESH_EXPIRATION` | `86400` | Expiracao do refresh token em segundos |
-| `JWT_ISSUER` | `archflow` | Issuer do token |
+| `ARCHFLOW_JWT_SECRET` | (obrigatorio fora de dev/test) | Chave secreta HMAC (min 256 bits); o default publico recusa o startup |
+| `ARCHFLOW_JWT_TTL` | `900` | `expiresIn` informado na resposta do login/refresh, em segundos |
+
+A validade real dos tokens e fixa no `JwtService`: access token 15 min, refresh token 7 dias (sem property).
 
 :::caution
 Em producao, gere uma chave segura: `openssl rand -base64 32`
