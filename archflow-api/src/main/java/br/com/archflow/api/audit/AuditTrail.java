@@ -82,6 +82,15 @@ public class AuditTrail {
     public void record(String userId, String username, AuditAction action, String resourceType,
                        String resourceId, boolean success, String errorMessage,
                        Map<String, String> details) {
+        // Quem passa só o id (as API keys) gravava a linha sem username, e a tela mostrava o id cru
+        // ("user-74023bcc-…") onde as demais mostram "admin" — e o filtro por autor não a achava
+        // (RCHFLW-195 item 10). Quando o id é o de quem está na requisição, o username vem dela.
+        if (username == null && userId != null) {
+            String[] actor = currentActor();
+            if (userId.equals(actor[0])) {
+                username = actor[1];
+            }
+        }
         try {
             AuditRepository repo = repository.get();
             if (repo == null) {

@@ -307,6 +307,11 @@ class WorkspaceUserServiceTest {
         assertThat(codeOf(() -> service.invite(TENANT, "admin@acme.com", "VIEWER")))
                 .isEqualTo(WorkspaceUserException.Code.USER_EXISTS);
         var invitation = service.invite(TENANT, "bia@acme.com", "VIEWER");
+        // Reconvidar um e-mail com convite pendente no mesmo tenant diz isso, não "já existe usuário".
+        assertThat(codeOf(() -> service.invite(TENANT, "bia@acme.com", "DESIGNER")))
+                .isEqualTo(WorkspaceUserException.Code.INVITATION_ALREADY_SENT);
+        assertThat(codeOf(() -> service.invite("outro-tenant", "bia@acme.com", "VIEWER")))
+                .isEqualTo(WorkspaceUserException.Code.USER_EXISTS);
         assertThat(codeOf(() -> service.acceptInvitation(invitation.token(), "curta")))
                 .isEqualTo(WorkspaceUserException.Code.PASSWORD_TOO_SHORT);
         assertThat(codeOf(() -> service.removeUser(TENANT, admin.getId(), invitation.user().getId())))

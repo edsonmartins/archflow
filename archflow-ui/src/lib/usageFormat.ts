@@ -33,6 +33,18 @@ export function formatUsd(value: number, locale: string): string {
   }).format(value)
 }
 
+/**
+ * Fatia do total em %, com uma casa. Um tenant que usou de verdade, mas menos de 0,1% do total, aparecia
+ * como `0%` — o mesmo de quem não usou nada (RCHFLW-195 item 7). Positivo abaixo de 0,1 vira `< 0,1%`;
+ * o servidor manda o valor sem arredondar para a tela conseguir distinguir.
+ */
+export function formatShare(pct: number | null | undefined, locale: string): string {
+  if (pct == null) return ''
+  const fmt = new Intl.NumberFormat(locale, { maximumFractionDigits: 1 })
+  if (pct > 0 && pct < 0.1) return `< ${fmt.format(0.1)}%`
+  return `${fmt.format(pct)}%`
+}
+
 /** `yyyy-MM` do mês corrente e dos onze anteriores — antes a lista era fixa em 2026-01..04. */
 export function recentMonths(now: Date = new Date(), count = 12): string[] {
   return Array.from({ length: count }, (_, i) => {

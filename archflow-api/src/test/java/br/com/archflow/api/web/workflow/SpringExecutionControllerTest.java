@@ -65,6 +65,25 @@ class SpringExecutionControllerTest {
     }
 
     @Test
+    void cancelIsAudited() {
+        // RCHFLW-195 item 1: parar uma execução é decisão com autor; antes não deixava linha na auditoria.
+        var trilha = new br.com.archflow.observability.audit.InMemoryAuditRepository();
+        controller.setAuditTrail(new br.com.archflow.api.audit.AuditTrail(() -> trilha));
+        when(store.getExecution(DefaultTenant.ID, "e1"))
+                .thenReturn(new LinkedHashMap<>(Map.of("id", "e1", "status", "RUNNING", "workflowId", "wf-1")));
+
+        controller.cancel("e1");
+
+        assertThat(trilha.query(br.com.archflow.observability.audit.AuditRepository.AuditQuery.builder()))
+                .singleElement()
+                .satisfies(e -> {
+                    assertThat(e.getAction())
+                            .isEqualTo(br.com.archflow.observability.audit.AuditAction.WORKFLOW_CANCELLED);
+                    assertThat(e.getContext()).containsEntry("executionId", "e1").containsEntry("workflowId", "wf-1");
+                });
+    }
+
+    @Test
     void cancelReturns404WhenUnknown() {
         when(store.getExecution(DefaultTenant.ID, "nope")).thenReturn(null);
 

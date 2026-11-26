@@ -3,7 +3,6 @@ package br.com.archflow.api.apikey.dto;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 
-import java.time.LocalDateTime;
 import java.util.Set;
 
 /**
@@ -22,8 +21,11 @@ public record CreateApiKeyRequest(
         Set<String> scopes,
 
         /**
-         * Optional expiration date. If null, the key never expires.
+         * Optional expiration (ISO-8601). Com fuso ou {@code Z} ({@code 2026-12-31T23:59:00Z}) é aquele
+         * instante; sem fuso, a hora local do servidor — o que valia antes. Era um {@code LocalDateTime}:
+         * o {@code Z} era descartado e uma validade enviada em UTC valia com o atraso do fuso do servidor
+         * (RCHFLW-195 item 11). Nula: a chave não vence.
          */
-        LocalDateTime expiresAt
+        String expiresAt
 ) {
 }

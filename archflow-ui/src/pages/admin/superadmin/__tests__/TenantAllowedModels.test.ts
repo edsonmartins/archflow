@@ -16,7 +16,8 @@ import { MantineProvider } from '@mantine/core'
 import { fireEvent, waitFor, within } from '@testing-library/dom'
 
 const tenantApiMock = vi.hoisted(() => ({ get: vi.fn(), update: vi.fn(), create: vi.fn() }))
-const globalConfigApiMock = vi.hoisted(() => ({ getModels: vi.fn() }))
+// A criação lê os padrões de plano do /admin/global (RCHFLW-178); aqui nenhum, os limites ficam os do formulário.
+const globalConfigApiMock = vi.hoisted(() => ({ getModels: vi.fn(), getPlanDefaults: vi.fn(() => Promise.resolve([])) }))
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({

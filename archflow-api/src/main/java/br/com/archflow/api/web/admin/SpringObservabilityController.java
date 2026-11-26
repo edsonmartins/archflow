@@ -2,9 +2,14 @@ package br.com.archflow.api.web.admin;
 
 import br.com.archflow.api.admin.observability.ObservabilityController;
 import br.com.archflow.api.admin.observability.ObservabilityDtos.*;
+import br.com.archflow.api.audit.AuditTrail;
 import br.com.archflow.api.config.TenantScope;
+import br.com.archflow.observability.audit.AuditAction;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -34,6 +39,19 @@ public class SpringObservabilityController {
     }
 
     /**
+     * A trilha de auditoria: o "Parar" do Running é um cancelamento com autor (RCHFLW-195 item 1).
+     * Sem bean, no-op.
+     */
+    private volatile AuditTrail auditTrail = AuditTrail.noop();
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setAuditTrail(AuditTrail auditTrail) {
+        if (auditTrail != null) {
+            this.auditTrail = auditTrail;
+        }
+    }
+
+    /**
      * O tenant que o serviço filtra: {@code null} é "todos" para ele, então o {@code "all"} do admin
      * vira {@code null} aqui (o serviço filtraria por um tenant chamado "all" e não acharia nada).
      */
@@ -54,12 +72,22 @@ public class SpringObservabilityController {
             @RequestParam(required = false) String to,
             @RequestParam(required = false) String search,
             @RequestParam(defaultValue = "0") int page,
+            @RequestParam(required = false) Integer pageSize,
             @RequestParam(defaultValue = "20") int size) {
         var filter = new FilterDto(
                 from != null ? Instant.parse(from) : null,
                 to != null ? Instant.parse(to) : null,
-                recorte(tenantId), null, status, null, null, search, page, size);
+                recorte(tenantId), null, status, null, null, search, page, tamanho(pageSize, size));
         return delegate.listTraces(filter);
+    }
+
+    /**
+     * A UI manda {@code pageSize}; o handler só lia {@code size} e cada página vinha com 20 linhas
+     * enquanto a tela calculava "1–50 de N" com 50 (RCHFLW-180). {@code size} continua aceito para
+     * quem já chama a API com ele.
+     */
+    private static int tamanho(Integer pageSize, int size) {
+        return pageSize != null ? pageSize : size;
     }
 
     /**
@@ -105,28 +133,43 @@ public class SpringObservabilityController {
     public PageDto<AuditEntryDto> listAudit(
             @RequestParam(required = false) String tenantId,
             @RequestParam(required = false) String action,
+            @RequestParam(required = false) String actor,
             @RequestParam(required = false) String from,
             @RequestParam(required = false) String to,
             @RequestParam(required = false) String search,
             @RequestParam(defaultValue = "0") int page,
+            @RequestParam(required = false) Integer pageSize,
             @RequestParam(defaultValue = "20") int size) {
+        // O autor não era lido: o filtro "Autor" da tela não filtrava nada (RCHFLW-195 item 10).
         var filter = new FilterDto(
                 from != null ? Instant.parse(from) : null,
                 to != null ? Instant.parse(to) : null,
-                recorte(tenantId), null, null, null, action, search, page, size);
+                recorte(tenantId), null, null, actor, action, search, page, tamanho(pageSize, size));
         return delegate.listAudit(filter);
     }
 
+    /**
+     * O mesmo recorte da listagem — tenant, período, ação e autor —, com todas as linhas (o serviço
+     * lê página a página). Antes só tenant e período chegavam ao serviço e o arquivo trazia todas as
+     * ações, cortado em 500 linhas sem aviso (RCHFLW-180). Sai como {@code text/csv} com nome de
+     * arquivo: era um {@code String} servido como {@code text/plain}.
+     */
     @GetMapping("/audit/export")
-    public String exportAuditCsv(
+    public ResponseEntity<String> exportAuditCsv(
             @RequestParam(required = false) String tenantId,
+            @RequestParam(required = false) String action,
+            @RequestParam(required = false) String actor,
             @RequestParam(required = false) String from,
-            @RequestParam(required = false) String to) {
+            @RequestParam(required = false) String to,
+            @RequestParam(required = false) String search) {
         var filter = new FilterDto(
                 from != null ? Instant.parse(from) : null,
                 to != null ? Instant.parse(to) : null,
-                recorte(tenantId), null, null, null, null, null, 0, Integer.MAX_VALUE);
-        return delegate.exportAuditCsv(filter);
+                recorte(tenantId), null, null, actor, action, search, 0, FilterDto.empty().pageSize());
+        return ResponseEntity.ok()
+                .contentType(new MediaType("text", "csv", StandardCharsets.UTF_8))
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"audit-log.csv\"")
+                .body(delegate.exportAuditCsv(filter));
     }
 
     @GetMapping("/running")
@@ -150,12 +193,26 @@ public class SpringObservabilityController {
     public ResponseEntity<Map<String, Object>> cancelFlow(@RequestParam(required = false) String tenantId,
                                                           @PathVariable String flowId) {
         String escopo = recorte(tenantId);
+        // O tenant dono da execução, lido antes de cancelar (depois ela sai da lista): é o tenant em que
+        // a linha de auditoria aparece, e não o de quem cancelou (o admin pode estar em "all").
+        String dono = delegate.listRunningFlows(escopo).stream()
+                .filter(f -> flowId.equals(f.flowId()))
+                .map(RunningFlowDto::tenantId)
+                .findFirst()
+                .orElse(null);
         try {
             delegate.cancelFlow(escopo, flowId);
         } catch (SecurityException | IllegalArgumentException e) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
                     .body(Map.of("error", "Flow not running: " + flowId, "status", 404));
         }
+        Map<String, String> detalhes = new java.util.HashMap<>();
+        detalhes.put("executionId", flowId);
+        detalhes.put("source", "observability.running");
+        if (dono != null) {
+            detalhes.put(AuditTrail.CONTEXT_TENANT, dono);
+        }
+        auditTrail.record(AuditAction.WORKFLOW_CANCELLED, "execution", flowId, true, null, detalhes);
         return ResponseEntity.noContent().build();
     }
 }

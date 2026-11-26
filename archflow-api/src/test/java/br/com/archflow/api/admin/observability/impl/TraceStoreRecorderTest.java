@@ -219,4 +219,140 @@ class TraceStoreRecorderTest {
         assertThat(rootSpan.attributes()).containsKey("flow.id");
         assertThat(rootSpan.attributes()).doesNotContainKey("tenant.id");
     }
+
+    // ── RCHFLW-177: pausa para aprovação ───────────────────────────
+
+    @Test
+    @DisplayName("PAUSED (à espera de aprovação) vira trace PAUSED, não ERROR")
+    void pausaNaoEErro() {
+        recorder.onFlowEnd("exec-1", "tenant-1", mockResult(ExecutionStatus.PAUSED, List.of()), 14L);
+
+        assertThat(store.query("tenant-1", null, null, null, null, null))
+                .singleElement()
+                .satisfies(t -> assertThat(t.status()).isEqualTo(TraceStoreRecorder.STATUS_PAUSED));
+    }
+
+    @Test
+    @DisplayName("pausa e retomada da mesma execução: um trace só, que termina OK, com as durações somadas")
+    void retomadaSubstituiAPausa() {
+        recorder.onFlowEnd("exec-1", "tenant-1", mockResult(ExecutionStatus.PAUSED, List.of()), 14L);
+        String traceDaPausa = store.query("tenant-1", null, null, null, null, null).get(0).traceId();
+        java.time.Instant inicio = store.findById(traceDaPausa).orElseThrow().startedAt();
+
+        recorder.onFlowEnd("exec-1", "tenant-1", mockResult(ExecutionStatus.COMPLETED, List.of()), 30L);
+
+        assertThat(store.query("tenant-1", null, null, null, null, null)).singleElement().satisfies(t -> {
+            assertThat(t.traceId()).isEqualTo(traceDaPausa);
+            assertThat(t.status()).isEqualTo("OK");
+            assertThat(t.durationMs()).isEqualTo(44L);
+            assertThat(t.startedAt()).isEqualTo(inicio);
+        });
+    }
+
+    @Test
+    @DisplayName("outra execução não reaproveita a pausa de ninguém")
+    void execucoesDiferentes() {
+        recorder.onFlowEnd("exec-1", "tenant-1", mockResult(ExecutionStatus.PAUSED, List.of()), 14L);
+        recorder.onFlowEnd("exec-2", "tenant-1", mockResult(ExecutionStatus.COMPLETED, List.of()), 30L);
+
+        assertThat(store.query("tenant-1", null, null, null, null, null))
+                .extracting(br.com.archflow.api.admin.observability.ObservabilityDtos.TraceSummaryDto::status)
+                .containsExactlyInAnyOrder("PAUSED", "OK");
+    }
+
+    @Test
+    @DisplayName("pausa encerrada (recusa, prazo) vira ERROR com o motivo, no mesmo trace — não fica aguardando")
+    void pausaEncerrada() {
+        recorder.onFlowEnd("exec-1", "tenant-1", mockResult(ExecutionStatus.PAUSED, List.of()), 14L);
+        String traceDaPausa = store.query("tenant-1", null, null, null, null, null).get(0).traceId();
+
+        recorder.encerrarPausa("tenant-1", "exec-1", "Recusado na aprovação 'Revisão' por bob");
+
+        assertThat(store.query("tenant-1", null, null, null, null, null)).singleElement().satisfies(t -> {
+            assertThat(t.traceId()).isEqualTo(traceDaPausa);
+            assertThat(t.status()).isEqualTo(TraceStoreRecorder.STATUS_ERROR);
+            assertThat(t.error()).isEqualTo("Recusado na aprovação 'Revisão' por bob");
+            assertThat(t.durationMs()).isEqualTo(14L);
+        });
+        assertThat(store.findById(traceDaPausa).orElseThrow().spans().get(0).status())
+                .isEqualTo(TraceStoreRecorder.STATUS_ERROR);
+    }
+
+    @Test
+    @DisplayName("encerrar uma execução que já tem desfecho não muda nada")
+    void encerrarDesfechoNaoMuda() {
+        recorder.onFlowEnd("exec-1", "tenant-1",
+                mockResult(ExecutionStatus.FAILED, List.of(error("passo quebrou"))), 14L);
+
+        recorder.encerrarPausa("tenant-1", "exec-1", "outro motivo");
+
+        assertThat(store.query("tenant-1", null, null, null, null, null)).singleElement().satisfies(t -> {
+            assertThat(t.status()).isEqualTo(TraceStoreRecorder.STATUS_ERROR);
+            assertThat(t.error()).isEqualTo("passo quebrou");
+        });
+    }
+
+    @Test
+    @DisplayName("recusada antes de a suspensão gravar a pausa: a pausa chega já encerrada")
+    void recusaAntesDaPausa() {
+        recorder.encerrarPausa("tenant-1", "exec-1", "Recusado na aprovação 'Revisão'");
+
+        recorder.onFlowEnd("exec-1", "tenant-1", mockResult(ExecutionStatus.PAUSED, List.of()), 14L);
+
+        assertThat(store.query("tenant-1", null, null, null, null, null)).singleElement().satisfies(t -> {
+            assertThat(t.status()).isEqualTo(TraceStoreRecorder.STATUS_ERROR);
+            assertThat(t.error()).isEqualTo("Recusado na aprovação 'Revisão'");
+        });
+    }
+
+    @Test
+    @DisplayName("aprovada enquanto a suspensão desenrolava: a retomada termina antes e a pausa atrasada "
+            + "entra no mesmo trace, que continua OK")
+    void suspensaoAtrasada() {
+        // A retomada (10 ms) termina primeiro; a travessia suspensa (50 ms) começou antes dela e chega depois.
+        recorder.onFlowEnd("exec-1", "tenant-1", mockResult(ExecutionStatus.COMPLETED, List.of()), 10L);
+
+        recorder.onFlowEnd("exec-1", "tenant-1", mockResult(ExecutionStatus.PAUSED, List.of()), 50L);
+
+        assertThat(store.query("tenant-1", null, null, null, null, null)).singleElement().satisfies(t -> {
+            assertThat(t.status()).isEqualTo(TraceStoreRecorder.STATUS_OK);
+            assertThat(t.durationMs()).isEqualTo(60L);
+        });
+    }
+
+    @Test
+    @DisplayName("o mesmo id de execução em outro tenant não substitui a pausa de ninguém")
+    void pausaPorTenant() {
+        recorder.onFlowEnd("exec-1", "tenant-a", mockResult(ExecutionStatus.PAUSED, List.of()), 14L);
+
+        recorder.onFlowEnd("exec-1", "tenant-b", mockResult(ExecutionStatus.COMPLETED, List.of()), 30L);
+
+        assertThat(store.query("tenant-a", null, null, null, null, null)).singleElement()
+                .satisfies(t -> assertThat(t.status()).isEqualTo(TraceStoreRecorder.STATUS_PAUSED));
+        assertThat(store.query("tenant-b", null, null, null, null, null)).singleElement().satisfies(t -> {
+            assertThat(t.status()).isEqualTo(TraceStoreRecorder.STATUS_OK);
+            assertThat(t.tenantId()).isEqualTo("tenant-b");
+        });
+    }
+
+    // ── RCHFLW-195 item 6: o trace sabe qual é o fluxo ────────────────
+
+    @Test
+    @DisplayName("com o registro da execução, o trace guarda o id do fluxo e a busca acha pelo nome e pelos ids")
+    void fluxoDoRegistro() {
+        recorder = new TraceStoreRecorder(store, (tenant, exec) -> "exec-0f9d58ff".equals(exec)
+                ? java.util.Map.of("workflowId", "wf-98fb0ece", "workflowName", "QA2 obs triagem")
+                : null);
+
+        recorder.onFlowEnd("exec-0f9d58ff", "tenant-1", mockResult(ExecutionStatus.COMPLETED, List.of()), 10L);
+
+        TraceDetailDto t = store.findById(store.query("tenant-1", null, null, null, null, null).get(0).traceId())
+                .orElseThrow();
+        assertThat(t.flowId()).isEqualTo("wf-98fb0ece");
+        assertThat(t.executionId()).isEqualTo("exec-0f9d58ff");
+        assertThat(t.attributes()).containsEntry(TraceStoreRecorder.ATTR_FLOW_NAME, "QA2 obs triagem");
+        for (String busca : List.of("qa2 obs triagem", "wf-98fb0ece", "exec-0f9d58ff")) {
+            assertThat(store.query("tenant-1", null, null, busca, null, null)).as(busca).hasSize(1);
+        }
+    }
 }

@@ -1,6 +1,7 @@
 package br.com.archflow.api.web.workflow;
 
 import br.com.archflow.api.agent.mcp.McpAgentHost;
+import br.com.archflow.api.audit.AuditTrail;
 import br.com.archflow.api.config.TenantContext;
 import br.com.archflow.engine.api.FlowEngine;
 import br.com.archflow.engine.core.StateManager;
@@ -9,6 +10,7 @@ import br.com.archflow.model.engine.ExecutionContext;
 import br.com.archflow.model.engine.ExecutionKeys;
 import br.com.archflow.model.flow.FlowResult;
 import br.com.archflow.model.flow.FlowState;
+import br.com.archflow.observability.audit.AuditAction;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -50,6 +52,29 @@ public class SpringExecutionController {
      * numa montagem sem fila de aprovações.
      */
     private volatile br.com.archflow.api.approval.impl.ApprovalQueueService approvalQueue;
+
+    /**
+     * A trilha de auditoria: parar uma execução é uma decisão com autor, e ela só existia no registro
+     * da execução (RCHFLW-195 item 1). Sem bean, no-op.
+     */
+    private volatile AuditTrail auditTrail = AuditTrail.noop();
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setAuditTrail(AuditTrail auditTrail) {
+        if (auditTrail != null) {
+            this.auditTrail = auditTrail;
+        }
+    }
+
+    private void auditarCancelamento(String id, Map<String, Object> execution) {
+        Map<String, String> detalhes = new LinkedHashMap<>();
+        detalhes.put("executionId", id);
+        Object workflowId = execution.get("workflowId");
+        if (workflowId != null) {
+            detalhes.put("workflowId", String.valueOf(workflowId));
+        }
+        auditTrail.record(AuditAction.WORKFLOW_CANCELLED, "execution", id, true, null, detalhes);
+    }
 
     /** Liga o prazo das aprovações ao detalhe da execução (RCHFLW-126). */
     @org.springframework.beans.factory.annotation.Autowired(required = false)
@@ -197,10 +222,12 @@ public class SpringExecutionController {
             // portão de aprovação e o PAUSED ainda não chegou ao registro. Aqui o registro não pode congelar —
             // o PAUSED e, depois da decisão, o desfecho real têm de chegar —, então vale a gravação de antes.
             store.completeExecution(id, "CANCELLED", null);
+            auditarCancelamento(id, execution);
             return ResponseEntity.ok(store.getExecution(tenantId, id));
         }
         // O motor parou a travessia: o registro é marcado, e o fim tardio dela não o reescreve (RCHFLW-188, item 16).
         store.cancelExecution(id);
+        auditarCancelamento(id, execution);
         return ResponseEntity.ok(store.getExecution(tenantId, id));
     }
 

@@ -1,17 +1,22 @@
 package br.com.archflow.api.audit;
 
+import br.com.archflow.api.config.JwtAuthenticationFilter;
 import br.com.archflow.observability.audit.AuditAction;
 import br.com.archflow.observability.audit.AuditEvent;
 import br.com.archflow.observability.audit.AuditRepository;
 import br.com.archflow.observability.audit.InMemoryAuditRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.tuple;
 
 @DisplayName("AuditTrail")
 class AuditTrailTest {
@@ -103,5 +108,28 @@ class AuditTrailTest {
         assertThat(event.getUserId()).isNull();
         assertThat(event.getUsername()).isNull();
         assertThat(event.getResourceId()).isEqualTo("featureToggles");
+    }
+
+    @Test
+    @DisplayName("só o id do ator: o username vem da requisição quando o id é o dela (RCHFLW-195)")
+    void usernameDaRequisicao() {
+        InMemoryAuditRepository repo = new InMemoryAuditRepository();
+        AuditTrail trail = new AuditTrail(() -> repo);
+        MockHttpServletRequest req = new MockHttpServletRequest();
+        req.setAttribute(JwtAuthenticationFilter.ATTR_USER_ID, "user-74023bcc");
+        req.setAttribute(JwtAuthenticationFilter.ATTR_USERNAME, "admin");
+        RequestContextHolder.setRequestAttributes(
+                new ServletRequestAttributes(req));
+        try {
+            trail.record("user-74023bcc", null, AuditAction.CREATE, "apikey", "key-1", true, null, null);
+            // Outro id que não o da requisição não herda o nome de quem está nela.
+            trail.record("outro", null, AuditAction.DELETE, "apikey", "key-2", true, null, null);
+        } finally {
+            RequestContextHolder.resetRequestAttributes();
+        }
+
+        assertThat(all(repo)).extracting(AuditEvent::getUserId, AuditEvent::getUsername)
+                .containsExactlyInAnyOrder(tuple("user-74023bcc", "admin"),
+                        tuple("outro", null));
     }
 }

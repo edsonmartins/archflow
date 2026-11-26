@@ -4,6 +4,7 @@ import br.com.archflow.api.admin.impl.GlobalConfigControllerImpl;
 import br.com.archflow.api.admin.impl.TenantControllerImpl;
 import br.com.archflow.api.admin.store.GlobalConfigStore;
 import br.com.archflow.api.apikey.impl.ApiKeyControllerImpl;
+import br.com.archflow.api.approval.impl.ApprovalQueueService;
 import br.com.archflow.api.audit.AuditTrail;
 import br.com.archflow.api.auth.impl.AuthControllerImpl;
 import br.com.archflow.observability.audit.AuditRepository;
@@ -45,8 +46,11 @@ public class AuditTrailConfiguration {
             ObjectProvider<ApiKeyControllerImpl> apiKeyControllers,
             ObjectProvider<TenantControllerImpl> tenantControllers,
             ObjectProvider<GlobalConfigControllerImpl> globalConfigControllers,
-            ObjectProvider<GlobalConfigStore> globalConfigStores) {
+            ObjectProvider<GlobalConfigStore> globalConfigStores,
+            ObjectProvider<ApprovalQueueService> approvalQueues) {
         return () -> {
+            // Decisões de aprovação (humanas e do prazo) entram na trilha (RCHFLW-195 item 1).
+            approvalQueues.ifAvailable(q -> q.setAuditTrail(auditTrail));
             authControllers.ifAvailable(c -> c.setAuditTrail(auditTrail));
             apiKeyControllers.ifAvailable(c -> c.setAuditTrail(auditTrail));
             tenantControllers.ifAvailable(c -> c.setAuditTrail(auditTrail));

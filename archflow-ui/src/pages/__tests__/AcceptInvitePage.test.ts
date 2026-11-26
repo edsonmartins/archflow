@@ -121,5 +121,13 @@ describe('AcceptInvitePage', () => {
 
     expect(byTestId('accept-invite-error')!.textContent).toContain('acceptInvite.missingToken')
     expect(document.body.querySelector('input[type="password"]')).toBeNull()
+    // RCHFLW-195 item 18: o caminho de volta ao login, que faltava.
+    expect(byTestId('accept-invite-login')?.getAttribute('href')).toBe('/login')
+  })
+
+  it('só o formulário: o grid de uma coluna, sem a coluna vazia da marca (RCHFLW-195 item 18)', async () => {
+    await render('/accept-invite?token=abc')
+
+    expect(byTestId('accept-invite-page')!.classList.contains('af-login--single')).toBe(true)
   })
 })

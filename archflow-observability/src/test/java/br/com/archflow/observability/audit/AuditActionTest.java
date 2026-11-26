@@ -104,9 +104,9 @@ class AuditActionTest {
         }
 
         @Test
-        @DisplayName("should have exactly 32 enum values")
+        @DisplayName("should have exactly 35 enum values")
         void shouldHaveExpectedCount() {
-            assertThat(AuditAction.values()).hasSize(32);
+            assertThat(AuditAction.values()).hasSize(35);
         }
     }
 

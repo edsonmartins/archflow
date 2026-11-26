@@ -19,12 +19,14 @@ import br.com.archflow.api.audit.AuditTrail;
 import br.com.archflow.engine.api.FlowEngine;
 import br.com.archflow.engine.exceptions.FlowException;
 import br.com.archflow.engine.exceptions.FlowNotFoundException;
+import br.com.archflow.observability.audit.AuditAction;
 import br.com.archflow.observability.audit.AuditEvent;
 import br.com.archflow.observability.audit.AuditRepository;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneOffset;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -66,6 +68,8 @@ public class ObservabilityService {
      * fluxo seguia até o fim, com todos os efeitos (RCHFLW-72).
      */
     private final FlowEngine flowEngine;
+    /** Define o "hoje" da Visão geral; o fuso do servidor, como o Workspace. */
+    private final Clock clock;
 
     public ObservabilityService(
             MetricsCollector metricsCollector,
@@ -91,6 +95,19 @@ public class ObservabilityService {
             EventStreamRegistry eventStreamRegistry,
             RunningFlowsRegistry runningFlowsRegistry,
             FlowEngine flowEngine) {
+        this(metricsCollector, traceStore, auditRepository, eventStreamRegistry, runningFlowsRegistry, flowEngine,
+                Clock.systemDefaultZone());
+    }
+
+    public ObservabilityService(
+            MetricsCollector metricsCollector,
+            InMemoryTraceStore traceStore,
+            AuditRepository auditRepository,
+            EventStreamRegistry eventStreamRegistry,
+            RunningFlowsRegistry runningFlowsRegistry,
+            FlowEngine flowEngine,
+            Clock clock) {
+        this.clock = clock != null ? clock : Clock.systemDefaultZone();
         this.metricsCollector = metricsCollector;
         this.traceStore = traceStore != null ? traceStore : new InMemoryTraceStore();
         this.auditRepository = auditRepository;
@@ -106,17 +123,25 @@ public class ObservabilityService {
     // ── Overview ──────────────────────────────────────────────────
 
     public OverviewDto getOverview(String tenantId) {
-        Instant startOfDay = LocalDate.now(ZoneOffset.UTC).atStartOfDay().toInstant(ZoneOffset.UTC);
+        // "Hoje" é o dia do fuso do servidor, o mesmo do Workspace (WorkspaceControllerImpl usa
+        // Clock.systemDefaultZone()). Com UTC aqui, às 01:33 em -03:00 a Visão geral contava desde as
+        // 21:00 de ontem e divergia do Workspace no mesmo instante (RCHFLW-195 item 5).
+        ZoneId zona = clock.getZone();
+        Instant startOfDay = LocalDate.now(clock).atStartOfDay(zona).toInstant();
 
         List<TraceSummaryDto> todayTraces = traceStore.query(
                 tenantId, null, null, null, startOfDay, null);
 
+        // Uma execução é um trace (o recorder reaproveita o da pausa na retomada). Pausada à espera de
+        // aprovação não é sucesso nem erro: entra no total e fica fora das taxas, que são sobre as que
+        // terminaram. Antes todo trace não-OK era erro e a pausa inflava a taxa de erro (RCHFLW-177).
         long total = todayTraces.size();
-        long successes = todayTraces.stream()
-                .filter(t -> t.status() != null && t.status().equalsIgnoreCase("OK"))
-                .count();
-        double successRate = total == 0 ? 0d : (double) successes / total;
-        double errorRate = total == 0 ? 0d : 1d - successRate;
+        long successes = todayTraces.stream().filter(t -> isStatus(t, TraceStoreRecorder.STATUS_OK)).count();
+        long errors = todayTraces.stream().filter(t -> isStatus(t, TraceStoreRecorder.STATUS_ERROR)).count();
+        long paused = todayTraces.stream().filter(t -> isStatus(t, TraceStoreRecorder.STATUS_PAUSED)).count();
+        long finished = successes + errors;
+        double successRate = finished == 0 ? 0d : (double) successes / finished;
+        double errorRate = finished == 0 ? 0d : (double) errors / finished;
 
         double avgLatency = todayTraces.stream()
                 .mapToLong(TraceSummaryDto::durationMs)
@@ -164,7 +189,12 @@ public class ObservabilityService {
                 activeStreams,
                 auditCount,
                 topPersonas,
-                spark);
+                spark,
+                paused);
+    }
+
+    private static boolean isStatus(TraceSummaryDto trace, String status) {
+        return trace.status() != null && trace.status().equalsIgnoreCase(status);
     }
 
     // ── Traces ────────────────────────────────────────────────────
@@ -240,48 +270,93 @@ public class ObservabilityService {
 
     public PageDto<AuditEntryDto> listAudit(FilterDto filter) {
         FilterDto f = filter == null ? FilterDto.empty() : filter;
-        if (auditRepository == null) {
+        Optional<AuditRepository.AuditQuery> consulta = buildAuditQuery(f);
+        if (auditRepository == null || consulta.isEmpty()) {
             return PageDto.of(List.of(), f.page(), f.pageSize(), 0);
         }
-        AuditRepository.AuditQuery query = buildAuditQuery(f);
+        AuditRepository.AuditQuery query = consulta.get();
         query.limit(f.pageSize());
         query.offset(f.page() * f.pageSize());
         List<AuditEvent> events = auditRepository.query(query);
-        long total = auditRepository.count(buildAuditQuery(f));
+        long total = auditRepository.count(buildAuditQuery(f).orElseThrow());
         List<AuditEntryDto> mapped = events.stream().map(this::toAuditDto).toList();
         return PageDto.of(mapped, f.page(), f.pageSize(), total);
     }
 
+    /**
+     * O CSV da auditoria com <b>os mesmos filtros da tela</b> e <b>todas</b> as linhas que batem.
+     *
+     * <p>Antes o handler só repassava tenant e período (ação, autor e busca ficavam de fora) e o
+     * serviço cortava em 500 linhas sem aviso: com o filtro {@code LOGIN_SUCCESS} vinham 500 linhas de
+     * todas as ações, e um arquivo incompleto passava por completo numa investigação (RCHFLW-180). Agora
+     * lê a consulta da listagem página a página até acabar. O fim da janela fica preso no instante do
+     * export: um evento gravado no meio da leitura deslocaria as páginas (ordem decrescente) e
+     * repetiria linhas.</p>
+     *
+     * <p>Começa com o BOM UTF-8, para uma planilha em pt-BR abrir acentos certos, e traz o contexto
+     * do evento (tenant, execução, nome) numa coluna — era o que identificava a quem o evento
+     * pertencia (RCHFLW-164).</p>
+     */
     public String exportAuditCsv(FilterDto filter) {
-        FilterDto bigPage = filter == null
-                ? new FilterDto(null, null, null, null, null, null, null, null, 0, 500)
-                : new FilterDto(
-                        filter.from(),
-                        filter.to(),
-                        filter.tenantId(),
-                        filter.personaId(),
-                        filter.status(),
-                        filter.actor(),
-                        filter.action(),
-                        filter.search(),
-                        0,
-                        500);
-        PageDto<AuditEntryDto> page = listAudit(bigPage);
-        StringBuilder sb = new StringBuilder();
-        sb.append("id,timestamp,action,userId,username,resourceType,resourceId,success,errorMessage,ipAddress\n");
-        for (AuditEntryDto e : page.items()) {
-            sb.append(csv(e.id())).append(',')
-                    .append(csv(e.timestamp() == null ? "" : e.timestamp().toString())).append(',')
-                    .append(csv(e.action())).append(',')
-                    .append(csv(e.userId())).append(',')
-                    .append(csv(e.username())).append(',')
-                    .append(csv(e.resourceType())).append(',')
-                    .append(csv(e.resourceId())).append(',')
-                    .append(e.success()).append(',')
-                    .append(csv(e.errorMessage())).append(',')
-                    .append(csv(e.ipAddress())).append('\n');
+        FilterDto f = filter == null ? FilterDto.empty() : filter;
+        FilterDto janela = new FilterDto(f.from(), f.to() != null ? f.to() : Instant.now(), f.tenantId(),
+                f.personaId(), f.status(), f.actor(), f.action(), f.search(), 0, EXPORT_PAGE_SIZE);
+        StringBuilder sb = new StringBuilder(CSV_BOM);
+        sb.append("id,timestamp,action,userId,username,resourceType,resourceId,success,errorMessage,ipAddress,"
+                + "context\n");
+        if (auditRepository == null || buildAuditQuery(janela).isEmpty()) {
+            return sb.toString();
+        }
+        int offset = 0;
+        while (true) {
+            AuditRepository.AuditQuery query = buildAuditQuery(janela).orElseThrow();
+            query.limit(EXPORT_PAGE_SIZE);
+            query.offset(offset);
+            List<AuditEvent> events = auditRepository.query(query);
+            for (AuditEvent event : events) {
+                appendCsvRow(sb, toAuditDto(event));
+            }
+            if (events.size() < EXPORT_PAGE_SIZE) {
+                break;
+            }
+            offset += events.size();
         }
         return sb.toString();
+    }
+
+    /** Linhas por consulta ao ler o export; o arquivo traz todas as páginas, este é só o passo. */
+    static final int EXPORT_PAGE_SIZE = 500;
+
+    /** BOM UTF-8: sem ele o Excel em pt-BR abre o CSV como ANSI e estraga os acentos. */
+    static final String CSV_BOM = "\uFEFF";
+
+    private static void appendCsvRow(StringBuilder sb, AuditEntryDto e) {
+        sb.append(csv(e.id())).append(',')
+                .append(csv(e.timestamp() == null ? "" : e.timestamp().toString())).append(',')
+                .append(csv(e.action())).append(',')
+                .append(csv(e.userId())).append(',')
+                .append(csv(e.username())).append(',')
+                .append(csv(e.resourceType())).append(',')
+                .append(csv(e.resourceId())).append(',')
+                .append(e.success()).append(',')
+                .append(csv(e.errorMessage())).append(',')
+                .append(csv(e.ipAddress())).append(',')
+                .append(csv(contextoEmTexto(e.context()))).append('\n');
+    }
+
+    /** {@code chave=valor; ...} em ordem de chave, para o arquivo sair igual a cada export. */
+    static String contextoEmTexto(Map<String, String> context) {
+        if (context == null || context.isEmpty()) {
+            return "";
+        }
+        StringBuilder out = new StringBuilder();
+        new java.util.TreeMap<>(context).forEach((k, v) -> {
+            if (out.length() > 0) {
+                out.append("; ");
+            }
+            out.append(k).append('=').append(v == null ? "" : v);
+        });
+        return out.toString();
     }
 
     // ── Running flows ─────────────────────────────────────────────
@@ -371,13 +446,18 @@ public class ObservabilityService {
 
     // ── helpers ───────────────────────────────────────────────────
 
-    private AuditRepository.AuditQuery buildAuditQuery(FilterDto f) {
+    /**
+     * A consulta da listagem e do export — uma só, para os dois não divergirem (RCHFLW-180). Vazio
+     * quando o filtro não pode casar com nada (uma ação que não existe).
+     */
+    private Optional<AuditRepository.AuditQuery> buildAuditQuery(FilterDto f) {
         AuditRepository.AuditQuery q = AuditRepository.AuditQuery.builder()
                 .sortBy("timestamp")
                 .sortDescending(true);
         if (f.from() != null) q.startTime(f.from());
         if (f.to() != null) q.endTime(f.to());
-        if (f.actor() != null && !f.actor().isBlank()) q.userId(f.actor());
+        // O autor casa com o id ou com o username, que é o que a tela mostra (RCHFLW-195 item 10).
+        if (f.actor() != null && !f.actor().isBlank()) q.actor(f.actor().trim());
         // O FilterDto sempre trouxe tenantId, mas a consulta o ignorava: a auditoria e o export de
         // qualquer tenant listavam os eventos de todos (RCHFLW-39). O tenant está no contexto do
         // evento, gravado pelo AuditTrail; nulo continua sendo "todos" (admin com "all").
@@ -385,13 +465,25 @@ public class ObservabilityService {
             q.contextEquals(AuditTrail.CONTEXT_TENANT, f.tenantId());
         }
         if (f.action() != null && !f.action().isBlank()) {
-            try {
-                q.action(br.com.archflow.observability.audit.AuditAction.valueOf(f.action()));
-            } catch (IllegalArgumentException ignored) {
-                // unknown action — leave unset so the query returns nothing
+            Optional<AuditAction> action = parseAction(f.action().trim());
+            if (action.isEmpty()) {
+                // Uma ação que não existe não casa com nada. Antes o filtro era só ignorado — o
+                // comentário dizia "nada", mas a consulta voltava todas as ações como se filtradas.
+                return Optional.empty();
+            }
+            q.action(action.get());
+        }
+        return Optional.of(q);
+    }
+
+    /** O nome do enum ({@code LOGIN_SUCCESS}, o que a tela mostra) ou o código ({@code login.success}). */
+    private static Optional<AuditAction> parseAction(String value) {
+        for (AuditAction a : AuditAction.values()) {
+            if (a.name().equalsIgnoreCase(value) || a.getCode().equalsIgnoreCase(value)) {
+                return Optional.of(a);
             }
         }
-        return q;
+        return Optional.empty();
     }
 
     private AuditEntryDto toAuditDto(AuditEvent e) {
@@ -474,10 +566,11 @@ public class ObservabilityService {
         return switch (key) {
             case "throughput", "count" -> inBucket.size();
             case "error_rate" -> {
-                long errs = inBucket.stream()
-                        .filter(t -> t.status() != null && !"OK".equalsIgnoreCase(t.status()))
-                        .count();
-                yield (double) errs / inBucket.size();
+                // Mesma regra da Visão geral: a pausa à espera de aprovação não é erro nem entra no
+                // denominador (RCHFLW-177).
+                long errs = inBucket.stream().filter(t -> isStatus(t, TraceStoreRecorder.STATUS_ERROR)).count();
+                long done = inBucket.stream().filter(t -> !isStatus(t, TraceStoreRecorder.STATUS_PAUSED)).count();
+                yield done == 0 ? 0d : (double) errs / done;
             }
             default -> inBucket.stream()
                     .mapToLong(TraceSummaryDto::durationMs)

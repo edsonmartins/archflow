@@ -37,7 +37,10 @@ import { PageHeader } from '../components/PageHeader';
 import { SectionCard } from '../components/SectionCard';
 import { StatCard } from '../components/admin/StatCard';
 import EmptyState from '../components/EmptyState';
-import { categoriaVisivel, rotuloDaComplexidade } from '../components/templates/categoria';
+import {
+    categoriaVisivel, nomeDaCopia, roteadoresSemConfiguracao, rotuloDaComplexidade,
+} from '../components/templates/categoria';
+import { workflowApi } from '../services/api';
 import { NODE_CATEGORIES } from '../components/FlowCanvas/constants';
 import { canvasToDocumentSteps } from '../components/FlowCanvas/workflowSerde';
 import { usePermissions } from '../lib/permissions';
@@ -105,6 +108,7 @@ export default function TemplateDetailPage() {
     const unsupported = template.unsupportedNodeTypes ?? [];
     const unsupportedSet = new Set(unsupported);
     const unverified = template.unsupportedNodeTypes === undefined && steps.length > 0;
+    const roteadores = roteadoresSemConfiguracao(steps);
     const stepUnsupported = (s: { componentId?: string; type?: string }) =>
         unsupportedSet.has((s.componentId || s.type || '').toLowerCase());
     // O bloco convida a colar: precisa ser o documento canônico (config em `configuration`, arestas
@@ -117,10 +121,14 @@ export default function TemplateDetailPage() {
         setCloning(true);
         setError(null);
         try {
-            const created = await templateApi.clone(template.id);
+            // Os nomes que já existem, para a cópia não repetir um. Sem a lista (falha ao ler), a cópia sai com
+            // o primeiro nome — o mesmo conselho best-effort do aviso de nome repetido do editor.
+            const existentes = await workflowApi.list().then((ws) => ws.map((w) => w.name ?? ''), () => []);
+            const name = nomeDaCopia(template.name, existentes, t);
+            const created = await templateApi.clone(template.id, { name });
             notifications.show({
                 title: t('templates.detail.created'),
-                message: t('templates.detail.createdMsg', { name: template.name }),
+                message: t('templates.detail.createdMsg', { name }),
                 color: 'teal',
                 icon: <IconCheck size={16} />,
             });
@@ -158,6 +166,17 @@ export default function TemplateDetailPage() {
                 <Alert color="orange" variant="light" icon={<IconAlertTriangle size={16} />}
                        title={t('templates.detail.unsupportedTitle')} data-testid="template-unsupported">
                     {t('templates.detail.unsupportedHint', { types: unsupported.join(', ') })}
+                </Alert>
+            )}
+
+            {roteadores.length > 0 && (
+                <Alert color="yellow" variant="light" icon={<IconAlertTriangle size={16} />}
+                       title={t('templates.detail.routersTitle')} data-testid="template-routers-unconfigured">
+                    {t('templates.detail.routersHint', {
+                        routers: roteadores
+                            .map((r) => `"${r.label}" → ${r.campos.map((c) => t(c)).join(', ')}`)
+                            .join('; '),
+                    })}
                 </Alert>
             )}
 

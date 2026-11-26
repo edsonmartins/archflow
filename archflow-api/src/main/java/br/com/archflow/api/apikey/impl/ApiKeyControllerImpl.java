@@ -13,6 +13,11 @@ import br.com.archflow.security.apikey.ApiKeyService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeParseException;
 import java.util.Arrays;
 import java.util.EnumSet;
 import java.util.List;
@@ -70,6 +75,7 @@ public class ApiKeyControllerImpl implements ApiKeyController {
             throw new IllegalArgumentException("At least one scope is required");
         }
         Set<ApiKeyScope> scopes = resolveScopes(request.scopes());
+        LocalDateTime expiresAt = parseExpiry(request.expiresAt());
         log.info("Creating API key for user: {} with name: {}", userId, request.name());
 
         ApiKeyService.ApiKeyWithSecret result = apiKeyService.createApiKey(
@@ -77,7 +83,7 @@ public class ApiKeyControllerImpl implements ApiKeyController {
                 userId,
                 request.name().trim(),
                 scopes,
-                request.expiresAt()
+                expiresAt
         );
 
         br.com.archflow.model.security.ApiKey apiKey = result.apiKey();
@@ -94,11 +100,50 @@ public class ApiKeyControllerImpl implements ApiKeyController {
                 result.credential(),   // Credential shown only once
                 apiKey.getName(),
                 apiKey.getScopes(),
-                apiKey.getCreatedAt(),
-                apiKey.getExpiresAt(),
-                apiKey.getLastUsedAt(),
+                instante(apiKey.getCreatedAt()),
+                instante(apiKey.getExpiresAt()),
+                instante(apiKey.getLastUsedAt()),
                 apiKey.isEnabled()
         );
+    }
+
+    /**
+     * A validade pedida, na hora local do servidor — como o {@code ApiKeyService} a guarda e compara
+     * ({@code LocalDateTime.now()}). Uma validade que já passou é recusada (400): a chave nasceria
+     * vencida, não autenticaria, e a tela a listaria como ativa (RCHFLW-195 item 12).
+     */
+    LocalDateTime parseExpiry(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        LocalDateTime local;
+        try {
+            local = LocalDateTime.ofInstant(OffsetDateTime.parse(value.trim()).toInstant(), zone());
+        } catch (DateTimeParseException comFuso) {
+            try {
+                local = LocalDateTime.parse(value.trim());
+            } catch (DateTimeParseException semFuso) {
+                throw new IllegalArgumentException("Invalid expiresAt '" + value
+                        + "': expected ISO-8601, e.g. 2026-12-31T23:59:00Z");
+            }
+        }
+        if (!local.isAfter(LocalDateTime.now(zone()))) {
+            throw new IllegalArgumentException("expiresAt must be in the future: " + value);
+        }
+        return local;
+    }
+
+    /** O fuso em que o {@code ApiKeyService} grava as datas (o do servidor). */
+    private static ZoneId zone() {
+        return ZoneId.systemDefault();
+    }
+
+    /**
+     * A data guardada (hora local do servidor, sem fuso) como instante UTC. Saía sem fuso
+     * ({@code 2026-11-26T08:46:41}) e a tela não tinha como formatá-la (RCHFLW-195 item 11).
+     */
+    private static Instant instante(LocalDateTime local) {
+        return local == null ? null : local.atZone(zone()).toInstant();
     }
 
     @Override
@@ -170,10 +215,11 @@ public class ApiKeyControllerImpl implements ApiKeyController {
                 apiKey.getKeyId(),
                 apiKey.getName(),
                 apiKey.getScopes(),
-                apiKey.getCreatedAt(),
-                apiKey.getExpiresAt(),
-                apiKey.getLastUsedAt(),
-                apiKey.isEnabled()
+                instante(apiKey.getCreatedAt()),
+                instante(apiKey.getExpiresAt()),
+                instante(apiKey.getLastUsedAt()),
+                apiKey.isEnabled(),
+                apiKey.isExpired()
         );
     }
 }

@@ -2,13 +2,15 @@ import { useEffect, useMemo, useState } from 'react';
 import { useDebouncedValue } from '@mantine/hooks';
 import { useTranslation } from 'react-i18next';
 import { Button, Group, Text, TextInput } from '@mantine/core';
+import { notifications } from '@mantine/notifications';
 import { IconDownload, IconHistory, IconSearch } from '@tabler/icons-react';
 import {
     observabilityApi,
     type AuditEntryDto,
     type ObservabilityFilter,
 } from '../../../services/observability-api';
-import { formatInstant } from '../../../lib/format';
+import { contextoEmTexto, formatInstant } from '../../../lib/format';
+import { baixarArquivo } from '../../../lib/downloadFile';
 import { SectionCard } from '../../../components/SectionCard';
 import { VxTable, colunaApagada, colunaDupla, colunaStatus, type Registro, type VxColumn } from '../../../components/VTable';
 
@@ -24,6 +26,7 @@ export default function AuditLogPage() {
     const [action, setAction] = useState('');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [exporting, setExporting] = useState(false);
 
     // Debounce the typed filters so each keystroke doesn't fire a paginated
     // audit query (and race slower earlier responses); inputs stay responsive.
@@ -39,6 +42,11 @@ export default function AuditLogPage() {
         }),
         [page, debActor, debAction],
     );
+
+    // Com autor ou ação, vazio é "nada corresponde": o autor casa exato com id ou username e a ação com o
+    // código inteiro, então um termo parcial não acha nada — e "nenhum registro ainda" com milhares de
+    // linhas na trilha mandava a pessoa esperar por algo que já existia (mesma regra da tela de traces).
+    const filtrando = Boolean(debActor) || Boolean(debAction);
 
     const load = () => {
         setLoading(true);
@@ -57,6 +65,19 @@ export default function AuditLogPage() {
         load();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [filter]);
+
+    // Download autenticado (o `<a href>` não levava o token) com os mesmos filtros da tela; o servidor
+    // devolve todas as linhas que batem, não só a página visível (RCHFLW-180, RCHFLW-195 item 9).
+    const exportar = () => {
+        setExporting(true);
+        baixarArquivo(observabilityApi.auditExportUrl(filter), 'audit-log.csv')
+            .catch((e) => notifications.show({
+                color: 'red',
+                title: t('admin.observability.audit.exportFailed'),
+                message: e instanceof Error ? e.message : String(e),
+            }))
+            .finally(() => setExporting(false));
+    };
 
     const columns = useMemo((): VxColumn[] => [
         colunaApagada({ field: 'timestamp', title: t('admin.observability.audit.cols.when'), width: 200,
@@ -80,6 +101,8 @@ export default function AuditLogPage() {
                   : t('admin.observability.audit.resultFailed')) },
             (r) => (r.success ? 'green' : 'red'),
         ),
+        colunaApagada({ field: 'context', title: t('admin.observability.audit.cols.context'), width: 260,
+          fieldFormat: (r: Registro) => contextoEmTexto(r.context as Record<string, string> | null) || '—' }),
         colunaApagada({ field: 'traceId', title: t('admin.observability.audit.cols.trace'), width: 150,
           fieldFormat: (r: Registro) => (r.traceId ? (r.traceId as string).slice(0, 12) : '—') }),
     ], [t, locale]);
@@ -122,9 +145,8 @@ export default function AuditLogPage() {
                         size="xs"
                         variant="default"
                         leftSection={<IconDownload size={14} />}
-                        component="a"
-                        href={observabilityApi.auditExportUrl(filter)}
-                        download="audit-log.csv"
+                        onClick={exportar}
+                        loading={exporting}
                         data-testid="audit-export"
                     >
                         {t('admin.observability.audit.exportCsv')}
@@ -140,8 +162,12 @@ export default function AuditLogPage() {
                 loading={loading}
                 error={error}
                 onRetry={load}
-                emptyMessage={t('admin.observability.audit.empty')}
-                emptyDescription={t('admin.observability.audit.emptyHint')}
+                emptyMessage={filtrando
+                    ? t('admin.observability.audit.noMatch')
+                    : t('admin.observability.audit.empty')}
+                emptyDescription={filtrando
+                    ? t('admin.observability.audit.noMatchHint')
+                    : t('admin.observability.audit.emptyHint')}
                 emptyIcon={<IconHistory />}
                 emptyAccent="green"
                 testid="audit-table"

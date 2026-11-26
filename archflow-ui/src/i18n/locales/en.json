@@ -10,6 +10,7 @@
         "done": "Access activated. Sign in with the username {{username}} and the password you set.",
         "goToLogin": "Go to sign in",
         "haveAccount": "I already have access",
+        "backToLogin": "Back to sign in",
         "missingToken": "This invitation link is incomplete. Ask the administrator for a new link.",
         "failed": "Could not accept the invitation"
     },
@@ -25,7 +26,8 @@
         "INVITATION_ALREADY_ACCEPTED": "This invitation was already accepted; remove the user instead of revoking the invitation.",
         "INVITATION_INVALID": "This invitation link is invalid or has already been used.",
         "INVITATION_EXPIRED": "This invitation has expired; ask the administrator for a new one.",
-        "PASSWORD_TOO_SHORT": "The password must have at least {{min}} characters."
+        "PASSWORD_TOO_SHORT": "The password must have at least {{min}} characters.",
+        "INVITATION_ALREADY_SENT": "This e-mail already has an invitation in this workspace (pending or expired). Revoke it in the list to generate a new link."
     },
     "usage": {
         "noPrice": "no price",
@@ -54,7 +56,7 @@
         "revokeInviteTitle": "Revoke invite",
         "revokeInviteMessage": "Revoke the invite for {{name}}?",
         "revokeKeyTitle": "Revoke API key",
-        "revokeKeyMessage": "The key \"{{name}}\" will stop working immediately. This action cannot be undone.",
+        "revokeKeyMessage": "The key \"{{name}}\" ({{id}}) will stop working immediately. This action cannot be undone.",
         "rejectApprovalTitle": "Reject request",
         "rejectApprovalMessage": "Reject this request? The flow will be terminated and this decision cannot be undone.",
         "approveApprovalTitle": "Approve request",
@@ -1009,6 +1011,8 @@
             },
             "overview": {
                 "execTodayHint": "Flow executions since midnight",
+                "pausedToday_one": "{{count}} awaiting approval (left out of the rates)",
+                "pausedToday_other": "{{count}} awaiting approval (left out of the rates)",
                 "latencyTrend": "Latency trend",
                 "latencyTrendHint": "Average latency over the recent window",
                 "trendStart": "Earlier",
@@ -1030,8 +1034,8 @@
             },
             "metrics": {
                 "chartHint": "Time series for the selected metric and bucket",
-                "countersHint": "Monotonic totals since start-up",
-                "gaugesHint": "Point-in-time values",
+                "countersHint": "Monotonic totals since server start-up. LLM counters (llm_*) cover the agent loop (mcp-agent) only: llm-chat node calls are in Usage & billing.",
+                "gaugesHint": "Sums accumulated since server start-up (not point-in-time values). LLM tokens (llm_*) cover the agent loop only.",
                 "histogramsHint": "Distribution of recorded durations",
                 "stats": {
                     "last": "Latest",
@@ -1077,7 +1081,10 @@
                 "filterActor": "Actor (id or username)",
                 "filterAction": "Action, e.g. LOGIN_SUCCESS",
                 "exportCsv": "Export CSV",
+                "exportFailed": "Failed to export the audit log",
                 "empty": "No audit entries yet.",
+                "noMatch": "No audit entries match the filter.",
+                "noMatchHint": "The actor must be the exact user id or username, and the action the full code (e.g. LOGIN_SUCCESS).",
                 "showing": "Showing {{from}}–{{to}} of {{total}}",
                 "previous": "Previous",
                 "next": "Next",
@@ -1089,19 +1096,23 @@
                     "action": "Action",
                     "resource": "Resource",
                     "result": "Result",
+                    "context": "Context",
                     "trace": "Trace"
                 }
             },
             "traces": {
                 "statusError": "Error",
+                "statusPaused": "Awaiting approval",
                 "listTitle": "Captured traces",
                 "listHint": "Click a trace to open its span timeline",
                 "emptyHint": "Traces appear as soon as flows and agents run.",
                 "loadFailed": "Failed to load traces",
-                "search": "Trace, flow or execution id",
+                "search": "Trace id, flow name or id, or execution id",
                 "status": "Status",
                 "statusAll": "All",
                 "empty": "No traces captured yet.",
+                "noMatch": "No trace matches the filter.",
+                "noMatchHint": "Search by flow name or id, execution id or trace id, or clear the status filter.",
                 "cols": {
                     "flow": "Flow",
                     "traceId": "Trace ID",
@@ -1315,6 +1326,8 @@
                 "summaryHint": "Review before creating.",
                 "back": "← Back",
                 "createFailed": "Failed to create tenant",
+                "planDefaultsFailed": "Could not load the plan defaults from /admin/global. The limits below do not follow the selected plan: check them before creating.",
+                "planNoDefaults": "The {{plan}} plan has no default limits in /admin/global. The limits below do not come from it (they are what the form already had): check them before creating.",
                 "created": "Tenant created",
                 "createdMsg": "{{name}} created successfully",
                 "identity": "Identity",
@@ -1368,6 +1381,7 @@
                     "tenants": "With activity in the month"
                 },
                 "exportCsv": "Export CSV",
+                "exportFailed": "Failed to export usage",
                 "loadFailed": "Failed to load usage",
                 "stats": {
                     "executions": "Executions",
@@ -1381,6 +1395,7 @@
                     "tokensIn": "Tokens In",
                     "tokensOut": "Tokens Out",
                     "cost": "Est. Cost",
+                    "planLimit": "Plan limit",
                     "percent": "% of Total"
                 }
             },
@@ -1391,7 +1406,8 @@
                 "modelsEmpty": "No models registered",
                 "plansHint": "Starting limits for new tenants of each plan.",
                 "plansEmpty": "No plan defaults",
-                "togglesHint": "Platform-wide feature switches.",
+                "togglesHint": "Platform preferences on record. None of them changes runtime behaviour today.",
+                "togglesNotApplied": "These keys are not wired to the features they name yet: switching them only stores the preference. Below each one is what actually applies today.",
                 "costLine": "in ${{input}} · out ${{output}} per 1M tokens",
                 "enableModel": "Enable {{name}}",
                 "modelStatuses": {
@@ -1428,6 +1444,14 @@
                     "debugMode": "Debug mode — full trace per node",
                     "linktorNotifications": "Linktor notifications (WhatsApp)",
                     "auditLog": "Audit log for user actions"
+                },
+                "toggleEffects": {
+                    "allowLocalModels": "No effect today: the model catalog comes from ARCHFLOW_LLM_MODELS and the models enabled above; this key does not filter it.",
+                    "humanInTheLoop": "No effect today: approval nodes always pause the flow; turning this off does not skip them.",
+                    "brainSentry": "No effect today: long-term memory (Brain Sentry) is not wired to the runtime yet.",
+                    "debugMode": "No effect today: traces carry the same detail with this key on or off.",
+                    "linktorNotifications": "No effect today: sending to Linktor depends on each tenant's Linktor settings, not on this key.",
+                    "auditLog": "No effect today: the audit trail always records; turning this off does not stop it."
                 }
             }
         },
@@ -1526,12 +1550,19 @@
                 "title": "Users",
                 "subtitle": "Who has access to this workspace and what each role can do.",
                 "listTitle": "Members",
-                "listHint": "{{count}} people · {{invited}} pending invites",
+                "listHint": "{{people}} · {{invited}}",
+                "peopleCount_zero": "No people",
+                "peopleCount_one": "{{count}} person",
+                "peopleCount_other": "{{count}} people",
+                "invitedCount_zero": "no pending invites",
+                "invitedCount_one": "{{count}} pending invite",
+                "invitedCount_other": "{{count}} pending invites",
                 "emptyTitle": "No users yet",
                 "emptyHint": "Invite someone to collaborate on this workspace.",
                 "permissionsHint": "What each role is allowed to do.",
                 "membersWithRole_one": "{{count}} member",
                 "membersWithRole_other": "{{count}} members",
+                "membersWithRole_zero": "No members",
                 "allowed": "Allowed",
                 "notAllowed": "Not allowed",
                 "invite": "Invite User",
@@ -1591,14 +1622,15 @@
             },
             "scopedKeys": {
                 "title": "Scoped API keys",
-                "subtitle": "Keys with explicit scopes and optional expiry, for /api/apikeys.",
+                "subtitle": "Keys for integrations, with explicit scopes and an optional expiry.",
                 "listTitle": "Scoped keys",
                 "listHint": "The secret is shown only once, right after creation.",
                 "emptyHint": "Create a key with only the scopes an integration needs.",
                 "new": "New key",
-                "info": "These keys belong to the scoped/expirable system (/api/apikeys) and carry explicit scopes.",
+                "info": "Each key acts as you and only reaches what its scopes cover. Set an expiry for temporary integrations.",
                 "created": "Key created — copy the secret now",
                 "createdHint": "This is the only time the secret will be shown.",
+                "nameRepeated": "An active key already has this name. Pick a different one so the two are not confused when revoking.",
                 "dismiss": "Dismiss",
                 "empty": "No keys yet.",
                 "loadFailed": "API keys",
@@ -1637,11 +1669,15 @@
                 },
                 "form": {
                     "name": "Name",
-                    "scopes": "Scopes"
+                    "scopes": "Scopes",
+                    "expiresAt": "Expiry (optional)",
+                    "expiresAtHint": "In your local time. Without an expiry, the key never expires.",
+                    "expiresAtPast": "The expiry must be in the future."
                 },
                 "status": {
                     "active": "active",
-                    "revoked": "revoked"
+                    "revoked": "revoked",
+                    "expired": "expired"
                 },
                 "revoke": "Revoke"
             }
@@ -2118,6 +2154,10 @@
             "unsupportedStep": "no executor",
             "unverifiedTitle": "Could not check whether this template runs",
             "unverifiedHint": "The server did not answer the node type check. Some nodes may have no executor in the engine; check before running the cloned flow.",
+            "routersTitle": "Routers without configuration",
+            "routersHint": "After installing, fill in these fields in the editor before running: {{routers}}.",
+            "copyName": "{{name}} (copy)",
+            "copyNameN": "{{name}} (copy {{n}})",
             "variablesHint": "Placeholders you can fill in after cloning",
             "workflowJsonHint": "Steps and connections, ready to paste",
             "stats": {

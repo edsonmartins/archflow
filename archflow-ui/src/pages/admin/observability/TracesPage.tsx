@@ -22,6 +22,8 @@ export default function TracesPage() {
         { value: 'all', label: t('admin.observability.traces.statusAll') },
         { value: 'OK', label: 'OK' },
         { value: 'ERROR', label: t('admin.observability.traces.statusError') },
+        // Execução parada à espera de aprovação: não é erro (RCHFLW-177).
+        { value: 'PAUSED', label: t('admin.observability.traces.statusPaused') },
     ];
     const [traces, setTraces] = useState<TraceSummaryDto[]>([]);
     const [total, setTotal] = useState(0);
@@ -44,6 +46,8 @@ export default function TracesPage() {
         }),
         [page, debSearch, statusFilter],
     );
+
+    const filtrando = Boolean(debSearch) || statusFilter !== 'all';
 
     const load = () => {
         setLoading(true);
@@ -82,7 +86,8 @@ export default function TracesPage() {
           fieldFormat: (r: Registro) => `${r.durationMs as number} ms` }),
         colunaApagada({ field: 'spanCount', title: t('admin.observability.traces.cols.spans'), width: 90 }),
         colunaStatus(
-            { field: 'status', title: t('admin.observability.traces.cols.status'), width: 120 },
+            { field: 'status', title: t('admin.observability.traces.cols.status'), width: 150,
+              fieldFormat: (r: Registro) => statusLabel(r.status as string, t) },
             (r) => statusColor(r.status as string),
         ),
     ], [t, locale]);
@@ -138,8 +143,14 @@ export default function TracesPage() {
                 error={error}
                 onRetry={() => load()}
                 onRowClick={(r) => navigate(`/admin/observability/traces/${r.traceId as string}`)}
-                emptyMessage={t('admin.observability.traces.empty')}
-                emptyDescription={t('admin.observability.traces.emptyHint')}
+                // Com busca ou status escolhido, vazio é "nada corresponde" — dizer "nenhum trace capturado"
+                // com centenas no store mandava a pessoa esperar por algo que já existia (RCHFLW-195 item 6).
+                emptyMessage={filtrando
+                    ? t('admin.observability.traces.noMatch')
+                    : t('admin.observability.traces.empty')}
+                emptyDescription={filtrando
+                    ? t('admin.observability.traces.noMatchHint')
+                    : t('admin.observability.traces.emptyHint')}
                 emptyIcon={<IconTimeline />}
                 emptyAccent="green"
                 testid="traces-table"
@@ -181,10 +192,17 @@ function Pager({ page, pageSize, total, onPage }: {
 function statusColor(status: string): string {
     if (status === 'OK') return 'green';
     if (status === 'ERROR') return 'red';
+    if (status === 'PAUSED') return 'yellow';
     return 'gray';
 }
 
 type TFn = (key: string, opts?: Record<string, unknown>) => string;
+
+function statusLabel(status: string, t: TFn): string {
+    if (status === 'ERROR') return t('admin.observability.traces.statusError');
+    if (status === 'PAUSED') return t('admin.observability.traces.statusPaused');
+    return status;
+}
 
 function formatTime(iso: string, t: TFn, locale: string): string {
     try {

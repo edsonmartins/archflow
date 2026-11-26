@@ -81,7 +81,9 @@ export default function ObservabilityOverview() {
                     value={formatNumber(locale, data.totalExecutionsToday)}
                     icon={IconBolt}
                     accent="green"
-                    hint={t('admin.observability.overview.execTodayHint')}
+                    hint={data.pausedExecutionsToday > 0
+                        ? t('admin.observability.overview.pausedToday', { count: data.pausedExecutionsToday })
+                        : t('admin.observability.overview.execTodayHint')}
                 />
                 <StatCard
                     label={t('admin.observability.overview.successRate')}

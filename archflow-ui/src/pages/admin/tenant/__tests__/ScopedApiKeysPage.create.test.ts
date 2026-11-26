@@ -226,3 +226,64 @@ describe('ScopedApiKeysPage — criar chave', () => {
     expect(container.textContent).toContain('workflow:execute')
   })
 })
+
+describe('ScopedApiKeysPage — validade, datas e nome (RCHFLW-195 itens 11–13)', () => {
+  it('chave vencida aparece como vencida, e as datas saem formatadas, não o ISO cru', async () => {
+    apiMock.list.mockResolvedValue([{
+      id: 'velha-1', keyId: 'ak_velha', name: 'Velha', scopes: ['WORKFLOW_READ'],
+      createdAt: '2026-11-20T11:00:00Z', expiresAt: '2026-11-25T13:00:00Z', enabled: true, expired: true,
+    }])
+    await render()
+
+    const linha = byTestId('scoped-key-row-velha-1')!.textContent ?? ''
+    expect(linha).toContain('admin.tenant.scopedKeys.status.expired')
+    expect(linha).not.toContain('admin.tenant.scopedKeys.status.active')
+    expect(linha).not.toContain('2026-11-20T11:00:00Z')
+    expect(linha).toContain(new Date('2026-11-20T11:00:00Z').toLocaleString('pt-BR'))
+  })
+
+  it('a validade escolhida vai como instante UTC (com Z)', async () => {
+    apiMock.create.mockResolvedValue({
+      id: 'id-1', keyId: 'ak_abc', keySecret: 'S', apiKey: 'ak_abc.S', name: 'CI',
+      scopes: ['WORKFLOW_EXECUTE'], createdAt: '2026-11-25T10:00:00Z', enabled: true,
+    })
+    await render()
+    await preencheDialogo('CI', 'workflow:execute')
+    await type(byTestId('scoped-key-expires') as HTMLInputElement, '2099-12-31T23:59')
+    await click(byTestId('scoped-key-create'))
+
+    expect(apiMock.create).toHaveBeenCalledWith({
+      name: 'CI', scopes: ['WORKFLOW_EXECUTE'], expiresAt: new Date('2099-12-31T23:59').toISOString(),
+    })
+  })
+
+  it('validade no passado não deixa criar', async () => {
+    await render()
+    await preencheDialogo('CI', 'workflow:execute')
+    await type(byTestId('scoped-key-expires') as HTMLInputElement, '2020-01-01T10:00')
+
+    expect((byTestId('scoped-key-create') as HTMLButtonElement).disabled).toBe(true)
+    expect(document.body.textContent).toContain('admin.tenant.scopedKeys.form.expiresAtPast')
+  })
+
+  it('nome igual ao de uma chave ativa é avisado; o segredo criado tem botão de copiar', async () => {
+    apiMock.list.mockResolvedValue([{
+      id: 'a-1', keyId: 'ak_a', name: 'QA2 adminui leitura', scopes: ['WORKFLOW_READ'],
+      createdAt: '2026-11-25T10:00:00Z', enabled: true,
+    }])
+    apiMock.create.mockResolvedValue({
+      id: 'id-2', keyId: 'ak_b', keySecret: 'S', apiKey: 'ak_b.S', name: 'Outra',
+      scopes: ['WORKFLOW_READ'], createdAt: '2026-11-25T10:00:00Z', enabled: true,
+    })
+    await render()
+    await preencheDialogo('qa2 adminui leitura ', 'workflow:read')
+    expect(byTestId('scoped-key-name-repeated')).not.toBeNull()
+
+    await type(byTestId('scoped-key-name') as HTMLInputElement, 'Outra')
+    expect(byTestId('scoped-key-name-repeated')).toBeNull()
+    await click(byTestId('scoped-key-create'))
+
+    const banner = byTestId('scoped-key-created')!
+    expect(banner.querySelector('button[aria-label]')).not.toBeNull()
+  })
+})

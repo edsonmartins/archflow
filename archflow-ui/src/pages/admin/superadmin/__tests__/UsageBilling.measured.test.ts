@@ -19,6 +19,8 @@ vi.mock('react-i18next', () => ({
   }),
 }))
 vi.mock('../../../../services/admin-api', () => ({ usageApi: usageApiMock }))
+const downloadMock = vi.hoisted(() => ({ baixarArquivo: vi.fn(() => Promise.resolve()) }))
+vi.mock('../../../../lib/downloadFile', () => downloadMock)
 
 import UsageBilling from '../UsageBilling'
 
@@ -93,6 +95,36 @@ describe('UsageBilling — consumo medido', () => {
     expect(acme).toContain('usage.withoutPriceCount:1')
     expect(byTestId('usage-row-globex')!.textContent).toContain('usage.noPrice')
     expect(document.body.textContent).toContain('usage.withoutPriceCount:2')
+  })
+})
+
+describe('UsageBilling — QA2 (RCHFLW-195 itens 7 e 9)', () => {
+  it('fatia pequena aparece como "< 0.1%", não 0%, e o limite do plano tem coluna', async () => {
+    usageApiMock.byTenant.mockResolvedValue([
+      { tenantId: 'grande', tenantName: 'Grande', executions: 9, tokensInput: 2_000_000, tokensOutput: 0,
+        costCents: null, costReais: null, declaredCostUsd: null, executionsWithoutPrice: 9,
+        percentOfTotal: 99.997, planLimit: 5_000_000 },
+      { tenantId: 'pequeno', tenantName: 'Pequeno', executions: 1, tokensInput: 57, tokensOutput: 0,
+        costCents: null, costReais: null, declaredCostUsd: null, executionsWithoutPrice: 1,
+        percentOfTotal: 0.00285, planLimit: null },
+    ])
+    await render()
+
+    expect(byTestId('usage-row-pequeno')!.textContent).toContain('< 0.1%')
+    expect(byTestId('usage-row-grande')!.textContent).toContain('5.0M')
+    expect(document.body.textContent).toContain('admin.superadmin.usage.columns.planLimit')
+  })
+
+  it('Exportar CSV baixa pela sessão (authFetch + blob), não por um link sem token', async () => {
+    usageApiMock.byTenant.mockResolvedValue([])
+    await render()
+
+    const botao = byTestId('usage-export')!
+    expect(botao.tagName).toBe('BUTTON')
+    expect(botao.getAttribute('href')).toBeNull()
+    await act(async () => { botao.click() })
+
+    expect(downloadMock.baixarArquivo).toHaveBeenCalledWith('/api/x.csv', `usage-${recentMonths()[0]}.csv`)
   })
 })
 

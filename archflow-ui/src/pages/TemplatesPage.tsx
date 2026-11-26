@@ -33,6 +33,7 @@ import {
     categoriasDoCatalogo,
     chaveDaCategoria,
     rotuloDaComplexidade,
+    templateCombinaComBusca,
 } from '../components/templates/categoria';
 
 type Complexity = WorkflowTemplate['complexity'] | 'all';
@@ -68,19 +69,11 @@ export default function TemplatesPage() {
 
     const categories = useMemo(() => categoriasDoCatalogo(all), [all]);
 
-    const filtered = useMemo(() => {
-        const q = search.trim().toLowerCase();
-        return all.filter((tpl) => {
-            if (category !== 'all' && chaveDaCategoria(tpl.category) !== category) return false;
-            if (complexity !== 'all' && tpl.complexity !== complexity) return false;
-            if (!q) return true;
-            return (
-                (tpl.name ?? '').toLowerCase().includes(q) ||
-                (tpl.summary ?? '').toLowerCase().includes(q) ||
-                (tpl.tags ?? []).some((tag) => tag.toLowerCase().includes(q))
-            );
-        });
-    }, [all, search, category, complexity]);
+    const filtered = useMemo(() => all.filter((tpl) => {
+        if (category !== 'all' && chaveDaCategoria(tpl.category) !== category) return false;
+        if (complexity !== 'all' && tpl.complexity !== complexity) return false;
+        return templateCombinaComBusca(tpl, search, t);
+    }), [all, search, category, complexity, t]);
 
     const clearFilters = () => { setSearch(''); setCategory('all'); setComplexity('all'); };
 

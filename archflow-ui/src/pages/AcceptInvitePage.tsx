@@ -47,7 +47,7 @@ export default function AcceptInvitePage() {
     }
 
     return (
-        <div className="af-login">
+        <div className="af-login af-login--single" data-testid="accept-invite-page">
             <main className="af-login-panel" style={{ flex: 1 }}>
                 <div className="af-login-lang"><LanguageSwitcher /></div>
                 <div className="af-login-form" data-testid="accept-invite">
@@ -65,10 +65,16 @@ export default function AcceptInvitePage() {
                             </Button>
                         </Stack>
                     ) : !token ? (
-                        <Alert color="red" variant="light" icon={<IconAlertCircle size={16} />}
-                               data-testid="accept-invite-error">
-                            {t('acceptInvite.missingToken')}
-                        </Alert>
+                        // Sem token não há o que fazer aqui: o caminho de volta ao login, que faltava.
+                        <Stack gap="md">
+                            <Alert color="red" variant="light" icon={<IconAlertCircle size={16} />}
+                                   data-testid="accept-invite-error">
+                                {t('acceptInvite.missingToken')}
+                            </Alert>
+                            <Anchor component={Link} to="/login" size="sm" data-testid="accept-invite-login">
+                                {t('acceptInvite.backToLogin')}
+                            </Anchor>
+                        </Stack>
                     ) : (
                         <form onSubmit={handleSubmit}>
                             <Stack gap="md">

@@ -465,6 +465,10 @@ body {
   background: var(--color-background-primary);
 }
 
+/* Só o formulário (aceite de convite): sem a coluna da marca, o grid 7fr/3fr deixava a coluna larga vazia e
+ * o formulário espremido à direita (RCHFLW-195 item 18). */
+.af-login.af-login--single { grid-template-columns: minmax(0, 1fr); }
+
 .af-login-hero {
   position: relative;
   overflow: hidden;

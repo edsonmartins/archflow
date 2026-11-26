@@ -10,6 +10,7 @@
         "done": "Acesso ativado. Entre com o usuário {{username}} e a senha que você definiu.",
         "goToLogin": "Ir para o login",
         "haveAccount": "Já tenho acesso",
+        "backToLogin": "Voltar ao login",
         "missingToken": "Este link de convite está incompleto. Peça ao administrador um link novo.",
         "failed": "Não foi possível aceitar o convite"
     },
@@ -25,7 +26,8 @@
         "INVITATION_ALREADY_ACCEPTED": "Este convite já foi aceito; remova o usuário em vez de revogar o convite.",
         "INVITATION_INVALID": "Este link de convite é inválido ou já foi usado.",
         "INVITATION_EXPIRED": "Este convite venceu; peça ao administrador um novo.",
-        "PASSWORD_TOO_SHORT": "A senha precisa ter pelo menos {{min}} caracteres."
+        "PASSWORD_TOO_SHORT": "A senha precisa ter pelo menos {{min}} caracteres.",
+        "INVITATION_ALREADY_SENT": "Este e-mail já tem um convite neste workspace (pendente ou vencido). Revogue o convite na lista para gerar um link novo."
     },
     "usage": {
         "noPrice": "sem preço",
@@ -54,7 +56,7 @@
         "revokeInviteTitle": "Revogar convite",
         "revokeInviteMessage": "Revogar o convite de {{name}}?",
         "revokeKeyTitle": "Revogar chave de API",
-        "revokeKeyMessage": "A chave \"{{name}}\" deixará de funcionar imediatamente. Esta ação não pode ser desfeita.",
+        "revokeKeyMessage": "A chave \"{{name}}\" ({{id}}) deixará de funcionar imediatamente. Esta ação não pode ser desfeita.",
         "rejectApprovalTitle": "Rejeitar solicitação",
         "rejectApprovalMessage": "Rejeitar esta solicitação? O fluxo será encerrado e esta decisão não pode ser desfeita.",
         "approveApprovalTitle": "Aprovar solicitação",
@@ -1009,6 +1011,8 @@
             },
             "overview": {
                 "execTodayHint": "Execuções de fluxo desde a meia-noite",
+                "pausedToday_one": "{{count}} aguardando aprovação (fora das taxas)",
+                "pausedToday_other": "{{count}} aguardando aprovação (fora das taxas)",
                 "latencyTrend": "Tendência de latência",
                 "latencyTrendHint": "Latência média na janela recente",
                 "trendStart": "Antes",
@@ -1030,8 +1034,8 @@
             },
             "metrics": {
                 "chartHint": "Série temporal da métrica e do intervalo escolhidos",
-                "countersHint": "Totais acumulados desde o início",
-                "gaugesHint": "Valores do momento",
+                "countersHint": "Totais acumulados desde o início do servidor. Os de LLM (llm_*) contam só o laço de agente (mcp-agent): as chamadas dos nós llm-chat ficam em Uso e faturamento.",
+                "gaugesHint": "Somas acumuladas desde o início do servidor (não são valores do momento). Os tokens de LLM (llm_*) contam só o laço de agente.",
                 "histogramsHint": "Distribuição das durações registradas",
                 "stats": {
                     "last": "Último",
@@ -1077,7 +1081,10 @@
                 "filterActor": "Ator (id ou username)",
                 "filterAction": "Ação, ex.: LOGIN_SUCCESS",
                 "exportCsv": "Exportar CSV",
+                "exportFailed": "Falha ao exportar a auditoria",
                 "empty": "Nenhum registro de auditoria ainda.",
+                "noMatch": "Nenhum registro corresponde ao filtro.",
+                "noMatchHint": "O ator precisa ser o id ou o username exato, e a ação, o código completo (ex.: LOGIN_SUCCESS).",
                 "showing": "Exibindo {{from}}–{{to}} de {{total}}",
                 "previous": "Anterior",
                 "next": "Próximo",
@@ -1089,19 +1096,23 @@
                     "action": "Ação",
                     "resource": "Recurso",
                     "result": "Resultado",
+                    "context": "Contexto",
                     "trace": "Trace"
                 }
             },
             "traces": {
                 "statusError": "Erro",
+                "statusPaused": "Aguardando aprovação",
                 "listTitle": "Traces capturados",
                 "listHint": "Clique num trace para abrir a linha do tempo dos spans",
                 "emptyHint": "Os traces aparecem assim que fluxos e agentes rodam.",
                 "loadFailed": "Falha ao carregar traces",
-                "search": "Id do trace, fluxo ou execução",
+                "search": "Id do trace, nome ou id do fluxo, ou execução",
                 "status": "Status",
                 "statusAll": "Todos",
                 "empty": "Nenhum trace capturado ainda.",
+                "noMatch": "Nenhum trace corresponde ao filtro.",
+                "noMatchHint": "Busque pelo nome ou id do fluxo, pelo id da execução ou do trace, ou limpe o filtro de status.",
                 "cols": {
                     "flow": "Fluxo",
                     "traceId": "ID do trace",
@@ -1315,6 +1326,8 @@
                 "summaryHint": "Revise antes de criar.",
                 "back": "← Voltar",
                 "createFailed": "Falha ao criar tenant",
+                "planDefaultsFailed": "Não foi possível carregar os padrões dos planos do /admin/global. Os limites abaixo não acompanham o plano escolhido: confira-os antes de criar.",
+                "planNoDefaults": "O plano {{plan}} não tem limites padrão no /admin/global. Os limites abaixo não vêm dele (são os que já estavam no formulário): confira-os antes de criar.",
                 "created": "Tenant criado",
                 "createdMsg": "{{name}} criado com sucesso",
                 "identity": "Identidade",
@@ -1368,6 +1381,7 @@
                     "tenants": "Com atividade no mês"
                 },
                 "exportCsv": "Exportar CSV",
+                "exportFailed": "Falha ao exportar o uso",
                 "loadFailed": "Falha ao carregar uso",
                 "stats": {
                     "executions": "Execuções",
@@ -1381,6 +1395,7 @@
                     "tokensIn": "Tokens In",
                     "tokensOut": "Tokens Out",
                     "cost": "Custo est.",
+                    "planLimit": "Limite do plano",
                     "percent": "% do total"
                 }
             },
@@ -1391,7 +1406,8 @@
                 "modelsEmpty": "Nenhum modelo cadastrado",
                 "plansHint": "Limites iniciais dos novos tenants de cada plano.",
                 "plansEmpty": "Sem padrões de plano",
-                "togglesHint": "Recursos ligados ou desligados para toda a plataforma.",
+                "togglesHint": "Preferências registradas para a plataforma. Hoje nenhuma delas muda o comportamento do runtime.",
+                "togglesNotApplied": "Estas chaves ainda não estão ligadas aos recursos que nomeiam: ligar ou desligar aqui só grava a preferência. Abaixo de cada uma está o que vale hoje.",
                 "costLine": "entrada ${{input}} · saída ${{output}} por 1M tokens",
                 "enableModel": "Habilitar {{name}}",
                 "modelStatuses": {
@@ -1428,6 +1444,14 @@
                     "debugMode": "Modo debug — trace completo por nó",
                     "linktorNotifications": "Notificações Linktor (WhatsApp)",
                     "auditLog": "Log de auditoria para ações de usuário"
+                },
+                "toggleEffects": {
+                    "allowLocalModels": "Sem efeito hoje: o catálogo de modelos vem de ARCHFLOW_LLM_MODELS e dos modelos ligados acima; esta chave não o filtra.",
+                    "humanInTheLoop": "Sem efeito hoje: os nós de aprovação sempre pausam o fluxo; desligar aqui não os pula.",
+                    "brainSentry": "Sem efeito hoje: a memória de longo prazo (Brain Sentry) ainda não está ligada ao runtime.",
+                    "debugMode": "Sem efeito hoje: os traces têm o mesmo detalhe com a chave ligada ou desligada.",
+                    "linktorNotifications": "Sem efeito hoje: o envio ao Linktor depende da configuração do Linktor de cada tenant, não desta chave.",
+                    "auditLog": "Sem efeito hoje: a auditoria grava sempre; desligar aqui não para o registro."
                 }
             }
         },
@@ -1526,12 +1550,19 @@
                 "title": "Usuários",
                 "subtitle": "Quem tem acesso a este workspace e o que cada papel pode fazer.",
                 "listTitle": "Membros",
-                "listHint": "{{count}} pessoas · {{invited}} convites pendentes",
+                "listHint": "{{people}} · {{invited}}",
+                "peopleCount_zero": "Nenhuma pessoa",
+                "peopleCount_one": "{{count}} pessoa",
+                "peopleCount_other": "{{count}} pessoas",
+                "invitedCount_zero": "nenhum convite pendente",
+                "invitedCount_one": "{{count}} convite pendente",
+                "invitedCount_other": "{{count}} convites pendentes",
                 "emptyTitle": "Nenhum usuário ainda",
                 "emptyHint": "Convide alguém para colaborar neste workspace.",
                 "permissionsHint": "O que cada papel pode fazer.",
                 "membersWithRole_one": "{{count}} membro",
                 "membersWithRole_other": "{{count}} membros",
+                "membersWithRole_zero": "Nenhum membro",
                 "allowed": "Permitido",
                 "notAllowed": "Não permitido",
                 "invite": "Convidar usuário",
@@ -1591,14 +1622,15 @@
             },
             "scopedKeys": {
                 "title": "Chaves de API com escopo",
-                "subtitle": "Chaves com escopos explícitos e validade opcional, para /api/apikeys.",
+                "subtitle": "Chaves para integrações, com escopos explícitos e validade opcional.",
                 "listTitle": "Chaves com escopo",
                 "listHint": "O segredo aparece uma única vez, logo após a criação.",
                 "emptyHint": "Crie uma chave só com os escopos que a integração precisa.",
                 "new": "Nova chave",
-                "info": "Estas chaves pertencem ao sistema com escopos/expiração (/api/apikeys) e carregam escopos explícitos.",
+                "info": "Cada chave age como você e só alcança o que os escopos dela cobrem. Defina uma validade para integrações temporárias.",
                 "created": "Chave criada — copie o segredo agora",
                 "createdHint": "Esta é a única vez em que o segredo será exibido.",
+                "nameRepeated": "Já existe uma chave ativa com este nome. Dê um nome diferente para não confundir as duas ao revogar.",
                 "dismiss": "Fechar",
                 "empty": "Nenhuma chave ainda.",
                 "loadFailed": "Chaves de API",
@@ -1637,11 +1669,15 @@
                 },
                 "form": {
                     "name": "Nome",
-                    "scopes": "Escopos"
+                    "scopes": "Escopos",
+                    "expiresAt": "Validade (opcional)",
+                    "expiresAtHint": "Na sua hora local. Sem validade, a chave não vence.",
+                    "expiresAtPast": "A validade precisa ser no futuro."
                 },
                 "status": {
                     "active": "ativa",
-                    "revoked": "revogada"
+                    "revoked": "revogada",
+                    "expired": "vencida"
                 },
                 "revoke": "Revogar"
             }
@@ -2118,6 +2154,10 @@
             "unsupportedStep": "sem executor",
             "unverifiedTitle": "Não deu para verificar se este modelo executa",
             "unverifiedHint": "O servidor não respondeu a verificação dos tipos de nó. Alguns nós podem não ter executor no motor; confira antes de rodar o fluxo clonado.",
+            "routersTitle": "Roteadores sem configuração",
+            "routersHint": "Depois de instalar, preencha estes campos no editor antes de executar: {{routers}}.",
+            "copyName": "{{name}} (cópia)",
+            "copyNameN": "{{name}} (cópia {{n}})",
             "variablesHint": "Marcadores para preencher depois de clonar",
             "workflowJsonHint": "Etapas e conexões, prontas para colar",
             "stats": {

@@ -49,7 +49,10 @@ public final class ObservabilityDtos {
             int activeStreams,
             long totalAuditEventsToday,
             List<PersonaStatDto> topPersonas,
-            List<Double> latencySparkline
+            List<Double> latencySparkline,
+            // Execuções de hoje paradas à espera de aprovação: contam no total, mas fora das taxas
+            // (RCHFLW-177).
+            long pausedExecutionsToday
     ) {}
 
     public record PersonaStatDto(String personaId, long executionCount, double successRate) {}

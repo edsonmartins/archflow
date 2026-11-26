@@ -1,6 +1,7 @@
 package br.com.archflow.api.admin.impl;
 
 import br.com.archflow.api.admin.TenantController;
+import br.com.archflow.api.admin.dto.GlobalConfigDto.PlanDefaultsDto;
 import br.com.archflow.api.admin.dto.TenantDto;
 import br.com.archflow.api.admin.dto.TenantDto.*;
 import br.com.archflow.api.audit.AuditTrail;
@@ -49,6 +50,20 @@ public class TenantControllerImpl implements TenantController {
             var usage = new TenantUsageDto(0, 0, 0, 0);
             tenants.put("tenant_rio_quality", new TenantDto("tenant_rio_quality", "Rio Quality", "enterprise", "active",
                     "admin@rioquality.com.br", "Food Distribution", limits, usage, limits.allowedModels(), "2025-06"));
+        }
+    }
+
+    /**
+     * Os padrões de plano do {@code /admin/global} ({@code plano → padrões}). A página promete
+     * "Limites iniciais dos novos tenants de cada plano", mas a criação sem limites usava um conjunto
+     * fixo (100 / 1.000.000 / 5 / 3) para qualquer plano (RCHFLW-178). Sem fonte, ou para um plano sem
+     * padrão gravado, o conjunto fixo continua valendo.
+     */
+    private volatile Function<String, Optional<PlanDefaultsDto>> planDefaults = plan -> Optional.empty();
+
+    public void setPlanDefaults(Function<String, Optional<PlanDefaultsDto>> planDefaults) {
+        if (planDefaults != null) {
+            this.planDefaults = planDefaults;
         }
     }
 
@@ -121,8 +136,10 @@ public class TenantControllerImpl implements TenantController {
             throw new IllegalArgumentException("tenantId is required");
         }
         log.info("Creating tenant: {} ({})", request.name(), request.tenantId());
-        var limits = request.limits() != null ? request.limits() :
-                new TenantLimitsDto(100, 1_000_000, 5, 3, List.of(), List.of());
+        var limits = request.limits() != null ? request.limits() : planDefaults.apply(request.plan())
+                .map(p -> new TenantLimitsDto(p.executionsPerDay(), p.tokensPerMonth(), p.maxWorkflows(),
+                        p.maxUsers(), List.of(), List.of()))
+                .orElseGet(() -> new TenantLimitsDto(100, 1_000_000, 5, 3, List.of(), List.of()));
         var usage = new TenantUsageDto(0, 0, 0, 0);
         // A lista que vale é a de cima (allowedModels); a de limits é aceita só quando a de cima não veio,
         // para um cliente da API que só preencheu os limites não perder a restrição.

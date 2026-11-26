@@ -115,6 +115,7 @@ public interface AuditRepository {
         private Instant startTime;
         private Instant endTime;
         private String ipAddress;
+        private String actor;
         private String contextKey;
         private String contextValue;
         private int limit = 100;
@@ -167,6 +168,16 @@ public interface AuditRepository {
         }
 
         /**
+         * Quem fez a ação, pelo id <b>ou</b> pelo username. A tela mostra o username quando há e o id
+         * quando não há, então o filtro "Autor" precisa casar com o que a pessoa leu na linha — filtrar
+         * só por {@code user_id} não achava nenhuma linha pelo nome mostrado (RCHFLW-195 item 10).
+         */
+        public AuditQuery actor(String actor) {
+            this.actor = actor;
+            return this;
+        }
+
+        /**
          * Só eventos cujo contexto tem {@code key} exatamente igual a {@code value}. É por aqui que
          * a leitura da trilha se restringe a um tenant: o produtor grava o tenant no contexto do
          * evento (não há coluna própria), e a tela de auditoria de um tenant não pode listar a de
@@ -207,6 +218,7 @@ public interface AuditRepository {
         public Instant getStartTime() { return startTime; }
         public Instant getEndTime() { return endTime; }
         public String getIpAddress() { return ipAddress; }
+        public String getActor() { return actor; }
         public String getContextKey() { return contextKey; }
         public String getContextValue() { return contextValue; }
         public int getLimit() { return limit; }

@@ -48,6 +48,11 @@ export default function LiveEventsPage() {
     const [tenantId, setTenantId] = useState('');
     const [sessionId, setSessionId] = useState('');
     const [paused, setPaused] = useState(false);
+    // O ouvinte do stream nasce uma vez por conexão (efeito de [attached]) e lia o `paused` daquele
+    // render — sempre false: "Pausar" trocava o botão e os eventos continuavam chegando (RCHFLW-195
+    // item 2). O ref acompanha o estado e o ouvinte lê o valor atual.
+    const pausedRef = useRef(paused);
+    pausedRef.current = paused;
     const [expandedId, setExpandedId] = useState<string | null>(null);
     const [status, setStatus] = useState<StreamStatus>('idle');
     const [events, setEvents] = useState<ArchflowEvent[]>([]);
@@ -97,7 +102,7 @@ export default function LiveEventsPage() {
         streamRef.current = stream;
         const offStatus = stream.onStatus(setStatus);
         const offEvent = stream.onEvent((evt) => {
-            if (paused) return;
+            if (pausedRef.current) return;
             setEvents((prev) => {
                 const next = [...prev, evt];
                 return next.length > 500 ? next.slice(next.length - 500) : next;

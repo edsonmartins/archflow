@@ -12,6 +12,12 @@ import { PLAN_COLORS } from './tenantColors'
 
 const STATUS_COLORS: Record<string, string> = { active: 'green', beta: 'orange', deprecated: 'gray' }
 
+/**
+ * Nenhum caminho de execução lê estas chaves hoje: a página dizia "recursos ligados ou desligados para toda a
+ * plataforma", e desligar "Log de auditoria" ou "Human-in-the-loop" não mudava nada (RCHFLW-179). Até cada uma
+ * ser ligada ao recurso que nomeia — decisão de produto, porque desligar auditoria ou aprovação mexe em
+ * governança —, a seção diz que são preferências registradas e cada chave diz o que de fato vale hoje.
+ */
 const TOGGLE_KEYS: (keyof GlobalFeatureToggles)[] = [
   'allowLocalModels', 'humanInTheLoop', 'brainSentry', 'debugMode', 'linktorNotifications', 'auditLog',
 ]
@@ -183,6 +189,10 @@ export default function GlobalConfig() {
         title={t('admin.superadmin.globalConfig.toggles')}
         description={t('admin.superadmin.globalConfig.togglesHint')}
       >
+        <Alert color="yellow" variant="light" icon={<IconAlertCircle size={16} />} mb="sm"
+          data-testid="toggles-not-applied">
+          {t('admin.superadmin.globalConfig.togglesNotApplied')}
+        </Alert>
         {toggles && (
           <Stack gap={0}>
             {TOGGLE_KEYS.map((key, index) => (
@@ -193,6 +203,8 @@ export default function GlobalConfig() {
                   labelPosition="left"
                   styles={{ body: { justifyContent: 'space-between' }, labelWrapper: { flex: 1 } }}
                   label={t(`admin.superadmin.globalConfig.toggleLabels.${key}`)}
+                  description={t(`admin.superadmin.globalConfig.toggleEffects.${key}`)}
+                  data-testid={`toggle-${key}`}
                   checked={toggles[key]}
                   onChange={() => updateToggle(key)}
                 />

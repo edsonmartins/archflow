@@ -50,7 +50,7 @@ class ObservabilityControllerImplTest {
     @DisplayName("getOverview delegates with tenant id")
     void getOverview() {
         OverviewDto expected = new OverviewDto(
-                42L, 0.95, 120.0, 300.0, 0.05, 3, 100L, List.of(), List.of(1.0, 2.0));
+                42L, 0.95, 120.0, 300.0, 0.05, 3, 100L, List.of(), List.of(1.0, 2.0), 0L);
         when(service.getOverview("tenant-1")).thenReturn(expected);
 
         assertThat(controller.getOverview("tenant-1")).isSameAs(expected);

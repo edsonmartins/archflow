@@ -373,8 +373,16 @@ public class ArchflowBeanConfiguration {
     @Bean
     @ConditionalOnMissingBean
     public br.com.archflow.api.admin.observability.impl.TraceStoreRecorder traceStoreRecorder(
-            InMemoryTraceStore traceStore) {
-        return new br.com.archflow.api.admin.observability.impl.TraceStoreRecorder(traceStore);
+            InMemoryTraceStore traceStore,
+            org.springframework.beans.factory.ObjectProvider<br.com.archflow.api.web.workflow.WorkflowRuntimeStore>
+                    runtimeStore) {
+        // O registro da execução dá ao trace o id e o nome do fluxo (o motor só vê o id da execução).
+        // Resolvido na hora: o recorder vai para o motor, e o store não precisa existir antes dele.
+        return new br.com.archflow.api.admin.observability.impl.TraceStoreRecorder(traceStore,
+                (tenantId, executionId) -> {
+                    var store = runtimeStore.getIfAvailable();
+                    return store == null ? null : store.getExecution(tenantId, executionId);
+                });
     }
 
     /**
@@ -489,6 +497,8 @@ public class ArchflowBeanConfiguration {
                     runtimeStore.workflows(tenantId).size(),
                     workspaceUserService.listUsers(tenantId).size()));
             globalConfigControllerImpl.setUso(registroDeUso, tenantControllerImpl::findTenant);
+            // Os padrões de plano do /admin/global valem na criação de tenant (RCHFLW-178).
+            tenantControllerImpl.setPlanDefaults(globalConfigControllerImpl::planDefaults);
         };
     }
 
@@ -559,15 +569,20 @@ public class ArchflowBeanConfiguration {
             org.springframework.beans.factory.ObjectProvider<
                     br.com.archflow.api.agent.mcp.RetomadaDoLaco> retomadaDoLaco,
             org.springframework.beans.factory.ObjectProvider<
-                    br.com.archflow.api.web.workflow.WorkflowRuntimeStore> executionRecords) {
+                    br.com.archflow.api.web.workflow.WorkflowRuntimeStore> executionRecords,
+            org.springframework.beans.factory.ObjectProvider<
+                    br.com.archflow.api.admin.observability.impl.TraceStoreRecorder> traceRecorders) {
         // Os dois gates humanos — o nó de fluxo e o do laço de agente — numa fila só. O
         // ObjectProvider mantém a resolução tardia: a retomada depende do host de MCP, cujo grafo
         // passa pelo catálogo de componentes.
         // O registro de execuções vai junto porque a decisão chega por aqui: sem ele, aprovar,
         // recusar ou expirar deixava a execução PAUSED para sempre (RCHFLW-40).
-        return new ApprovalQueueService(stateManager, flowEngine, approvalTimeout,
+        ApprovalQueueService queue = new ApprovalQueueService(stateManager, flowEngine, approvalTimeout,
                 java.time.Clock.systemUTC(), retomadaDoLaco.getIfAvailable(),
                 executionRecords.getIfAvailable());
+        // Recusa e prazo encerram a execução sem travessia: é daqui que o trace PAUSED é fechado.
+        traceRecorders.ifAvailable(queue::setTraces);
+        return queue;
     }
 
     /**

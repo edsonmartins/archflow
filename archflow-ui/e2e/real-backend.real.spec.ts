@@ -351,8 +351,11 @@ test.describe('Real backend smoke', () => {
     // O mês inicial é o corrente (era fixo em 2026-04).
     const now = new Date();
     const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-    const exportLink = page.getByRole('link', { name: 'Export CSV' });
-    await expect(exportLink).toHaveAttribute('href', new RegExp(`month=${currentMonth}`));
+    // O export é um botão que baixa pela sessão (o `<a href>` não levava o Authorization, RCHFLW-195 item 9).
+    const exportRequest = page.waitForRequest((r) => r.url().includes('/admin/global/usage/export'));
+    await page.getByTestId('usage-export').click();
+    const exportUrl = new URL((await exportRequest).url());
+    expect(exportUrl.searchParams.get('month')).toBe(currentMonth);
 
     // Um mês sem medição devolve lista vazia — nunca linhas de demonstração.
     const usageResponse = await request.get(`${API_BASE}/admin/global/usage?month=2020-01`);

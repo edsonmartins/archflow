@@ -1,5 +1,10 @@
 package br.com.archflow.observability.audit;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.json.JsonReadFeature;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.json.JsonMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -7,7 +12,9 @@ import javax.sql.DataSource;
 import java.sql.*;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -26,6 +33,19 @@ import java.util.Optional;
 public class JdbcAuditRepository implements AuditRepository {
 
     private static final Logger log = LoggerFactory.getLogger(JdbcAuditRepository.class);
+
+    /**
+     * Tolera caractere de controle cru dentro de string: as linhas gravadas antes de
+     * {@link #escapeJson} escapar todos eles (um nome de fluxo colado com U+000B, por
+     * exemplo) não são JSON estrito, e sem isto o contexto inteiro voltava em {@link #RAW_CONTEXT_KEY}
+     * em vez das chaves separadas.
+     */
+    private static final ObjectMapper JSON = JsonMapper.builder()
+            .enable(JsonReadFeature.ALLOW_UNESCAPED_CONTROL_CHARS)
+            .build();
+
+    /** A chave em que um contexto que não é JSON volta inteiro (ver {@link #deserializeContext}). */
+    public static final String RAW_CONTEXT_KEY = "_raw";
 
     private static final String INSERT_SQL =
             "INSERT INTO af_audit_log (id, timestamp, action_code, success, user_id, username, " +
@@ -266,11 +286,21 @@ public class JdbcAuditRepository implements AuditRepository {
             sql.append(" AND ip_address = ?");
             params.add(query.getIpAddress());
         }
+        if (query.getActor() != null) {
+            sql.append(" AND (user_id = ? OR username = ?)");
+            params.add(query.getActor());
+            params.add(query.getActor());
+        }
         appendContextFilter(query, sql, params);
 
         // Sort
         sql.append(" ORDER BY ").append(query.getSortBy());
         sql.append(query.isSortDescending() ? " DESC" : " ASC");
+        // Desempate pelo id: sem ele, linhas com o mesmo timestamp não têm ordem definida e quem lê
+        // por páginas (LIMIT/OFFSET — a tela e o export do CSV) pode repetir uma e pular outra.
+        if (!"id".equals(query.getSortBy())) {
+            sql.append(", id").append(query.isSortDescending() ? " DESC" : " ASC");
+        }
 
         // Limit
         sql.append(" LIMIT ?");
@@ -333,6 +363,11 @@ public class JdbcAuditRepository implements AuditRepository {
         if (query.getIpAddress() != null) {
             sql.append(" AND ip_address = ?");
             params.add(query.getIpAddress());
+        }
+        if (query.getActor() != null) {
+            sql.append(" AND (user_id = ? OR username = ?)");
+            params.add(query.getActor());
+            params.add(query.getActor());
         }
         appendContextFilter(query, sql, params);
 
@@ -403,7 +438,32 @@ public class JdbcAuditRepository implements AuditRepository {
                 .userAgent(rs.getString("user_agent"))
                 .sessionId(rs.getString("session_id"))
                 .traceId(rs.getString("trace_id"))
+                .context(deserializeContext(rs.getString("context")))
                 .build();
+    }
+
+    /**
+     * O inverso de {@link #serializeContext}. Antes a leitura nem olhava a coluna: o tenant, o
+     * {@code executionId} e o nome gravados na auditoria voltavam como um contexto vazio, e a API, a
+     * tela e o CSV não mostravam a quem o evento pertencia (RCHFLW-164). Um valor que não seja texto
+     * (linha escrita por outro produtor) volta como o texto do JSON, em vez de sumir.
+     */
+    static Map<String, String> deserializeContext(String json) {
+        Map<String, String> context = new LinkedHashMap<>();
+        if (json == null || json.isBlank()) {
+            return context;
+        }
+        try {
+            JsonNode node = JSON.readTree(json);
+            node.properties().forEach(campo -> context.put(campo.getKey(),
+                    campo.getValue().isTextual() ? campo.getValue().textValue() : campo.getValue().toString()));
+        } catch (JsonProcessingException e) {
+            // A linha continua no banco; aqui só não dá para separar as chaves. O texto inteiro volta
+            // numa chave só, para a leitura não esconder o que foi gravado.
+            log.warn("Audit context is not valid JSON; returning it unparsed: {}", e.getOriginalMessage());
+            context.put(RAW_CONTEXT_KEY, json);
+        }
+        return context;
     }
 
     /**
@@ -446,14 +506,34 @@ public class JdbcAuditRepository implements AuditRepository {
         return json.toString();
     }
 
-    private String escapeJson(String value) {
+    /**
+     * Escapa como o JSON exige: além de barra, aspas, {@code \n}, {@code \r} e {@code \t}, todo
+     * caractere abaixo de 0x20 vira o escape unicode (barra, u, quatro hex) — cru, ele deixa a coluna
+     * fora do JSON estrito. O filtro por contexto ({@code contextKey/contextValue}) usa este mesmo
+     * método para montar o padrão, então gravação e busca continuam casando.
+     */
+    private static String escapeJson(String value) {
         if (value == null) {
             return "";
         }
-        return value.replace("\\", "\\\\")
-                .replace("\"", "\\\"")
-                .replace("\n", "\\n")
-                .replace("\r", "\\r")
-                .replace("\t", "\\t");
+        StringBuilder out = new StringBuilder(value.length() + 8);
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            switch (c) {
+                case '\\' -> out.append("\\\\");
+                case '"' -> out.append("\\\"");
+                case '\n' -> out.append("\\n");
+                case '\r' -> out.append("\\r");
+                case '\t' -> out.append("\\t");
+                default -> {
+                    if (c < 0x20) {
+                        out.append(String.format("\\u%04x", (int) c));
+                    } else {
+                        out.append(c);
+                    }
+                }
+            }
+        }
+        return out.toString();
     }
 }

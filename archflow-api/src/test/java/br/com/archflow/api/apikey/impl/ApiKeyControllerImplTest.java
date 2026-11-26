@@ -77,7 +77,7 @@ class ApiKeyControllerImplTest {
         @DisplayName("should pass expiration to service")
         void shouldPassExpiration() {
             var expiry = LocalDateTime.now().plusDays(30);
-            var request = new CreateApiKeyRequest("Key", Set.of("ADMIN"), expiry);
+            var request = new CreateApiKeyRequest("Key", Set.of("ADMIN"), expiry.toString());
             var apiKey = createMockApiKey("id-1", "key-1", "Key");
             var result = new ApiKeyService.ApiKeyWithSecret(apiKey, "secret");
 
@@ -291,6 +291,54 @@ class ApiKeyControllerImplTest {
                     e.getAction() == br.com.archflow.observability.audit.AuditAction.DELETE);
             assertThat(events).anyMatch(e -> e.getResourceId().equals("key-1") && e.isSuccess());
             assertThat(events).anyMatch(e -> e.getResourceId().equals("missing") && !e.isSuccess());
+        }
+    }
+
+    /** RCHFLW-195 itens 11 e 12: datas com fuso, validade no passado recusada e a chave vencida marcada. */
+    @Nested
+    @DisplayName("validade e datas (QA2)")
+    class ValidadeQa2 {
+
+        @Test
+        @DisplayName("validade com Z é aquele instante, convertido para a hora local do servidor")
+        void validadeComFuso() {
+            String emUtc = java.time.Instant.now().plus(java.time.Duration.ofDays(3))
+                    .truncatedTo(java.time.temporal.ChronoUnit.SECONDS).toString();
+            var esperado = LocalDateTime.ofInstant(java.time.Instant.parse(emUtc), java.time.ZoneId.systemDefault());
+            var apiKey = createMockApiKey("id-1", "key-1", "Key");
+            when(apiKeyService.createApiKey(T, "owner-1", "Key", Set.of(ApiKeyScope.ADMIN), esperado))
+                    .thenReturn(new ApiKeyService.ApiKeyWithSecret(apiKey, "secret"));
+
+            controller.createApiKey(T, "owner-1", new CreateApiKeyRequest("Key", Set.of("ADMIN"), emUtc));
+
+            verify(apiKeyService).createApiKey(T, "owner-1", "Key", Set.of(ApiKeyScope.ADMIN), esperado);
+        }
+
+        @Test
+        @DisplayName("validade que já passou é recusada antes de criar a chave")
+        void validadeNoPassado() {
+            assertThatThrownBy(() -> controller.createApiKey(T, "owner-1",
+                    new CreateApiKeyRequest("Key", Set.of("ADMIN"), "2020-11-25T10:00:00")))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("future");
+            org.mockito.Mockito.verifyNoInteractions(apiKeyService);
+        }
+
+        @Test
+        @DisplayName("a listagem diz que a chave venceu e devolve instantes UTC")
+        void vencidaNaListagem() {
+            var vencida = createMockApiKey("id-1", "key-1", "Velha");
+            var criada = LocalDateTime.now().minusDays(2);
+            vencida.setCreatedAt(criada);
+            vencida.setExpiresAt(LocalDateTime.now().minusDays(1));
+            when(apiKeyService.listApiKeys(T, "owner-1")).thenReturn(java.util.List.of(vencida));
+
+            var lista = controller.listApiKeys(T, "owner-1");
+
+            assertThat(lista).singleElement().satisfies(r -> {
+                assertThat(r.expired()).isTrue();
+                assertThat(r.createdAt()).isEqualTo(criada.atZone(java.time.ZoneId.systemDefault()).toInstant());
+            });
         }
     }
 }
