@@ -111,8 +111,39 @@ O `|| ${triagem.route} == 'ESCALATE'` manda ao humano a decisão que falhou ou s
 comum. Por categoria, o mesmo vale com um `switch` sobre `${triagem.decision}` (um caso por opção; a decisão
 que falhou tem `decision` nulo e cai no `default`). `TriagemPelaRespostaDaDecisaoTest` executa esse desenho.
 
-Limite conhecido: o `condition` repassa a saída da decisão sem mudar, e o `llm-chat` depois dele recebe esse
-mapa (`route`, `answers`, …) como mensagem, não o texto do cliente — não há modelo de entrada por passo.
+O `condition` repassa a saída da decisão sem mudar, e o `llm-chat` depois dele receberia esse mapa (`route`,
+`answers`, …) como mensagem, não o texto do cliente. Por isso o `responder` do exemplo diz qual valor é a mensagem
+(RCHFLW-120):
+
+```json
+{ "id": "responder", "type": "llm-chat", "componentId": "llm-chat", "configuration": {
+    "systemPrompt": "Responda ao pedido do cliente em uma frase.",
+    "userMessage": "${receber}" } }
+```
+
+### A "Mensagem do usuário" do LLM Chat (`userMessage`)
+Campo opcional dos nós de chat (`llm-chat` e o `llm-streaming` legado). É um texto com referências `${…}`
+resolvidas **como numa condição** — o mesmo resolvedor (`ConditionEvaluator.resolvePath`), as mesmas raízes:
+
+- `${<id da Entrada>}` é a mensagem que chegou à execução; `${<id>}` a saída de um passo, `${<id>.campo}` um campo
+  dela; `${input}` é a **entrada do passo** — a saída do passo anterior, como nas condições (depois de um
+  `decision`/`condition`, o JSON da classificação);
+- texto fora de `${}` vai como está e pode misturar: `"Cliente: ${receber}"`;
+- texto vai como texto, número e booleano pelo texto deles, **mapa, lista e outros objetos viram JSON** — num
+  template misto (`"Cliente: ${receber}"`). **Uma referência sozinha** (`${receber}`) é lida como a mensagem, como o
+  nó de chat lê a própria entrada (`messageText`): texto vai como veio e um mapa dá a primeira chave de texto entre
+  `input`/`message`/`text`/`prompt` (sem nenhuma, o JSON). Assim `${receber}` serve para o texto digitado no
+  Executar e para o chamador de API que manda `{"message": "…"}`;
+- **vazio = o de sempre**: a mensagem é a entrada do passo. Nenhum fluxo existente muda;
+- referência sem valor na execução, `${` sem fechar e resultado em branco **falham o passo** nomeando nó, campo e
+  referência — nada vazio nem `${…}` literal vai ao modelo, e nenhuma chamada é feita.
+
+A checagem estática é a das condições (`ControlExpressionRules.checkTemplate` / `controlExpressions.ts`, com os
+casos de `controlExpressionCases.json`): `MALFORMED_TEMPLATE` (`${` que não fecha, vazio ou aninhado) e
+`TEXT_OUTPUT_FIELD` são recusados no editor e no servidor; `UNKNOWN_STEP` impede o Executar do editor e só avisa
+no servidor. A gramática não é a da comparação: não há operador, e texto sem referência é literal. O copiloto e o
+`nl-to-flow` preenchem o campo no LLM que responde depois de um `decision`/`condition`/`switch`; o `nl-to-flow`
+avisa em `observacoes` quando o rascunho esquece.
 
 ### O ramo da aresta (`branch`)
 Em vez de montar a condição à mão, a aresta pode declarar o ramo que quer dizer, e a factory a converte:
@@ -150,6 +181,7 @@ Executar do editor), com o nó e o campo, quando:
 | `UNKNOWN_STEP` | `${X.campo}` em que nenhum prefixo é id de passo nem campo declarado no nó Entrada, e `X` não é raiz que o servidor grava (`input`, `step`, `llm`, `archflow`, `__archflow`, `approvalPayload`, `payload`, `vendax`) | `${triagem.route}` com o **rótulo** do nó | `${node-1712345678901.route}` |
 | `TEXT_OUTPUT_FIELD` | `${X.campo}` com `X` um LLM Chat — a saída dele é o texto da resposta | `${classificar.urgente} == true` | `${classificar} contains 'URGENTE'`, ou um nó `decision` |
 | `NO_REFERENCE` | switch sem nenhum `${…}` | `triagem.decision` | `${triagem.decision}` |
+| `MALFORMED_TEMPLATE` | na `userMessage` do LLM Chat, um `${` que não fecha, vazio ou aninhado | `Cliente: ${receber` | `Cliente: ${receber}` |
 
 Para não recusar entrada legítima: `${nome}` **sem ponto** é aceito mesmo sem passo com esse id — as chaves do
 JSON de entrada viram variáveis e só existem na execução. Um campo **aninhado** de uma chave da entrada

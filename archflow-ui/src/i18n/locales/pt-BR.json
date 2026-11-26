@@ -402,7 +402,8 @@
                 "BARE_OPERAND": "«{{fragment}}» não é um valor — escreva a referência como ${…} ou o texto entre aspas ('…'); sem ${}, o ramo nunca muda",
                 "UNKNOWN_STEP": "«{{fragment}}» não é a saída de nenhum passo do fluxo — use o id do nó, não o rótulo; se «{{root}}» é uma chave do JSON de entrada, declare-a em «Campos de entrada esperados» do nó Entrada",
                 "TEXT_OUTPUT_FIELD": "«{{fragment}}» lê um campo da saída de um LLM Chat, que é só o texto da resposta — compare o texto (contains) ou classifique com um nó Decisão",
-                "NO_REFERENCE": "«{{fragment}}» não lê nenhum ${…}: o valor é sempre o mesmo e o ramo nunca muda"
+                "NO_REFERENCE": "«{{fragment}}» não lê nenhum ${…}: o valor é sempre o mesmo e o ramo nunca muda",
+                "MALFORMED_TEMPLATE": "«{{fragment}}» não é uma referência — escreva ${caminho}, com a chave fechada e um caminho dentro; fora de ${} o texto vai ao modelo como está"
             },
             "runBlockedInvalidDecision": "Decisão que o motor recusa: {{fields}}.",
             "decisionProblem": {
@@ -541,6 +542,9 @@
                 "persona": "Persona",
                 "systemPrompt": "System prompt",
                 "systemPromptPlaceholder": "Você é um assistente útil...",
+                "userMessage": "Mensagem do usuário",
+                "userMessagePlaceholder": "ex.: ${id-da-entrada} ou Cliente: ${id-da-entrada}",
+                "userMessageHint": "Vazio: a saída do passo anterior (depois de uma Decisão ou Condição, o JSON da classificação). Use ${<id da Entrada>} para a mensagem original da execução; ${input} é a saída do passo anterior. Sozinha, a referência dá a mensagem (texto, ou o campo message de uma entrada JSON); num texto misto, objeto vai como JSON. Referência sem valor falha o passo.",
                 "temperature": "Temperatura",
                 "maxTokens": "Tokens máx.",
                 "maxIterations": "Iterações máx.",
