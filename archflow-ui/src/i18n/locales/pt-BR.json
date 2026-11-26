@@ -2121,7 +2121,12 @@
             "mcpCommandHint": "Comando que inicia o servidor MCP do Linktor; argumentos separados por espaço são suportados. O executável (a primeira palavra) precisa estar na allow-list de comandos MCP do backend.",
             "mcpCommandPlaceholder": "node /caminho/para/linktor-mcp-server/dist/index.js",
             "timeout": "Timeout (segundos)",
-            "saved": "Configuração salva — será aplicada na próxima requisição.",
+            "saved": "Configuração salva para este tenant, só na réplica do servidor que atendeu: vale a partir da próxima requisição atendida por ela e até o próximo restart. Para torná-la permanente, use as variáveis ARCHFLOW_LINKTOR_* no servidor.",
+            "restartTitle": "Vale até o próximo restart do servidor",
+            "restartBody": "O que você salvar aqui fica só na memória do servidor, separado por tenant e em cada réplica (com mais de uma réplica, só a que atendeu o Salvar passa a usar), e se perde no próximo restart ou deploy: a integração volta aos valores de inicialização do servidor (desativada, se nada foi configurado nele). Para a configuração sobreviver ao restart, defina no servidor as propriedades abaixo ou as variáveis de ambiente correspondentes. Elas valem para todos os tenants; o que se salva nesta tela substitui esses valores só para este tenant, até o restart.",
+            "restartProperty": "Propriedade",
+            "restartEnvVar": "Variável de ambiente",
+            "restartEnvHint": "Escreva o nome da variável exatamente como na tabela, sem _ entre as palavras: ARCHFLOW_LINKTOR_API_BASE_URL, por exemplo, não é lida.",
             "saveFailed": "Falha ao salvar",
             "installTitle": "Instale o servidor MCP",
             "installHint": "<code>npm install -g @linktor/mcp-server</code> instala o binário <code>linktor-mcp</code>, mas ele não está na allow-list padrão de comandos MCP (que traz launchers como node e npx). Rode <code>node /caminho/para/linktor-mcp-server/dist/index.js</code> ou libere o binário na variável <code>ARCHFLOW_MCP_ALLOWED_COMMANDS</code> do backend (separada por vírgula; ela substitui a lista padrão, ex.: <code>npx,node,linktor-mcp</code>)."
