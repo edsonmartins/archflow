@@ -3,6 +3,14 @@ import { workflowApi, executionApi } from '../services/api';
 import type { WorkflowSummary, WorkflowDetail, ExecutionSummary } from '../services/api';
 import { useTenantStore } from './useTenantStore';
 
+/**
+ * Desfecho de um fetchWorkflow. `status` é o código HTTP da falha (null quando ela não foi HTTP, ex.: rede): o
+ * editor distingue "esse fluxo não existe ou não é seu" (404/403, RCHFLW-117) de uma falha comum por ele.
+ */
+export type WorkflowLoadResult =
+    | { ok: true }
+    | { ok: false; message: string; status: number | null };
+
 interface WorkflowState {
     workflows: WorkflowSummary[];
     currentWorkflow: WorkflowDetail | null;
@@ -11,7 +19,12 @@ interface WorkflowState {
     error: string | null;
 
     fetchWorkflows: () => Promise<void>;
-    fetchWorkflow: (id: string) => Promise<void>;
+    /**
+     * Devolve o desfecho deste fetch. Quem precisa saber se o fluxo carregou (o editor) julga por ele, não por
+     * `error`: esse campo é do store inteiro, e um fetchWorkflows que falha em paralelo (a busca global e o
+     * copiloto listam os fluxos ao montar) o preenche mesmo com este fetch dando certo.
+     */
+    fetchWorkflow: (id: string) => Promise<WorkflowLoadResult>;
     createWorkflow: (workflow: Partial<WorkflowDetail>) => Promise<WorkflowDetail>;
     updateWorkflow: (id: string, workflow: Partial<WorkflowDetail>) => Promise<void>;
     deleteWorkflow: (id: string) => Promise<void>;
@@ -75,8 +88,14 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
         try {
             const workflow = await workflowApi.get(id);
             set({ currentWorkflow: workflow, loading: false });
+            return { ok: true };
         } catch (e) {
-            set({ loading: false, error: e instanceof Error ? e.message : 'Failed to load workflow' });
+            const message = e instanceof Error ? e.message : 'Failed to load workflow';
+            // `status` lido por forma, não por `instanceof ApiError`: é o mesmo campo, e não acopla o store
+            // à classe (mocks de services/api nos testes não a exportam).
+            const status = (e as { status?: unknown } | null)?.status;
+            set({ loading: false, error: message });
+            return { ok: false, message, status: typeof status === 'number' ? status : null };
         }
     },
 

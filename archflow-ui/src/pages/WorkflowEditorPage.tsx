@@ -1,11 +1,13 @@
 import { useEffect, useCallback, useMemo, useRef, useState } from 'react'
-import { useParams, useSearchParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useTranslation }    from 'react-i18next'
 import { notifications }     from '@mantine/notifications'
-import { Badge, Button, Modal, Stack, Textarea } from '@mantine/core'
+import { Badge, Button, Modal, Paper, Stack, Textarea } from '@mantine/core'
 import {
+    IconAlertCircle,
     IconChevronLeft,
     IconChevronRight,
+    IconFileOff,
     IconPlayerPlay,
     IconPlayerStop,
     IconSparkles,
@@ -34,6 +36,7 @@ import type { FlowNodeData, WorkflowData } from '../components/FlowCanvas/types'
 import { canvasToDocumentSteps, workflowDataFromDocument } from '../components/FlowCanvas/workflowSerde'
 import { hasRunBlockers, runBlockers, runBlockersMessage } from '../components/FlowCanvas/runReadiness'
 import { usePermissions }    from '../lib/permissions'
+import EmptyState            from '../components/EmptyState'
 
 /**
  * Floating chevron button that sits flush to the canvas edge and
@@ -116,6 +119,15 @@ export function WorkflowEditor() {
   // com id na rota, o editor só trata como aberto o fluxo da rota, e depois do fetch. Sem id (/editor, o
   // item de menu) continua mostrando o último fluxo aberto.
   const [loadedId, setLoadedId] = useState<string | null>(null)
+  // RCHFLW-117: o fetch da rota falhou. Sem isto o editor abria um canvas em branco, "Fluxo sem título",
+  // com o id na URL — para quem seguiu um link antigo ou de outro tenant parecia um fluxo novo. 404 e 403
+  // viram "não encontrado" (o backend responde 404 a fluxo de outro tenant justamente para não dizer que
+  // ele existe); qualquer outra falha mostra o erro de carregamento, com Atualizar. Guarda o id: a falha
+  // de uma rota anterior não pode tapar o fluxo da rota atual.
+  const [loadFailure, setLoadFailure] = useState<{ id: string; notFound: boolean; message: string } | null>(null)
+  // Incrementado pelo Atualizar do erro de carregamento: refaz o fetch da mesma rota.
+  const [loadAttempt, setLoadAttempt] = useState(0)
+  const navigate = useNavigate()
   // RCHFLW-74: sem workflow:update o editor é só leitura (canvas, YAML, título, Salvar, Publicar, IA);
   // sem workflow:execute não há Executar. O backend responde 403 a quem tentar mesmo assim.
   const can = usePermissions()
@@ -176,9 +188,9 @@ export function WorkflowEditor() {
   // reconstruir a partir do currentWorkflow anterior reapresentaria justamente o estado velho.
   const resyncCanvas = useCallback(async () => {
     if (!id) return
-    await loadWorkflow(id)
-    const reloadError = useWorkflowStore.getState().error
-    if (reloadError) throw new Error(reloadError)
+    // O desfecho é o deste fetch: o `error` do store pode vir de outra chamada (uma listagem que falhou).
+    const reload = await loadWorkflow(id)
+    if (!reload.ok) throw new Error(reload.message)
     canvasBehindRef.current = false
     // A cópia do backend substituiu o currentWorkflow (e com ela um nome não salvo).
     pendingRenameRef.current = false
@@ -257,13 +269,22 @@ export function WorkflowEditor() {
     if (!id) return
     let cancelled = false
     const hadSameId = useWorkflowStore.getState().currentWorkflow?.id === id
-    loadWorkflow(id).then(() => {
+    loadWorkflow(id).then((result) => {
       if (cancelled) return
+      // Julga pelo desfecho deste fetch, não pelo `error` do store: esse é compartilhado, e uma listagem de
+      // fluxos que falhe em paralelo (busca global, copiloto) trocaria um editor válido pelo erro dela.
+      if (!result.ok) {
+        // Não marca a rota como carregada: o store ainda guarda o fluxo anterior (até uma cópia velha
+        // deste mesmo id) e ele não pode aparecer como se fosse o da rota.
+        setLoadFailure({ id, notFound: result.status === 404 || result.status === 403, message: result.message })
+        return
+      }
+      setLoadFailure(null)
       if (hadSameId) setCanvasRevision(v => v + 1)
       setLoadedId(id)
     })
     return () => { cancelled = true }
-  }, [id, loadWorkflow])
+  }, [id, loadWorkflow, loadAttempt])
 
   // Carrega o YAML do backend quando o usuário abre a aba Code
   useEffect(() => {
@@ -660,6 +681,37 @@ export function WorkflowEditor() {
         'second'
       )
     : null
+
+  // Fluxo da rota inacessível: no lugar do editor inteiro — sem canvas, sem Salvar, Executar ou IA, que
+  // agiriam sobre um documento que não existe aqui (RCHFLW-117). /editor sem id nunca chega aqui.
+  const failure = id && loadFailure?.id === id ? loadFailure : null
+  if (failure) {
+    return (
+      <Stack gap="lg" p="md" data-testid={failure.notFound ? 'editor-not-found' : 'editor-load-error'}>
+        <Paper withBorder>
+          {failure.notFound ? (
+            <EmptyState
+              icon={<IconFileOff />}
+              accent="amber"
+              title={t('editor.notFoundTitle')}
+              description={t('editor.notFoundHint')}
+              actionLabel={t('editor.backToList')}
+              onAction={() => navigate('/workflows')}
+            />
+          ) : (
+            <EmptyState
+              icon={<IconAlertCircle />}
+              accent="rose"
+              title={t('editor.loadFailed')}
+              description={failure.message}
+              actionLabel={t('common.refresh')}
+              onAction={() => setLoadAttempt(v => v + 1)}
+            />
+          )}
+        </Paper>
+      </Stack>
+    )
+  }
 
   return (
     <div

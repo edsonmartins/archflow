@@ -5,6 +5,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.function.Function;
+import java.util.function.Supplier;
+import javax.sql.DataSource;
 
 /**
  * Conexões dos adapters de dados (pgvector, redis, pinecone) declaradas na configuração do servidor,
@@ -29,6 +31,13 @@ import java.util.function.Function;
  * multi-tenant, declare aqui só conexões que todo tenant pode usar; dados de um tenant ficam na Base de
  * conhecimento ({@code knowledgeBaseId}), que é isolada por tenant. Escopo por tenant é trabalho em
  * aberto, não está decidido.</p>
+ *
+ * <p><b>A memória JDBC usa o banco do próprio servidor (RCHFLW-119).</b> O {@code JdbcMemoryAdapter} espera um
+ * objeto {@link DataSource}, que não cabe numa propriedade de texto nem num JSON: quem o entrega é o host, o
+ * mesmo banco da persistência JDBC ({@code archflow.persistence.jdbc.enabled=true}), onde as migrações
+ * {@code V3_x} do {@code archflow-langchain4j-memory-jdbc} criam a tabela. Não há conexão por nome aqui — a tabela
+ * tem as colunas de tenant e sessão, então o isolamento é o do adapter, e não um banco emprestado. Sem a
+ * persistência JDBC, o nó falha dizendo isso ({@link #memoryDataSource}); não cai em outro backend.</p>
  */
 public final class AdapterConnections {
 
@@ -65,13 +74,26 @@ public final class AdapterConnections {
             "pinecone.apiUrl", "pinecone.apiKey",
             "datasource");
 
-    /** Nenhuma conexão: toda busca falha dizendo o que definir (testes, standalone). */
-    public static final AdapterConnections NONE = new AdapterConnections(key -> null);
+    /** A propriedade que liga a persistência JDBC do servidor — e, com ela, o banco da memória JDBC. */
+    public static final String JDBC_PERSISTENCE_PROPERTY = "archflow.persistence.jdbc.enabled";
+
+    /**
+     * Nenhuma conexão: toda busca falha dizendo o que definir. É o que têm os runtimes sem servidor — o standalone e
+     * o runner embutido do SDK ({@code PortableFlowStepFactory}) — e os testes.
+     */
+    public static final AdapterConnections NONE = new AdapterConnections(key -> null, () -> null, false);
 
     private final Function<String, String> property;
+    private final Supplier<DataSource> serverDataSource;
+    // Sem servidor não há persistência JDBC a ligar: a mensagem da memória JDBC tem de dizer onde o nó roda, e não
+    // mandar ligar uma propriedade que o standalone e o SDK não leem.
+    private final boolean server;
 
-    private AdapterConnections(Function<String, String> property) {
+    private AdapterConnections(Function<String, String> property, Supplier<DataSource> serverDataSource,
+                               boolean server) {
         this.property = property;
+        this.serverDataSource = serverDataSource;
+        this.server = server;
     }
 
     /**
@@ -79,7 +101,43 @@ public final class AdapterConnections {
      *                 (que também aceita a forma de variável de ambiente, {@code ARCHFLOW_ADAPTERS_...})
      */
     public static AdapterConnections of(Function<String, String> property) {
-        return property == null ? NONE : new AdapterConnections(property);
+        return of(property, null);
+    }
+
+    /**
+     * @param serverDataSource o banco da persistência JDBC do servidor, para a memória JDBC; lido só na execução
+     *                         (o adapter nasce preguiçoso), e nulo — ou devolvendo nulo — quando a persistência
+     *                         JDBC não está ligada
+     */
+    public static AdapterConnections of(Function<String, String> property, Supplier<DataSource> serverDataSource) {
+        if (property == null && serverDataSource == null) {
+            return NONE;
+        }
+        return new AdapterConnections(property != null ? property : key -> null,
+                serverDataSource != null ? serverDataSource : () -> null, true);
+    }
+
+    /**
+     * O banco do servidor para a memória JDBC do nó {@code nodeId}.
+     *
+     * @throws IllegalStateException sem a persistência JDBC do servidor — a mensagem diz o que ligar, ou, fora do
+     *                               servidor, que o nó só roda nele
+     */
+    public DataSource memoryDataSource(String nodeId) {
+        DataSource dataSource = serverDataSource.get();
+        if (dataSource == null && !server) {
+            throw new IllegalStateException("[ADAPTER-CONEXAO] Nó " + nodeId + " (jdbc): a memória JDBC grava no "
+                    + "banco do servidor archflow, e este runtime não tem um — o standalone e o runner embutido do SDK "
+                    + "não recebem o DataSource do servidor. Execute este fluxo no servidor archflow, com "
+                    + JDBC_PERSISTENCE_PROPERTY + "=true.");
+        }
+        if (dataSource == null) {
+            throw new IllegalStateException("[ADAPTER-CONEXAO] Nó " + nodeId + " (jdbc): a memória JDBC grava no "
+                    + "banco do servidor, e a persistência JDBC do servidor não está ligada. Ligue "
+                    + JDBC_PERSISTENCE_PROPERTY + "=true (env " + envName(JDBC_PERSISTENCE_PROPERTY)
+                    + ") com o spring.datasource.* do banco, ou escolha o backend redis no nó.");
+        }
+        return dataSource;
     }
 
     /** {@code true} quando os adapters deste provider precisam de uma conexão do servidor. */

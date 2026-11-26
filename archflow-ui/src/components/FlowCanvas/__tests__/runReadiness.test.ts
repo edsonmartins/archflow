@@ -116,7 +116,8 @@ describe('runReadiness', () => {
     }
     // E os condicionais, nas combinações que mais pedem campos.
     const configs = [{}, { vectorBackend: 'pgvector' }, { vectorBackend: 'redis' }, { vectorBackend: 'pinecone' },
-      { embeddingProvider: 'local', vectorBackend: 'pgvector' }, { memoryBackend: 'redis' }]
+      { embeddingProvider: 'local', vectorBackend: 'pgvector' }, { memoryBackend: 'redis' },
+      { memoryBackend: 'redis', operation: 'add' }]
     for (const fn of Object.values(CONDITIONAL_REQUIRED_FIELDS)) {
       for (const config of configs) {
         for (const f of fn(config)) expect(fields[f.labelKey.replace('editor.properties.fields.', '')]).toBeTruthy()

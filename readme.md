@@ -316,6 +316,27 @@ with JDBC implementations when persistence is required.
 The execution-state path (`flow_states` table via `JdbcStateRepository`) **is** persisted —
 your running workflows survive restarts.
 
+#### Linktor: making the configuration permanent
+
+What is saved under **Admin › Linktor** lives in memory, per tenant and per replica, until the next restart — the
+screen says so. With more than one replica, a save reaches only the replica that handled it. The API key and
+access token are secrets and archflow has no at-rest encryption for them, so they are deliberately not written to
+the database. What survives a restart is the server configuration read by
+the `linktorConfigController` bean, which every tenant starts from:
+
+| Property | Environment variable | Default |
+|----------|----------------------|---------|
+| `archflow.linktor.enabled` | `ARCHFLOW_LINKTOR_ENABLED` | `false` |
+| `archflow.linktor.apiBaseUrl` | `ARCHFLOW_LINKTOR_APIBASEURL` | `http://localhost:8081/api/v1` |
+| `archflow.linktor.apiKey` | `ARCHFLOW_LINKTOR_APIKEY` | empty |
+| `archflow.linktor.accessToken` | `ARCHFLOW_LINKTOR_ACCESSTOKEN` | empty |
+| `archflow.linktor.mcpCommand` | `ARCHFLOW_LINKTOR_MCPCOMMAND` | empty |
+| `archflow.linktor.timeoutSeconds` | `ARCHFLOW_LINKTOR_TIMEOUTSECONDS` | `30` |
+
+The properties are camelCase, so the variable is the upper-cased name with no `_` between words:
+`ARCHFLOW_LINKTOR_API_BASE_URL` is **not** read (`VariaveisDeAmbienteDoLinktorTest` checks each name
+against the bean's `@Value`). A value saved on the screen overrides these for that tenant until the restart.
+
 ---
 
 ## Roadmap / experimental modules

@@ -77,12 +77,25 @@ public class DefaultFlowStepFactory extends PortableFlowStepFactory {
         server.knowledgeService = () -> service;
     }
 
-    /** As conexões vêm das propriedades do servidor — nunca do JSON do nó. */
+    /**
+     * As conexões vêm das propriedades do servidor — nunca do JSON do nó. A memória JDBC recebe o banco da
+     * persistência JDBC, e só com ela ligada ({@code archflow.persistence.jdbc.enabled=true}, RCHFLW-119): é o
+     * banco onde o Flyway aplicou a migração da tabela {@code chat_messages}. Um DataSource que exista por outro
+     * motivo, sem a persistência ligada, não vira o banco da memória dos fluxos.
+     *
+     * <p>O {@link org.springframework.beans.factory.ObjectProvider} é lido na execução, quando o adapter nasce:
+     * a factory é montada no meio do grafo de beans (ver o construtor) e o banco não precisa existir antes.</p>
+     */
     @org.springframework.beans.factory.annotation.Autowired(required = false)
-    public void setEnvironment(org.springframework.core.env.Environment environment) {
-        if (environment != null) {
-            setAdapterConnections(br.com.archflow.api.flow.adapter.AdapterConnections.of(environment::getProperty));
+    public void setServerConnections(org.springframework.core.env.Environment environment,
+                                     ObjectProvider<javax.sql.DataSource> dataSource) {
+        if (environment == null) {
+            return;
         }
+        boolean jdbc = environment.getProperty(
+                br.com.archflow.api.flow.adapter.AdapterConnections.JDBC_PERSISTENCE_PROPERTY, Boolean.class, false);
+        setAdapterConnections(br.com.archflow.api.flow.adapter.AdapterConnections.of(environment::getProperty,
+                jdbc && dataSource != null ? dataSource::getIfAvailable : null));
     }
 
     /** Provedores e chaves do nó de decisão, entregues pelo host (ver {@code ArchflowBeanConfiguration}). */
