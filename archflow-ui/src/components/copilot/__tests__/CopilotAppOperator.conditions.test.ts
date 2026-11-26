@@ -632,6 +632,17 @@ describe('RCHFLW-123 — o valor que vem no texto do cliente é extraído antes 
         expect(regras).not.toContain('answer only the number')
         expect(regras).not.toContain('${<llmId>} > 500')
         expect(regras).toContain('Never ${<inputNodeId>.valor} > 500 over free text.')
+        // A decisão que falhou não tem answers: o switch em answers.<qid>.choice falharia o passo em vez de levar ao
+        // humano. O caminho do humano lê decision (nulo → default) ou o portão do ESCALATE.
+        expect(regras).toContain('The human path must read ${D.decision} or ${D.route}, never only ${D.answers.<qid>...}')
+        expect(regras).toContain('Switch on ${D.decision} (null when the decision failed: it falls in the "default" edge)')
+        expect(regras).toContain('never switch on ${D.answers.<qid>.choice}')
+        expect(regras).toContain('give a condition on answers the "|| ${D.route} == \'ESCALATE\'" part')
+        // A recusa fora do gate não escala: o || ESCALATE só cobre a pergunta que está no gate.
+        expect(regras).toContain('a refused question only escalates when it is in "gate" (default: all), so put in '
+          + '"gate" every question the condition reads')
+        expect(regras).toContain('without a "default" edge a value with no case FAILS the step')
+        expect(regras).not.toMatch(/switchExpression "\$\{D\.answers\./)
         return [
           { name: 'addNode', args: { nodeType: 'input', label: 'Receber pedido' } },
           { name: 'addNode', args: { nodeType: 'decision', label: 'Faixa de valor',

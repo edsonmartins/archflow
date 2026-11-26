@@ -132,7 +132,21 @@ class AssistDoArchflowTest {
                 .contains("provider 'llm' (o LLM da plataforma; sem 'model', herda o modelo da plataforma)")
                 .contains("o route AUTO nunca sai")
                 .contains("${triagem.answers.urgente.result} == true || ${triagem.route} == 'ESCALATE'")
-                .doesNotContain("leia ${<name>.decision} ou ${<name>.route}");
+                .doesNotContain("leia ${<name>.decision} ou ${<name>.route}")
+                // RCHFLW-123: a decisão que falhou não tem answers — o switch em answers.<pergunta>.choice falharia
+                // o passo em vez de ir ao humano. O caminho do humano lê decision (nulo → default) ou o ESCALATE.
+                .contains("O caminho do humano lê ${<name>.decision} ou ${<name>.route}, nunca só")
+                .contains("answers.<pergunta>.choice e .result não existem, e um switch ou condition que depende só "
+                        + "deles FALHA o passo em vez de ir ao humano")
+                .contains("Faça o switch sobre ${<name>.decision} (nulo na falha: cai no default) — nunca sobre "
+                        + "${<name>.answers.<pergunta>.choice}")
+                .contains("e dê à condition sobre answers o || ${<name>.route} == 'ESCALATE'")
+                // A recusa fora do gate não escala: o || ESCALATE só cobre a pergunta que está no gate.
+                .contains("a recusada só escala se a pergunta estiver no gate (padrão: todas): ponha no gate as "
+                        + "perguntas que a condition lê")
+                .contains("um caso por opção e o default ao humano (a decisão que falhou cai nele; sem link pelo "
+                        + "default, um valor sem caso falha o passo)")
+                .doesNotContain("switchExpression \"${triagem.answers.");
         assertThat(r.observacoes())
                 .contains("o step \"semModelo\" (decision) usa o provedor http-decisions, que não decide sem 'model'")
                 .contains("o step \"semTipo\" (decision) será recusado ao executar: decision: tipo '' da pergunta "

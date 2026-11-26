@@ -738,7 +738,21 @@ public class AssistServiceImpl implements AssistService {
           .append("step: ${<name>.answers.<pergunta>.result} (noul: true/false), ${<name>.answers.<pergunta>.choice} ")
           .append("(choice: a opção), ${<name>.decision} (o valor da primary — a opção de um choice, mas a ")
           .append("PROBABILIDADE de um noul), ${<name>.route}; uma decisão que falhou tem route ESCALATE e nenhuma ")
-          .append("resposta. Exemplo para \"mandar ao humano quando for urgente; senão, responder com um LLM\": step ")
+          // RCHFLW-123: a referência que falta derruba o passo. Sem answers na decisão que falhou (e sem
+          // choice/result na recusada), o switch em answers.<pergunta>.choice terminaria FAILED em vez de ir ao
+          // humano pelo default; só decision (nulo) e route existem nesse caso.
+          .append("resposta. O caminho do humano lê ${<name>.decision} ou ${<name>.route}, nunca só ")
+          .append("${<name>.answers…}: na decisão que falhou ou recusada, answers.<pergunta>.choice e .result não ")
+          .append("existem, e um switch ou condition que depende só deles FALHA o passo em vez de ir ao humano. ")
+          .append("Faça o switch sobre ${<name>.decision} (nulo na falha: cai no default) — nunca sobre ")
+          .append("${<name>.answers.<pergunta>.choice} — e dê à condition sobre answers o ")
+          .append("|| ${<name>.route} == 'ESCALATE'. ")
+          // O route é a menor confiança só das perguntas do gate: a recusa de uma pergunta fora dele não escala,
+          // e a condition que a lê falharia apesar do || ESCALATE.
+          .append("A decisão que falhou sempre sai ESCALATE; a recusada só escala se a pergunta estiver no gate ")
+          .append("(padrão: todas): ponha no gate as perguntas que a condition lê. ")
+          .append("Exemplo para \"mandar ao humano quando for urgente; senão, ")
+          .append("responder com um LLM\": step ")
           .append("'triagem' (decision) com parameters {\"provider\":\"llm\",\"questions\":{\"urgente\":")
           .append("{\"type\":\"noul\",\"instructions\":\"O pedido é urgente?\",\"criteria\":{\"true\":")
           .append("\"algo parado ou fora do ar\",\"false\":\"pode esperar\"}}},\"gate\":[\"urgente\"]}; depois ")
@@ -748,7 +762,9 @@ public class AssistServiceImpl implements AssistService {
           .append("('receber' é o step input: o llm-chat responde à mensagem do cliente, não ao JSON da ")
           .append("triagem). Os links não levam o ramo: diga em 'observacoes' qual ")
           .append("link sai pelo true e qual pelo false. Por categoria: switch com switchExpression ")
-          .append("\"${<name>.decision}\" (primary = um choice) e um caso por opção. Exemplo para \"reembolso ")
+          .append("\"${<name>.decision}\" (primary = um choice), um caso por opção e o default ao humano (a ")
+          .append("decisão que falhou cai nele; sem link pelo default, um valor sem caso falha o passo). Exemplo ")
+          .append("para \"reembolso ")
           .append("acima de 500 reais pede aprovação do gerente; abaixo, responder automaticamente\" (o valor vem ")
           .append("no texto do cliente): step 'faixa' (decision) com parameters {\"provider\":\"llm\",")
           .append("\"questions\":{\"valor\":{\"type\":\"choice\",\"instructions\":\"Qual o valor do reembolso ")

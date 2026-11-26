@@ -39,7 +39,12 @@ workflowStepShape:
         properties:
           sourceId: { type: string, description: "Opcional; assume o id do passo" }
           targetId: { type: string }
-          condition: { type: string, description: "Expressão/condição opcional" }
+          condition: { type: string, description: "Expressão/condição opcional; vence o branch na mesma aresta" }
+          branch:
+            type: string
+            description: >-
+              Ramo do nó de origem que a aresta segue, em vez de uma condition à mão: true/false de um condition, um
+              caso ou "default" de um switch, AUTO/REVIEW/ESCALATE de um decision (BranchCondition).
           isErrorPath: { type: boolean, default: false }
 
 runtimeStatuses:
@@ -150,19 +155,37 @@ propertySchemas:
     conditionExpression:
       type: string
       required: true
-      example: "${<id do nó decision>.route} == 'AUTO'"
+      example: "${<id do nó decision>.answers.<pergunta noul>.result} == true || ${<id do nó decision>.route} == 'ESCALATE'"
       description: >-
         Gramática do ConditionEvaluator: operando op operando (==, !=, >, >=, <, <=, contains), unidos por && ou ||,
         sem parênteses. Cada operando é ${caminho}, texto entre aspas, número ou true/false — nunca palavra solta.
         O caminho começa pelo id (não o rótulo) de um passo anterior; a saída de llm-chat é texto, sem campos.
         Recusada antes do 1º passo quando foge disso (RCHFLW-116, docs/decision-component.md).
+        Falha fechado (RCHFLW-123): um ${caminho} sem valor na execução FALHA o passo, em vez de dar false — só
+        quando o resultado depende dele (lógica de três valores); ${input} sozinho vale "" sem dado. Uma
+        comparação >, >=, <, <= entre número e não número ("R$ 900", "1.200,00") também falha. A decisão que
+        falhou ou recusada não tem answers.<pergunta>.result/choice: uma condição sobre answers precisa do
+        "|| ${<id>.route} == 'ESCALATE'" para a falha ir ao humano; sem ele, o passo falha. A decisão que falhou
+        sempre sai ESCALATE; a recusada só escala se a pergunta estiver no gate (padrão: todas), então ponha no
+        gate as perguntas que a condição lê. Um valor que o cliente escreve no texto não é campo da entrada:
+        extraia-o antes com um decision (choice por faixa).
   switch:
     switchExpression:
       type: string
       required: true
       example: "${<id do nó decision>.decision}"
-      description: "Template com ao menos um ${caminho}, pelas mesmas regras de caminho do conditionExpression"
-    switchCases: { type: string, description: "Um caso por linha, incluindo default quando necessário" }
+      description: >-
+        Template com ao menos um ${caminho}, pelas mesmas regras de caminho do conditionExpression. Um ${caminho}
+        sem valor na execução FALHA o passo (RCHFLW-123); um valor gravado como null é valor e vai ao default.
+        Para ramificar uma decisão por categoria, use ${<id>.decision} (nulo na decisão que falhou ou cuja primary
+        foi recusada → default), nunca ${<id>.answers.<pergunta>.choice}, que não existe na decisão que falhou e faz
+        o passo falhar.
+    switchCases:
+      type: string
+      description: >-
+        Um caso por linha, sem a palavra default: o default não é um caso, é o ramo de uma aresta com
+        branch "default". Sem essa aresta, um valor que não casa com nenhum caso FALHA o passo (RCHFLW-135); o caso
+        casado sem aresta termina ali.
   loop:
     loopCollection: { type: string, default: "${input.items}" }
     loopItemVar: { type: string, default: item }
@@ -206,10 +229,10 @@ nodeTypes:
   # fica aqui só para os fluxos que já o têm. Gere llm-chat.
   - { type: llm-streaming, name: "Alias do Chat com LLM (sem streaming)", category: agent, propertySchema: agentModel, runtimeStatus: conditional, runtimeCondition: "alias de llm-chat: a resposta chega inteira ao fim do passo; config.provider deve existir como provider chat SPI" }
   - { type: orchestrate, name: "Orquestração multiagente dinâmica", category: agent, propertySchema: orchestrate, runtimeStatus: executable, implementation: OrchestrateStep }
-  - { type: condition, name: "Condição binária", category: control, propertySchema: condition, runtimeStatus: design_only }
+  - { type: condition, name: "Condição binária", category: control, propertySchema: condition, runtimeStatus: executable, implementation: ControlStep }
   - { type: parallel, name: "Execução paralela", category: control, propertySchema: parallel, runtimeStatus: design_only }
   - { type: loop, name: "Laço sobre coleção", category: control, propertySchema: loop, runtimeStatus: design_only }
-  - { type: switch, name: "Seleção entre múltiplos ramos", category: control, propertySchema: switch, runtimeStatus: design_only }
+  - { type: switch, name: "Seleção entre múltiplos ramos", category: control, propertySchema: switch, runtimeStatus: executable, implementation: ControlStep }
   - { type: transform, name: "Transformação de dados", category: data, propertySchema: transform, runtimeStatus: design_only }
   - { type: map, name: "Mapeamento de coleção", category: data, propertySchema: transform, runtimeStatus: design_only }
   - { type: filter, name: "Filtro de coleção", category: data, propertySchema: transform, runtimeStatus: design_only }

@@ -166,6 +166,18 @@ const EXPRESSION_RULES: string[] = [
         + '${D.decision} is the value of the "primary" question (the option of a choice — but the PROBABILITY of a noul, '
         + 'so read a noul through answers.<qid>.result); ${D.route} and ${D.confidence} come from the minimum confidence '
         + 'over the "gate" questions (default: all). A failed decision has route ESCALATE, decision null and no answers.',
+    // RCHFLW-123: depois do falhar fechado, a referência que falta derruba o passo. A decisão que falhou não grava
+    // answers (e a recusada não tem choice/result), então o switch em answers.<qid>.choice com default ao humano
+    // passou a terminar FAILED em vez de chegar ao humano. Só decision (nulo) e route existem nesse caso.
+    'The human path must read ${D.decision} or ${D.route}, never only ${D.answers.<qid>...}: after a failed or '
+        + 'refused decision ${D.answers.<qid>.choice} and ${D.answers.<qid>.result} do not exist, so a switch or '
+        + 'condition that depends only on them FAILS the step instead of reaching the human. Switch on ${D.decision} '
+        + '(null when the decision failed: it falls in the "default" edge) — never switch on '
+        + '${D.answers.<qid>.choice} — and give a condition on answers the "|| ${D.route} == \'ESCALATE\'" part. '
+        // O route é a menor confiança só das perguntas do gate: a recusa fora dele não escala, e a condition
+        // que lê essa pergunta falharia apesar do || ESCALATE.
+        + 'A failed decision always has route ESCALATE; a refused question only escalates when it is in "gate" '
+        + '(default: all), so put in "gate" every question the condition reads.',
     'Example — "send urgent requests to a human, answer the others with an LLM": decision D with config '
         + '{"provider":"llm","questions":{"assunto":{"type":"choice","instructions":"Qual o assunto do pedido?",'
         + '"criteria":{"financeiro":"cobrança, pagamento","suporte_tecnico":"defeito, sistema fora do ar",'
@@ -178,7 +190,8 @@ const EXPRESSION_RULES: string[] = [
         + '{"userMessage":"${<inputNodeId>}"} (see the llm-chat userMessage rule).',
     'Example by category: primary = a choice question, then a switch with switchExpression "${D.decision}" and '
         + 'switchCases = the options, one per line; connect one edge per case (branch = the case) and the "default" '
-        + 'edge to the human (a failed decision has decision null and falls in default). The decision route edges '
+        + 'edge to the human (a failed decision has decision null and falls in default; without a "default" edge a '
+        + 'value with no case FAILS the step). The decision route edges '
         + '(connectNodes branch AUTO/REVIEW/ESCALATE from the decision itself) are only a confidence gate.',
     'conditionExpression grammar: <operand> <op> <operand> with op ==, !=, >, >=, <, <= or contains, joined by && or '
         + "||, no parentheses. Each operand is ${path}, quoted text ('urgent'), a number or true/false — never a bare "
