@@ -598,11 +598,23 @@
                 "serverConnection": "Server connection",
                 "serverConnectionPlaceholder": "connection-name",
                 "serverConnectionHint": "Credentials and address live on the server, under {{value}}. The flow stores only the name.",
-                "jdbcMemoryNotConnected": "JDBC memory does not receive a DataSource in flows yet: the run fails. Use the redis backend.",
+                "jdbcMemoryNeedsServerJdbc": "JDBC memory writes to the server's database: it only runs with the server's JDBC persistence on (archflow.persistence.jdbc.enabled=true). Without it, the run fails saying so; in that case, use the redis backend.",
                 "operationNotInPanel": "Operation (operation — not in the panel yet)",
                 "localModelPath": "Local model path (local.model.path — not in the panel yet)",
                 "localVocabPath": "Local vocabulary path (local.vocab.path — not in the panel yet)",
-                "memoryNeedsOperation": "A Memory node made only in the designer cannot run yet: the engine requires the operation (add, get or clear) in \"operation\", and the panel does not have that field yet. Run stays blocked until the node has an operation.",
+                "memoryOperation": "Operation",
+                "memoryOperationHint": "add stores the node input as a message and passes it along; get returns the stored messages; clear deletes the stored messages.",
+                "memoryOperationOptions": {
+                    "add": "add — store the input",
+                    "get": "get — read the history",
+                    "clear": "clear — delete the history"
+                },
+                "memoryRole": "Message role",
+                "memoryRoleOptions": {
+                    "user": "user — user",
+                    "ai": "ai — assistant",
+                    "system": "system — system"
+                },
                 "vectorStoreDoesNotWrite": "This node does not store vectors yet: no vector backend has a write operation, and without \"operation\" (search, remove or removeAll) the engine refuses it. Run stays blocked. To search, use the Vector search node.",
                 "localEmbeddingNotConfigurable": "Local embedding requires the model and vocabulary paths (local.model.path, local.vocab.path), which the panel does not have yet: without them in the node the run fails and Run stays blocked. Use the OpenAI provider.",
                 "approvalTitle": "Approval title",

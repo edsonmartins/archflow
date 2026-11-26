@@ -1,6 +1,9 @@
 import type { TFunction } from 'i18next'
 import { isAnnotationStep, isNotExecutableNode } from './constants'
-import { CONNECTION_FIELD_BY_BACKEND, NODE_TYPES_WITHOUT_DEFAULT_OPERATION, knowledgeBaseOf } from './dataNodeKeys'
+import {
+  CONNECTION_FIELD_BY_BACKEND, MEMORY_ROLE_NATIVE_KEY, NODE_TYPES_WITHOUT_DEFAULT_OPERATION, PANEL_OPERATIONS,
+  knowledgeBaseOf,
+} from './dataNodeKeys'
 
 /**
  * O que impede o Executar do editor de começar (RCHFLW-11, RCHFLW-92): nós de tipo sem execução e campos que
@@ -76,10 +79,12 @@ const localEmbeddingFields = (): RequiredField[] => [
 ]
 
 /**
- * A operação, que o painel ainda não oferece: os tipos de NODE_TYPES_WITHOUT_DEFAULT_OPERATION recusam sem ela no
- * motor — um padrão inventado faria o "Armazena embeddings" buscar, ou a memória adivinhar entre guardar e ler.
+ * A operação: os tipos de NODE_TYPES_WITHOUT_DEFAULT_OPERATION recusam sem ela no motor — um padrão inventado faria o
+ * "Armazena embeddings" buscar, ou a memória adivinhar entre guardar e ler. O rótulo diz se o painel já tem o campo
+ * (a Memória tem, RCHFLW-115; o Vector store ainda não).
  */
 const operationField = field('operation', 'operationNotInPanel')
+const panelOperationField = field('operation', 'memoryOperation')
 
 /**
  * Obrigatórios que dependem do que o nó já escolheu. Com Base de conhecimento (RCHFLW-55) a busca não usa o vector
@@ -111,6 +116,9 @@ export const CONDITIONAL_REQUIRED_FIELDS: Readonly<Record<string, (config: Recor
     field('memoryBackend', 'memoryBackend', ['provider']),
     ...(backendOf(config, 'memoryBackend') === 'redis'
       ? [field('redisConnection', 'serverConnection', ['redis.connection'])] : []),
+    // O add guarda a entrada como mensagem, e o motor precisa saber de quem ela é (LangChainAdapterComponent
+    // .memoryMessage recusa sem o papel).
+    ...(text(config.operation) === 'add' ? [field('memoryRole', 'memoryRole', [MEMORY_ROLE_NATIVE_KEY])] : []),
   ],
 }
 
@@ -156,13 +164,14 @@ export function runBlockers(steps: RunCandidateStep[]): RunBlockers {
       result.notExecutable.push({ id: step.id, label, type: kind })
       continue
     }
-    const required = [
-      ...(REQUIRED_NODE_FIELDS[kind] ?? []),
-      ...(NODE_TYPES_WITHOUT_DEFAULT_OPERATION.has(kind) ? [operationField] : []),
-      ...(CONDITIONAL_REQUIRED_FIELDS[kind]?.(step.config ?? {}) ?? []),
-    ]
     const config: Record<string, unknown> = { ...(step.config ?? {}) }
     if (isEmpty(config.operation) && step.operation != null) config.operation = step.operation
+    const required = [
+      ...(REQUIRED_NODE_FIELDS[kind] ?? []),
+      ...(NODE_TYPES_WITHOUT_DEFAULT_OPERATION.has(kind)
+        ? [PANEL_OPERATIONS[kind] ? panelOperationField : operationField] : []),
+      ...(CONDITIONAL_REQUIRED_FIELDS[kind]?.(config) ?? []),
+    ]
     for (const f of required) {
       if ([f.key, ...(f.alternatives ?? [])].every(k => isEmpty(config[k]))) {
         result.missing.push({ id: step.id, label, labelKey: f.labelKey })

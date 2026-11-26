@@ -31,6 +31,7 @@ Os DDLs versionados estão nos módulos, em `src/main/resources/db/migration/`:
 | `V2_1__create_conversations.sql` | archflow-conversation | `conversations`, `conversation_messages`, `prompt_versions` |
 | `V2_2__create_suspended_conversations.sql` | archflow-conversation | `suspended_conversations` (suspend/resume) |
 | `V3_1__create_chat_memory.sql` | archflow-langchain4j-memory-jdbc | `chat_messages` |
+| `V3_2__widen_chat_messages_tenant.sql` | archflow-langchain4j-memory-jdbc | `chat_messages.tenant_id` → `VARCHAR(128)` |
 | `V4_1__CreateAuditLogTable.sql` | archflow-observability | `af_audit_log` |
 | `V5_1__create_security.sql` | archflow-security | `users`, `user_roles`, `api_keys` |
 | `V6_1__create_quartz.sql` | archflow-api | `QRTZ_*` (JDBCJobStore do Quartz) |

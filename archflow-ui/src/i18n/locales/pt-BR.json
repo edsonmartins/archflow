@@ -598,11 +598,23 @@
                 "serverConnection": "Conexão do servidor",
                 "serverConnectionPlaceholder": "nome-da-conexao",
                 "serverConnectionHint": "Credenciais e endereço ficam no servidor, em {{value}}. O fluxo guarda só o nome.",
-                "jdbcMemoryNotConnected": "A memória JDBC ainda não recebe um DataSource no fluxo: a execução falha. Use o backend redis.",
+                "jdbcMemoryNeedsServerJdbc": "A memória JDBC grava no banco do servidor: só executa com a persistência JDBC do servidor ligada (archflow.persistence.jdbc.enabled=true). Sem ela, a execução falha dizendo isso; nesse caso, use o backend redis.",
                 "operationNotInPanel": "Operação (operation — o painel ainda não tem esse campo)",
                 "localModelPath": "Caminho do modelo local (local.model.path — o painel ainda não tem esse campo)",
                 "localVocabPath": "Caminho do vocabulário local (local.vocab.path — o painel ainda não tem esse campo)",
-                "memoryNeedsOperation": "A Memória ainda não roda feita só no designer: o motor exige a operação (add, get ou clear) em \"operation\", e o painel ainda não tem esse campo. O Executar fica bloqueado até o nó ter a operação.",
+                "memoryOperation": "Operação",
+                "memoryOperationHint": "add guarda a entrada do nó como mensagem e a passa adiante; get devolve as mensagens guardadas; clear apaga as mensagens guardadas.",
+                "memoryOperationOptions": {
+                    "add": "add — guardar a entrada",
+                    "get": "get — ler o histórico",
+                    "clear": "clear — apagar o histórico"
+                },
+                "memoryRole": "Papel da mensagem",
+                "memoryRoleOptions": {
+                    "user": "user — usuário",
+                    "ai": "ai — assistente",
+                    "system": "system — sistema"
+                },
                 "vectorStoreDoesNotWrite": "Este nó ainda não grava vetores: nenhum backend de vetores tem operação de gravação, e sem \"operation\" (search, remove ou removeAll) o motor recusa. O Executar fica bloqueado. Para buscar, use o nó Vector search.",
                 "localEmbeddingNotConfigurable": "O embedding local exige os caminhos do modelo e do vocabulário (local.model.path, local.vocab.path), que o painel ainda não tem: sem eles no nó, a execução falha e o Executar fica bloqueado. Use o provedor OpenAI.",
                 "approvalTitle": "Título da aprovação",

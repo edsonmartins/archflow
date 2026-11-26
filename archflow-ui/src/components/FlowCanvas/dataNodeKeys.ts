@@ -24,12 +24,30 @@ export function knowledgeBaseOf(config: Record<string, unknown> | undefined): st
 
 /**
  * Tipos de nó de dados sem operação padrão no motor (o complemento de LangChainAdapterComponent
- * .DEFAULT_OPERATION_BY_NODE_TYPE; DesignerAdapterKeysConformanceTest confere os dois lados). Sem 'operation' no nó —
- * que o painel ainda não oferece —, a execução recusa: o Vector store porque nenhum adapter grava vetores (dar-lhe
- * "search" fazia o "Armazena embeddings" buscar e voltar com sucesso), a Memória porque guardar, ler e limpar são
- * escolhas do autor. O Executar exige o campo, e o copiloto não cria esses nós.
+ * .DEFAULT_OPERATION_BY_NODE_TYPE; DesignerAdapterKeysConformanceTest confere os dois lados). Sem 'operation' no nó,
+ * a execução recusa: o Vector store porque nenhum adapter grava vetores (dar-lhe "search" fazia o "Armazena
+ * embeddings" buscar e voltar com sucesso), a Memória porque guardar, ler e limpar são escolhas do autor. O Executar
+ * exige o campo; o copiloto só cria os que têm a Operação no painel ({@link PANEL_OPERATIONS}).
  */
 export const NODE_TYPES_WITHOUT_DEFAULT_OPERATION: ReadonlySet<string> = new Set(['memory', 'vector-store'])
+
+/**
+ * As operações dos adapters de memória (LangChainAdapterComponent.MEMORY_OPERATIONS — RedisMemoryAdapter e
+ * JdbcMemoryAdapter aceitam estas e nenhuma outra): as opções do campo Operação do nó Memória (RCHFLW-115).
+ */
+export const MEMORY_OPERATIONS = ['add', 'get', 'clear'] as const
+
+/**
+ * De quem é a mensagem que o add guarda (LangChainAdapterComponent.MEMORY_ROLES). Os adapters só aceitam um
+ * ChatMessage, e a entrada de um passo é texto ou JSON: sem o papel, o motor não tem mensagem a montar.
+ */
+export const MEMORY_ROLES = ['user', 'ai', 'system'] as const
+
+/** Onde o motor lê o papel quando o nó é escrito à mão (DesignerAdapterKeys: memoryRole → memory.role). */
+export const MEMORY_ROLE_NATIVE_KEY = 'memory.role'
+
+/** Os tipos sem operação padrão que já têm o campo Operação no painel, com as opções que ele oferece. */
+export const PANEL_OPERATIONS: Readonly<Record<string, readonly string[]>> = { memory: MEMORY_OPERATIONS }
 
 /**
  * Campo do nó onde se escolhe a conexão do servidor, por backend (DesignerAdapterKeys.CONNECTION_FIELD_BY_PROVIDER

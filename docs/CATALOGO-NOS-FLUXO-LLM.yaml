@@ -96,10 +96,11 @@ propertySchemas:
     embeddingModel: { type: string, default: text-embedding-ada-002, description: "openai.model; o padrão é o do OpenAiEmbeddingAdapter" }
     embeddingDimensions: { type: integer, description: "Informativo para openai; local.dimension para local" }
   memory:
-    memoryBackend: { type: string, description: "Escolhe o adapter (vira provider). jdbc ainda não recebe DataSource no fluxo e falha", enum: [jdbc, redis] }
+    memoryBackend: { type: string, description: "Escolhe o adapter (vira provider). jdbc grava no banco do servidor (tabela chat_messages, migrações V3_1 e V3_2) e só executa no servidor, com archflow.persistence.jdbc.enabled=true; sem ela, ou no standalone e no SDK embutido, falha dizendo isso. Os dois devolvem o histórico da mais antiga para a mais nova", enum: [jdbc, redis] }
     redisConnection: { type: string, when: "memoryBackend=redis", description: "Nome da conexão: archflow.adapters.redis.<nome>.{host,port}" }
     memoryMaxMessages: { type: integer, default: 100 }
-    operation: { type: string, required: true, enum: [add, get, clear], description: "Sem padrão; o painel ainda não tem o campo" }
+    operation: { type: string, required: true, enum: [add, get, clear], description: "Sem padrão: campo Operação do painel (RCHFLW-115). add guarda a entrada do passo como uma mensagem e passa a entrada adiante; get devolve o histórico da conversa (lista de mensagens no JSON canônico da LangChain4j: type e text ou contents); clear apaga o histórico e passa a entrada adiante" }
+    memoryRole: { type: string, required: true, when: "operation=add", enum: [user, ai, system], description: "De quem é a mensagem que o add guarda (vira memory.role, lido por LangChainAdapterComponent). Sem ele o add falha" }
   rag:
     knowledgeBaseId: { type: string, description: "Com base: busca no KnowledgeService e responde pelo chat do nó (llmProvider ou o herdado do fluxo/plataforma)" }
     embeddingProvider: { type: string, when: "sem knowledgeBaseId", description: "embedding.provider do RagChainAdapter" }
@@ -206,7 +207,7 @@ nodeTypes:
   - { type: vector-store, name: "Armazenamento vetorial", category: vector, propertySchema: vector, runtimeStatus: conditional, runtimeCondition: "vectorBackend com adapter vectorstore e operation explícita (search/remove/removeAll); sem operação padrão — nenhum adapter grava vetores, e o painel não tem campo de operação" }
   - { type: embedding, name: "Geração de embeddings", category: vector, propertySchema: embedding, runtimeStatus: conditional, runtimeCondition: "embeddingProvider com adapter embedding; operação padrão embed, saída {vector, dimension}" }
   - { type: rag, name: "Cadeia RAG", category: vector, propertySchema: rag, runtimeStatus: conditional, runtimeCondition: "knowledgeBaseId e um chat resolvível, ou os três providers do RagChainAdapter; operação padrão query" }
-  - { type: memory, name: "Memória conversacional", category: vector, propertySchema: memory, runtimeStatus: conditional, runtimeCondition: "memoryBackend redis com conexão do servidor e operation explícita (add/get/clear)" }
+  - { type: memory, name: "Memória conversacional", category: vector, propertySchema: memory, runtimeStatus: conditional, runtimeCondition: "memoryBackend redis com conexão do servidor e operation explícita (add/get/clear); add exige memoryRole (user/ai/system) e uma entrada não vazia" }
   - { type: prompt-template, name: "Template de prompt", category: io, propertySchema: prompt, runtimeStatus: design_only }
   - { type: prompt-chunk, name: "Bloco parcial de prompt", category: io, propertySchema: prompt, runtimeStatus: design_only }
   - { type: input, name: "Entrada do workflow", category: io, propertySchema: io, runtimeStatus: executable, implementation: PassThroughStep }
@@ -309,7 +310,7 @@ adapterProviders:
   memory:
     nodeTypes: [memory]
     providers:
-      jdbc: { required: [datasource], optional: [memory.maxMessages] }
+      jdbc: { required: [datasource], optional: [memory.maxMessages], note: "datasource é o banco da persistência JDBC do servidor, entregue pela ponte; nunca vem do JSON do nó" }
       redis: { required: [redis.host], optional: [redis.port, redis.prefix, memory.maxMessages] }
   vectorstore:
     nodeTypes: [vector-store, vector-search]
@@ -326,7 +327,7 @@ knownGaps:
   - "O designer expõe 35 tipos, embora comentários antigos no código ainda mencionem 23."
   - "Nós genéricos caem em ComponentStep; sem componentId registrado, falham como component not found."
   - "Os campos toolId e agentId do painel não substituem componentId no DefaultFlowStepFactory."
-  - "A memória (memory) só roda com operation explícita, que o painel ainda não oferece; o backend jdbc não recebe DataSource no fluxo."
+  - "A memória (memory) só roda com operation explícita (campo Operação do painel) e, no add, com memoryRole; o backend jdbc só com a persistência JDBC do servidor ligada."
   - "O Vector store (vector-store) não grava vetores: nenhum adapter de vector store tem operação de gravação, e sem operation explícita o nó falha. O editor bloqueia o Executar dele e da memória sem operation."
   - "O embedding local exige local.model.path e local.vocab.path, que o painel não oferece."
   - "As conexões archflow.adapters.<backend>.<nome>.* não são por tenant: qualquer fluxo que nomear uma conexão usa as credenciais do servidor. Em multi-tenant, declare só conexões compartilháveis; dados do tenant ficam na Base de conhecimento."

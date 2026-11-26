@@ -218,25 +218,42 @@ describe('PropertyPanel — nós de dados com e sem base', () => {
     expect(updateNodeConfig).toHaveBeenCalledWith('n1', 'knowledgeBaseId', 'kb-2')
   })
 
-  it('memória redis pede a conexão do servidor; JDBC avisa que não roda', async () => {
+  it('memória redis pede a conexão do servidor; JDBC diz que precisa da persistência JDBC do servidor', async () => {
     const view = await mount(h(PropertyPanel, { nodeId: 'n1', nodeData: data('memory', { memoryBackend: 'redis' }) }))
     fireEvent.change(view.getByLabelText(/editor\.properties\.fields\.serverConnection/), { target: { value: 'cache' } })
     expect(updateNodeConfig).toHaveBeenCalledWith('n1', 'redisConnection', 'cache')
 
     await act(async () => { root?.unmount() }); container.remove()
     const jdbc = await mount(h(PropertyPanel, { nodeId: 'n1', nodeData: data('memory', { memoryBackend: 'jdbc' }) }))
-    expect(jdbc.getByTestId('memory-jdbc-not-connected')).toBeTruthy()
+    // RCHFLW-119: o jdbc executa com o banco do servidor; antes o aviso dizia que nunca rodava.
+    expect(jdbc.getByTestId('memory-jdbc-needs-server-persistence').textContent)
+      .toBe('editor.properties.fields.jdbcMemoryNeedsServerJdbc')
+    expect(jdbc.queryByTestId('memory-jdbc-not-connected')).toBeNull()
   })
 
-  it('memória sem operation avisa que não roda — redis também; com operation escrita à mão, não', async () => {
-    const redis = await mount(h(PropertyPanel, { nodeId: 'n1',
+  it('RCHFLW-115: a memória tem o campo Operação (add/get/clear) e grava em operation', async () => {
+    // Antes: só um aviso de que o painel não tinha o campo, e o nó nunca executava.
+    await mount(h(PropertyPanel, { nodeId: 'n1',
       nodeData: data('memory', { memoryBackend: 'redis', redisConnection: 'cache' }) }))
-    expect(redis.getByTestId('memory-needs-operation').textContent).toBe('editor.properties.fields.memoryNeedsOperation')
+    const op = select('memoryOperation')!
+    expect(op).not.toBeNull()
+    expect(Array.from(op.options).map(o => o.value).filter(Boolean)).toEqual(['add', 'get', 'clear'])
+    expect(op.value).toBe('')
+    expect(container.querySelector('[data-testid="memory-needs-operation"]')).toBeNull()
+    // O Papel só aparece no add.
+    expect(select('memoryRole')).toBeNull()
+    fireEvent.change(op, { target: { value: 'get' } })
+    expect(updateNodeConfig).toHaveBeenCalledWith('n1', 'operation', 'get')
+  })
 
-    await act(async () => { root?.unmount() }); container.remove()
-    const ok = await mount(h(PropertyPanel, { nodeId: 'n1',
-      nodeData: data('memory', { memoryBackend: 'redis', redisConnection: 'cache', operation: 'get' }) }))
-    expect(ok.queryByTestId('memory-needs-operation')).toBeNull()
+  it('RCHFLW-115: no add, o Papel da mensagem (user/ai/system) grava em memoryRole', async () => {
+    await mount(h(PropertyPanel, { nodeId: 'n1',
+      nodeData: data('memory', { memoryBackend: 'redis', redisConnection: 'cache', operation: 'add' }) }))
+    expect(select('memoryOperation')!.value).toBe('add')
+    const role = select('memoryRole')!
+    expect(Array.from(role.options).map(o => o.value).filter(Boolean)).toEqual(['user', 'ai', 'system'])
+    fireEvent.change(role, { target: { value: 'ai' } })
+    expect(updateNodeConfig).toHaveBeenCalledWith('n1', 'memoryRole', 'ai')
   })
 
   it('Vector store sem operation diz que não grava; Vector search não', async () => {
@@ -333,19 +350,28 @@ describe('canvas e Executar só contam o que o motor usa', () => {
     ])
     expect(runBlockers([step('rag', { knowledgeBaseId: 'kb-1' })]).missing).toEqual([])
     expect(runBlockers([step('memory', { memoryBackend: 'redis' })]).missing.map(m => m.labelKey))
-      .toEqual(['editor.properties.fields.operationNotInPanel', 'editor.properties.fields.serverConnection'])
+      .toEqual(['editor.properties.fields.memoryOperation', 'editor.properties.fields.serverConnection'])
   })
 
   it('memória e Vector store sem operation não rodam: o Executar diz o campo, como o motor', () => {
     const step = (componentId: string, config: Record<string, unknown>) => ({ id: componentId, label: componentId, componentId, config })
     // Antes: memória vazia passava (o motor recusa sem backend) e redis com conexão passava (recusa sem operation).
+    // RCHFLW-115: a Memória cobra o campo do painel (Operação), não mais o "o painel ainda não tem esse campo".
     expect(runBlockers([step('memory', {})]).missing.map(m => m.labelKey)).toEqual([
-      'editor.properties.fields.operationNotInPanel', 'editor.properties.fields.memoryBackend',
+      'editor.properties.fields.memoryOperation', 'editor.properties.fields.memoryBackend',
     ])
     expect(runBlockers([step('memory', { memoryBackend: 'redis', redisConnection: 'cache' })]).missing
-      .map(m => m.labelKey)).toEqual(['editor.properties.fields.operationNotInPanel'])
+      .map(m => m.labelKey)).toEqual(['editor.properties.fields.memoryOperation'])
     expect(runBlockers([step('memory', { memoryBackend: 'redis', redisConnection: 'cache', operation: 'get' })])
       .missing).toEqual([])
+    // O add guarda a entrada como mensagem: sem o Papel, o motor recusa — o Executar também.
+    const add = { memoryBackend: 'redis', redisConnection: 'cache', operation: 'add' }
+    expect(runBlockers([step('memory', add)]).missing.map(m => m.labelKey))
+      .toEqual(['editor.properties.fields.memoryRole'])
+    expect(runBlockers([step('memory', { ...add, memoryRole: 'user' })]).missing).toEqual([])
+    // A operação no nível do nó (YAML/API) também conta para o Papel.
+    expect(runBlockers([{ ...step('memory', { memoryBackend: 'redis', redisConnection: 'cache' }), operation: 'add' }])
+      .missing.map(m => m.labelKey)).toEqual(['editor.properties.fields.memoryRole'])
     // Antes: o Vector store com backend, conexão e dimensão passava e o motor buscava em vez de gravar.
     const store = { vectorBackend: 'pgvector', pgDatasource: 'principal', pgDimensions: 1536 }
     expect(runBlockers([step('vector-store', store)]).missing.map(m => m.labelKey))
@@ -367,8 +393,8 @@ describe('canvas e Executar só contam o que o motor usa', () => {
       'pgvector.connection': 'principal', 'pgvector.dimension': 1536,
     })]).missing).toEqual([])
     expect(runBlockers([step('embedding', { provider: 'openai' })]).missing).toEqual([])
-    expect(runBlockers([step('memory', { provider: 'redis', 'redis.connection': 'cache', operation: 'add' })])
-      .missing).toEqual([])
+    expect(runBlockers([step('memory', { provider: 'redis', 'redis.connection': 'cache', operation: 'add',
+      'memory.role': 'user' })]).missing).toEqual([])
     // O provider explícito vence o campo do designer (DesignerAdapterKeys.providerOf): conta a conexão dele.
     expect(runBlockers([step('vector-search', { provider: 'redis', vectorBackend: 'pgvector',
       pgDatasource: 'principal', pgDimensions: 1536 })]).missing.map(m => m.labelKey)).toEqual([

@@ -36,8 +36,9 @@ describe('nodeConfigKeys — concorda com o painel de propriedades', () => {
     expect(COPILOT_NODE_TYPES).toEqual(expect.arrayContaining(['input', 'output', 'llm-chat', 'condition', 'decision']))
     expect(COPILOT_NODE_TYPES.filter(t => NOT_EXECUTABLE_NODE_TYPES.has(t))).toEqual([])
     expect(COPILOT_NODE_TYPES).not.toContain('llm-streaming')
-    // Sem 'operation' (que o copiloto não tem como gravar) eles nunca rodam.
-    expect(COPILOT_NODE_TYPES).not.toContain('memory')
+    // Sem 'operation' (que o copiloto não tem como gravar) o Vector store nunca roda. A Memória tem a Operação no
+    // painel e na tabela (RCHFLW-115): o copiloto a cria.
+    expect(COPILOT_NODE_TYPES).toContain('memory')
     expect(COPILOT_NODE_TYPES).not.toContain('vector-store')
     expect(COPILOT_NODE_TYPES).toEqual(expect.arrayContaining(['vector-search', 'embedding', 'rag']))
   })
@@ -168,6 +169,17 @@ describe('nodeConfigKeys — forma das chaves json da decisão (o motor as recus
 
   it('a forma esperada vai no contexto do agente, ao lado da chave', () => {
     expect(configKeysSummary().decision).toContain('questions:json {"<id>":{type:choice|score|noul')
+  })
+
+  it('RCHFLW-115: a memória aceita só a Operação e o Papel que o painel oferece (o que o motor aceita)', () => {
+    expect(configKeysSummary().memory).toContain('operation:string add|get|clear')
+    expect(configKeysSummary().memory).toContain('memoryRole:string user|ai|system')
+    expect(validateNodeConfig('memory', { operation: 'add', memoryRole: 'ai', memoryBackend: 'redis' }))
+      .toEqual({ ok: true, config: { set: { operation: 'add', memoryRole: 'ai', memoryBackend: 'redis' }, unset: [] } })
+    const bad = validateNodeConfig('memory', { operation: 'save', memoryRole: 'tool' })
+    expect(bad.ok).toBe(false)
+    expect(!bad.ok && bad.error).toBe('"operation" must be one of add, get, clear; '
+      + '"memoryRole" must be one of user, ai, system')
   })
 })
 

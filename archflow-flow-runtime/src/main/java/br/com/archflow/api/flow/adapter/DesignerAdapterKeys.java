@@ -76,6 +76,8 @@ public final class DesignerAdapterKeys {
             // Memória.
             new Rule("memory", "redis", "redisConnection", "redis" + CONNECTION_SUFFIX, Kind.TEXT),
             new Rule("memory", null, "memoryMaxMessages", "memory.maxMessages", Kind.INTEGER),
+            // O papel da mensagem que o add guarda: lido pela ponte, que monta o ChatMessage (RCHFLW-115).
+            new Rule("memory", null, "memoryRole", LangChainAdapterComponent.MEMORY_ROLE, Kind.TEXT),
             // RAG: os três providers e o retriever.
             new Rule("chain", null, "embeddingProvider", "embedding.provider", Kind.TEXT),
             new Rule("chain", null, "vectorBackend", "vectorstore.provider", Kind.TEXT),
@@ -93,10 +95,12 @@ public final class DesignerAdapterKeys {
 
     /**
      * Chaves do designer lidas por outro caminho que não o adapter: a base de conhecimento (RCHFLW-55,
-     * {@code KnowledgeNodeComponent}) e a dimensão informativa do embedding da OpenAI (o modelo fixa a
-     * dimensão; o adapter não a lê).
+     * {@code KnowledgeNodeComponent}), a dimensão informativa do embedding da OpenAI (o modelo fixa a
+     * dimensão; o adapter não a lê) e a operação do nó, que o factory lê ({@code operationOf}) e passa ao
+     * {@code execute} — o campo Operação da memória (RCHFLW-115).
      */
-    public static final Set<String> NOT_FOR_THE_ADAPTER = Set.of("knowledgeBaseId", "embeddingDimensions");
+    public static final Set<String> NOT_FOR_THE_ADAPTER = Set.of("knowledgeBaseId", "embeddingDimensions",
+            "operation");
 
     private DesignerAdapterKeys() {
     }
