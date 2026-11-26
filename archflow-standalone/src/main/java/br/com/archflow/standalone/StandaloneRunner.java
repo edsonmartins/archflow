@@ -50,6 +50,8 @@ import java.util.concurrent.TimeUnit;
  *   <li>{@code ARCHFLOW_LLM_KEYS_<PROVIDER>} — key of one provider</li>
  *   <li>{@code ARCHFLOW_LLM_BASE_URL}, {@code ARCHFLOW_LLM_ALLOWED_BASE_URLS} — destinations that may receive
  *       the key</li>
+ *   <li>{@code ARCHFLOW_FLOW_LENIENT_CONDITIONS} — {@code true} devolve o comportamento antigo de condition/switch
+ *       (referência sem valor → {@code false}/{@code default}), só para migrar (RCHFLW-123)</li>
  * </ul>
  */
 public class StandaloneRunner implements AutoCloseable {
@@ -231,6 +233,8 @@ public class StandaloneRunner implements AutoCloseable {
                   ARCHFLOW_LLM_KEYS_<PROVIDER>     key of one provider (e.g. ARCHFLOW_LLM_KEYS_OPENAI)
                   ARCHFLOW_LLM_BASE_URL            endpoint of the default provider (a gateway)
                   ARCHFLOW_LLM_ALLOWED_BASE_URLS   other endpoints allowed to receive the key
+                  ARCHFLOW_FLOW_LENIENT_CONDITIONS true: a condition/switch reference with no value takes
+                                                   false/default instead of failing the step (migration only)
 
                 Nodes that need the archflow server (approval queue, orchestrate, mcp-agent,
                 knowledge base) refuse the workflow before the first step.

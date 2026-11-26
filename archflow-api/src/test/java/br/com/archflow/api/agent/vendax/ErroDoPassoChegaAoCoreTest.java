@@ -89,6 +89,44 @@ class ErroDoPassoChegaAoCoreTest {
         assertThat(erros(new FlowResultVazio(), ctx)).isEqualTo("sem erro registrado");
     }
 
+    private static String causa(Exception e) throws Exception {
+        Method m = AgentFlowRunner.class.getDeclaredMethod("causaDe", Exception.class);
+        m.setAccessible(true);
+        return (String) m.invoke(null, e);
+    }
+
+    /**
+     * A causa raiz pode vir muda. O motor interrompido (no semáforo, por exemplo) embrulha um
+     * {@code InterruptedException} sem mensagem; descer até ele às cegas entregava ao Core
+     * "InterruptedException" no lugar da frase do motor.
+     */
+    @Test
+    @DisplayName("raiz sem mensagem: vale a mensagem mais funda que existe, não o nome da classe")
+    void raizMudaNaoApagaOMotivo() throws Exception {
+        var motor = new br.com.archflow.engine.exceptions.FlowEngineException(
+                "Flow execution interrupted: exec-1", new InterruptedException());
+
+        assertThat(causa(new java.util.concurrent.ExecutionException(motor)))
+                .isEqualTo("Flow execution interrupted: exec-1");
+    }
+
+    @Test
+    @DisplayName("a recusa no fundo da cadeia vence o invólucro do motor")
+    void motivoNoFundoVenceOInvolucro() throws Exception {
+        var motor = new br.com.archflow.engine.exceptions.FlowEngineException(
+                "Error executing flow: exec-1", new IllegalStateException("nó(s) sem nenhuma aresta: sobra"));
+
+        assertThat(causa(new java.util.concurrent.ExecutionException(motor)))
+                .isEqualTo("nó(s) sem nenhuma aresta: sobra");
+    }
+
+    @Test
+    @DisplayName("ninguém na cadeia tem mensagem: vai o nome da classe da raiz")
+    void cadeiaMudaDaONomeDaRaiz() throws Exception {
+        assertThat(causa(new RuntimeException((String) null, new InterruptedException())))
+                .isEqualTo("InterruptedException");
+    }
+
     /** FlowResult sem erros — o caso que fazia o diagnóstico se perder. */
     private static class FlowResultVazio implements br.com.archflow.model.flow.FlowResult {
         @Override public java.util.Optional<Object> getOutput() { return java.util.Optional.empty(); }

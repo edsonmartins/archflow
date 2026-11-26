@@ -153,7 +153,10 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
                 loading: false,
             }));
         } catch (e) {
-            set({ loading: false, error: e instanceof Error ? e.message : 'Failed to delete workflow' });
+            // Rethrow sem o erro global: quem pediu a exclusão (o diálogo) mostra o motivo ali mesmo — o 409
+            // de um fluxo com execução em andamento ou pausada (RCHFLW-122) diz o que fazer antes de excluir.
+            set({ loading: false });
+            throw e;
         }
     },
 

@@ -339,6 +339,7 @@ padrão e a sessão com o id do fluxo).
 | `ARCHFLOW_LLM_BASE_URL` | endereço do provider padrão (um gateway) |
 | `ARCHFLOW_LLM_ALLOWED_BASE_URLS` | outros destinos que podem receber a chave (vírgulas) |
 | `ARCHFLOW_DECISION_KEYS_<REF>` | chave de um provedor do nó `decision` |
+| `ARCHFLOW_FLOW_LENIENT_CONDITIONS` | `true`: `condition`/`switch` voltam ao antigo (sem valor → `false`/`default`); só para migrar, não cobre `NODE_DISCONNECTED` |
 
 O nome `ARCHFLOW_LLM_*` (o mesmo do servidor) vence quando os dois estão definidos.
 

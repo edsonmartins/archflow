@@ -19,6 +19,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -43,11 +44,27 @@ import java.util.regex.Pattern;
  * motivo no {@code error} da saída: seguir pelo "verdadeiro" porque a expressão quebrou seria agir
  * com confiança sem base.</p>
  *
- * <p>Um {@code ${raiz.campo}} cuja <b>raiz</b> não existe no contexto não muda o ramo (segue
- * {@code false}/{@code default}, como sempre foi — fluxos em produção não mudam de desfecho), mas
- * deixa de ser silencioso: a saída ganha {@code warning} com o caminho não resolvido. O caso típico é
- * escrever o <i>rótulo</i> do nó ({@code ${triagem.route}}) quando o motor grava a saída pelo
- * <i>id</i> ({@code node-1712345678901}); sem o aviso o fluxo termina COMPLETED sem ter feito nada.</p>
+ * <p><b>Referência sem valor falha o passo (RCHFLW-123).</b> Um {@code ${…}} que não resolve na execução
+ * não escolhe ramo: o passo falha nomeando o nó, o campo e a referência. Antes ele seguia
+ * {@code false}/{@code default}, e o portão "acima de 500 pede aprovação" ({@code ${entrada.valor} > 500})
+ * com a entrada em texto livre ia para o ramo do "aprova sozinho" — o LLM confirmou um reembolso de
+ * R$ 900 sem ninguém aprovar. Na condição vale a lógica de três valores do
+ * {@link ConditionEvaluator#evaluateRequiringValues}: a referência que falta só derruba o passo quando o
+ * resultado depende dela. {@code ${input}} sozinho vale {@code ""} sem dado (RCHFLW-101).</p>
+ *
+ * <p><b>Comparação de ordem sem número não decide.</b> {@code ${valor} > 500} com o valor «R$ 1.200» ou
+ * «1.200,00» (o que um LLM em pt-BR devolve) caía na ordem do texto — «R» depois de «5», «1» antes — e escolhia
+ * um ramo ao acaso. Agora o passo falha dizendo o valor: um portão de valor não pode decidir por ordem
+ * alfabética.</p>
+ *
+ * <p><b>Switch sem caso nem default falha (RCHFLW-135).</b> O valor que não casa com nenhum caso, sem aresta
+ * {@code default}, terminava COMPLETED sem chegar a saída nenhuma. Agora falha dizendo o valor e os casos. O
+ * caso declarado e casado que não tem aresta continua concluindo: é o "termina aqui" deliberado, como a
+ * condition com só a aresta do {@code true}.</p>
+ *
+ * <p><b>Compatibilidade.</b> {@code archflow.flow.lenient-conditions=true} ({@code lenient}) devolve o
+ * comportamento antigo: a referência sem valor segue {@code false}/{@code default}, só com o
+ * {@code warning} do caminho não resolvido na saída, e o switch sem saída conclui.</p>
  */
 public final class ControlStep implements FlowStep {
 
@@ -65,13 +82,42 @@ public final class ControlStep implements FlowStep {
     private final Kind kind;
     private final List<StepConnection> connections;
     private final Map<String, Object> config;
+    /** O rótulo do nó, para a falha dizer qual nó o usuário vê no canvas; {@code null} sem rótulo. */
+    private final String label;
+    /** {@code archflow.flow.lenient-conditions}: a referência sem valor segue o ramo padrão, como antes. */
+    private final boolean lenient;
+    /**
+     * {@code archflow.flow.strict-conditions}, o mesmo do motor: com ele a aresta cuja condição não se avalia
+     * não é seguida. O "sem saída" do switch lê as arestas com a mesma regra, para o veredito ser o do motor.
+     */
+    private final boolean strictEdges;
 
     public ControlStep(String id, Kind kind, List<StepConnection> connections,
                        Map<String, Object> config) {
+        this(id, kind, connections, config, null, false, false);
+    }
+
+    /**
+     * @param label   o rótulo do nó no documento, ou {@code null}
+     * @param lenient {@code true} restaura o ramo padrão para a referência sem valor e o switch sem saída
+     */
+    public ControlStep(String id, Kind kind, List<StepConnection> connections,
+                       Map<String, Object> config, String label, boolean lenient) {
+        this(id, kind, connections, config, label, lenient, false);
+    }
+
+    /**
+     * @param strictEdges o {@code archflow.flow.strict-conditions} com que o motor percorre as arestas
+     */
+    public ControlStep(String id, Kind kind, List<StepConnection> connections,
+                       Map<String, Object> config, String label, boolean lenient, boolean strictEdges) {
         this.id = id;
         this.kind = kind;
         this.connections = connections == null ? List.of() : List.copyOf(connections);
         this.config = config == null ? Map.of() : Map.copyOf(config);
+        this.label = label == null || label.isBlank() ? null : label.trim();
+        this.lenient = lenient;
+        this.strictEdges = strictEdges;
     }
 
     @Override public String getId() { return id; }
@@ -103,7 +149,19 @@ public final class ControlStep implements FlowStep {
                     // Malformada não é "verdadeira": o avaliador a trataria como texto não vazio.
                     throw new IllegalArgumentException("expressão malformada: " + expressao);
                 }
-                boolean resultado = avaliador.evaluate(expressao, context);
+                boolean resultado;
+                if (lenient) {
+                    resultado = avaliador.evaluate(expressao, context);
+                } else {
+                    ConditionEvaluator.Verdict veredito = avaliador.evaluateRequiringValues(expressao, context);
+                    if (!veredito.unresolved().isEmpty()) {
+                        return falha(start, semValor(veredito.unresolved()));
+                    }
+                    if (!veredito.decided()) {
+                        return falha(start, semNumero(veredito.notNumbers()));
+                    }
+                    resultado = veredito.result();
+                }
                 saida.put("expression", expressao);
                 saida.put("result", resultado);
                 saida.put("branch", String.valueOf(resultado));
@@ -112,7 +170,11 @@ public final class ControlStep implements FlowStep {
                 if (expressao == null) {
                     return falha(start, "switch: 'switchExpression' é obrigatória");
                 }
-                Object valor = StateTemplate.resolve(expressao, StateTemplate.fromContext(context, null));
+                Set<String> ausentes = new LinkedHashSet<>();
+                Object valor = StateTemplate.resolve(expressao, lookup(context, ausentes));
+                if (!ausentes.isEmpty()) {
+                    return falha(start, semValor(List.copyOf(ausentes)));
+                }
                 String texto = valor == null ? "" : valor.toString().trim();
                 String escolhido = "default";
                 for (String caso : casos()) {
@@ -131,7 +193,88 @@ public final class ControlStep implements FlowStep {
         }
         avisarCaminhosNaoResolvidos(context, saida);
         context.set(id, saida);
+        // Depois do context.set: as arestas do ramo leem ${id.branch}, e é por elas que se sabe se há saída. Só o
+        // ramo default: o caso casado sem aresta é um fim deliberado, fora da decisão da RCHFLW-135.
+        if (!lenient && kind == Kind.SWITCH && !saida.containsKey("error") && "default".equals(saida.get("branch"))
+                && semSaida(context)) {
+            return falha(start, nomeDoNo() + ": o valor «" + saida.get("value") + "» não casa com nenhum caso ("
+                    + (casos().isEmpty() ? "nenhum declarado" : String.join(", ", casos())) + ") e nenhuma aresta "
+                    + "de saída seria seguida pelo ramo default — o fluxo terminaria sem chegar a uma saída. Ligue "
+                    + "uma aresta default ou um caso para esse valor");
+        }
         return CompletableFuture.completedFuture(SimpleStepResult.ok(id, saida, ms(start)));
+    }
+
+    /**
+     * A busca do switch, anotando em {@code ausentes} o {@code ${caminho}} que não chega a chave nenhuma. No
+     * modo leniente, a de sempre: o caminho que falta vira vazio. {@code ${input}} sem dado vale {@code ""}
+     * (RCHFLW-101).
+     */
+    private Function<String, Object> lookup(ExecutionContext context, Set<String> ausentes) {
+        Function<String, Object> base = StateTemplate.fromContext(context, null);
+        if (lenient) {
+            return base;
+        }
+        return caminho -> {
+            // O StateTemplate só desce a partir do 1º segmento; o hasPath, abaixo, aceita qualquer prefixo como
+            // chave ("step.n1.output"). Sem ler pelo mesmo caminho, o valor que existe sairia null sem falha — e
+            // o switch iria ao default calado, o falhar aberto de novo.
+            Object valor = base.apply(caminho);
+            if (valor == null) {
+                valor = ConditionEvaluator.resolvePath(caminho, context);
+            }
+            if (valor == null && "input".equals(caminho)) {
+                return "";
+            }
+            // Valor nulo gravado (o decision que falhou: decision null) é valor, e vai ao default como sempre.
+            if (valor == null && !ConditionEvaluator.hasPath(caminho, context)) {
+                ausentes.add("${" + caminho + "}");
+            }
+            return valor;
+        };
+    }
+
+    /**
+     * Nenhuma aresta normal do switch seria seguida com o ramo que ele gravou. Sem arestas de saída não se
+     * aplica: o nó é o fim do caminho, com caso ou sem caso.
+     *
+     * <p>Avalia com a mesma regra do motor ({@code archflow.flow.strict-conditions}, {@link #strictEdges}):
+     * no padrão permissivo a condição que não se avalia conta como seguida, como o motor a segue; no estrito
+     * ela conta como não seguida, porque o motor a bloqueia — e o switch que só tinha essa aresta terminaria o
+     * fluxo calado. Com outra regra aqui o veredito divergiria do caminho que o motor de fato percorre.</p>
+     */
+    private boolean semSaida(ExecutionContext context) {
+        List<StepConnection> normais = connections.stream().filter(c -> !c.isErrorPath()).toList();
+        if (normais.isEmpty()) {
+            return false;
+        }
+        ConditionEvaluator avaliador = new ConditionEvaluator(strictEdges);
+        return normais.stream().noneMatch(c -> avaliador.evaluate(c.getCondition().orElse(null), context));
+    }
+
+    /** A falha da referência sem valor: o nó, o campo, as referências e o que fazer. */
+    private String semValor(List<String> referencias) {
+        return nomeDoNo() + ", campo " + expressionField() + ": "
+                + (referencias.size() == 1 ? "a referência " : "as referências ") + String.join(", ", referencias)
+                + (referencias.size() == 1 ? " não tem valor" : " não têm valor") + " nesta execução — o passo "
+                + "falha em vez de escolher um ramo. Se o valor vem do texto do cliente, extraia-o antes com um nó "
+                + "decision (uma pergunta choice por faixa) e ramifique pela resposta dele; se vem do JSON de "
+                + "entrada, envie o campo";
+    }
+
+    /** A falha da comparação de ordem entre um número e um valor que não é número. */
+    private String semNumero(List<String> valores) {
+        return nomeDoNo() + ", campo " + expressionField() + ": a comparação de ordem (>, >=, <, <=) põe um número "
+                + "contra " + String.join(", ", valores) + ", que não é número — o passo falha em vez de escolher um "
+                + "ramo pela ordem do texto. Extraia o valor com um nó decision (uma pergunta choice por faixa) e "
+                + "ramifique pela resposta dele: o número escrito por um LLM não é confiável para comparar (1.500 "
+                + "seria lido como 1,5)";
+    }
+
+    /** {@code condition "Rótulo" (id)}, ou só o id quando o nó não tem rótulo. */
+    private String nomeDoNo() {
+        String tipo = kind == Kind.CONDITION ? "condition" : "switch";
+        return label == null ? tipo + " " + id : tipo + " \"" + label + "\" (" + id + ")";
     }
 
     /**

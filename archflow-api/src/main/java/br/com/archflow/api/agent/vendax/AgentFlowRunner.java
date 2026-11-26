@@ -491,8 +491,27 @@ public class AgentFlowRunner {
         return null;
     }
 
+    /**
+     * A razão da falha, não o invólucro. O motor embrulha duas vezes ({@code ExecutionException} →
+     * {@code FlowEngineException("Error executing flow: <uuid>")}), e ler um nível só entregava ao Core
+     * o uuid da execução no lugar, por exemplo, da recusa na validação ({@code NODE_DISCONNECTED},
+     * nó sem execução) — que a tela já mostrava. Mesma ideia do {@code errorOf} do
+     * {@code SpringWorkflowCrudController}: só mensagem, nunca o stack trace.
+     *
+     * <p>Vale a mensagem da causa MAIS FUNDA QUE TEM MENSAGEM, não a da raiz às cegas: a raiz pode vir
+     * muda. O motor interrompido lança {@code FlowEngineException("Flow execution interrupted: <id>")}
+     * sobre um {@code InterruptedException} sem mensagem — parar na raiz trocaria a frase que o Core
+     * recebia pelo nome da classe. Só quando ninguém na cadeia tem mensagem vai o nome da raiz.</p>
+     */
     private static String causaDe(Exception e) {
-        Throwable causa = e.getCause() != null ? e.getCause() : e;
-        return causa.getMessage() == null ? causa.getClass().getSimpleName() : causa.getMessage();
+        Throwable causa = e;
+        String motivo = e.getMessage() != null && !e.getMessage().isBlank() ? e.getMessage() : null;
+        while (causa.getCause() != null && causa.getCause() != causa) {
+            causa = causa.getCause();
+            if (causa.getMessage() != null && !causa.getMessage().isBlank()) {
+                motivo = causa.getMessage();
+            }
+        }
+        return motivo != null ? motivo : causa.getClass().getSimpleName();
     }
 }

@@ -113,16 +113,50 @@ class InMemoryWorkflowRuntimeStoreTest {
     }
 
     @Test
-    @DisplayName("deleteWorkflow also removes related executions")
-    void deleteWorkflowRemovesRelatedExecutions() {
+    @DisplayName("deleteWorkflow removes the workflow and keeps its executions, with the name (RCHFLW-122)")
+    void deleteWorkflowKeepsExecutionHistory() {
         var store = new InMemoryWorkflowRuntimeStore();
         Map<String, Object> execution = store.createExecution(T, "wf-demo-001", "Customer Support Agent");
+        String id = execution.get("id").toString();
+        store.completeExecution(id, "COMPLETED", null);
 
-        store.deleteWorkflow(T, "wf-demo-001");
+        assertThat(store.deleteWorkflow(T, "wf-demo-001")).isEqualTo(WorkflowRuntimeStore.Deletion.deleted());
 
         assertThat(store.getWorkflow(T, "wf-demo-001")).isNull();
-        assertThat(store.getExecution(T, execution.get("id").toString())).isNull();
-        assertThat(store.executions(T, null, null)).noneMatch(item -> "wf-demo-001".equals(item.get("workflowId")));
+        assertThat(store.hasWorkflow(T, "wf-demo-001")).isFalse();
+        assertThat(store.getExecution(T, id)).containsEntry("workflowName", "Customer Support Agent");
+        assertThat(store.executions(T, "wf-demo-001", null)).extracting(e -> e.get("id")).contains(id);
+        // Os callbacks do motor continuam gravando no registro (um passo atrasado da execução que terminou).
+        store.recordStep(id, "s1", Map.of("status", "COMPLETED"));
+        assertThat(store.getExecution(T, id)).containsEntry("status", "COMPLETED");
+        assertThat(store.deleteWorkflow(T, "wf-demo-001")).isEqualTo(WorkflowRuntimeStore.Deletion.notFound());
+    }
+
+    @Test
+    @DisplayName("deleteWorkflow refuses, in the same operation, while an execution is RUNNING or PAUSED (RCHFLW-122)")
+    void deleteWorkflowRefusesWithActiveExecutions() {
+        var store = new InMemoryWorkflowRuntimeStore();
+        String rodando = store.createExecution(T, "wf-demo-001", "Customer Support Agent").get("id").toString();
+        String pausada = store.createExecution(T, "wf-demo-001", "Customer Support Agent").get("id").toString();
+        store.completeExecution(pausada, "PAUSED", null);
+        String terminada = store.createExecution(T, "wf-demo-001", "Customer Support Agent").get("id").toString();
+        store.completeExecution(terminada, "FAILED", "x");
+
+        var recusa = store.deleteWorkflow(T, "wf-demo-001");
+
+        // A guarda é do store, não de uma consulta antes dele: quem chama deleteWorkflow sem checar nada também
+        // não apaga um fluxo com execução ativa.
+        assertThat(recusa.outcome()).isEqualTo(WorkflowRuntimeStore.Deletion.Outcome.HAS_ACTIVE_EXECUTIONS);
+        assertThat(recusa.activeExecutions()).containsExactlyInAnyOrder(rodando, pausada);
+        assertThat(store.hasWorkflow(T, "wf-demo-001")).isTrue();
+
+        store.completeExecution(rodando, "COMPLETED", null);
+        assertThat(store.deleteWorkflow(T, "wf-demo-001").activeExecutions()).containsExactly(pausada);
+        store.completeExecution(pausada, "STOPPED", null);
+        assertThat(store.deleteWorkflow(T, "wf-demo-001")).isEqualTo(WorkflowRuntimeStore.Deletion.deleted());
+        assertThat(store.hasWorkflow(T, "wf-demo-001")).isFalse();
+        assertThat(store.executions(T, "wf-demo-001", null)).extracting(e -> e.get("id"))
+                .contains(rodando, pausada, terminada);
     }
 
     @Test

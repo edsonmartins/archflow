@@ -148,34 +148,56 @@ public class JdbcWorkflowRuntimeStore implements WorkflowRuntimeStore {
         }
     }
 
+    /**
+     * Uma transação: trava a linha do documento ({@code FOR UPDATE}), confere as execuções ativas e só então
+     * apaga. O {@link #createExecution} trava a mesma linha antes do INSERT, então uma execução nova ou já está
+     * gravada quando esta transação a confere (e a exclusão é recusada), ou só entra depois do commit — nunca
+     * entre a checagem e a exclusão, nem com outra réplica.
+     */
     @Override
-    public void deleteWorkflow(String tenantId, String id) {
+    public Deletion deleteWorkflow(String tenantId, String id) {
+        String tenant = DefaultTenant.orDefault(tenantId);
         try (Connection conn = dataSource.getConnection()) {
-            // Checa o dono antes de tocar nas tabelas dependentes: versões e implantações não têm
-            // tenant próprio, então apagá-las por workflow_id sem essa checagem apagaria as do outro.
-            if (!owns(conn, tenantId, id)) {
-                return;
-            }
-            try (PreparedStatement ps = conn.prepareStatement(
-                    "DELETE FROM workflow_deployments WHERE workflow_id = ?")) {
-                ps.setString(1, id);
-                ps.executeUpdate();
-            }
-            try (PreparedStatement ps = conn.prepareStatement(
-                    "DELETE FROM workflow_versions WHERE workflow_id = ?")) {
-                ps.setString(1, id);
-                ps.executeUpdate();
-            }
-            try (PreparedStatement ps = conn.prepareStatement(
-                    "DELETE FROM workflow_documents WHERE id = ?")) {
-                ps.setString(1, id);
-                ps.executeUpdate();
-            }
-            try (PreparedStatement ps = conn.prepareStatement(
-                    "DELETE FROM workflow_executions WHERE workflow_id = ? AND tenant_id = ?")) {
-                ps.setString(1, id);
-                ps.setString(2, DefaultTenant.orDefault(tenantId));
-                ps.executeUpdate();
+            boolean autoCommit = conn.getAutoCommit();
+            conn.setAutoCommit(false);
+            try {
+                // Checa o dono antes de tocar nas tabelas dependentes: versões e implantações não têm
+                // tenant próprio, então apagá-las por workflow_id sem essa checagem apagaria as do outro.
+                if (!exists(conn, "SELECT 1 FROM workflow_documents WHERE id = ? AND tenant_id = ? FOR UPDATE",
+                        id, tenant)) {
+                    conn.rollback();
+                    return Deletion.notFound();
+                }
+                List<String> ativas = WorkflowRuntimeStore.activeExecutionIds(readExecutions(conn, tenant, id));
+                if (!ativas.isEmpty()) {
+                    conn.rollback();
+                    return Deletion.blockedBy(ativas);
+                }
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "DELETE FROM workflow_deployments WHERE workflow_id = ?")) {
+                    ps.setString(1, id);
+                    ps.executeUpdate();
+                }
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "DELETE FROM workflow_versions WHERE workflow_id = ?")) {
+                    ps.setString(1, id);
+                    ps.executeUpdate();
+                }
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "DELETE FROM workflow_documents WHERE id = ?")) {
+                    ps.setString(1, id);
+                    ps.executeUpdate();
+                }
+                // As execuções ficam (RCHFLW-122): apagá-las levava junto o histórico e quem decidiu cada portão.
+                // O registro guarda o nome do fluxo (workflowName) desde a criação, e nenhuma FK o prende ao
+                // documento — a lista e o detalhe continuam respondendo sem ele.
+                conn.commit();
+                return Deletion.deleted();
+            } catch (SQLException | RuntimeException e) {
+                conn.rollback();
+                throw e;
+            } finally {
+                conn.setAutoCommit(autoCommit);
             }
         } catch (SQLException e) {
             throw new RuntimeException("Failed to delete workflow " + id, e);
@@ -388,21 +410,9 @@ public class JdbcWorkflowRuntimeStore implements WorkflowRuntimeStore {
 
     @Override
     public List<Map<String, Object>> executions(String tenantId, String workflowId, Integer limit) {
-        String sql = workflowId == null
-                ? "SELECT record, tenant_id FROM workflow_executions WHERE tenant_id = ?"
-                : "SELECT record, tenant_id FROM workflow_executions WHERE tenant_id = ? AND workflow_id = ?";
-        List<Map<String, Object>> records = new ArrayList<>();
-        try (Connection conn = dataSource.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, DefaultTenant.orDefault(tenantId));
-            if (workflowId != null) {
-                ps.setString(2, workflowId);
-            }
-            try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) {
-                    records.add(readExecution(rs));
-                }
-            }
+        List<Map<String, Object>> records;
+        try (Connection conn = dataSource.getConnection()) {
+            records = readExecutions(conn, DefaultTenant.orDefault(tenantId), workflowId);
         } catch (SQLException e) {
             throw new RuntimeException("Failed to list workflow executions", e);
         }
@@ -441,6 +451,27 @@ public class JdbcWorkflowRuntimeStore implements WorkflowRuntimeStore {
         }
     }
 
+    /** As execuções do tenant, de um fluxo ou de todos ({@code workflowId} nulo), sem ordem, pela conexão dada. */
+    private List<Map<String, Object>> readExecutions(Connection conn, String tenant, String workflowId)
+            throws SQLException {
+        String sql = workflowId == null
+                ? "SELECT record, tenant_id FROM workflow_executions WHERE tenant_id = ?"
+                : "SELECT record, tenant_id FROM workflow_executions WHERE tenant_id = ? AND workflow_id = ?";
+        List<Map<String, Object>> records = new ArrayList<>();
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, tenant);
+            if (workflowId != null) {
+                ps.setString(2, workflowId);
+            }
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    records.add(readExecution(rs));
+                }
+            }
+        }
+        return records;
+    }
+
     /** O tenant do registro vem da coluna, inclusive para JSON antigo gravado sem a chave. */
     private Map<String, Object> readExecution(ResultSet rs) throws SQLException {
         Map<String, Object> execution = fromJson(rs.getString("record"));
@@ -453,7 +484,7 @@ public class JdbcWorkflowRuntimeStore implements WorkflowRuntimeStore {
             String tenantId, String workflowId, String workflowName, WorkflowVersionRecord version) {
         Map<String, Object> execution = newExecution(tenantId, workflowId, workflowName);
         WorkflowRuntimeStore.recordRanVersion(execution, version);
-        saveExecution(String.valueOf(execution.get("id")), execution);
+        insertExecution(String.valueOf(execution.get("id")), execution);
         return execution;
     }
 
@@ -574,6 +605,41 @@ public class JdbcWorkflowRuntimeStore implements WorkflowRuntimeStore {
             }
             saveExecution(id, execution);
             return true;
+        }
+    }
+
+    /**
+     * O INSERT da execução nova, sob a trava da linha do documento do fluxo — a mesma que o
+     * {@link #deleteWorkflow} toma para conferir as execuções ativas. Sem documento (o fluxo já excluído, ou um
+     * id que não é de documento do designer) não há linha a travar, e o INSERT segue.
+     */
+    private void insertExecution(String id, Map<String, Object> execution) {
+        String workflowId = Objects.toString(execution.get("workflowId"), "");
+        Object tenant = execution.get(TENANT_KEY);
+        try (Connection conn = dataSource.getConnection()) {
+            boolean autoCommit = conn.getAutoCommit();
+            conn.setAutoCommit(false);
+            try {
+                exists(conn, "SELECT 1 FROM workflow_documents WHERE id = ? FOR UPDATE", workflowId);
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "INSERT INTO workflow_executions (workflow_id, record, updated_at, id, tenant_id) "
+                                + "VALUES (?, ?, ?, ?, ?)")) {
+                    ps.setString(1, workflowId);
+                    ps.setString(2, toJson(execution));
+                    ps.setTimestamp(3, Timestamp.from(Instant.now()));
+                    ps.setString(4, id);
+                    ps.setString(5, DefaultTenant.orDefault(tenant == null ? null : tenant.toString()));
+                    ps.executeUpdate();
+                }
+                conn.commit();
+            } catch (SQLException | RuntimeException e) {
+                conn.rollback();
+                throw e;
+            } finally {
+                conn.setAutoCommit(autoCommit);
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to save execution " + id, e);
         }
     }
 

@@ -136,13 +136,69 @@ class JdbcWorkflowRuntimeStoreTenantPostgresTest {
                 .isInstanceOf(WorkflowRuntimeStore.WorkflowOwnershipException.class);
         assertThat(store.getWorkflow("acme", "wf-acme")).containsEntry("v", 1);
 
-        // Apagar no tenant errado não apaga nada; no certo, leva versões, implantação e execuções.
-        store.deleteWorkflow("globex", "wf-acme");
+        // Apagar no tenant errado não apaga nada; no certo, leva versões e implantação — e as execuções ficam,
+        // com o nome do fluxo (RCHFLW-122): o histórico e quem decidiu cada portão continuam consultáveis.
+        assertThat(store.deleteWorkflow("globex", "wf-acme")).isEqualTo(WorkflowRuntimeStore.Deletion.notFound());
         assertThat(store.hasWorkflow("acme", "wf-acme")).isTrue();
         assertThat(store.workflowVersions("acme", "wf-acme")).hasSize(1);
-        store.deleteWorkflow("acme", "wf-acme");
+        assertThat(store.deleteWorkflow("acme", "wf-acme")).isEqualTo(WorkflowRuntimeStore.Deletion.deleted());
         assertThat(store.hasWorkflow("acme", "wf-acme")).isFalse();
-        assertThat(store.executions("acme", null, null)).isEmpty();
+        assertThat(store.getWorkflow("acme", "wf-acme")).isNull();
+        assertThat(store.workflowVersions("acme", "wf-acme")).isEmpty();
+        assertThat(store.executions("acme", "wf-acme", null)).singleElement()
+                .satisfies(e -> assertThat(e).containsEntry("id", execucao).containsEntry("workflowName", "A"));
+        assertThat(store.getExecution("acme", execucao)).containsEntry("status", "COMPLETED");
+        assertThat(store.getExecution("globex", execucao)).isNull();
         assertThat(store.workflows("globex")).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("deleteWorkflow recusa com execução RUNNING/PAUSED, inclusive a que nasce durante a exclusão")
+    void exclusaoRecusadaComExecucaoAtiva() throws Exception {
+        DataSource ds = novoBanco("exclusao");
+        migra(ds, null);
+        var store = new JdbcWorkflowRuntimeStore(ds);
+        store.putWorkflow("acme", "wf-x", new LinkedHashMap<>(Map.of("id", "wf-x")));
+        String rodando = String.valueOf(store.createExecution("acme", "wf-x", "X").get("id"));
+        String pausada = String.valueOf(store.createExecution("acme", "wf-x", "X").get("id"));
+        store.completeExecution(pausada, "PAUSED", null);
+
+        var recusa = store.deleteWorkflow("acme", "wf-x");
+
+        assertThat(recusa.outcome()).isEqualTo(WorkflowRuntimeStore.Deletion.Outcome.HAS_ACTIVE_EXECUTIONS);
+        assertThat(recusa.activeExecutions()).containsExactlyInAnyOrder(rodando, pausada);
+        assertThat(store.hasWorkflow("acme", "wf-x")).isTrue();
+        store.completeExecution(rodando, "COMPLETED", null);
+        store.completeExecution(pausada, "STOPPED", null);
+        assertThat(store.deleteWorkflow("acme", "wf-x")).isEqualTo(WorkflowRuntimeStore.Deletion.deleted());
+        assertThat(store.executions("acme", "wf-x", null)).hasSize(2);
+
+        // A corrida: um createExecution em andamento — a linha do documento travada, como o store a trava antes
+        // do INSERT, e o INSERT ainda sem commit. A exclusão espera a trava e então vê a execução: recusa. Com a
+        // checagem antes da exclusão (sem a trava), ela apagava o fluxo de uma execução que acabava de nascer.
+        store.putWorkflow("acme", "wf-y", new LinkedHashMap<>(Map.of("id", "wf-y")));
+        try (Connection criando = ds.getConnection()) {
+            criando.setAutoCommit(false);
+            try (Statement st = criando.createStatement()) {
+                st.execute("SELECT 1 FROM workflow_documents WHERE id = 'wf-y' FOR UPDATE");
+            }
+            var exclusao = java.util.concurrent.CompletableFuture.supplyAsync(
+                    () -> store.deleteWorkflow("acme", "wf-y"));
+            Thread.sleep(300);
+            assertThat(exclusao).as("a exclusão espera a trava da execução que está nascendo").isNotDone();
+            try (Statement st = criando.createStatement()) {
+                st.execute("""
+                        INSERT INTO workflow_executions (id, workflow_id, record, updated_at, tenant_id)
+                        VALUES ('exec-corrida', 'wf-y',
+                                '{"id":"exec-corrida","workflowId":"wf-y","status":"RUNNING"}', now(), 'acme')
+                        """);
+            }
+            criando.commit();
+
+            var resultado = exclusao.get(10, java.util.concurrent.TimeUnit.SECONDS);
+            assertThat(resultado.outcome()).isEqualTo(WorkflowRuntimeStore.Deletion.Outcome.HAS_ACTIVE_EXECUTIONS);
+            assertThat(resultado.activeExecutions()).containsExactly("exec-corrida");
+        }
+        assertThat(store.hasWorkflow("acme", "wf-y")).isTrue();
     }
 }

@@ -29,7 +29,9 @@ import java.util.Optional;
  *   <li>{@code ARCHFLOW_LLM_ALLOWED_BASE_URLS} — outros destinos que podem receber a chave (vírgulas);</li>
  *   <li>{@code ARCHFLOW_LLM_PROVIDER_PREFERENCES_ZDR}, {@code ..._DATA_COLLECTION}, {@code ..._REQUIRED} —
  *       a preferência de provedor do OpenRouter;</li>
- *   <li>{@code ARCHFLOW_DECISION_KEYS_<REF>} — a chave de um provedor do nó {@code decision}.</li>
+ *   <li>{@code ARCHFLOW_DECISION_KEYS_<REF>} — a chave de um provedor do nó {@code decision};</li>
+ *   <li>{@code ARCHFLOW_FLOW_LENIENT_CONDITIONS} — {@code true} devolve, numa condition/switch, o ramo padrão para
+ *       a referência sem valor (o {@code archflow.flow.lenient-conditions} do servidor, RCHFLW-123).</li>
  * </ul>
  *
  * <p>{@code ARCHFLOW_PROVIDER}, {@code ARCHFLOW_MODEL} e {@code ARCHFLOW_API_KEY} são os nomes que o runner
@@ -55,6 +57,7 @@ public final class StandaloneEnvironment {
     static final String PREFERENCES_DATA_COLLECTION = "ARCHFLOW_LLM_PROVIDER_PREFERENCES_DATA_COLLECTION";
     static final String PREFERENCES_REQUIRED = "ARCHFLOW_LLM_PROVIDER_PREFERENCES_REQUIRED";
     static final String DECISION_KEYS_PREFIX = "ARCHFLOW_DECISION_KEYS_";
+    static final String LENIENT_CONDITIONS = "ARCHFLOW_FLOW_LENIENT_CONDITIONS";
 
     private final Map<String, String> env;
     private final PropertyTenantKeyResolver keyResolver;
@@ -121,6 +124,11 @@ public final class StandaloneEnvironment {
 
     public boolean providerPreferencesRequired() {
         return value(PREFERENCES_REQUIRED).map(Boolean::parseBoolean).orElse(false);
+    }
+
+    /** Como no servidor: sem a variável, a referência sem valor numa condition/switch falha o passo. */
+    public boolean lenientConditions() {
+        return value(LENIENT_CONDITIONS).map(Boolean::parseBoolean).orElse(false);
     }
 
     /**

@@ -86,7 +86,18 @@ Um pedido comum e um urgente respondidos com a mesma confiança seguem a mesma r
 categorias pela rota manda os dois para o mesmo lugar (RCHFLW-116: o "Gerar com IA" ligou `AUTO` ao LLM e
 `ESCALATE` ao humano, e todo pedido seguiu o mesmo ramo). Ramifique pela **resposta** — `${D.decision}`
 (o valor da `primary`), `${D.answers.<id>.choice}` ou, num `noul`, `${D.answers.<id>.result}` — e use a rota
-só como portão de confiança. A triagem "urgente vai ao humano, o resto o LLM responde":
+só como portão de confiança.
+
+**O caminho do humano lê `decision` ou `route`, nunca só `answers`.** A decisão que falhou grava `answers` vazio,
+e a pergunta recusada não tem `choice`/`result`: `${D.answers.<id>.choice}` e `${D.answers.<id>.result}` ficam
+**ausentes**, e uma `condition`/`switch` que depende só deles **falha o passo** (RCHFLW-123; no VendaX, um
+`ERROR` ao Core) em vez de chegar ao humano. Para a falha ir ao humano: um `switch` sobre `${D.decision}` (nulo
+na decisão que falhou ou cuja `primary` foi recusada → `default`, ligado ao humano) ou, numa `condition` sobre
+`answers`, o `|| ${D.route} == 'ESCALATE'` do exemplo. A decisão que falhou sempre sai `ESCALATE`; a recusada só
+escala se a pergunta estiver no `gate` (padrão: todas) — com `gate: ["urgente"]`, uma recusa em `assunto` deixa a
+rota pela confiança de `urgente`, e uma `condition` sobre `${D.answers.assunto.choice}` falha o passo, apesar do
+`|| ESCALATE`, quando essa rota não sai `ESCALATE`. Ponha no `gate` as perguntas que a condição lê. A triagem
+"urgente vai ao humano, o resto o LLM responde":
 
 ```json
 { "id": "triagem", "type": "decision", "componentId": "decision", "configuration": {
@@ -106,10 +117,15 @@ só como portão de confiança. A triagem "urgente vai ao humano, o resto o LLM 
 ```
 
 O `|| ${triagem.route} == 'ESCALATE'` manda ao humano a decisão que falhou ou saiu com confiança abaixo de
-`review`: uma falha nunca vira o caminho comum. Com o provedor `llm` a confiança é limitada a 0,89, abaixo do
+`review`: uma falha nunca vira o caminho comum — e, sem ele, a decisão que falhou faria a condição falhar o
+passo (não há `answers.urgente.result`). Com o provedor `llm` a confiança é limitada a 0,89, abaixo do
 `auto` padrão (0,9) — uma aresta `AUTO` desse nó **nunca** é seguida, e não pode ser o único caminho do caso
-comum. Por categoria, o mesmo vale com um `switch` sobre `${triagem.decision}` (um caso por opção; a decisão
-que falhou tem `decision` nulo e cai no `default`). `TriagemPelaRespostaDaDecisaoTest` executa esse desenho.
+comum. Por categoria, o mesmo vale com um `switch` sobre `${triagem.decision}` (um caso por opção **e uma
+aresta `default`** ao humano: a decisão que falhou, ou cuja `primary` foi recusada, tem `decision` nulo e cai no
+`default`; sem essa aresta o switch falha, abaixo). Não faça esse switch sobre
+`${triagem.answers.assunto.choice}`: na decisão que falhou a referência não existe e o passo falha em vez de ir
+ao `default`. `TriagemPelaRespostaDaDecisaoTest` executa esse desenho; `ExemplosDeCondicaoDocumentadosTest`
+(archflow-standalone) executa os dois switches com a decisão falhando.
 
 O `condition` repassa a saída da decisão sem mudar, e o `llm-chat` depois dele receberia esse mapa (`route`,
 `answers`, …) como mensagem, não o texto do cliente. Por isso o `responder` do exemplo diz qual valor é a mensagem
@@ -162,10 +178,57 @@ inexistentes. Agora são passos de verdade (`ControlStep`) que **calculam o ramo
 continua sendo a condição da aresta.
 
 - `condition`: avalia `conditionExpression` (a sintaxe das arestas) e grava `branch = "true" | "false"`.
-  Expressão malformada ou que não se avalia é `false` (com o motivo em `error`), nunca "verdadeira".
+  Expressão malformada é recusada antes do primeiro passo (abaixo); se ainda assim chegar ao passo, o ramo é
+  `false` com o motivo em `error`, nunca "verdadeiro".
 - `switch`: resolve `switchExpression` e, se o valor é um dos `switchCases` (um por linha, sem
-  diferenciar maiúsculas), grava `branch = <o caso>`; senão `"default"`.
+  diferenciar maiúsculas), grava `branch = <o caso>`; senão `"default"` — que só leva a algum lugar se houver
+  uma **aresta** com `branch: "default"` (abaixo).
 - A **entrada segue intacta**: um nó de controle decide o caminho, não transforma o dado.
+
+### Falhar fechado (RCHFLW-123, RCHFLW-135)
+Um nó de controle não escolhe ramo sem base. No portão "acima de 500 pede aprovação"
+(`${entrada.valor} > 500`) com a entrada em texto livre, a referência não existia, a condição dava `false` e o
+LLM confirmou um reembolso de R$ 900 sem ninguém aprovar. As regras agora:
+
+- **Referência sem valor falha o passo.** Um `${…}` que não chega a chave nenhuma na execução faz o passo
+  falhar nomeando o nó, o campo e a referência. A condição usa **lógica de três valores**
+  (`ConditionEvaluator.evaluateRequiringValues`): a referência que falta só derruba o passo quando o resultado
+  depende dela — em `${D.answers.urgente.result} == true || ${D.route} == 'ESCALATE'`, a decisão que falhou não
+  tem `answers.urgente`, mas o `ESCALATE` verdadeiro decide sozinho, e ela vai ao humano. Uma chave gravada com
+  `null` é valor (o `decision` da decisão que falhou vai ao `default` do switch), exceto numa comparação de ordem.
+  `${input}` sozinho nunca falta: sem dado vale `""` (RCHFLW-101).
+- **Comparação de ordem com não número falha.** `>`, `>=`, `<`, `<=` de um número contra um valor que não é
+  número (`"R$ 1.200"`, `"1.200,00"`) falha o passo em vez de ordenar pelo texto. Um texto que *parece* número
+  (`"1.500"` → 1,5) ainda decide, errado para pt-BR: extraia o valor com um `decision` (`choice` por faixa) e
+  ramifique pela resposta, em vez de pedir o número a um LLM.
+- **Switch sem caso nem saída falha.** O valor que não casa com nenhum caso, num switch **sem aresta
+  `default`**, falha o passo dizendo o valor e os casos — antes o fluxo terminava `COMPLETED` sem chegar a uma
+  saída. O caso declarado e casado que não tem aresta continua concluindo (o "termina aqui" deliberado). O
+  "nenhuma aresta seria seguida" avalia as arestas com o mesmo `archflow.flow.strict-conditions` do motor.
+- **Nó solto é recusado antes do primeiro passo.** Num fluxo com arestas, um nó sem nenhuma aresta (nem de
+  entrada nem de saída) rodaria à parte, logo no começo, antes de qualquer portão: o fluxo é recusado com
+  `NODE_DISCONNECTED`, nomeando os nós (`ExecutableNodesValidator`, no servidor, no standalone e no SDK). Fluxo
+  sem aresta nenhuma (linear, um nó só) não muda. Ligue ou apague o nó.
+- A condição escrita à mão numa **aresta** (e o `branch` convertido pelo `BranchCondition`) não muda: segue o
+  `archflow.flow.strict-conditions`.
+
+**No invoke do VendaX, os campos opcionais ficam fora do contexto quando não vêm.** O `AgentFlowRunner` só grava
+um campo opcional que chega com texto: nulo ou em branco (só espaços), a chave fica **ausente**, não vazia. São
+`texto` (`text`), `vendax.correlacao.janela` (`idempotencyKey`), `vendax.correlacao.trace` (`traceId`),
+`vendax.identidade.cliente`/`vendax.identidade.vendedor` (`customerRef`/`vendorRef`), `vendax.origem.task`
+(`taskId`; a maioria das conversas não vem de task) e `archflow.llm.tier` (`tier`); e `payload`/`payload.*`
+quando o payload é vazio, ilegível ou não é objeto JSON. Passar na checagem de raiz (`vendax.*`, `payload.*`)
+não garante valor: uma `condition`/`switch` que lê uma dessas chaves num invoke sem ela falha o passo e o Core
+recebe `status: ERROR`. Não há operador de presença na gramática: para ramificar por eles, envie o campo no
+invoke ou classifique com um nó `decision`. `NosDeControleNoInvokeTest` (archflow-api) executa esses casos.
+
+#### Compatibilidade: `archflow.flow.lenient-conditions`
+Para migrar fluxos que dependiam do ausente → `false`/`default`, `archflow.flow.lenient-conditions=true`
+(servidor; variável `ARCHFLOW_FLOW_LENIENT_CONDITIONS=true`, também no standalone e no `EmbeddedWorkflowRunner`,
+que leem o ambiente do processo) devolve o comportamento antigo: a referência sem valor segue `false`/`default`
+só com o `warning` do caminho não resolvido na saída, a comparação de ordem volta a comparar o texto e o switch
+sem saída conclui. O padrão é `false`. **Não cobre o nó solto**: `NODE_DISCONNECTED` não tem chave de
+compatibilidade. Num deploy Docker, ver a entrada do CHANGELOG ([Unreleased], "Nós de controle falham fechado").
 
 ### A expressão é conferida antes de executar (RCHFLW-116)
 O avaliador é permissivo: um operando sem `${}` é procurado como variável e, se não existe, vira o próprio
@@ -191,6 +254,8 @@ do nó Entrada (`ioFields`). É a forma que funciona com qualquer entrada — `$
 resolve quando a entrada também traz a chave `input` (a Entrada guarda só o valor dela), e o fluxo sem nó Entrada
 não tem id para prefixar. As raízes que o servidor grava fora dos passos também passam: o `approvalPayload` da
 aprovação e, no invoke do VendaX, o `payload` lido como objeto (`${payload.pergunta}`) e as chaves `vendax.*`.
+Passar na checagem não garante valor: quando o invoke não as traz, essas chaves ficam ausentes e o passo falha
+(ver "Falhar fechado", acima).
 **`UNKNOWN_STEP` só é recusado no editor.** No servidor (`ExecutableNodesValidator`) ele vira um aviso no log:
 fluxos criados por API — o VendaX Core, um YAML, o standalone — leem chaves da entrada sem declará-las na Entrada,
 e o `${X.campo}` resolve quando a entrada do run traz `X`. Recusar no servidor quebraria fluxos que funcionam
@@ -290,7 +355,9 @@ alto**, e quem decide é o fluxo.
 ### Falha nunca vira palpite
 Provedor fora do ar, sem chave, resposta que não casa com o contrato, pergunta sem resposta: com
 `onError: ESCALATE` (padrão) a saída traz `route: ESCALATE`, `confidence: 0`, `error` e nenhuma
-resposta — o fluxo segue pela escalada em vez de seguir confiante. `FAIL` lança e o motor decide.
+resposta — o fluxo segue pela escalada em vez de seguir confiante. `FAIL` lança e o motor decide. Sem
+resposta não há `answers.<id>`: quem ramifica pela resposta lê `${D.decision}` (nulo) ou `${D.route}` — ver
+"O caminho do humano lê `decision` ou `route`", acima.
 
 ## Provedores
 

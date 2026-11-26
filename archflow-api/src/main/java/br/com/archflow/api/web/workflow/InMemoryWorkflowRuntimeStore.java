@@ -63,20 +63,23 @@ public class InMemoryWorkflowRuntimeStore implements WorkflowRuntimeStore {
         return owned(tenantId, id) != null;
     }
 
-    public void deleteWorkflow(String tenantId, String id) {
+    /**
+     * Sob o monitor do store, o mesmo do {@link #createExecution}: a checagem das execuções ativas e a exclusão
+     * não deixam uma execução nova entrar entre as duas.
+     */
+    public synchronized Deletion deleteWorkflow(String tenantId, String id) {
         if (owned(tenantId, id) == null) {
-            return;
+            return Deletion.notFound();
+        }
+        List<String> ativas = WorkflowRuntimeStore.activeExecutionIds(executions(tenantId, id, null));
+        if (!ativas.isEmpty()) {
+            return Deletion.blockedBy(ativas);
         }
         workflows.remove(id);
         versions.remove(id);
         deployments.keySet().removeIf(key -> key.startsWith(id + ":"));
-        executions.entrySet().removeIf(entry -> {
-            if (id.equals(entry.getValue().get("workflowId"))) {
-                stepIndexes.remove(entry.getKey());
-                return true;
-            }
-            return false;
-        });
+        // As execuções ficam (RCHFLW-122), como no JDBC: o histórico e as decisões continuam consultáveis.
+        return Deletion.deleted();
     }
 
     /** O workflow quando existe e é do tenant; {@code null} nos dois outros casos, indistintos. */
@@ -332,7 +335,8 @@ public class InMemoryWorkflowRuntimeStore implements WorkflowRuntimeStore {
         }
     }
 
-    public Map<String, Object> createExecution(
+    /** {@code synchronized} como o {@link #deleteWorkflow}: a execução nasce antes ou depois da exclusão. */
+    public synchronized Map<String, Object> createExecution(
             String tenantId, String workflowId, String workflowName, WorkflowVersionRecord version) {
         var executionId = "exec-" + UUID.randomUUID().toString().substring(0, 8);
         var startedAt = Instant.now().toString();

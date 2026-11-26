@@ -228,6 +228,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   em memória são descartados e a lista é recarregada — uma resposta atrasada do tenant anterior é
   ignorada.
 
+### Changed — nós de controle falham fechado (RCHFLW-123, RCHFLW-135)
+- **Quebra: `condition`/`switch` com referência sem valor falham o passo.** Um `${…}` que não chega a chave
+  nenhuma na execução fazia a condição dar `false` e o switch ir ao `default`; agora o passo falha nomeando o nó,
+  o campo e a referência. O portão `${entrada.valor} > 500` com entrada em texto livre confirmava um reembolso
+  de R$ 900 sem aprovação. A condição usa lógica de três valores: só falha quando o resultado depende da
+  referência (`${D.answers.x.result} == true || ${D.route} == 'ESCALATE'` continua mandando a decisão que falhou
+  ao humano). Valor gravado como `null` é valor; `${input}` sozinho sem dado vale `""` (RCHFLW-101). Uma
+  comparação de ordem (`>`, `>=`, `<`, `<=`) entre número e não número (`"R$ 900"`, `"1.200,00"`) também falha.
+  Quem sente: a condição sobre uma chave do JSON de entrada que nem toda execução traz; o switch sobre
+  `${D.answers.<id>.choice}` quando a decisão falha (`answers` vem vazio — use `${D.decision}`); no VendaX, a
+  condição sobre `texto`, `payload.*` ou uma chave `vendax.*` (task, identidade, correlação) que o invoke não traz
+  ou traz em branco (o Core recebe `status: ERROR`). Arestas com condição à mão não mudam (seguem
+  `archflow.flow.strict-conditions`).
+- **Quebra: switch sem caso nem saída falha.** O valor que não casa com nenhum caso, num switch sem aresta
+  `default`, terminava `COMPLETED` sem chegar a uma saída; agora falha dizendo o valor e os casos. Ligue uma
+  aresta `default`. O caso casado sem aresta continua terminando ali.
+- **Quebra: nó solto é recusado antes do primeiro passo** (`NODE_DISCONNECTED`). Num fluxo com arestas, um nó
+  sem nenhuma aresta rodava à parte, antes de qualquer portão (no QA, uma Saída antiga rodou antes da
+  aprovação). Fluxos sem arestas (lineares, de um nó) não mudam. **Sem chave de compatibilidade**: ligue ou apague
+  o nó. O `WorkflowBuilder.build()` da DSL ainda não confere isso — o fluxo é recusado só ao executar.
+- **VendaX: o `error` do `VendaxResult` traz o motivo, não o invólucro do motor.** Um fluxo recusado na validação
+  (o nó solto acima, um nó sem execução) chegava ao Core como `Falha ao executar o fluxo: Error executing flow:
+  <uuid>`; agora vem `Falha ao executar o fluxo: Flow validation failed: 1 errors found: … nó(s) sem nenhuma
+  aresta: sobra …` — o texto que a tela de execuções já mostrava. Vale a mensagem mais funda da cadeia que tem
+  texto (raiz sem mensagem não apaga a frase de cima). Prefixo e `status: ERROR` não mudam; quem casava o texto
+  do invólucro precisa revisar.
+- **`archflow.flow.lenient-conditions=true`** devolve o comportamento antigo das duas primeiras (ramo
+  `false`/`default` com `warning`, switch sem saída conclui); padrão `false`, para migração. Não cobre o nó solto.
+  Standalone e `EmbeddedWorkflowRunner`: `ARCHFLOW_FLOW_LENIENT_CONDITIONS=true` no ambiente do processo. No
+  servidor, a mesma variável vale (o Spring a liga à propriedade), ou `-Darchflow.flow.lenient-conditions=true`.
+  - **Docker com lista `environment:` explícita** (como o `docker-compose.prod.yml`): uma variável só no `.env`
+    **não chega** ao container. Acrescente à lista do serviço `app` a linha
+    `- ARCHFLOW_FLOW_LENIENT_CONDITIONS=${ARCHFLOW_FLOW_LENIENT_CONDITIONS:-false}`, ou passe o `-D` pelo
+    `JAVA_OPTS`, que o `ENTRYPOINT` da imagem expande (`java $JAVA_OPTS -jar app.jar …`). Definir `JAVA_OPTS`
+    substitui o padrão da imagem (`-Xmx512m -Xms256m`): repita a memória
+    (`JAVA_OPTS=-Xmx512m -Xms256m -Darchflow.flow.lenient-conditions=true`). Se o compose do deploy só repassa
+    uma variável para o `JAVA_OPTS`, o `-D` vai nela.
+  - Detalhes e exemplos: `docs/decision-component.md`, seção "Falhar fechado".
+
 ### Added
 - **`APPROVAL` step type** — the producer the human-in-the-loop gate was missing. A flow node of
   this type suspends the run in `AWAITING_APPROVAL` with a proposal, durably, and continues only

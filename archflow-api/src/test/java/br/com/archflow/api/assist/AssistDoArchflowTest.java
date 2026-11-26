@@ -132,7 +132,21 @@ class AssistDoArchflowTest {
                 .contains("provider 'llm' (o LLM da plataforma; sem 'model', herda o modelo da plataforma)")
                 .contains("o route AUTO nunca sai")
                 .contains("${triagem.answers.urgente.result} == true || ${triagem.route} == 'ESCALATE'")
-                .doesNotContain("leia ${<name>.decision} ou ${<name>.route}");
+                .doesNotContain("leia ${<name>.decision} ou ${<name>.route}")
+                // RCHFLW-123: a decisão que falhou não tem answers — o switch em answers.<pergunta>.choice falharia
+                // o passo em vez de ir ao humano. O caminho do humano lê decision (nulo → default) ou o ESCALATE.
+                .contains("O caminho do humano lê ${<name>.decision} ou ${<name>.route}, nunca só")
+                .contains("answers.<pergunta>.choice e .result não existem, e um switch ou condition que depende só "
+                        + "deles FALHA o passo em vez de ir ao humano")
+                .contains("Faça o switch sobre ${<name>.decision} (nulo na falha: cai no default) — nunca sobre "
+                        + "${<name>.answers.<pergunta>.choice}")
+                .contains("e dê à condition sobre answers o || ${<name>.route} == 'ESCALATE'")
+                // A recusa fora do gate não escala: o || ESCALATE só cobre a pergunta que está no gate.
+                .contains("a recusada só escala se a pergunta estiver no gate (padrão: todas): ponha no gate as "
+                        + "perguntas que a condition lê")
+                .contains("um caso por opção e o default ao humano (a decisão que falhou cai nele; sem link pelo "
+                        + "default, um valor sem caso falha o passo)")
+                .doesNotContain("switchExpression \"${triagem.answers.");
         assertThat(r.observacoes())
                 .contains("o step \"semModelo\" (decision) usa o provedor http-decisions, que não decide sem 'model'")
                 .contains("o step \"semTipo\" (decision) será recusado ao executar: decision: tipo '' da pergunta "
@@ -183,6 +197,51 @@ class AssistDoArchflowTest {
                         + "referência")
                 // Com o campo, ou depois de um step que não classifica, não há o que avisar.
                 .doesNotContain("\"certo\"").doesNotContain("\"resumir\"");
+    }
+
+    /**
+     * RCHFLW-123: o "Gerar com IA" montou {@code ${entrada.valor} > 500} sobre a entrada em texto livre, e o LLM
+     * confirmou um reembolso de R$ 900 sem aprovação. O motor agora falha o passo; o prompt ensina a extrair o valor
+     * antes com um decision (nunca um llm-chat que devolva o número para comparar) e traz o exemplo do reembolso —
+     * que, devolvido pelo modelo, não gera aviso.
+     */
+    @Test
+    @DisplayName("nl-to-flow ensina que a referência sem valor falha o passo e a extrair o valor do texto antes")
+    void nlToFlowExtraiOValorDoTexto() {
+        resposta = """
+                {"workflow":{"steps":[
+                  {"name":"receber","component":"input","nodeType":"input","parameters":{}},
+                  {"name":"faixa","component":"decision","nodeType":"decision",
+                   "parameters":{"provider":"llm","questions":{"valor":{"type":"choice",
+                     "instructions":"Qual o valor do reembolso pedido?","criteria":{"acima_de_500":"mais de R$ 500",
+                     "ate_500":"R$ 500 ou menos","sem_valor":"o pedido não diz o valor"}}},"primary":"valor"}},
+                  {"name":"por_valor","component":"switch","nodeType":"switch",
+                   "parameters":{"switchExpression":"${faixa.decision}","switchCases":"ate_500"}},
+                  {"name":"gerente","component":"approval","nodeType":"approval","parameters":{}},
+                  {"name":"responder","component":"llm-chat","nodeType":"llm-chat",
+                   "parameters":{"userMessage":"${receber}"}}],
+                 "links":[{"source":"receber","target":"faixa"},{"source":"faixa","target":"por_valor"},
+                  {"source":"por_valor","target":"responder"},{"source":"por_valor","target":"gerente"}]},
+                 "lacunas":[],"observacoes":null}
+                """;
+
+        var r = assist.nlToFlow(new NlToFlowRequest("reembolso acima de 500 reais pede aprovação do gerente; abaixo, "
+                + "responder automaticamente", null, "pt-BR"));
+
+        assertThat(prompts.getFirst())
+                .contains("Uma referência ${caminho} sem valor na execução FALHA o passo da condition/switch")
+                .contains("extraia-o antes — um step decision com uma pergunta choice")
+                .contains("e um switch em ${<name do decision>.decision} cujo default vai ao approval")
+                // O llm que devolve o número não é caminho: «1.500» seria lido 1,5 e o reembolso de R$ 1.500 iria ao
+                // automático; «R$ 900» e «1.500,00» falham o passo. O prompt o proíbe em vez de ensiná-lo.
+                .contains("Nunca peça a um llm-chat o número para compará-lo com >, >=, < ou <=")
+                .doesNotContain("responder só o número")
+                .doesNotContain("${<name do llm>} > 500")
+                .contains("switchExpression \"${faixa.decision}\" e switchCases \"ate_500\"")
+                .contains("nunca ${<name do step input>.valor} > 500 sobre texto livre")
+                // Os links não levam o caso do switch, como não levam o true/false da condition.
+                .contains("diga em 'observacoes' qual link sai pelo caso ate_500 e qual pelo default");
+        assertThat(String.valueOf(r.observacoes())).doesNotContain("será recusado").doesNotContain("\"por_valor\"");
     }
 
     @Test

@@ -156,13 +156,41 @@ public class SpringWorkflowCrudController {
         return valor.isEmpty() || "*".equals(valor) ? null : valor;
     }
 
+    /**
+     * Exclui o fluxo e mantém o histórico de execuções (RCHFLW-122, ver
+     * {@link WorkflowRuntimeStore#deleteWorkflow}).
+     *
+     * <p>409 enquanto houver execução do fluxo em andamento ou pausada: quem decide a aprovação pendente a
+     * decidiria para um fluxo que já sumiu da lista. A resposta diz quais execuções — cancelá-las ou decidir a
+     * aprovação libera a exclusão. A recusa vem do próprio store, na mesma operação que exclui: uma consulta
+     * antes dela deixava a execução criada entre as duas escapar.</p>
+     */
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> delete(@PathVariable String id) {
+    public ResponseEntity<Map<String, Object>> delete(@PathVariable String id) {
         String tenantId = tenant();
-        if (!store.hasWorkflow(tenantId, id)) return ResponseEntity.notFound().build();
-        store.deleteWorkflow(tenantId, id);
-        auditTrail.record(AuditAction.DELETE, "workflow", id, true, null, null);
-        return ResponseEntity.noContent().build();
+        Map<String, Object> documento = store.getWorkflow(tenantId, id);
+        if (documento == null) return ResponseEntity.notFound().build();
+        WorkflowRuntimeStore.Deletion exclusao = store.deleteWorkflow(tenantId, id);
+        switch (exclusao.outcome()) {
+            case NOT_FOUND -> {
+                return ResponseEntity.notFound().build();
+            }
+            case HAS_ACTIVE_EXECUTIONS -> {
+                List<String> ativas = exclusao.activeExecutions();
+                Map<String, Object> body = new LinkedHashMap<>();
+                body.put("error", "O fluxo \"" + workflowName(documento) + "\" tem "
+                        + (ativas.size() == 1 ? "uma execução" : ativas.size() + " execuções")
+                        + " em andamento ou aguardando aprovação (" + String.join(", ", ativas) + "). Cancele-"
+                        + (ativas.size() == 1 ? "a" : "as") + " ou decida a aprovação antes de excluir o fluxo.");
+                body.put("code", "WORKFLOW_HAS_ACTIVE_EXECUTIONS");
+                body.put("executions", ativas);
+                return ResponseEntity.status(HttpStatus.CONFLICT).body(body);
+            }
+            default -> {
+                auditTrail.record(AuditAction.DELETE, "workflow", id, true, null, null);
+                return ResponseEntity.noContent().build();
+            }
+        }
     }
 
     @GetMapping("/{id}/versions")

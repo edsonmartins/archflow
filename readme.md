@@ -107,7 +107,8 @@ java -jar my-workflow.jar customer-support.json --input "Track order #123"
   embedding, memory) without an adapter stop the run before the first step, naming the node and the reason
 - **Environment config** (the LLM key comes only from here, never from the workflow file): `ARCHFLOW_API_KEY`,
   `ARCHFLOW_MODEL`, `ARCHFLOW_PROVIDER`, plus the server's `ARCHFLOW_LLM_KEYS_<PROVIDER>`, `ARCHFLOW_LLM_BASE_URL`
-  and `ARCHFLOW_LLM_ALLOWED_BASE_URLS`
+  and `ARCHFLOW_LLM_ALLOWED_BASE_URLS`; `ARCHFLOW_FLOW_LENIENT_CONDITIONS=true` brings back the old condition/switch
+  behaviour (a reference with no value takes `false`/`default`) while migrating — the default fails the step
 
 ---
 
