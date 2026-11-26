@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import {
     ActionIcon, Alert, Anchor, Badge, Box, Button, Code, Collapse, Group, Loader,
@@ -325,6 +325,11 @@ export default function ExecutionDetailPage() {
     const locale = i18n.resolvedLanguage ?? i18n.language
     const { id = '' } = useParams()
     const navigate = useNavigate()
+    // O breadcrumb volta para a lista de onde se veio, com o filtro dela (RCHFLW-188); sem ela, a lista inteira.
+    const location = useLocation()
+    const fromList = (location.state as { executionsList?: unknown } | null)?.executionsList
+    const executionsListPath = typeof fromList === 'string' && /^\/executions(\?|$)/.test(fromList)
+        ? fromList : '/executions'
     const [data, setData] = useState<Record<string, unknown> | null>(null)
     const [err, setErr]   = useState<string | null>(null)
     const [rawOpen, setRawOpen] = useState(false)
@@ -407,7 +412,7 @@ export default function ExecutionDetailPage() {
             // copiava do título ou do breadcrumb levava um id que não existe.
             title={t('executionDetail.title', { id })}
             subtitle={extra?.subtitle}
-            breadcrumbs={[{ label: t('executions.title'), to: '/executions' }, { label: id }]}
+            breadcrumbs={[{ label: t('executions.title'), to: executionsListPath }, { label: id }]}
             actions={data ? (
                 <>
                     {traceId && (

@@ -53,3 +53,55 @@ export function defaultBranch(
   if (nodeType === 'decision') return undefined
   return nextFreeBranch(branchOptions(nodeType, config), used)
 }
+
+/**
+ * Os casos declarados de um switch, na ordem do campo, sem vazios, sem repetidos e sem o "default" — que o nó sempre
+ * oferece, escrito ou não (branchOptions): escrevê-lo ou apagá-lo não muda caso nenhum.
+ */
+function declaredCases(config: Record<string, unknown> | undefined): string[] {
+  return branchOptions('switch', config).filter(c => c !== 'default')
+}
+
+/**
+ * O caso de um switch que foi renomeado entre duas configs, ou null quando a troca não é um rename sem ambiguidade.
+ *
+ * <p>RCHFLW-147: trocar "arrependimento" por "arrependido" nos casos deixava a aresta no ramo antigo — que nenhum
+ * valor alcança, porque o switch só grava um caso declarado ou "default" — e a execução que caía no caso novo
+ * terminava COMPLETED sem fazer nada. Só é rename quando a lista tem o mesmo tamanho e muda exatamente uma posição:
+ * aí o caso novo ocupa o lugar do antigo e a aresta acompanha. Qualquer outra troca (caso apagado, inserido, dois
+ * mudados, ordem trocada) não diz de onde veio cada caso; a aresta fica onde estava e o editor a acusa como ramo
+ * não declarado (FlowEdge e runBlockers), em vez de adivinhar.</p>
+ */
+export function renamedCase(
+  before: Record<string, unknown> | undefined,
+  after: Record<string, unknown> | undefined,
+): { from: string; to: string } | null {
+  const old = declaredCases(before)
+  const now = declaredCases(after)
+  if (old.length !== now.length) return null
+  const changed = old.map((c, i) => i).filter(i => old[i] !== now[i])
+  if (changed.length !== 1) return null
+  const i = changed[0]
+  return { from: old[i], to: now[i] }
+}
+
+/**
+ * O ramo declarado numa aresta que o nó de origem não oferece, ou null quando a aresta está bem. Só conta o ramo
+ * que vale: com uma condição escrita à mão, é ela que o backend segue (BranchCondition), e a aresta de erro não tem
+ * ramo. Um nó que não ramifica ignora o ramo, como o backend.
+ *
+ * <p>O ramo é comparado como a BranchCondition o lê, sem apóstrofos: a aresta "d'água" vira a condição
+ * `== 'dágua'`, que o caso "d'água" nunca satisfaz. O ExecutableNodesValidator faz a mesma conta, e o aviso do
+ * editor e a recusa do servidor dão a mesma resposta. Devolve o ramo como está gravado na aresta.</p>
+ */
+export function undeclaredBranch(
+  nodeType: string,
+  config: Record<string, unknown> | undefined,
+  edge: { branch?: string; condition?: string; isErrorPath?: boolean },
+): string | null {
+  const branch = typeof edge.branch === 'string' ? edge.branch.trim() : ''
+  if (!branch || edge.isErrorPath || (typeof edge.condition === 'string' && edge.condition.trim() !== '')) return null
+  const options = branchOptions(nodeType, config)
+  if (options.length === 0) return null
+  return options.includes(branch.replace(/'/g, '')) ? null : branch
+}

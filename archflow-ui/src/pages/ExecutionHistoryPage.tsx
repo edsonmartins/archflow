@@ -1,6 +1,6 @@
 import { Stack, Select, Button, SimpleGrid } from '@mantine/core';
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
     IconAlertTriangle, IconCircleCheck, IconFilter, IconHistory, IconLoader2, IconPlayerPlay,
@@ -19,7 +19,25 @@ export default function ExecutionHistoryPage() {
     const navigate = useNavigate();
     const locale = i18n.resolvedLanguage ?? i18n.language;
     const { executions, workflows, loading, error, fetchExecutions, fetchWorkflows } = useWorkflowStore();
-    const [filterWorkflow, setFilterWorkflow] = useState('');
+    // O filtro de fluxo mora na URL (?workflow=<id>): no useState ele se perdia ao abrir uma execução e voltar
+    // (Voltar do navegador ou breadcrumb), e a lista reaparecia com todos os fluxos (RCHFLW-188). Trocar o
+    // filtro substitui a entrada do histórico em vez de empilhar uma por escolha.
+    const [searchParams, setSearchParams] = useSearchParams();
+    const filtroDaUrl = searchParams.get('workflow') ?? '';
+    // A tela lê um valor local, atualizado no mesmo clique: o setSearchParams passa por uma navegação do router
+    // e só chega um instante depois, e nesse meio o Select controlado ficava com o valor antigo e a lista aberta.
+    // A URL continua sendo a fonte quando muda por fora (Voltar, link direto, breadcrumb).
+    const [filterWorkflow, setFiltroLocal] = useState(filtroDaUrl);
+    useEffect(() => { setFiltroLocal(filtroDaUrl); }, [filtroDaUrl]);
+    const setFilterWorkflow = (value: string) => {
+        setFiltroLocal(value);
+        setSearchParams((prev) => {
+            const next = new URLSearchParams(prev);
+            if (value) next.set('workflow', value);
+            else next.delete('workflow');
+            return next;
+        }, { replace: true });
+    };
 
     useEffect(() => { fetchWorkflows(); }, [fetchWorkflows]);
     // Single source of executions fetching — runs on mount and whenever the
@@ -107,7 +125,9 @@ export default function ExecutionHistoryPage() {
                     loading={loading}
                     error={error}
                     onRetry={() => fetchExecutions(filterWorkflow || undefined)}
-                    onRowClick={(r) => navigate(`/executions/${r.id}`)}
+                    // A lista de onde veio, com o filtro: o breadcrumb do detalhe volta para ela.
+                    onRowClick={(r) => navigate(`/executions/${r.id}`,
+                        { state: { executionsList: `/executions${searchParams.toString() ? `?${searchParams}` : ''}` } })}
                     emptyMessage={t('executions.empty')}
                     emptyDescription={t('executions.emptyHint')}
                     emptyIcon={<IconPlayerPlay />}

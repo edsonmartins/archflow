@@ -331,7 +331,14 @@ public final class ControlStep implements FlowStep {
     }
 
     private List<String> casos() {
-        Object bruto = config.get("switchCases");
+        return casosDe(config.get("switchCases"));
+    }
+
+    /**
+     * Os casos de um {@code switchCases} como o passo os lê: um por linha (ou a lista), sem os vazios. O
+     * {@link ExecutableNodesValidator} usa a mesma leitura para saber que ramos a aresta pode declarar (RCHFLW-147).
+     */
+    static List<String> casosDe(Object bruto) {
         List<String> casos = new ArrayList<>();
         if (bruto instanceof String s) {
             for (String linha : s.split("\\R")) {

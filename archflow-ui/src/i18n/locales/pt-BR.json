@@ -82,7 +82,10 @@
         "new": "Novo",
         "close": "Fechar",
         "back": "Voltar",
-        "appName": "Archflow"
+        "appName": "Archflow",
+        "notFoundTitle": "Página não encontrada",
+        "notFoundHint": "Este endereço não existe ou a página saiu do app. Confira o link ou volte ao início.",
+        "backHome": "Voltar ao início"
     },
     "nav": {
         "workflows": "Fluxos",
@@ -335,7 +338,7 @@
         "deleteModal": {
             "title": "Excluir fluxo",
             "message": "Excluir o fluxo «{{name}}»? Ele sai da lista de fluxos e não pode ser recuperado. O histórico de execuções e as decisões de aprovação continuam em Execuções.",
-            "blocked": "O fluxo tem execução em andamento ou aguardando aprovação. Cancele a execução ou decida a aprovação antes de excluir.",
+            "blocked": "O fluxo tem execução em andamento ou aguardando aprovação. A pausada só libera a exclusão quando a aprovação é decidida, em Aprovações (rejeitar encerra a execução); a em andamento, quando termina ou é cancelada.",
             "blockedBy": "Execuções que impedem a exclusão:"
         }
     },
@@ -444,6 +447,10 @@
                 "MALFORMED_TEMPLATE": "«{{fragment}}» não é uma referência — escreva ${caminho}, com a chave fechada e um caminho dentro; fora de ${} o texto vai ao modelo como está"
             },
             "runBlockedInvalidDecision": "Decisão que o motor recusa: {{fields}}.",
+            "runBlockedInvalidBranch": "Aresta num ramo que o nó não declara — nenhum valor chega a ela, e a execução terminaria sem passar por ali: {{edges}}. Escolha um dos ramos na aresta ou declare o caso no nó.",
+            "invalidBranchEdge": "\"{{source}}\" → \"{{target}}\" no ramo «{{branch}}» (ramos do nó: {{options}})",
+            "runBlockedDanglingConnection": "Conexão para um passo que não existe: {{edges}}. Corrija o destino (aba Código) ou remova a conexão.",
+            "runBlockedCycle": "O fluxo tem um ciclo, e o motor não executa fluxo com ciclo: {{path}}. Remova uma das arestas do ciclo.",
             "decisionProblem": {
                 "QUESTIONS_NOT_OBJECT": "as perguntas devem ser um objeto id → { type, instructions, criteria }, não uma lista",
                 "QUESTION_ID": "o id de uma pergunta não pode ser vazio",
@@ -473,6 +480,10 @@
             "tidy": "Organizar layout",
             "addNode": "Adicionar nó"
         },
+        "edge": {
+            "undeclaredBranch": "O ramo «{{branch}}» não é um dos ramos do nó ({{options}}): nenhum valor chega a esta aresta. Escolha um ramo ou declare o caso no nó.",
+            "undeclaredOption": "{{branch}} (não declarado no nó)"
+        },
         "disconnectedWarning": {
             "title": "Nós sem conexão",
             "message": "Sem conexão: {{names}}. Sem nenhuma aresta, o fluxo roda os nós na ordem em que foram criados; com arestas, o servidor recusa executar o fluxo enquanto houver nó solto (ele rodaria à parte, antes de qualquer portão). Ligue os nós ou remova os soltos."
@@ -488,6 +499,7 @@
             "success": "Versão {{number}} publicada em produção.",
             "error": "Não foi possível publicar: {{error}}",
             "deployed": "Versão imutável {{number}} ({{id}}) ativa em PRODUCTION.",
+            "unsavedNotice": "Há alterações não salvas: elas serão salvas antes de criar a versão, e é o documento salvo que vai para PRODUCTION.",
             "tabs": {
                 "rest": "API REST",
                 "stream": "Streaming",
@@ -543,7 +555,11 @@
                 "title": "Padrões do fluxo",
                 "hint": "Padrões de modelo herdados por todos os passos. Selecione um nó para sobrescrever.",
                 "savedGroup": "Gravado no fluxo",
-                "inheritHint": "Deixe um campo no valor padrão para herdar da plataforma."
+                "inheritHint": "Campo vazio: cada nó usa o próprio padrão — o do provedor nos nós LLM Chat, o da plataforma nos agentes.",
+                "modelProviderHint": "Modelos de {{provider}}, o provedor que os nós sem provedor próprio herdam. Um nó com outro provedor escolhe o modelo no próprio nó.",
+                "modelProviderUnknown": "O servidor não informou o provedor que os nós herdam: escolha o modelo em cada nó.",
+                "modelOtherProvider": "O modelo gravado ({{model}}) é de {{provider}}, mas os nós sem provedor próprio usam {{inherited}}: eles vão mandar esse id a {{inherited}}, que pode recusá-lo. Escolha um modelo de {{inherited}}.",
+                "timeoutAgentsOnly": "Vale para os nós de agente. Os nós LLM Chat usam o tempo limite do provedor."
             },
             "tabs": {
                 "properties": "Propriedades",
@@ -587,6 +603,8 @@
                 "modelSearchHint": "Digite para buscar no catálogo ou para usar outro id do provedor.",
                 "modelNothingFound": "Nenhum modelo do catálogo",
                 "persona": "Persona",
+                "personaHint": "A persona não troca o prompt de sistema que você escreveu: o texto dela só entra com o campo vazio, e voltar para Personalizado tira só o que ela pôs.",
+                "personaNoPrompt": "Esta persona não traz prompt próprio: o modelo recebe o prompt de sistema abaixo, como está.",
                 "systemPrompt": "System prompt",
                 "systemPromptPlaceholder": "Você é um assistente útil...",
                 "userMessage": "Mensagem do usuário",
@@ -965,6 +983,7 @@
             "apiKeys": "Chaves de API",
             "scopedKeys": "Chaves de API com escopo",
             "integrations": "Integrações",
+            "ownWorkspace": "Meu workspace",
             "skills": "Skills",
             "mcp": "Servidores MCP",
             "triggers": "Agendamentos",
@@ -1950,11 +1969,14 @@
         "subtitle": "Seu workspace num relance: fluxos, execuções recentes e o que está esperando por você.",
         "recentExecutionsHint": "As últimas execuções de todos os fluxos",
         "quickActions": "Ações rápidas",
+        "loadFailedTitle": "Não foi possível carregar o Início",
+        "loadFailed": "O servidor não respondeu, então os números abaixo não estão atualizados. Recarregue a página quando ele voltar.",
         "hints": {
             "workflows": "{{count}} publicados",
             "published": "Com versão publicada em produção",
             "failedRuns": "Nas últimas {{count}} execuções",
             "failedNone": "Nenhuma falha — tudo certo",
+            "unavailable": "Sem dados — o servidor não respondeu",
             "pendingApprovals": "Aguardando decisão humana"
         },
         "stats": {
@@ -2156,6 +2178,8 @@
             "inspecting": "Inspecionando…",
             "inspectFailed": "Falha ao inspecionar",
             "serverError": "O servidor retornou um erro",
+            "notFoundTitle": "Servidor MCP não encontrado",
+            "notFoundHint": "Nenhum servidor MCP com este nome está configurado. O link pode ser antigo ou o servidor ter saído da configuração.",
             "connected": "conectado",
             "offline": "offline",
             "tools": "Ferramentas ({{count}})",
@@ -2378,6 +2402,8 @@
         "refresh": "Atualizar metadados da conversa",
         "missingId": "ID da conversa ausente.",
         "loadError": "Falha ao carregar",
+        "notFoundTitle": "Conversa não encontrada",
+        "notFoundHint": "Esta conversa não existe ou não está disponível no seu workspace. O link pode ser antigo.",
         "refreshError": "Não foi possível atualizar a conversa: {{reason}}. Os detalhes mostram o último registro carregado.",
         "noMetadata": "Sem metadados.",
         "section": {
@@ -2500,6 +2526,7 @@
             "decidedAt": "Quando",
             "decidedComment": "Comentário",
             "submitFailed": "Falha ao enviar decisão",
+            "alreadyDecided": "Este pedido já foi decidido ({{status}}, por {{who}}) — sua decisão não foi registrada. A tela mostra a decisão que vale.",
             "invalidJson": "Payload editado não é um JSON válido",
             "execution": "Execução",
             "editedPayload": "Proposta aprovada (editada)",

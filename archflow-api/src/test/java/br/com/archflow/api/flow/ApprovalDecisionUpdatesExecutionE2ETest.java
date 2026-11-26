@@ -258,7 +258,9 @@ class ApprovalDecisionUpdatesExecutionE2ETest {
             Map<String, Object> record = awaitRecord(executionId, "STOPPED");
             assertThat(record.get("completedAt")).isNotNull();
             assertThat(String.valueOf(record.get("error")))
-                    .contains("Rejected", "'gate'", "diretor.financeiro", "desconto alto demais");
+                    .contains("Recusado na aprovação", "gate", "diretor.financeiro", "desconto alto demais")
+                    // RCHFLW-188 (18): a frase é a da UI (pt-BR), não a do inglês com o id cru.
+                    .doesNotContain("Rejected at");
             assertThat(afterGateRuns).hasValue(0);
             assertThat(stateManager.loadState(executionId).getStatus()).isEqualTo(FlowStatus.STOPPED);
         }
@@ -274,7 +276,7 @@ class ApprovalDecisionUpdatesExecutionE2ETest {
             assertThat(expired).isEqualTo(1);
             Map<String, Object> record = awaitRecord(executionId, "STOPPED");
             assertThat(record.get("completedAt")).isNotNull();
-            assertThat(String.valueOf(record.get("error"))).contains("approval timeout");
+            assertThat(String.valueOf(record.get("error"))).contains("prazo da aprovação").doesNotContain("PT");
             assertThat(afterGateRuns).hasValue(0);
         }
     }
@@ -349,7 +351,7 @@ class ApprovalDecisionUpdatesExecutionE2ETest {
             Map<String, Object> record = store.getExecution(DefaultTenant.ID, executionId);
             assertThat(record.get("status")).as("registro igual ao estado durável").isEqualTo("STOPPED");
             assertThat(String.valueOf(record.get("error")))
-                    .contains("Rejected", "aprovador.automatico", "risco acima do limite");
+                    .contains("Recusado na aprovação", "aprovador.automatico", "risco acima do limite");
             assertThat(record.get("completedAt")).isNotNull();
             assertThat(stateManager.loadState(executionId).getStatus()).isEqualTo(FlowStatus.STOPPED);
             assertThat(afterGateRuns).hasValue(0);

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import {
     Alert,
     Badge,
@@ -18,6 +18,7 @@ import {
     IconBraces,
     IconInfoCircle,
     IconMessage,
+    IconMessageOff,
     IconRefresh,
 } from '@tabler/icons-react';
 import ChatPanel from '../components/chat/ChatPanel';
@@ -52,6 +53,10 @@ export default function ConversationPage() {
     const [conversation, setConversation] = useState<Conversation | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    // A conversa da rota não existe (404): link velho. Sem isto a página mostrava o erro cru do backend, em
+    // inglês, com o chat ativo embaixo — mandar mensagem para uma conversa que não existe (RCHFLW-188).
+    const [notFound, setNotFound] = useState(false);
+    const navigate = useNavigate();
     // Cada busca do registro ganha um número; só a mais recente aplica. Os avisos do chat chegam em
     // rajada (envio → resposta) e uma resposta antiga que chegasse por último voltaria a contagem.
     const fetchSeq = useRef(0);
@@ -102,6 +107,7 @@ export default function ConversationPage() {
         const seq = ++fetchSeq.current;
         setLoading(true);
         setError(null);
+        setNotFound(false);
         conversationApi
             .getConversation(id)
             .then((c) => {
@@ -111,7 +117,8 @@ export default function ConversationPage() {
                 // Mesma guarda do sucesso: se uma rebusca mais nova (envio pelo chat) já trouxe o
                 // registro, a falha tardia desta carga não pode apagá-lo nem pôr um alerta por cima.
                 if (!cancelled && seq === fetchSeq.current) {
-                    setError(mensagemDoErro(err, t('conversationDetail.loadError')));
+                    if ((err as { status?: unknown } | null)?.status === 404) setNotFound(true);
+                    else setError(mensagemDoErro(err, t('conversationDetail.loadError')));
                     setConversation(null);
                 }
             })
@@ -130,6 +137,32 @@ export default function ConversationPage() {
                 <Alert color="red" icon={<IconAlertCircle size={16} />}>
                     {t('conversationDetail.missingId')}
                 </Alert>
+            </Stack>
+        );
+    }
+
+    if (notFound) {
+        return (
+            <Stack gap="lg" p="md" data-testid="conversation-not-found">
+                <PageHeader
+                    icon={IconMessage}
+                    accent="teal"
+                    title={t('conversationDetail.title', { id: id.slice(0, 8) })}
+                    breadcrumbs={[
+                        { label: t('conversations.title'), to: '/conversations' },
+                        { label: id.slice(0, 8) },
+                    ]}
+                />
+                <Paper withBorder>
+                    <EmptyState
+                        icon={<IconMessageOff />}
+                        accent="amber"
+                        title={t('conversationDetail.notFoundTitle')}
+                        description={t('conversationDetail.notFoundHint')}
+                        actionLabel={t('conversationDetail.back')}
+                        onAction={() => navigate('/conversations')}
+                    />
+                </Paper>
             </Stack>
         );
     }

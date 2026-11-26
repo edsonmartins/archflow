@@ -126,3 +126,80 @@ describe('FlowDefaultsPanel — modelo gravado fora da lista', () => {
     expect(container.textContent).not.toContain('modelNotAllowedHint')
   })
 })
+
+/**
+ * RCHFLW-182: o campo Modelo oferecia os modelos de todos os providers num grupo só e gravava só o id. Escolher
+ * "Claude 3 Haiku" gravava claude-3-haiku-20240307, que os nós (que herdam o OpenRouter) mandavam ao OpenRouter —
+ * "not a valid model ID". Agora só os modelos do provider herdado: o do fluxo, senão o da plataforma.
+ */
+describe('FlowDefaultsPanel — só os modelos do provider que os nós herdam (RCHFLW-182)', () => {
+  const model = (id: string) => ({ id, name: id, contextWindow: 0, maxTemperature: 0 })
+  const dois = (): ProviderInfo[] => [
+    {
+      id: 'openrouter', displayName: 'OpenRouter', group: 'Cloud', requiresApiKey: true, supportsStreaming: true,
+      models: [model('openai/gpt-4o'), model('anthropic/claude-sonnet-4')], allowCustomModel: true,
+      platformDefault: true,
+    },
+    {
+      id: 'anthropic', displayName: 'Anthropic', group: 'Cloud', requiresApiKey: true, supportsStreaming: true,
+      models: [model('claude-3-haiku-20240307')], allowCustomModel: true,
+    },
+  ]
+
+  async function renderCom(llmConfig: Record<string, unknown>) {
+    useWorkflowStore.setState({ currentWorkflow: { configuration: { llmConfig } } as any })
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+    await act(async () => {
+      root!.render(h(MantineProvider, null, h(FlowDefaultsPanel)))
+    })
+  }
+  const values = () => Array.from(modelSelect().options).map(o => o.value)
+
+  it('sem provider no fluxo: os modelos do provider da plataforma, e não os da Anthropic', async () => {
+    providers = dois()
+    await renderCom({})
+
+    expect(values()).toEqual(['openai/gpt-4o', 'anthropic/claude-sonnet-4'])
+    expect(container.querySelector('[data-testid="flow-model-provider-hint"]')?.textContent)
+      .toBe('editor.properties.flowDefaults.modelProviderHint')
+  })
+
+  it('com provider no fluxo: os modelos dele', async () => {
+    providers = dois()
+    await renderCom({ provider: 'anthropic' })
+
+    expect(values()).toEqual(['claude-3-haiku-20240307'])
+  })
+
+  it('padrão já gravado com o id de outro provider: aparece como está, com o aviso de que os nós vão mandá-lo ao herdado', async () => {
+    providers = dois()
+    await renderCom({ model: 'claude-3-haiku-20240307' })
+
+    expect(modelSelect().value).toBe('claude-3-haiku-20240307')
+    expect(container.querySelector('[data-testid="flow-model-other-provider"]')?.textContent)
+      .toBe('editor.properties.flowDefaults.modelOtherProvider:claude-3-haiku-20240307')
+  })
+
+  it('RCHFLW-188 (23): temperatura, tokens e timeout não gravados aparecem vazios, não com 0.2 / 1024 / 30', async () => {
+    providers = dois()
+    await renderCom({ model: 'openai/gpt-4o' })
+
+    // Os três campos numéricos (o Modelo é um <select> no mock).
+    const numeros = Array.from(container.querySelectorAll('input'))
+    expect(numeros).toHaveLength(3)
+    for (const input of numeros) expect(input.value).toBe('')
+    expect(container.textContent).not.toMatch(/\b(0\.2|1024)\b/)
+    // RCHFLW-188 (22): o timeout diz que só vale para os agentes.
+    expect(container.textContent).toContain('editor.properties.flowDefaults.timeoutAgentsOnly')
+  })
+
+  it('o que está gravado aparece', async () => {
+    providers = dois()
+    await renderCom({ temperature: 0.7, maxTokens: 2048, timeout: 12 })
+
+    const valores = Array.from(container.querySelectorAll('input')).map(i => i.value)
+    expect(valores).toEqual(expect.arrayContaining(['0.7', '2048', '12']))
+  })
+})

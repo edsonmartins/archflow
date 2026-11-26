@@ -82,7 +82,10 @@
         "new": "New",
         "close": "Close",
         "back": "Back",
-        "appName": "Archflow"
+        "appName": "Archflow",
+        "notFoundTitle": "Page not found",
+        "notFoundHint": "This address does not exist or the page is no longer in the app. Check the link or go back to the start.",
+        "backHome": "Back to start"
     },
     "nav": {
         "workflows": "Workflows",
@@ -335,7 +338,7 @@
         "deleteModal": {
             "title": "Delete Workflow",
             "message": "Delete the workflow “{{name}}”? It leaves the workflow list and cannot be recovered. Its execution history and approval decisions stay in Executions.",
-            "blocked": "The workflow has an execution running or awaiting approval. Cancel the execution or decide the approval before deleting it.",
+            "blocked": "The workflow has an execution running or awaiting approval. A paused one only releases the deletion once the approval is decided, in Approvals (rejecting ends the execution); a running one, when it finishes or is cancelled.",
             "blockedBy": "Executions blocking the deletion:"
         }
     },
@@ -444,6 +447,10 @@
                 "MALFORMED_TEMPLATE": "«{{fragment}}» is not a reference — write ${path}, with the brace closed and a path inside; outside ${} the text goes to the model as is"
             },
             "runBlockedInvalidDecision": "Decision the engine refuses: {{fields}}.",
+            "runBlockedInvalidBranch": "Edge on a branch the node does not declare — no value reaches it, and the run would end without going there: {{edges}}. Pick one of the branches on the edge or declare the case on the node.",
+            "invalidBranchEdge": "\"{{source}}\" → \"{{target}}\" on branch «{{branch}}» (node branches: {{options}})",
+            "runBlockedDanglingConnection": "Connection to a step that does not exist: {{edges}}. Fix the target (Code tab) or remove the connection.",
+            "runBlockedCycle": "The flow has a cycle, and the engine does not run flows with cycles: {{path}}. Remove one of the edges in the cycle.",
             "decisionProblem": {
                 "QUESTIONS_NOT_OBJECT": "questions must be an object id → { type, instructions, criteria }, not a list",
                 "QUESTION_ID": "a question id cannot be blank",
@@ -473,6 +480,10 @@
             "tidy": "Tidy up layout",
             "addNode": "Add node"
         },
+        "edge": {
+            "undeclaredBranch": "Branch «{{branch}}» is not one of the node branches ({{options}}): no value reaches this edge. Pick a branch or declare the case on the node.",
+            "undeclaredOption": "{{branch}} (not declared on the node)"
+        },
         "disconnectedWarning": {
             "title": "Nodes without connections",
             "message": "Not connected: {{names}}. With no edges at all, the flow runs its nodes in the order they were created; with edges, the server refuses to run the flow while a node is loose (it would run on its own, before any gate). Connect the nodes or remove the loose ones."
@@ -488,6 +499,7 @@
             "success": "Version {{number}} published to production.",
             "error": "Could not publish: {{error}}",
             "deployed": "Immutable version {{number}} ({{id}}) is active in PRODUCTION.",
+            "unsavedNotice": "There are unsaved changes: they will be saved before the version is created, and the saved document is what goes to PRODUCTION.",
             "tabs": {
                 "rest": "REST API",
                 "stream": "Streaming",
@@ -543,7 +555,11 @@
                 "title": "Flow defaults",
                 "hint": "Model defaults inherited by every step. Select a node to override them.",
                 "savedGroup": "Saved in the flow",
-                "inheritHint": "Leave a field at its default to inherit from the platform."
+                "inheritHint": "Empty field: each node uses its own default — the provider's for LLM Chat nodes, the platform's for agents.",
+                "modelProviderHint": "Models of {{provider}}, the provider that nodes without their own provider inherit. A node with another provider picks its model on the node.",
+                "modelProviderUnknown": "The server did not report the provider nodes inherit: pick the model on each node.",
+                "modelOtherProvider": "The saved model ({{model}}) belongs to {{provider}}, but nodes without their own provider use {{inherited}}: they will send this id to {{inherited}}, which may refuse it. Pick a {{inherited}} model.",
+                "timeoutAgentsOnly": "Applies to agent nodes. LLM Chat nodes use the provider timeout."
             },
             "tabs": {
                 "properties": "Properties",
@@ -587,6 +603,8 @@
                 "modelSearchHint": "Type to search the catalog or to use another provider model id.",
                 "modelNothingFound": "No catalog model",
                 "persona": "Persona",
+                "personaHint": "The persona does not replace the system prompt you wrote: its text only fills an empty field, and going back to Custom removes only what it added.",
+                "personaNoPrompt": "This persona has no prompt of its own: the model receives the system prompt below as it is.",
                 "systemPrompt": "System prompt",
                 "systemPromptPlaceholder": "You are a helpful assistant...",
                 "userMessage": "User message",
@@ -965,6 +983,7 @@
             "apiKeys": "API Keys",
             "scopedKeys": "Scoped API keys",
             "integrations": "Integrations",
+            "ownWorkspace": "My workspace",
             "skills": "Skills",
             "mcp": "MCP servers",
             "triggers": "Scheduled triggers",
@@ -1950,11 +1969,14 @@
         "subtitle": "Your workspace at a glance: workflows, recent runs and what is waiting for you.",
         "recentExecutionsHint": "The last runs across all workflows",
         "quickActions": "Quick actions",
+        "loadFailedTitle": "Could not load the home page",
+        "loadFailed": "The server did not respond, so the numbers below are not up to date. Reload the page when it is back.",
         "hints": {
             "workflows": "{{count}} published",
             "published": "With a version published to production",
             "failedRuns": "In the last {{count}} runs",
             "failedNone": "No failures — all good",
+            "unavailable": "No data — the server did not respond",
             "pendingApprovals": "Waiting for a human decision"
         },
         "stats": {
@@ -2156,6 +2178,8 @@
             "inspecting": "Inspecting…",
             "inspectFailed": "Failed to inspect",
             "serverError": "Server reported an error",
+            "notFoundTitle": "MCP server not found",
+            "notFoundHint": "No MCP server with this name is configured. The link may be outdated or the server was removed from the configuration.",
             "connected": "connected",
             "offline": "offline",
             "tools": "Tools ({{count}})",
@@ -2378,6 +2402,8 @@
         "refresh": "Refresh conversation metadata",
         "missingId": "Missing conversation id.",
         "loadError": "Failed to load",
+        "notFoundTitle": "Conversation not found",
+        "notFoundHint": "This conversation does not exist or is not available in your workspace. The link may be outdated.",
         "refreshError": "Could not refresh the conversation: {{reason}}. The details show the last record loaded.",
         "noMetadata": "No metadata.",
         "section": {
@@ -2500,6 +2526,7 @@
             "decidedAt": "When",
             "decidedComment": "Comment",
             "submitFailed": "Failed to submit decision",
+            "alreadyDecided": "This request was already decided ({{status}}, by {{who}}) — your decision was not recorded. The page shows the decision that stands.",
             "invalidJson": "Edited payload is not valid JSON",
             "execution": "Execution",
             "editedPayload": "Approved proposal (edited)",

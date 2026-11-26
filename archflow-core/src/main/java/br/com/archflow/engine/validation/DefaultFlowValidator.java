@@ -142,33 +142,44 @@ public class DefaultFlowValidator implements FlowValidator {
         }
     }
 
+    /**
+     * Um erro para o primeiro ciclo achado, nomeando os passos na ordem em que as arestas os percorrem
+     * ({@code a → b → c → a}). Antes a mensagem era fixa ("um ciclo entre os passos") e o caminho ficava num
+     * {@code HashSet}, que perde a ordem: o usuário sabia que havia um ciclo, não onde (RCHFLW-188).
+     */
     private void validateCycles(Flow flow, List<ValidationError> errors) {
-        // Implementa detecção de ciclos usando DFS
         Set<String> visited = new HashSet<>();
-        Set<String> currentPath = new HashSet<>();
+        // A pilha da busca em profundidade, em ordem: é ela que vira o caminho do ciclo.
+        LinkedHashSet<String> currentPath = new LinkedHashSet<>();
 
         for (FlowStep step : flow.getSteps()) {
-            if (hasCycle(step, visited, currentPath, flow)) {
+            List<String> cycle = findCycle(step, visited, currentPath, flow);
+            if (cycle != null) {
                 errors.add(new ValidationError(
                     "flow.cycle",
-                    "o fluxo tem um ciclo entre os passos",
+                    "o fluxo tem um ciclo entre os passos: " + String.join(" → ", cycle)
+                        + " — o motor não executa fluxo com ciclo; remova uma das arestas do ciclo",
                     "FLOW_CYCLE_DETECTED",
-                    Map.of("startStep", step.getId())
+                    Map.of("startStep", cycle.get(0), "steps", List.copyOf(cycle))
                 ));
                 break;
             }
         }
     }
 
-    private boolean hasCycle(FlowStep step, Set<String> visited, Set<String> currentPath, Flow flow) {
+    /** O ciclo alcançável a partir de {@code step}, fechado com o primeiro passo repetido no fim, ou {@code null}. */
+    private List<String> findCycle(FlowStep step, Set<String> visited, LinkedHashSet<String> currentPath, Flow flow) {
         String stepId = step.getId();
-        
+
         if (currentPath.contains(stepId)) {
-            return true;
+            List<String> path = new ArrayList<>(currentPath);
+            List<String> cycle = new ArrayList<>(path.subList(path.indexOf(stepId), path.size()));
+            cycle.add(stepId);
+            return cycle;
         }
-        
+
         if (visited.contains(stepId)) {
-            return false;
+            return null;
         }
 
         visited.add(stepId);
@@ -180,13 +191,16 @@ public class DefaultFlowValidator implements FlowValidator {
                 .filter(s -> s.getId().equals(targetId))
                 .findFirst();
 
-            if (targetStep.isPresent() && hasCycle(targetStep.get(), visited, currentPath, flow)) {
-                return true;
+            if (targetStep.isPresent()) {
+                List<String> cycle = findCycle(targetStep.get(), visited, currentPath, flow);
+                if (cycle != null) {
+                    return cycle;
+                }
             }
         }
 
         currentPath.remove(stepId);
-        return false;
+        return null;
     }
 
     private void validateStepConfiguration(FlowStep step, List<ValidationError> errors) {

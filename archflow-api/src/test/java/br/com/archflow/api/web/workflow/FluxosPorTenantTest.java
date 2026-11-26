@@ -196,7 +196,7 @@ class FluxosPorTenantTest {
                 .isInstanceOfSatisfying(ResponseStatusException.class,
                         e -> assertThat(e.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND));
         assertThatThrownBy(() -> comoTenant("tenant-b",
-                () -> yaml.updateYaml(doA, new WorkflowYamlDto(doA, yamlDoA, null))))
+                () -> yaml.updateYaml(doA, new WorkflowYamlDto(doA, yamlDoA, null), null)))
                 .isInstanceOfSatisfying(ResponseStatusException.class,
                         e -> assertThat(e.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND));
     }

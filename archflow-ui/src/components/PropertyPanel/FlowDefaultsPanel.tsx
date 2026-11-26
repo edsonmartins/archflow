@@ -43,23 +43,26 @@ export function FlowDefaultsPanel({ readOnly = false }: { readOnly?: boolean } =
   // Tenant com restrição de modelos: o servidor manda allowCustomModel=false (ver AgentFields).
   const restrito = providers.some(p => p.allowCustomModel === false)
 
+  // O modelo do fluxo só vale para o provider que os nós herdam — configuration.llmConfig.provider, senão o da
+  // plataforma (ChatNodeDefaults e o resolver dos agentes) —, e o painel só grava o id. Ele oferecia os modelos de
+  // todos os providers num grupo só: escolher "Claude 3 Haiku" gravava claude-3-haiku-20240307, que os nós mandavam
+  // ao OpenRouter, e a execução falhava com "not a valid model ID" (RCHFLW-182). Agora só os do provider herdado,
+  // como o seletor do nó já faz (AgentFields); provider desconhecido = nenhuma sugestão, sem chutar outro.
+  const flowProvider = typeof cfg.provider === 'string' ? cfg.provider.trim() : ''
+  const inheritedId = flowProvider || providers.find(p => p.platformDefault)?.id || ''
+  const inherited = providers.find(p => p.id === inheritedId)
+  const inheritedName = inherited?.displayName || inheritedId
+
   const modelGroups = (() => {
-    const groups = new Map<string, { value: string; label: string }[]>()
-    // The backend catalog can expose the same model id under more than one
-    // provider/group (e.g. gpt-4o via OpenAI and OpenRouter). Mantine 9 throws
-    // on duplicate option values, so keep only the first occurrence of each id.
+    // Mantine 9 recusa valores repetidos: o catálogo pode repetir um id no mesmo provider.
     const seen = new Set<string>()
-    providers.forEach(p => {
-      if (!groups.has(p.group)) groups.set(p.group, [])
-      p.models.forEach(m => {
-        if (seen.has(m.id)) return
-        seen.add(m.id)
-        groups.get(p.group)!.push({ value: m.id, label: m.name })
-      })
+    const items: { value: string; label: string }[] = []
+    inherited?.models.forEach(m => {
+      if (seen.has(m.id)) return
+      seen.add(m.id)
+      items.push({ value: m.id, label: m.name })
     })
-    const result = Array.from(groups.entries())
-      .map(([group, items]) => ({ group, items }))
-      .filter(g => g.items.length > 0)
+    const result = items.length > 0 ? [{ group: inheritedName, items }] : []
     // A lista é o catálogo ativo ∩ os permitidos do tenant (RCHFLW-79), não mais o enum inteiro: um
     // padrão gravado antes (id antigo, catálogo da variável, tenant restrito) sumia do campo — o painel
     // mostrava "—" enquanto todo nó que herda rodava com ele (ou falhava com [LLM-MODELO]). Ele aparece
@@ -73,6 +76,21 @@ export function FlowDefaultsPanel({ readOnly = false }: { readOnly?: boolean } =
     return result
   })()
   const savedNotAllowed = restrito && savedModel !== '' && !providers.some(p => p.models.some(m => m.id === savedModel))
+  // Um padrão gravado antes desta correção com o id de OUTRO provider (o claude-3-haiku da Anthropic num fluxo que
+  // herda o OpenRouter): aparece como está, avisando que os nós que herdam vão mandá-lo ao provider herdado. Só
+  // quando o id é do catálogo de outro provider e não do herdado — um id livre pode ser válido no herdado.
+  const savedOtherProvider = !savedNotAllowed && savedModel !== '' && inherited != null
+    && !inherited.models.some(m => m.id === savedModel)
+    && providers.find(p => p.id !== inherited.id && p.models.some(m => m.id === savedModel))
+  // Campo numérico apagado = sem valor no fluxo: tira a chave, e cada nó usa o padrão dele (RCHFLW-188, item 23).
+  const patchNumber = (key: string) => (v: number | string) => {
+    if (typeof v === 'number') patchFlowLlmConfig({ [key]: v })
+    else if (v === '') patchFlowLlmConfig({ [key]: undefined })
+  }
+  const stored = (key: string): number | '' => {
+    const v = cfg[key]
+    return typeof v === 'number' && Number.isFinite(v) ? v : ''
+  }
 
   return (
     <ScrollArea style={{ height: '100%' }} p="md">
@@ -100,14 +118,30 @@ export function FlowDefaultsPanel({ readOnly = false }: { readOnly?: boolean } =
             searchable
             styles={FIELD_STYLES}
           />
-          {savedNotAllowed && (
+          {savedNotAllowed ? (
             <Text size="xs" c="red" mt={-8} lh={1.4}>{f('modelNotAllowedHint')}</Text>
+          ) : savedOtherProvider ? (
+            <Text size="xs" c="red" mt={-8} lh={1.4} data-testid="flow-model-other-provider">
+              {t('editor.properties.flowDefaults.modelOtherProvider', {
+                model: savedModel, provider: savedOtherProvider.displayName, inherited: inheritedName,
+              })}
+            </Text>
+          ) : (
+            <Text size="xs" c="dimmed" mt={-8} lh={1.4} data-testid="flow-model-provider-hint">
+              {inheritedId
+                ? t('editor.properties.flowDefaults.modelProviderHint', { provider: inheritedName })
+                : t('editor.properties.flowDefaults.modelProviderUnknown')}
+            </Text>
           )}
 
+          {/* Só o gravado (RCHFLW-92). Antes os campos vazios mostravam 0.2 / 1024 / 30 — os padrões do caminho
+              dos agentes —, enquanto os nós LLM Chat rodavam com os do adapter (0.7 / 2048 no OpenRouter): o painel
+              dizia uma coisa e a execução fazia outra (RCHFLW-188, item 23). Vazio = cada nó usa o padrão dele. */}
           <NumberInput
             label={f('temperature')}
-            value={(cfg.temperature as number) ?? 0.2}
-            onChange={v => patchFlowLlmConfig({ temperature: v })}
+            value={stored('temperature')}
+            placeholder={f('modelDefault')}
+            onChange={patchNumber('temperature')}
             min={0}
             max={2}
             step={0.1}
@@ -118,8 +152,9 @@ export function FlowDefaultsPanel({ readOnly = false }: { readOnly?: boolean } =
 
           <NumberInput
             label={f('maxTokens')}
-            value={(cfg.maxTokens as number) ?? 1024}
-            onChange={v => patchFlowLlmConfig({ maxTokens: v })}
+            value={stored('maxTokens')}
+            placeholder={f('modelDefault')}
+            onChange={patchNumber('maxTokens')}
             min={1}
             step={256}
             size="xs"
@@ -128,12 +163,17 @@ export function FlowDefaultsPanel({ readOnly = false }: { readOnly?: boolean } =
 
           <NumberInput
             label={f('timeoutSec')}
-            value={(cfg.timeout as number) ?? 30}
-            onChange={v => patchFlowLlmConfig({ timeout: v })}
+            value={stored('timeout')}
+            placeholder={f('modelDefault')}
+            onChange={patchNumber('timeout')}
             min={1}
             step={5}
             size="xs"
             styles={FIELD_STYLES}
+            // O tempo limite do fluxo só chega aos agentes (o provider hub o aplica); os adapters de chat não têm
+            // essa chave, e um LLM Chat de 1 s rodava 14 s (RCHFLW-188, item 22). O campo diz a quem vale.
+            description={t('editor.properties.flowDefaults.timeoutAgentsOnly')}
+            data-testid="flow-timeout"
           />
         </ReadOnlyFieldset>
 

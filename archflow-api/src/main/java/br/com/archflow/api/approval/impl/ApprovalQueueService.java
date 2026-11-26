@@ -575,7 +575,10 @@ public class ApprovalQueueService {
             });
             return;
         }
-        registrar(flowId, store -> store.markResumed(flowId));
+        registrar(flowId, store -> {
+            gateDecided(store, flowId);
+            store.markResumed(flowId);
+        });
         if (run == null) {
             return;
         }
@@ -613,21 +616,56 @@ public class ApprovalQueueService {
     private String motivoDoEncerramento(String flowId) {
         FlowState decided = stateManager.loadState(flowId);
         String step = decided != null ? variable(decided, ExecutionKeys.APPROVAL_STEP_ID) : null;
+        String title = decided != null ? variable(decided, ExecutionKeys.APPROVAL_TITLE) : null;
         String by = decided != null ? variable(decided, ExecutionKeys.APPROVAL_DECIDED_BY) : null;
         String comment = decided != null ? variable(decided, ExecutionKeys.APPROVAL_COMMENT) : null;
-        String gate = step == null || step.isBlank() ? "approval gate" : "approval gate '" + step + "'";
+        // Em pt-BR, com o título do portão (o que o aprovador viu) e o id entre parênteses, e o prazo legível. Antes:
+        // "Rejected at approval gate 'ap': no decision within PT2M (approval timeout)" na UI em pt-BR (RCHFLW-188,
+        // item 18) — inglês, o id cru do passo e a duração ISO.
+        String gate = nomeDoPortao(title, step);
         if (TIMEOUT_DECIDER.equals(by)) {
-            return "Rejected at " + gate + ": no decision within " + effectiveTimeout(decided)
-                    + " (approval timeout)";
+            return "Recusado na aprovação " + gate + ": ninguém decidiu em " + prazoLegivel(effectiveTimeout(decided))
+                    + " (prazo da aprovação)";
         }
-        StringBuilder motivo = new StringBuilder("Rejected at ").append(gate);
+        StringBuilder motivo = new StringBuilder("Recusado na aprovação ").append(gate);
         if (by != null && !by.isBlank()) {
-            motivo.append(" by ").append(by);
+            motivo.append(" por ").append(by);
         }
         if (comment != null && !comment.isBlank()) {
             motivo.append(": ").append(comment);
         }
         return motivo.toString();
+    }
+
+    /** «Título» (id), «id» sem título, ou só "do fluxo" quando o estado não diz qual portão. */
+    static String nomeDoPortao(String title, String step) {
+        boolean temTitulo = title != null && !title.isBlank();
+        boolean temPasso = step != null && !step.isBlank();
+        if (temTitulo) {
+            return "«" + title.trim() + "»" + (temPasso ? " (" + step + ")" : "");
+        }
+        return temPasso ? "«" + step + "»" : "do fluxo";
+    }
+
+    /** {@code PT2M} → "2 min", {@code PT1H30M} → "1 h 30 min", {@code PT45S} → "45 s", {@code P1D} → "24 h". */
+    static String prazoLegivel(Duration prazo) {
+        if (prazo == null) {
+            return "o prazo";
+        }
+        long horas = prazo.toHours();
+        int minutos = prazo.toMinutesPart();
+        int segundos = prazo.toSecondsPart();
+        List<String> partes = new java.util.ArrayList<>();
+        if (horas > 0) {
+            partes.add(horas + " h");
+        }
+        if (minutos > 0) {
+            partes.add(minutos + " min");
+        }
+        if (segundos > 0 || partes.isEmpty()) {
+            partes.add(segundos + " s");
+        }
+        return String.join(" ", partes);
     }
 
     /**
@@ -651,6 +689,26 @@ public class ApprovalQueueService {
             store.recordStep(flowId, step, patch);
         } catch (RuntimeException e) {
             log.warn("Não foi possível marcar o portão recusado no registro de {}: {}", flowId, e.getMessage());
+        }
+    }
+
+    /**
+     * Grava no passo do portão aprovado quem aprovou (RCHFLW-188, item 17). Só o recusado ganhava o
+     * {@code decidedBy} ({@link #gateRejected}): no detalhe da execução, "quem autorizou" ficava sem resposta
+     * justamente quando o fluxo seguiu. Só o decisor: o status do passo é da retomada (RUNNING → COMPLETED). Nunca
+     * lança, como o gateRejected.
+     */
+    private void gateDecided(WorkflowRuntimeStore store, String flowId) {
+        try {
+            FlowState decided = stateManager.loadState(flowId);
+            String step = decided != null ? variable(decided, ExecutionKeys.APPROVAL_STEP_ID) : null;
+            String by = decided != null ? variable(decided, ExecutionKeys.APPROVAL_DECIDED_BY) : null;
+            if (step == null || step.isBlank() || by == null || by.isBlank()) {
+                return;
+            }
+            store.recordStep(flowId, step, Map.of("decidedBy", by));
+        } catch (RuntimeException e) {
+            log.warn("Não foi possível gravar quem aprovou o portão no registro de {}: {}", flowId, e.getMessage());
         }
     }
 

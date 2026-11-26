@@ -139,6 +139,75 @@ public class JdbcWorkflowRuntimeStore implements WorkflowRuntimeStore {
         return workflow;
     }
 
+    /**
+     * Uma transação com a linha do documento travada ({@code FOR UPDATE}), a mesma trava do
+     * {@link #deleteWorkflow}: a alteração que chega durante uma exclusão espera o commit dela e então não
+     * encontra mais a linha — {@code NOT_FOUND}, nunca o INSERT do {@link #putWorkflow} que recriava o fluxo sem
+     * as versões (RCHFLW-172). Vale entre réplicas, o que a trava em memória do controller não fazia.
+     */
+    @Override
+    public Update updateWorkflow(String tenantId, String id, String expectedUpdatedAt,
+                                 java.util.function.UnaryOperator<Map<String, Object>> change) {
+        String tenant = DefaultTenant.orDefault(tenantId);
+        return inTransaction("Failed to save workflow " + id, conn -> {
+            Map<String, Object> current = lockDocument(conn, id, tenant);
+            if (current == null) {
+                return Update.notFound();
+            }
+            if (!WorkflowRuntimeStore.matchesExpected(current, expectedUpdatedAt)) {
+                return Update.conflict(current.get("updatedAt"));
+            }
+            Map<String, Object> next = change.apply(current);
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "UPDATE workflow_documents SET document = ?, updated_at = ? WHERE id = ? AND tenant_id = ?")) {
+                ps.setString(1, toJson(next));
+                ps.setTimestamp(2, Timestamp.from(Instant.now()));
+                ps.setString(3, id);
+                ps.setString(4, tenant);
+                ps.executeUpdate();
+            }
+            return Update.updated(next);
+        });
+    }
+
+    /** O documento do tenant com a linha travada até o fim da transação de {@code conn}; {@code null} se não há. */
+    private Map<String, Object> lockDocument(Connection conn, String id, String tenant) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(
+                "SELECT document FROM workflow_documents WHERE id = ? AND tenant_id = ? FOR UPDATE")) {
+            ps.setString(1, id);
+            ps.setString(2, tenant);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? fromJson(rs.getString("document")) : null;
+            }
+        }
+    }
+
+    /** Trabalho JDBC dentro de uma transação aberta por {@link #inTransaction}. */
+    @FunctionalInterface
+    private interface TransactionWork<T> {
+        T run(Connection conn) throws SQLException;
+    }
+
+    /** Roda {@code work} numa transação: commit no fim, rollback em qualquer erro (que segue adiante). */
+    private <T> T inTransaction(String failure, TransactionWork<T> work) {
+        try (Connection conn = dataSource.getConnection()) {
+            boolean autoCommit = conn.getAutoCommit();
+            conn.setAutoCommit(false);
+            try {
+                T result = work.run(conn);
+                conn.commit();
+                return result;
+            } catch (SQLException | RuntimeException e) {
+                conn.rollback();
+                throw e;
+            } finally {
+                conn.setAutoCommit(autoCommit);
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException(failure, e);
+        }
+    }
+
     @Override
     public boolean hasWorkflow(String tenantId, String id) {
         try (Connection conn = dataSource.getConnection()) {
@@ -276,14 +345,48 @@ public class JdbcWorkflowRuntimeStore implements WorkflowRuntimeStore {
         }
     }
 
+    /**
+     * Sob a trava da linha do documento, na mesma transação: o rascunho lido é o que está gravado no instante da
+     * publicação, o {@code MAX(version_no) + 1} não é disputado por outra publicação do mesmo fluxo (antes, as
+     * duas calculavam o mesmo número e uma esbarrava na {@code uq_workflow_version_no}: 500 puro), e uma
+     * exclusão em andamento termina antes — a publicação então não acha o fluxo e não deixa versão órfã
+     * (RCHFLW-188, itens 19 e 20).
+     */
     @Override
-    public WorkflowVersionRecord publishWorkflow(String tenantId, String workflowId, String comment) {
-        Map<String, Object> draft = getWorkflow(tenantId, workflowId);
+    public WorkflowVersionRecord publishWorkflow(String tenantId, String workflowId, String comment,
+                                                 String expectedUpdatedAt) {
+        String tenant = DefaultTenant.orDefault(tenantId);
+        return inTransaction("Failed to publish workflow " + workflowId,
+                conn -> publish(conn, tenant, workflowId, comment, expectedUpdatedAt));
+    }
+
+    /**
+     * A versão e a implantação na mesma transação, sob a mesma trava da linha: outra publicação do fluxo espera o
+     * commit desta e implanta depois, então PRODUCTION fica na versão mais nova — também entre réplicas.
+     */
+    @Override
+    public Publication publishAndDeployWorkflow(String tenantId, String workflowId, String comment,
+                                                String expectedUpdatedAt, String environment) {
+        String tenant = DefaultTenant.orDefault(tenantId);
+        return inTransaction("Failed to publish workflow " + workflowId, conn -> {
+            WorkflowVersionRecord version = publish(conn, tenant, workflowId, comment, expectedUpdatedAt);
+            if (version == null) {
+                return null;
+            }
+            return new Publication(version, deploy(conn, tenant, workflowId, environment, version.id()));
+        });
+    }
+
+    private WorkflowVersionRecord publish(Connection conn, String tenant, String workflowId, String comment,
+                                          String expectedUpdatedAt) throws SQLException {
+        Map<String, Object> draft = lockDocument(conn, workflowId, tenant);
         if (draft == null) {
             return null;
         }
+        if (!WorkflowRuntimeStore.matchesExpected(draft, expectedUpdatedAt)) {
+            throw new WorkflowConflictException(workflowId, draft.get("updatedAt"));
+        }
         String versionId = "wfv-" + UUID.randomUUID().toString().substring(0, 8);
-        Instant createdAt = Instant.now();
         String sql = """
                 INSERT INTO workflow_versions
                     (id, workflow_id, version_no, document, comment, created_at)
@@ -291,19 +394,26 @@ public class JdbcWorkflowRuntimeStore implements WorkflowRuntimeStore {
                   FROM workflow_versions
                  WHERE workflow_id = ?
                 """;
-        try (Connection conn = dataSource.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, versionId);
             ps.setString(2, workflowId);
             ps.setString(3, toJson(draft));
             ps.setString(4, comment);
-            ps.setTimestamp(5, Timestamp.from(createdAt));
+            ps.setTimestamp(5, Timestamp.from(Instant.now()));
             ps.setString(6, workflowId);
             ps.executeUpdate();
-        } catch (SQLException e) {
-            throw new RuntimeException("Failed to publish workflow " + workflowId, e);
         }
-        return getWorkflowVersion(tenantId, workflowId, versionId);
+        try (PreparedStatement ps = conn.prepareStatement("""
+                SELECT id, version_no, document, comment, created_at
+                  FROM workflow_versions
+                 WHERE workflow_id = ? AND id = ?
+                """)) {
+            ps.setString(1, workflowId);
+            ps.setString(2, versionId);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? readVersion(workflowId, rs) : null;
+            }
+        }
     }
 
     /**
@@ -363,14 +473,23 @@ public class JdbcWorkflowRuntimeStore implements WorkflowRuntimeStore {
         }
     }
 
+    /**
+     * Sob a trava da linha do documento, como o {@link #deleteWorkflow}: a implantação que chega durante uma
+     * exclusão espera o commit dela e não acha mais a versão ({@code null} → 404), e duas implantações no mesmo
+     * ambiente fazem o UPDATE-ou-INSERT uma depois da outra — antes as duas tentavam o INSERT e uma esbarrava na
+     * chave primária (RCHFLW-188, item 19).
+     */
     @Override
     public WorkflowDeploymentRecord deployWorkflow(
             String tenantId, String workflowId, String environment, String versionId) {
-        if (getWorkflowVersion(tenantId, workflowId, versionId) == null) {
-            return null;
-        }
+        String tenant = DefaultTenant.orDefault(tenantId);
+        return inTransaction("Failed to deploy workflow version " + versionId,
+                conn -> deploy(conn, tenant, workflowId, environment, versionId));
+    }
+
+    private WorkflowDeploymentRecord deploy(Connection conn, String tenant, String workflowId, String environment,
+                                            String versionId) throws SQLException {
         String normalized = normalizeEnvironment(environment);
-        Instant deployedAt = Instant.now();
         String update = """
                 UPDATE workflow_deployments
                    SET version_id = ?, deployed_at = ?
@@ -381,29 +500,30 @@ public class JdbcWorkflowRuntimeStore implements WorkflowRuntimeStore {
                     (version_id, deployed_at, workflow_id, environment)
                 VALUES (?, ?, ?, ?)
                 """;
-        try (Connection conn = dataSource.getConnection()) {
-            int updated;
-            try (PreparedStatement ps = conn.prepareStatement(update)) {
+        if (lockDocument(conn, workflowId, tenant) == null
+                || !exists(conn, "SELECT 1 FROM workflow_versions WHERE workflow_id = ? AND id = ?",
+                        workflowId, versionId)) {
+            return null;
+        }
+        Instant deployedAt = Instant.now();
+        int updated;
+        try (PreparedStatement ps = conn.prepareStatement(update)) {
+            ps.setString(1, versionId);
+            ps.setTimestamp(2, Timestamp.from(deployedAt));
+            ps.setString(3, workflowId);
+            ps.setString(4, normalized);
+            updated = ps.executeUpdate();
+        }
+        if (updated == 0) {
+            try (PreparedStatement ps = conn.prepareStatement(insert)) {
                 ps.setString(1, versionId);
                 ps.setTimestamp(2, Timestamp.from(deployedAt));
                 ps.setString(3, workflowId);
                 ps.setString(4, normalized);
-                updated = ps.executeUpdate();
+                ps.executeUpdate();
             }
-            if (updated == 0) {
-                try (PreparedStatement ps = conn.prepareStatement(insert)) {
-                    ps.setString(1, versionId);
-                    ps.setTimestamp(2, Timestamp.from(deployedAt));
-                    ps.setString(3, workflowId);
-                    ps.setString(4, normalized);
-                    ps.executeUpdate();
-                }
-            }
-        } catch (SQLException e) {
-            throw new RuntimeException("Failed to deploy workflow version " + versionId, e);
         }
-        return new WorkflowDeploymentRecord(
-                workflowId, normalized, versionId, deployedAt);
+        return new WorkflowDeploymentRecord(workflowId, normalized, versionId, deployedAt);
     }
 
     // ----------------------------------------------------------------- executions
@@ -514,6 +634,8 @@ public class JdbcWorkflowRuntimeStore implements WorkflowRuntimeStore {
             execution.put("status", "RUNNING");
             execution.put("completedAt", null);
             execution.put("error", null);
+            // A retomada prova que a execução está viva: a marca de um cancelar anterior não a congela mais.
+            execution.remove(WorkflowRuntimeStore.CANCELLED_AT);
         });
     }
 
@@ -523,7 +645,8 @@ public class JdbcWorkflowRuntimeStore implements WorkflowRuntimeStore {
         // STOPPED entre a leitura e a escrita e o PAUSED velho passaria mesmo assim. Ignorado,
         // nem regrava a linha — o desfecho fica intacto, inclusive o updated_at.
         boolean applied = mutateExecutionIf(id, execution -> {
-            if (WorkflowRuntimeStore.isStaleStatus(execution.get("status"), status)) {
+            if (WorkflowRuntimeStore.isCancelledByRequest(execution)
+                    || WorkflowRuntimeStore.isStaleStatus(execution.get("status"), status)) {
                 return false;
             }
             execution.put("status", status);
@@ -538,9 +661,25 @@ public class JdbcWorkflowRuntimeStore implements WorkflowRuntimeStore {
     }
 
     @Override
+    public void cancelExecution(String id) {
+        mutateExecutionIf(id, execution -> WorkflowRuntimeStore.applyCancel(execution, Instant.now()));
+        // Terminal ou ignorado, o lock da execução sai, como no completeExecution.
+        executionLocks.remove(id);
+    }
+
+    @Override
     public void recordDuration(String id, long durationMs) {
-        mutateExecution(id, execution -> execution.put("duration",
-                WorkflowRuntimeStore.executionDuration(execution, durationMs, Instant.now())));
+        // Cancelada por alguém, o registro não muda mais (cancelExecution); ignorado, o lock recriado sai.
+        boolean applied = mutateExecutionIf(id, execution -> {
+            if (WorkflowRuntimeStore.isCancelledByRequest(execution)) {
+                return false;
+            }
+            execution.put("duration", WorkflowRuntimeStore.executionDuration(execution, durationMs, Instant.now()));
+            return true;
+        });
+        if (!applied) {
+            executionLocks.remove(id);
+        }
     }
 
     @Override
@@ -551,6 +690,11 @@ public class JdbcWorkflowRuntimeStore implements WorkflowRuntimeStore {
         }
         boolean[] terminal = {false};
         boolean applied = mutateExecutionIf(executionId, execution -> {
+            // O passo que termina depois do cancelar não reescreve a execução cancelada (cancelExecution).
+            if (WorkflowRuntimeStore.isCancelledByRequest(execution)) {
+                terminal[0] = true;
+                return false;
+            }
             var steps = (List<Map<String, Object>>) execution.computeIfAbsent(
                     "steps", k -> new ArrayList<Map<String, Object>>());
             Map<String, Object> existingStep = steps.stream()
@@ -570,7 +714,7 @@ public class JdbcWorkflowRuntimeStore implements WorkflowRuntimeStore {
                 step.put("stepId", stepId);
                 steps.add(step);
             }
-            step.putAll(patch);
+            step.putAll(WorkflowRuntimeStore.stepPatchAfterResume(existingStep, patch));
             return true;
         });
         // O patch velho chegou depois do fim da execução: o lock que ele recriou também sai.
