@@ -116,6 +116,19 @@ public class WorkspaceUserService {
         // identificador para lhe dar. Um e-mail já cadastrado (em qualquer tenant) é recusado — o
         // login é global, e dois usuários com o mesmo nome não teriam como entrar.
         if (users.existsByUsername(normalizedEmail) || users.existsByEmail(normalizedEmail)) {
+            // Um convite ainda não aceito neste mesmo tenant não é "já existe um usuário": quem convida
+            // precisa saber que o convite está lá (pendente ou vencido) e que revogá-lo libera um novo
+            // (RCHFLW-195 item 17). De outro tenant, a resposta continua a genérica — o que existe lá não
+            // é da conta de quem convida aqui.
+            boolean conviteAqui = users.findByUsername(normalizedEmail)
+                    .filter(User::isInvitationPending)
+                    .filter(existente -> tenant.equals(DefaultTenant.orDefault(existente.getTenantId())))
+                    .isPresent();
+            if (conviteAqui) {
+                throw new WorkspaceUserException(WorkspaceUserException.Code.INVITATION_ALREADY_SENT,
+                        "There is already an invitation for " + normalizedEmail
+                                + "; revoke it to send a new link");
+            }
             throw userExists(normalizedEmail);
         }
         String secret = generateSecret();
@@ -356,6 +369,7 @@ public class WorkspaceUserService {
             INVITATION_PENDING(Reason.CONFLICT),
             INVITATION_ALREADY_ACCEPTED(Reason.CONFLICT),
             INVITATION_INVALID(Reason.INVALID),
+            INVITATION_ALREADY_SENT(Reason.CONFLICT),
             INVITATION_EXPIRED(Reason.EXPIRED),
             PASSWORD_TOO_SHORT(Reason.INVALID);
 

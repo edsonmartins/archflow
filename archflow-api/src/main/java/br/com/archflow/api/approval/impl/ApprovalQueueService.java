@@ -1,7 +1,9 @@
 package br.com.archflow.api.approval.impl;
 
+import br.com.archflow.api.admin.observability.impl.TraceStoreRecorder;
 import br.com.archflow.api.approval.dto.ApprovalResponse;
 import br.com.archflow.api.approval.dto.ApprovalSubmitRequest;
+import br.com.archflow.api.audit.AuditTrail;
 import br.com.archflow.api.web.workflow.WorkflowRuntimeStore;
 import br.com.archflow.engine.api.FlowEngine;
 import br.com.archflow.engine.core.StateManager;
@@ -9,6 +11,7 @@ import br.com.archflow.model.engine.ExecutionKeys;
 import br.com.archflow.model.flow.FlowResult;
 import br.com.archflow.model.flow.FlowState;
 import br.com.archflow.model.flow.FlowStatus;
+import br.com.archflow.observability.audit.AuditAction;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -72,6 +75,18 @@ public class ApprovalQueueService {
      * saída, porque o estado do motor já é final (RCHFLW-40).</p>
      */
     private final WorkflowRuntimeStore executionRecords;
+    /**
+     * A trilha de auditoria. Uma decisão humana — e a recusa automática do prazo — é uma autorização
+     * com autor, e antes só existia no estado da execução: nenhuma linha APPROVE/REJECT na auditoria
+     * (RCHFLW-195 item 1). Ligada por setter (como nos demais produtores); sem ela, no-op.
+     */
+    private volatile AuditTrail auditTrail = AuditTrail.noop();
+    /**
+     * Os traces da observabilidade. A recusa (humana ou do prazo) e a retomada que falha antes de
+     * começar encerram a execução sem nova travessia, então o motor não chama o {@code onFlowEnd} e o
+     * trace PAUSED ficava "Aguardando aprovação" para sempre. Ligado por setter; sem ele, no-op.
+     */
+    private volatile TraceStoreRecorder traces;
 
     /**
      * Quem precisa saber que uma execução acabou num portão sem aprovação — recusada por alguém ou pelo
@@ -127,6 +142,61 @@ public class ApprovalQueueService {
         this.clock = Objects.requireNonNull(clock, "clock");
         this.retomadaDoLaco = retomadaDoLaco;
         this.executionRecords = executionRecords;
+    }
+
+    /** Liga o encerramento dos traces pausados às decisões (ver {@link #traces}). */
+    public void setTraces(TraceStoreRecorder traces) {
+        this.traces = traces;
+    }
+
+    /**
+     * Fecha o trace PAUSED da execução com o motivo. Como o registro, não decide o resultado da
+     * decisão — ela já está gravada no estado do motor —, então uma falha aqui só vai para o log.
+     */
+    private void encerrarTrace(String flowId, java.util.function.Supplier<String> motivo) {
+        TraceStoreRecorder recorder = traces;
+        if (recorder == null) {
+            return;
+        }
+        try {
+            FlowState state = stateManager.loadState(flowId);
+            recorder.encerrarPausa(state != null ? state.getTenantId() : null, flowId, motivo.get());
+        } catch (RuntimeException e) {
+            log.warn("Não foi possível encerrar o trace pausado de {}: {}", flowId, e.getMessage());
+        }
+    }
+
+    /** Liga a trilha de auditoria às decisões (ver {@link #auditTrail}). */
+    public void setAuditTrail(AuditTrail auditTrail) {
+        if (auditTrail != null) {
+            this.auditTrail = auditTrail;
+        }
+    }
+
+    /**
+     * Uma linha por decisão: o pedido, a execução, a decisão e o comentário. O tenant vai explícito —
+     * é o do pedido, e a varredura do prazo roda fora de qualquer requisição. O autor é o da
+     * requisição (o mesmo que o controller gravou como decisor); a recusa do prazo leva
+     * {@link #TIMEOUT_DECIDER}.
+     */
+    private void auditarDecisao(String requestId, String executionId, String tenantId, String decision,
+                                String decidedBy, String comment, boolean automatica) {
+        Map<String, String> detalhes = new java.util.HashMap<>();
+        detalhes.put("requestId", requestId);
+        if (executionId != null) detalhes.put("executionId", executionId);
+        if (tenantId != null) detalhes.put(AuditTrail.CONTEXT_TENANT, tenantId);
+        detalhes.put("decision", decision);
+        if (decidedBy != null && !decidedBy.isBlank()) detalhes.put("decidedBy", decidedBy);
+        if (comment != null && !comment.isBlank()) detalhes.put("comment", comment);
+        AuditAction action = "REJECTED".equals(decision)
+                ? AuditAction.APPROVAL_REJECTED
+                : AuditAction.APPROVAL_APPROVED;
+        if (automatica) {
+            auditTrail.record(TIMEOUT_DECIDER, TIMEOUT_DECIDER, action, "approval", requestId, true, null,
+                    detalhes);
+        } else {
+            auditTrail.record(action, "approval", requestId, true, null, detalhes);
+        }
     }
 
     /**
@@ -390,6 +460,8 @@ public class ApprovalQueueService {
 
         log.info("Aprovação {} decidida como {} por {} (flow={})",
                 requestId, decision, request.responderId(), state.getFlowId());
+        auditarDecisao(requestId, state.getFlowId(), state.getTenantId(), decision, request.responderId(),
+                request.comment(), false);
         // Lido ANTES de acompanhar a execução: a retomada pode chegar a um segundo portão e
         // limpar as chaves do portão corrente. O histórico, não.
         Map<String, Object> decided = decisionRecord(state.getFlowId(), requestId);
@@ -519,6 +591,8 @@ public class ApprovalQueueService {
         }
         boolean aprovado = !"REJECTED".equals(decision);
         retomadaDoLaco.decidir(pendencia.requestId(), aprovado, argumentos);
+        auditarDecisao(pendencia.requestId(), pendencia.runId(), pendencia.tenantId(), decision,
+                request.responderId(), request.comment(), false);
 
         log.info("Aprovação {} de tool decidida como {} por {} (run={}, tool={})",
                 pendencia.requestId(), decision, request.responderId(), pendencia.runId(),
@@ -567,6 +641,8 @@ public class ApprovalQueueService {
                 resolved++;
                 log.info("Aprovação {} expirada após {} (flow={}) — recusada automaticamente",
                         requestId, prazo, state.getFlowId());
+                auditarDecisao(requestId, state.getFlowId(), state.getTenantId(), "REJECTED", TIMEOUT_DECIDER,
+                        "expirada apos " + prazo, true);
                 acompanharExecucao(state.getFlowId(), requestId, false, run);
             } catch (RuntimeException e) {
                 // Uma decisão humana concorrente já pode ter consumido o id;
@@ -617,6 +693,7 @@ public class ApprovalQueueService {
                 store.recordDuration(flowId, 0L);
                 store.completeExecution(flowId, "STOPPED", motivoDoEncerramento(flowId));
             });
+            encerrarTrace(flowId, () -> motivoDoEncerramento(flowId));
             avisarEncerramento(flowId);
             return;
         }
@@ -631,6 +708,9 @@ public class ApprovalQueueService {
             if (err != null) {
                 log.error("Aprovação {} registrada, mas a retomada do fluxo {} falhou: {}",
                         requestId, flowId, errorOf(err), err);
+                // Falha antes da travessia (preparo, limite de concorrência): ninguém fechou a pausa.
+                // Falha dentro dela: a travessia já gravou o ERROR e isto não muda nada.
+                encerrarTrace(flowId, () -> errorOf(err));
             }
             registrar(flowId, store -> store.completeExecution(flowId, statusOf(result, err), errorOf(err)));
         });

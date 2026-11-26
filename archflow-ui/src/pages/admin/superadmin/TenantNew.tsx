@@ -3,10 +3,10 @@ import {
 } from '@mantine/core'
 import { IconAlertCircle, IconBuildingSkyscraper, IconId, IconGauge, IconListCheck, IconCheck } from '@tabler/icons-react'
 import { notifications } from '@mantine/notifications'
-import { useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { tenantApi } from '../../../services/admin-api'
+import { globalConfigApi, tenantApi, type PlanDefaults } from '../../../services/admin-api'
 import { PageHeader } from '../../../components/PageHeader'
 import { SectionCard } from '../../../components/SectionCard'
 import { AllowedModelsInput } from './AllowedModelsInput'
@@ -20,6 +20,9 @@ export default function TenantNew() {
   const [email, setEmail] = useState('')
   const [sector, setSector] = useState<string | null>(null)
   const [plan, setPlan] = useState<string | null>('professional')
+  // O plano escolhido quando os padrões chegam: a resposta pode chegar depois de a pessoa trocar o plano, e
+  // aplicar os do plano da montagem punha os números do Professional sob o Trial selecionado.
+  const planoAtual = useRef(plan)
   const [execLimit, setExecLimit] = useState<number>(500)
   const [tokenLimit, setTokenLimit] = useState<number>(5000000)
   const [maxWorkflows, setMaxWorkflows] = useState<number>(20)
@@ -28,6 +31,47 @@ export default function TenantNew() {
   const [allowedModels, setAllowedModels] = useState<string[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Os padrões de cada plano, do /admin/global ("Limites iniciais dos novos tenants de cada plano"). Antes a
+  // página nunca os lia: Trial e Enterprise saíam com os números do Professional (RCHFLW-178).
+  const [planDefaults, setPlanDefaults] = useState<PlanDefaults[] | null>(null)
+  const [defaultsFailed, setDefaultsFailed] = useState(false)
+  // Separador de milhar do idioma da tela: o padrão do NumberInput é a vírgula, e "5,000,000" numa página
+  // pt-BR lê como decimal.
+  const separadores = useMemo(() => {
+    const partes = new Intl.NumberFormat(locale).formatToParts(1234567.5)
+    return {
+      milhar: partes.find((p) => p.type === 'group')?.value ?? ',',
+      decimal: partes.find((p) => p.type === 'decimal')?.value ?? '.',
+    }
+  }, [locale])
+
+  const aplicarPadroes = (planId: string | null, padroes: PlanDefaults[] | null) => {
+    const d = padroes?.find((p) => p.plan === planId)
+    if (!d) return
+    setExecLimit(d.executionsPerDay)
+    setTokenLimit(d.tokensPerMonth)
+    setMaxWorkflows(d.maxWorkflows)
+    setMaxUsers(d.maxUsers)
+  }
+
+  useEffect(() => {
+    let cancelled = false
+    globalConfigApi.getPlanDefaults()
+      .then((lista) => {
+        if (cancelled) return
+        setPlanDefaults(lista)
+        aplicarPadroes(planoAtual.current, lista)
+      })
+      .catch(() => { if (!cancelled) setDefaultsFailed(true) })
+    return () => { cancelled = true }
+    // Só na montagem: depois, quem aplica é a troca de plano.
+  }, [])
+
+  const trocarPlano = (novo: string | null) => {
+    planoAtual.current = novo
+    setPlan(novo)
+    aplicarPadroes(novo, planDefaults)
+  }
 
   const handleCreate = async () => {
     if (!plan || !sector) return
@@ -65,6 +109,9 @@ export default function TenantNew() {
     { value: 'internal',     label: t('admin.superadmin.tenantNew.plans.internal') },
   ]
   const planLabel = planOptions.find((option) => option.value === plan)?.label
+  // Plano sem padrão no /admin/global (hoje, o Interno): os campos ficam como estavam — não há número do
+  // plano para pôr ali —, mas a tela diz isso, senão os limites do plano anterior pareciam ser os dele.
+  const semPadrao = planDefaults !== null && plan !== null && !planDefaults.some((p) => p.plan === plan)
 
   return (
     <Stack gap="lg" p="md">
@@ -84,6 +131,11 @@ export default function TenantNew() {
       {error && (
         <Alert color="red" icon={<IconAlertCircle size={16} />}>
           {error}
+        </Alert>
+      )}
+      {defaultsFailed && (
+        <Alert color="yellow" icon={<IconAlertCircle size={16} />} data-testid="plan-defaults-failed">
+          {t('admin.superadmin.tenantNew.planDefaultsFailed')}
         </Alert>
       )}
 
@@ -113,10 +165,18 @@ export default function TenantNew() {
               title={t('admin.superadmin.tenantNew.planLimits')}
               description={t('admin.superadmin.tenantNew.planLimitsHint')}>
               <Stack gap="sm">
-                <Select size="sm" label={t('admin.superadmin.tenantNew.form.plan')} required data={planOptions} value={plan} onChange={setPlan} />
+                <Select size="sm" label={t('admin.superadmin.tenantNew.form.plan')} required data={planOptions} value={plan} onChange={trocarPlano}
+                  data-testid="tenant-plan" />
+                {semPadrao && (
+                  <Alert color="yellow" icon={<IconAlertCircle size={16} />} data-testid="plan-no-defaults">
+                    {t('admin.superadmin.tenantNew.planNoDefaults', { plan: planLabel ?? plan })}
+                  </Alert>
+                )}
                 <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">
-                  <NumberInput size="sm" label={t('admin.superadmin.tenantNew.form.execPerDay')}     value={execLimit}    onChange={v => setExecLimit(Number(v))}    min={1} thousandSeparator />
-                  <NumberInput size="sm" label={t('admin.superadmin.tenantNew.form.tokensPerMonth')} value={tokenLimit}   onChange={v => setTokenLimit(Number(v))}   min={1000} step={100000} thousandSeparator />
+                  <NumberInput size="sm" label={t('admin.superadmin.tenantNew.form.execPerDay')}     value={execLimit}    onChange={v => setExecLimit(Number(v))}    min={1}
+                    thousandSeparator={separadores.milhar} decimalSeparator={separadores.decimal} data-testid="tenant-exec" />
+                  <NumberInput size="sm" label={t('admin.superadmin.tenantNew.form.tokensPerMonth')} value={tokenLimit}   onChange={v => setTokenLimit(Number(v))}   min={1000} step={100000}
+                    thousandSeparator={separadores.milhar} decimalSeparator={separadores.decimal} data-testid="tenant-tokens" />
                   <NumberInput size="sm" label={t('admin.superadmin.tenantNew.form.maxWorkflows')}   value={maxWorkflows} onChange={v => setMaxWorkflows(Number(v))} min={1} />
                   <NumberInput size="sm" label={t('admin.superadmin.tenantNew.form.maxUsers')}       value={maxUsers}     onChange={v => setMaxUsers(Number(v))}     min={1} />
                 </SimpleGrid>

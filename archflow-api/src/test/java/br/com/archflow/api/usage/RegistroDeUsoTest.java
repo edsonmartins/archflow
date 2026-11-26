@@ -91,4 +91,30 @@ class RegistroDeUsoTest {
         assertThat(dezembro.doTenantNoMes(null, YearMonth.of(2026, 11))).as("nulo é o padrão, não acme")
                 .isEqualTo(UsoSomado.VAZIO);
     }
+
+    @Test
+    @DisplayName("uma execução com uso antes e depois de uma aprovação conta como uma (RCHFLW-195 item 3)")
+    void retomadaContaUmaExecucao() {
+        var registro = new RegistroDeUso(new InMemoryRepositorioDeUso(), precos);
+        // A retomada abre um contador novo: são duas linhas da mesma execução, ambas sem preço.
+        var antes = new ContadorDeUso();
+        antes.somar("openai", "openai/outro", 54, 3);
+        registro.registrar("acme", "exec-13f1e7f0", LancamentoDeUso.ORIGEM_FLUXO, antes);
+        var depois = new ContadorDeUso();
+        depois.somar("openai", "openai/outro", 20, 5);
+        registro.registrar("acme", "exec-13f1e7f0", LancamentoDeUso.ORIGEM_FLUXO, depois);
+        var outra = new ContadorDeUso();
+        outra.somar("openai", "openai/outro", 1, 1);
+        registro.registrar("acme", "exec-1b1dadea", LancamentoDeUso.ORIGEM_FLUXO, outra);
+
+        UsoSomado daExecucao = registro.daExecucao("acme", "exec-13f1e7f0").orElseThrow();
+        assertThat(daExecucao.execucoes()).isEqualTo(1);
+        assertThat(daExecucao.execucoesSemPreco()).isEqualTo(1);
+        assertThat(daExecucao.tokens()).as("os tokens das duas travessias somam").isEqualTo(82);
+
+        UsoSomado doMes = registro.doTenantNoMes("acme", registro.mesAtual());
+        assertThat(doMes.execucoes()).isEqualTo(2);
+        assertThat(doMes.execucoesSemPreco()).isEqualTo(2);
+        assertThat(doMes.tokens()).isEqualTo(84);
+    }
 }

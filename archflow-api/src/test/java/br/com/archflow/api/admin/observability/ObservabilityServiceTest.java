@@ -192,7 +192,7 @@ class ObservabilityServiceTest {
     @DisplayName("exportAuditCsv returns a CSV header + rows")
     void exportCsv() {
         String csv = service.exportAuditCsv(FilterDto.empty());
-        assertThat(csv).startsWith("id,timestamp,action,userId");
+        assertThat(csv).startsWith("\uFEFFid,timestamp,action,userId");
         assertThat(csv.split("\n").length).isGreaterThanOrEqualTo(5); // header + 4 rows
         assertThat(csv).contains("WORKFLOW_EXECUTE");
     }

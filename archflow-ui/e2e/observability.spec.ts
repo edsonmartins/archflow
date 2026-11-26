@@ -188,6 +188,15 @@ async function mockApi(page: Page) {
             await fulfillJson(route, audit);
             return true;
         },
+        async ({ path, method, route }) => {
+            if (path !== '/admin/observability/audit/export' || method !== 'GET') return false;
+            await route.fulfill({
+                status: 200,
+                contentType: 'text/csv',
+                body: 'id,timestamp,action\naudit-2,2026-04-11T09:00:00Z,LOGIN_SUCCESS\n',
+            });
+            return true;
+        },
         // Live events escolhe a execução desta lista (RCHFLW-50).
         async ({ path, method, route }) => {
             if (path !== '/executions' || method !== 'GET') return false;
@@ -245,7 +254,7 @@ test.describe('Admin observability surface', () => {
         await expect(page.getByText('flow.duration')).toBeAttached();
     });
 
-    test('audit log lists entries and exposes CSV export link', async ({ page }) => {
+    test('audit log lists entries and exports the CSV through the session, with the screen filters', async ({ page }) => {
         await mockApi(page);
         await authenticateAsSuperadmin(page);
 
@@ -255,8 +264,23 @@ test.describe('Admin observability surface', () => {
         await expect(page.getByText('LOGIN_SUCCESS')).toBeAttached();
         await expect(page.getByText('alice')).toBeAttached();
 
-        const exportLink = page.getByTestId('audit-export');
-        await expect(exportLink).toHaveAttribute('href', /\/admin\/observability\/audit\/export/);
+        // O export era um `<a href>`: a navegação não leva o Authorization, e o arquivo salvo seria o 401
+        // (RCHFLW-195 item 9). Agora é um botão que baixa pela sessão, com os filtros da tela (RCHFLW-180).
+        const filtrada = page.waitForRequest((r) => r.url().includes('/admin/observability/audit?')
+            && new URL(r.url()).searchParams.get('action') === 'LOGIN_SUCCESS');
+        await page.getByTestId('audit-action').fill('LOGIN_SUCCESS');
+        await filtrada;
+
+        const exportButton = page.getByTestId('audit-export');
+        await expect(exportButton).not.toHaveAttribute('href', /.*/);
+        const exportRequest = page.waitForRequest((r) => r.url().includes('/admin/observability/audit/export'));
+        const download = page.waitForEvent('download');
+        await exportButton.click();
+
+        const request = await exportRequest;
+        expect(new URL(request.url()).searchParams.get('action')).toBe('LOGIN_SUCCESS');
+        expect(request.headers()['authorization']).toMatch(/^Bearer /);
+        expect((await download).suggestedFilename()).toBe('audit-log.csv');
     });
 
     test('live events page requires attach before streaming', async ({ page }) => {

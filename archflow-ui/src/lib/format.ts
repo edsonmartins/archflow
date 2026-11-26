@@ -25,3 +25,15 @@ export function formatInstant(iso: string | null | undefined, locale: string): s
         return iso
     }
 }
+
+/**
+ * O contexto do evento numa linha (`chave=valor; …`, em ordem de chave — o mesmo texto da coluna do CSV).
+ * É o que diz a quem o evento pertence: tenant, execução, nome (RCHFLW-164).
+ */
+export function contextoEmTexto(context: Record<string, string> | null | undefined): string {
+    if (!context) return ''
+    return Object.keys(context)
+        .sort()
+        .map((k) => `${k}=${context[k] ?? ''}`)
+        .join('; ')
+}

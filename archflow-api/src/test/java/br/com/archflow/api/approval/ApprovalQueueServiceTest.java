@@ -46,6 +46,8 @@ class ApprovalQueueServiceTest {
         final List<Submission> submissions = new ArrayList<>();
         private final StateManager stateManager;
         RuntimeException failWith;
+        /** Desfecho da retomada de uma aprovação; nulo = concluída sem resultado. */
+        CompletableFuture<FlowResult> retomada;
         /** Marca a submissão corrente como edição — o que o motor real registra como EDITED. */
         private boolean editing;
 
@@ -83,7 +85,7 @@ class ApprovalQueueServiceTest {
                     .currentStepId(state.getCurrentStepId())
                     .variables(vars)
                     .build());
-            return CompletableFuture.completedFuture(null);
+            return approved && retomada != null ? retomada : CompletableFuture.completedFuture(null);
         }
 
         @Override public CompletableFuture<FlowResult> startFlow(String f, Map<String, Object> i) {
@@ -455,5 +457,164 @@ class ApprovalQueueServiceTest {
                 .isInstanceOf(NullPointerException.class);
         assertThatThrownBy(() -> new ApprovalQueueService(stateManager, null))
                 .isInstanceOf(NullPointerException.class);
+    }
+
+    /**
+     * RCHFLW-195 item 1: a decisão humana (e a recusa do prazo) entra na trilha de auditoria. Antes só
+     * existia no estado da execução — nenhuma linha de aprovação no af_audit_log.
+     */
+    @DisplayName("auditoria das decisões")
+    @org.junit.jupiter.api.Nested
+    class Auditoria {
+
+        private final br.com.archflow.observability.audit.InMemoryAuditRepository trilha =
+                new br.com.archflow.observability.audit.InMemoryAuditRepository();
+
+        private List<br.com.archflow.observability.audit.AuditEvent> linhas() {
+            return trilha.query(br.com.archflow.observability.audit.AuditRepository.AuditQuery.builder());
+        }
+
+        @Test
+        @DisplayName("aprovar grava APPROVAL_APPROVED com o pedido, a execução, o tenant e o comentário")
+        void aprovacao() {
+            awaitingApproval("flow-a", "acme", "req-1", "step-1", Instant.now());
+            service.setAuditTrail(new br.com.archflow.api.audit.AuditTrail(() -> trilha));
+
+            service.submitDecision("req-1", new ApprovalSubmitRequest("acme", "APPROVED", null, "alice",
+                    "nota fiscal conferida"));
+
+            assertThat(linhas()).singleElement().satisfies(e -> {
+                assertThat(e.getAction())
+                        .isEqualTo(br.com.archflow.observability.audit.AuditAction.APPROVAL_APPROVED);
+                assertThat(e.getResourceId()).isEqualTo("req-1");
+                assertThat(e.getContext())
+                        .containsEntry("requestId", "req-1")
+                        .containsEntry("executionId", "flow-a")
+                        .containsEntry("tenant", "acme")
+                        .containsEntry("decidedBy", "alice")
+                        .containsEntry("comment", "nota fiscal conferida");
+            });
+        }
+
+        @Test
+        @DisplayName("recusar grava APPROVAL_REJECTED")
+        void recusa() {
+            awaitingApproval("flow-a", "acme", "req-1", "step-1", Instant.now());
+            service.setAuditTrail(new br.com.archflow.api.audit.AuditTrail(() -> trilha));
+
+            service.submitDecision("req-1", new ApprovalSubmitRequest("acme", "REJECTED", null, "bob"));
+
+            assertThat(linhas()).extracting(br.com.archflow.observability.audit.AuditEvent::getAction)
+                    .containsExactly(br.com.archflow.observability.audit.AuditAction.APPROVAL_REJECTED);
+        }
+
+        @Test
+        @DisplayName("a recusa do prazo grava APPROVAL_REJECTED em nome do timeout, no tenant do pedido")
+        void prazo() {
+            Instant now = Instant.parse("2026-07-25T12:00:00Z");
+            awaitingApproval("flow-a", "acme", "req-1", "step-1", now.minus(Duration.ofHours(25)));
+            ApprovalQueueService comPrazo = new ApprovalQueueService(stateManager, engine, Duration.ofHours(24),
+                    java.time.Clock.fixed(now, java.time.ZoneOffset.UTC));
+            comPrazo.setAuditTrail(new br.com.archflow.api.audit.AuditTrail(() -> trilha));
+
+            assertThat(comPrazo.expireStale()).isEqualTo(1);
+
+            assertThat(linhas()).singleElement().satisfies(e -> {
+                assertThat(e.getAction())
+                        .isEqualTo(br.com.archflow.observability.audit.AuditAction.APPROVAL_REJECTED);
+                assertThat(e.getUsername()).isEqualTo("system:timeout");
+                assertThat(e.getContext()).containsEntry("tenant", "acme").containsEntry("requestId", "req-1");
+            });
+        }
+    }
+
+    /**
+     * Recusa, prazo e retomada que falha antes de começar encerram a execução sem nova travessia: o
+     * motor não chama o {@code onFlowEnd}, e o trace PAUSED ficava "Aguardando aprovação" para sempre —
+     * a Visão geral contava a execução como aguardando, fora das taxas.
+     */
+    @DisplayName("traces da observabilidade")
+    @org.junit.jupiter.api.Nested
+    class Traces {
+
+        private final br.com.archflow.api.admin.observability.impl.InMemoryTraceStore traces =
+                new br.com.archflow.api.admin.observability.impl.InMemoryTraceStore();
+        private final br.com.archflow.api.admin.observability.impl.TraceStoreRecorder recorder =
+                new br.com.archflow.api.admin.observability.impl.TraceStoreRecorder(traces);
+
+        /** O que a travessia suspensa grava quando para no portão. */
+        private void suspensa(String flowId, String tenant) {
+            FlowResult pausa = org.mockito.Mockito.mock(FlowResult.class);
+            org.mockito.Mockito.when(pausa.getStatus())
+                    .thenReturn(br.com.archflow.model.enums.ExecutionStatus.PAUSED);
+            org.mockito.Mockito.when(pausa.getErrors()).thenReturn(List.of());
+            recorder.onFlowEnd(flowId, tenant, pausa, 12L);
+        }
+
+        private br.com.archflow.api.admin.observability.ObservabilityDtos.TraceSummaryDto unico(String tenant) {
+            List<br.com.archflow.api.admin.observability.ObservabilityDtos.TraceSummaryDto> lista =
+                    traces.query(tenant, null, null, null, null, null);
+            assertThat(lista).hasSize(1);
+            return lista.get(0);
+        }
+
+        @Test
+        @DisplayName("recusar fecha o trace PAUSED como ERROR, com o motivo")
+        void recusa() {
+            awaitingApproval("flow-a", "acme", "req-1", "step-1", Instant.now());
+            suspensa("flow-a", "acme");
+            service.setTraces(recorder);
+
+            service.submitDecision("req-1", new ApprovalSubmitRequest("acme", "REJECTED", null, "bob"));
+
+            assertThat(unico("acme")).satisfies(t -> {
+                assertThat(t.status()).isEqualTo("ERROR");
+                assertThat(t.error()).startsWith("Recusado na aprovação");
+            });
+        }
+
+        @Test
+        @DisplayName("a recusa do prazo também fecha o trace")
+        void prazo() {
+            Instant now = Instant.parse("2026-07-25T12:00:00Z");
+            awaitingApproval("flow-a", "acme", "req-1", "step-1", now.minus(Duration.ofHours(25)));
+            suspensa("flow-a", "acme");
+            ApprovalQueueService comPrazo = new ApprovalQueueService(stateManager, engine, Duration.ofHours(24),
+                    java.time.Clock.fixed(now, java.time.ZoneOffset.UTC));
+            comPrazo.setTraces(recorder);
+
+            assertThat(comPrazo.expireStale()).isEqualTo(1);
+
+            assertThat(unico("acme").status()).isEqualTo("ERROR");
+        }
+
+        @Test
+        @DisplayName("retomada que falha antes da travessia fecha o trace com o erro")
+        void retomadaFalha() {
+            awaitingApproval("flow-a", "acme", "req-1", "step-1", Instant.now());
+            suspensa("flow-a", "acme");
+            engine.retomada = CompletableFuture.failedFuture(
+                    new IllegalStateException("Max concurrent flows reached"));
+            service.setTraces(recorder);
+
+            service.submitDecision("req-1", new ApprovalSubmitRequest("acme", "APPROVED", null, "alice"));
+
+            assertThat(unico("acme")).satisfies(t -> {
+                assertThat(t.status()).isEqualTo("ERROR");
+                assertThat(t.error()).isEqualTo("Max concurrent flows reached");
+            });
+        }
+
+        @Test
+        @DisplayName("aprovar não fecha a pausa: quem a substitui é o fim da retomada")
+        void aprovacaoNaoFecha() {
+            awaitingApproval("flow-a", "acme", "req-1", "step-1", Instant.now());
+            suspensa("flow-a", "acme");
+            service.setTraces(recorder);
+
+            service.submitDecision("req-1", new ApprovalSubmitRequest("acme", "APPROVED", null, "alice"));
+
+            assertThat(unico("acme").status()).isEqualTo("PAUSED");
+        }
     }
 }

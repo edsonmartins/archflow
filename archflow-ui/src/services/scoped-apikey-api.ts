@@ -25,11 +25,14 @@ export interface ScopedApiKey {
     expiresAt?: string
     lastUsedAt?: string
     enabled: boolean
+    /** Venceu pela validade: não autentica, embora siga `enabled` (RCHFLW-195 item 12). */
+    expired?: boolean
 }
 
 export interface CreateScopedApiKeyRequest {
     name: string
     scopes: string[]
+    /** Instante ISO-8601 com fuso (`…Z`); ausente = não vence. */
     expiresAt?: string
 }
 

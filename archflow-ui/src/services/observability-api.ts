@@ -31,9 +31,12 @@ export interface OverviewDto {
     totalAuditEventsToday: number;
     topPersonas: PersonaStat[];
     latencySparkline: number[];
+    /** Execuções de hoje paradas à espera de aprovação — no total, fora das taxas (RCHFLW-177). */
+    pausedExecutionsToday: number;
 }
 
-export type TraceStatus = 'OK' | 'ERROR' | 'UNKNOWN';
+/** `PAUSED`: à espera de uma decisão humana; não é erro. */
+export type TraceStatus = 'OK' | 'ERROR' | 'PAUSED' | 'UNKNOWN';
 
 export interface TraceSummaryDto {
     traceId: string;

@@ -245,6 +245,17 @@ public class GlobalConfigControllerImpl implements GlobalConfigController {
                 true, null, null);
     }
 
+    /**
+     * Os padrões gravados de um plano — o que a criação de tenant usa quando o pedido não traz limites
+     * (RCHFLW-178). Vazio para um plano sem padrão.
+     */
+    public Optional<PlanDefaultsDto> planDefaults(String plan) {
+        if (plan == null || plan.isBlank()) {
+            return Optional.empty();
+        }
+        return Optional.ofNullable(planDefaultsByPlan().get(plan.trim().toLowerCase(Locale.ROOT)));
+    }
+
     private Map<String, PlanDefaultsDto> planDefaultsByPlan() {
         return read(KEY_PLAN_DEFAULTS, new TypeReference<LinkedHashMap<String, PlanDefaultsDto>>() {},
                 GlobalConfigControllerImpl::defaultPlanDefaults);
@@ -354,7 +365,9 @@ public class GlobalConfigControllerImpl implements GlobalConfigController {
         List<UsageRowDto> rows = new ArrayList<>();
         porTenant.forEach((tenantId, uso) -> {
             Optional<TenantDto> cadastro = cadastroDeTenants.apply(tenantId);
-            double percent = totalTokens == 0 ? 0.0 : Math.round(uso.tokens() * 1000.0 / totalTokens) / 10.0;
+            // Sem arredondar: com uma casa, um tenant pequeno com uso de verdade saía "0%" — igual a quem
+            // não usou nada (RCHFLW-195 item 7). A tela formata (e mostra "<0,1%").
+            double percent = totalTokens == 0 ? 0.0 : uso.tokens() * 100.0 / totalTokens;
             rows.add(new UsageRowDto(tenantId,
                     cadastro.map(TenantDto::name).filter(n -> !n.isBlank()).orElse(tenantId),
                     uso.execucoes(), uso.tokensEntrada(), uso.tokensSaida(), uso.custoCentavos(), uso.custoReais(),
@@ -365,9 +378,15 @@ public class GlobalConfigControllerImpl implements GlobalConfigController {
         return rows;
     }
 
+    /**
+     * O CSV de uso começa com o BOM UTF-8 (uma planilha em pt-BR abre os nomes acentuados certos) e
+     * escreve os números em ponto fixo, sem o ruído da soma em {@code double}: era
+     * {@code 0.007550729999999999} e, para valores pequenos, notação científica ({@code 2.14E-5}) —
+     * RCHFLW-195 item 8. O separador continua vírgula com ponto decimal (trocar é escolha de produto).
+     */
     @Override
     public String exportUsageCsv(String month) {
-        StringBuilder csv = new StringBuilder();
+        StringBuilder csv = new StringBuilder("\uFEFF");
         csv.append(USAGE_CSV_HEADER).append('\n');
         for (UsageRowDto row : getUsageByTenant(month)) {
             csv.append(csvValue(row.tenantId())).append(',')
@@ -376,13 +395,30 @@ public class GlobalConfigControllerImpl implements GlobalConfigController {
                     .append(row.tokensInput()).append(',')
                     .append(row.tokensOutput()).append(',')
                     // Sem preço fica vazio, não "0": zero seria "de graça".
-                    .append(row.costReais() == null ? "" : row.costReais()).append(',')
-                    .append(row.declaredCostUsd() == null ? "" : row.declaredCostUsd()).append(',')
+                    .append(numero(row.costReais())).append(',')
+                    .append(numero(row.declaredCostUsd())).append(',')
                     .append(row.executionsWithoutPrice()).append(',')
-                    .append(row.percentOfTotal()).append(',')
+                    .append(numero(row.percentOfTotal())).append(',')
                     .append(row.planLimit() == null ? "" : row.planLimit()).append('\n');
         }
         return csv.toString();
+    }
+
+    /**
+     * Ponto fixo com 15 algarismos significativos — a precisão de um {@code double} —, sem zeros à
+     * direita. Tira o ruído da soma (…729999999999 → …73) sem arredondar o valor a centavos: o
+     * {@code costReais} é somado do outro lado e não pode perder precisão (VEN-245). Nulo fica vazio
+     * ("sem preço" não é zero).
+     */
+    public static String numero(Double value) {
+        if (value == null || value.isNaN() || value.isInfinite()) {
+            return "";
+        }
+        if (value == 0d) {
+            return "0";
+        }
+        return new java.math.BigDecimal(value).round(new java.math.MathContext(15))
+                .stripTrailingZeros().toPlainString();
     }
 
     private static String csvValue(String value) {

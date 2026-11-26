@@ -10,7 +10,8 @@ import { StatCard } from '../../../components/admin/StatCard'
 import { PageHeader } from '../../../components/PageHeader'
 import { SectionCard } from '../../../components/SectionCard'
 import { VxTable, colunaBarra, colunaDupla, type VxColumn } from '../../../components/VTable'
-import { compactTokens as millions, formatReais, recentMonths } from '../../../lib/usageFormat'
+import { compactTokens as millions, formatReais, formatShare, recentMonths } from '../../../lib/usageFormat'
+import { baixarArquivo } from '../../../lib/downloadFile'
 
 /**
  * Uso e faturamento (RCHFLW-75): o consumo medido de cada tenant no mês. Custo em reais pela tabela de
@@ -24,6 +25,17 @@ export default function UsageBilling() {
   const [rows, setRows] = useState<TenantUsageRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [exporting, setExporting] = useState(false)
+
+  // Download autenticado: o `<a href>` não levava o token e, com a autenticação ligada, o arquivo salvo
+  // seria o JSON do 401 (RCHFLW-195 item 9).
+  const exportar = () => {
+    if (!month) return
+    setExporting(true)
+    baixarArquivo(usageApi.exportCsv(month), `usage-${month}.csv`)
+      .catch((e) => setError(e instanceof Error ? e.message : t('admin.superadmin.usage.exportFailed')))
+      .finally(() => setExporting(false))
+  }
 
   useEffect(() => {
     if (!month) return
@@ -80,7 +92,11 @@ export default function UsageBilling() {
           ? `${cost} · ${t('usage.withoutPriceCount', { count: without })}` : cost
       },
       style: { fontWeight: 600 } },
-    colunaBarra({ field: 'percentOfTotal', title: t('admin.superadmin.usage.columns.percent'), width: 170 }),
+    // O limite de tokens/mês do plano (vinha na API e no CSV, mas a tela não mostrava); sem cadastro, "—".
+    { field: 'planLimit', title: t('admin.superadmin.usage.columns.planLimit'), width: 150,
+      fieldFormat: (r) => (r.planLimit == null ? '—' : millions(Number(r.planLimit))) },
+    colunaBarra({ field: 'percentOfTotal', title: t('admin.superadmin.usage.columns.percent'), width: 170,
+      fieldFormat: (r) => formatShare(r.percentOfTotal as number | null, locale) }),
   ], [t, locale])
 
   return (
@@ -97,11 +113,13 @@ export default function UsageBilling() {
               aria-label={t('admin.superadmin.usage.month')}
               value={month} onChange={setMonth} allowDeselect={false} />
             <Button
-              component="a"
-              href={usageApi.exportCsv(month ?? '')}
+              onClick={exportar}
+              loading={exporting}
+              disabled={!month}
               variant="light"
               leftSection={<IconDownload size={14} />}
               size="sm"
+              data-testid="usage-export"
             >{t('admin.superadmin.usage.exportCsv')}</Button>
           </>
         }

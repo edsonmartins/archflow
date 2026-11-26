@@ -149,10 +149,12 @@ export default function TraceDetailPage() {
         );
     }
 
-    const failed = trace.status !== 'OK';
+    // PAUSED é a espera por uma aprovação, não falha (RCHFLW-177): nem cor de erro, nem conta como erro.
+    const paused = trace.status === 'PAUSED';
+    const failed = trace.status !== 'OK' && !paused;
     const totalMs = trace.durationMs || 1;
     const traceStart = new Date(trace.startedAt).getTime();
-    const spanErrors = trace.spans.filter((s) => s.status !== 'OK').length;
+    const spanErrors = trace.spans.filter((s) => s.status !== 'OK' && s.status !== 'PAUSED').length;
     const maxDepth = tree.reduce((m, r) => Math.max(m, r.depth), 0);
     const selectedSpan = trace.spans.find((s) => s.spanId === selected) ?? null;
 
@@ -173,8 +175,8 @@ export default function TraceDetailPage() {
                                 {trace.personaId}
                             </Badge>
                         )}
-                        <Badge size="lg" variant="light" color={failed ? 'red' : 'green'}>
-                            {trace.status}
+                        <Badge size="lg" variant="light" color={failed ? 'red' : paused ? 'yellow' : 'green'}>
+                            {paused ? t('admin.observability.traces.statusPaused') : trace.status}
                         </Badge>
                     </>
                 }
@@ -291,7 +293,7 @@ export default function TraceDetailPage() {
                             const spanStart = new Date(span.startedAt).getTime();
                             const offsetPct = Math.max(0, Math.min(100, ((spanStart - traceStart) / totalMs) * 100));
                             const widthPct = Math.max(0.6, Math.min(100 - offsetPct, (span.durationMs / totalMs) * 100));
-                            const bad = span.status !== 'OK';
+                            const bad = span.status !== 'OK' && span.status !== 'PAUSED';
                             const isSelected = selected === span.spanId;
                             return (
                                 <Box key={span.spanId} role="listitem">

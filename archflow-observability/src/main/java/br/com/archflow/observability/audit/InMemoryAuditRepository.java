@@ -207,6 +207,10 @@ public class InMemoryAuditRepository implements AuditRepository {
         if (query.getIpAddress() != null && !query.getIpAddress().equals(event.getIpAddress())) {
             return false;
         }
+        if (query.getActor() != null && !query.getActor().equals(event.getUserId())
+                && !query.getActor().equals(event.getUsername())) {
+            return false;
+        }
         if (query.getContextKey() != null) {
             String valor = event.getContext() == null ? null : event.getContext().get(query.getContextKey());
             if (!java.util.Objects.equals(query.getContextValue(), valor)) {

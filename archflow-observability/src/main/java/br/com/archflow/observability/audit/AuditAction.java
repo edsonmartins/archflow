@@ -59,6 +59,23 @@ public enum AuditAction {
     WORKFLOW_FAILED("workflow.failed"),
 
     /**
+     * Workflow execution cancelled by someone. Fica na trilha porque parar uma execução também é uma
+     * decisão com autor — antes só o registro da execução sabia que ela foi parada (RCHFLW-195).
+     */
+    WORKFLOW_CANCELLED("workflow.cancelled"),
+
+    /**
+     * Human approval gate approved (or approved with edits). Quem decidiu, o pedido e a execução vão
+     * para a trilha: "quem autorizou isto" não pode existir só no estado da execução (RCHFLW-195).
+     */
+    APPROVAL_APPROVED("approval.approved"),
+
+    /**
+     * Human approval gate rejected — by a reviewer or by the approval timeout.
+     */
+    APPROVAL_REJECTED("approval.rejected"),
+
+    /**
      * Agent execution started.
      */
     AGENT_EXECUTE("agent.execute"),

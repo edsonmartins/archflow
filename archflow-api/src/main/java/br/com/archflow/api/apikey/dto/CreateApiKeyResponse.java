@@ -1,7 +1,7 @@
 package br.com.archflow.api.apikey.dto;
 
 import br.com.archflow.model.security.ApiKeyScope;
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.Set;
 
 /**
@@ -20,9 +20,9 @@ public record CreateApiKeyResponse(
         String apiKey,         // Credential for "Authorization: Bearer" (shown only once)
         String name,
         Set<ApiKeyScope> scopes,
-        LocalDateTime createdAt,
-        LocalDateTime expiresAt,
-        LocalDateTime lastUsedAt,
+        Instant createdAt,
+        Instant expiresAt,
+        Instant lastUsedAt,
         boolean enabled
 ) {
 }

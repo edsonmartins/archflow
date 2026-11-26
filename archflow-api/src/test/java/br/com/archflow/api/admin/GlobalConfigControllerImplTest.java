@@ -131,7 +131,7 @@ class GlobalConfigControllerImplTest {
     void usageCsvHeaderOnly() {
         String csv = controller.exportUsageCsv("2026-04");
 
-        assertThat(csv).startsWith("tenantId,tenantName,executions,tokensInput,tokensOutput,costReais,"
+        assertThat(csv).startsWith("\uFEFFtenantId,tenantName,executions,tokensInput,tokensOutput,costReais,"
                 + "declaredCostUsd,executionsWithoutPrice,percentOfTotal,planLimit");
         assertThat(csv.lines().count()).isEqualTo(1);
         assertThat(csv).doesNotContain("Acme Corp").doesNotContain("Demo Trial")
@@ -162,13 +162,46 @@ class GlobalConfigControllerImplTest {
         assertThat(acme.tokensOutput()).isEqualTo(1_500);
         assertThat(acme.costCents()).as("só a execução com preço entra na soma").isEqualTo(1L);
         assertThat(acme.executionsWithoutPrice()).isEqualTo(1);
-        assertThat(acme.percentOfTotal()).isEqualTo(83.3);
+        assertThat(acme.percentOfTotal()).isCloseTo(83.333, org.assertj.core.data.Offset.offset(0.001));
         assertThat(acme.planLimit()).isEqualTo(5_000_000L);
         var globex = rows.get(1);
         assertThat(globex.tenantName()).as("sem cadastro, o id").isEqualTo("globex");
         assertThat(globex.planLimit()).as("sem cadastro, sem limite inventado").isNull();
         assertThat(controller.getUsageByTenant(registro.mesAtual().minusMonths(1).toString())).isEmpty();
         assertThatThrownBy(() -> controller.getUsageByTenant("abril")).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    @DisplayName("tenant com uso pequeno não vira 0% (RCHFLW-195 item 7)")
+    void fatiaPequenaNaoEZero() {
+        var registro = registroDeUso();
+        registrar(registro, "grande", "openrouter/m", 2_000_000, 0);
+        registrar(registro, "pequeno", "openrouter/m", 57, 0);
+        controller.setUso(registro, id -> java.util.Optional.empty());
+
+        var pequeno = controller.getUsageByTenant(registro.mesAtual().toString()).stream()
+                .filter(r -> "pequeno".equals(r.tenantId())).findFirst().orElseThrow();
+
+        assertThat(pequeno.percentOfTotal()).isGreaterThan(0d).isLessThan(0.1);
+    }
+
+    @Test
+    @DisplayName("CSV de uso: BOM UTF-8 e números em ponto fixo sem ruído do double (RCHFLW-195 item 8)")
+    void csvDeUsoSemRuido() {
+        assertThat(GlobalConfigControllerImpl.numero(0.007550729999999999)).isEqualTo("0.00755073");
+        assertThat(GlobalConfigControllerImpl.numero(2.14E-5)).isEqualTo("0.0000214");
+        assertThat(GlobalConfigControllerImpl.numero(1.0)).isEqualTo("1");
+        assertThat(GlobalConfigControllerImpl.numero(null)).isEmpty();
+        // Sem arredondar a centavos: o costReais é somado do outro lado (VEN-245).
+        assertThat(GlobalConfigControllerImpl.numero(0.123456789)).isEqualTo("0.123456789");
+
+        var registro = registroDeUso();
+        registrar(registro, "acme", "openrouter/m", 1, 0);
+        controller.setUso(registro, id -> java.util.Optional.empty());
+        String csv = controller.exportUsageCsv(registro.mesAtual().toString());
+
+        assertThat(csv).startsWith("\uFEFF");
+        assertThat(csv).doesNotContain("E-");
     }
 
     private static br.com.archflow.api.usage.RegistroDeUso registroDeUso() {

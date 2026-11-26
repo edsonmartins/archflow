@@ -190,7 +190,12 @@ export default function UserManagement() {
         icon={IconUsers}
         accent="blue"
         title={t('admin.tenant.users.listTitle')}
-        description={t('admin.tenant.users.listHint', { count: users.length, invited: invitedCount })}
+        // Cada número com o próprio plural: "{{count}} pessoas · {{invited}} convites pendentes" pluralizava só o
+        // primeiro e mostrava "1 convites pendentes" (RCHFLW-195 item 17).
+        description={t('admin.tenant.users.listHint', {
+          people: t('admin.tenant.users.peopleCount', { count: users.length }),
+          invited: t('admin.tenant.users.invitedCount', { count: invitedCount }),
+        })}
       >
         <VxTable
           legenda={t('admin.tenant.users.listTitle')}

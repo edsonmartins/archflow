@@ -78,6 +78,23 @@ public class InMemoryTraceStore {
     }
 
     /**
+     * O trace mais recente de uma execução <b>neste tenant</b>, se houver — o que a retomada depois da
+     * aprovação (ou o encerramento da pausa) substitui, para a execução continuar sendo um trace só
+     * (RCHFLW-177). O tenant entra no filtro: ids de execução são gerados por store, e um id repetido
+     * em outro tenant faria um tenant sobrescrever o trace do outro (e ficar no índice errado). Varre a
+     * janela (no máximo {@link #maxTraces}).
+     */
+    public Optional<TraceDetailDto> findLatestByExecutionId(String tenantId, String executionId) {
+        if (executionId == null) {
+            return Optional.empty();
+        }
+        return byId.values().stream()
+                .filter(t -> executionId.equals(t.executionId()) && Objects.equals(tenantId, t.tenantId()))
+                .max(Comparator.comparing(TraceDetailDto::startedAt,
+                        Comparator.nullsFirst(Comparator.naturalOrder())));
+    }
+
+    /**
      * List traces that match the (optional) filters. Results are sorted
      * by {@code startedAt} descending.
      */
@@ -109,9 +126,12 @@ public class InMemoryTraceStore {
             if (from != null && t.startedAt().isBefore(from)) continue;
             if (to != null && t.startedAt().isAfter(to)) continue;
             if (lowered != null) {
+                // O nome do fluxo entra na busca: é o que a pessoa conhece (RCHFLW-195 item 6).
+                String nome = t.attributes() == null ? null : t.attributes().get("flow.name");
                 String haystack = ((t.traceId() == null ? "" : t.traceId()) + " "
                         + (t.flowId() == null ? "" : t.flowId()) + " "
-                        + (t.executionId() == null ? "" : t.executionId())).toLowerCase();
+                        + (t.executionId() == null ? "" : t.executionId()) + " "
+                        + (nome == null ? "" : nome)).toLowerCase();
                 if (!haystack.contains(lowered)) continue;
             }
             filtered.add(toSummary(t));

@@ -107,4 +107,33 @@ class TenantControllerImplTest {
         controller.deleteTenant("tenant_rio_quality");
         assertThat(controller.listTenants()).isEmpty();
     }
+
+    @Test
+    @DisplayName("sem limites no pedido, vale o padrão do plano gravado no /admin/global (RCHFLW-178)")
+    void padroesDoPlanoNaCriacao() {
+        var global = new br.com.archflow.api.admin.impl.GlobalConfigControllerImpl();
+        controller.setPlanDefaults(global::planDefaults);
+
+        TenantDto trial = controller.createTenant(new CreateTenantRequest("Novo trial", "novo_trial",
+                "a@b.c", "Other", "trial", null, null, null));
+        TenantDto enterprise = controller.createTenant(new CreateTenantRequest("Novo ent", "novo_ent",
+                "a@b.c", "Other", "enterprise", null, null, null));
+
+        assertThat(trial.limits()).extracting(TenantLimitsDto::executionsPerDay, TenantLimitsDto::tokensPerMonth,
+                TenantLimitsDto::maxWorkflows, TenantLimitsDto::maxUsers).containsExactly(50, 100_000L, 3, 2);
+        assertThat(enterprise.limits()).extracting(TenantLimitsDto::executionsPerDay,
+                TenantLimitsDto::tokensPerMonth).containsExactly(1000, 10_000_000L);
+
+        // Um padrão editado no /admin/global vale para o próximo tenant do plano.
+        global.updatePlanDefaults("trial", new br.com.archflow.api.admin.dto.GlobalConfigDto.PlanDefaultsDto(
+                "trial", 7, 7_000, 1, 1));
+        TenantDto outro = controller.createTenant(new CreateTenantRequest("Outro", "outro_trial",
+                "a@b.c", "Other", "trial", null, null, null));
+        assertThat(outro.limits().executionsPerDay()).isEqualTo(7);
+
+        // Limites explícitos no pedido continuam vencendo.
+        TenantDto explicito = controller.createTenant(new CreateTenantRequest("Explícito", "explicito",
+                "a@b.c", "Other", "trial", null, new TenantLimitsDto(9, 9_000, 9, 9, List.of(), List.of()), null));
+        assertThat(explicito.limits().executionsPerDay()).isEqualTo(9);
+    }
 }
