@@ -28,6 +28,11 @@ import java.time.Instant;
  * @param decidedBy   who decided — the authenticated user resolved by the server (nullable)
  * @param decidedAt   when the decision was recorded (nullable)
  * @param comment     the decider's justification (nullable)
+ * @param flowName    nome do fluxo da execução, lido do registro de execuções (nullable). A fila
+ *                    mostrava o id da execução e do passo no lugar do nome, e contava execuções
+ *                    como "fluxos distintos" (RCHFLW-129)
+ * @param editedPayload a proposta como quem decidiu a deixou, numa decisão {@code EDITED} (nullable) —
+ *                    lida da entrada da decisão no histórico durável (RCHFLW-121)
  */
 public record ApprovalResponse(
         String requestId,
@@ -42,8 +47,28 @@ public record ApprovalResponse(
         Instant expiresAt,
         String decidedBy,
         Instant decidedAt,
-        String comment
+        String comment,
+        String flowName,
+        Object editedPayload
 ) {
+    /** Sem nome de fluxo nem proposta editada — a forma anterior a esses campos. */
+    public ApprovalResponse(String requestId,
+                            String tenantId,
+                            String flowId,
+                            String stepId,
+                            String status,
+                            String title,
+                            String description,
+                            Object proposal,
+                            Instant createdAt,
+                            Instant expiresAt,
+                            String decidedBy,
+                            Instant decidedAt,
+                            String comment) {
+        this(requestId, tenantId, flowId, stepId, status, title, description, proposal, createdAt,
+                expiresAt, decidedBy, decidedAt, comment, null, null);
+    }
+
     /** Pedido sem título e ainda sem decisão — a forma anterior aos campos de decisão. */
     public ApprovalResponse(String requestId,
                             String tenantId,
@@ -55,7 +80,7 @@ public record ApprovalResponse(
                             Instant createdAt,
                             Instant expiresAt) {
         this(requestId, tenantId, flowId, stepId, status, null, description, proposal, createdAt,
-                expiresAt, null, null, null);
+                expiresAt, null, null, null, null, null);
     }
 
     /** Backward-compatible constructor used by legacy callers. */

@@ -45,6 +45,18 @@ public class SpringExecutionController {
         this.mcpAgentHost = mcpAgentHost;
     }
 
+    /**
+     * A fila, para o detalhe dizer que o pedido aberto já venceu pela mesma regra dela; {@code null}
+     * numa montagem sem fila de aprovações.
+     */
+    private volatile br.com.archflow.api.approval.impl.ApprovalQueueService approvalQueue;
+
+    /** Liga o prazo das aprovações ao detalhe da execução (RCHFLW-126). */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setApprovalQueue(br.com.archflow.api.approval.impl.ApprovalQueueService approvalQueue) {
+        this.approvalQueue = approvalQueue;
+    }
+
     /** Liga o uso medido no detalhe da execução. */
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     public void setRegistroDeUso(br.com.archflow.api.usage.RegistroDeUso registroDeUso) {
@@ -119,6 +131,17 @@ public class SpringExecutionController {
             Object stepId = state.getVariables().get(ExecutionKeys.APPROVAL_STEP_ID);
             if (stepId != null) {
                 pending.put("stepId", String.valueOf(stepId));
+            }
+            // Vencido e ainda não varrido, o pedido já saiu da fila: o detalhe não pode continuar
+            // dizendo "aguardando decisão" e mandando decidir lá (RCHFLW-126). Quem recusa é só o
+            // sweeper; aqui só se diz o que a fila já diz.
+            var queue = approvalQueue;
+            if (queue != null) {
+                java.time.Instant deadline = queue.deadlineOf(state);
+                if (deadline != null) {
+                    pending.put("expiresAt", deadline.toString());
+                }
+                pending.put("expired", queue.isPendingExpired(state));
             }
             enriched.put("pendingApproval", pending);
         }

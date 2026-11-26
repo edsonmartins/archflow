@@ -51,10 +51,17 @@ export default function ApprovalDetailPage() {
     const [approval, setApproval] = useState<ApprovalResponse | null>(null);
     const [loading, setLoading] = useState(true);
     const [submitting, setSubmitting] = useState(false);
+    // Falha ao CARREGAR: sem pedido não há tela, só o aviso e o caminho de volta.
     const [error, setError] = useState<string | null>(null);
+    // Falha ao DECIDIR (prazo vencido, corrida, rede): fica junto dos botões. Antes ia para `error` e
+    // trocava a tela inteira pela mensagem — a edição e o comentário se perdiam (RCHFLW-126/128).
+    const [submitError, setSubmitError] = useState<string | null>(null);
     const [comment, setComment] = useState('');
     const [editMode, setEditMode] = useState(false);
     const [editedPayload, setEditedPayload] = useState('');
+    const [payloadError, setPayloadError] = useState<string | null>(null);
+    // O relógio da tela: um pedido que vence com a página aberta passa a não aceitar decisão.
+    const [now, setNow] = useState(() => Date.now());
 
     useEffect(() => {
         if (!id) return;
@@ -79,19 +86,23 @@ export default function ApprovalDetailPage() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [id, flowId, tenantId]);
 
-    const decide = async (decision: 'APPROVED' | 'REJECTED' | 'EDITED') => {
+    useEffect(() => {
+        const expiresAt = approval?.expiresAt ? new Date(approval.expiresAt).getTime() : NaN;
+        if (approval?.status !== 'PENDING' || !Number.isFinite(expiresAt)) return;
+        const remaining = expiresAt - Date.now();
+        if (remaining <= 0) {
+            setNow(Date.now());
+            return;
+        }
+        const timer = setTimeout(() => setNow(Date.now()), Math.min(remaining + 50, 2 ** 31 - 1));
+        return () => clearTimeout(timer);
+    }, [approval]);
+
+    const decide = async (decision: 'APPROVED' | 'REJECTED' | 'EDITED', parsedPayload?: unknown) => {
         if (!id || !approval) return;
         setSubmitting(true);
-        setError(null);
+        setSubmitError(null);
         try {
-            let parsedPayload: unknown | undefined;
-            if (decision === 'EDITED') {
-                try {
-                    parsedPayload = JSON.parse(editedPayload);
-                } catch {
-                    throw new Error(t('approvals.detail.invalidJson'));
-                }
-            }
             const result = await approvalApi.submit(id, {
                 // O tenant da própria pendência, vindo do servidor — nunca um palpite da UI.
                 tenantId: approval.tenantId,
@@ -100,11 +111,12 @@ export default function ApprovalDetailPage() {
                 comment: comment.trim() || undefined,
             });
             // Em nome de quem o servidor registrou — é o que vale, não o que esta tela supõe.
+            const decisionLabel = t(`approvals.status.${decision}`);
             notifications.show({
                 title: t('approvals.detail.decisionSubmitted'),
                 message: result.decidedBy
-                    ? t('approvals.detail.decidedMsg', { decision, who: result.decidedBy })
-                    : `${decision} · ${result.requestId.slice(0, 12)}`,
+                    ? t('approvals.detail.decidedMsg', { decision: decisionLabel, who: result.decidedBy })
+                    : `${decisionLabel} · ${result.requestId.slice(0, 12)}`,
                 color:
                     decision === 'APPROVED'
                         ? 'teal'
@@ -114,7 +126,7 @@ export default function ApprovalDetailPage() {
             });
             navigate('/approvals');
         } catch (e) {
-            setError(e instanceof Error ? e.message : t('approvals.detail.submitFailed'));
+            setSubmitError(e instanceof Error ? e.message : t('approvals.detail.submitFailed'));
         } finally {
             setSubmitting(false);
         }
@@ -123,12 +135,25 @@ export default function ApprovalDetailPage() {
     // Approve/reject submit an irreversible workflow decision, so confirm first.
     const confirmDecide = (decision: 'APPROVED' | 'REJECTED' | 'EDITED') => {
         const isReject = decision === 'REJECTED';
+        let parsedPayload: unknown | undefined;
+        if (decision === 'EDITED') {
+            // Antes de confirmar: a confirmação abria com JSON inválido e, depois dela, a tela virava
+            // só o erro, perdendo a edição e o comentário (RCHFLW-128). O erro fica junto do campo.
+            try {
+                parsedPayload = JSON.parse(editedPayload);
+            } catch (e) {
+                const detail = e instanceof Error ? e.message : '';
+                setPayloadError(detail ? `${t('approvals.detail.invalidJson')}: ${detail}` : t('approvals.detail.invalidJson'));
+                return;
+            }
+        }
+        setPayloadError(null);
         confirmAction({
             title: t(isReject ? 'confirmations.rejectApprovalTitle' : 'confirmations.approveApprovalTitle'),
             message: t(isReject ? 'confirmations.rejectApprovalMessage' : 'confirmations.approveApprovalMessage'),
             confirmLabel: t(isReject ? 'confirmations.reject' : 'confirmations.approve'),
             danger: isReject,
-            onConfirm: () => decide(decision),
+            onConfirm: () => decide(decision, parsedPayload),
         });
     };
 
@@ -164,9 +189,13 @@ export default function ApprovalDetailPage() {
     }
 
     const locale = i18n.resolvedLanguage ?? i18n.language;
-    const expired = approval.expiresAt ? new Date(approval.expiresAt).getTime() <= Date.now() : false;
+    // Vencida não é acionável, nem antes de o sweeper registrar a recusa: o servidor já a devolve
+    // EXPIRED, e um prazo que passa com a página aberta também conta (RCHFLW-126).
+    const expired = approval.status === 'EXPIRED'
+        || (approval.expiresAt ? new Date(approval.expiresAt).getTime() <= now : false);
     // Decidido não é acionável: no lugar da proposta e dos botões, quem decidiu, quando e por quê.
-    const decided = approval.status !== 'PENDING';
+    // EXPIRED sem decisor ainda não foi recusada — a tela mostra o pedido, com os botões desligados.
+    const decided = approval.status !== 'PENDING' && !(approval.status === 'EXPIRED' && !approval.decidedBy);
 
     return (
         <Stack gap="lg" p="md">
@@ -181,8 +210,9 @@ export default function ApprovalDetailPage() {
                 ]}
                 actions={
                     <>
-                        <Badge size="lg" radius="sm" variant="dot" color={STATUS_COLOR[approval.status] ?? 'gray'}>
-                            {approval.status}
+                        <Badge size="lg" radius="sm" variant="dot" color={STATUS_COLOR[approval.status] ?? 'gray'}
+                               data-testid="approval-status">
+                            {t(`approvals.status.${approval.status}`, { defaultValue: approval.status })}
                         </Badge>
                         <Button variant="default" leftSection={<IconArrowLeft size={16} />} onClick={() => navigate('/approvals')}>
                             {t('approvals.backToQueue')}
@@ -215,7 +245,10 @@ export default function ApprovalDetailPage() {
                     )}
                     <SimpleGrid cols={{ base: 2, sm: 3, lg: 5 }} spacing="lg">
                         <Meta label={t('approvals.detail.tenant')} value={approval.tenantId ?? '—'} />
-                        <Meta label={t('approvals.detail.flow')} value={approval.flowId ?? '—'} />
+                        <Meta label={t('approvals.detail.flow')} value={approval.flowName || approval.flowId || '—'} />
+                        {approval.flowName && (
+                            <Meta label={t('approvals.detail.execution')} value={approval.flowId ?? '—'} />
+                        )}
                         <Meta label={t('approvals.detail.step')} value={approval.stepId ?? '—'} />
                         <Meta label={t('approvals.detail.created')} value={formatInstant(approval.createdAt, locale)} />
                         <Stack gap={2}>
@@ -251,8 +284,24 @@ export default function ApprovalDetailPage() {
                                       data-testid="approval-decided-comment">{approval.comment}</Text>
                             </Stack>
                         )}
+                        {/* O que foi aprovado de fato, quando a pessoa editou a proposta (RCHFLW-121). */}
+                        {approval.status === 'EDITED' && approval.editedPayload !== undefined
+                            && approval.editedPayload !== null && (
+                            <Stack gap={2}>
+                                <Text size="xs" c="dimmed">{t('approvals.detail.editedPayload')}</Text>
+                                <JsonViewer value={approval.editedPayload} autoExpandDepth={2}
+                                            testId="approval-edited-payload" />
+                            </Stack>
+                        )}
                     </Stack>
                 </SectionCard>
+            )}
+
+            {!decided && expired && (
+                <Alert color="gray" variant="light" icon={<IconAlertCircle size={16} />}
+                       title={t('approvals.detail.expiredTitle')} data-testid="approval-expired">
+                    {t('approvals.detail.expiredText')}
+                </Alert>
             )}
 
             {!decided && (
@@ -264,7 +313,7 @@ export default function ApprovalDetailPage() {
                         title={t('approvals.detail.proposal')}
                         description={editMode ? t('approvals.detail.proposalEditHint') : t('approvals.detail.proposalHint')}
                         actions={
-                            !editMode && (
+                            !editMode && !expired && (
                                 <Button
                                     size="xs"
                                     variant="light"
@@ -280,9 +329,13 @@ export default function ApprovalDetailPage() {
                         {editMode ? (
                             <Textarea
                                 value={editedPayload}
-                                onChange={(e) => setEditedPayload(e.currentTarget.value)}
+                                onChange={(e) => {
+                                    setEditedPayload(e.currentTarget.value);
+                                    setPayloadError(null);
+                                }}
                                 minRows={10}
                                 autosize
+                                error={payloadError}
                                 styles={{ input: { fontFamily: 'var(--font-mono)', fontSize: 12 } }}
                                 data-testid="approval-edit-payload"
                             />
@@ -308,9 +361,15 @@ export default function ApprovalDetailPage() {
                                 value={comment}
                                 onChange={(e) => setComment(e.currentTarget.value)}
                             />
+                            {submitError && (
+                                <Alert color="red" variant="light" icon={<IconAlertCircle size={16} />}
+                                       data-testid="approval-submit-error">
+                                    {submitError}
+                                </Alert>
+                            )}
                             <Group gap="sm" justify="flex-end">
                                 {editMode && (
-                                    <Button variant="subtle" color="gray" onClick={() => setEditMode(false)}>
+                                    <Button variant="subtle" color="gray" onClick={() => { setEditMode(false); setPayloadError(null); }}>
                                         {t('approvals.detail.cancelEdit')}
                                     </Button>
                                 )}
@@ -319,7 +378,7 @@ export default function ApprovalDetailPage() {
                                     color="red"
                                     variant="light"
                                     loading={submitting}
-                                    disabled={submitting}
+                                    disabled={submitting || expired}
                                     onClick={() => confirmDecide('REJECTED')}
                                     data-testid="approval-reject"
                                 >
@@ -329,7 +388,7 @@ export default function ApprovalDetailPage() {
                                     leftSection={<IconCheck size={14} />}
                                     color="teal"
                                     loading={submitting}
-                                    disabled={submitting}
+                                    disabled={submitting || expired}
                                     onClick={() => confirmDecide(editMode ? 'EDITED' : 'APPROVED')}
                                     data-testid="approval-approve"
                                 >

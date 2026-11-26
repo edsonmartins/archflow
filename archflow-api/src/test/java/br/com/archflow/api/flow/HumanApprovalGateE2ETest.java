@@ -221,6 +221,157 @@ class HumanApprovalGateE2ETest {
                         Map.of("acao", "reiniciar traefik com drain"));
     }
 
+    // ── RCHFLW-121: editar antes de aprovar substitui a proposta ───
+
+    /** preparar (produz a proposta) → gate → usar, que guarda a entrada que recebeu. */
+    private Flow flowWhoseNextStepReadsTheInput(List<Object> seenByNext) {
+        FlowStep preparar = new FlowStep() {
+            @Override public String getId() { return "preparar"; }
+            @Override public StepType getType() { return StepType.TOOL; }
+            @Override public List<StepConnection> getConnections() { return List.of(edge("preparar", "gate")); }
+            @Override public CompletableFuture<StepResult> execute(ExecutionContext c) {
+                Map<String, Object> proposta = Map.of("valor", 800, "cliente", "Bruno");
+                c.set("input", proposta);
+                return CompletableFuture.completedFuture(SimpleStepResult.ok("preparar", proposta, 1));
+            }
+        };
+        HumanApprovalStep gate = new HumanApprovalStep("gate", List.of(edge("gate", "usar")),
+                Map.of("description", "Reembolso"), () -> engine);
+        FlowStep usar = new FlowStep() {
+            @Override public String getId() { return "usar"; }
+            @Override public StepType getType() { return StepType.TOOL; }
+            @Override public List<StepConnection> getConnections() { return List.of(); }
+            @Override public CompletableFuture<StepResult> execute(ExecutionContext c) {
+                seenByNext.add(c.get("input").orElse(null));
+                afterGateRuns.incrementAndGet();
+                return CompletableFuture.completedFuture(SimpleStepResult.ok("usar", "ok", 1));
+            }
+        };
+        Flow flow = new SimpleFlow(FLOW_ID, new FlowMetadata("Reembolso", "", "1.0.0", null, null, List.of()),
+                List.of(preparar, gate, usar));
+        flowRepository.save(flow);
+        return flow;
+    }
+
+    @Test
+    @DisplayName("EDITED: o passo seguinte recebe a proposta editada e a decisão fica registrada como EDITED")
+    @SuppressWarnings("unchecked")
+    void editedProposalReplacesTheOriginalDownstream() throws Exception {
+        List<Object> seenByNext = new java.util.concurrent.CopyOnWriteArrayList<>();
+        engine.execute(flowWhoseNextStepReadsTheInput(seenByNext), context()).get(15, TimeUnit.SECONDS);
+        ApprovalResponse request = queue.listPending("acme").get(0);
+        assertThat(request.proposal()).isEqualTo(Map.of("valor", 800, "cliente", "Bruno"));
+
+        Map<String, Object> editada = Map.of("valor", 450, "cliente", "Bruno");
+        ApprovalResponse resposta = queue.submitDecision(request.requestId(),
+                new ApprovalSubmitRequest("acme", "EDITED", editada, "revisora", "baixei o valor"));
+
+        waitUntil(() -> stateManager.loadState(FLOW_ID).getStatus() == FlowStatus.COMPLETED);
+        // Antes: o passo seguinte recebia a proposta original — o 450 não chegava a lugar nenhum
+        assertThat(seenByNext).containsExactly(editada);
+        assertThat(resposta.status()).isEqualTo("EDITED");
+        assertThat(resposta.editedPayload()).isEqualTo(editada);
+
+        Map<String, Object> fim = stateManager.loadState(FLOW_ID).getVariables();
+        assertThat(fim)
+                // os fluxos que ramificam em APPROVED continuam passando, e approvalPayload segue lá
+                .containsEntry(ExecutionKeys.APPROVAL_DECISION, "APPROVED")
+                .containsEntry(ExecutionKeys.APPROVAL_PAYLOAD, editada)
+                .containsEntry("gate", editada);
+        assertThat((List<Map<String, Object>>) fim.get(ExecutionKeys.APPROVAL_HISTORY))
+                .singleElement()
+                .satisfies(e -> assertThat(e)
+                        .containsEntry("decision", "EDITED")
+                        .containsEntry("decidedBy", "revisora")
+                        .containsEntry("comment", "baixei o valor")
+                        .containsEntry("editedPayload", editada));
+
+        // O detalhe aberto depois (GET /api/approvals/{id}?flowId=) diz EDITED, com o que foi aprovado
+        ApprovalResponse detalhe = queue.getDetail(request.requestId(), FLOW_ID);
+        assertThat(detalhe.status()).isEqualTo("EDITED");
+        assertThat(detalhe.decidedBy()).isEqualTo("revisora");
+        assertThat(detalhe.comment()).isEqualTo("baixei o valor");
+        assertThat(detalhe.editedPayload()).isEqualTo(editada);
+    }
+
+    @Test
+    @DisplayName("APPROVED sem edição: a saída do portão continua {decision} e a entrada do próximo não muda")
+    void plainApprovalKeepsTheDecisionOutput() throws Exception {
+        List<Object> seenByNext = new java.util.concurrent.CopyOnWriteArrayList<>();
+        engine.execute(flowWhoseNextStepReadsTheInput(seenByNext), context()).get(15, TimeUnit.SECONDS);
+        decide(queue.listPending("acme").get(0).requestId(), "APPROVED", null, "revisora", "ok");
+
+        waitUntil(() -> stateManager.loadState(FLOW_ID).getStatus() == FlowStatus.COMPLETED);
+        assertThat(seenByNext).containsExactly(Map.of("valor", 800, "cliente", "Bruno"));
+        assertThat(stateManager.loadState(FLOW_ID).getVariables())
+                .doesNotContainKey("gate")
+                .doesNotContainKey(ExecutionKeys.APPROVAL_PAYLOAD);
+    }
+
+    // ── RCHFLW-126: o sweeper roda no vencimento ───────────────────
+
+    @Test
+    @DisplayName("pedido aberto depois do agendamento: o aviso leva a varredura ao prazo dele")
+    void sweeperRunsAtTheDeadlineOfALaterRequest() throws Exception {
+        // O caso comum: o sweeper já agendou (nada pendente → intervalo de uma hora) quando o portão
+        // abre. Sem o aviso, o pedido só seria recusado na varredura de daqui a uma hora.
+        var signal = new br.com.archflow.api.approval.impl.ApprovalRequestedSignal();
+        engine = engineWith(signal);
+        ApprovalQueueService comPrazo = new ApprovalQueueService(stateManager, engine,
+                java.time.Duration.ofMillis(500));
+        try (var sweeper = new br.com.archflow.api.approval.impl.ApprovalTimeoutSweeper(
+                comPrazo, java.time.Duration.ofHours(1), signal)) {
+            sweeper.start();
+            engine.execute(flowWithGate(), context()).get(15, TimeUnit.SECONDS);
+
+            waitUntil(() -> stateManager.loadState(FLOW_ID).getStatus() == FlowStatus.STOPPED);
+        }
+
+        assertRejectedByTimeout();
+    }
+
+    @Test
+    @DisplayName("pedido que já existia ao agendar: a varredura vai ao prazo dele, não ao intervalo")
+    void sweeperRunsAtTheDeadlineOfAnExistingRequest() throws Exception {
+        // Prazo folgado (2 s): o pedido nasce antes do start(), e um prazo que vencesse antes do
+        // agendamento cairia no intervalo — a corrida seria do teste, não do sweeper.
+        ApprovalQueueService comPrazo = new ApprovalQueueService(stateManager, engine,
+                java.time.Duration.ofSeconds(2));
+        engine.execute(flowWithGate(), context()).get(15, TimeUnit.SECONDS);
+        assertThat(stateManager.loadState(FLOW_ID).getStatus()).isEqualTo(FlowStatus.AWAITING_APPROVAL);
+
+        // Intervalo de uma hora: antes, a primeira varredura só viria daqui a uma hora
+        try (var sweeper = new br.com.archflow.api.approval.impl.ApprovalTimeoutSweeper(
+                comPrazo, java.time.Duration.ofHours(1))) {
+            sweeper.start();
+            waitUntil(() -> stateManager.loadState(FLOW_ID).getStatus() == FlowStatus.STOPPED);
+        }
+
+        assertRejectedByTimeout();
+    }
+
+    /** Um motor com o aviso de pedido de aprovação, como o bean do servidor o monta. */
+    private FlowEngine engineWith(br.com.archflow.api.approval.impl.ApprovalRequestedSignal signal) {
+        // O motor fotografa o registro global ao nascer: basta o aviso estar lá durante o create().
+        br.com.archflow.engine.lifecycle.FlowLifecycleListeners.register(signal);
+        try {
+            return FlowEngineFactory.create(flowRepository, null, null, stateManager);
+        } finally {
+            br.com.archflow.engine.lifecycle.FlowLifecycleListeners.unregister(signal);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private void assertRejectedByTimeout() {
+        assertThat(afterGateRuns).hasValue(0);
+        assertThat((List<Map<String, Object>>) stateManager.loadState(FLOW_ID).getVariables()
+                .get(ExecutionKeys.APPROVAL_HISTORY))
+                .singleElement()
+                .satisfies(e -> assertThat(e)
+                        .containsEntry("decision", "REJECTED")
+                        .containsEntry("decidedBy", "system:timeout"));
+    }
+
     // ── RCHFLW-14: aprovação como último passo ─────────────────────
 
     /** Fluxo feito só do portão — o repro do Jira (modo legado, sem conexões). */
@@ -303,6 +454,10 @@ class HumanApprovalGateE2ETest {
             @Override public List<StepConnection> getConnections() { return List.of(edge("meio", "gateB")); }
             @Override public CompletableFuture<StepResult> execute(ExecutionContext c) {
                 entreOsPortoes.incrementAndGet();
+                // Como um passo de verdade (ComponentStep): a saída dele é a entrada do próximo.
+                // Sem isto, a entrada de B seria a proposta editada em A, que o portão A passou
+                // adiante (RCHFLW-121).
+                c.set("input", "saída do meio");
                 return CompletableFuture.completedFuture(SimpleStepResult.ok("meio", "ok", 1));
             }
         };
@@ -333,7 +488,8 @@ class HumanApprovalGateE2ETest {
         assertThat(pedidoB.stepId()).isEqualTo("gateB");
         assertThat(pedidoB.requestId()).isNotEqualTo(pedidoA.requestId());
         assertThat(pedidoB.description()).isEmpty();
-        assertThat(pedidoB.proposal()).isEqualTo("");
+        // Sem proposta própria, B mostra a saída do passo anterior — nunca a proposta de A
+        assertThat(pedidoB.proposal()).isEqualTo("saída do meio");
 
         // Enquanto B espera, a decisão corrente não é a de A — mas quem autorizou A
         // continua respondível pelo histórico durável.
@@ -347,7 +503,9 @@ class HumanApprovalGateE2ETest {
                 .satisfies(e -> assertThat(e)
                         .containsEntry("stepId", "gateA")
                         .containsEntry("requestId", pedidoA.requestId())
-                        .containsEntry("decision", "APPROVED")
+                        // A edição fica registrada como edição, com o que foi aprovado (RCHFLW-121)
+                        .containsEntry("decision", "EDITED")
+                        .containsEntry("editedPayload", Map.of("ajuste", "de A"))
                         .containsEntry("decidedBy", "revisor-a")
                         .containsEntry("comment", "ok A"));
 

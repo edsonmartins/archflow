@@ -575,6 +575,30 @@ public class DefaultFlowEngine implements FlowEngine {
     public CompletableFuture<FlowResult> submitApproval(String flowId, String requestId,
                                                         boolean approved, Object editedPayload,
                                                         String decidedBy, String comment) {
+        return decide(flowId, requestId, approved, false, editedPayload, decidedBy, comment);
+    }
+
+    /**
+     * Uma edição só existe com a proposta editada: sem ela não há o que levar adiante, e "editado"
+     * seria uma aprovação comum registrada com outro nome.
+     */
+    @Override
+    public CompletableFuture<FlowResult> submitEditedApproval(String flowId, String requestId,
+                                                              Object editedPayload,
+                                                              String decidedBy, String comment) {
+        if (editedPayload == null) {
+            throw new FlowEngineException("An EDITED approval needs the edited payload: " + requestId);
+        }
+        return decide(flowId, requestId, true, true, editedPayload, decidedBy, comment);
+    }
+
+    /**
+     * @param edited a aprovação veio com a proposta reescrita por quem decidiu; o histórico a registra
+     *               como {@code EDITED}, com o payload, e o passo de aprovação o devolve como saída
+     */
+    private CompletableFuture<FlowResult> decide(String flowId, String requestId, boolean approved,
+                                                 boolean edited, Object editedPayload,
+                                                 String decidedBy, String comment) {
         ExecutionContext contextForResume;
         // The entire validate+persist sequence runs under transitionLock so
         // concurrent pause/cancel/submitApproval observe a consistent view.
@@ -624,7 +648,7 @@ public class DefaultFlowEngine implements FlowEngine {
                             currentState.getVariables() != null ? currentState.getVariables() : Map.of());
                     rejectedVars.put(APPROVAL_REQUEST_KEY, "");
                     rejectedVars.put(ExecutionKeys.APPROVAL_DECISION, "REJECTED");
-                    recordDecider(rejectedVars, requestId, "REJECTED", decidedBy, comment);
+                    recordDecider(rejectedVars, requestId, "REJECTED", null, decidedBy, comment);
                     FlowState rejectedState = rebuildState(currentState, FlowStatus.STOPPED, rejectedVars);
                     stateManager.saveState(flowId, rejectedState);
                     if (liveContext != null) {
@@ -658,9 +682,12 @@ public class DefaultFlowEngine implements FlowEngine {
                         currentState.getVariables() != null ? currentState.getVariables() : Map.of());
                 vars.put(APPROVAL_REQUEST_KEY, "");
                 // A decisão fica no estado para os steps seguintes ramificarem
-                // (`${__archflow.approvalDecision} == APPROVED`) e para a auditoria.
+                // (`${__archflow.approvalDecision} == APPROVED`) e para a auditoria. Uma edição
+                // continua APPROVED aqui — é uma aprovação, e os ramos que já existem testam
+                // APPROVED; quem precisa saber que houve edição a lê no histórico, como EDITED.
                 vars.put(ExecutionKeys.APPROVAL_DECISION, "APPROVED");
-                recordDecider(vars, requestId, "APPROVED", decidedBy, comment);
+                recordDecider(vars, requestId, edited ? "EDITED" : "APPROVED",
+                        edited ? editedPayload : null, decidedBy, comment);
                 if (editedPayload != null) {
                     vars.put(ExecutionKeys.APPROVAL_PAYLOAD, editedPayload);
                 } else {
@@ -768,7 +795,7 @@ public class DefaultFlowEngine implements FlowEngine {
      * o estado que responde "quem autorizou isto".
      */
     private static void recordDecider(Map<String, Object> vars, String requestId, String decision,
-                                      String decidedBy, String comment) {
+                                      Object editedPayload, String decidedBy, String comment) {
         String decidedAt = java.time.Instant.now().toString();
         // O mapa de variáveis vai para JSON e não aceita null; ausente vira "".
         String by = decidedBy != null ? decidedBy : "";
@@ -792,6 +819,12 @@ public class DefaultFlowEngine implements FlowEngine {
         entry.put("decidedBy", by);
         entry.put("comment", why);
         entry.put("decidedAt", decidedAt);
+        // A proposta editada fica na entrada da decisão, e não só em approvalPayload: aquela chave
+        // é do portão corrente e o próximo pedido a limpa; a fila e o detalhe da execução precisam
+        // continuar mostrando o que foi aprovado no lugar da proposta original.
+        if (editedPayload != null) {
+            entry.put("editedPayload", editedPayload);
+        }
         history.add(entry);
         vars.put(ExecutionKeys.APPROVAL_HISTORY, history);
     }

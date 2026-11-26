@@ -477,4 +477,82 @@ class ApprovalDecisionUpdatesExecutionE2ETest {
             assertThat(failed.get("completedAt")).isNotNull();
         }
     }
+
+    /**
+     * QA de aprovações (RCHFLW-126/127/129): a duração das recusadas, o pedido vencido antes da
+     * varredura e o nome do fluxo na fila.
+     */
+    @Nested
+    @DisplayName("QA de aprovações: duração, vencimento e nome do fluxo")
+    class QaAprovacoes {
+
+        private long durationOf(Map<String, Object> record) {
+            assertThat(record.get("duration")).as("duração gravada no registro").isInstanceOf(Number.class);
+            return ((Number) record.get("duration")).longValue();
+        }
+
+        @Test
+        @DisplayName("recusada: a duração é do início ao fim da execução, não só do trecho até o portão")
+        void rejectedDurationCoversTheWait() throws Exception {
+            String executionId = executeUntilPaused();
+            Thread.sleep(400);
+
+            queue.submitDecision(pendingRequestOf(executionId), decision("REJECTED", "diretor", "não"));
+
+            Map<String, Object> record = awaitRecord(executionId, "STOPPED");
+            // Antes: ficava a duração do trecho até o portão (19 ms para 5 min de espera)
+            assertThat(durationOf(record)).isGreaterThanOrEqualTo(400);
+        }
+
+        @Test
+        @DisplayName("expirada: a duração também conta a espera")
+        void expiredDurationCoversTheWait() throws Exception {
+            String executionId = executeUntilPaused();
+            Thread.sleep(400);
+
+            queueAt(Clock.fixed(Instant.now().plus(Duration.ofHours(1)), ZoneOffset.UTC)).expireStale();
+
+            assertThat(durationOf(awaitRecord(executionId, "STOPPED"))).isGreaterThanOrEqualTo(400);
+        }
+
+        @Test
+        @DisplayName("vencida e ainda não varrida: fila, detalhe e execução já dizem expirada, sem decisão nova")
+        void expiredBeforeTheSweepIsCoherent() throws Exception {
+            String executionId = executeUntilPaused();
+            String requestId = pendingRequestOf(executionId);
+            ApprovalQueueService depoisDoPrazo =
+                    queueAt(Clock.fixed(Instant.now().plus(Duration.ofHours(1)), ZoneOffset.UTC));
+
+            assertThat(depoisDoPrazo.listPending("all")).isEmpty();
+            // Antes: o detalhe (GET /api/approvals/{id}) ainda respondia PENDING até o sweeper passar
+            ApprovalResponse detail = depoisDoPrazo.getDetail(requestId, executionId);
+            assertThat(detail.status()).isEqualTo("EXPIRED");
+            assertThat(detail.decidedBy()).as("ler não decide: quem recusa é o sweeper").isNull();
+            FlowState state = stateManager.loadState(executionId);
+            assertThat(depoisDoPrazo.isPendingExpired(state)).isTrue();
+            assertThat(depoisDoPrazo.deadlineOf(state)).isNotNull();
+            assertThat(state.getStatus()).isEqualTo(FlowStatus.AWAITING_APPROVAL);
+            assertThat(state.getVariables()).doesNotContainKey(ExecutionKeys.APPROVAL_HISTORY);
+
+            // A recusa tardia chega em português a quem tentou decidir
+            assertThatThrownBy(() -> depoisDoPrazo.submitDecision(requestId, decision("APPROVED", "diretor", "ok")))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("prazo desta aprovação venceu");
+            // Pelo relógio de agora, o mesmo pedido continua pendente e no prazo
+            assertThat(queue.isPendingExpired(state)).isFalse();
+        }
+
+        @Test
+        @DisplayName("a fila traz o nome do fluxo, lido do registro da execução")
+        void queueShowsTheFlowName() throws Exception {
+            String executionId = executeUntilPaused();
+
+            ApprovalResponse pending = queue.listPending("all").stream()
+                    .filter(p -> executionId.equals(p.flowId())).findFirst().orElseThrow();
+
+            // Antes: só o id da execução e do passo; o nome não vinha
+            assertThat(pending.flowName()).isEqualTo("Remediação");
+            assertThat(queue.getDetail(pending.requestId(), executionId).flowName()).isEqualTo("Remediação");
+        }
+    }
 }

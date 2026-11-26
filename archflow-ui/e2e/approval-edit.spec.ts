@@ -9,8 +9,9 @@ const approval = {
     status: 'PENDING',
     description: 'Adjust payload before approving',
     proposal: { amount: 120, currency: 'BRL', approved: false },
-    createdAt: '2026-04-10T09:00:00.000Z',
-    expiresAt: '2026-04-10T10:00:00.000Z',
+    createdAt: new Date(Date.now() - 5 * 60_000).toISOString(),
+    // Prazo no futuro: vencida, a tela esconde a edição e desabilita Aprovar/Rejeitar (RCHFLW-126).
+    expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
 };
 
 async function authenticate(page: Page) {
@@ -39,9 +40,11 @@ test.describe('Approval edit mode', () => {
         await page.getByTestId('approval-edit-toggle').click();
         await page.getByTestId('approval-edit-payload').fill('{ invalid json ');
         await page.getByTestId('approval-approve').click();
-        await page.getByRole('dialog', { name: 'Approve request' }).getByRole('button', { name: 'Approve' }).click();
 
+        // Validado antes da confirmação, com o erro junto do campo e o texto preservado (RCHFLW-128)
         await expect(page.getByText('Edited payload is not valid JSON')).toBeVisible();
+        await expect(page.getByRole('dialog', { name: 'Approve request' })).toHaveCount(0);
+        await expect(page.getByTestId('approval-edit-payload')).toHaveValue('{ invalid json ');
         await expect(page).toHaveURL(/\/approvals\/req-edit-1$/);
     });
 

@@ -582,9 +582,23 @@ public class ArchflowBeanConfiguration {
     @ConditionalOnMissingBean
     public br.com.archflow.api.approval.impl.ApprovalTimeoutSweeper approvalTimeoutSweeper(
             ApprovalQueueService approvalQueueService,
-            @Value("${archflow.approval.sweep-interval:PT5M}") java.time.Duration sweepInterval) {
+            @Value("${archflow.approval.sweep-interval:PT5M}") java.time.Duration sweepInterval,
+            org.springframework.beans.factory.ObjectProvider<
+                    br.com.archflow.api.approval.impl.ApprovalRequestedSignal> approvalRequestedSignal) {
+        // Com o aviso, o pedido aberto depois do agendamento vence no prazo dele, não no próximo
+        // intervalo (RCHFLW-126).
         return new br.com.archflow.api.approval.impl.ApprovalTimeoutSweeper(
-                approvalQueueService, sweepInterval);
+                approvalQueueService, sweepInterval, approvalRequestedSignal.getIfAvailable());
+    }
+
+    /**
+     * Avisa o sweeper de que um portão abriu pedido. Bean próprio, sem dependências, porque o motor
+     * fotografa os ouvintes ao nascer e o sweeper nasce depois dele.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public br.com.archflow.api.approval.impl.ApprovalRequestedSignal approvalRequestedSignal() {
+        return new br.com.archflow.api.approval.impl.ApprovalRequestedSignal();
     }
 
     @Bean
@@ -787,7 +801,9 @@ public class ArchflowBeanConfiguration {
             @Value("${archflow.flow.strict-conditions:false}") boolean strictConditions,
             org.springframework.beans.factory.ObjectProvider<br.com.archflow.api.agent.mcp.McpAgentHost>
                     mcpAgentHost,
-            br.com.archflow.api.linktor.publisher.LinktorFlowPublisher linktorFlowPublisher) {
+            br.com.archflow.api.linktor.publisher.LinktorFlowPublisher linktorFlowPublisher,
+            org.springframework.beans.factory.ObjectProvider<
+                    br.com.archflow.api.approval.impl.ApprovalRequestedSignal> approvalRequestedSignal) {
         // Registered before create(): the factory snapshots process-wide
         // listeners into the engine's composite lifecycle listener.
         br.com.archflow.engine.lifecycle.FlowLifecycleListeners.register(
@@ -797,6 +813,10 @@ public class ArchflowBeanConfiguration {
         // antes e fotografa o registro no create(). O motor nascia sem ele, e um fluxo com conversationId
         // terminava COMPLETED sem publicar e sem log. A dependência explícita fixa a ordem.
         br.com.archflow.engine.lifecycle.FlowLifecycleListeners.register(linktorFlowPublisher);
+        // Parâmetro pelo mesmo motivo: o sweeper precisa saber, na hora, do pedido que um portão abriu.
+        // ObjectProvider para um contexto parcial (só o motor) continuar montável; sem o aviso, o
+        // sweeper volta a ver o pedido novo só no intervalo.
+        br.com.archflow.engine.lifecycle.FlowLifecycleListeners.register(approvalRequestedSignal.getIfAvailable());
         // Toda travessia ganha um contador de uso e o relata no fim (RCHFLW-75): editor, lista,
         // retomada e MCP passam pelo motor, e só o VendaX punha contador no contexto.
         br.com.archflow.engine.lifecycle.FlowLifecycleListeners.register(

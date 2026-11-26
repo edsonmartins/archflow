@@ -97,6 +97,33 @@ class SpringExecutionControllerTest {
         assertThat(body).containsEntry("pendingApproval", Map.of("requestId", "req-b", "stepId", "gate-b"));
     }
 
+    /**
+     * Vencido e ainda não varrido, o pedido já saiu da fila; o detalhe da execução dizia "aguardando
+     * decisão" e mandava decidir lá (RCHFLW-126). Com a fila ligada, ele diz o prazo e que venceu.
+     */
+    @Test
+    void getMarksThePendingRequestExpiredByTheQueueRule() {
+        when(store.getExecution(DefaultTenant.ID, "e1"))
+                .thenReturn(new LinkedHashMap<>(Map.of("id", "e1", "status", "PAUSED")));
+        java.time.Instant requested = java.time.Instant.parse("2026-11-24T12:00:00Z");
+        FlowState state = FlowState.builder()
+                .status(FlowStatus.AWAITING_APPROVAL)
+                .variables(new java.util.HashMap<>(Map.of(
+                        ExecutionKeys.APPROVAL_REQUEST_ID, "req-b",
+                        ExecutionKeys.APPROVAL_STEP_ID, "gate-b",
+                        ExecutionKeys.APPROVAL_REQUESTED_AT, requested.toString())))
+                .build();
+        when(stateManager.loadState("e1")).thenReturn(state);
+        controller.setApprovalQueue(new br.com.archflow.api.approval.impl.ApprovalQueueService(stateManager, engine,
+                java.time.Duration.ofMinutes(5),
+                java.time.Clock.fixed(requested.plus(java.time.Duration.ofMinutes(6)), java.time.ZoneOffset.UTC)));
+
+        Map<String, Object> body = controller.get("e1").getBody();
+
+        assertThat(body).containsEntry("pendingApproval", Map.of("requestId", "req-b", "stepId", "gate-b",
+                "expiresAt", "2026-11-24T12:05:00Z", "expired", true));
+    }
+
     @Test
     void getOmitsApprovalFieldsWhenThereAreNone() {
         when(store.getExecution(DefaultTenant.ID, "e1")).thenReturn(new LinkedHashMap<>(Map.of("id", "e1", "status", "COMPLETED")));
