@@ -682,10 +682,11 @@ public class AssistServiceImpl implements AssistService {
           .append("condition/switch, que nunca escolhe um ramo por ela. A entrada do run costuma ser o texto do ")
           .append("cliente, e aí ${<name do step input>.valor} não existe: para comparar um valor que o cliente ")
           .append("escreve no texto (um valor em reais, uma data, uma quantidade), extraia-o antes — um step ")
-          .append("decision com uma pergunta choice ou score sobre ele, ou um llm-chat cujo systemPrompt mande ")
-          .append("responder só o número em dígitos, sem separador de milhar nem moeda e com ponto decimal (1200 ")
-          .append("ou 1200.50, nunca 1.200 nem R$ 1.200,00 — 1.200 seria lido como 1,2), e então ")
-          .append("${<name do llm>} > 500. Compare um campo da entrada direto só ")
+          .append("decision com uma pergunta choice (uma opção por faixa, mais uma para \"não diz\") ou score sobre ")
+          .append("ele, e um switch em ${<name do decision>.decision} cujo default vai ao approval (ver o exemplo ")
+          .append("do reembolso nas regras do decision). Nunca peça a um llm-chat o número para compará-lo com >, ")
+          .append(">=, < ou <=: ele responde 1.500, 1.500,00 ou R$ 900 — os dois últimos falham o passo, e 1.500 é ")
+          .append("lido como 1,5 e escolhe o ramo errado. Compare um campo da entrada direto só ")
           .append("quando ela é um JSON que o traz, com o campo declarado nos ioFields do step input.\n");
     }
 
@@ -755,7 +756,9 @@ public class AssistServiceImpl implements AssistService {
           .append("\"sem_valor\":\"o pedido não diz o valor\"}}},\"primary\":\"valor\"}; depois um step ")
           .append("'por_valor' (switch) com switchExpression \"${faixa.decision}\" e switchCases \"ate_500\": ")
           .append("o caso ate_500 vai ao llm-chat e o default (onde caem acima_de_500, sem_valor e a decisão que ")
-          .append("falhou) ao approval — nunca ${<name do step input>.valor} > 500 sobre texto livre.\n");
+          .append("falhou) ao approval — nunca ${<name do step input>.valor} > 500 sobre texto livre. Os links do ")
+          .append("switch também não levam o caso: diga em 'observacoes' qual link sai pelo caso ate_500 e qual ")
+          .append("pelo default.\n");
     }
 
     private static void appendProps(StringBuilder sb, List<String> props) {

@@ -72,15 +72,62 @@ public interface WorkflowRuntimeStore {
     /** True only when the workflow exists AND belongs to the tenant. */
     boolean hasWorkflow(String tenantId, String id);
 
+    /** Status de execução que ainda dependem do fluxo: em andamento ou parada à espera (aprovação). */
+    Set<String> ACTIVE_EXECUTION_STATUSES = Set.of("RUNNING", "PAUSED");
+
     /**
-     * Removes the tenant's workflow with its versions and deployments; no-op for another tenant's.
+     * O desfecho de {@link #deleteWorkflow}.
+     *
+     * @param outcome          o que aconteceu
+     * @param activeExecutions os ids das execuções em andamento ou pausadas que impediram a exclusão; vazia nos
+     *                         outros desfechos
+     */
+    record Deletion(Outcome outcome, List<String> activeExecutions) {
+
+        public enum Outcome { DELETED, NOT_FOUND, HAS_ACTIVE_EXECUTIONS }
+
+        public Deletion {
+            activeExecutions = activeExecutions == null ? List.of() : List.copyOf(activeExecutions);
+        }
+
+        public static Deletion deleted() {
+            return new Deletion(Outcome.DELETED, List.of());
+        }
+
+        public static Deletion notFound() {
+            return new Deletion(Outcome.NOT_FOUND, List.of());
+        }
+
+        public static Deletion blockedBy(List<String> activeExecutions) {
+            return new Deletion(Outcome.HAS_ACTIVE_EXECUTIONS, activeExecutions);
+        }
+    }
+
+    /**
+     * Removes the tenant's workflow with its versions and deployments — unless an execution of it is RUNNING or
+     * PAUSED ({@link #ACTIVE_EXECUTION_STATUSES}); {@link Deletion.Outcome#NOT_FOUND} for another tenant's.
      *
      * <p>As execuções do fluxo <b>ficam</b> (RCHFLW-122): a lista, o detalhe e as decisões de aprovação
      * continuam consultáveis, com o nome que o registro guardou ({@code workflowName}). Apagá-las levava
      * junto a resposta a "quem autorizou isto". O fluxo em si some — da lista e do {@link #getWorkflow} —,
-     * sem exclusão lógica. Quem recusa excluir um fluxo com execução em andamento ou pausada é o controller.</p>
+     * sem exclusão lógica.</p>
+     *
+     * <p>A recusa por execução ativa é decidida aqui, junto com a exclusão, e não por uma consulta antes dela:
+     * a execução criada entre as duas escaparia da checagem. Cada implementação serializa a checagem e a
+     * exclusão com o {@link #createExecution} do mesmo fluxo — o in-memory sob o mesmo monitor, o JDBC sob a
+     * trava da linha do documento, na mesma transação. Uma execução cujo {@code createExecution} vem depois da
+     * exclusão continua possível (quem executa leu o documento antes) e roda pelo snapshot do
+     * {@code FlowRepository}.</p>
      */
-    void deleteWorkflow(String tenantId, String id);
+    Deletion deleteWorkflow(String tenantId, String id);
+
+    /** Os ids das execuções em andamento ou pausadas entre {@code executions}, na ordem dada. */
+    static List<String> activeExecutionIds(Collection<Map<String, Object>> executions) {
+        return executions.stream()
+                .filter(e -> ACTIVE_EXECUTION_STATUSES.contains(String.valueOf(e.get("status"))))
+                .map(e -> String.valueOf(e.get("id")))
+                .toList();
+    }
 
     /** Immutable snapshots, newest version first; empty when the workflow is not the tenant's. */
     List<WorkflowVersionRecord> workflowVersions(String tenantId, String workflowId);

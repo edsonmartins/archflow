@@ -117,6 +117,39 @@ class StandaloneRunnerExecutionTest {
         assertThat(result.getOutput()).hasValue("olá");
     }
 
+    /** O portão do QA (RCHFLW-123): {@code ${entrada.valor} > 500}, com só o ramo verdadeiro ligado. */
+    private static final String PORTAO_DE_VALOR = """
+            {"id": "reembolso", "metadata": {"name": "Reembolso", "version": "1.0.0"},
+             "steps": [
+               {"id": "entrada", "type": "input", "componentId": "input", "label": "Entrada",
+                "connections": [{"sourceId": "entrada", "targetId": "acima"}]},
+               {"id": "acima", "type": "condition", "componentId": "condition", "label": "Acima de 500?",
+                "configuration": {"conditionExpression": "${entrada.valor} > 500"},
+                "connections": [{"sourceId": "acima", "targetId": "gerente", "branch": "true"}]},
+               {"id": "gerente", "type": "output", "componentId": "output", "label": "Gerente"}
+             ]}
+            """;
+
+    @Test
+    @DisplayName("ARCHFLOW_FLOW_LENIENT_CONDITIONS: sem a variável a referência sem valor falha; com true, ramo false")
+    void lenienteVemDoAmbiente() throws Exception {
+        String texto = "quero reembolso de 900 reais";
+
+        FlowResult padrao = rodar(PORTAO_DE_VALOR, Map.of(), texto);
+        assertThat(padrao.getStatus()).isEqualTo(ExecutionStatus.FAILED);
+        assertThat(String.valueOf(padrao.getErrors())).contains("a referência ${entrada.valor} não tem valor");
+
+        FlowResult desligada = rodar(PORTAO_DE_VALOR, Map.of("ARCHFLOW_FLOW_LENIENT_CONDITIONS", "false"), texto);
+        assertThat(desligada.getStatus()).isEqualTo(ExecutionStatus.FAILED);
+
+        FlowResult leniente = rodar(PORTAO_DE_VALOR, Map.of("ARCHFLOW_FLOW_LENIENT_CONDITIONS", "true"), texto);
+        assertThat(leniente.getStatus()).as(String.valueOf(leniente.getErrors()))
+                .isEqualTo(ExecutionStatus.COMPLETED);
+        // O comportamento antigo: false sem aviso de falha, e o fluxo termina na condição (o ramo false não tem
+        // aresta) — a saída é a da condição, não a do gerente.
+        assertThat(String.valueOf(leniente.getOutput().orElseThrow())).contains("branch=false");
+    }
+
     @Test
     @DisplayName("llm-chat do designer fala com o provedor usando a chave do ambiente, não a do arquivo")
     void llmChatContraServidorLocal() throws Exception {

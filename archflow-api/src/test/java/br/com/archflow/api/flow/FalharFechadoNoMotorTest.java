@@ -47,12 +47,18 @@ class FalharFechadoNoMotorTest {
             "Olá, sou a Carla e quero reembolso de 900 reais do pedido 555, veio quebrado.";
 
     private static DefaultFlowStepFactory fabrica(boolean leniente) {
+        return fabrica(leniente, false);
+    }
+
+    /** @param estrito o {@code archflow.flow.strict-conditions} — o mesmo valor vai ao motor, em {@link #executar}. */
+    private static DefaultFlowStepFactory fabrica(boolean leniente, boolean estrito) {
         ComponentCatalog catalog = mock(ComponentCatalog.class);
         when(catalog.getComponent(anyString())).thenReturn(Optional.empty());
         DefaultFlowStepFactory fabrica = new DefaultFlowStepFactory(catalog, mock(DynamicWorkflowService.class),
                 mock(br.com.archflow.agent.streaming.EventStreamRegistry.class),
                 mock(br.com.archflow.engine.core.StateManager.class), null);
         fabrica.setLenientConditionsProperty(leniente);
+        fabrica.setStrictConditionsProperty(estrito);
         return fabrica;
     }
 
@@ -102,6 +108,13 @@ class FalharFechadoNoMotorTest {
     private static FlowResult executar(Flow flow, DefaultExecutionContext ctx) throws Exception {
         FlowEngine motor = FlowEngineFactory.create(new InMemoryFlowRepository(), null, null,
                 new InMemoryStateManager());
+        return motor.execute(flow, ctx).get(15, TimeUnit.SECONDS);
+    }
+
+    /** O motor com {@code archflow.flow.strict-conditions=true}, como o {@code flowEngine} do servidor o monta. */
+    private static FlowResult executarEstrito(Flow flow, DefaultExecutionContext ctx) throws Exception {
+        FlowEngine motor = FlowEngineFactory.create(new InMemoryFlowRepository(), null, null,
+                new InMemoryStateManager(), null, null, 16, 3_600_000L, 8, true);
         return motor.execute(flow, ctx).get(15, TimeUnit.SECONDS);
     }
 
@@ -167,6 +180,23 @@ class FalharFechadoNoMotorTest {
             DefaultExecutionContext digitos = contexto(flow.getId(), Map.of("input", "oi", "valor_llm", "1200"));
             assertThat(executar(flow, digitos).getStatus()).isEqualTo(ExecutionStatus.COMPLETED);
             assertThat(digitos.get("gerente")).isPresent();
+
+            // Os formatos da revisão: nenhum escolhe um ramo — o passo falha nomeando o valor.
+            for (String ptBr : List.of("1.500,00", "R$ 900", "900 reais")) {
+                DefaultExecutionContext c = contexto(flow.getId(), Map.of("input", "oi", "valor_llm", ptBr));
+                FlowResult falhou = executar(flow, c);
+                assertThat(falhou.getStatus()).as(ptBr).isEqualTo(ExecutionStatus.FAILED);
+                assertThat(erros(falhou)).as(ptBr).contains("${valor_llm} = «" + ptBr + "», que não é número")
+                        .contains("Extraia o valor com um nó decision");
+                assertThat(c.get("automatico")).as(ptBr).isEmpty();
+                assertThat(c.get("gerente")).as(ptBr).isEmpty();
+            }
+            // O limite do avaliador, e o motivo de os assistentes não pedirem o número a um LLM: «1.500» é um
+            // número válido (1,5) e decide — o ramo errado para o «mil e quinhentos» de um texto em pt-BR.
+            DefaultExecutionContext milEQuinhentos = contexto(flow.getId(),
+                    Map.of("input", "oi", "valor_llm", "1.500"));
+            assertThat(executar(flow, milEQuinhentos).getStatus()).isEqualTo(ExecutionStatus.COMPLETED);
+            assertThat(milEQuinhentos.get("automatico")).isPresent();
         }
 
         @Test
@@ -255,8 +285,8 @@ class FalharFechadoNoMotorTest {
             assertThat(r.getStatus()).isEqualTo(ExecutionStatus.FAILED);
             assertThat(erros(r))
                     .contains("switch \"Por categoria\" (rota)")
-                    .contains("o valor «vendas» não casa com nenhum caso (financeiro, suporte) e não há aresta "
-                            + "default");
+                    .contains("o valor «vendas» não casa com nenhum caso (financeiro, suporte) e nenhuma aresta "
+                            + "de saída seria seguida pelo ramo default");
         }
 
         @Test
@@ -341,6 +371,32 @@ class FalharFechadoNoMotorTest {
 
             assertThat(r.getStatus()).as(erros(r)).isEqualTo(ExecutionStatus.COMPLETED);
             assertThat(ctx.get("humano")).isPresent();
+        }
+
+        @Test
+        @DisplayName("archflow.flow.strict-conditions=true: a aresta que não se avalia não é seguida, e o switch falha")
+        void arestaNaoAvaliavelNoMotorEstritoFalha() throws Exception {
+            // O motor estrito bloqueia ${rota.value} > 5 com o valor nulo. Conferido no modo permissivo, o switch
+            // contava a aresta como seguida, concluía — e o fluxo terminava COMPLETED sem chegar ao humano.
+            List<Map<String, Object>> passos = List.of(
+                    no("receber", "input", "Receber", Map.of(), List.of(Map.of("targetId", "rota"))),
+                    no("rota", "switch", "Por categoria", Map.of("switchExpression", "${triagem.decision}",
+                            "switchCases", "financeiro"), List.of(
+                                    Map.of("targetId", "humano", "condition", "${rota.value} > 5"))),
+                    no("humano", "output", "Humano", Map.of(), List.of()));
+            Flow flow = new DefaultWorkflowDeserializer(fabrica(false, true)).toFlow(Map.of("id", "estrito",
+                    "metadata", Map.of("name", "estrito"), "steps", passos));
+            Map<String, Object> falhou = new LinkedHashMap<>();
+            falhou.put("route", "ESCALATE");
+            falhou.put("decision", null);
+            DefaultExecutionContext ctx = contexto(flow.getId(), Map.of("input", "oi", "triagem", falhou));
+
+            FlowResult r = executarEstrito(flow, ctx);
+
+            assertThat(r.getStatus()).as(erros(r)).isEqualTo(ExecutionStatus.FAILED);
+            assertThat(erros(r)).contains("switch \"Por categoria\" (rota)")
+                    .contains("nenhuma aresta de saída seria seguida pelo ramo default");
+            assertThat(ctx.get("humano")).isEmpty();
         }
 
         @Test

@@ -94,18 +94,33 @@ describe('WorkflowListPage — Excluir (RCHFLW-122)', () => {
     await waitFor(() => expect(body.queryByTestId('delete-workflow-message')).toBeNull())
   })
 
-  it('409 com execução ativa: o motivo aparece no diálogo, que fica aberto, e o fluxo fica na lista', async () => {
-    workflowApiMock.delete.mockRejectedValue(new ApiError(409, 'O fluxo tem uma execução…', JSON.stringify({
-      error: 'O fluxo tem uma execução…', code: 'WORKFLOW_HAS_ACTIVE_EXECUTIONS', executions: ['exec-1'],
-    })))
+  it('409 com execução ativa: o motivo e as execuções aparecem no diálogo, que fica aberto, e o fluxo fica na lista',
+    async () => {
+      workflowApiMock.delete.mockRejectedValue(new ApiError(409, 'O fluxo tem 2 execuções…', JSON.stringify({
+        error: 'O fluxo tem 2 execuções…', code: 'WORKFLOW_HAS_ACTIVE_EXECUTIONS', executions: ['exec-1', 'exec-2'],
+      })))
+      const body = await abrirExclusao()
+
+      await act(async () => { fireEvent.click(body.getByTestId('delete-workflow-confirm')) })
+
+      await waitFor(() => body.getByTestId('delete-workflow-error'))
+      expect(body.getByTestId('delete-workflow-error-message').textContent).toBe('workflows.deleteModal.blocked')
+      // Quais execuções impedem a exclusão — o servidor as diz no corpo, e o diálogo não as troca por um texto genérico.
+      const bloqueio = body.getByTestId('delete-workflow-blocking')
+      expect(bloqueio.textContent).toBe('workflows.deleteModal.blockedBy exec-1, exec-2')
+      expect(within(bloqueio).getAllByRole('button').map(b => b.textContent)).toEqual(['exec-1', 'exec-2'])
+      expect(body.getByTestId('delete-workflow-message')).toBeTruthy()
+      expect(useWorkflowStore.getState().workflows.map(w => w.id)).toEqual(['wf-1'])
+    })
+
+  it('outro erro (não o 409 de execução ativa): a mensagem dele, sem lista de execuções', async () => {
+    workflowApiMock.delete.mockRejectedValue(new ApiError(500, 'Falha ao excluir'))
     const body = await abrirExclusao()
 
     await act(async () => { fireEvent.click(body.getByTestId('delete-workflow-confirm')) })
 
-    expect((await waitFor(() => body.getByTestId('delete-workflow-error'))).textContent)
-      .toBe('workflows.deleteModal.blocked')
-    expect(body.getByTestId('delete-workflow-message')).toBeTruthy()
-    expect(useWorkflowStore.getState().workflows.map(w => w.id)).toEqual(['wf-1'])
+    expect((await waitFor(() => body.getByTestId('delete-workflow-error-message'))).textContent).toBe('Falha ao excluir')
+    expect(body.queryByTestId('delete-workflow-blocking')).toBeNull()
   })
 
   it('o texto do diálogo diz, nas duas línguas, que o histórico de execuções fica', () => {
@@ -115,5 +130,7 @@ describe('WorkflowListPage — Excluir (RCHFLW-122)', () => {
     expect(en.workflows.deleteModal.message).toContain('execution history')
     expect(ptBR.workflows.deleteModal.blocked).toBeTruthy()
     expect(en.workflows.deleteModal.blocked).toBeTruthy()
+    expect(ptBR.workflows.deleteModal.blockedBy).toBe('Execuções que impedem a exclusão:')
+    expect(en.workflows.deleteModal.blockedBy).toBe('Executions blocking the deletion:')
   })
 })

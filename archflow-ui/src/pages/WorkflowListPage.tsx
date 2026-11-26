@@ -1,6 +1,6 @@
 import {
     Button, Group, Text, TextInput, Stack, LoadingOverlay, Modal,
-    Alert, SimpleGrid, Card, Badge, ActionIcon, Tooltip, Paper,
+    Alert, SimpleGrid, Card, Badge, ActionIcon, Tooltip, Paper, Anchor,
 } from '@mantine/core';
 import {
     IconPlus, IconSearch, IconPlayerPlay, IconPencil, IconTrash,
@@ -70,8 +70,9 @@ export default function WorkflowListPage() {
     const totalSteps = useMemo(() => workflows.reduce((n, w) => n + (w.stepCount ?? 0), 0), [workflows]);
 
     // O diálogo diz qual fluxo sai e que o histórico fica (RCHFLW-122); o servidor recusa (409) enquanto houver
-    // execução em andamento ou pausada, e o motivo aparece no próprio diálogo, que continua aberto.
-    const [deleteError, setDeleteError] = useState<string | null>(null);
+    // execução em andamento ou pausada, e o motivo aparece no próprio diálogo, que continua aberto — com as
+    // execuções que o servidor diz que impedem a exclusão, cada uma levando ao detalhe onde se cancela ou decide.
+    const [deleteError, setDeleteError] = useState<{ message: string; executions: string[] } | null>(null);
     const deleting = workflows.find(w => w.id === deleteId);
     const closeDelete = () => { setDeleteId(null); setDeleteError(null); };
     const handleDelete = async () => {
@@ -80,10 +81,14 @@ export default function WorkflowListPage() {
             await deleteWorkflow(deleteId);
             closeDelete();
         } catch (e) {
-            setDeleteError(e instanceof ApiError && e.status === 409
-                && e.details?.code === 'WORKFLOW_HAS_ACTIVE_EXECUTIONS'
-                ? t('workflows.deleteModal.blocked')
-                : e instanceof Error ? e.message : String(e));
+            const details = e instanceof ApiError && e.status === 409 ? e.details : null;
+            if (details?.code === 'WORKFLOW_HAS_ACTIVE_EXECUTIONS') {
+                const executions = Array.isArray(details.executions)
+                    ? details.executions.filter((id): id is string => typeof id === 'string') : [];
+                setDeleteError({ message: t('workflows.deleteModal.blocked'), executions });
+            } else {
+                setDeleteError({ message: e instanceof Error ? e.message : String(e), executions: [] });
+            }
         }
     };
 
@@ -353,7 +358,19 @@ export default function WorkflowListPage() {
                 {deleteError && (
                     <Alert color="red" variant="light" mt="sm" icon={<IconAlertCircle size={16} />}
                            data-testid="delete-workflow-error">
-                        {deleteError}
+                        <Text size="sm" data-testid="delete-workflow-error-message">{deleteError.message}</Text>
+                        {deleteError.executions.length > 0 && (
+                            <Text size="sm" mt={4} data-testid="delete-workflow-blocking">
+                                {t('workflows.deleteModal.blockedBy')}{' '}
+                                {deleteError.executions.map((id, i) => (
+                                    <span key={id}>
+                                        {i > 0 && ', '}
+                                        <Anchor component="button" type="button" size="sm"
+                                                onClick={() => navigate(`/executions/${id}`)}>{id}</Anchor>
+                                    </span>
+                                ))}
+                            </Text>
+                        )}
                     </Alert>
                 )}
                 <Group justify="flex-end" mt="md">

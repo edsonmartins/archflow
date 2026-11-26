@@ -86,10 +86,15 @@ public final class ControlStep implements FlowStep {
     private final String label;
     /** {@code archflow.flow.lenient-conditions}: a referência sem valor segue o ramo padrão, como antes. */
     private final boolean lenient;
+    /**
+     * {@code archflow.flow.strict-conditions}, o mesmo do motor: com ele a aresta cuja condição não se avalia
+     * não é seguida. O "sem saída" do switch lê as arestas com a mesma regra, para o veredito ser o do motor.
+     */
+    private final boolean strictEdges;
 
     public ControlStep(String id, Kind kind, List<StepConnection> connections,
                        Map<String, Object> config) {
-        this(id, kind, connections, config, null, false);
+        this(id, kind, connections, config, null, false, false);
     }
 
     /**
@@ -98,12 +103,21 @@ public final class ControlStep implements FlowStep {
      */
     public ControlStep(String id, Kind kind, List<StepConnection> connections,
                        Map<String, Object> config, String label, boolean lenient) {
+        this(id, kind, connections, config, label, lenient, false);
+    }
+
+    /**
+     * @param strictEdges o {@code archflow.flow.strict-conditions} com que o motor percorre as arestas
+     */
+    public ControlStep(String id, Kind kind, List<StepConnection> connections,
+                       Map<String, Object> config, String label, boolean lenient, boolean strictEdges) {
         this.id = id;
         this.kind = kind;
         this.connections = connections == null ? List.of() : List.copyOf(connections);
         this.config = config == null ? Map.of() : Map.copyOf(config);
         this.label = label == null || label.isBlank() ? null : label.trim();
         this.lenient = lenient;
+        this.strictEdges = strictEdges;
     }
 
     @Override public String getId() { return id; }
@@ -184,9 +198,9 @@ public final class ControlStep implements FlowStep {
         if (!lenient && kind == Kind.SWITCH && !saida.containsKey("error") && "default".equals(saida.get("branch"))
                 && semSaida(context)) {
             return falha(start, nomeDoNo() + ": o valor «" + saida.get("value") + "» não casa com nenhum caso ("
-                    + (casos().isEmpty() ? "nenhum declarado" : String.join(", ", casos())) + ") e não há aresta "
-                    + "default — o fluxo terminaria sem chegar a uma saída. Ligue uma aresta default ou um caso "
-                    + "para esse valor");
+                    + (casos().isEmpty() ? "nenhum declarado" : String.join(", ", casos())) + ") e nenhuma aresta "
+                    + "de saída seria seguida pelo ramo default — o fluxo terminaria sem chegar a uma saída. Ligue "
+                    + "uma aresta default ou um caso para esse valor");
         }
         return CompletableFuture.completedFuture(SimpleStepResult.ok(id, saida, ms(start)));
     }
@@ -224,17 +238,17 @@ public final class ControlStep implements FlowStep {
      * Nenhuma aresta normal do switch seria seguida com o ramo que ele gravou. Sem arestas de saída não se
      * aplica: o nó é o fim do caminho, com caso ou sem caso.
      *
-     * <p>Avalia no modo permissivo de propósito: nele a condição que não se avalia conta como seguida, então
-     * "nenhuma seguida" quer dizer que cada aresta deu {@code false} de verdade — o que o motor não segue em
-     * modo nenhum ({@code archflow.flow.strict-conditions} ligado ou não). No estrito, a aresta escrita à mão
-     * que quebra contaria como não seguida, e o passo falharia onde o motor padrão a seguiria.</p>
+     * <p>Avalia com a mesma regra do motor ({@code archflow.flow.strict-conditions}, {@link #strictEdges}):
+     * no padrão permissivo a condição que não se avalia conta como seguida, como o motor a segue; no estrito
+     * ela conta como não seguida, porque o motor a bloqueia — e o switch que só tinha essa aresta terminaria o
+     * fluxo calado. Com outra regra aqui o veredito divergiria do caminho que o motor de fato percorre.</p>
      */
     private boolean semSaida(ExecutionContext context) {
         List<StepConnection> normais = connections.stream().filter(c -> !c.isErrorPath()).toList();
         if (normais.isEmpty()) {
             return false;
         }
-        ConditionEvaluator avaliador = new ConditionEvaluator(false);
+        ConditionEvaluator avaliador = new ConditionEvaluator(strictEdges);
         return normais.stream().noneMatch(c -> avaliador.evaluate(c.getCondition().orElse(null), context));
     }
 
@@ -243,16 +257,18 @@ public final class ControlStep implements FlowStep {
         return nomeDoNo() + ", campo " + expressionField() + ": "
                 + (referencias.size() == 1 ? "a referência " : "as referências ") + String.join(", ", referencias)
                 + (referencias.size() == 1 ? " não tem valor" : " não têm valor") + " nesta execução — o passo "
-                + "falha em vez de escolher um ramo. Se o valor vem do texto do cliente, extraia-o antes (um nó "
-                + "decision ou um LLM que devolva o valor); se vem do JSON de entrada, envie o campo";
+                + "falha em vez de escolher um ramo. Se o valor vem do texto do cliente, extraia-o antes com um nó "
+                + "decision (uma pergunta choice por faixa) e ramifique pela resposta dele; se vem do JSON de "
+                + "entrada, envie o campo";
     }
 
     /** A falha da comparação de ordem entre um número e um valor que não é número. */
     private String semNumero(List<String> valores) {
         return nomeDoNo() + ", campo " + expressionField() + ": a comparação de ordem (>, >=, <, <=) põe um número "
                 + "contra " + String.join(", ", valores) + ", que não é número — o passo falha em vez de escolher um "
-                + "ramo pela ordem do texto. Faça o passo anterior devolver só os dígitos, sem separador de milhar "
-                + "nem moeda, com ponto decimal (1200 ou 1200.50), ou extraia o valor com um nó decision";
+                + "ramo pela ordem do texto. Extraia o valor com um nó decision (uma pergunta choice por faixa) e "
+                + "ramifique pela resposta dele: o número escrito por um LLM não é confiável para comparar (1.500 "
+                + "seria lido como 1,5)";
     }
 
     /** {@code condition "Rótulo" (id)}, ou só o id quando o nó não tem rótulo. */

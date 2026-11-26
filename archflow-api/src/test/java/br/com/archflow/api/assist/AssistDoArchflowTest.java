@@ -188,7 +188,8 @@ class AssistDoArchflowTest {
     /**
      * RCHFLW-123: o "Gerar com IA" montou {@code ${entrada.valor} > 500} sobre a entrada em texto livre, e o LLM
      * confirmou um reembolso de R$ 900 sem aprovação. O motor agora falha o passo; o prompt ensina a extrair o valor
-     * antes (decision ou llm-chat) e traz o exemplo do reembolso — que, devolvido pelo modelo, não gera aviso.
+     * antes com um decision (nunca um llm-chat que devolva o número para comparar) e traz o exemplo do reembolso —
+     * que, devolvido pelo modelo, não gera aviso.
      */
     @Test
     @DisplayName("nl-to-flow ensina que a referência sem valor falha o passo e a extrair o valor do texto antes")
@@ -215,11 +216,17 @@ class AssistDoArchflowTest {
 
         assertThat(prompts.getFirst())
                 .contains("Uma referência ${caminho} sem valor na execução FALHA o passo da condition/switch")
-                .contains("extraia-o antes — um step decision com uma pergunta choice ou score sobre ele")
-                // O llm que devolve o número: «1.200» seria lido 1,2 e o reembolso de R$ 1.200 iria ao automático.
-                .contains("responder só o número em dígitos, sem separador de milhar nem moeda e com ponto decimal")
+                .contains("extraia-o antes — um step decision com uma pergunta choice")
+                .contains("e um switch em ${<name do decision>.decision} cujo default vai ao approval")
+                // O llm que devolve o número não é caminho: «1.500» seria lido 1,5 e o reembolso de R$ 1.500 iria ao
+                // automático; «R$ 900» e «1.500,00» falham o passo. O prompt o proíbe em vez de ensiná-lo.
+                .contains("Nunca peça a um llm-chat o número para compará-lo com >, >=, < ou <=")
+                .doesNotContain("responder só o número")
+                .doesNotContain("${<name do llm>} > 500")
                 .contains("switchExpression \"${faixa.decision}\" e switchCases \"ate_500\"")
-                .contains("nunca ${<name do step input>.valor} > 500 sobre texto livre");
+                .contains("nunca ${<name do step input>.valor} > 500 sobre texto livre")
+                // Os links não levam o caso do switch, como não levam o true/false da condition.
+                .contains("diga em 'observacoes' qual link sai pelo caso ate_500 e qual pelo default");
         assertThat(String.valueOf(r.observacoes())).doesNotContain("será recusado").doesNotContain("\"por_valor\"");
     }
 

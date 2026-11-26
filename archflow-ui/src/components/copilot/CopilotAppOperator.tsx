@@ -191,10 +191,11 @@ const EXPRESSION_RULES: string[] = [
     'A condition/switch reference with no value at run time FAILS the step — it never picks a branch. The run input '
         + 'is often the customer\'s free text, and then ${<inputNodeId>.valor} does not exist. To compare a value the '
         + 'customer writes in the text (an amount, a date, a quantity), extract it first: a decision node with a '
-        + 'choice or score question about it, or an llm-chat whose systemPrompt says to answer only the number in '
-        + 'digits, with no thousands separator or currency and a dot as decimal point (1200 or 1200.50, never 1.200 or '
-        + 'R$ 1.200,00 — 1.200 would read as 1.2), then ${<llmId>} > 500. Compare an input field directly only when '
-        + 'the run input is JSON carrying it, declared in the input node ioFields.',
+        + 'choice question about it (one option per range, plus one for "not stated") or a score question, then a '
+        + 'switch on ${<decisionId>.decision} whose default goes to the approval (see the refund example below). '
+        + 'Never ask an llm-chat for the number to compare it with >, >=, < or <=: it answers 1.500, 1.500,00 or '
+        + 'R$ 900 — the last two fail the step, and 1.500 reads as 1.5 and picks the wrong branch. Compare an input '
+        + 'field directly only when the run input is JSON carrying it, declared in the input node ioFields.',
     'Example — "refund requests above 500 reais need the manager\'s approval; below, answer automatically" (the amount '
         + 'comes in the customer text): decision D with config {"provider":"llm","questions":{"valor":{"type":"choice",'
         + '"instructions":"Qual o valor do reembolso pedido?","criteria":{"acima_de_500":"mais de R$ 500",'

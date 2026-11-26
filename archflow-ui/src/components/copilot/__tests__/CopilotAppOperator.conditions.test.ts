@@ -624,9 +624,13 @@ describe('RCHFLW-123 — o valor que vem no texto do cliente é extraído antes 
         const regras = (rules() as string[]).join('\n')
         // O defeito do QA: ${entrada.valor} > 500 sobre texto livre dava false e o LLM aprovava sozinho.
         expect(regras).toContain('A condition/switch reference with no value at run time FAILS the step')
-        expect(regras).toContain('extract it first: a decision node with a choice or score question about it')
-        // O llm que devolve o número: «1.200» seria lido 1.2 e o reembolso de R$ 1.200 iria ao automático.
-        expect(regras).toContain('answer only the number in digits, with no thousands separator or currency')
+        expect(regras).toContain('extract it first: a decision node with a choice question about it')
+        expect(regras).toContain('then a switch on ${<decisionId>.decision} whose default goes to the approval')
+        // O llm que devolve o número não é caminho: «1.500» seria lido 1.5 e o reembolso de R$ 1.500 iria ao
+        // automático; «R$ 900» e «1.500,00» falham o passo. A regra o proíbe em vez de ensiná-lo.
+        expect(regras).toContain('Never ask an llm-chat for the number to compare it with >, >=, < or <=')
+        expect(regras).not.toContain('answer only the number')
+        expect(regras).not.toContain('${<llmId>} > 500')
         expect(regras).toContain('Never ${<inputNodeId>.valor} > 500 over free text.')
         return [
           { name: 'addNode', args: { nodeType: 'input', label: 'Receber pedido' } },

@@ -89,6 +89,10 @@ public class PortableFlowStepFactory implements FlowStepFactory {
     // condition/switch falha o passo, e o switch sem aresta para o ramo também. true devolve o ramo padrão.
     private boolean lenientConditions;
 
+    // archflow.flow.strict-conditions, o mesmo flag com que o motor percorre as arestas: o switch confere "sem
+    // saída" com a regra que o motor vai aplicar (ver ControlStep). Default false, como no motor.
+    private boolean strictConditions;
+
     /**
      * @param catalog           catálogo dos componentes ({@link ComponentStep})
      * @param interceptors      cadeia de interceptors das invocações, ou {@code null}
@@ -122,6 +126,14 @@ public class PortableFlowStepFactory implements FlowStepFactory {
      */
     public void setLenientConditions(boolean lenient) {
         this.lenientConditions = lenient;
+    }
+
+    /**
+     * {@code archflow.flow.strict-conditions}: o mesmo valor entregue ao motor. Não muda o ramo que um
+     * {@code switch} escolhe — só a regra com que ele confere se alguma aresta de saída seria seguida.
+     */
+    public void setStrictConditions(boolean strict) {
+        this.strictConditions = strict;
     }
 
     public void setAdapterConnections(br.com.archflow.api.flow.adapter.AdapterConnections connections) {
@@ -227,7 +239,7 @@ public class PortableFlowStepFactory implements FlowStepFactory {
         if ("condition".equals(kind) || "switch".equals(kind)) {
             return new ControlStep(id, "condition".equals(kind)
                     ? ControlStep.Kind.CONDITION : ControlStep.Kind.SWITCH, connections, config,
-                    str(node.get("label"), null), lenientConditions);
+                    str(node.get("label"), null), lenientConditions, strictConditions);
         }
 
         if (StepType.APPROVAL.name().equalsIgnoreCase(type)) {

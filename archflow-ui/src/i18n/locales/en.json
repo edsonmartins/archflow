@@ -327,7 +327,8 @@
         "deleteModal": {
             "title": "Delete Workflow",
             "message": "Delete the workflow “{{name}}”? It leaves the workflow list and cannot be recovered. Its execution history and approval decisions stay in Executions.",
-            "blocked": "The workflow has an execution running or awaiting approval. Cancel the execution or decide the approval before deleting it."
+            "blocked": "The workflow has an execution running or awaiting approval. Cancel the execution or decide the approval before deleting it.",
+            "blockedBy": "Executions blocking the deletion:"
         }
     },
     "editor": {
@@ -1767,7 +1768,7 @@
         "asEmpty": "No input: the flow runs with an empty input (\"\") and no other variables.",
         "asVariables": "JSON object: variables {{keys}}.",
         "asText": "Text: reaches the flow as input.",
-        "missingFields": "The Input node declares the fields {{fields}}, and this input does not carry them. A condition or switch comparing one of them fails the step instead of picking a branch. Send a JSON object with the fields, or extract the value from the text first (a decision node or an LLM).",
+        "missingFields": "The Input node declares the fields {{fields}}, and this input does not carry them. A condition or switch comparing one of them fails the step instead of picking a branch. Send a JSON object with the fields, or extract the value from the text first with a decision node and branch on its answer.",
         "cancel": "Cancel",
         "run": "Run",
         "target": {
