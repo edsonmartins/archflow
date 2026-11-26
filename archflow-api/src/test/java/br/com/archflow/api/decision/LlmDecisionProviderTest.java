@@ -124,4 +124,51 @@ class LlmDecisionProviderTest {
         assertThatThrownBy(() -> provedor("não sei").decide(pedido(), chamada(Map.of())))
                 .isInstanceOfSatisfying(DecisionException.class, e -> assertThat(e.retryable()).isFalse());
     }
+
+    /**
+     * RCHFLW-156: com uma pergunta só, o modelo devolvia o objeto do exemplo da pergunta sem o id em volta, e o
+     * provedor dizia "o LLM não respondeu a 'assunto'" — a triagem de pergunta única escalava quase todo pedido.
+     */
+    private static DecisionRequest perguntaUnica() {
+        return new DecisionRequest("Quero meu dinheiro de volta do pedido 991, veio errado.", List.of(
+                new Question.Choice("assunto", "Qual o assunto?",
+                        Map.of("reembolso", "devolução de dinheiro", "outro", "outro"))));
+    }
+
+    @Test
+    @DisplayName("pergunta única: aceita o objeto solto, com o mesmo teto de confiança")
+    void perguntaUnicaSemEnvelope() throws Exception {
+        DecisionResult r = provedor("{\"choice\": \"reembolso\", \"confidence\": 0.97}")
+                .decide(perguntaUnica(), chamada(Map.of()));
+
+        Answer.Choice assunto = (Answer.Choice) r.answers().get("assunto");
+        assertThat(assunto.choice()).isEqualTo("reembolso");
+        assertThat(assunto.confidence()).as("o LLM continua sem calibração").isEqualTo(0.89);
+    }
+
+    @Test
+    @DisplayName("pergunta única: o objeto solto sem resposta, ou com opção fora do critério, continua erro")
+    void perguntaUnicaSemRespostaNaoViraChute() {
+        assertThatThrownBy(() -> provedor("{\"confidence\": 0.9}").decide(perguntaUnica(), chamada(Map.of())))
+                .hasMessageContaining("não respondeu a 'assunto'");
+        assertThatThrownBy(() -> provedor("{\"choice\": \"cobranca\", \"confidence\": 0.9}")
+                .decide(perguntaUnica(), chamada(Map.of()))).hasMessageContaining("opção inválida");
+    }
+
+    @Test
+    @DisplayName("com várias perguntas, o objeto solto não serve: não há como saber a qual ele responde")
+    void variasPerguntasExigemOEnvelope() {
+        assertThatThrownBy(() -> provedor("{\"choice\": \"pagamento\", \"confidence\": 0.9}")
+                .decide(pedido(), chamada(Map.of()))).hasMessageContaining("não respondeu a 'time'");
+    }
+
+    @Test
+    @DisplayName("o prompt mostra a resposta inteira, com o id de cada pergunta como chave")
+    void promptMostraOEnvelope() throws Exception {
+        provedor("{\"assunto\": {\"choice\": \"reembolso\", \"confidence\": 0.8}}")
+                .decide(perguntaUnica(), chamada(Map.of()));
+
+        String sistema = ((SystemMessage) vistas.get(0)).text();
+        assertThat(sistema).contains("{\"assunto\": {\"choice\": \"<opção>\", \"confidence\": <0 a 1>}}");
+    }
 }

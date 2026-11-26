@@ -1463,7 +1463,11 @@ public class ArchflowBeanConfiguration {
             com.fasterxml.jackson.databind.ObjectMapper objectMapper,
             org.springframework.beans.factory.ObjectProvider<br.com.archflow.api.catalog.CatalogController>
                     catalogController,
-            org.springframework.beans.factory.ObjectProvider<br.com.archflow.api.flow.NodeSupport> nodeSupport) {
+            org.springframework.beans.factory.ObjectProvider<br.com.archflow.api.flow.NodeSupport> nodeSupport,
+            // RCHFLW-154: o rascunho de um fluxo com vários ramos não cabe no teto padrão de 1024 tokens.
+            @Value("${archflow.assist.nl-to-flow.max-tokens:"
+                    + br.com.archflow.api.assist.impl.AssistServiceImpl.NL_TO_FLOW_MAX_TOKENS_PADRAO + "}")
+                    int nlToFlowMaxTokens) {
         // O catálogo executável do servidor (RCHFLW-107): o nl-to-flow sem catálogo no corpo usa este, e o
         // explain-error o descreve ao modelo em vez de deixá-lo inventar componentes.
         var catalogo = catalogController.getIfAvailable();
@@ -1471,7 +1475,8 @@ public class ArchflowBeanConfiguration {
         return new br.com.archflow.api.assist.impl.AssistServiceImpl(
                 llmConfigResolver, platformDefaultLLMConfig, objectMapper,
                 catalogo == null || suporte == null ? null
-                        : new br.com.archflow.api.assist.ServerFlowCatalog(catalogo, suporte));
+                        : new br.com.archflow.api.assist.ServerFlowCatalog(catalogo, suporte),
+                nlToFlowMaxTokens);
     }
 
     // =========================================================================

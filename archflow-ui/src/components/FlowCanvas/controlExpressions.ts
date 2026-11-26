@@ -298,6 +298,57 @@ export function declaredInputFields(step: ControlCandidateStep): string[] {
   return raw.filter((f): f is string => typeof f === 'string').map(f => f.trim()).filter(f => f !== '')
 }
 
+/** As cadeias do state do decision (StateTemplate resolve as referências delas), em qualquer profundidade. */
+function stateStrings(value: unknown): string[] {
+  if (typeof value === 'string') return [value]
+  if (Array.isArray(value)) return value.flatMap(stateStrings)
+  if (value !== null && typeof value === 'object') return Object.values(value).flatMap(stateStrings)
+  return []
+}
+
+/** Os textos de um passo cujas referências o motor resolve (e cuja referência sem valor falha o passo). */
+function resolvedTexts(step: ControlCandidateStep): string[] {
+  const kind = kindOf(step)
+  const out: string[] = []
+  const control = CONTROL_EXPRESSION_FIELD[kind]
+  const expression = control ? step.config?.[control] : undefined
+  if (typeof expression === 'string') out.push(expression)
+  const message = step.config?.[USER_MESSAGE_FIELD]
+  if (typeof message === 'string' && kindsOf(step).some(k => TEXT_OUTPUT_NODE_TYPES.has(k))) out.push(message)
+  if (kind === 'decision') out.push(...stateStrings(step.config?.state))
+  return out
+}
+
+/**
+ * Os campos declarados nas Entradas (ioFields) que alguma referência do fluxo lê — condition, switch, a "Mensagem do
+ * usuário" do chat, o state do decision e a {@code condition} escrita à mão numa aresta ({@code edgeConditions}).
+ * É o que o Executar avisa quando a entrada não traz (RCHFLW-189): o copiloto declara ioFields em toda Entrada, e
+ * o aviso "uma condição que compare um deles falha o passo" saía para campos que nada lê, num fluxo que terminava
+ * normalmente com texto livre. O systemPrompt e os textos da aprovação não resolvem referências e não contam.
+ *
+ * <p>Um campo é lido pelas três formas que o {@code ConditionEvaluator} resolve até a chave do JSON de entrada: a
+ * raiz ({@code ${campo}}), o id de uma Entrada ({@code ${receber.campo}} — a Entrada repassa a entrada, e é a forma
+ * do gate do RCHFLW-123) e {@code ${input.campo}} (RunInputSeeding grava o objeto inteiro em {@code input}). Contar
+ * só a raiz apagava o aviso justamente no fluxo para o qual ele foi feito.</p>
+ */
+export function referencedInputFields(
+  steps: readonly ControlCandidateStep[],
+  edgeConditions: readonly string[] = [],
+): string[] {
+  const declared = new Set(steps.flatMap(declaredInputFields))
+  if (declared.size === 0) return []
+  const inputRoots = new Set(['input', ...steps.filter(s => kindsOf(s).includes('input')).map(s => s.id)])
+  const read = new Set<string>()
+  for (const text of [...steps.flatMap(resolvedTexts), ...edgeConditions]) {
+    for (const m of text.matchAll(VAR)) {
+      const segments = m[1].split('.').map(p => p.trim())
+      read.add(segments[0])
+      if (segments.length > 1 && inputRoots.has(segments[0])) read.add(segments[1])
+    }
+  }
+  return [...declared].filter(f => read.has(f))
+}
+
 /** Os ids, os nós de saída de texto e os campos de entrada declarados de um conjunto de passos. */
 export function flowRefsOf(steps: readonly ControlCandidateStep[]): FlowRefs {
   return {

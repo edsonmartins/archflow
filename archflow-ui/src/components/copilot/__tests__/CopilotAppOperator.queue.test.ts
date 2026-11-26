@@ -127,14 +127,16 @@ describe('CopilotAppOperator — createFlow no "Gerar com IA" (RCHFLW-95)', () =
     await mountOperator()
     workflowApiMock.create.mockClear()
 
-    let erro: unknown
+    // Devolvida, não lançada (RCHFLW-150): só um resultado faz o CopilotKit pedir a rodada seguinte ao modelo.
+    let result: unknown
     await act(async () => {
-      try {
-        await tools.get('createFlow')!.handler({ name: 'Outro' }, { agent: { agentId: COPILOT_GENERATE_AGENT_ID } })
-      } catch (e) { erro = e }
+      result = await tools.get('createFlow')!.handler(
+        { name: 'Outro' }, { agent: { agentId: COPILOT_GENERATE_AGENT_ID } })
     })
 
-    expect(String(erro)).toContain('createFlow not applied')
+    expect(result).toEqual(expect.objectContaining({
+      ok: false, error: expect.stringContaining('createFlow not applied'),
+    }))
     expect(workflowApiMock.create).not.toHaveBeenCalled()
   })
 
