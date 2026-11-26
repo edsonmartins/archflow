@@ -644,11 +644,35 @@ public final class LangChainAdapterComponent implements AIComponent {
         } catch (MessageTemplate.MalformedTemplateException e) {
             throw new IllegalArgumentException(no + ": " + e.getMessage() + ". Nada foi enviado ao modelo.", e);
         }
+        // Uma referência sozinha (${<id da Entrada>}) é "a mensagem" — o valor passa pela mesma leitura que o nó
+        // de chat já faz com a própria entrada (messageText): texto vai como veio, e a entrada-JSON
+        // {"message": "..."} dá o texto da mensagem, não o JSON inteiro. Assim ${<Entrada>} serve para o texto
+        // digitado no Executar e para o JSON de quem chama pela API. Template misto continua como está.
+        String unica = referenciaUnica(template);
+        if (unica != null) {
+            Object valor = br.com.archflow.engine.execution.ConditionEvaluator.resolvePath(unica, context);
+            if (messageText(valor) instanceof String mensagem) {
+                texto = mensagem;
+            }
+        }
         if (texto.isBlank()) {
             throw new IllegalArgumentException(no + ": «" + template + "» resultou em texto vazio nesta execução. "
                     + "Nada foi enviado ao modelo.");
         }
         return texto;
+    }
+
+    /** O caminho quando o template é só {@code ${caminho}} (com espaços em volta); senão {@code null}. */
+    static String referenciaUnica(String template) {
+        if (template == null) {
+            return null;
+        }
+        String t = template.trim();
+        if (!t.startsWith("${") || !t.endsWith("}") || t.indexOf("${", 2) >= 0) {
+            return null;
+        }
+        String path = t.substring(2, t.length() - 1).trim();
+        return path.isEmpty() || path.contains("$") || path.contains("{") || path.contains("}") ? null : path;
     }
 
     /**

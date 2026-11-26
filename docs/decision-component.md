@@ -129,11 +129,11 @@ resolvidas **como numa condição** — o mesmo resolvedor (`ConditionEvaluator.
   dela; `${input}` é a **entrada do passo** — a saída do passo anterior, como nas condições (depois de um
   `decision`/`condition`, o JSON da classificação);
 - texto fora de `${}` vai como está e pode misturar: `"Cliente: ${receber}"`;
-- texto vai como texto, número e booleano pelo texto deles, **mapa, lista e outros objetos viram JSON**. Isso vale
-  para a Entrada: o texto digitado no Executar chega a ela como texto, mas um chamador de API que manda
-  `{"message": "…"}` faz de `${receber}` o objeto inteiro em JSON — para esses, use `${receber.message}`. O caminho
-  padrão (campo vazio) escolhe sozinho a chave `input`/`message`/`text`/`prompt` de um mapa; o template não
-  escolhe: ele manda o que a referência aponta;
+- texto vai como texto, número e booleano pelo texto deles, **mapa, lista e outros objetos viram JSON** — num
+  template misto (`"Cliente: ${receber}"`). **Uma referência sozinha** (`${receber}`) é lida como a mensagem, como o
+  nó de chat lê a própria entrada (`messageText`): texto vai como veio e um mapa dá a primeira chave de texto entre
+  `input`/`message`/`text`/`prompt` (sem nenhuma, o JSON). Assim `${receber}` serve para o texto digitado no
+  Executar e para o chamador de API que manda `{"message": "…"}`;
 - **vazio = o de sempre**: a mensagem é a entrada do passo. Nenhum fluxo existente muda;
 - referência sem valor na execução, `${` sem fechar e resultado em branco **falham o passo** nomeando nó, campo e
   referência — nada vazio nem `${…}` literal vai ao modelo, e nenhuma chamada é feita.

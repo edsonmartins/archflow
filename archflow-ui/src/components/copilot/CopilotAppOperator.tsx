@@ -194,10 +194,9 @@ const EXPRESSION_RULES: string[] = [
         + 'decision/condition/switch must get config {"userMessage":"${<inputNodeId>}"} — the input node output is the '
         + 'message the run received. userMessage is text with ${path} references, same paths as conditions: text '
         + 'outside ${} is sent as is ("Customer: ${<inputNodeId>}"), ${input} is the previous step output, a non-text '
-        + 'value is sent as JSON, and a reference with no value fails the step. Text typed in the run dialog reaches '
-        + 'the input node as text; when the flow is called with a JSON object instead (an API caller sending '
-        + '{"message":"..."}), ${<inputNodeId>} is that whole object as JSON, so reference its text field: '
-        + '${<inputNodeId>.message}.',
+        + 'value is sent as JSON, and a reference with no value fails the step. Use ${<inputNodeId>} alone (never '
+        + '${<inputNodeId>.message}): as a single reference it already yields the message both for text typed in the '
+        + 'run dialog and for an API caller sending {"message":"..."}.',
     'Invalid expressions and decision configs the engine would refuse are refused by addNode/configureNode with the '
         + 'reason: fix them; never leave a node the engine cannot run. To add a node BEFORE an existing one, use addNode '
         + 'with insertBefore.',

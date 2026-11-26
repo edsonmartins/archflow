@@ -699,9 +699,9 @@ public class AssistServiceImpl implements AssistService {
           .append("mensagem que chegou à execução). É um texto com referências ${caminho}, pelas mesmas regras de ")
           .append("caminho das condições: texto fora de ${} vai como está (\"Cliente: ${receber}\"), ${input} é a ")
           .append("saída do passo anterior, e um valor que não é texto vai como JSON. Uma referência sem valor ")
-          .append("falha o passo. O texto digitado no Executar chega ao step input como texto; quando o fluxo é ")
-          .append("chamado com um objeto JSON (uma API que manda {\"message\": \"…\"}), ${<name do step input>} ")
-          .append("é o objeto inteiro em JSON: aponte para o campo de texto, ${<name do step input>.message}.\n");
+          .append("falha o passo. Use ${<name do step input>} sozinho (nunca ${<name do step input>.message}): como ")
+          .append("referência única ele já dá a mensagem, tanto do texto digitado no Executar quanto de uma API que ")
+          .append("manda {\"message\": \"…\"}.\n");
     }
 
     /**

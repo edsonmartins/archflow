@@ -498,8 +498,9 @@ describe('RCHFLW-116 — o copiloto monta a triagem que ramifica pela RESPOSTA d
         // RCHFLW-120: o LLM do ramo comum responde à mensagem do cliente (a saída da Entrada), não ao JSON da
         // decisão que a condição repassa — a regra que o agente recebe no contexto.
         expect((rules() as string[]).join('\n')).toContain('{"userMessage":"${<inputNodeId>}"}')
-        // Chamada por API com {"message": …}: ${<Entrada>} é o objeto inteiro em JSON; a regra aponta o campo.
-        expect((rules() as string[]).join('\n')).toContain('reference its text field: ${<inputNodeId>.message}')
+        // A referência sozinha à Entrada dá a mensagem (texto digitado ou {"message": …} de API): nunca ".message",
+        // que falhava com o texto digitado no Executar (validação no Chrome).
+        expect((rules() as string[]).join('\n')).toContain('Use ${<inputNodeId>} alone (never ${<inputNodeId>.message})')
         return [
           { name: 'connectNodes', args: { sourceId: ids.get('Receber pedido'), targetId: ids.get('Triagem') } },
           { name: 'connectNodes', args: { sourceId: ids.get('Triagem'), targetId: ids.get('É urgente?') } },

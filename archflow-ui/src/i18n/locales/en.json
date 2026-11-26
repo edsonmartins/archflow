@@ -544,7 +544,7 @@
                 "systemPromptPlaceholder": "You are a helpful assistant...",
                 "userMessage": "User message",
                 "userMessagePlaceholder": "e.g. ${input-node-id} or Customer: ${input-node-id}",
-                "userMessageHint": "Empty: the previous step's output (after a Decision or Condition, the classification JSON). Use ${<Input node id>} for the run's original message; ${input} is the previous step's output. Objects go as JSON (for an API input like {\"message\": …}, use ${<Input node id>.message}); a reference with no value fails the step.",
+                "userMessageHint": "Empty: the previous step's output (after a Decision or Condition, the classification JSON). Use ${<Input node id>} for the run's original message; ${input} is the previous step's output. On its own, the reference yields the message (text, or the message field of a JSON input); in mixed text, objects go as JSON. A reference with no value fails the step.",
                 "temperature": "Temperature",
                 "maxTokens": "Max tokens",
                 "maxIterations": "Max iterations",

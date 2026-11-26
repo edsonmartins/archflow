@@ -173,8 +173,8 @@ class AssistDoArchflowTest {
                 .contains("Mensagem do usuário do llm-chat: sem 'parameters.userMessage'")
                 .contains("preencha 'parameters.userMessage' com \"${<name do step input>}\"")
                 .contains("${input} é a saída do passo anterior")
-                // Entrada em objeto JSON (API): a referência à Entrada manda o objeto inteiro; o campo de texto, não.
-                .contains("aponte para o campo de texto, ${<name do step input>.message}")
+                // A referência sozinha à Entrada já dá a mensagem, em texto ou em objeto JSON: nunca ".message".
+                .contains("Use ${<name do step input>} sozinho (nunca ${<name do step input>.message})")
                 .contains("que leva parameters {\"userMessage\":\"${receber}\"}");
         assertThat(r.observacoes())
                 .contains("o step \"esqueceu\" (llm-chat) vem depois de \"e_urgente\" e, sem 'userMessage'")

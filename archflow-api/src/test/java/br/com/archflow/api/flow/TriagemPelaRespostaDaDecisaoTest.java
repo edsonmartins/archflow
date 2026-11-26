@@ -276,21 +276,26 @@ class TriagemPelaRespostaDaDecisaoTest {
     }
 
     /**
-     * Um chamador de API manda {@code {"message": "…"}}: o mapa inteiro é a saída da Entrada, então
-     * {@code ${receber}} manda o JSON (valor que não é texto vira JSON, como documentado) e é
-     * {@code ${receber.message}} que manda o pedido — a forma que o copiloto, o nl-to-flow e o painel indicam.
+     * O texto digitado no Executar chega à Entrada como texto; um chamador de API manda {@code {"message": "…"}}. Na
+     * validação no Chrome o copiloto escreveu {@code ${receber.message}} e o texto digitado falhou o passo. Agora a
+     * referência sozinha {@code ${receber}} é lida como a mensagem (a mesma leitura que o nó de chat faz da própria
+     * entrada): dá o pedido nos dois casos. Num template misto, o mapa continua indo como JSON.
      */
     @Test
-    @DisplayName("entrada em objeto JSON: ${receber} manda o objeto em JSON; ${receber.message}, o pedido")
-    void entradaEmObjetoJson() throws Exception {
+    @DisplayName("${receber} sozinho dá o pedido com entrada em texto e em objeto JSON; no texto misto, o mapa vai em JSON")
+    void entradaEmTextoOuObjetoJson() throws Exception {
         Map<String, Object> chamadaDeApi = Map.of("message", COMUM);
         executar(chamadaDeApi, classificador(TriagemPelaRespostaDaDecisaoTest::porUrgencia), documento -> { });
-        assertThat(mensagemDoUsuarioNoLlm()).isEqualTo("{\"message\":\"" + COMUM + "\"}");
+        assertThat(mensagemDoUsuarioNoLlm()).isEqualTo(COMUM);
+
+        pedidosAoLlm.clear();
+        executar(COMUM, classificador(TriagemPelaRespostaDaDecisaoTest::porUrgencia), documento -> { });
+        assertThat(mensagemDoUsuarioNoLlm()).isEqualTo(COMUM);
 
         pedidosAoLlm.clear();
         executar(chamadaDeApi, classificador(TriagemPelaRespostaDaDecisaoTest::porUrgencia),
-                documento -> configDoResponder(documento).put("userMessage", "${receber.message}"));
-        assertThat(mensagemDoUsuarioNoLlm()).isEqualTo(COMUM);
+                documento -> configDoResponder(documento).put("userMessage", "Cliente: ${receber}"));
+        assertThat(mensagemDoUsuarioNoLlm()).isEqualTo("Cliente: {\"message\":\"" + COMUM + "\"}");
     }
 
     @Test
