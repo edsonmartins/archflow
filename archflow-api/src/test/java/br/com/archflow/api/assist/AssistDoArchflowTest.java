@@ -140,6 +140,51 @@ class AssistDoArchflowTest {
                 .doesNotContain("\"triagem\"");
     }
 
+    /**
+     * RCHFLW-120: o llm-chat que responde depois de um decision/condition recebia o JSON da classificação. O prompt
+     * ensina a "Mensagem do usuário" ({@code userMessage}) e o exemplo da triagem a preenche com a Entrada; o
+     * rascunho que esquece o campo ou o escreve sem fechar recebe o aviso — o LLM falso devolve os dois casos.
+     */
+    @Test
+    @DisplayName("nl-to-flow ensina a userMessage do llm-chat e avisa do LLM que responderia ao JSON da decisão")
+    void nlToFlowMensagemDoUsuario() {
+        resposta = """
+                {"workflow":{"steps":[
+                  {"name":"receber","component":"input","nodeType":"input","parameters":{}},
+                  {"name":"triagem","component":"decision","nodeType":"decision",
+                   "parameters":{"provider":"llm","questions":{"urgente":{"type":"noul"}},"gate":["urgente"]}},
+                  {"name":"e_urgente","component":"condition","nodeType":"condition",
+                   "parameters":{"conditionExpression":"${triagem.answers.urgente.result} == true"}},
+                  {"name":"esqueceu","component":"llm-chat","nodeType":"llm-chat","parameters":{}},
+                  {"name":"aberta","component":"llm-chat","nodeType":"llm-chat",
+                   "parameters":{"userMessage":"Cliente: ${receber"}},
+                  {"name":"certo","component":"llm-chat","nodeType":"llm-chat",
+                   "parameters":{"userMessage":"${receber}"}},
+                  {"name":"resumir","component":"llm-chat","nodeType":"llm-chat","parameters":{}}],
+                 "links":[{"source":"receber","target":"triagem"},{"source":"triagem","target":"e_urgente"},
+                  {"source":"e_urgente","target":"esqueceu"},{"source":"e_urgente","target":"aberta"},
+                  {"source":"triagem","target":"certo"},{"source":"certo","target":"resumir"}]},
+                 "lacunas":[],"observacoes":null}
+                """;
+
+        var r = assist.nlToFlow(new NlToFlowRequest("triagem: urgente ao humano, o resto ao LLM", null, "pt-BR"));
+
+        assertThat(prompts.getFirst())
+                .contains("Mensagem do usuário do llm-chat: sem 'parameters.userMessage'")
+                .contains("preencha 'parameters.userMessage' com \"${<name do step input>}\"")
+                .contains("${input} é a saída do passo anterior")
+                // A referência sozinha à Entrada já dá a mensagem, em texto ou em objeto JSON: nunca ".message".
+                .contains("Use ${<name do step input>} sozinho (nunca ${<name do step input>.message})")
+                .contains("que leva parameters {\"userMessage\":\"${receber}\"}");
+        assertThat(r.observacoes())
+                .contains("o step \"esqueceu\" (llm-chat) vem depois de \"e_urgente\" e, sem 'userMessage'")
+                .contains("Preencha parameters.userMessage com ${receber}.")
+                .contains("o step \"aberta\", campo userMessage, será recusado ao executar: «${receber» não é uma "
+                        + "referência")
+                // Com o campo, ou depois de um step que não classifica, não há o que avisar.
+                .doesNotContain("\"certo\"").doesNotContain("\"resumir\"");
+    }
+
     @Test
     @DisplayName("nl-to-flow com catálogo no corpo continua usando o do chamador")
     void nlToFlowRespeitaOCatalogoDoCorpo() {

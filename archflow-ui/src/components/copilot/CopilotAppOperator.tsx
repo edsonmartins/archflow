@@ -12,7 +12,8 @@ import { newNodeId } from '../FlowCanvas/nodePlacement'
 import { NOT_EXECUTABLE_NODE_TYPES } from '../FlowCanvas/constants'
 import { branchOptions } from '../FlowCanvas/branches'
 import {
-    CONTROL_EXPRESSION_FIELD, controlExpressionFindings, describeFindingForAgent, flowRefsOf,
+    CONTROL_EXPRESSION_FIELD, USER_MESSAGE_FIELD, controlExpressionFindings, describeFindingForAgent, flowRefsOf,
+    userMessageFindings,
     type ExpressionProblem,
 } from '../FlowCanvas/controlExpressions'
 import {
@@ -173,7 +174,8 @@ const EXPRESSION_RULES: string[] = [
         + '"primary":"assunto","gate":["urgente"]}; then a condition C with conditionExpression '
         + '"${D.answers.urgente.result} == true || ${D.route} == \'ESCALATE\'"; connectNodes D -> C without branch, '
         + 'C -> approval with branch "true", C -> llm-chat with branch "false". The ESCALATE part sends a failed or '
-        + 'low-confidence (< 0.5) decision to the human: a failure never becomes the ordinary path.',
+        + 'low-confidence (< 0.5) decision to the human: a failure never becomes the ordinary path. That llm-chat gets '
+        + '{"userMessage":"${<inputNodeId>}"} (see the llm-chat userMessage rule).',
     'Example by category: primary = a choice question, then a switch with switchExpression "${D.decision}" and '
         + 'switchCases = the options, one per line; connect one edge per case (branch = the case) and the "default" '
         + 'edge to the human (a failed decision has decision null and falls in default). The decision route edges '
@@ -186,6 +188,15 @@ const EXPRESSION_RULES: string[] = [
         + "${<llmId>} contains 'URGENT' (tell it in systemPrompt to answer with that word), or use a decision node. "
         + 'A top-level key of the run input JSON is ${<key>}; a nested field of it, ${<key>.<field>}, needs <key> '
         + 'declared in the input node ioFields. ${input} is the output of the previous step.',
+    'llm-chat userMessage: without it, an llm-chat receives the previous step output as the user message. After a '
+        + 'decision, condition or switch that output is the classification JSON (condition and switch pass on what '
+        + 'they received), and the LLM answers the JSON instead of the customer. So an llm-chat that answers after a '
+        + 'decision/condition/switch must get config {"userMessage":"${<inputNodeId>}"} — the input node output is the '
+        + 'message the run received. userMessage is text with ${path} references, same paths as conditions: text '
+        + 'outside ${} is sent as is ("Customer: ${<inputNodeId>}"), ${input} is the previous step output, a non-text '
+        + 'value is sent as JSON, and a reference with no value fails the step. Use ${<inputNodeId>} alone (never '
+        + '${<inputNodeId>.message}): as a single reference it already yields the message both for text typed in the '
+        + 'run dialog and for an API caller sending {"message":"..."}.',
     'Invalid expressions and decision configs the engine would refuse are refused by addNode/configureNode with the '
         + 'reason: fix them; never leave a node the engine cannot run. To add a node BEFORE an existing one, use addNode '
         + 'with insertBefore.',
@@ -245,7 +256,9 @@ function branchError(sourceId: string, branch: string, branches: readonly string
 }
 
 /** Sem fluxo conhecido (fila sem destino), só se sabe o formato: os passos do canvas que vai abrir são outros. */
-const FORMAT_PROBLEMS: ReadonlySet<ExpressionProblem> = new Set(['MALFORMED', 'BARE_OPERAND', 'NO_REFERENCE'])
+const FORMAT_PROBLEMS: ReadonlySet<ExpressionProblem> = new Set([
+    'MALFORMED', 'BARE_OPERAND', 'NO_REFERENCE', 'MALFORMED_TEMPLATE',
+])
 
 /**
  * A config dos nós Entrada, para os campos esperados (ioFields) valerem como raiz — como no Executar e no servidor.
@@ -276,12 +289,17 @@ function inputNodeConfigs(): Map<string, Record<string, unknown>> {
 function expressionRefusal(
     nodeType: string, set: Record<string, unknown>, nodes: CanvasNodeRef[], refsKnown: boolean,
 ): string | undefined {
-    const field = CONTROL_EXPRESSION_FIELD[nodeType]
+    // A "Mensagem do usuário" do llm-chat (RCHFLW-120) passa pelas mesmas regras de caminho.
+    const field: string | undefined = CONTROL_EXPRESSION_FIELD[nodeType] as string | undefined
+        ?? (typeof set[USER_MESSAGE_FIELD] === 'string' ? USER_MESSAGE_FIELD : undefined)
     if (!field || typeof set[field] !== 'string') return undefined
     const configs = inputNodeConfigs()
     const steps = nodes.filter(n => !isAnnotationType(n.nodeType))
         .map(n => ({ id: n.id, componentId: n.nodeType, config: n.nodeType === 'input' ? configs.get(n.id) : undefined }))
-    const findings = controlExpressionFindings(nodeType, { [field]: set[field] }, flowRefsOf(steps))
+    const refs = flowRefsOf(steps)
+    const findings = (field === USER_MESSAGE_FIELD
+        ? userMessageFindings({ id: '', componentId: nodeType, config: { [field]: set[field] } }, refs)
+        : controlExpressionFindings(nodeType, { [field]: set[field] }, refs))
         .filter(f => refsKnown || FORMAT_PROBLEMS.has(f.problem))
     if (findings.length === 0) return undefined
     return `${field} not applied: ${findings.map(describeFindingForAgent).join('; ')}`
@@ -369,7 +387,8 @@ export default function CopilotAppOperator() {
         })),
     })
     useAgentContext({
-        description: 'How to classify and branch a flow (decision answers, condition/switch expressions, decision routes)',
+        description: 'How to classify and branch a flow (decision answers, condition/switch expressions, decision routes, '
+            + 'the llm-chat userMessage after a branch)',
         value: EXPRESSION_RULES,
     })
     useAgentContext({

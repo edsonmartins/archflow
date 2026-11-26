@@ -60,9 +60,11 @@ class ControlExpressionRulesTest {
         assertThat(doc.get("cases")).hasSizeGreaterThan(20);
         for (JsonNode c : doc.get("cases")) {
             String expressao = c.get("expression").asText();
-            List<Finding> achados = "switchExpression".equals(c.get("field").asText())
-                    ? ControlExpressionRules.checkSwitch(expressao, refs)
-                    : ControlExpressionRules.checkCondition(expressao, refs);
+            List<Finding> achados = switch (c.get("field").asText()) {
+                case "switchExpression" -> ControlExpressionRules.checkSwitch(expressao, refs);
+                case "userMessage" -> ControlExpressionRules.checkTemplate(expressao, refs);
+                default -> ControlExpressionRules.checkCondition(expressao, refs);
+            };
             List<String> esperado = new ArrayList<>();
             c.get("problems").forEach(p -> esperado.add(p.asText()));
             assertThat(achados.stream().map(f -> f.problem().name()).toList()).as(expressao).isEqualTo(esperado);

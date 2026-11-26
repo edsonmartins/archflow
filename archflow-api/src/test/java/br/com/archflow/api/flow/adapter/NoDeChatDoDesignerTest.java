@@ -60,6 +60,12 @@ class NoDeChatDoDesignerTest {
     }
 
     private StepResult executar(Map<String, Object> node, Map<String, Object> configuration, Object input) {
+        return executar(node, configuration, input, Map.of());
+    }
+
+    /** Com variáveis do contexto além do {@code input} — as saídas de passos anteriores que um template lê. */
+    private StepResult executar(Map<String, Object> node, Map<String, Object> configuration, Object input,
+                                Map<String, Object> variaveis) {
         Map<String, Object> json = new HashMap<>();
         json.put("id", "wf");
         json.put("metadata", Map.of("name", "Chat"));
@@ -73,6 +79,7 @@ class NoDeChatDoDesignerTest {
         if (input != null) {
             ctx.set("input", input);
         }
+        variaveis.forEach(ctx::set);
         return flow.getSteps().get(0).execute(ctx).join();
     }
 
@@ -231,6 +238,81 @@ class NoDeChatDoDesignerTest {
                 .getOutput()).hasValue("eco:generate:meu boleto venceu");
         assertThat(executar(noDoDesigner("llm-chat", Map.of()), null, Map.of("pedido", 42))
                 .getOutput()).hasValue("eco:generate:{\"pedido\":42}");
+    }
+
+    /** O painel do LLM Chat, onde o campo "Mensagem do usuário" é gravado. */
+    private static final java.nio.file.Path AGENT_FIELDS = java.nio.file.Path.of("..", "archflow-ui", "src",
+            "components", "PropertyPanel", "fields", "AgentFields.tsx");
+
+    @Test
+    @DisplayName("RCHFLW-120: a chave que o painel grava é a que a ponte lê, e ela não vai ao adapter")
+    void mensagemDoUsuarioDoPainelChegaAPonte() throws Exception {
+        assertThat(java.nio.file.Files.readString(AGENT_FIELDS))
+                .as("o painel grava a Mensagem do usuário com a chave que LangChainAdapterComponent lê")
+                .contains("'" + LangChainAdapterComponent.USER_MESSAGE_KEY + "'");
+        factory.setPlatformDefaultLLM(plataforma(PROVIDER, "m"));
+        Map<String, Object> decisao = Map.of("route", "REVIEW", "answers", Map.of("urgente", Map.of("result", false)));
+
+        StepResult result = executar(noDoDesigner("llm-chat", Map.of("userMessage", "${receber}")), null, decisao,
+                Map.of("receber", "Queria saber o horário"));
+
+        assertThat(result.getOutput())
+                .as("antes: o LLM recebia o JSON da decisão que a condição repassa")
+                .hasValue("eco:generate:Queria saber o horário");
+        assertThat(recebido()).doesNotContainKey("userMessage");
+    }
+
+    @Test
+    @DisplayName("RCHFLW-120: sem userMessage (ou em branco), a mensagem segue sendo a entrada do passo")
+    void semMensagemDoUsuarioNadaMuda() {
+        factory.setPlatformDefaultLLM(plataforma(PROVIDER, "m"));
+
+        assertThat(executar(noDoDesigner("llm-chat", Map.of()), null, "oi", Map.of("receber", "x")).getOutput())
+                .hasValue("eco:generate:oi");
+        assertThat(executar(noDoDesigner("llm-streaming", Map.of("userMessage", "  ")), null, "oi").getOutput())
+                .hasValue("eco:generate:oi");
+    }
+
+    @Test
+    @DisplayName("RCHFLW-120: texto e referência misturados, objeto como JSON; vale também no llm-streaming")
+    void templateComTextoEObjeto() {
+        factory.setPlatformDefaultLLM(plataforma(PROVIDER, "m"));
+
+        StepResult result = executar(noDoDesigner("llm-streaming",
+                        Map.of("userMessage", "Cliente: ${receber.texto} | dados: ${dados}")), null, "ignorado",
+                Map.of("receber", Map.of("texto", "oi"), "dados", Map.of("pedido", 42)));
+
+        assertThat(result.getOutput()).hasValue("eco:generate:Cliente: oi | dados: {\"pedido\":42}");
+    }
+
+    @Test
+    @DisplayName("RCHFLW-120: referência sem valor falha nomeando nó, campo e referência — o adapter nem nasce")
+    void referenciaSemValorFalha() {
+        factory.setPlatformDefaultLLM(plataforma(PROVIDER, "m"));
+
+        StepResult result = executar(noDoDesigner("llm-chat", Map.of("userMessage", "Cliente: ${receber}")),
+                null, "oi");
+
+        assertThat(result.getStatus()).isEqualTo(StepStatus.FAILED);
+        assertThat(result.getOutput() + " " + result.getErrors())
+                .contains("Nó s1").contains("userMessage").contains("${receber}");
+        assertThat(LangChainAdapterBridgeTest.TestAdapterFactory.created).isEmpty();
+    }
+
+    @Test
+    @DisplayName("RCHFLW-120: referência que resolve para texto vazio e ${ sem fechar também falham")
+    void vazioEMalformadoFalham() {
+        factory.setPlatformDefaultLLM(plataforma(PROVIDER, "m"));
+
+        StepResult vazio = executar(noDoDesigner("llm-chat", Map.of("userMessage", "${input}")), null, "");
+        StepResult aberto = executar(noDoDesigner("llm-chat", Map.of("userMessage", "Cliente: ${receber")), null,
+                "oi", Map.of("receber", "x"));
+
+        assertThat(vazio.getStatus()).isEqualTo(StepStatus.FAILED);
+        assertThat(vazio.getOutput() + " " + vazio.getErrors()).contains("texto vazio");
+        assertThat(aberto.getStatus()).isEqualTo(StepStatus.FAILED);
+        assertThat(aberto.getOutput() + " " + aberto.getErrors()).contains("«${receber»");
+        assertThat(LangChainAdapterBridgeTest.TestAdapterFactory.created).isEmpty();
     }
 
     @Test
