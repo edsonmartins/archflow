@@ -9,11 +9,20 @@ function base64Url(value: object): string {
   return btoa(JSON.stringify(value)).replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_')
 }
 
-/** JWT só com o payload que a UI lê; a assinatura é falsa porque quem confere é o backend. */
-export function tokenComPapeis(roles: string[]): string {
-  return `${base64Url({ alg: 'HS256', typ: 'JWT' })}.${base64Url({ sub: 'u-teste', type: 'access', roles })}.assinatura`
+/**
+ * JWT só com o payload que a UI lê; a assinatura é falsa porque quem confere é o backend. Sem
+ * `tenantId` o token cai no tenant padrão do servidor, como um token real sem a claim.
+ */
+export function tokenComPapeis(roles: string[], tenantId?: string): string {
+  const payload = { sub: 'u-teste', type: 'access', roles, ...(tenantId ? { tenantId } : {}) }
+  return `${base64Url({ alg: 'HS256', typ: 'JWT' })}.${base64Url(payload)}.assinatura`
 }
 
 export function entrarComo(...roles: string[]): void {
   useAuthStore.setState({ token: tokenComPapeis(roles) })
+}
+
+/** {@link entrarComo} num tenant: as telas que mostram "em que tenant roda" leem a claim do token. */
+export function entrarNoTenant(tenantId: string, ...roles: string[]): void {
+  useAuthStore.setState({ token: tokenComPapeis(roles, tenantId) })
 }

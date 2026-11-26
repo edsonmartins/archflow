@@ -115,6 +115,11 @@ public class TenantControllerImpl implements TenantController {
 
     @Override
     public TenantDto createTenant(CreateTenantRequest request) {
+        // Sem id não há chave no cadastro: o put no ConcurrentHashMap lançava NPE e a resposta era um 500
+        // sem explicação (RCHFLW-193). IllegalArgumentException é o 400 do GlobalExceptionHandler.
+        if (request == null || request.tenantId() == null || request.tenantId().isBlank()) {
+            throw new IllegalArgumentException("tenantId is required");
+        }
         log.info("Creating tenant: {} ({})", request.name(), request.tenantId());
         var limits = request.limits() != null ? request.limits() :
                 new TenantLimitsDto(100, 1_000_000, 5, 3, List.of(), List.of());

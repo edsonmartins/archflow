@@ -8,6 +8,8 @@ import type { ToolCallView } from './ToolCallBlock';
 import type { Citation } from './CitationList';
 import { ApiError } from '../../services/api';
 import { conversationApi } from '../../services/conversation-api';
+import { usePermissions, type Permission } from '../../lib/permissions';
+import { PermissionTooltip } from '../PermissionTooltip';
 import type { ConversationMessage, FormDataType } from '../../services/conversation-api';
 import {
     ArchflowEventStream,
@@ -57,6 +59,9 @@ interface PendingAssistant {
 
 export default function ChatPanel({ conversationId, workflowId, onConversationChanged }: ChatPanelProps) {
     const { t } = useTranslation();
+    const can = usePermissions();
+    const canExecute = can('workflow:execute');
+    const canManageExecutions = can('execution:manage');
     // Por ref: o callback do pai muda de identidade a cada render e, como dependência do efeito do
     // SSE, faria o stream fechar e reabrir — perdendo eventos no meio de uma resposta.
     const changedRef = useRef(onConversationChanged);
@@ -68,6 +73,9 @@ export default function ChatPanel({ conversationId, workflowId, onConversationCh
     const [sending, setSending] = useState(false);
     const [suspendedForm, setSuspendedForm] = useState<FormDataType | null>(null);
     const [resumeToken, setResumeToken] = useState<string | null>(null);
+    // A execução que o formulário pendente continua (GET da conversa ou evento do formulário). Com ela,
+    // enviar exige execution:manage, como decidir na fila de aprovações (QA2 RCHFLW-136).
+    const [formExecutionId, setFormExecutionId] = useState<string | null>(null);
     const [initialLoading, setInitialLoading] = useState(false);
     // Conversa cujo histórico já foi carregado (com sucesso ou não): o stream só abre depois dele.
     const [historyLoadedFor, setHistoryLoadedFor] = useState<string | undefined>(undefined);
@@ -111,6 +119,7 @@ export default function ChatPanel({ conversationId, workflowId, onConversationCh
                 ) {
                     setSuspendedForm(conversation.formData);
                     setResumeToken(conversation.resumeToken);
+                    setFormExecutionId(conversation.executionId ?? null);
                 }
             })
             .catch((err) => {
@@ -336,6 +345,7 @@ export default function ChatPanel({ conversationId, workflowId, onConversationCh
                 };
                 setSuspendedForm(form);
                 setResumeToken((evt.data.resumeToken as string | undefined) ?? null);
+                setFormExecutionId((evt.data.executionId as string | undefined) ?? null);
                 notifyChanged();
             }
         });
@@ -354,7 +364,8 @@ export default function ChatPanel({ conversationId, workflowId, onConversationCh
 
     const handleSend = useCallback(async () => {
         const text = input.trim();
-        if (!text || sending || !conversationId) return;
+        // O Enter também chega aqui: sem workflow:execute o servidor recusaria a mensagem (403).
+        if (!text || sending || !conversationId || !canExecute) return;
 
         const userMessage: ConversationMessage = {
             id: crypto.randomUUID(),
@@ -387,7 +398,7 @@ export default function ChatPanel({ conversationId, workflowId, onConversationCh
             inputRef.current?.focus();
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [input, sending, conversationId]);
+    }, [input, sending, conversationId, canExecute]);
 
     const handleFormSubmit = useCallback(
         async (data: Record<string, unknown>) => {
@@ -473,6 +484,11 @@ export default function ChatPanel({ conversationId, workflowId, onConversationCh
 
     const empty = messages.length === 0 && !pending && !suspendedForm;
     const locked = sending || !!suspendedForm;
+    // O que o servidor recusaria (403): toda escrita em /api/conversations pede workflow:execute; o envio do
+    // formulário ligado a uma execução pede também execution:manage (SpringConversationController.resume).
+    const sendMissing: Permission | null = canExecute ? null : 'workflow:execute';
+    const formSubmitMissing: Permission | null = sendMissing
+        ?? (formExecutionId && !canManageExecutions ? 'execution:manage' : null);
 
     return (
         <Stack h="100%" gap={0}>
@@ -530,6 +546,8 @@ export default function ChatPanel({ conversationId, workflowId, onConversationCh
                         personaIcon={msg.personaIcon}
                         onFormSubmit={msg.formData ? handleFormSubmit : undefined}
                         onFormCancel={msg.formData ? handleFormCancel : undefined}
+                        formSubmitMissing={formSubmitMissing}
+                        formCancelMissing={sendMissing}
                     />
                 ))}
 
@@ -553,6 +571,8 @@ export default function ChatPanel({ conversationId, workflowId, onConversationCh
                         formData={suspendedForm}
                         onFormSubmit={handleFormSubmit}
                         onFormCancel={handleFormCancel}
+                        formSubmitMissing={formSubmitMissing}
+                        formCancelMissing={sendMissing}
                     />
                 )}
 
@@ -601,18 +621,21 @@ export default function ChatPanel({ conversationId, workflowId, onConversationCh
                         value={input}
                         onChange={(e) => setInput(e.currentTarget.value)}
                         onKeyDown={handleKeyDown}
-                        disabled={locked}
+                        disabled={locked || !canExecute}
                     />
-                    <Button
-                        size="sm"
-                        radius="xl"
-                        color="teal"
-                        onClick={handleSend}
-                        disabled={!input.trim() || locked}
-                        leftSection={<IconSend size={15} />}
-                    >
-                        {t('chat.send')}
-                    </Button>
+                    <PermissionTooltip missing={sendMissing}>
+                        <Button
+                            size="sm"
+                            radius="xl"
+                            color="teal"
+                            onClick={handleSend}
+                            disabled={!input.trim() || locked || !!sendMissing}
+                            leftSection={<IconSend size={15} />}
+                            data-testid="chat-send"
+                        >
+                            {t('chat.send')}
+                        </Button>
+                    </PermissionTooltip>
                 </Group>
             </Box>
         </Stack>

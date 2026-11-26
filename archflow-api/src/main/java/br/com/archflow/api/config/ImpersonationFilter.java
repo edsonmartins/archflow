@@ -40,6 +40,13 @@ import java.util.List;
  * silently overwrote the claim, and any authenticated user read and wrote another tenant's files,
  * knowledge bases, jobs and configuration just by knowing its id. Rejecting — instead of ignoring —
  * keeps a client that really meant another tenant from writing into its own by accident.
+ *
+ * <p>The same holds for {@code X-Impersonate-Tenant} sent by an authenticated identity (JWT or API
+ * key) that may not impersonate — not an admin, or impersonation off: {@code 403
+ * IMPERSONATION_DENIED} (RCHFLW-193). Até aqui o cabeçalho recusado só virava um WARN no log e a
+ * resposta vinha {@code 200} com os dados do próprio tenant, que o cliente lia como se fossem do tenant
+ * pedido. Repetir o próprio tenant não é personificar e segue aceito, como o eco do {@code X-Tenant-Id}.
+ * Sem identidade (auth desligada) o cabeçalho segue só ignorado: não há de quem recusar.
  */
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE + 20)
@@ -74,6 +81,10 @@ public class ImpersonationFilter implements Filter {
                 } else {
                     log.warn("Rejected X-Impersonate-Tenant header (enabled={}, role check passed={}): path={}",
                             impersonationEnabled, callerCanImpersonate(http), http.getRequestURI());
+                    if (authenticatedByJwt(http) && !impersonated.trim().equals(identityTenant(http))) {
+                        rejectImpersonation(response);
+                        return;
+                    }
                 }
             }
             if (tenant == null) {
@@ -126,6 +137,21 @@ public class ImpersonationFilter implements Filter {
     private static String jwtTenant(HttpServletRequest http) {
         Object claim = http.getAttribute(JwtAuthenticationFilter.ATTR_TENANT);
         return claim instanceof String s && !s.isBlank() ? s.trim() : null;
+    }
+
+    /** O tenant de quem se autenticou; sem a claim, o padrão (como no {@code X-Tenant-Id}). */
+    private static String identityTenant(HttpServletRequest http) {
+        String tokenTenant = jwtTenant(http);
+        return tokenTenant != null ? tokenTenant : TenantContext.DEFAULT_TENANT;
+    }
+
+    private static void rejectImpersonation(ServletResponse response) throws IOException {
+        if (response instanceof HttpServletResponse http) {
+            http.setStatus(HttpServletResponse.SC_FORBIDDEN);
+            http.setContentType("application/json");
+            http.getWriter().write("{\"error\":\"IMPERSONATION_DENIED\","
+                    + "\"message\":\"X-Impersonate-Tenant is not allowed for this identity\"}");
+        }
     }
 
     private static void rejectTenantMismatch(ServletResponse response) throws IOException {

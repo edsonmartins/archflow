@@ -158,7 +158,7 @@ volumes:
 | `SPRING_DATA_REDIS_HOST` | `localhost` | Host do Redis |
 | `SPRING_DATA_REDIS_PORT` | `6379` | Porta do Redis |
 | `ARCHFLOW_JWT_SECRET` | (obrigatorio fora de dev/test) | Chave secreta para JWT (`archflow.security.jwt.secret`) |
-| `ARCHFLOW_JWT_TTL` | `900` | `expiresIn` informado no login (segundos); a validade real do access token e fixa em 15 min |
+| `ARCHFLOW_JWT_TTL` | `900` | Validade do access token em segundos (a mesma do `expiresIn` do login) |
 
 :::caution
 Fora dos profiles `dev`/`test`, defina **sempre** `ARCHFLOW_JWT_SECRET` com um valor aleatorio (minimo 256 bits,

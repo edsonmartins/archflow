@@ -19,7 +19,9 @@ import org.springframework.web.socket.server.HandshakeInterceptor;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
@@ -29,6 +31,10 @@ import static org.mockito.Mockito.mock;
  * só a assinatura e a validade do JWT. Um refresh token, um access token já revogado pelo logout e o
  * token de um usuário do tenant B abriam a sessão no tenant que o cliente escrevesse no caminho — e
  * é esse tenant que segue para o adapter. Agora vale a mesma regra do REST.
+ *
+ * <p>QA2 (RCHFLW-158): a sessão de voz põe o agente da persona para responder, mas o handshake não passa
+ * pelos interceptors do MVC — o VIEWER, que leva 403 no {@code POST /ag-ui/agent}, conversava com o agente
+ * por aqui, e o usuário de um tenant suspenso também. Agora exige {@code workflow:execute} e tenant ativo.
  */
 @DisplayName("Handshake do realtime: tipo do token, revogação e tenant do caminho")
 class HandshakeDoRealtimeTest {
@@ -43,8 +49,10 @@ class HandshakeDoRealtimeTest {
     @BeforeEach
     void monta() {
         users = new InMemoryUserRepository();
-        usuario("u-bia", "bia", "tenant_b", Role.createViewerRole());
+        usuario("u-bia", "bia", "tenant_b", Role.createExecutorRole());
         usuario("u-root", "root", "tenant_a", Role.createAdminRole());
+        usuario("u-vera", "vera", "tenant_b", Role.createViewerRole());
+        usuario("u-dani", "dani", "tenant_b", Role.createDesignerRole());
         auth = new AuthService(jwtService, passwords, users, new InMemoryTokenBlacklist());
     }
 
@@ -65,10 +73,13 @@ class HandshakeDoRealtimeTest {
     private record Handshake(boolean aceito, int status, Map<String, Object> atributos) {
     }
 
+    /** Tenants suspensos no cadastro, lidos a cada handshake (como o cadastro real). */
+    private final Set<String> suspensos = new HashSet<>();
+
     private Handshake handshake(boolean authEnabled, boolean impersonation, String tenant, String token)
             throws Exception {
         WebSocketConfiguration config = new WebSocketConfiguration(null, jwtService, auth,
-                new String[] {"http://localhost:5173"}, authEnabled, impersonation);
+                new String[] {"http://localhost:5173"}, authEnabled, impersonation, suspensos::contains);
         HandshakeInterceptor interceptor = config.pathVariablesInterceptor();
         MockHttpServletRequest http = new MockHttpServletRequest("GET", "/api/realtime/" + tenant + "/p1");
         if (token != null) {
@@ -142,7 +153,7 @@ class HandshakeDoRealtimeTest {
     @Test
     @DisplayName("token sem a claim de tenant: é o tenant padrão, não um tenant livre")
     void semClaimEhOPadrao() throws Exception {
-        String semTenant = jwtService.generateTenantAccessToken("u-bia", "bia", null, new String[] {"VIEWER"});
+        String semTenant = jwtService.generateTenantAccessToken("u-bia", "bia", null, new String[] {"EXECUTOR"});
 
         assertThat(handshake(true, false, "__default__", semTenant).aceito()).isTrue();
         assertThat(handshake(true, false, "tenant_b", semTenant).status()).isEqualTo(403);
@@ -159,6 +170,58 @@ class HandshakeDoRealtimeTest {
         assertThat(personificado.aceito()).isTrue();
         assertThat(personificado.atributos()).containsEntry("tenantId", "tenant_b");
         assertThat(handshake(true, true, "tenant_a", viewer).status()).isEqualTo(403);
+    }
+
+    @Test
+    @DisplayName("VIEWER no próprio tenant: recusado (403) — falta workflow:execute, como no /ag-ui/agent")
+    void viewerSemWorkflowExecuteRecusado() throws Exception {
+        Handshake h = handshake(true, false, "tenant_b", login("vera").accessToken());
+
+        assertThat(h.aceito()).isFalse();
+        assertThat(h.status()).isEqualTo(403);
+        assertThat(h.atributos()).doesNotContainKey("tenantId");
+    }
+
+    @Test
+    @DisplayName("os papéis conferidos são os atuais: rebaixado para VIEWER depois do login, recusado")
+    void papelAtualConferido() throws Exception {
+        String token = login("bia").accessToken();
+        var bia = users.findById("u-bia").orElseThrow();
+        bia.getRoles().clear();
+        bia.addRole(Role.createViewerRole());
+        users.save(bia);
+
+        assertThat(handshake(true, false, "tenant_b", token).status()).isEqualTo(403);
+    }
+
+    @Test
+    @DisplayName("DESIGNER, EXECUTOR e ADMIN têm workflow:execute: aceitos no próprio tenant")
+    void papeisComWorkflowExecuteAceitos() throws Exception {
+        assertThat(handshake(true, false, "tenant_b", login("dani").accessToken()).aceito()).isTrue();
+        assertThat(handshake(true, false, "tenant_b", login("bia").accessToken()).aceito()).isTrue();
+        assertThat(handshake(true, false, "tenant_a", login("root").accessToken()).aceito()).isTrue();
+    }
+
+    @Test
+    @DisplayName("tenant da identidade suspenso: recusado (403); reativado, aceito de novo")
+    void tenantSuspensoRecusado() throws Exception {
+        String token = login("bia").accessToken();
+        suspensos.add("tenant_b");
+
+        Handshake h = handshake(true, false, "tenant_b", token);
+        assertThat(h.aceito()).isFalse();
+        assertThat(h.status()).isEqualTo(403);
+
+        suspensos.remove("tenant_b");
+        assertThat(handshake(true, false, "tenant_b", token).aceito()).isTrue();
+    }
+
+    @Test
+    @DisplayName("superadmin de outro tenant personificando o suspenso: aceito — conta o tenant da identidade")
+    void personificandoOSuspenso() throws Exception {
+        suspensos.add("tenant_b");
+
+        assertThat(handshake(true, true, "tenant_b", login("root").accessToken()).aceito()).isTrue();
     }
 
     @Test

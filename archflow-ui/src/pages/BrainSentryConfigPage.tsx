@@ -7,6 +7,8 @@ import {
 import { notifications } from '@mantine/notifications'
 import { brainsentryApi, type BrainSentryConfig } from '../services/brainsentry-api'
 import { ApiError } from '../services/api'
+import { useIsAdmin } from '../lib/permissions'
+import { PermissionTooltip } from '../components/PermissionTooltip'
 
 const DEFAULT: BrainSentryConfig = {
     enabled: false,
@@ -26,6 +28,8 @@ const DEFAULT: BrainSentryConfig = {
  */
 export default function BrainSentryConfigPage() {
     const { t } = useTranslation()
+    // Gravar a URL e a chave do Brain Sentry exige o papel ADMIN (QA2 RCHFLW-137).
+    const isAdmin = useIsAdmin()
     const [cfg, setCfg]     = useState<BrainSentryConfig>(DEFAULT)
     const [loading, setL]   = useState(true)
     const [saving, setS]    = useState(false)
@@ -110,7 +114,10 @@ export default function BrainSentryConfigPage() {
                         label={t('brainSentry.deepAnalysis')}
                     />
                     <Group justify="flex-end">
-                        <Button onClick={save} loading={saving} data-testid="bs-save">{t('common.save')}</Button>
+                        <PermissionTooltip missing={isAdmin ? null : 'ADMIN'}>
+                            <Button onClick={save} loading={saving} disabled={!isAdmin}
+                                    data-testid="bs-save">{t('common.save')}</Button>
+                        </PermissionTooltip>
                     </Group>
                 </Stack></Paper>
             )}

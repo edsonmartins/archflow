@@ -263,8 +263,12 @@ public class ArchflowBeanConfiguration {
     @Bean
     @ConditionalOnMissingBean
     public JwtService jwtService(
-            @Value("${archflow.security.jwt.secret:change-me-in-production-this-must-be-very-long}") String secret) {
-        return new JwtService(secret);
+            @Value("${archflow.security.jwt.secret:change-me-in-production-this-must-be-very-long}") String secret,
+            @Value("${archflow.security.jwt.access-token-expiration-seconds:900}") long accessTokenTtlSeconds) {
+        // A mesma propriedade que o authControllerImpl informa como expiresIn. Antes o bean usava o
+        // construtor sem validade e o token expirava sempre em 900 s: com ARCHFLOW_JWT_TTL=3600 o login
+        // dizia expiresIn 3600 e o token morria em 15 min (RCHFLW-192).
+        return new JwtService(secret, accessTokenTtlSeconds * 1000L, JwtService.DEFAULT_REFRESH_TOKEN_EXPIRATION);
     }
 
     /**

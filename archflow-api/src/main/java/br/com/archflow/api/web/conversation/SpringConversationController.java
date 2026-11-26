@@ -158,9 +158,10 @@ public class SpringConversationController {
         }
         ConversationResponse response = delegate.suspend(request);
         conversationService.getById(response.conversationId())
-                .map(SuspendedConversation::getForm)
-                .ifPresent(form -> resumeService.announceForm(tenantId, response.conversationId(),
-                        response.resumeToken(), formEvent(toFormData(form))));
+                .filter(state -> state.getForm() != null)
+                .ifPresent(state -> resumeService.announceForm(tenantId, response.conversationId(),
+                        response.resumeToken(), formEvent(toFormData(state.getForm()),
+                                state.getWorkflowExecutionId())));
         return response;
     }
 
@@ -219,9 +220,17 @@ public class SpringConversationController {
         return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ex.body);
     }
 
-    /** As chaves do evento {@code interaction/form} do protocolo, com os campos do {@code formData}. */
-    private static Map<String, Object> formEvent(FormDataDto form) {
+    /**
+     * As chaves do evento {@code interaction/form} do protocolo, com os campos do {@code formData} — e a
+     * execução que o envio continua, quando há uma: com ela o chat sabe que enviar exige
+     * {@code execution:manage} (ver {@link #resume}) e desabilita o formulário de quem não a tem, em vez
+     * de oferecer um envio que o servidor recusa (QA2 RCHFLW-136).
+     */
+    private static Map<String, Object> formEvent(FormDataDto form, String executionId) {
         Map<String, Object> event = new LinkedHashMap<>();
+        if (executionId != null && !executionId.isBlank()) {
+            event.put("executionId", executionId);
+        }
         event.put("formId", form.id());
         event.put("title", form.title());
         event.put("description", form.description());
@@ -374,7 +383,8 @@ public class SpringConversationController {
                 createdAt,
                 updatedAt,
                 messages.size(),
-                lastMessage
+                lastMessage,
+                state.map(SuspendedConversation::getWorkflowExecutionId).filter(id -> !id.isBlank()).orElse(null)
         ));
     }
 
@@ -483,7 +493,12 @@ public class SpringConversationController {
             Instant createdAt,
             Instant updatedAt,
             int messageCount,
-            String lastMessage
+            String lastMessage,
+            /**
+             * A execução que o formulário pendente continua, ou {@code null}. Com ela, enviar o formulário
+             * exige {@code execution:manage}, como decidir na fila de aprovações (ver {@link #resume}).
+             */
+            String executionId
     ) {}
 
     public record FormDataDto(

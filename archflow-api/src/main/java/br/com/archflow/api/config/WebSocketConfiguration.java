@@ -1,6 +1,8 @@
 package br.com.archflow.api.config;
 
+import br.com.archflow.api.admin.impl.TenantControllerImpl;
 import br.com.archflow.api.realtime.SpringRealtimeController;
+import br.com.archflow.model.security.ApiKeyScope;
 import br.com.archflow.security.auth.AuthService;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.socket.CloseStatus;
@@ -10,6 +12,7 @@ import org.springframework.web.socket.config.annotation.EnableWebSocket;
 import org.springframework.web.socket.config.annotation.WebSocketConfigurer;
 import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistry;
 
+import java.util.function.Predicate;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -32,6 +35,8 @@ public class WebSocketConfiguration implements WebSocketConfigurer {
     private final AuthService authService;
     private final boolean authEnabled;
     private final boolean impersonationEnabled;
+    /** {@code true} para o id de um tenant suspenso no cadastro — lido a cada handshake. */
+    private final Predicate<String> tenantSuspended;
 
     // SpringRealtimeController only exists when a RealtimeAdapter is configured
     // (e.g. the dev profile); a hard constructor dependency would fail the boot
@@ -41,6 +46,7 @@ public class WebSocketConfiguration implements WebSocketConfigurer {
             org.springframework.beans.factory.ObjectProvider<SpringRealtimeController> realtimeController,
             org.springframework.beans.factory.ObjectProvider<br.com.archflow.security.jwt.JwtService> jwtService,
             org.springframework.beans.factory.ObjectProvider<AuthService> authService,
+            org.springframework.beans.factory.ObjectProvider<TenantControllerImpl> tenants,
             @org.springframework.beans.factory.annotation.Value(
                     "${archflow.cors.allowed-origins:http://localhost:5173,http://localhost:5174}")
             String[] allowedOrigins,
@@ -49,18 +55,24 @@ public class WebSocketConfiguration implements WebSocketConfigurer {
             @org.springframework.beans.factory.annotation.Value(
                     "${archflow.admin.impersonation.enabled:false}") boolean impersonationEnabled) {
         this(realtimeController.getIfAvailable(), jwtService.getIfAvailable(), authService.getIfAvailable(),
-                allowedOrigins, authEnabled, impersonationEnabled);
+                allowedOrigins, authEnabled, impersonationEnabled, tenantId -> {
+                    // O mesmo cadastro que o TenantSuspensionInterceptor lê: suspender e reativar valem na hora.
+                    TenantControllerImpl cadastro = tenants.getIfAvailable();
+                    return cadastro != null && cadastro.isSuspended(tenantId);
+                });
     }
 
     WebSocketConfiguration(SpringRealtimeController realtimeController,
                            br.com.archflow.security.jwt.JwtService jwtService, AuthService authService,
-                           String[] allowedOrigins, boolean authEnabled, boolean impersonationEnabled) {
+                           String[] allowedOrigins, boolean authEnabled, boolean impersonationEnabled,
+                           Predicate<String> tenantSuspended) {
         this.realtimeController = realtimeController;
         this.jwtService = jwtService;
         this.authService = authService;
         this.allowedOrigins = allowedOrigins;
         this.authEnabled = authEnabled;
         this.impersonationEnabled = impersonationEnabled;
+        this.tenantSuspended = tenantSuspended;
     }
 
     @Override
@@ -192,10 +204,17 @@ public class WebSocketConfiguration implements WebSocketConfigurer {
      *       exige do {@code X-Tenant-Id}. Outro tenant só para quem poderia personificá-lo por REST
      *       ({@code archflow.admin.impersonation.enabled} e papel admin) — o caminho faz aqui o papel
      *       do {@code X-Impersonate-Tenant}, que um WebSocket de browser não tem como mandar.</li>
+     *   <li>os papéis atuais concedem {@code workflow:execute}: a sessão de voz põe o agente da persona
+     *       para responder no tenant, a mesma ação do {@code POST /ag-ui/agent}, que o
+     *       {@link WorkflowPermissionInterceptor} recusa ao VIEWER. O handshake não passa pelos
+     *       interceptors do MVC, então sem esta conferência o VIEWER conversava com o agente por aqui.</li>
+     *   <li>o tenant da identidade não está suspenso, como o {@link TenantSuspensionInterceptor} exige
+     *       de toda requisição REST — pelo mesmo motivo, ele não alcança o handshake.</li>
      * </ul>
      *
      * @return {@code null} quando aceito; senão o status da recusa (401 sem identidade válida, 403
-     *         tenant de outro, 503 store de revogação/usuários sem resposta)
+     *         tenant de outro, papel sem {@code workflow:execute} ou tenant suspenso, 503 store de
+     *         revogação/usuários sem resposta)
      */
     org.springframework.http.HttpStatus authorizeHandshake(String token, String pathTenant) {
         if (jwtService == null || authService == null || token == null || token.isBlank()) {
@@ -217,6 +236,17 @@ public class WebSocketConfiguration implements WebSocketConfigurer {
         }
         String expected = tokenTenant == null || tokenTenant.isBlank()
                 ? TenantContext.DEFAULT_TENANT : tokenTenant.trim();
+        // Como no REST: o tenant conferido é o da identidade, não o do caminho — o superadmin que
+        // personifica um tenant suspenso ainda precisa entrar nele para reativá-lo.
+        if (tenantSuspended != null && tenantSuspended.test(expected)) {
+            log.warn("Rejecting realtime handshake — tenant {} is suspended", expected);
+            return org.springframework.http.HttpStatus.FORBIDDEN;
+        }
+        String execute = ApiKeyScope.WORKFLOW_EXECUTE.getPermission();
+        if (!WorkflowPermissionInterceptor.permits(principal.roleSet(), execute)) {
+            log.warn("Rejecting realtime handshake — roles {} do not grant {}", principal.roleSet(), execute);
+            return org.springframework.http.HttpStatus.FORBIDDEN;
+        }
         if (expected.equals(pathTenant)) {
             return null;
         }

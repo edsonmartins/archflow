@@ -7,6 +7,7 @@ import { RunningFlowDto, observabilityApi } from '../../../services/observabilit
 import { SectionCard } from '../../../components/SectionCard';
 import { mensagemDoErro } from '../../../lib/errorMessage';
 import { ApiError } from '../../../services/api';
+import { usePermissions } from '../../../lib/permissions';
 import {
     VxTable, colunaAcoes, colunaApagada, colunaBarra, colunaStatus, type Registro, type VxColumn,
 } from '../../../components/VTable';
@@ -44,6 +45,8 @@ type Row = RunningFlowDto & { pct: number; liveMs: number };
  */
 export default function RunningFlowsPage() {
     const { t, i18n } = useTranslation();
+    // Cancelar por aqui é o mesmo cancelar de /api/executions: o servidor exige execution:manage (QA2).
+    const canCancel = usePermissions()('execution:manage');
     const locale = i18n.resolvedLanguage ?? i18n.language;
     const [flows, setFlows] = useState<RunningFlowDto[]>([]);
     const [loading, setLoading] = useState(true);
@@ -141,9 +144,10 @@ export default function RunningFlowsPage() {
           style: { fontWeight: 600 },
           fieldFormat: (r: Registro) => formatDuration(r.liveMs as number, t('admin.observability.running.durShort')) },
         colunaAcoes([
-            { nome: 'cancel', icone: 'stop', rotulo: t('admin.observability.running.cancelTooltip'), cor: 'red' },
+            { nome: 'cancel', icone: 'stop', rotulo: t('admin.observability.running.cancelTooltip'), cor: 'red',
+                mostrar: () => canCancel },
         ]),
-    ], [t, locale]);
+    ], [t, locale, canCancel]);
 
     return (
         <>

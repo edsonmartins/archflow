@@ -440,6 +440,8 @@ export function isInteractionForm(
     formId: string;
     fields: unknown[];
     resumeToken?: string;
+    /** Execução que o envio continua (o servidor exige então execution:manage). */
+    executionId?: string;
     title?: string;
     description?: string;
     submitLabel?: string;

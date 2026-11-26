@@ -36,7 +36,11 @@ public class JwtService {
 
     // Default values
     private static final long DEFAULT_ACCESS_TOKEN_EXPIRATION = 15 * 60 * 1000; // 15 minutes
-    private static final long DEFAULT_REFRESH_TOKEN_EXPIRATION = 7 * 24 * 60 * 60 * 1000L; // 7 days
+    /**
+     * 7 dias. Público para quem configura só a validade do access token (o bean do servidor, com
+     * {@code ARCHFLOW_JWT_TTL}) manter a do refresh sem repetir o número.
+     */
+    public static final long DEFAULT_REFRESH_TOKEN_EXPIRATION = 7 * 24 * 60 * 60 * 1000L;
 
     /**
      * Creates a JwtService with a secret key.

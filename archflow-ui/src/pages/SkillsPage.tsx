@@ -13,6 +13,8 @@ import { PageHeader } from '../components/PageHeader'
 import { SectionCard } from '../components/SectionCard'
 import { StatCard } from '../components/admin/StatCard'
 import EmptyState from '../components/EmptyState'
+import { usePermissions } from '../lib/permissions'
+import { PermissionTooltip } from '../components/PermissionTooltip'
 
 const renderRich = (text: string) =>
     text.split(/<code>|<\/code>/).map((seg, i) =>
@@ -33,6 +35,8 @@ const renderRich = (text: string) =>
  */
 export default function SkillsPage() {
     const { t } = useTranslation()
+    // Ativar/desativar muda o que os agentes do tenant fazem: o servidor exige agent:manage (QA2 RCHFLW-158).
+    const canManage = usePermissions()('agent:manage')
     const [skills, setSkills]   = useState<Skill[]>([])
     const [busy, setBusy]       = useState<string | null>(null)
     const [loading, setLoading] = useState(true)
@@ -53,6 +57,8 @@ export default function SkillsPage() {
     useEffect(() => { reload() }, [])
 
     const toggle = async (s: Skill, active: boolean) => {
+        // O switch desabilitado já não muda; a guarda cobre quem dispara o change mesmo assim.
+        if (!canManage) return
         setBusy(s.name)
         try {
             if (active) await skillsApi.activate(s.name)
@@ -162,14 +168,16 @@ export default function SkillsPage() {
                                             )}
                                         </Stack>
                                     </Group>
-                                    <Switch
-                                        checked={s.active}
-                                        onChange={e => toggle(s, e.currentTarget.checked)}
-                                        disabled={busy === s.name}
-                                        color="teal"
-                                        data-testid={`skill-toggle-${s.name}`}
-                                        label={s.active ? t('skills.active') : t('skills.inactive')}
-                                    />
+                                    <PermissionTooltip missing={canManage ? null : 'agent:manage'}>
+                                        <Switch
+                                            checked={s.active}
+                                            onChange={e => toggle(s, e.currentTarget.checked)}
+                                            disabled={busy === s.name || !canManage}
+                                            color="teal"
+                                            data-testid={`skill-toggle-${s.name}`}
+                                            label={s.active ? t('skills.active') : t('skills.inactive')}
+                                        />
+                                    </PermissionTooltip>
                                 </Group>
                             </Paper>
                         ))}

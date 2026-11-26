@@ -155,8 +155,8 @@ class SessaoNaRequisicaoTest {
 
         mvc(true, true).perform(get("/api/workflows").header("Authorization", "Bearer " + token)
                         .header(ImpersonationFilter.HEADER_IMPERSONATE, "t-b"))
-                .andExpect(status().isOk())
-                .andExpect(campo("/tenantId", "t-a"));
+                // RCHFLW-193: a personificação recusada é 403, não mais 200 com o próprio tenant.
+                .andExpect(status().isForbidden());
     }
 
     @Test
