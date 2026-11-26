@@ -2,9 +2,11 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
     Alert, Badge, Button, Code, Group, NumberInput, Paper, PasswordInput, SimpleGrid, Skeleton, Stack, Switch,
-    Text, TextInput,
+    Table, Text, TextInput,
 } from '@mantine/core'
-import { IconDeviceFloppy, IconInfoCircle, IconKey, IconPlugConnected, IconTerminal2 } from '@tabler/icons-react'
+import {
+    IconAlertTriangle, IconDeviceFloppy, IconInfoCircle, IconKey, IconPlugConnected, IconTerminal2,
+} from '@tabler/icons-react'
 import { notifications } from '@mantine/notifications'
 import { linktorApi, type LinktorConfig } from '../services/linktor-api'
 import { ApiError } from '../services/api'
@@ -21,6 +23,22 @@ const DEFAULT: LinktorConfig = {
     mcpCommand: '',
     timeoutSeconds: 30,
 }
+
+/**
+ * Como tornar a configuração permanente (RCHFLW-114). O servidor guarda o que se salva nesta tela num mapa em
+ * memória por tenant (`LinktorConfigControllerImpl`) e o perde no restart; o que sobrevive são as propriedades
+ * do `@Value` do bean `linktorConfigController`. Os nomes das variáveis não são a forma "natural" com `_`
+ * entre as palavras: as propriedades são camelCase e o Spring só acha a versão em maiúsculas sem separador
+ * (`VariaveisDeAmbienteDoLinktorTest` prova cada linha contra o `@Value`). Não são texto traduzível.
+ */
+const PROPRIEDADES_PERMANENTES: ReadonlyArray<readonly [propriedade: string, variavel: string]> = [
+    ['archflow.linktor.enabled', 'ARCHFLOW_LINKTOR_ENABLED'],
+    ['archflow.linktor.apiBaseUrl', 'ARCHFLOW_LINKTOR_APIBASEURL'],
+    ['archflow.linktor.apiKey', 'ARCHFLOW_LINKTOR_APIKEY'],
+    ['archflow.linktor.accessToken', 'ARCHFLOW_LINKTOR_ACCESSTOKEN'],
+    ['archflow.linktor.mcpCommand', 'ARCHFLOW_LINKTOR_MCPCOMMAND'],
+    ['archflow.linktor.timeoutSeconds', 'ARCHFLOW_LINKTOR_TIMEOUTSECONDS'],
+]
 
 /**
  * Admin page for the Linktor omnichannel messaging integration.
@@ -79,6 +97,34 @@ export default function LinktorConfigPage() {
 
             <Alert color="blue" variant="light" icon={<IconInfoCircle size={16} />} maw={980}>
                 {t('linktor.config.info')}
+            </Alert>
+
+            {/* A tela dizia "salva" e o restart desligava a integração em silêncio (RCHFLW-114). Não há
+                cifragem de segredo em repouso para guardar a chave no banco, então a tela diz a verdade:
+                vale até o restart, e o caminho permanente são as propriedades do servidor. */}
+            <Alert color="yellow" variant="light" icon={<IconAlertTriangle size={16} />} maw={980}
+                   title={t('linktor.config.restartTitle')} data-testid="linktor-restart-warning">
+                <Stack gap="xs">
+                    <Text size="sm">{t('linktor.config.restartBody')}</Text>
+                    <Table withTableBorder withColumnBorders fz="sm" maw={640}
+                           data-testid="linktor-permanent-properties">
+                        <Table.Thead>
+                            <Table.Tr>
+                                <Table.Th>{t('linktor.config.restartProperty')}</Table.Th>
+                                <Table.Th>{t('linktor.config.restartEnvVar')}</Table.Th>
+                            </Table.Tr>
+                        </Table.Thead>
+                        <Table.Tbody>
+                            {PROPRIEDADES_PERMANENTES.map(([propriedade, variavel]) => (
+                                <Table.Tr key={propriedade}>
+                                    <Table.Td><Code>{propriedade}</Code></Table.Td>
+                                    <Table.Td><Code>{variavel}</Code></Table.Td>
+                                </Table.Tr>
+                            ))}
+                        </Table.Tbody>
+                    </Table>
+                    <Text size="xs" c="dimmed">{t('linktor.config.restartEnvHint')}</Text>
+                </Stack>
             </Alert>
 
             {loading ? (

@@ -290,4 +290,22 @@ test.describe('Auth and workflows', () => {
         await expect(page.getByText('Customer Support Flow')).toBeHidden();
         await expect(page.getByText('Missing invoice total')).toBeAttached();
     });
+
+    // RCHFLW-117: um id que o backend não reconhece (excluído, de outro tenant) respondia 404 e o editor
+    // abria um canvas em branco, "Untitled workflow" — parecia um fluxo novo e o Salvar estava ali.
+    test('editor shows "Workflow not found" for an unknown id and goes back to the list', async ({ page }) => {
+        await mockApi(page);
+        await authenticate(page);
+
+        await page.goto('/editor/wf-missing');
+
+        await expect(page.getByTestId('editor-not-found')).toBeVisible();
+        await expect(page.getByText('Workflow not found')).toBeVisible();
+        await expect(page.getByTestId('editor-save')).toHaveCount(0);
+        await expect(page.getByTestId('editor-canvas-pane')).toHaveCount(0);
+
+        await page.getByRole('button', { name: 'Back to workflow list' }).click();
+        await expect(page).toHaveURL(/\/workflows$/);
+        await expect(page.getByText('Customer Support Flow')).toBeVisible();
+    });
 });

@@ -107,13 +107,22 @@ public class RedisMemoryAdapter implements LangChainAdapter {
         }
     }
 
+    /**
+     * O histórico da mais antiga para a mais nova — a ordem de uma conversa, e a mesma do
+     * {@code JdbcMemoryAdapter} ({@code ORDER BY id ASC}).
+     *
+     * <p>A lista no Redis está ao contrário: o {@code add} faz {@code LPUSH} (a mais nova na cabeça) para
+     * que o {@code LTRIM 0..max-1} guarde as N mais recentes. Devolver o {@code LRANGE} como veio entregava
+     * a conversa de trás para frente a quem lê o histórico (RCHFLW-118). A inversão é aqui, na leitura, e
+     * não na gravação: o que já está gravado continua válido, sem migração de chave nenhuma.</p>
+     */
     private List<ChatMessage> getMessages(String conversationId) throws Exception {
         String key = keyPrefix + conversationId;
         try (var jedis = jedisPool.getResource()) {
             List<String> jsonMessages = jedis.lrange(key, 0, -1);
             List<ChatMessage> messages = new ArrayList<>();
 
-            for (String json : jsonMessages) {
+            for (String json : jsonMessages.reversed()) {
                 ChatMessage message = deserializeMessage(json);
                 if (message != null) {
                     messages.add(message);

@@ -14,7 +14,9 @@
  * valores (o id do provedor e o do modelo).</p>
  */
 import { NODE_TYPE_TO_CATEGORY, NOT_EXECUTABLE_NODE_TYPES, PALETTE_NODES } from '../FlowCanvas/constants'
-import { NODE_TYPES_WITHOUT_DEFAULT_OPERATION } from '../FlowCanvas/dataNodeKeys'
+import {
+  MEMORY_OPERATIONS, MEMORY_ROLES, NODE_TYPES_WITHOUT_DEFAULT_OPERATION, PANEL_OPERATIONS,
+} from '../FlowCanvas/dataNodeKeys'
 
 /**
  * Tipo do valor. {@code json} é um objeto/array cuja FORMA é conferida por {@link JSON_SHAPES} — o motor lê
@@ -85,7 +87,23 @@ const VECTOR_STORE: ConfigKeys = {
 }
 const VECTOR: ConfigKeys = { ...VECTOR_STORE, topK: 'number' }
 
-const MEMORY: ConfigKeys = { memoryBackend: 'string', redisConnection: 'string', memoryMaxMessages: 'number' }
+// operation e memoryRole: o campo Operação do painel e, no add, o Papel da mensagem (RCHFLW-115) — sem eles o motor
+// recusa o nó. Os valores são fechados (ALLOWED_VALUES).
+const MEMORY: ConfigKeys = {
+  memoryBackend: 'string',
+  redisConnection: 'string',
+  memoryMaxMessages: 'number',
+  operation: 'string',
+  memoryRole: 'string',
+}
+
+/**
+ * Chaves de texto com valores fechados, por tipo de nó: as opções do Select do painel, que são o que o motor aceita.
+ * Uma operação inventada ("save") seria gravada sem erro e o nó só falharia ao executar ("Unsupported operation").
+ */
+const ALLOWED_VALUES: Readonly<Record<string, Readonly<Record<string, readonly string[]>>>> = {
+  memory: { operation: MEMORY_OPERATIONS, memoryRole: MEMORY_ROLES },
+}
 
 const TRANSFORM: ConfigKeys = {
   transformInput: 'string',
@@ -180,13 +198,15 @@ export const NODE_CONFIG_KEYS: Readonly<Record<string, ConfigKeys>> = {
 
 /**
  * Os tipos de nó que o copiloto pode criar: os da paleta que executam. Os sem execução (RCHFLW-11) ficam de fora —
- * "Gerar com IA" montava fluxos que só falhavam ao executar —, e também Memória e Vector store, que só rodam com
- * uma 'operation' que nem o painel nem esta tabela oferecem (NODE_TYPES_WITHOUT_DEFAULT_OPERATION). A tabela acima
- * continua cobrindo todos os tipos: o copiloto ainda configura um nó desses que já esteja no canvas.
+ * "Gerar com IA" montava fluxos que só falhavam ao executar —, e também o Vector store, que só roda com uma
+ * 'operation' que nem o painel nem esta tabela oferecem (NODE_TYPES_WITHOUT_DEFAULT_OPERATION sem PANEL_OPERATIONS).
+ * A Memória entra: o painel e esta tabela têm a Operação (RCHFLW-115). A tabela acima continua cobrindo todos os
+ * tipos: o copiloto ainda configura um nó desses que já esteja no canvas.
  */
 export const COPILOT_NODE_TYPES: readonly string[] = PALETTE_NODES
   .map(n => n.componentId as string)
-  .filter(id => !NOT_EXECUTABLE_NODE_TYPES.has(id) && !NODE_TYPES_WITHOUT_DEFAULT_OPERATION.has(id))
+  .filter(id => !NOT_EXECUTABLE_NODE_TYPES.has(id)
+    && !(NODE_TYPES_WITHOUT_DEFAULT_OPERATION.has(id) && !PANEL_OPERATIONS[id]))
 
 export function isAnnotationType(nodeType: string): boolean {
   return NODE_TYPE_TO_CATEGORY[nodeType] === 'annotation'
@@ -200,7 +220,9 @@ export function configKeysSummary(): Record<string, string> {
   return Object.fromEntries(Object.entries(NODE_CONFIG_KEYS).map(([type, keys]) => [
     type, Object.entries(keys).map(([k, v]) => {
       const shape = JSON_SHAPES[type]?.[k]
-      return shape ? `${k}:${v} ${shape.hint}` : `${k}:${v}`
+      const allowed = ALLOWED_VALUES[type]?.[k]
+      if (shape) return `${k}:${v} ${shape.hint}`
+      return allowed ? `${k}:${v} ${allowed.join('|')}` : `${k}:${v}`
     }).join('; '),
   ]))
 }
@@ -503,6 +525,11 @@ export function validateNodeConfig(nodeType: string, patch: Record<string, unkno
     const coerced = coerce(value, type)
     if (!coerced.ok) {
       errors.push(`"${key}" must be ${type}`)
+      continue
+    }
+    const allowed = ALLOWED_VALUES[nodeType]?.[key]
+    if (allowed && !allowed.includes(coerced.value as string)) {
+      errors.push(`"${key}" must be one of ${allowed.join(', ')}`)
       continue
     }
     if (type === 'json') {

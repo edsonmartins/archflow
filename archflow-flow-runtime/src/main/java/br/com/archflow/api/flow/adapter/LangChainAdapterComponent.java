@@ -133,15 +133,16 @@ public final class LangChainAdapterComponent implements AIComponent {
 
     /**
      * A operação que vale quando o nó não diz uma ({@code DefaultFlowStepFactory.operationOf} manda
-     * {@code execute}), por <b>tipo de nó</b>. O designer não tem campo de operação, e nenhum adapter de
-     * dados aceita {@code execute} — sem isto, o nó de Embedding ou RAG que chegasse ao adapter falhava com
+     * {@code execute}), por <b>tipo de nó</b>. O designer não tem campo de operação nesses nós, e nenhum adapter
+     * de dados aceita {@code execute} — sem isto, o nó de Embedding ou RAG que chegasse ao adapter falhava com
      * "Unsupported operation: execute" (RCHFLW-56).
      *
      * <p>É por tipo de nó, e não de adapter, porque {@code vector-search} e {@code vector-store} vão ao mesmo
      * adapter e prometem coisas opostas: buscar e <i>gravar</i>. Nenhum adapter de vector store grava (só
      * {@code search}, {@code remove} e {@code removeAll}); dar {@code search} ao {@code vector-store} fazia o
      * nó "Armazena embeddings" buscar e voltar com sucesso sem ter indexado nada. Ele e a memória (guardar?
-     * ler? limpar?) não têm padrão: sem {@code operation} no nó, recusam dizendo as opções.</p>
+     * ler? limpar?) não têm padrão: sem {@code operation} no nó, recusam dizendo as opções — a memória tem o campo
+     * Operação no painel (RCHFLW-115).</p>
      */
     static final Map<String, String> DEFAULT_OPERATION_BY_NODE_TYPE = Map.of(
             "embedding", "embed",
@@ -158,6 +159,27 @@ public final class LangChainAdapterComponent implements AIComponent {
      * lida pela ponte e não pelo adapter — não vai nas propriedades dele ({@link #effectiveProperties}).
      */
     public static final String USER_MESSAGE_KEY = "userMessage";
+
+    /**
+     * As operações dos adapters de memória ({@code RedisMemoryAdapter}, {@code JdbcMemoryAdapter}): são as opções
+     * do campo Operação do painel (RCHFLW-115). O {@code DesignerAdapterKeysConformanceTest} confere que o painel
+     * oferece exatamente estas — uma opção a mais viraria "Unsupported operation" só ao executar.
+     */
+    public static final List<String> MEMORY_OPERATIONS = List.of("add", "get", "clear");
+
+    /**
+     * Onde a ponte lê o papel da mensagem que o {@code add} guarda (o campo {@code memoryRole} do painel, traduzido
+     * por {@link DesignerAdapterKeys}). Os adapters de memória só aceitam um {@code ChatMessage}, e a entrada de um
+     * passo é texto ou JSON: sem dizer de quem é a mensagem, não há {@code ChatMessage} a montar.
+     */
+    static final String MEMORY_ROLE = "memory.role";
+
+    /**
+     * Os papéis de uma mensagem feita só de texto: os que os adapters de memória também montam a partir do texto
+     * no formato antigo ({@code UserMessage}, {@code AiMessage}, {@code SystemMessage}). Resultado de ferramenta
+     * fica de fora — precisa do id e do nome da chamada, que a entrada de um passo não tem.
+     */
+    public static final List<String> MEMORY_ROLES = List.of("user", "ai", "system");
 
     /** Chaves de uma entrada-mapa que carregam o texto da mensagem, em ordem de preferência. */
     static final List<String> MESSAGE_KEYS = List.of("input", "message", "text", "prompt");
@@ -388,7 +410,11 @@ public final class LangChainAdapterComponent implements AIComponent {
             modelPolicy.check(tenantId, ((String) nodeConfig.get(RAG_LLM_PROVIDER)).trim(), modelsUsed());
         }
         String op = dataOperation(operation);
-        return dataOutput(adapterFor(tenantId).execute(op, dataInput(op, input), context));
+        Object output = adapterFor(tenantId).execute(op, dataInput(op, input), context);
+        // Operações que só gravam (add/clear da memória, remove do vector store) devolvem null, e o passo guarda a
+        // saída nas variáveis da execução, que não aceitam null — o nó falhava com NullPointerException depois de
+        // ter gravado. Sem saída própria, o nó passa adiante o que recebeu: o passo seguinte vê a mesma entrada.
+        return output == null ? input : dataOutput(output);
     }
 
     /** Onde o RAG lê o provider de cada papel (as chaves do {@code RagChainAdapter}). */
@@ -413,10 +439,13 @@ public final class LangChainAdapterComponent implements AIComponent {
         String opcoes = OPERATIONS_BY_ADAPTER_TYPE.get(adapterType);
         String gravacao = "vectorstore".equals(adapterType)
                 ? " Nenhum adapter de vector store grava vetores; para buscar, use o nó Vector search." : "";
+        // A memória tem o campo Operação no painel (RCHFLW-115); o vector store ainda não.
+        String onde = "memory".equals(adapterType)
+                ? ": escolha a Operação no painel do nó." : ", e o painel ainda não tem esse campo.";
         throw new IllegalArgumentException("Nó " + componentId()
                 + (nodeType == null ? "" : " (" + nodeType + ")") + ": diga a operação em 'operation'"
                 + (opcoes == null ? "" : " (" + opcoes + ")")
-                + ". Este tipo de nó não tem uma operação padrão, e o painel ainda não tem esse campo." + gravacao);
+                + ". Este tipo de nó não tem uma operação padrão" + onde + gravacao);
     }
 
     /**
@@ -428,8 +457,44 @@ public final class LangChainAdapterComponent implements AIComponent {
         return switch (operation) {
             case "embed", "query" -> messageText(input);
             case "search" -> "vectorstore".equals(adapterType) ? searchRequest(input) : input;
+            case "add" -> "memory".equals(adapterType) ? memoryMessage(input) : input;
             default -> input;
         };
+    }
+
+    /**
+     * A mensagem que o {@code add} da memória guarda. Os adapters só aceitam um {@code ChatMessage} ("Input must be
+     * a ChatMessage"), e a entrada que chega de um passo é texto ou a saída-objeto do anterior: o texto é o mesmo
+     * que um nó de chat leria ({@link #messageText}) e o papel é o que o nó escolheu ({@link #MEMORY_ROLE}). Sem
+     * papel, recusa — guardar a resposta do modelo como se fosse do usuário mudaria a conversa que o {@code get}
+     * devolve depois.
+     */
+    dev.langchain4j.data.message.ChatMessage memoryMessage(Object input) {
+        if (input instanceof dev.langchain4j.data.message.ChatMessage message) {
+            return message;
+        }
+        String role = texto(nodeConfig.get(MEMORY_ROLE));
+        if (role == null) {
+            throw new IllegalArgumentException("Nó " + componentId() + nodeTypeSuffix() + ": a operação add guarda a "
+                    + "entrada como uma mensagem, e o nó não diz de quem ela é. Escolha o Papel da mensagem no "
+                    + "painel (" + String.join(", ", MEMORY_ROLES) + ").");
+        }
+        if (!(messageText(input) instanceof String text) || text.isBlank()) {
+            throw new IllegalArgumentException("Nó " + componentId() + nodeTypeSuffix()
+                    + ": a operação add não recebeu nada para guardar — a entrada do passo está vazia.");
+        }
+        return switch (role.toLowerCase(Locale.ROOT)) {
+            case "user" -> dev.langchain4j.data.message.UserMessage.from(text);
+            case "ai" -> dev.langchain4j.data.message.AiMessage.from(text);
+            case "system" -> dev.langchain4j.data.message.SystemMessage.from(text);
+            default -> throw new IllegalArgumentException("Nó " + componentId() + nodeTypeSuffix()
+                    + ": 'memoryRole' (" + MEMORY_ROLE + ") deve ser " + String.join(", ", MEMORY_ROLES)
+                    + ", veio \"" + role + "\"");
+        };
+    }
+
+    private String nodeTypeSuffix() {
+        return nodeType == null ? "" : " (" + nodeType + ")";
     }
 
     /**
@@ -505,6 +570,14 @@ public final class LangChainAdapterComponent implements AIComponent {
                 && list.stream().allMatch(dev.langchain4j.data.embedding.Embedding.class::isInstance)) {
             return list.stream().map(LangChainAdapterComponent::dataOutput).toList();
         }
+        if (output instanceof List<?> list && !list.isEmpty()
+                && list.stream().allMatch(dev.langchain4j.data.message.ChatMessage.class::isInstance)) {
+            // O histórico do get da memória: cada mensagem no formato canônico que os adapters gravam
+            // (ChatMessageCodec), que o fluxo guarda e a tela mostra — o ChatMessage em si não serializa.
+            return list.stream()
+                    .map(m -> messageMap((dev.langchain4j.data.message.ChatMessage) m))
+                    .toList();
+        }
         if (output instanceof dev.langchain4j.store.embedding.EmbeddingSearchResult<?> result) {
             return result.matches().stream().map(match -> {
                 Map<String, Object> hit = new LinkedHashMap<>();
@@ -518,6 +591,14 @@ public final class LangChainAdapterComponent implements AIComponent {
             }).toList();
         }
         return output;
+    }
+
+    private static Object messageMap(dev.langchain4j.data.message.ChatMessage message) {
+        try {
+            return JSON.readValue(br.com.archflow.langchain4j.core.memory.ChatMessageCodec.toJson(message), Map.class);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            throw new IllegalStateException("mensagem da memória sem JSON canônico: " + e.getMessage(), e);
+        }
     }
 
     /**
@@ -732,10 +813,10 @@ public final class LangChainAdapterComponent implements AIComponent {
         }
         Object name = properties.remove(store + DesignerAdapterKeys.CONNECTION_SUFFIX);
         if ("memory".equals(adapterType) && "jdbc".equals(store)) {
-            // O adapter JDBC espera um objeto DataSource, que não vem de JSON nem de uma string de conexão.
-            throw new IllegalStateException("[ADAPTER-CONEXAO] Nó " + componentId() + ": a memória JDBC precisa "
-                    + "de um DataSource do servidor, e o nó de fluxo ainda não recebe um. Escolha o backend redis "
-                    + "(conexão em " + AdapterConnections.PREFIX + "redis.<nome>.host).");
+            // O adapter JDBC espera um objeto DataSource, que não vem de JSON nem de uma string de conexão: é o banco
+            // da persistência JDBC do servidor (RCHFLW-119). Sem ela, falha aqui dizendo o que ligar.
+            properties.put("datasource", connections.memoryDataSource(componentId()));
+            return;
         }
         if (AdapterConnections.needsConnection(store)) {
             properties.putAll(connections.resolve(componentId(), store, texto(name),
