@@ -327,3 +327,65 @@ describe('runReadiness — decision que o motor recusa', () => {
     }
   })
 })
+
+describe('runReadiness — regras das arestas', () => {
+  const sw = (cases: string) => ({
+    id: 'sw', label: 'Motivo', componentId: 'switch', type: 'switch',
+    config: { switchExpression: '${input}', switchCases: cases },
+  })
+  const out = (id: string, label: string) => ({ id, label, componentId: 'output', type: 'output', config: {} })
+
+  it('RCHFLW-147: aresta num caso renomeado impede o run, nomeando origem, destino, ramo e os ramos que existem', () => {
+    const blockers = runBlockers([sw('defeito\narrependido'), out('r', 'Resposta ao cliente')],
+      [{ sourceId: 'sw', targetId: 'r', branch: 'arrependimento' }])
+
+    expect(hasRunBlockers(blockers)).toBe(true)
+    expect(blockers.invalidBranches).toEqual([{
+      id: 'sw', label: 'Motivo', target: 'Resposta ao cliente', branch: 'arrependimento',
+      options: ['defeito', 'arrependido', 'default'],
+    }])
+    expect(runBlockersMessage(t, blockers)).toBe('editor.notif.runBlockedInvalidBranch['
+      + 'editor.notif.invalidBranchEdge[Motivo|Resposta ao cliente|arrependimento|defeito, arrependido, default]]')
+  })
+
+  it('ramo declarado, default implícito, condição à mão e aresta de erro não impedem', () => {
+    const blockers = runBlockers([sw('defeito'), out('r', 'R')], [
+      { sourceId: 'sw', targetId: 'r', branch: 'defeito' },
+      { sourceId: 'sw', targetId: 'r', branch: 'default' },
+      { sourceId: 'sw', targetId: 'r', branch: 'velho', condition: "${a.x} == 'y'" },
+      { sourceId: 'sw', targetId: 'r', branch: 'velho', isErrorPath: true },
+    ])
+    expect(hasRunBlockers(blockers)).toBe(false)
+  })
+
+  it('RCHFLW-188 (13): conexão para um passo que não existe impede o run', () => {
+    const blockers = runBlockers([out('a', 'Saída')], [{ sourceId: 'a', targetId: 'node-6' }])
+    expect(blockers.danglingConnections).toEqual([{ id: 'a', label: 'Saída', target: 'node-6' }])
+    expect(runBlockersMessage(t, blockers)).toBe('editor.notif.runBlockedDanglingConnection["Saída" → node-6]')
+  })
+
+  it('RCHFLW-188 (12): ciclo impede o run, nomeando os passos na ordem das arestas', () => {
+    const steps = [out('e', 'Entrada'), out('d', 'Decisão'), out('ap', 'Aprovação'), out('l', 'LLM Chat')]
+    const blockers = runBlockers(steps, [
+      { sourceId: 'e', targetId: 'd' }, { sourceId: 'd', targetId: 'ap' },
+      { sourceId: 'ap', targetId: 'l' }, { sourceId: 'l', targetId: 'd' },
+    ])
+    expect(blockers.cycle).toEqual(['Decisão', 'Aprovação', 'LLM Chat', 'Decisão'])
+    expect(runBlockersMessage(t, blockers))
+      .toBe('editor.notif.runBlockedCycle["Decisão" → "Aprovação" → "LLM Chat" → "Decisão"]')
+  })
+
+  it('sem as conexões, as regras das arestas não rodam (quem só tem os passos)', () => {
+    expect(runBlockers([sw('a'), out('r', 'R')])).toEqual(
+      { notExecutable: [], missing: [], invalidExpressions: [], invalidDecisions: [] })
+  })
+
+  it('as frases novas existem nos dois idiomas', () => {
+    for (const locale of [ptBR, en]) {
+      const notif = (locale as { editor: { notif: Record<string, unknown> } }).editor.notif
+      for (const k of ['runBlockedInvalidBranch', 'invalidBranchEdge', 'runBlockedDanglingConnection', 'runBlockedCycle']) {
+        expect(typeof notif[k]).toBe('string')
+      }
+    }
+  })
+})

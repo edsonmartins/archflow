@@ -192,10 +192,15 @@ public class SpringExecutionController {
         }
         try {
             flowEngine.cancel(id);
-        } catch (RuntimeException alreadyFinished) {
-            // ignore — fall through to mark the record cancelled
+        } catch (RuntimeException notActive) {
+            // O motor não tinha a travessia: ela terminou entre a checagem e o cancelar, ou já desenrolou num
+            // portão de aprovação e o PAUSED ainda não chegou ao registro. Aqui o registro não pode congelar —
+            // o PAUSED e, depois da decisão, o desfecho real têm de chegar —, então vale a gravação de antes.
+            store.completeExecution(id, "CANCELLED", null);
+            return ResponseEntity.ok(store.getExecution(tenantId, id));
         }
-        store.completeExecution(id, "CANCELLED", null);
+        // O motor parou a travessia: o registro é marcado, e o fim tardio dela não o reescreve (RCHFLW-188, item 16).
+        store.cancelExecution(id);
         return ResponseEntity.ok(store.getExecution(tenantId, id));
     }
 

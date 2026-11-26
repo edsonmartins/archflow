@@ -140,6 +140,45 @@ class NumeracaoDosPassosNaRetomadaTest {
                 .isGreaterThanOrEqualTo(ESPERA_MS);
     }
 
+    /**
+     * RCHFLW-188, item 17: na retomada o {@code startedAt} do portão era sobrescrito (ficava depois do
+     * {@code suspendedAt}), a duração era só a da reexecução (3 ms para minutos de espera), e só o portão recusado
+     * dizia quem decidiu.
+     */
+    @Test
+    @DisplayName("o portão aprovado guarda o início de antes da pausa, a espera na duração e quem aprovou")
+    void portaoAprovadoGuardaInicioEsperaEDecisor() throws Exception {
+        Map<String, Object> config = new HashMap<>();
+        config.put("approvalTitle", "Revisar");
+        HumanApprovalStep revisao = new HumanApprovalStep("revisao", List.of(aresta("revisao", "final")), config,
+                () -> engine);
+        Flow flow = new SimpleFlow(flowId, new FlowMetadata("Revisão", "", "1.0.0", null, null, List.of()),
+                List.of(passo("rascunho", List.of(aresta("rascunho", "revisao"))), revisao,
+                        passo("final", List.of())));
+        flowRepository.save(flow);
+        ExecutionContext ctx = new DefaultExecutionContext("acme", "u", flowId,
+                MessageWindowChatMemory.builder().maxMessages(5).build());
+        engine.execute(flow, ctx).get(15, TimeUnit.SECONDS);
+        Object inicio = registro("revisao").get("startedAt");
+
+        Thread.sleep(ESPERA_MS);
+        ApprovalQueueService fila = new ApprovalQueueService(stateManager, engine, Duration.ofHours(24),
+                Clock.systemUTC(), null, records);
+        fila.submitDecision(fila.listPending("acme").get(0).requestId(),
+                new ApprovalSubmitRequest("acme", "APPROVED", null, "maria", null));
+        esperar(() -> talvez("final").map(r -> "COMPLETED".equals(r.get("status"))).orElse(false));
+
+        Map<String, Object> portao = registro("revisao");
+        assertThat(portao.get("status")).isEqualTo("COMPLETED");
+        assertThat(portao.get("startedAt")).as("o início é o de antes da pausa").isEqualTo(inicio);
+        assertThat(java.time.Instant.parse(String.valueOf(portao.get("startedAt"))))
+                .isBeforeOrEqualTo(java.time.Instant.parse(String.valueOf(portao.get("suspendedAt"))));
+        assertThat(portao.get("resumedAt")).as("a retomada fica registrada à parte").isNotNull();
+        assertThat(((Number) portao.get("durationMs")).longValue()).as("a duração cobre a espera")
+                .isGreaterThanOrEqualTo(ESPERA_MS);
+        assertThat(portao.get("decidedBy")).as("quem aprovou, como no recusado").isEqualTo("maria");
+    }
+
     private static void esperar(BooleanSupplier condicao) throws Exception {
         long prazo = System.currentTimeMillis() + 10_000;
         while (!condicao.getAsBoolean()) {

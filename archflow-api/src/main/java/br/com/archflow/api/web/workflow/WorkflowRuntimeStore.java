@@ -72,6 +72,73 @@ public interface WorkflowRuntimeStore {
     /** True only when the workflow exists AND belongs to the tenant. */
     boolean hasWorkflow(String tenantId, String id);
 
+    /**
+     * O desfecho de {@link #updateWorkflow}.
+     *
+     * @param outcome          o que aconteceu
+     * @param document         o documento gravado ({@link Outcome#UPDATED}); {@code null} nos outros desfechos
+     * @param currentUpdatedAt o {@code updatedAt} que o fluxo tinha quando a pré-condição falhou
+     *                         ({@link Outcome#CONFLICT}); {@code null} nos outros desfechos
+     */
+    record Update(Outcome outcome, Map<String, Object> document, Object currentUpdatedAt) {
+
+        public enum Outcome { UPDATED, NOT_FOUND, CONFLICT }
+
+        public static Update updated(Map<String, Object> document) {
+            return new Update(Outcome.UPDATED, document, null);
+        }
+
+        public static Update notFound() {
+            return new Update(Outcome.NOT_FOUND, null, null);
+        }
+
+        public static Update conflict(Object currentUpdatedAt) {
+            return new Update(Outcome.CONFLICT, null, currentUpdatedAt);
+        }
+    }
+
+    /**
+     * Altera um fluxo que <b>já existe</b>: lê o documento atual, confere a versão esperada e grava o que
+     * {@code change} devolver — as três coisas numa operação só, serializada com o {@link #deleteWorkflow} e com
+     * as outras alterações do mesmo fluxo.
+     *
+     * <p>É a gravação do PUT, do PATCH de status e do Salvar YAML. Antes eles liam com {@link #getWorkflow} e
+     * gravavam com {@link #putWorkflow}, que é um upsert: um Salvar que chegava logo depois de uma exclusão já
+     * confirmada recriava o fluxo, sem as versões que a exclusão tinha levado (RCHFLW-172); e um PATCH de
+     * status entre a leitura e a gravação de um PUT era apagado por ele, ou o apagava, com as duas respostas em
+     * 200 (RCHFLW-173). Aqui um fluxo que não existe mais é {@link Update.Outcome#NOT_FOUND} — nunca uma
+     * criação —, e a leitura que a conferência e a mudança usam é a que vale no momento da gravação.</p>
+     *
+     * @param expectedUpdatedAt o {@code updatedAt} que quem grava leu (o {@code If-Match}); se o fluxo está em
+     *                          outro, {@link Update.Outcome#CONFLICT} e nada é gravado. {@code null}: sem
+     *                          pré-condição
+     * @param change            recebe uma cópia do documento atual e devolve o documento a gravar
+     */
+    Update updateWorkflow(String tenantId, String id, String expectedUpdatedAt,
+                          java.util.function.UnaryOperator<Map<String, Object>> change);
+
+    /** A pré-condição do {@link #updateWorkflow}: {@code true} quando não há uma, ou quando o fluxo está nela. */
+    static boolean matchesExpected(Map<String, Object> current, String expectedUpdatedAt) {
+        return expectedUpdatedAt == null || expectedUpdatedAt.equals(String.valueOf(current.get("updatedAt")));
+    }
+
+    /**
+     * O fluxo mudou desde a versão que quem publica leu ({@link #publishWorkflow(String, String, String, String)}).
+     * Exceção, e não retorno, porque {@code null} já quer dizer "fluxo inexistente" nesse método.
+     */
+    class WorkflowConflictException extends IllegalStateException {
+        private final transient Object currentUpdatedAt;
+
+        public WorkflowConflictException(String workflowId, Object currentUpdatedAt) {
+            super("Workflow " + workflowId + " was changed elsewhere since it was loaded");
+            this.currentUpdatedAt = currentUpdatedAt;
+        }
+
+        public Object currentUpdatedAt() {
+            return currentUpdatedAt;
+        }
+    }
+
     /** Status de execução que ainda dependem do fluxo: em andamento ou parada à espera (aprovação). */
     Set<String> ACTIVE_EXECUTION_STATUSES = Set.of("RUNNING", "PAUSED");
 
@@ -135,11 +202,56 @@ public interface WorkflowRuntimeStore {
     WorkflowVersionRecord getWorkflowVersion(String tenantId, String workflowId, String versionId);
 
     /** Creates the next immutable version from the current draft; {@code null} when not the tenant's. */
-    WorkflowVersionRecord publishWorkflow(String tenantId, String workflowId, String comment);
+    default WorkflowVersionRecord publishWorkflow(String tenantId, String workflowId, String comment) {
+        return publishWorkflow(tenantId, workflowId, comment, null);
+    }
+
+    /**
+     * Cria a próxima versão imutável a partir do rascunho gravado — o rascunho na versão que quem publica leu,
+     * quando {@code expectedUpdatedAt} vem.
+     *
+     * <p>O editor publica o que acabou de salvar e manda o {@code updatedAt} que tem (RCHFLW-146): se outra
+     * sessão gravou no meio, publicar o rascunho dela poria em PRODUCTION um documento que quem clicou em
+     * Publicar nunca viu. A leitura do rascunho e o número da versão saem sob a mesma trava do
+     * {@link #deleteWorkflow}: duas publicações simultâneas não disputam o mesmo número, e uma publicação não
+     * deixa versão órfã de um fluxo que a exclusão já levou (RCHFLW-188, itens 19 e 20).</p>
+     *
+     * @param expectedUpdatedAt a versão do rascunho que se quer publicar; {@code null}: a que estiver gravada
+     * @return a versão criada, ou {@code null} quando o fluxo não existe (ou é de outro tenant)
+     * @throws WorkflowConflictException quando o rascunho não está mais em {@code expectedUpdatedAt}
+     */
+    WorkflowVersionRecord publishWorkflow(String tenantId, String workflowId, String comment,
+                                          String expectedUpdatedAt);
 
     WorkflowDeploymentRecord getDeployment(String tenantId, String workflowId, String environment);
 
-    /** Selects an existing immutable version for the environment; {@code null} when not the tenant's. */
+    /** A versão criada e a implantação dela, de {@link #publishAndDeployWorkflow}. */
+    record Publication(WorkflowVersionRecord version, WorkflowDeploymentRecord deployment) {
+    }
+
+    /**
+     * {@link #publishWorkflow(String, String, String, String)} seguido de {@link #deployWorkflow} da versão criada,
+     * numa operação só — o Publicar do editor.
+     *
+     * <p>Em duas operações, outra publicação inteira cabia entre a versão e a implantação: a primeira criava a v1,
+     * a segunda criava e implantava a v2, e a implantação da primeira chegava depois e voltava PRODUCTION para a
+     * v1 — com as duas respostas em 201, a segunda anunciando a v2 ativa. Sob a mesma trava, as publicações do
+     * mesmo fluxo terminam uma depois da outra, e o ambiente fica na mais nova. O {@link #deployWorkflow} avulso
+     * continua sem essa regra de propósito: é o Restaurar, que implanta uma versão mais velha.</p>
+     *
+     * @return a versão e a implantação, ou {@code null} quando o fluxo não existe (ou é de outro tenant)
+     * @throws WorkflowConflictException quando o rascunho não está mais em {@code expectedUpdatedAt}
+     */
+    Publication publishAndDeployWorkflow(String tenantId, String workflowId, String comment,
+                                         String expectedUpdatedAt, String environment);
+
+    /**
+     * Selects an existing immutable version for the environment; {@code null} when not the tenant's.
+     *
+     * <p>Sob a trava do documento, como o {@link #deleteWorkflow}: a implantação que chega no meio de uma
+     * exclusão vê a versão já apagada e devolve {@code null}, e duas implantações simultâneas no mesmo ambiente
+     * não disputam a mesma linha (RCHFLW-188, itens 19 e 20).</p>
+     */
     WorkflowDeploymentRecord deployWorkflow(
             String tenantId, String workflowId, String environment, String versionId);
 
@@ -213,7 +325,13 @@ public interface WorkflowRuntimeStore {
         }
     }
 
-    /** Marks a resumed execution RUNNING again (counterpart of completeExecution). */
+    /**
+     * Marks a resumed execution RUNNING again (counterpart of completeExecution).
+     *
+     * <p>Tira a marca do cancelar ({@value #CANCELLED_AT}): uma retomada de verdade prova que a execução está viva,
+     * e com a marca o registro ignoraria todos os passos e o desfecho dela — ficaria RUNNING para sempre e o fluxo
+     * não poderia mais ser excluído.</p>
+     */
     void markResumed(String id);
 
     /**
@@ -284,6 +402,58 @@ public interface WorkflowRuntimeStore {
     }
 
     /**
+     * O cancelar pedido por alguém ({@code POST /api/executions/{id}/cancel}): grava CANCELLED com o instante do
+     * pedido e o marca ({@value #CANCELLED_AT}), e daí em diante o registro não muda mais (RCHFLW-188, item 16).
+     *
+     * <p>A chamada ao LLM que estava em voo termina — limitação documentada —, e o desfecho da travessia chegava
+     * depois: o {@code completedAt} passava para o fim do passo, a duração era gravada por cima (14 s numa execução
+     * cancelada em 0,5 s) e o passo virava COMPLETED dentro da execução CANCELLED. O que estava RUNNING sai como
+     * CANCELLED junto com ela. A marca, e não o status, é o que congela: o motor também grava CANCELLED quando uma
+     * recusa para a travessia viva, e aí o STOPPED com o motivo que a fila grava depois tem de vencer
+     * ({@link #isStaleStatus}). Ignorado (como o {@code completeExecution}) quando o registro já tem um desfecho.</p>
+     *
+     * <p>Só para quando o motor de fato parou a travessia. Se ele não a tinha (terminou no meio, ou desenrolou num
+     * portão de aprovação cujo PAUSED ainda não chegou), o controller grava o CANCELLED de antes, sem marca: o
+     * pedido de aprovação continua na fila, e o PAUSED e o desfecho da decisão têm de poder chegar. A duração
+     * gravada é a do pedido ({@code startedAt} até o cancelar), e o {@link #markResumed} tira a marca.</p>
+     */
+    void cancelExecution(String id);
+
+    /** A marca do cancelar pedido por alguém, ver {@link #cancelExecution}. */
+    String CANCELLED_AT = "cancelledAt";
+
+    /** O registro foi cancelado por alguém e não muda mais ({@link #cancelExecution}). */
+    static boolean isCancelledByRequest(Map<String, Object> execution) {
+        return execution != null && execution.get(CANCELLED_AT) != null;
+    }
+
+    /** O cancelar sobre o registro, já sob o lock de quem chama; {@code false} quando ele já tem um desfecho. */
+    @SuppressWarnings("unchecked")
+    static boolean applyCancel(Map<String, Object> execution, java.time.Instant now) {
+        if (isCancelledByRequest(execution) || isStaleStatus(execution.get("status"), "CANCELLED")) {
+            return false;
+        }
+        execution.put("status", "CANCELLED");
+        execution.put("completedAt", now.toString());
+        execution.put("error", null);
+        execution.put(CANCELLED_AT, now.toString());
+        // A duração é a do pedido: o recordDuration do fim tardio da travessia é ignorado daqui em diante, e sem
+        // esta conta a execução cancelada ficava sem duração nenhuma. Sem startedAt legível, nada é inventado.
+        long duracao = executionDuration(execution, -1, now);
+        if (duracao >= 0) {
+            execution.put("duration", duracao);
+        }
+        if (execution.get("steps") instanceof List<?> steps) {
+            for (Object s : steps) {
+                if (s instanceof Map<?, ?> step && "RUNNING".equals(String.valueOf(step.get("status")))) {
+                    ((Map<String, Object>) step).put("status", "CANCELLED");
+                }
+            }
+        }
+        return true;
+    }
+
+    /**
      * Records the wall-clock duration of an execution (set by the lifecycle listener), as
      * {@link #executionDuration}: o tempo desde o {@code startedAt} do registro, não só o da última
      * travessia do motor.
@@ -333,6 +503,48 @@ public interface WorkflowRuntimeStore {
         public WorkflowOwnershipException(String workflowId) {
             super("Workflow " + workflowId + " belongs to another tenant");
         }
+    }
+
+    /**
+     * O patch de um passo que volta de uma pausa (o portão de aprovação retomado), ajustado para não apagar a espera
+     * (RCHFLW-188, item 17).
+     *
+     * <p>Na retomada o motor executa o portão de novo, e o {@code onStepStarted} gravava um {@code startedAt} novo —
+     * depois do {@code suspendedAt} — e o {@code onStepCompleted} a duração só da reexecução (3 ms para minutos de
+     * espera). Agora o {@code startedAt} do passo pausado fica, o da retomada vai para {@code resumedAt}, e a duração
+     * do desfecho conta do {@code startedAt} até o fim, como a da execução (RCHFLW-99). Um passo que não estava
+     * pausado recebe o patch como sempre — inclusive o mesmo passo rodando de novo depois de terminar.</p>
+     */
+    static Map<String, Object> stepPatchAfterResume(Map<String, Object> existing, Map<String, Object> patch) {
+        if (existing == null || patch == null) {
+            return patch;
+        }
+        String status = String.valueOf(existing.get("status"));
+        boolean pausado = "PAUSED".equals(status) && existing.get("suspendedAt") != null;
+        boolean retomado = "RUNNING".equals(status) && existing.get("resumedAt") != null;
+        if (!pausado && !retomado) {
+            return patch;
+        }
+        Map<String, Object> ajustado = new java.util.LinkedHashMap<>(patch);
+        if (pausado && "RUNNING".equals(String.valueOf(patch.get("status"))) && existing.get("startedAt") != null) {
+            Object retomada = ajustado.remove("startedAt");
+            if (retomada != null) {
+                ajustado.put("resumedAt", retomada);
+            }
+        }
+        if (retomado && patch.get("finishedAt") != null && patch.containsKey("durationMs")) {
+            try {
+                long total = java.time.Duration.between(
+                        java.time.Instant.parse(String.valueOf(existing.get("startedAt"))),
+                        java.time.Instant.parse(String.valueOf(patch.get("finishedAt")))).toMillis();
+                if (total >= 0) {
+                    ajustado.put("durationMs", total);
+                }
+            } catch (java.time.format.DateTimeParseException e) {
+                // Sem startedAt legível, vale a duração do motor, como antes.
+            }
+        }
+        return ajustado;
     }
 
     /**

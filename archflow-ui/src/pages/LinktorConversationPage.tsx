@@ -1,16 +1,18 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import {
     Alert, Badge, Box, Button, Group, NativeSelect, Paper, SimpleGrid, Skeleton, Stack, Text, Textarea, TextInput,
     ThemeIcon,
 } from '@mantine/core'
 import {
-    IconArrowLeft, IconCircleCheck, IconHeadset, IconInfoCircle, IconMessages, IconSend, IconUser, IconUserShare,
+    IconArrowLeft, IconCircleCheck, IconHeadset, IconInfoCircle, IconMessages, IconPlugConnectedX, IconSend, IconUser,
+    IconUserShare,
 } from '@tabler/icons-react'
 import { notifications } from '@mantine/notifications'
 import {
     conversaEncerrada,
+    linktorDesligado,
     linktorInboxApi,
     linktorRecusouCredenciais,
     linktorRecusouListarUsuarios,
@@ -40,6 +42,7 @@ export default function LinktorConversationPage() {
     const { t, i18n } = useTranslation()
     const locale = i18n.resolvedLanguage ?? i18n.language
     const { id = '' } = useParams()
+    const navigate = useNavigate()
     const [conv, setConv]         = useState<ConversaDoInbox | null>(null)
     const [messages, setMessages] = useState<MensagemDoInbox[]>([])
     const [loading, setLoading]   = useState(true)
@@ -161,7 +164,19 @@ export default function LinktorConversationPage() {
                 }
             />
 
-            {error && <Alert color="red" variant="light" title={t('linktor.config.title')}>{error}</Alert>}
+            {error && (linktorDesligado(error) ? (
+                // Integração desligada: o mesmo aviso traduzido do Inbox, não a frase do backend em inglês
+                // (RCHFLW-188) — quem chega por um link velho fica sabendo por quê e onde ligar.
+                <Alert color="blue" variant="light" icon={<IconPlugConnectedX size={18} />}
+                       title={t('linktor.inbox.disabledTitle')} data-testid="linktor-conversation-disabled">
+                    <Group justify="space-between" wrap="wrap" gap="sm">
+                        <Text size="sm">{t('linktor.inbox.disabledBody')}</Text>
+                        <Button size="xs" variant="light" onClick={() => navigate('/admin/linktor')}>
+                            {t('linktor.inbox.openConfig')}
+                        </Button>
+                    </Group>
+                </Alert>
+            ) : <Alert color="red" variant="light" title={t('linktor.config.title')}>{error}</Alert>)}
 
             <Group align="flex-start" gap="lg" wrap="wrap">
                 {/* Transcript + composer */}

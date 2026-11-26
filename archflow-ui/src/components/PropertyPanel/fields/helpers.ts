@@ -1,5 +1,5 @@
 import type { FlowNodeData } from '../../FlowCanvas/types'
-import type { ProviderInfo } from '../../../services/workflow-config-api'
+import type { PersonaInfo, ProviderInfo } from '../../../services/workflow-config-api'
 
 /**
  * Drops options with a repeated `value`, keeping the first. Mantine 9 throws
@@ -71,4 +71,33 @@ export function findModel(providers: ProviderInfo[], providerId: string, modelId
 
 export function ctxLabel(ctx: number) {
   return ctx >= 1_000_000 ? `${(ctx / 1_000_000).toFixed(1)}M` : `${Math.round(ctx / 1000)}k`
+}
+
+/**
+ * O prompt que uma persona traz, ou '' quando ela não traz nenhum. As personas padrão do servidor vêm com
+ * {@code description} igual ao {@code label} ("Customer Support"): esse texto é o nome, não um prompt, e gravá-lo no
+ * prompt de sistema fazia o modelo responder de forma genérica (RCHFLW-183).
+ */
+export function personaPrompt(persona: PersonaInfo | undefined): string {
+  const description = typeof persona?.description === 'string' ? persona.description.trim() : ''
+  const label = typeof persona?.label === 'string' ? persona.label.trim() : ''
+  return description !== '' && description !== label ? description : ''
+}
+
+/**
+ * O que trocar de persona faz com o prompt de sistema (RCHFLW-183): undefined = não mexe; '' = tira a chave; um texto
+ * = grava. Antes a troca sempre gravava o texto da persona por cima do prompt do autor, travava o campo, e voltar para
+ * "Personalizado" não devolvia o prompt original. Agora o prompt do autor nunca é tocado: a persona só preenche o
+ * campo vazio (ou o texto que a persona anterior pôs e ninguém editou), e voltar desfaz só o que ela pôs.
+ */
+export function systemPromptAfterPersona(
+  current: unknown, previous: PersonaInfo | undefined, next: PersonaInfo | undefined,
+): string | undefined {
+  const atual = typeof current === 'string' ? current : ''
+  const anterior = personaPrompt(previous)
+  const daPersona = anterior !== '' && atual === anterior
+  if (atual.trim() !== '' && !daPersona) return undefined
+  const novo = personaPrompt(next)
+  if (novo !== '') return novo === atual ? undefined : novo
+  return daPersona ? '' : undefined
 }

@@ -35,6 +35,11 @@ import { confirmAction } from '../lib/confirm';
 import { PageHeader } from '../components/PageHeader';
 import { SectionCard } from '../components/SectionCard';
 
+/** O texto do campo de edição: a própria proposta quando ela é texto; senão, o JSON dela. */
+function editableProposal(proposal: unknown): string {
+    return typeof proposal === 'string' ? proposal : JSON.stringify(proposal, null, 2);
+}
+
 export default function ApprovalDetailPage() {
     const { id } = useParams<{ id: string }>();
     // A execução do pedido, quando o link a traz (fila, detalhe da execução): é o que permite ao
@@ -72,10 +77,14 @@ export default function ApprovalDetailPage() {
             .then((dto) => {
                 if (cancelled) return;
                 setApproval(dto);
-                setEditedPayload(JSON.stringify(dto.proposal, null, 2));
+                setEditedPayload(editableProposal(dto.proposal));
             })
             .catch((e) => {
-                if (!cancelled) setError(e instanceof Error ? e.message : t('approvals.notFound'));
+                // 404 é o link velho (pedido inexistente, decidido sem flowId ou de outro tenant): a frase do
+                // app, não a do backend em inglês com o id cru (RCHFLW-188). Outra falha mostra o motivo.
+                if (cancelled) return;
+                const notFound = (e as { status?: unknown } | null)?.status === 404;
+                setError(notFound || !(e instanceof Error) ? t('approvals.notFound') : e.message);
             })
             .finally(() => {
                 if (!cancelled) setLoading(false);
@@ -126,6 +135,23 @@ export default function ApprovalDetailPage() {
             });
             navigate('/approvals');
         } catch (e) {
+            // Outra aba (ou outra pessoa) decidiu primeiro, ou o prazo venceu: o servidor responde 404/409 com
+            // frases técnicas em inglês ("Approval not found: <id>", "Flow is not awaiting approval") e a tela
+            // continuava PENDENTE com os botões ativos (RCHFLW-188, item 3). Relê o pedido: se ele não está mais
+            // pendente, a tela troca para a visão decidida (quem, quando, o quê) com a frase do app.
+            const status = (e as { status?: unknown } | null)?.status;
+            if (status === 404 || status === 409) {
+                const atual = await approvalApi.get(id, flowId, tenantId).catch(() => null);
+                if (atual && atual.status !== 'PENDING') {
+                    setApproval(atual);
+                    setEditMode(false);
+                    setSubmitError(t('approvals.detail.alreadyDecided', {
+                        status: t(`approvals.status.${atual.status}`, { defaultValue: atual.status }),
+                        who: atual.decidedBy ?? '—',
+                    }));
+                    return;
+                }
+            }
             setSubmitError(e instanceof Error ? e.message : t('approvals.detail.submitFailed'));
         } finally {
             setSubmitting(false);
@@ -140,7 +166,9 @@ export default function ApprovalDetailPage() {
             // Antes de confirmar: a confirmação abria com JSON inválido e, depois dela, a tela virava
             // só o erro, perdendo a edição e o comentário (RCHFLW-128). O erro fica junto do campo.
             try {
-                parsedPayload = JSON.parse(editedPayload);
+                // Proposta em texto (a resposta de um LLM Chat): edita-se o texto, e é texto que volta. O
+                // JSON.stringify dela virava uma string entre aspas com \n escapados (RCHFLW-188, item 2).
+                parsedPayload = typeof approval?.proposal === 'string' ? editedPayload : JSON.parse(editedPayload);
             } catch (e) {
                 const detail = e instanceof Error ? e.message : '';
                 setPayloadError(detail ? `${t('approvals.detail.invalidJson')}: ${detail}` : t('approvals.detail.invalidJson'));
@@ -263,6 +291,13 @@ export default function ApprovalDetailPage() {
                 </Stack>
             </SectionCard>
 
+            {/* A decisão desta tela perdeu para outra (RCHFLW-188, item 3): o aviso fica acima da que vale. */}
+            {decided && submitError && (
+                <Alert color="orange" variant="light" icon={<IconAlertCircle size={16} />}
+                       data-testid="approval-submit-error">
+                    {submitError}
+                </Alert>
+            )}
             {decided && (
                 <SectionCard
                     icon={IconGavel}

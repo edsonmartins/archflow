@@ -34,8 +34,9 @@ import {
   StickyNoteNode, GroupFrameNode, SectionDividerNode,
 } from './nodes/index'
 import { FlowEdge }      from './edges/FlowEdge'
+import { EdgeEditContext, type EdgeDataPatch } from './edges/edgeEdit'
 import { useFlowStore, type CanvasApi }  from './store/useFlowStore'
-import { branchOptions, defaultBranch } from './branches'
+import { branchOptions, defaultBranch, renamedCase } from './branches'
 import { ANNOTATION_COMPONENT_IDS, NODE_CATEGORIES, NODE_TYPE_TO_CATEGORY } from './constants'
 import type { FlowNodeData, WorkflowData } from './types'
 import { CanvasOutline } from './CanvasOutline'
@@ -183,6 +184,10 @@ export function FlowCanvas({
   // Node data objects are updated immutably everywhere, so snapshots
   // can hold references without deep-cloning.
   const historyRef = useRef<{ past: CanvasSnapshot[]; future: CanvasSnapshot[] }>({ past: [], future: [] })
+  // Aresta → o ramo em que estava antes de acompanhar o rename de um caso do switch (RCHFLW-147). A digitação no
+  // painel chega tecla a tecla, e cada tecla dentro de um caso parece um rename; esta memória é o que permite voltar
+  // a aresta ao ramo original quando a edição acaba não sendo rename (ver followCaseEdit).
+  const caseFollowOriginRef = useRef(new Map<string, string>())
   const lastPushRef = useRef<{ reason: string; at: number }>({ reason: '', at: 0 })
   const [historyState, setHistoryState] = useState({ canUndo: false, canRedo: false })
 
@@ -193,6 +198,9 @@ export function FlowCanvas({
 
   const pushHistory = useCallback((reason: string, coalesce = false) => {
     const now = Date.now()
+    // Outra ação no canvas (ligar, apagar, mudar o ramo à mão...) encerra a edição de casos em andamento: a origem
+    // guardada de um rename não deve reaparecer depois dela.
+    if (reason !== 'config') caseFollowOriginRef.current.clear()
     // Coalesce bursts of the same edit (e.g. typing in the PropertyPanel)
     // into a single undo step.
     if (coalesce && reason === lastPushRef.current.reason && now - lastPushRef.current.at < 800) {
@@ -208,6 +216,8 @@ export function FlowCanvas({
   }, [syncHistoryState])
 
   const applySnapshot = useCallback((s: CanvasSnapshot) => {
+    // Desfazer/refazer devolve casos e arestas juntos; a origem guardada de um rename em andamento não vale mais.
+    caseFollowOriginRef.current.clear()
     setNodes(s.nodes)
     setEdges(s.edges)
     // Restore the store wholesale too: the RF→store merge keeps the
@@ -242,6 +252,7 @@ export function FlowCanvas({
     replaceCanvas(initialNodes, initialEdges)
     // A (re)loaded workflow starts a fresh history timeline.
     historyRef.current = { past: [], future: [] }
+    caseFollowOriginRef.current.clear()
     lastPushRef.current = { reason: '', at: 0 }
     syncHistoryState()
   }, [initialEdges, initialNodes, replaceCanvas, setEdges, setNodes, syncHistoryState])
@@ -275,10 +286,14 @@ export function FlowCanvas({
     if (matching.length === 0) return
 
     let changed = false
+    const caseEdits: { nodeId: string; before: FlowNodeData['config']; after: FlowNodeData['config'] }[] = []
     const next = current.map(n => {
       const storeNode = matching.find(s => s.id === n.id)
       if (!storeNode || storeNode.data === n.data) return n
       changed = true
+      if (storeNode.data.nodeType === 'switch') {
+        caseEdits.push({ nodeId: n.id, before: n.data.config, after: storeNode.data.config })
+      }
       return { ...n, data: storeNode.data }
     })
     if (changed) {
@@ -286,8 +301,31 @@ export function FlowCanvas({
       pushHistory('config', true)
       fromStoreRef.current = true
       setNodes(next)
+      // O caso renomeado no painel leva junto as arestas que estavam nele (RCHFLW-147), no mesmo passo de undo.
+      // Calculado uma vez sobre o estado atual e aplicado por id: o updater do setEdges pode rodar mais de uma vez,
+      // e a memória de origem (caseFollowOriginRef) não pode mudar a cada chamada.
+      if (caseEdits.length) {
+        const patch = new Map<string, string>()
+        let eds = localEdgesRef.current
+        for (const c of caseEdits) {
+          eds = followCaseEdit(eds, c.nodeId, c.before, c.after, caseFollowOriginRef.current, patch)
+        }
+        if (patch.size) {
+          localEdgesRef.current = eds
+          setEdges(cur => cur.map(e => (patch.has(e.id) ? { ...e, data: { ...e.data, branch: patch.get(e.id) } } : e)))
+        }
+      }
     }
-  }, [storeNodes, setNodes, pushHistory])
+  }, [storeNodes, setNodes, setEdges, pushHistory])
+
+  // Edição na própria aresta (ramo, condição): um passo de undo, como toda outra edição do canvas (RCHFLW-188,
+  // item 10). A digitação da condição se junta num passo só, como a do painel de propriedades.
+  const editEdge = useCallback((edgeId: string, changes: EdgeDataPatch) => {
+    pushHistory(`edge:${edgeId}:${'condition' in changes ? 'condition' : 'branch'}`, 'condition' in changes)
+    const apply = (eds: Edge[]) => eds.map(e => (e.id === edgeId ? { ...e, data: { ...e.data, ...changes } } : e))
+    localEdgesRef.current = apply(localEdgesRef.current)
+    setEdges(apply)
+  }, [pushHistory, setEdges])
 
   // ── API imperativa p/ o copilot global e o palette (click-to-add) ──
   // Por ref: com o t nas dependências, uma troca de idioma registraria a API de novo sem necessidade.
@@ -422,6 +460,14 @@ export function FlowCanvas({
         localNodesRef.current = swap(current)
         // Funcional, como o addNode: um nó criado no mesmo lote ainda pode estar num updater pendente.
         setNodes(swap)
+        // O copiloto renomeando um caso do switch (ate_200 → ate_500) move a aresta junto (RCHFLW-147): antes ela
+        // ficava no nome antigo, que nenhum valor alcança, e o copiloto dizia "atualizado com sucesso".
+        const rename = target.data.nodeType === 'switch' ? renamedCase(target.data.config, merged) : null
+        if (rename) {
+          const follow = (eds: Edge[]) => followCaseRename(eds, nodeId, rename)
+          localEdgesRef.current = follow(localEdgesRef.current)
+          setEdges(follow)
+        }
         // O espelho do store precisa do MESMO objeto data: o RF→store mantém o data que o store já tinha
         // para ids conhecidos, e o store→RF devolveria ao canvas a config antiga (desfazendo esta). Com o
         // mesmo objeto nos dois, os dois efeitos de sincronia veem "nada mudou". E o painel de
@@ -716,6 +762,7 @@ export function FlowCanvas({
   }, [clearSelection, onNodeSelect])
 
   return (
+    <EdgeEditContext.Provider value={readonly ? null : editEdge}>
     <div
       ref={wrapperRef}
       style={{ width: '100%', height: '100%', position: 'relative' }}
@@ -894,6 +941,7 @@ export function FlowCanvas({
         />
       )}
     </div>
+    </EdgeEditContext.Provider>
   )
 }
 
@@ -919,6 +967,61 @@ function defaultEdgeData(sourceId: string, nodes: Node[], edges: Edge[]): { isEr
   const branch = defaultBranch(String(data?.nodeType ?? ''), data?.config, edges.filter(e => e.source === sourceId)
     .map(e => (e.data as { branch?: string } | undefined)?.branch))
   return branch ? { isErrorPath: false, branch } : { isErrorPath: false }
+}
+
+/**
+ * Uma edição nos casos do switch {@code nodeId}, como chega do painel: tecla a tecla.
+ *
+ * <p>RCHFLW-147 — a aresta acompanha o caso renomeado. Mas o painel entrega cada tecla, e inserir um caso novo acima
+ * de outro ("troca" + Enter no começo de "arrependimento") passa por "tarrependimento", "trarrependimento"... — cada
+ * um parece o rename de uma posição — antes do Enter dividir a linha. Seguir só o rename deixava a aresta em
+ * "trocaarrependimento", que caso nenhum declara: uma aresta que o usuário nem tocou ficava vermelha e a execução era
+ * barrada. Por isso a aresta que acompanhou guarda em {@code origins} o ramo de antes do primeiro acompanhamento, e
+ * quando uma edição seguinte a deixa num ramo que o nó não declara mais, ela volta para esse ramo — que é o que o
+ * usuário ligou. Se o original também não existe mais, a aresta fica nele, marcada como ramo não declarado, em vez de
+ * num pedaço de digitação.</p>
+ *
+ * <p>Muta {@code origins} e registra em {@code patch} o ramo novo de cada aresta mudada; devolve as arestas.</p>
+ */
+function followCaseEdit(
+  edges: Edge[],
+  nodeId: string,
+  before: Record<string, unknown> | undefined,
+  after: Record<string, unknown> | undefined,
+  origins: Map<string, string>,
+  patch: Map<string, string>,
+): Edge[] {
+  const rename = renamedCase(before, after)
+  const declared = new Set(branchOptions('switch', after))
+  return edges.map(e => {
+    if (e.source !== nodeId) return e
+    const branch = (e.data as { branch?: string } | undefined)?.branch?.trim()
+    if (!branch) return e
+    let to: string | undefined
+    if (rename && branch === rename.from) {
+      if (!origins.has(e.id)) origins.set(e.id, branch)
+      to = rename.to
+    } else if (origins.has(e.id) && !declared.has(branch)) {
+      to = origins.get(e.id)
+      origins.delete(e.id)
+    }
+    if (to === undefined || to === branch) return e
+    patch.set(e.id, to)
+    return { ...e, data: { ...e.data, branch: to } }
+  })
+}
+
+/**
+ * As arestas do nó {@code nodeId} no ramo {@code from} passam para {@code to} (o caso renomeado, ver renamedCase).
+ * Só as do nó e só esse ramo; a aresta com condição escrita à mão também, porque o ramo dela continua sendo o que
+ * o seletor mostra e o que vale se a condição for apagada.
+ */
+function followCaseRename(edges: Edge[], nodeId: string, rename: { from: string; to: string }): Edge[] {
+  return edges.map(e => {
+    const data = e.data as { branch?: string } | undefined
+    if (e.source !== nodeId || data?.branch?.trim() !== rename.from) return e
+    return { ...e, data: { ...e.data, branch: rename.to } }
+  })
 }
 
 function workflowToNodes(wf: WorkflowData): Node<FlowNodeData>[] {

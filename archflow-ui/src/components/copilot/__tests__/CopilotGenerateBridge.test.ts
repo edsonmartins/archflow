@@ -214,6 +214,36 @@ describe('CopilotGenerateBridge', () => {
     expect(notificationsMock.show).not.toHaveBeenCalledWith(expect.objectContaining({ title: 'editor.ai.done' }))
   })
 
+  // RCHFLW-147, cenário C: o Gerar com IA renomeou o caso e deixou a aresta no nome antigo.
+  it('fluxo montado com aresta num ramo que o switch não declara: aviso laranja no lugar do "montado"', async () => {
+    const node = (id: string, nodeType: string, label: string, config: Record<string, unknown> = {}) => ({
+      id, type: 'control', position: { x: 0, y: 0 }, data: { label, nodeType, componentId: nodeType, config },
+    })
+    useFlowStore.setState({
+      nodes: [node('a', 'input', 'Entrada'),
+        node('sw', 'switch', 'Categoria', { switchExpression: '${a.categoria}', switchCases: 'financeiro\nvendas' }),
+        node('r', 'output', 'Resposta')] as never,
+      edges: [
+        { id: 'e1', source: 'a', target: 'sw', data: { isErrorPath: false } },
+        { id: 'e2', source: 'sw', target: 'r', data: { isErrorPath: false, branch: 'comercial' } },
+      ] as never,
+    })
+    kit.runAgent.mockImplementation(async () => {
+      kit.agent.messages = [{ role: 'assistant', content: 'Categoria renomeada.' }]
+    })
+
+    try {
+      await act(async () => { requestCopilotGeneration('renomeie comercial para vendas', 'toast-4') })
+    } finally {
+      useFlowStore.setState({ nodes: [], edges: [] })
+    }
+
+    expect(notificationsMock.show).toHaveBeenCalledWith(expect.objectContaining({
+      color: 'orange', title: 'editor.ai.doneInvalid',
+      message: expect.stringContaining('editor.notif.runBlockedInvalidBranch'),
+    }))
+  })
+
   it('erro de execução vinda do chat lateral também aparece, com título do chat', async () => {
     await act(async () => {
       runStarted()

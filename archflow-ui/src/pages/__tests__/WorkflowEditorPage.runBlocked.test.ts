@@ -40,6 +40,7 @@ vi.mock('@mantine/notifications', () => ({ notifications: { show: showMock } }))
 import { WorkflowEditor } from '../WorkflowEditorPage'
 import { useFlowStore } from '../../components/FlowCanvas/store/useFlowStore'
 import { useWorkflowStore } from '../../stores/workflow-store'
+import { LONG_NOTIFICATION_STYLES } from '../../lib/longNotification'
 
 class ResizeObserverStub {
   observe() {}
@@ -158,5 +159,41 @@ describe('WorkflowEditor — Executar impedido', () => {
 
     await waitFor(() => expect(within(document.body).getByTestId('run-input-confirm')).toBeTruthy())
     expect(showMock).not.toHaveBeenCalledWith(expect.objectContaining({ title: 'editor.notif.runBlocked' }))
+  })
+})
+
+describe('WorkflowEditor — Executar impedido pelas arestas', () => {
+  // RCHFLW-147: o caso renomeado deixava a aresta no ramo antigo e a execução terminava COMPLETED sem resposta.
+  it('aresta num caso que o switch não declara: não salva nem roda, e o aviso nomeia a aresta e o ramo', async () => {
+    const sw = step('sw', 'switch', 'Motivo', { switchExpression: '${input}', switchCases: 'defeito\narrependido' })
+    await clickRun([
+      { ...step('a', 'input', 'Entrada'), connections: [{ sourceId: 'a', targetId: 'sw' }] },
+      { ...sw, connections: [{ sourceId: 'sw', targetId: 'r', branch: 'arrependimento' }] },
+      step('r', 'output', 'Resposta ao cliente'),
+    ])
+
+    expect(showMock).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'editor.notif.runBlocked',
+      message: 'editor.notif.runBlockedInvalidBranch[editor.notif.invalidBranchEdge'
+        + '[Motivo|Resposta ao cliente|arrependimento|defeito, arrependido, default]]',
+      // RCHFLW-188 (1): a lista pode ser longa — a descrição rola em vez de ser cortada.
+      styles: LONG_NOTIFICATION_STYLES,
+    }))
+    expect(workflowApiMock.update).not.toHaveBeenCalled()
+    expect(runMock).not.toHaveBeenCalled()
+  })
+
+  // RCHFLW-188 (12): o ciclo só aparecia depois de "Execução iniciada", como falha da validação.
+  it('ciclo: o Executar para antes de começar, nomeando os passos do ciclo', async () => {
+    await clickRun([
+      { ...step('a', 'input', 'Entrada'), connections: [{ sourceId: 'a', targetId: 'b' }] },
+      { ...step('b', 'output', 'Resposta'), connections: [{ sourceId: 'b', targetId: 'c' }] },
+      { ...step('c', 'output', 'Revisão'), connections: [{ sourceId: 'c', targetId: 'b' }] },
+    ])
+
+    expect(showMock).toHaveBeenCalledWith(expect.objectContaining({
+      message: 'editor.notif.runBlockedCycle["Resposta" → "Revisão" → "Resposta"]',
+    }))
+    expect(runMock).not.toHaveBeenCalled()
   })
 })

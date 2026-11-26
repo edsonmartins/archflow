@@ -64,6 +64,25 @@ public class InMemoryWorkflowRuntimeStore implements WorkflowRuntimeStore {
     }
 
     /**
+     * Sob o monitor do store, o mesmo do {@link #deleteWorkflow}: a alteração vê o fluxo antes da exclusão ou
+     * não o vê mais (404) — nunca o recria (RCHFLW-172). Duas alterações do mesmo fluxo também não se
+     * intercalam entre a leitura e a gravação (RCHFLW-173).
+     */
+    public synchronized Update updateWorkflow(String tenantId, String id, String expectedUpdatedAt,
+                                              java.util.function.UnaryOperator<Map<String, Object>> change) {
+        StoredWorkflow stored = owned(tenantId, id);
+        if (stored == null) {
+            return Update.notFound();
+        }
+        if (!WorkflowRuntimeStore.matchesExpected(stored.document(), expectedUpdatedAt)) {
+            return Update.conflict(stored.document().get("updatedAt"));
+        }
+        Map<String, Object> next = change.apply(new LinkedHashMap<>(stored.document()));
+        workflows.put(id, new StoredWorkflow(stored.tenantId(), next));
+        return Update.updated(next);
+    }
+
+    /**
      * Sob o monitor do store, o mesmo do {@link #createExecution}: a checagem das execuções ativas e a exclusão
      * não deixam uma execução nova entrar entre as duas.
      */
@@ -107,12 +126,15 @@ public class InMemoryWorkflowRuntimeStore implements WorkflowRuntimeStore {
     }
 
     public synchronized WorkflowVersionRecord publishWorkflow(
-            String tenantId, String workflowId, String comment) {
+            String tenantId, String workflowId, String comment, String expectedUpdatedAt) {
         StoredWorkflow stored = owned(tenantId, workflowId);
         if (stored == null) {
             return null;
         }
         Map<String, Object> draft = stored.document();
+        if (!WorkflowRuntimeStore.matchesExpected(draft, expectedUpdatedAt)) {
+            throw new WorkflowConflictException(workflowId, draft.get("updatedAt"));
+        }
         List<WorkflowVersionRecord> workflowVersions =
                 versions.computeIfAbsent(workflowId, ignored -> new ArrayList<>());
         int number = workflowVersions.stream()
@@ -135,7 +157,19 @@ public class InMemoryWorkflowRuntimeStore implements WorkflowRuntimeStore {
         return deployments.get(deploymentKey(workflowId, environment));
     }
 
-    public WorkflowDeploymentRecord deployWorkflow(
+    /** {@code synchronized}: as duas chamadas sob o mesmo monitor, sem outra publicação no meio. */
+    @Override
+    public synchronized Publication publishAndDeployWorkflow(String tenantId, String workflowId, String comment,
+                                                             String expectedUpdatedAt, String environment) {
+        WorkflowVersionRecord version = publishWorkflow(tenantId, workflowId, comment, expectedUpdatedAt);
+        if (version == null) {
+            return null;
+        }
+        return new Publication(version, deployWorkflow(tenantId, workflowId, environment, version.id()));
+    }
+
+    /** {@code synchronized} como o {@link #deleteWorkflow}: a implantação não deixa registro de fluxo excluído. */
+    public synchronized WorkflowDeploymentRecord deployWorkflow(
             String tenantId, String workflowId, String environment, String versionId) {
         if (getWorkflowVersion(tenantId, workflowId, versionId) == null) {
             return null;
@@ -245,6 +279,8 @@ public class InMemoryWorkflowRuntimeStore implements WorkflowRuntimeStore {
             execution.put("status", "RUNNING");
             execution.put("completedAt", null);
             execution.put("error", null);
+            // A retomada prova que a execução está viva: a marca de um cancelar anterior não a congela mais.
+            execution.remove(WorkflowRuntimeStore.CANCELLED_AT);
         }
     }
 
@@ -260,7 +296,8 @@ public class InMemoryWorkflowRuntimeStore implements WorkflowRuntimeStore {
         synchronized (execution) {
             // A checagem fica sob o mesmo lock da escrita: fora dele, a fila poderia gravar
             // STOPPED entre a leitura e a escrita e o PAUSED velho passaria mesmo assim.
-            if (WorkflowRuntimeStore.isStaleStatus(execution.get("status"), status)) {
+            if (WorkflowRuntimeStore.isCancelledByRequest(execution)
+                    || WorkflowRuntimeStore.isStaleStatus(execution.get("status"), status)) {
                 return;
             }
             execution.put("status", status);
@@ -281,6 +318,18 @@ public class InMemoryWorkflowRuntimeStore implements WorkflowRuntimeStore {
     private static final Set<String> TERMINAL_STATUSES =
             Set.of("COMPLETED", "FAILED", "STOPPED", "CANCELLED");
 
+    @Override
+    public void cancelExecution(String id) {
+        var execution = executions.get(id);
+        if (execution == null) {
+            return;
+        }
+        synchronized (execution) {
+            WorkflowRuntimeStore.applyCancel(execution, Instant.now());
+        }
+        stepIndexes.remove(id);
+    }
+
     /** Records the wall-clock duration of an execution (set by the lifecycle listener). */
     public void recordDuration(String id, long durationMs) {
         var execution = executions.get(id);
@@ -288,6 +337,10 @@ public class InMemoryWorkflowRuntimeStore implements WorkflowRuntimeStore {
             return;
         }
         synchronized (execution) {
+            // Cancelada por alguém, o registro não muda mais (cancelExecution).
+            if (WorkflowRuntimeStore.isCancelledByRequest(execution)) {
+                return;
+            }
             execution.put("duration", WorkflowRuntimeStore.executionDuration(execution, durationMs, Instant.now()));
         }
     }
@@ -304,6 +357,10 @@ public class InMemoryWorkflowRuntimeStore implements WorkflowRuntimeStore {
             return;
         }
         synchronized (execution) {
+            // O passo que termina depois do cancelar não reescreve a execução cancelada (cancelExecution).
+            if (WorkflowRuntimeStore.isCancelledByRequest(execution)) {
+                return;
+            }
             var steps = (List<Map<String, Object>>) execution.computeIfAbsent(
                     "steps", k -> new ArrayList<Map<String, Object>>());
             // Rebuild the index from the steps already on the record when it's
@@ -331,7 +388,7 @@ public class InMemoryWorkflowRuntimeStore implements WorkflowRuntimeStore {
             if (WorkflowRuntimeStore.isStaleStepStatus(step.get("status"), patch.get("status"))) {
                 return;
             }
-            step.putAll(patch);
+            step.putAll(WorkflowRuntimeStore.stepPatchAfterResume(step, patch));
         }
     }
 

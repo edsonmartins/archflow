@@ -6,6 +6,7 @@ import {
 } from './dataNodeKeys'
 import { USER_MESSAGE_FIELD, invalidControlExpressions, withDoubleEquals, type ExpressionProblem } from './controlExpressions'
 import { decisionConfigFindings, decisionModelMissing, type DecisionProblem } from './decisionReadiness'
+import { branchOptions, undeclaredBranch } from './branches'
 
 /**
  * O que impede o Executar do editor de começar (RCHFLW-11, RCHFLW-92): nós de tipo sem execução e campos que
@@ -154,6 +155,32 @@ export interface RunBlockers {
    * Opcional, como invalidExpressions.
    */
   invalidDecisions?: { id: string; label: string; labelKey: string; problem: DecisionProblem; subject: string }[]
+  /**
+   * Arestas cujo ramo o nó de origem não declara (RCHFLW-147): um caso do switch renomeado deixava a aresta no nome
+   * antigo, que nenhum valor alcança, e a execução que caía no caso novo terminava COMPLETED sem fazer nada. O
+   * motor não pode acusar isso sozinho — o caso casado sem aresta é um fim deliberado. Só com as conexões.
+   */
+  invalidBranches?: { id: string; label: string; target: string; branch: string; options: string[] }[]
+  /**
+   * Conexões para um passo que o documento não tem (RCHFLW-188): o canvas as esconde (o React Flow não desenha
+   * aresta sem ponta) e o motor recusa o fluxo inteiro no início. Só com as conexões.
+   */
+  danglingConnections?: { id: string; label: string; target: string }[]
+  /**
+   * Um ciclo, com os rótulos dos passos na ordem em que a aresta os percorre e o primeiro repetido no fim
+   * (RCHFLW-188): o motor recusa todo fluxo com ciclo, e o editor só dizia depois de "Execução iniciada". Só com
+   * as conexões.
+   */
+  cycle?: string[]
+}
+
+/** Uma aresta como o documento a guarda (WorkflowData.connections), no recorte que as regras leem. */
+export interface RunCandidateConnection {
+  sourceId:     string
+  targetId:     string
+  branch?:      string
+  condition?:   string
+  isErrorPath?: boolean
 }
 
 /** O campo do painel de cada chave do decision, para a mensagem nomear o que o usuário corrige. */
@@ -177,8 +204,13 @@ function kindOf(step: RunCandidateStep): string {
   return (raw ?? '').trim().toLowerCase()
 }
 
-export function runBlockers(steps: RunCandidateStep[]): RunBlockers {
+/**
+ * {@code connections}: as arestas do fluxo. Sem elas (quem só tem os passos) as regras das arestas — ramo não
+ * declarado, destino inexistente, ciclo — não rodam, e o resultado é o de sempre.
+ */
+export function runBlockers(steps: RunCandidateStep[], connections?: RunCandidateConnection[]): RunBlockers {
   const result: RunBlockers = { notExecutable: [], missing: [], invalidExpressions: [], invalidDecisions: [] }
+  if (connections) Object.assign(result, connectionBlockers(steps, connections))
   const runnable = steps.filter(step => !isAnnotationStep(step))
   for (const inv of invalidControlExpressions(runnable)) {
     // A "Mensagem do usuário" do LLM Chat (RCHFLW-120) não é obrigatória: o rótulo vem do painel, não da tabela.
@@ -220,9 +252,70 @@ export function runBlockers(steps: RunCandidateStep[]): RunBlockers {
   return result
 }
 
+function connectionBlockers(steps: RunCandidateStep[], connections: RunCandidateConnection[])
+  : Pick<RunBlockers, 'invalidBranches' | 'danglingConnections' | 'cycle'> {
+  const byId = new Map(steps.map(s => [s.id, s]))
+  const labelOf = (id: string) => byId.get(id)?.label?.trim() || id
+  const invalidBranches: NonNullable<RunBlockers['invalidBranches']> = []
+  const danglingConnections: NonNullable<RunBlockers['danglingConnections']> = []
+  const next = new Map<string, string[]>()
+  for (const c of connections) {
+    const source = byId.get(c.sourceId)
+    if (!source) continue
+    if (!byId.has(c.targetId)) {
+      danglingConnections.push({ id: source.id, label: labelOf(source.id), target: c.targetId })
+      continue
+    }
+    const kind = kindOf(source)
+    const branch = undeclaredBranch(kind, source.config, c)
+    if (branch != null) {
+      invalidBranches.push({
+        id: source.id, label: labelOf(source.id), target: labelOf(c.targetId), branch,
+        options: branchOptions(kind, source.config),
+      })
+    }
+    next.set(source.id, [...(next.get(source.id) ?? []), c.targetId])
+  }
+  const cycle = findCycle(steps.map(s => s.id), next)
+  return {
+    invalidBranches, danglingConnections, ...(cycle ? { cycle: cycle.map(labelOf) } : {}),
+  }
+}
+
+/**
+ * O primeiro ciclo do grafo, como caminho fechado (o primeiro id repetido no fim), ou null. Conta toda aresta, a de
+ * erro também, como o DefaultFlowValidator do motor; a ordem de visita é a dos passos.
+ */
+function findCycle(ids: string[], next: Map<string, string[]>): string[] | null {
+  const done = new Set<string>()
+  const path: string[] = []
+  const onPath = new Set<string>()
+  const visit = (id: string): string[] | null => {
+    if (onPath.has(id)) return [...path.slice(path.indexOf(id)), id]
+    if (done.has(id)) return null
+    onPath.add(id)
+    path.push(id)
+    for (const target of next.get(id) ?? []) {
+      const found = visit(target)
+      if (found) return found
+    }
+    path.pop()
+    onPath.delete(id)
+    done.add(id)
+    return null
+  }
+  for (const id of ids) {
+    const found = visit(id)
+    if (found) return found
+  }
+  return null
+}
+
 export function hasRunBlockers(blockers: RunBlockers): boolean {
   return blockers.notExecutable.length > 0 || blockers.missing.length > 0
     || (blockers.invalidExpressions?.length ?? 0) > 0 || (blockers.invalidDecisions?.length ?? 0) > 0
+    || (blockers.invalidBranches?.length ?? 0) > 0 || (blockers.danglingConnections?.length ?? 0) > 0
+    || (blockers.cycle?.length ?? 0) > 0
 }
 
 /** A mensagem do aviso, nomeando cada nó (e o campo): é o que o usuário precisa para corrigir. */
@@ -254,6 +347,21 @@ export function runBlockersMessage(t: TFunction, blockers: RunBlockers): string 
       fields: blockers.invalidDecisions.map(m => `"${m.label}" → ${t(m.labelKey)}: `
         + t(`editor.notif.decisionProblem.${m.problem}`, { subject: m.subject })).join('; '),
     }))
+  }
+  if (blockers.invalidBranches?.length) {
+    parts.push(t('editor.notif.runBlockedInvalidBranch', {
+      edges: blockers.invalidBranches.map(b => t('editor.notif.invalidBranchEdge', {
+        source: b.label, target: b.target, branch: b.branch, options: b.options.join(', '),
+      })).join('; '),
+    }))
+  }
+  if (blockers.danglingConnections?.length) {
+    parts.push(t('editor.notif.runBlockedDanglingConnection', {
+      edges: blockers.danglingConnections.map(d => `"${d.label}" → ${d.target}`).join(', '),
+    }))
+  }
+  if (blockers.cycle?.length) {
+    parts.push(t('editor.notif.runBlockedCycle', { path: blockers.cycle.map(l => `"${l}"`).join(' → ') }))
   }
   return parts.join(' ')
 }

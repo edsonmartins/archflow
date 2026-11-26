@@ -18,6 +18,10 @@ import { SectionCard } from '../components/SectionCard';
 import { StatCard } from '../components/admin/StatCard';
 import { VxTable, colunaAcoes, colunaApagada, colunaDupla, colunaStatus, type VxColumn } from '../components/VTable';
 
+/** O mesmo ritmo do badge de aprovações da barra lateral (AppLayout). */
+export const QUEUE_POLL_MS = 30_000;
+const CLOCK_TICK_MS = 15_000;
+
 export default function ApprovalQueuePage() {
     const navigate = useNavigate();
     const { t } = useTranslation();
@@ -49,6 +53,26 @@ export default function ApprovalQueuePage() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [tenantId]);
 
+    // A fila só carregava ao abrir: pedidos vencidos (ou decididos em outra aba) seguiam com contagem regressiva e
+    // "Revisar", e os cards discordavam do badge da barra lateral, que se atualiza sozinho (RCHFLW-188, item 14).
+    // Agora ela relê no mesmo ritmo do badge, sem o carregando da tabela; uma falha aqui não apaga a lista — quem
+    // diz o erro é o Atualizar. E o relógio redesenha os tempos relativos entre uma leitura e outra.
+    const [now, setNow] = useState(() => Date.now());
+    useEffect(() => {
+        let cancelled = false;
+        const poll = setInterval(() => {
+            approvalApi.listPending(tenantId)
+                .then((rows) => { if (!cancelled) setItems(rows); })
+                .catch(() => { /* a próxima leitura tenta de novo */ });
+        }, QUEUE_POLL_MS);
+        const clock = setInterval(() => setNow(Date.now()), CLOCK_TICK_MS);
+        return () => {
+            cancelled = true;
+            clearInterval(poll);
+            clearInterval(clock);
+        };
+    }, [tenantId]);
+
     const filtered = useMemo(() => {
         const q = search.trim().toLowerCase();
         if (!q) return items;
@@ -72,7 +96,9 @@ export default function ApprovalQueuePage() {
         // Fluxos, não execuções: três pendências do mesmo fluxo contavam 3 (RCHFLW-129).
         const flows = new Set(items.map(flowKey)).size;
         return { urgent, oldest, flows };
-    }, [items]);
+        // `now`: o "vence em" muda com o tempo, não só com os pedidos.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [items, now]);
 
     const colunas = useMemo((): VxColumn[] => [
         // O título do nó (quando há) é o nome do pedido; a descrição vai embaixo. Sem título, a
@@ -97,7 +123,9 @@ export default function ApprovalQueuePage() {
             (r) => (!r.expiresAt ? 'gray' : isUrgent(r.expiresAt as string) ? 'red' : 'orange'),
         ),
         colunaAcoes([{ nome: 'review', icone: 'eye', rotulo: t('approvals.review') }]),
-    ], [t]);
+        // `now` refaz as colunas: os formatos leem o relógio, e a tabela só redesenha quando elas mudam.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    ], [t, now]);
 
     // A execução vai junto: se o pedido for decidido enquanto o link está aberto (ou for reaberto
     // depois), o detalhe ainda mostra quem decidiu em vez de "não encontrado".

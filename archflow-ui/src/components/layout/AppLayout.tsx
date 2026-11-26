@@ -40,6 +40,7 @@ import { authFetch } from '../../services/api';
 import LanguageSwitcher from './LanguageSwitcher';
 import GlobalSearch from './GlobalSearch';
 import { SidebarBrand, SidebarGroup, SidebarItem, SidebarUser } from './Sidebar';
+import { useLogout } from './useLogout';
 
 // Labels come from t() at render time so switching languages updates
 // the sidebar without remounting. The `key` is the stable i18n lookup
@@ -102,7 +103,7 @@ export default function AppLayout() {
         []);
     const location = useLocation();
     const { t } = useTranslation();
-    const { user, logout } = useAuthStore();
+    const user = useAuthStore((s) => s.user);
     const { impersonating, currentRole } = useTenantStore();
     const isAdmin = currentRole === 'superadmin' || currentRole === 'tenant_admin' || impersonating !== null;
     const [colorScheme, setColorScheme] = useColorScheme();
@@ -132,10 +133,8 @@ export default function AppLayout() {
         };
     }, [impersonating, currentRole]);
 
-    const handleLogout = async () => {
-        await logout();
-        navigate('/login');
-    };
+    // Sair navega primeiro e encerra a sessão depois, no /login: o editor sujo pode segurar a saída (RCHFLW-142).
+    const handleLogout = useLogout();
 
     // ── Global search (⌘K) — as páginas do menu; os dados (fluxos, execuções…) vêm do GlobalSearch ──
     const spotlightActions = useMemo<SpotlightActionGroupData[]>(() => {

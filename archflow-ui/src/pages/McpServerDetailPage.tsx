@@ -1,12 +1,12 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { useParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import {
     Accordion, Alert, Badge, Button, Code, Group, Paper, SimpleGrid, Skeleton, Stack, Text, ThemeIcon,
 } from '@mantine/core'
 import {
     IconAlertCircle, IconAlertTriangle, IconDatabase, IconMessage2, IconPlug, IconPlugConnected,
-    IconPlugConnectedX, IconRefresh, IconTool,
+    IconPlugConnectedX, IconPlugOff, IconRefresh, IconTool,
 } from '@tabler/icons-react'
 import { mcpApi, type McpIntrospection } from '../services/mcp-api'
 import { JsonViewer } from '../components/JsonViewer'
@@ -36,15 +36,48 @@ export default function McpServerDetailPage() {
     const [data, setData]   = useState<McpIntrospection | null>(null)
     const [err, setErr]     = useState<string | null>(null)
     const [loading, setLoading] = useState(true)
+    // Servidor que não está na configuração (404): link velho. Antes a API respondia 200 "offline" e a tela
+    // montava um servidor fantasma, com Reconectar e o erro cru "server not registered" (RCHFLW-188).
+    const [notFound, setNotFound] = useState(false)
+    const navigate = useNavigate()
 
     const load = () => {
-        setLoading(true); setErr(null)
+        setLoading(true); setErr(null); setNotFound(false)
         mcpApi.introspect(name)
             .then(setData)
-            .catch(e => setErr(e instanceof ApiError ? e.message : String(e)))
+            .catch(e => {
+                if (e instanceof ApiError && e.status === 404) setNotFound(true)
+                else setErr(e instanceof ApiError ? e.message : String(e))
+            })
             .finally(() => setLoading(false))
     }
     useEffect(load, [name])
+
+    if (notFound) {
+        return (
+            <Stack gap="lg" p="md" data-testid="mcp-not-found">
+                <PageHeader
+                    icon={IconPlug}
+                    accent="teal"
+                    title={name}
+                    breadcrumbs={[
+                        { label: t('mcp.servers.title'), to: '/admin/mcp' },
+                        { label: name },
+                    ]}
+                />
+                <Paper withBorder>
+                    <EmptyState
+                        icon={<IconPlugOff />}
+                        accent="amber"
+                        title={t('mcp.detail.notFoundTitle')}
+                        description={t('mcp.detail.notFoundHint')}
+                        actionLabel={t('mcp.detail.back')}
+                        onAction={() => navigate('/admin/mcp')}
+                    />
+                </Paper>
+            </Stack>
+        )
+    }
 
     const dash = loading && !data ? '—' : null
 

@@ -10,6 +10,7 @@ import {
 import { useEffect, useState, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { LONG_NOTIFICATION_STYLES } from '../lib/longNotification';
 import { useWorkflowStore } from '../stores/workflow-store';
 import { ApiError, workflowApi } from '../services/api';
 import { OptionCard } from '../components/OptionCard';
@@ -105,13 +106,15 @@ export default function WorkflowListPage() {
     const handleRunClick = async (id: string) => {
         const run = await productionRunDocument(id);
         if (run) {
-            const blockers = runBlockers(workflowDataFromDocument(run.document).steps.map(s => ({
+            const data = workflowDataFromDocument(run.document);
+            const blockers = runBlockers(data.steps.map(s => ({
                 id: s.id, label: s.label, componentId: s.componentId, type: s.type, config: s.config,
-            })));
+            })), data.connections);
             if (hasRunBlockers(blockers)) {
                 notifications.show({
                     title: t('editor.notif.runBlocked'),
                     message: runBlockersMessage(t, blockers),
+                    styles: LONG_NOTIFICATION_STYLES,
                     color: 'red',
                     autoClose: false,
                 });

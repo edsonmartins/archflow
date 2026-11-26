@@ -1,4 +1,5 @@
 import { api, ApiError } from './api'
+import { mensagemDoErro } from '../lib/errorMessage'
 
 /**
  * Formas cruas do Linktor, como o backend as repassa (sem o envelope `{success, data}`). O Linktor
@@ -163,6 +164,15 @@ export function linktorRecusouListarUsuarios(e: unknown): boolean {
  */
 export function linktorRecusouCredenciais(e: unknown): boolean {
     return statusDoLinktor(e) === 401
+}
+
+/**
+ * A integração está desligada neste tenant: o backend responde 503 com a frase dele, em inglês ("Linktor
+ * integration is disabled; ..."). Não é falha — as telas mostram o aviso traduzido com o atalho para a
+ * configuração. Compartilhado pelo Inbox e pela conversa (RCHFLW-188: a conversa mostrava a frase crua).
+ */
+export function linktorDesligado(erro: unknown): boolean {
+    return /disabled/i.test(mensagemDoErro(erro))
 }
 
 export const linktorInboxApi = {

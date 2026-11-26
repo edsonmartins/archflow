@@ -2,6 +2,7 @@ package br.com.archflow.api.web.workflow;
 
 import br.com.archflow.engine.api.FlowEngine;
 import br.com.archflow.engine.core.StateManager;
+import br.com.archflow.engine.exceptions.FlowNotFoundException;
 import br.com.archflow.model.engine.ExecutionKeys;
 import br.com.archflow.model.flow.FlowResult;
 import br.com.archflow.model.flow.FlowState;
@@ -17,7 +18,9 @@ import java.util.concurrent.CompletableFuture;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -45,7 +48,20 @@ class SpringExecutionControllerTest {
 
         assertThat(response.getStatusCode().value()).isEqualTo(200);
         verify(engine).cancel("e1");
+        verify(store).cancelExecution("e1");
+    }
+
+    @Test
+    void cancelWithoutALiveTraversalDoesNotFreezeTheRecord() {
+        // O motor não tinha a travessia (desenrolou num portão, ou terminou no meio): CANCELLED sem a marca, para o
+        // PAUSED e o desfecho da decisão ainda poderem chegar.
+        when(store.getExecution(DefaultTenant.ID, "e1"))
+                .thenReturn(new LinkedHashMap<>(Map.of("id", "e1", "status", "RUNNING")));
+        doThrow(new FlowNotFoundException("e1")).when(engine).cancel("e1");
+
+        assertThat(controller.cancel("e1").getStatusCode().value()).isEqualTo(200);
         verify(store).completeExecution("e1", "CANCELLED", null);
+        verify(store, never()).cancelExecution("e1");
     }
 
     @Test

@@ -121,7 +121,11 @@ class ExcluirFluxoMantemHistoricoTest {
                 .containsEntry("executions", List.of(execucao));
         assertThat(String.valueOf(recusa.getBody().get("error")))
                 .contains("\"Reembolso com aprovação\"")
-                .contains("aguardando aprovação");
+                .contains("aguardando aprovação")
+                // RCHFLW-188 (4): a pausada não se cancela; a frase diz o que a libera, e não manda cancelar.
+                .contains("só libera a exclusão quando a aprovação pendente é decidida")
+                .doesNotContain("Cancele")
+                .doesNotContain("em andamento (");
         assertThat(crud.get(fluxo).getStatusCode()).as("nada foi excluído").isEqualTo(HttpStatus.OK);
 
         ApprovalResponse pendente = fila.listPending(T).stream()

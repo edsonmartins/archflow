@@ -42,8 +42,6 @@ public class SpringWorkflowCrudController {
     private final AuditTrail auditTrail;
     /** Nulo numa instalação sem MCP: o nó falha dizendo isso, e o resto do fluxo segue existindo. */
     private final McpAgentHost mcpAgentHost;
-    /** Trava da conferência de versão + gravação do PUT (ver {@link #update}). */
-    private final Object gravacao = new Object();
 
     public SpringWorkflowCrudController(WorkflowRuntimeStore store,
                                         WorkflowDeserializer deserializer,
@@ -110,36 +108,51 @@ public class SpringWorkflowCrudController {
      * conteúdo, e é o código que o editor trata. Sem o cabeçalho a gravação é a de sempre — o VendaX e os
      * scripts que fazem PUT direto não mandam versão e não podem passar a falhar.
      *
-     * <p>A conferência e a gravação ficam sob a mesma trava; sem ela, dois Salvar simultâneos leriam a mesma
-     * versão e os dois passariam. A trava é desta instância: entre réplicas a janela continua aberta.
+     * <p>A conferência e a gravação são uma operação só do store ({@link WorkflowRuntimeStore#updateWorkflow}),
+     * serializada com o PATCH de status, o Salvar YAML e a exclusão — no JDBC pela trava da linha, também entre
+     * réplicas. Antes era uma trava deste controller, que o PATCH de status e o DELETE não pegavam: um PATCH no
+     * meio apagava o Salvar confirmado (RCHFLW-173), e um Salvar logo depois de uma exclusão recriava o fluxo
+     * (RCHFLW-172) — agora ele recebe 404.
      */
     @PutMapping("/{id}")
     public ResponseEntity<Map<String, Object>> update(@PathVariable String id, @RequestBody Map<String, Object> body,
                                                       @RequestHeader(value = "If-Match", required = false)
                                                       String ifMatch) {
-        String tenantId = tenant();
-        var updated = new LinkedHashMap<>(body);
-        synchronized (gravacao) {
-            var atual = store.getWorkflow(tenantId, id);
-            if (atual == null) return ResponseEntity.notFound().build();
-            String esperado = versaoEsperada(ifMatch);
-            if (esperado != null && !esperado.equals(String.valueOf(atual.get("updatedAt")))) {
-                Map<String, Object> conflito = new LinkedHashMap<>();
-                conflito.put("error", "Workflow was changed elsewhere since it was loaded");
-                conflito.put("code", "WORKFLOW_CONFLICT");
-                conflito.put("updatedAt", atual.get("updatedAt"));
-                return ResponseEntity.status(HttpStatus.CONFLICT).body(conflito);
-            }
+        var result = store.updateWorkflow(tenant(), id, versaoEsperada(ifMatch), atual -> {
+            var updated = new LinkedHashMap<>(body);
             updated.put("id", id);
             updated.put("updatedAt", Instant.now().toString());
             updated.putIfAbsent("status", "draft");
             updated.putIfAbsent("steps", List.of());
             updated.putIfAbsent("configuration", Map.of());
-            store.putWorkflow(tenantId, id, updated);
-        }
+            return updated;
+        });
+        ResponseEntity<Map<String, Object>> recusa = recusaDe(result);
+        if (recusa != null) return recusa;
         auditTrail.record(AuditAction.UPDATE, "workflow", id, true, null,
-                Map.of("name", workflowName(updated)));
-        return ResponseEntity.ok(updated);
+                Map.of("name", workflowName(result.document())));
+        return ResponseEntity.ok(result.document());
+    }
+
+    /**
+     * A resposta de uma alteração que não gravou — 404 ou o 409 de conflito que o editor trata
+     * ({@code WORKFLOW_CONFLICT}, com o {@code updatedAt} atual) —, ou {@code null} quando ela gravou. Uma regra
+     * só para o PUT, o PATCH de status, o Salvar YAML e o Publicar.
+     */
+    static ResponseEntity<Map<String, Object>> recusaDe(WorkflowRuntimeStore.Update result) {
+        return switch (result.outcome()) {
+            case UPDATED -> null;
+            case NOT_FOUND -> ResponseEntity.notFound().build();
+            case CONFLICT -> conflito(result.currentUpdatedAt());
+        };
+    }
+
+    static ResponseEntity<Map<String, Object>> conflito(Object updatedAtAtual) {
+        Map<String, Object> conflito = new LinkedHashMap<>();
+        conflito.put("error", "Workflow was changed elsewhere since it was loaded");
+        conflito.put("code", "WORKFLOW_CONFLICT");
+        conflito.put("updatedAt", updatedAtAtual);
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(conflito);
     }
 
     /**
@@ -178,10 +191,7 @@ public class SpringWorkflowCrudController {
             case HAS_ACTIVE_EXECUTIONS -> {
                 List<String> ativas = exclusao.activeExecutions();
                 Map<String, Object> body = new LinkedHashMap<>();
-                body.put("error", "O fluxo \"" + workflowName(documento) + "\" tem "
-                        + (ativas.size() == 1 ? "uma execução" : ativas.size() + " execuções")
-                        + " em andamento ou aguardando aprovação (" + String.join(", ", ativas) + "). Cancele-"
-                        + (ativas.size() == 1 ? "a" : "as") + " ou decida a aprovação antes de excluir o fluxo.");
+                body.put("error", motivoDaExclusaoRecusada(tenantId, workflowName(documento), ativas));
                 body.put("code", "WORKFLOW_HAS_ACTIVE_EXECUTIONS");
                 body.put("executions", ativas);
                 return ResponseEntity.status(HttpStatus.CONFLICT).body(body);
@@ -191,6 +201,41 @@ public class SpringWorkflowCrudController {
                 return ResponseEntity.noContent().build();
             }
         }
+    }
+
+    /**
+     * A recusa da exclusão, dizendo para cada execução o que de fato a libera (RCHFLW-188, item 4). A frase antiga
+     * mandava cancelar qualquer uma, mas a execução pausada na aprovação não se cancela — o cancel devolve 200 com
+     * ela ainda PAUSED, e o detalhe da execução nem tem a ação. A pausada sai quando a aprovação é decidida
+     * (rejeitar a encerra); a em andamento, quando termina ou é cancelada.
+     */
+    private String motivoDaExclusaoRecusada(String tenantId, String nome, List<String> ativas) {
+        List<String> pausadas = new ArrayList<>();
+        List<String> rodando = new ArrayList<>();
+        for (String execucao : ativas) {
+            Map<String, Object> registro = store.getExecution(tenantId, execucao);
+            boolean pausada = registro != null && "PAUSED".equals(String.valueOf(registro.get("status")));
+            (pausada ? pausadas : rodando).add(execucao);
+        }
+        StringBuilder motivo = new StringBuilder("O fluxo \"").append(nome).append("\" tem ");
+        if (!pausadas.isEmpty()) {
+            motivo.append(pausadas.size() == 1 ? "uma execução" : pausadas.size() + " execuções")
+                    .append(" aguardando aprovação (").append(String.join(", ", pausadas)).append(")");
+        }
+        if (!rodando.isEmpty()) {
+            motivo.append(pausadas.isEmpty() ? "" : " e ")
+                    .append(rodando.size() == 1 ? "uma execução" : rodando.size() + " execuções")
+                    .append(" em andamento (").append(String.join(", ", rodando)).append(")");
+        }
+        motivo.append(".");
+        if (!pausadas.isEmpty()) {
+            motivo.append(" A execução pausada só libera a exclusão quando a aprovação pendente é decidida, em "
+                    + "Aprovações — rejeitar encerra a execução.");
+        }
+        if (!rodando.isEmpty()) {
+            motivo.append(" A execução em andamento libera a exclusão quando termina ou é cancelada.");
+        }
+        return motivo.toString();
     }
 
     @GetMapping("/{id}/versions")
@@ -207,22 +252,41 @@ public class SpringWorkflowCrudController {
         return version != null ? ResponseEntity.ok(version) : ResponseEntity.notFound().build();
     }
 
+    /** Publica o rascunho gravado, sem pré-condição — o {@code POST} sem {@code If-Match}. */
+    public ResponseEntity<Map<String, Object>> publish(String id, Map<String, Object> body) {
+        return publish(id, body, null);
+    }
+
     /**
      * Publishes the current draft as an immutable version and deploys it to the
      * requested environment (PRODUCTION by default).
+     *
+     * <p>Com {@code If-Match}, publica só o rascunho nessa versão — 409 {@code WORKFLOW_CONFLICT} se outra
+     * sessão gravou depois (RCHFLW-146): o editor salva o que está na tela e publica exatamente isso. Sem o
+     * cabeçalho, publica o rascunho gravado, como sempre. Excluído antes, 404 (RCHFLW-188, item 20; antes, 500 de
+     * um NPE). A versão e a implantação são uma operação só do store
+     * ({@link WorkflowRuntimeStore#publishAndDeployWorkflow}): em duas, uma publicação mais velha podia implantar
+     * depois de uma mais nova e deixar PRODUCTION nela, com a resposta da mais nova anunciando a versão dela.</p>
      */
     @PostMapping("/{id}/publish")
     public ResponseEntity<Map<String, Object>> publish(
             @PathVariable String id,
-            @RequestBody(required = false) Map<String, Object> body) {
+            @RequestBody(required = false) Map<String, Object> body,
+            @RequestHeader(value = "If-Match", required = false) String ifMatch) {
         String comment = body == null ? null : Objects.toString(body.get("comment"), null);
         String environment = body == null
                 ? "PRODUCTION"
                 : Objects.toString(body.get("environment"), "PRODUCTION");
         String tenantId = tenant();
-        var version = store.publishWorkflow(tenantId, id, comment);
-        if (version == null) return ResponseEntity.notFound().build();
-        var deployment = store.deployWorkflow(tenantId, id, environment, version.id());
+        WorkflowRuntimeStore.Publication publication;
+        try {
+            publication = store.publishAndDeployWorkflow(tenantId, id, comment, versaoEsperada(ifMatch), environment);
+        } catch (WorkflowRuntimeStore.WorkflowConflictException e) {
+            return conflito(e.currentUpdatedAt());
+        }
+        if (publication == null || publication.deployment() == null) return ResponseEntity.notFound().build();
+        var version = publication.version();
+        var deployment = publication.deployment();
         auditTrail.record(AuditAction.UPDATE, "workflow", id, true, null,
                 Map.of("operation", "publish", "versionId", version.id(),
                         "environment", deployment.environment()));
@@ -259,24 +323,34 @@ public class SpringWorkflowCrudController {
     private static final java.util.Set<String> VALID_STATUSES =
             java.util.Set.of("draft", "active", "archived");
 
+    /**
+     * Troca só o status, sobre o documento que estiver gravado no instante da troca, pela mesma operação
+     * atômica do PUT ({@link WorkflowRuntimeStore#updateWorkflow}). Antes lia e regravava o documento inteiro
+     * fora de qualquer trava: um Salvar confirmado no meio era desfeito, ou desfazia a troca, com as duas
+     * respostas em 200 (RCHFLW-173); e uma troca durante a exclusão recriava o fluxo (RCHFLW-172). O
+     * {@code updatedAt} novo faz um Salvar com a versão de antes da troca levar 409, como qualquer outra
+     * gravação. Sem pré-condição própria: o "Ativar" da lista não tem versão para mandar.
+     */
     @PatchMapping("/{id}/status")
     public ResponseEntity<Map<String, Object>> setStatus(@PathVariable String id,
                                                          @RequestBody Map<String, Object> body) {
         String tenantId = tenant();
-        var workflow = store.getWorkflow(tenantId, id);
-        if (workflow == null) return ResponseEntity.notFound().build();
+        if (!store.hasWorkflow(tenantId, id)) return ResponseEntity.notFound().build();
         String status = String.valueOf(body.get("status")).toLowerCase(Locale.ROOT);
         if (!VALID_STATUSES.contains(status)) {
             return ResponseEntity.badRequest().body(Map.of(
                     "error", "Invalid status: " + status + " (expected draft|active|archived)"));
         }
-        var updated = new LinkedHashMap<>(workflow);
-        updated.put("status", status);
-        updated.put("updatedAt", Instant.now().toString());
-        store.putWorkflow(tenantId, id, updated);
+        var result = store.updateWorkflow(tenantId, id, null, atual -> {
+            atual.put("status", status);
+            atual.put("updatedAt", Instant.now().toString());
+            return atual;
+        });
+        ResponseEntity<Map<String, Object>> recusa = recusaDe(result);
+        if (recusa != null) return recusa;
         auditTrail.record(AuditAction.UPDATE, "workflow", id, true, null,
                 Map.of("status", status));
-        return ResponseEntity.ok(updated);
+        return ResponseEntity.ok(result.document());
     }
 
     @PostMapping("/{id}/execute")

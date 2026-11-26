@@ -1,13 +1,16 @@
-import { memo }         from 'react'
+import { memo, useContext } from 'react'
+import { useTranslation } from 'react-i18next'
 import {
   BaseEdge,
   EdgeLabelRenderer,
   getSmoothStepPath,
+  useNodesData,
   useReactFlow,
   type EdgeProps,
 } from '@xyflow/react'
 import { useFlowStore } from '../store/useFlowStore'
-import { branchOptions } from '../branches'
+import { branchOptions, undeclaredBranch } from '../branches'
+import { EdgeEditContext, type EdgeDataPatch } from './edgeEdit'
 
 interface FlowEdgeData {
   isErrorPath?: boolean
@@ -35,16 +38,28 @@ export const FlowEdge = memo(function FlowEdge({
   data,
   selected,
 }: EdgeProps) {
-  const { isExecuting, executionState } = useFlowStore()
-  const { setEdges, getNode } = useReactFlow()
+  const { t } = useTranslation()
+  const { isExecuting } = useFlowStore()
+  const { setEdges } = useReactFlow()
+  const editEdge = useContext(EdgeEditContext)
   const edgeData = (data ?? {}) as FlowEdgeData
   const isError = edgeData.isErrorPath ?? false
   const branch = edgeData.branch
   const condition = edgeData.condition
-  const sourceData = getNode(source)?.data as { nodeType?: string; config?: Record<string, unknown> } | undefined
-  const options = branchOptions(String(sourceData?.nodeType ?? ''), sourceData?.config)
-  const patch = (changes: Partial<FlowEdgeData>) =>
-    setEdges(es => es.map(e => (e.id === id ? { ...e, data: { ...e.data, ...changes } } : e)))
+  // Assinado, e não lido com getNode: a aresta precisa redesenhar quando os casos do nó de origem mudam, senão o
+  // aviso de ramo não declarado só apareceria depois de outra coisa redesenhar a aresta.
+  const sourceData = useNodesData(source)?.data as { nodeType?: string; config?: Record<string, unknown> } | undefined
+  const sourceType = String(sourceData?.nodeType ?? '')
+  const options = branchOptions(sourceType, sourceData?.config)
+  // O ramo gravado que o nó não declara mais (RCHFLW-147: caso do switch renomeado). Antes o rótulo seguia
+  // mostrando o nome antigo como se valesse e o seletor caía em "—"; nenhum valor chega a essa aresta.
+  const staleBranch = undeclaredBranch(sourceType, sourceData?.config, edgeData)
+  const staleTitle = staleBranch != null
+    ? t('editor.edge.undeclaredBranch', { branch: staleBranch, options: options.join(', ') }) : undefined
+  const patch = (changes: EdgeDataPatch) => {
+    if (editEdge) editEdge(id, changes)
+    else setEdges(es => es.map(e => (e.id === id ? { ...e, data: { ...e.data, ...changes } } : e)))
+  }
 
   // Animar edge se execução está ativa e o nó fonte está rodando/concluído
   const animated = isExecuting
@@ -82,13 +97,14 @@ export const FlowEdge = memo(function FlowEdge({
       {(branch || condition) && !selected && (
         <EdgeLabelRenderer>
           <div
-            title={condition ?? branch}
+            title={staleTitle ?? condition ?? branch}
+            data-testid={staleBranch != null ? 'edge-undeclared-branch' : undefined}
             style={{
               ...CHIP_STYLE,
               transform: `translate(-50%, -50%) translate(${labelX}px,${labelY - (isError ? 16 : 0)}px)`,
-              color: 'var(--blue)',
-              background: 'var(--color-background-secondary, var(--bg2))',
-              border: '1px solid var(--blue)',
+              color: staleBranch != null ? 'var(--red)' : 'var(--blue)',
+              background: staleBranch != null ? 'var(--red-l)' : 'var(--color-background-secondary, var(--bg2))',
+              border: `1px solid ${staleBranch != null ? 'var(--red)' : 'var(--blue)'}`,
               pointerEvents: 'none',
               maxWidth: 160,
               overflow: 'hidden',
@@ -96,7 +112,7 @@ export const FlowEdge = memo(function FlowEdge({
               whiteSpace: 'nowrap',
             }}
           >
-            {condition ? `ƒ ${condition}` : branch}
+            {condition ? `ƒ ${condition}` : staleBranch != null ? `⚠ ${branch}` : branch}
           </div>
         </EdgeLabelRenderer>
       )}
@@ -126,7 +142,17 @@ export const FlowEdge = memo(function FlowEdge({
               >
                 <option value="">—</option>
                 {options.map(o => <option key={o} value={o}>{o}</option>)}
+                {/* O ramo que o nó não declara continua visível no seletor, marcado: sumir com ele ("—")
+                    escondia que a aresta ainda está gravada nele. */}
+                {staleBranch != null && (
+                  <option value={branch}>{t('editor.edge.undeclaredOption', { branch: staleBranch })}</option>
+                )}
               </select>
+            )}
+            {staleBranch != null && (
+              <div role="alert" style={{ fontSize: 10, color: 'var(--red)', maxWidth: 220, whiteSpace: 'normal' }}>
+                {staleTitle}
+              </div>
             )}
             <input
               aria-label="condition"

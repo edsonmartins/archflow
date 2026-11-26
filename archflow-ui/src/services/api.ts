@@ -1,4 +1,5 @@
 import { mensagemDoCorpoDeErro } from '../lib/errorMessage';
+import { loginPathFor } from '../lib/sessionNavigation';
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api';
 
@@ -123,10 +124,16 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
     const response = await fetch(`${API_BASE}${path}`, { ...options, headers });
 
-    if (response.status === 401) {
+    // O 401 do próprio POST /auth/login é senha errada, não sessão que caiu: segue como erro comum, com a
+    // mensagem do backend no formulário. Antes ele recarregava a página no /login sem o ?from=, e o acerto
+    // seguinte caía no início em vez da página pedida (RCHFLW-188).
+    if (response.status === 401 && !path.startsWith('/auth/login')) {
         sessionStorage.removeItem('archflow_token');
         sessionStorage.removeItem('archflow_refresh_token');
-        window.location.href = '/login';
+        // Com a página de onde a sessão caiu: o login volta para ela (RCHFLW-188). Quem já está no /login fica
+        // onde está — recarregar ali (ex.: o POST /auth/logout com o token já vencido) perderia o ?from=.
+        const { pathname, search, hash } = window.location;
+        if (pathname !== '/login') window.location.href = loginPathFor(`${pathname}${search}${hash}`);
         throw new ApiError(401, 'Unauthorized');
     }
 
@@ -140,12 +147,17 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     return response.json();
 }
 
+/** O cabeçalho da pré-condição de versão (RCHFLW-125): o `updatedAt` que o editor leu, como entity tag. */
+export function ifMatch(updatedAt?: string | null): Record<string, string> | undefined {
+    return updatedAt ? { 'If-Match': `"${updatedAt}"` } : undefined
+}
+
 export const api = {
     get: <T>(path: string) => request<T>(path),
     post: <T>(path: string, body?: unknown) =>
         request<T>(path, { method: 'POST', body: body ? JSON.stringify(body) : undefined }),
-    put: <T>(path: string, body?: unknown) =>
-        request<T>(path, { method: 'PUT', body: body ? JSON.stringify(body) : undefined }),
+    put: <T>(path: string, body?: unknown, headers?: Record<string, string>) =>
+        request<T>(path, { method: 'PUT', body: body ? JSON.stringify(body) : undefined, headers }),
     patch: <T>(path: string, body?: unknown) =>
         request<T>(path, { method: 'PATCH', body: body ? JSON.stringify(body) : undefined }),
     delete: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
@@ -222,7 +234,7 @@ export const workflowApi = {
         request<WorkflowDetail>(`/workflows/${id}`, {
             method: 'PUT',
             body: JSON.stringify(workflow),
-            headers: expectedUpdatedAt ? { 'If-Match': `"${expectedUpdatedAt}"` } : undefined,
+            headers: ifMatch(expectedUpdatedAt),
         }),
     delete: (id: string) => api.delete(`/workflows/${id}`),
     setStatus: (id: string, status: 'draft' | 'active' | 'archived') =>
@@ -237,9 +249,16 @@ export const workflowApi = {
         api.get<WorkflowVersion[]>(`/workflows/${id}/versions`),
     version: (id: string, versionId: string) =>
         api.get<WorkflowVersion>(`/workflows/${id}/versions/${versionId}`),
-    publish: (id: string, comment?: string, environment = 'PRODUCTION') =>
-        api.post<{ version: WorkflowVersion; deployment: WorkflowDeployment }>(
-            `/workflows/${id}/publish`, { comment, environment }),
+    /**
+     * Com `expectedUpdatedAt`, publica só o rascunho nessa versão — senão 409, e nenhuma versão é criada
+     * (RCHFLW-146): o editor publica exatamente o documento que acabou de salvar.
+     */
+    publish: (id: string, comment?: string, environment = 'PRODUCTION', expectedUpdatedAt?: string) =>
+        request<{ version: WorkflowVersion; deployment: WorkflowDeployment }>(`/workflows/${id}/publish`, {
+            method: 'POST',
+            body: JSON.stringify({ comment, environment }),
+            headers: ifMatch(expectedUpdatedAt),
+        }),
     deploy: (id: string, environment: string, versionId: string) =>
         api.put<WorkflowDeployment>(
             `/workflows/${id}/deployments/${environment}`, { versionId }),

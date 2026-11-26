@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { branchOptions, defaultBranch, nextFreeBranch } from '../branches'
+import { branchOptions, defaultBranch, nextFreeBranch, renamedCase, undeclaredBranch } from '../branches'
 import { connectionsForStep, connectionsFromSteps } from '../workflowSerde'
 
 describe('branchOptions', () => {
@@ -97,5 +97,41 @@ describe('defaultBranch', () => {
 
   it('gives no branch to nodes that do not branch', () => {
     expect(defaultBranch('llm-chat', {}, [])).toBeUndefined()
+  })
+})
+
+describe('renamedCase (RCHFLW-147)', () => {
+  const cfg = (cases: string) => ({ switchCases: cases })
+
+  it('um caso trocado na mesma posição é rename', () => {
+    expect(renamedCase(cfg('defeito\narrependimento\ndefault'), cfg('defeito\narrependido\ndefault')))
+      .toEqual({ from: 'arrependimento', to: 'arrependido' })
+    // O default escrito ou não, não muda nada: ele é sempre um ramo.
+    expect(renamedCase(cfg('ate_200\ndefault'), cfg('ate_500'))).toEqual({ from: 'ate_200', to: 'ate_500' })
+  })
+
+  it('caso apagado, inserido, dois trocados ou ordem trocada: não adivinha', () => {
+    expect(renamedCase(cfg('a\nb'), cfg('a'))).toBeNull()
+    expect(renamedCase(cfg('a\nb'), cfg('a\nb\nc'))).toBeNull()
+    expect(renamedCase(cfg('a\nb'), cfg('x\ny'))).toBeNull()
+    expect(renamedCase(cfg('a\nb'), cfg('b\na'))).toBeNull()
+    expect(renamedCase(cfg('a\nb'), cfg('a\nb'))).toBeNull()
+  })
+})
+
+describe('undeclaredBranch (RCHFLW-147)', () => {
+  it('acusa o ramo que o nó não oferece, e só o que vale', () => {
+    expect(undeclaredBranch('switch', { switchCases: 'a' }, { branch: 'b' })).toBe('b')
+    expect(undeclaredBranch('switch', { switchCases: 'a' }, { branch: 'default' })).toBeNull()
+    expect(undeclaredBranch('switch', { switchCases: 'a' }, { branch: 'b', condition: 'x' })).toBeNull()
+    expect(undeclaredBranch('switch', { switchCases: 'a' }, { branch: 'b', isErrorPath: true })).toBeNull()
+    expect(undeclaredBranch('decision', {}, { branch: 'auto' })).toBe('auto')
+    expect(undeclaredBranch('llm-chat', {}, { branch: 'qualquer' })).toBeNull()
+  })
+
+  it('compara o ramo sem apóstrofos, como a BranchCondition e o ExecutableNodesValidator', () => {
+    // A aresta "d'água" vira `== 'dágua'`: o caso "d'água" nunca a alcança, e o servidor recusa o fluxo.
+    expect(undeclaredBranch('switch', { switchCases: "d'água" }, { branch: "d'água" })).toBe("d'água")
+    expect(undeclaredBranch('switch', { switchCases: 'dágua' }, { branch: "d'água" })).toBeNull()
   })
 })

@@ -222,10 +222,13 @@ export default function CopilotGenerateBridge() {
  * agente desiste, o nó fica sem ela, e isso também não pode sair como "fluxo montado".
  */
 export function generatedFlowProblems(t: TFunction): string {
-    const steps = useFlowStore.getState().getCanvasSnapshot().steps.map(s => ({
+    const snapshot = useFlowStore.getState().getCanvasSnapshot()
+    const steps = snapshot.steps.map(s => ({
         id: s.id, label: s.label, componentId: s.componentId, type: s.type, config: s.config,
     }))
-    const blockers = runBlockers(steps)
+    // Com as arestas, como o Executar: o Gerar com IA que renomeia um caso ("comercial" → "vendas") e deixa a aresta
+    // no nome antigo é avisado ao terminar, e não só quando alguém executa (RCHFLW-147).
+    const blockers = runBlockers(steps, snapshot.connections)
     return hasRunBlockers(blockers) ? runBlockersMessage(t, blockers) : ''
 }
 
