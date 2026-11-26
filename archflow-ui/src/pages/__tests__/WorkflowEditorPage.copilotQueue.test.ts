@@ -12,7 +12,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { entrarComo } from '../../lib/__tests__/papeisDeTeste'
 import { createElement as h, act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { Route, Routes } from 'react-router-dom'
+import { MemoryDataRouter } from '../../lib/__tests__/roteadorDeTeste'
 import { MantineProvider } from '@mantine/core'
 import { waitFor, within } from '@testing-library/dom'
 
@@ -95,7 +96,7 @@ async function renderEditorAt(path: string) {
   await act(async () => {
     root!.render(
       h(MantineProvider, null,
-        h(MemoryRouter, { initialEntries: [path] },
+        h(MemoryDataRouter, { initialEntries: [path] },
           h(Routes, null, h(Route, { path: '/editor/:id', element: h(WorkflowEditor) })))),
     )
   })

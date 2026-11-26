@@ -147,7 +147,7 @@ class FluxosPorTenantTest {
         Map<String, Object> edicao = new LinkedHashMap<>(Map.of("metadata", Map.of("name", "Sequestrado")));
 
         assertThat(comoTenant("tenant-b", () -> crud.get(doA)).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
-        assertThat(comoTenant("tenant-b", () -> crud.update(doA, edicao)).getStatusCode())
+        assertThat(comoTenant("tenant-b", () -> crud.update(doA, edicao, null)).getStatusCode())
                 .isEqualTo(HttpStatus.NOT_FOUND);
         assertThat(comoTenant("tenant-b", () -> crud.setStatus(doA, Map.of("status", "archived")))
                 .getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);

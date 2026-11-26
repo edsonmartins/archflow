@@ -26,7 +26,8 @@ interface WorkflowState {
      */
     fetchWorkflow: (id: string) => Promise<WorkflowLoadResult>;
     createWorkflow: (workflow: Partial<WorkflowDetail>) => Promise<WorkflowDetail>;
-    updateWorkflow: (id: string, workflow: Partial<WorkflowDetail>) => Promise<void>;
+    /** `expectedUpdatedAt`: a versão lida; o servidor responde 409 se o fluxo mudou desde então (RCHFLW-125). */
+    updateWorkflow: (id: string, workflow: Partial<WorkflowDetail>, expectedUpdatedAt?: string) => Promise<void>;
     deleteWorkflow: (id: string) => Promise<void>;
     executeWorkflow: (id: string, input?: Record<string, unknown>) => Promise<string>;
     fetchExecutions: (workflowId?: string, limit?: number) => Promise<void>;
@@ -122,10 +123,10 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
         }
     },
 
-    updateWorkflow: async (id, workflow) => {
+    updateWorkflow: async (id, workflow, expectedUpdatedAt) => {
         set({ loading: true, error: null });
         try {
-            const updated = await workflowApi.update(id, workflow);
+            const updated = await workflowApi.update(id, workflow, expectedUpdatedAt);
             set((state) => ({
                 currentWorkflow: updated,
                 workflows: state.workflows.map((w) =>

@@ -357,6 +357,32 @@
         "savedRelative": "Saved {{time}}",
         "untitled": "Untitled workflow",
         "renameHint": "Click to rename",
+        "renameEmpty": "Empty name",
+        "renameEmptyMsg": "The workflow needs a name. The previous name was kept.",
+        "renameDuplicate": "Duplicate name",
+        "renameDuplicateMsg": "Another workflow is already called \"{{name}}\". The name was accepted, but the two will be hard to tell apart in the list and in the Executions filter.",
+        "codeAfterSave": "Save the workflow to edit its YAML",
+        "unsaved": {
+            "badge": "Unsaved",
+            "title": "Unsaved changes",
+            "message": "This workflow has changes that have not been saved. If you leave now, they will be lost.",
+            "stay": "Keep editing",
+            "discard": "Discard and leave",
+            "save": "Save and leave"
+        },
+        "conflict": {
+            "title": "Workflow changed elsewhere",
+            "message": "This workflow was changed elsewhere after you opened it. Reload to see the current version (your unsaved changes are lost) or overwrite to save yours over the other one.",
+            "reload": "Reload",
+            "overwrite": "Overwrite",
+            "reloadFailedMsg": "The current version could not be reloaded. What is on screen stays as it was; try again."
+        },
+        "discardYaml": {
+            "title": "Discard the unsaved YAML?",
+            "message": "The edited YAML has not been saved. Going back to the Canvas discards this edit.",
+            "stay": "Stay in YAML",
+            "confirm": "Discard and go back"
+        },
         "yamlInvalidAt": "Invalid YAML at line {{line}}, column {{column}}: {{reason}}",
         "yamlInvalidAtLine": "Invalid YAML at line {{line}}: {{reason}}",
         "yamlInvalid": "Invalid YAML: {{reason}}",
@@ -372,6 +398,7 @@
             "yamlSavedMsg": "Workflow updated from YAML",
             "yamlError": "YAML error",
             "yamlErrorMsg": "Failed to save YAML",
+            "yamlNotExecutable": "YAML saved, but the workflow cannot run",
             "saved": "Saved",
             "savedMsg": "Workflow saved successfully",
             "saveError": "Error",

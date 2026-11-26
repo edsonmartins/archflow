@@ -181,6 +181,11 @@ export interface WorkflowDetail {
     metadata: { name: string; description: string; version: string; category: string; tags: string[] };
     steps: unknown[];
     configuration: unknown;
+    /**
+     * Carimbo da última gravação, posto pelo servidor. É a versão que o Salvar do editor manda no If-Match
+     * (RCHFLW-125): se o fluxo mudou desde a leitura, o PUT responde 409.
+     */
+    updatedAt?: string;
 }
 
 export interface WorkflowVersion {
@@ -203,7 +208,16 @@ export const workflowApi = {
     list: () => api.get<WorkflowSummary[]>('/workflows'),
     get: (id: string) => api.get<WorkflowDetail>(`/workflows/${id}`),
     create: (workflow: Partial<WorkflowDetail>) => api.post<WorkflowDetail>('/workflows', workflow),
-    update: (id: string, workflow: Partial<WorkflowDetail>) => api.put<WorkflowDetail>(`/workflows/${id}`, workflow),
+    /**
+     * Com `expectedUpdatedAt`, o servidor só grava se o fluxo ainda está nessa versão — senão 409 (RCHFLW-125).
+     * Sem ele, grava por cima, como sempre (o "Sobrescrever" do aviso de conflito).
+     */
+    update: (id: string, workflow: Partial<WorkflowDetail>, expectedUpdatedAt?: string) =>
+        request<WorkflowDetail>(`/workflows/${id}`, {
+            method: 'PUT',
+            body: JSON.stringify(workflow),
+            headers: expectedUpdatedAt ? { 'If-Match': `"${expectedUpdatedAt}"` } : undefined,
+        }),
     delete: (id: string) => api.delete(`/workflows/${id}`),
     setStatus: (id: string, status: 'draft' | 'active' | 'archived') =>
         api.patch<WorkflowDetail>(`/workflows/${id}/status`, { status }),

@@ -44,7 +44,7 @@ const STATUS_ICON: Record<string, typeof IconRobot> = {
 export default function WorkflowListPage() {
     const navigate = useNavigate();
     const { t, i18n } = useTranslation();
-    const { workflows, loading, error, fetchWorkflows, deleteWorkflow, executeWorkflow, createWorkflow } = useWorkflowStore();
+    const { workflows, loading, error, fetchWorkflows, deleteWorkflow, executeWorkflow } = useWorkflowStore();
     const [search, setSearch] = useState('');
     const [deleteId, setDeleteId] = useState<string | null>(null);
     // RCHFLW-74: só oferece o que o papel permite — o backend responde 403 ao resto.
@@ -84,17 +84,13 @@ export default function WorkflowListPage() {
 
     // Creation offers three paths (modal): blank canvas, template gallery,
     // or AI generation (blank workflow + the editor's AI prompt pre-opened).
+    // Começar do zero e Gerar com IA abrem um RASCUNHO no editor, sem gravar nada (RCHFLW-131): o fluxo nasce no
+    // primeiro Salvar ou quando a IA monta o primeiro nó. Antes um fluxo vazio era gravado aqui, e quem fechava
+    // sem fazer nada deixava um "Fluxo sem título" com 0 passos.
     const [createOpen, setCreateOpen] = useState(false);
-    const createBlank = async (withAi: boolean) => {
+    const createBlank = (withAi: boolean) => {
         setCreateOpen(false);
-        try {
-            const created = await createWorkflow({
-                metadata: { name: t('workflows.untitledName'), description: '', version: '1.0.0', category: '', tags: [] },
-                steps: [],
-                configuration: {},
-            });
-            navigate(withAi ? `/editor/${created.id}?ai=1` : `/editor/${created.id}`);
-        } catch { /* surfaced via store error state */ }
+        navigate(withAi ? '/editor?new=1&ai=1' : '/editor?new=1');
     };
     const handleNew = () => setCreateOpen(true);
 

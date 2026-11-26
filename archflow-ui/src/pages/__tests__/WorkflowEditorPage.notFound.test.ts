@@ -10,7 +10,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { entrarComo } from '../../lib/__tests__/papeisDeTeste'
 import { createElement as h, act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { Route, Routes } from 'react-router-dom'
+import { MemoryDataRouter } from '../../lib/__tests__/roteadorDeTeste'
 import { MantineProvider } from '@mantine/core'
 import { fireEvent, waitFor, within } from '@testing-library/dom'
 
@@ -100,7 +101,7 @@ async function renderEditor(path = '/editor/wf-1') {
   await act(async () => {
     root!.render(
       h(MantineProvider, null,
-        h(MemoryRouter, { initialEntries: [path] },
+        h(MemoryDataRouter, { initialEntries: [path] },
           h(Routes, null,
             h(Route, { path: '/editor/:id', element: h(WorkflowEditor) }),
             h(Route, { path: '/workflows', element: h('div', { 'data-testid': 'workflow-list' }) })))),
@@ -125,7 +126,8 @@ describe('WorkflowEditor — fluxo da rota inacessível (RCHFLW-117)', () => {
     expect(ui.queryByTestId('editor-title')).toBeNull()
 
     await act(async () => { fireEvent.click(ui.getByRole('button', { name: 'editor.backToList' })) })
-    expect(ui.getByTestId('workflow-list')).toBeTruthy()
+    // No router de dados a navegação é assíncrona (transição): espera a lista aparecer.
+    await waitFor(() => expect(ui.getByTestId('workflow-list')).toBeTruthy())
     expect(workflowApiMock.update).not.toHaveBeenCalled()
   })
 
