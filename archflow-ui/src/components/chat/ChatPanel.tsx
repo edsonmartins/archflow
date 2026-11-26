@@ -19,6 +19,7 @@ import {
     isChatMessage,
     isChatStart,
     isHeartbeat,
+    isInteractionCancel,
     isInteractionForm,
     isToolEnd,
     isToolError,
@@ -76,6 +77,9 @@ export default function ChatPanel({ conversationId, workflowId, onConversationCh
     // A execução que o formulário pendente continua (GET da conversa ou evento do formulário). Com ela,
     // enviar exige execution:manage, como decidir na fila de aprovações (QA2 RCHFLW-136).
     const [formExecutionId, setFormExecutionId] = useState<string | null>(null);
+    // Conversa cancelada: o servidor recusa novos turnos (409), então o campo fica travado e diz por quê,
+    // em vez de aceitar o texto e só depois mostrar o erro.
+    const [cancelledConversation, setCancelledConversation] = useState(false);
     const [initialLoading, setInitialLoading] = useState(false);
     // Conversa cujo histórico já foi carregado (com sucesso ou não): o stream só abre depois dele.
     const [historyLoadedFor, setHistoryLoadedFor] = useState<string | undefined>(undefined);
@@ -88,6 +92,12 @@ export default function ChatPanel({ conversationId, workflowId, onConversationCh
      * double-mount in dev — same ref is shared by both effect runs.
      */
     const processedEventIds = useRef<Set<string>>(new Set());
+    /**
+     * Falas deste visualizador ainda com o id local (id local → texto): o servidor publica cada
+     * mensagem do usuário no stream com o id gravado (RCHFLW-194), e é por aqui que a fala otimista
+     * vira a do servidor em vez de aparecer duas vezes — chegue primeiro o evento ou a resposta HTTP.
+     */
+    const optimisticUser = useRef<Map<string, string>>(new Map());
 
     const scrollToBottom = useCallback(() => {
         setTimeout(() => {
@@ -112,6 +122,7 @@ export default function ChatPanel({ conversationId, workflowId, onConversationCh
             .then(([conversation, msgs]) => {
                 if (cancelled) return;
                 setMessages(msgs);
+                setCancelledConversation(conversation.status === 'CANCELLED');
                 if (
                     conversation.status === 'SUSPENDED' &&
                     conversation.formData &&
@@ -184,6 +195,26 @@ export default function ChatPanel({ conversationId, workflowId, onConversationCh
                     };
                     return { ...base, content: base.content + (evt.data.content ?? '') };
                 });
+                return;
+            }
+
+            // A fala do usuário (deste ou de outro visualizador): entra na transcrição, sem mexer na
+            // resposta em curso. Antes o stream só trazia as do assistente, e a outra aba nunca via o
+            // que o cliente escreveu.
+            if (isChatMessage(evt) && evt.data.role === 'user') {
+                const serverId = evt.data.messageId ?? evt.envelope.id;
+                const content = evt.data.content ?? '';
+                setMessages((m) => {
+                    if (m.some((existing) => existing.id === serverId)) return m;
+                    const local = [...optimisticUser.current.entries()]
+                        .find(([, text]) => text === content)?.[0];
+                    if (local) {
+                        optimisticUser.current.delete(local);
+                        return m.map((existing) => (existing.id === local ? { ...existing, id: serverId } : existing));
+                    }
+                    return [...m, { id: serverId, role: 'user', content, timestamp: evt.envelope.timestamp }];
+                });
+                notifyChanged();
                 return;
             }
 
@@ -347,6 +378,21 @@ export default function ChatPanel({ conversationId, workflowId, onConversationCh
                 setResumeToken((evt.data.resumeToken as string | undefined) ?? null);
                 setFormExecutionId((evt.data.executionId as string | undefined) ?? null);
                 notifyChanged();
+                return;
+            }
+
+            // O servidor retirou o formulário (conversa cancelada, aprovação recusada ou expirada): sem
+            // isto o formulário ficava na tela e o campo livre travado num chat que já não esperava nada.
+            if (isInteractionCancel(evt)) {
+                setSuspendedForm(null);
+                setResumeToken(null);
+                setFormExecutionId(null);
+                notifyChanged();
+                // O mesmo evento vale para o formulário retirado (a conversa segue aberta) e para a conversa
+                // cancelada (não recebe mais nada): só o registro diz qual dos dois.
+                conversationApi.getConversation(conversationId)
+                    .then((c) => { if (c.status === 'CANCELLED') setCancelledConversation(true); })
+                    .catch((err) => console.error('Failed to refresh conversation status:', err));
             }
         });
 
@@ -374,16 +420,24 @@ export default function ChatPanel({ conversationId, workflowId, onConversationCh
             timestamp: new Date().toISOString(),
         };
 
+        optimisticUser.current.set(userMessage.id, text);
         setMessages((prev) => [...prev, userMessage]);
         setInput('');
         setSending(true);
 
         try {
-            await conversationApi.sendMessage(conversationId, text);
+            const messageId = (await conversationApi.sendMessage(conversationId, text))?.messageId;
+            // A fala otimista passa a ter o id gravado — a não ser que o evento do stream já a tenha casado.
+            if (messageId && optimisticUser.current.delete(userMessage.id)) {
+                setMessages((prev) => (prev.some((m) => m.id === messageId)
+                    ? prev.filter((m) => m.id !== userMessage.id)
+                    : prev.map((m) => (m.id === userMessage.id ? { ...m, id: messageId } : m))));
+            }
             // A resposta chega pelo SSE; o registro, porém, já conta a mensagem do usuário.
             notifyChanged();
         } catch (err) {
             console.error('Failed to send message:', err);
+            optimisticUser.current.delete(userMessage.id);
             setMessages((prev) => [
                 ...prev,
                 {
@@ -422,10 +476,23 @@ export default function ChatPanel({ conversationId, workflowId, onConversationCh
                 return;
             } catch (err) {
                 console.error('Failed to resume conversation:', err);
-                // Recusado (400/409: aprovação já decidida pela fila, prazo vencido), a conversa segue
-                // esperando no servidor: o formulário volta e o campo livre continua travado. O aviso é
-                // a frase do servidor, que diz o motivo; o texto genérico só quando não há uma.
-                setSuspendedForm(form);
+                // Recusado (400/409), o formulário só volta se a conversa ainda o espera: quando a execução
+                // já terminou (aprovação recusada, expirada, parada), o servidor o retira e devolver o
+                // formulário travava o chat num envio que nunca seria aceito (RCHFLW-194). O aviso é a
+                // frase do servidor, que diz o motivo; o texto genérico só quando não há uma.
+                const stillWaiting = conversationId
+                    ? await conversationApi.getConversation(conversationId)
+                        .then((c) => c.status === 'SUSPENDED' && !!c.resumeToken && c.resumeToken === resumeToken)
+                        // Sem a resposta do GET não há como saber: fica como era, com o formulário.
+                        .catch(() => true)
+                    : true;
+                if (stillWaiting) {
+                    setSuspendedForm(form);
+                } else {
+                    setResumeToken(null);
+                    setFormExecutionId(null);
+                    notifyChanged();
+                }
                 setMessages((prev) => [
                     ...prev,
                     {
@@ -439,7 +506,7 @@ export default function ChatPanel({ conversationId, workflowId, onConversationCh
             }
         },
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        [resumeToken, suspendedForm],
+        [resumeToken, suspendedForm, conversationId],
     );
 
     const handleFormCancel = useCallback(async () => {
@@ -448,16 +515,25 @@ export default function ChatPanel({ conversationId, workflowId, onConversationCh
         setResumeToken(null);
         try {
             await conversationApi.cancelConversation(conversationId);
+            setCancelledConversation(true);
             notifyChanged();
-            setMessages((prev) => [
-                ...prev,
-                {
-                    id: crypto.randomUUID(),
-                    role: 'system',
-                    content: t('chat.conversationCancelled'),
-                    timestamp: new Date().toISOString(),
-                },
-            ]);
+            // O aviso de cancelamento é gravado e publicado pelo servidor (os outros visualizadores o recebem
+            // pelo stream); relida, a transcrição o traz com o id gravado, e o evento que chegar depois não o
+            // repete. Sem a releitura, fica o aviso local de antes.
+            try {
+                setMessages(await conversationApi.getMessages(conversationId));
+            } catch (reloadErr) {
+                console.error('Failed to reload messages after cancel:', reloadErr);
+                setMessages((prev) => [
+                    ...prev,
+                    {
+                        id: crypto.randomUUID(),
+                        role: 'system',
+                        content: t('chat.conversationCancelled'),
+                        timestamp: new Date().toISOString(),
+                    },
+                ]);
+            }
         } catch (err) {
             console.error('Failed to cancel conversation:', err);
         }
@@ -483,7 +559,7 @@ export default function ChatPanel({ conversationId, workflowId, onConversationCh
     }
 
     const empty = messages.length === 0 && !pending && !suspendedForm;
-    const locked = sending || !!suspendedForm;
+    const locked = sending || !!suspendedForm || cancelledConversation;
     // O que o servidor recusaria (403): toda escrita em /api/conversations pede workflow:execute; o envio do
     // formulário ligado a uma execução pede também execution:manage (SpringConversationController.resume).
     const sendMissing: Permission | null = canExecute ? null : 'workflow:execute';
@@ -614,7 +690,9 @@ export default function ChatPanel({ conversationId, workflowId, onConversationCh
                     <TextInput
                         ref={inputRef}
                         variant="unstyled"
-                        placeholder={suspendedForm ? t('chat.awaitingForm') : t('chat.placeholder')}
+                        placeholder={cancelledConversation
+                            ? t('chat.cancelledPlaceholder')
+                            : suspendedForm ? t('chat.awaitingForm') : t('chat.placeholder')}
                         aria-label={t('chat.placeholder')}
                         size="sm"
                         style={{ flex: 1 }}

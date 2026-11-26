@@ -10,11 +10,21 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 public class KnowledgeService {
     private static final String INGESTION_JOB = "DOCUMENT_INGESTION";
     private static final int MAX_ATTEMPTS = 3;
+
+    /**
+     * Status mostrado para um documento que terminou de indexar (READY) mas não tem trechos na versão
+     * <b>ativa</b> do índice — a busca não o alcança. Acontece depois de restaurar uma versão anterior
+     * a ele. Não é gravado: o status gravado diz o desfecho da ingestão, e este, o que a versão ativa
+     * contém. Antes a lista mostrava "Pronto", o contador o somava e o reenvio era recusado como
+     * "já está nesta base", sem saída além de mudar os bytes do arquivo (RCHFLW-157).
+     */
+    public static final String NOT_IN_ACTIVE_INDEX = "NOT_IN_ACTIVE_INDEX";
 
     private final KnowledgeRepository repository;
     private final FileStorageService files;
@@ -88,7 +98,24 @@ public class KnowledgeService {
             throw new IllegalStateException("Document of ingestion job " + job.id() + " not found");
         }
         IngestionOutcome outcome = IngestionOutcome.ALREADY_PRESENT;
-        if (job.status() == JobStatus.FAILED || job.status() == JobStatus.CANCELLED) {
+        if (job.status() == JobStatus.SUCCEEDED && outOfActiveIndex(document,
+                vectorIndex.indexedDocumentIds(tenantId, baseId))) {
+            // O conteúdo foi indexado, mas a versão ativa não o tem mais (restaurada a um snapshot
+            // anterior a ele): o reenvio o reindexa. A nova ingestão parte da versão ativa e a ativa
+            // com ele, sem desfazer o rollback para os outros documentos. O documento não volta para
+            // QUEUED aqui: um worker rápido pode já tê-lo levado a READY, e o QUEUED gravado depois
+            // ficaria para sempre ao lado de um job concluído — o status mostrado já diz que ele está
+            // fora do índice até o worker terminar.
+            JobRecord reopened = jobs.reopen(tenantId, job.id(), MAX_ATTEMPTS,
+                    Map.of("tenantId", tenantId, "documentId", documentId, "fileId", file.id()),
+                    Set.of(JobStatus.SUCCEEDED));
+            if (reopened != null) {
+                job = reopened;
+                outcome = IngestionOutcome.REPROCESSING;
+            } else {
+                job = jobs.get(tenantId, job.id());
+            }
+        } else if (job.status() == JobStatus.FAILED || job.status() == JobStatus.CANCELLED) {
             // O estado do job foi lido antes e pode estar velho: outro reenvio pode já ter reaberto
             // o job e um worker ter levado o documento a READY. Por isso só quem de fato reabriu
             // o job (o UPDATE condicional devolve null aos demais) mexe no documento; antes, o
@@ -113,7 +140,22 @@ public class KnowledgeService {
             document = repository.findDocument(tenantId, documentId);
         }
         discardOrphans(tenantId, baseId, file.sha256(), documentId);
-        return new IngestionSubmission(document, job, outcome);
+        return new IngestionSubmission(
+                shown(document, vectorIndex.indexedDocumentIds(tenantId, baseId)), job, outcome);
+    }
+
+    /** Pronto e com trechos, mas sem nenhum deles na versão ativa do índice. */
+    private static boolean outOfActiveIndex(KnowledgeDocument document, Set<String> indexed) {
+        return "READY".equals(document.status()) && document.chunkCount() > 0
+                && !indexed.contains(document.id());
+    }
+
+    /** O documento como a tela o vê: o status diz se a busca o alcança ({@link #NOT_IN_ACTIVE_INDEX}). */
+    private static KnowledgeDocument shown(KnowledgeDocument document, Set<String> indexed) {
+        if (!outOfActiveIndex(document, indexed)) return document;
+        return new KnowledgeDocument(document.id(), document.tenantId(), document.knowledgeBaseId(),
+                document.fileId(), NOT_IN_ACTIVE_INDEX, document.chunkCount(), document.error(),
+                document.createdAt(), document.updatedAt());
     }
 
     /**
@@ -137,8 +179,11 @@ public class KnowledgeService {
     }
 
     public List<KnowledgeDocument> documents(String tenantId, String baseId) {
-        return repository.findBase(tenantId, baseId) == null
-                ? null : repository.listDocuments(tenantId, baseId);
+        if (repository.findBase(tenantId, baseId) == null) return null;
+        Set<String> indexed = vectorIndex.indexedDocumentIds(tenantId, baseId);
+        return repository.listDocuments(tenantId, baseId).stream()
+                .map(document -> shown(document, indexed))
+                .toList();
     }
 
     public List<DocumentChunk> chunks(String tenantId, String documentId) {

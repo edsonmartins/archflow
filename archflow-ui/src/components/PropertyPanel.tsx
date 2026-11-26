@@ -388,6 +388,24 @@ function NodeFields({ nodeId, nodeData, readOnly }: { nodeId: string; nodeData: 
               styles={FIELD_STYLES}
             />
           )}
+
+          {/* Score mínimo da busca na base (KnowledgeNodeComponent lê minScore só com base). Um template gravava
+              0.7 sem o painel mostrar, e perguntas relevantes (0,52–0,75 com este embedding) voltavam vazias
+              (RCHFLW-194). */}
+          {nodeData.nodeType === 'vector-search' && withKnowledgeBase && (
+            <NumberInput
+              label={f('minScore')}
+              value={storedNumber(nodeData, 'minScore')}
+              placeholder={dflt(0)}
+              onChange={num('minScore')}
+              min={0}
+              max={1}
+              step={0.05}
+              decimalScale={2}
+              size="xs"
+              styles={FIELD_STYLES}
+            />
+          )}
         </>
       )}
 

@@ -244,6 +244,29 @@ public class PgVectorKnowledgeIndex implements KnowledgeVectorIndex {
         }
     }
 
+    public java.util.Set<String> indexedDocumentIds(String tenantId, String baseId) {
+        java.util.Set<String> result = new java.util.HashSet<>();
+        try (var connection = dataSource.getConnection();
+             var statement = connection.prepareStatement("""
+                     SELECT DISTINCT e.document_id
+                       FROM knowledge_embeddings e
+                       JOIN knowledge_index_versions v ON v.id = e.index_version_id
+                      WHERE e.tenant_id=? AND e.knowledge_base_id=?
+                        AND v.tenant_id=? AND v.knowledge_base_id=? AND v.status='ACTIVE'
+                     """)) {
+            statement.setString(1, tenantId);
+            statement.setString(2, baseId);
+            statement.setString(3, tenantId);
+            statement.setString(4, baseId);
+            try (var rows = statement.executeQuery()) {
+                while (rows.next()) result.add(rows.getString(1));
+            }
+            return result;
+        } catch (Exception e) {
+            throw FailureCause.wrap("Failed to list documents of the active pgvector index", e);
+        }
+    }
+
     private IndexVersion findVersion(String tenantId, String baseId, String versionId) {
         try (var connection = dataSource.getConnection()) {
             return version(connection, tenantId, baseId, versionId, false);

@@ -45,6 +45,17 @@ class EventControllerImplTest {
     }
 
     @Test
+    @DisplayName("RCHFLW-194: a operação escolhida no chat vai no payload, que o executor lê como no invoke")
+    void operacaoNoPayload() {
+        controller.sendMessage(new MessageRequest("t1", "s1", "tech-support-assistant", "Meu pedido chegou quebrado",
+                Map.of(), "respond"));
+        controller.sendMessage(new MessageRequest("t1", "s1", "conversational-agent", "oi", Map.of(), "  "));
+
+        assertThat(queue.poll().orElseThrow().payload()).containsEntry("operation", "respond");
+        assertThat(queue.poll().orElseThrow().payload()).doesNotContainKey("operation");
+    }
+
+    @Test
     @DisplayName("should generate sessionId when not provided")
     void shouldGenerateSessionId() {
         var request = new MessageRequest("t1", null, "agent-1", "msg", Map.of());

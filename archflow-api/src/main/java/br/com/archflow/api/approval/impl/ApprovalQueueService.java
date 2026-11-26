@@ -73,6 +73,23 @@ public class ApprovalQueueService {
      */
     private final WorkflowRuntimeStore executionRecords;
 
+    /**
+     * Quem precisa saber que uma execução acabou num portão sem aprovação — recusada por alguém ou pelo
+     * prazo. A conversa que esperava um formulário dessa execução é o caso: sem o aviso ela ficava
+     * SUSPENDED para sempre, e cada envio voltava com 409 (RCHFLW-194).
+     */
+    @FunctionalInterface
+    public interface EncerramentoSemAprovacao {
+        /**
+         * @param flowId   a execução encerrada
+         * @param porPrazo {@code true} quando ninguém decidiu a tempo (o decisor é o timeout)
+         */
+        void encerrada(String flowId, boolean porPrazo);
+    }
+
+    private final List<EncerramentoSemAprovacao> encerramentos =
+            new java.util.concurrent.CopyOnWriteArrayList<>();
+
     /** Sem prazo — as aprovações esperam indefinidamente. */
     public ApprovalQueueService(StateManager stateManager, FlowEngine flowEngine) {
         this(stateManager, flowEngine, Duration.ZERO, Clock.systemUTC());
@@ -121,6 +138,36 @@ public class ApprovalQueueService {
         return !timeout.isZero();
     }
 
+    /** Avisa {@code ouvinte} de cada execução encerrada num portão sem aprovação (recusa ou prazo). */
+    public void aoEncerrarSemAprovacao(EncerramentoSemAprovacao ouvinte) {
+        encerramentos.add(Objects.requireNonNull(ouvinte, "ouvinte"));
+    }
+
+    /**
+     * Nunca lança: a recusa já está gravada no estado do motor e no registro, e um ouvinte que falha não
+     * pode virar erro para quem recusou.
+     */
+    private void avisarEncerramento(String flowId) {
+        if (encerramentos.isEmpty()) {
+            return;
+        }
+        boolean porPrazo;
+        try {
+            FlowState decided = stateManager.loadState(flowId);
+            porPrazo = decided != null
+                    && TIMEOUT_DECIDER.equals(variable(decided, ExecutionKeys.APPROVAL_DECIDED_BY));
+        } catch (RuntimeException e) {
+            porPrazo = false;
+        }
+        for (EncerramentoSemAprovacao ouvinte : encerramentos) {
+            try {
+                ouvinte.encerrada(flowId, porPrazo);
+            } catch (RuntimeException e) {
+                log.warn("Aviso do encerramento sem aprovação de {} falhou: {}", flowId, e.getMessage(), e);
+            }
+        }
+    }
+
     /**
      * Aprovações pendentes, mais antigas primeiro (as que esperam há mais tempo
      * aparecem no topo). {@code tenantId} nulo, em branco ou {@code "all"}
@@ -142,14 +189,15 @@ public class ApprovalQueueService {
                 .toList();
     }
 
-    /** As do gate do laço de agente, na mesma forma das do nó de fluxo. */
+    /**
+     * As do gate do laço de agente, na mesma forma das do nó de fluxo.
+     *
+     * <p>"Todos os tenants" vai ao store como veio: os dois stores o respondem. A fila devolvia
+     * vazio aqui, e o admin — que a UI manda como {@code all} — via "Nenhuma aprovação pendente" e
+     * badge 0 enquanto um estorno esperava decisão (RCHFLW-141).</p>
+     */
     private java.util.stream.Stream<ApprovalResponse> pendenciasDoLaco(String tenantId) {
         if (retomadaDoLaco == null) {
-            return java.util.stream.Stream.empty();
-        }
-        // O store lista por tenant; "todos os tenants" não é uma pergunta que ele responde, e
-        // varrer tenant a tenant exigiria conhecer a lista deles.
-        if (todosOsTenants(tenantId)) {
             return java.util.stream.Stream.empty();
         }
         try {
@@ -159,10 +207,6 @@ public class ApprovalQueueService {
                     tenantId, e.getMessage());
             return java.util.stream.Stream.empty();
         }
-    }
-
-    private static boolean todosOsTenants(String tenantId) {
-        return tenantId == null || tenantId.isBlank() || ALL_TENANTS.equalsIgnoreCase(tenantId);
     }
 
     /**
@@ -320,6 +364,13 @@ public class ApprovalQueueService {
             // Sem a proposta editada, "editado" seria uma aprovação comum registrada com outro nome.
             throw new IllegalArgumentException("EDITED exige editedPayload com a proposta editada");
         }
+        String lacoDoPortao = lacoDoPortao(state);
+        if (lacoDoPortao != null && editedPayload != null && !(editedPayload instanceof Map<?, ?>)) {
+            // O portão de um nó mcp-agent: a edição vira os argumentos da chamada da tool, como no
+            // gate avulso do laço. Recusado antes de consumir o pedido, que continua na fila.
+            throw new IllegalArgumentException("EDITED numa aprovação de tool exige "
+                    + "editedPayload como objeto de argumentos");
+        }
         // Capturado ANTES de submeter: a submissão troca o status e consome o
         // requestId, então o estado pendente deixa de ser encontrável.
         ApprovalResponse snapshot = toResponse(state, decision);
@@ -346,6 +397,9 @@ public class ApprovalQueueService {
 
         log.info("Aprovação {} decidida como {} por {} (flow={})",
                 requestId, decision, request.responderId(), state.getFlowId());
+        if (!approved) {
+            descartarLaco(lacoDoPortao, state.getFlowId());
+        }
         // Lido ANTES de acompanhar a execução: a retomada pode chegar a um segundo portão e
         // limpar as chaves do portão corrente. O histórico, não.
         Map<String, Object> decided = decisionRecord(state.getFlowId(), requestId);
@@ -362,10 +416,12 @@ public class ApprovalQueueService {
      * <p>Só o portão de aprovação ({@code AWAITING_APPROVAL} com pedido vivo) leva dados à execução
      * ({@link ExecutionKeys#APPROVAL_PAYLOAD}); um fluxo apenas pausado volta pelo {@code /resume},
      * sem dados. O tenant é comparado estritamente, sem o "todos os tenants" da fila: quem envia o
-     * formulário age na própria execução, não administra as dos outros.</p>
+     * formulário age na própria execução, não administra as dos outros. O portão de um nó
+     * {@code mcp-agent} também fica de fora: ele espera a decisão sobre uma tool, não dados.</p>
      *
      * @throws IllegalArgumentException se a execução não existe no tenant
-     * @throws IllegalStateException    se ela não está esperando uma decisão ou o prazo dela venceu
+     * @throws IllegalStateException    se ela não está esperando uma decisão, o prazo dela venceu ou o
+     *                                  portão é o de uma tool de agente
      */
     public FlowState requireAwaitingInput(String tenantId, String flowId) {
         FlowState state = flowId == null || flowId.isBlank() ? null : stateManager.loadState(flowId);
@@ -380,6 +436,13 @@ public class ApprovalQueueService {
         }
         if (isExpired(state)) {
             throw new IllegalStateException("A aprovação pendente da execução " + flowId + " expirou");
+        }
+        if (lacoDoPortao(state) != null) {
+            // O portão de um nó mcp-agent decide uma chamada de tool, com os argumentos que o modelo
+            // emitiu: os dados do formulário não chegam a ela. Aceitar o envio aprovaria a tool em nome
+            // de quem preencheu um formulário que não fala dela (RCHFLW-185) — essa decisão é da fila.
+            throw new IllegalStateException("A execução " + flowId + " espera a aprovação de uma tool de "
+                    + "um nó de agente, não os dados de um formulário: decida-a na fila de aprovações");
         }
         return state;
     }
@@ -523,6 +586,7 @@ public class ApprovalQueueService {
                 resolved++;
                 log.info("Aprovação {} expirada após {} (flow={}) — recusada automaticamente",
                         requestId, prazo, state.getFlowId());
+                descartarLaco(lacoDoPortao(state), state.getFlowId());
                 acompanharExecucao(state.getFlowId(), requestId, false, run);
             } catch (RuntimeException e) {
                 // Uma decisão humana concorrente já pode ter consumido o id;
@@ -534,6 +598,31 @@ public class ApprovalQueueService {
     }
 
     // ── helpers ──────────────────────────────────────────────────
+
+    /**
+     * O laço de agente que este portão segura (nó {@code mcp-agent}, RCHFLW-185), ou {@code null}
+     * quando o portão é de um nó de aprovação.
+     */
+    private static String lacoDoPortao(FlowState state) {
+        return blankToNull(rawVariable(state, br.com.archflow.api.flow.McpAgentStep.LACO_PENDENTE));
+    }
+
+    /**
+     * Recusado o portão de um nó {@code mcp-agent}, o fluxo para e ninguém mais retoma o laço: o
+     * estado dele sai do store. Nunca lança — a recusa já está gravada no estado do motor, e um store
+     * indisponível aqui não pode virar erro para quem recusou (o laço continua fora da fila avulsa).
+     */
+    private void descartarLaco(String laco, String flowId) {
+        if (laco == null || retomadaDoLaco == null) {
+            return;
+        }
+        try {
+            retomadaDoLaco.descartarDoFluxo(laco, flowId);
+        } catch (RuntimeException e) {
+            log.warn("Não foi possível descartar o laço {} do portão recusado do fluxo {}: {}",
+                    laco, flowId, e.getMessage());
+        }
+    }
 
     /**
      * Faz o registro da execução seguir a decisão (RCHFLW-40).
@@ -573,6 +662,7 @@ public class ApprovalQueueService {
                 store.recordDuration(flowId, 0L);
                 store.completeExecution(flowId, "STOPPED", motivoDoEncerramento(flowId));
             });
+            avisarEncerramento(flowId);
             return;
         }
         registrar(flowId, store -> store.markResumed(flowId));

@@ -109,6 +109,38 @@ public class McpAgentComponent implements AIComponent, ComponentPlugin {
     public static final String SAIDA_APROVACAO = "approvalRequestId";
     /** Nome e código da tool que encerrou o laço; ausente quando nada encerrou. */
     public static final String SAIDA_ENCERROU = "encerradoPor";
+    /** Tool que espera decisão humana, com {@link #SAIDA_ARGUMENTOS_PENDENTES}; ausentes sem suspensão. */
+    public static final String SAIDA_TOOL_PENDENTE = "pendingTool";
+    /**
+     * Os argumentos que o modelo emitiu para a tool que espera — é sobre eles que o revisor decide, e
+     * é o que o portão do fluxo mostra como proposta (RCHFLW-185).
+     */
+    public static final String SAIDA_ARGUMENTOS_PENDENTES = "pendingArguments";
+
+    /**
+     * O portão do fluxo que segura este nó, no {@link ExecutionContext}, como {@link PortaoDoFluxo}.
+     *
+     * <p>Quem escreve é o passo do nó no servidor ({@code McpAgentStep}), antes de cada execução do
+     * componente; quem lê é este componente. Chave {@code transient}: é instrução para esta chamada,
+     * não estado da execução.</p>
+     */
+    public static final String CTX_PORTAO_DO_FLUXO =
+            br.com.archflow.model.engine.ExecutionKeys.TRANSIENT_PREFIX + "mcpAgent.portaoDoFluxo";
+
+    /**
+     * O nó roda dentro de uma execução de fluxo que <b>segura</b> a suspensão do laço no próprio
+     * portão ({@code AWAITING_APPROVAL}), em vez de devolvê-la como saída.
+     *
+     * @param execucao           a execução do fluxo — vai para {@link McpAgentState.Retomada}, e é o
+     *                           que tira o laço da fila avulsa
+     * @param requestIdDoLaco    o laço a retomar, quando o portão foi aprovado; {@code null} numa
+     *                           execução nova do nó
+     * @param argumentosEditados os argumentos como o revisor os deixou ({@code EDITED}), ou
+     *                           {@code null} para os que o modelo emitiu
+     */
+    public record PortaoDoFluxo(String execucao, String requestIdDoLaco,
+                                Map<String, Object> argumentosEditados) {
+    }
 
     private Map<String, Object> config = Map.of();
     private final LLMConfigPatch flowPatch;
@@ -241,6 +273,10 @@ public class McpAgentComponent implements AIComponent, ComponentPlugin {
         // pela fila de aprovações (RetomadaDoLaco). Vazio é o caso comum: nada sob gate.
         Set<String> sobAprovacao = interseccao(listaDeTexto(config.get("aprovacaoHumana")),
                 politicaDeAcesso(host, tenantId));
+        PortaoDoFluxo portao = context.get(CTX_PORTAO_DO_FLUXO)
+                .filter(PortaoDoFluxo.class::isInstance)
+                .map(PortaoDoFluxo.class::cast)
+                .orElse(null);
 
         McpAgentRunner.Options options = new McpAgentRunner.Options(
                 politicaDeAcesso(host, tenantId),
@@ -265,7 +301,8 @@ public class McpAgentComponent implements AIComponent, ComponentPlugin {
                         toolsPermitidas(host, tenantId), sobAprovacao,
                         exigir ? saidaDaTool : Set.of(),
                         textoDoContexto(context, CTX_TIER), iteracoes(), codigosQueEncerram(),
-                        encerraNaSaida, texto(config.get("lembreteDaSaida"))))
+                        encerraNaSaida, texto(config.get("lembreteDaSaida")),
+                        portao == null ? null : portao.execucao()))
                 // O CONSUMO VAI PARA QUEM HOSPEDA A EXECUÇÃO. Sem isto, um agente em fluxo gastaria
                 // tokens que nenhum resultado relata — e o teto de custo do tenant contaria menos
                 // do que foi gasto, justamente no caminho que vai substituir os outros.
@@ -295,8 +332,14 @@ public class McpAgentComponent implements AIComponent, ComponentPlugin {
                 textoDoContexto(context, CorrelacaoMcp.CTX_TASK));
         McpAgentRunner.Result result;
         try {
-            result = host.runner().run(
-                    tenantId, texto(config.get("systemPrompt")), mensagemDe(input), client, options);
+            // O PORTÃO DO FLUXO FOI APROVADO: o laço continua de onde parou, com as políticas
+            // deste nó — as mesmas da suspensão, porque a config do nó é a mesma. Rodar de novo do
+            // zero repetiria o raciocínio (e o custo) e pediria a mesma aprovação outra vez.
+            result = portao != null && portao.requestIdDoLaco() != null
+                    ? host.runner().resume(portao.requestIdDoLaco(), true,
+                            portao.argumentosEditados(), client, options)
+                    : host.runner().run(tenantId, texto(config.get("systemPrompt")), mensagemDe(input),
+                            client, options);
         } finally {
             // A thread é do pool do motor de fluxo e será reusada por outro passo, de outra
             // execução, possivelmente de outro tenant.
@@ -477,7 +520,8 @@ public class McpAgentComponent implements AIComponent, ComponentPlugin {
         }
         if (result.isSuspended()) {
             saida.put(SAIDA_APROVACAO, result.pendingApproval().requestId());
-            saida.put("pendingTool", result.pendingApproval().toolName());
+            saida.put(SAIDA_TOOL_PENDENTE, result.pendingApproval().toolName());
+            saida.put(SAIDA_ARGUMENTOS_PENDENTES, result.pendingApproval().arguments());
         }
         return saida;
     }

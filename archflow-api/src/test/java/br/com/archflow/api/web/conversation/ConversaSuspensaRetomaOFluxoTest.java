@@ -114,7 +114,21 @@ class ConversaSuspensaRetomaOFluxoTest {
         }
     }
 
+    /** Relógio que o teste avança — o prazo da aprovação vence sem esperar cinco minutos. */
+    private static final class RelogioAjustavel extends Clock {
+        private volatile java.time.Instant agora = java.time.Instant.now();
+
+        void avanca(Duration quanto) {
+            agora = agora.plus(quanto);
+        }
+
+        @Override public java.time.ZoneId getZone() { return java.time.ZoneOffset.UTC; }
+        @Override public Clock withZone(java.time.ZoneId zone) { return this; }
+        @Override public java.time.Instant instant() { return agora; }
+    }
+
     private static final String CANAL = DefaultTenant.ID + ":conv-1";
+    private final RelogioAjustavel relogio = new RelogioAjustavel();
 
     private StateManager stateManager;
     private FlowEngine engine;
@@ -133,7 +147,7 @@ class ConversaSuspensaRetomaOFluxoTest {
         stateManager = new InMemoryStateManager();
         engine = FlowEngineFactory.create(flowRepository, null, null, stateManager);
         store = new InMemoryWorkflowRuntimeStore();
-        queue = new ApprovalQueueService(stateManager, engine, Duration.ofMinutes(5), Clock.systemUTC(), null, store);
+        queue = new ApprovalQueueService(stateManager, engine, Duration.ofMinutes(5), relogio, null, store);
         WorkflowDeserializer deserializer = json -> fluxoComPortao(String.valueOf(json.get("id")));
         crud = new SpringWorkflowCrudController(store, deserializer, engine, flowRepository,
                 new AuditTrail(InMemoryAuditRepository::new), mock(McpAgentHost.class));
@@ -221,6 +235,12 @@ class ConversaSuspensaRetomaOFluxoTest {
         return record;
     }
 
+    /** O support-ticket preenchido: os quatro campos dele são obrigatórios (RCHFLW-184). */
+    private static Map<String, Object> formulario(String assunto) {
+        return Map.of("category", "Billing", "subject", assunto, "message", "Detalhes do pedido",
+                "email", "cliente@exemplo.com");
+    }
+
     /** O próximo evento do canal da conversa com o domínio e o tipo pedidos. */
     private ArchflowEvent aguardaEvento(ArchflowDomain domain, ArchflowEventType type) throws Exception {
         long prazo = System.currentTimeMillis() + 10_000;
@@ -306,8 +326,7 @@ class ConversaSuspensaRetomaOFluxoTest {
                 new SuspendRequest("conv-1", execucao[0], execucao[1], "support-ticket", 30)).resumeToken();
         assertThat(respostasDoFluxo).hasValue(0);
 
-        ConversationResponse retomada = controller.resume(new ResumeRequest(token,
-                Map.of("category", "Billing", "subject", "Fatura em dobro")));
+        ConversationResponse retomada = controller.resume(new ResumeRequest(token, formulario("Fatura em dobro")));
 
         assertThat(retomada.status()).isEqualTo("RESUMED");
         aguardaRegistro(execucao[1], "COMPLETED");
@@ -326,10 +345,58 @@ class ConversaSuspensaRetomaOFluxoTest {
                 .containsExactly("Chamado aberto: Fatura em dobro");
 
         // O mesmo token de novo não continua a execução uma segunda vez.
-        assertThatThrownBy(() -> controller.resume(new ResumeRequest(token, Map.of("subject", "de novo"))))
+        assertThatThrownBy(() -> controller.resume(new ResumeRequest(token, formulario("de novo"))))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("não está aguardando o formulário");
         assertThat(respostasDoFluxo).hasValue(1);
+    }
+
+    /**
+     * RCHFLW-184: o envio aprova o portão da execução, e só o chat conferia os obrigatórios — um
+     * {@code formData: {}} pela API aprovava o gate em nome de quem enviou e o fluxo concluía.
+     */
+    @Test
+    @DisplayName("formulário sem os obrigatórios é 400 com os campos que faltam; o portão continua pendente")
+    void obrigatoriosFaltando() throws Exception {
+        String[] execucao = executaAtePausar();
+        String token = controller.suspend(
+                new SuspendRequest("conv-1", execucao[0], execucao[1], "support-ticket", 30)).resumeToken();
+
+        assertThatThrownBy(() -> controller.resume(new ResumeRequest(token, Map.of())))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("category, subject, message, email");
+        assertThatThrownBy(() -> controller.resume(new ResumeRequest(token,
+                Map.of("category", "Billing", "subject", "", "message", "x", "email", "a@b.c"))))
+                .as("texto vazio falta, como no chat")
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("sem valor: subject");
+
+        assertThat(stateManager.loadState(execucao[1]).getStatus())
+                .as("nada aprovado").isEqualTo(br.com.archflow.model.flow.FlowStatus.AWAITING_APPROVAL);
+        assertThat(stateManager.loadState(execucao[1]).getVariables())
+                .doesNotContainKey(ExecutionKeys.APPROVAL_DECIDED_BY);
+        assertThat(respostasDoFluxo).hasValue(0);
+        assertThat(service.getByToken(token)).get().extracting(SuspendedConversation::getStatus)
+                .as("a conversa continua esperando o formulário")
+                .isEqualTo(SuspendedConversation.ConversationStatus.WAITING);
+
+        // Completo, o mesmo token ainda serve.
+        assertThat(controller.resume(new ResumeRequest(token, formulario("Fatura"))).status())
+                .isEqualTo("RESUMED");
+        aguardaRegistro(execucao[1], "COMPLETED");
+    }
+
+    @Test
+    @DisplayName("sem execução, os obrigatórios valem igual: o agente não responde a um formulário vazio")
+    void obrigatoriosSemExecucao() throws Exception {
+        String token = controller.suspend(new SuspendRequest("conv-1", null, null, "support-ticket", 30))
+                .resumeToken();
+
+        assertThatThrownBy(() -> controller.resume(new ResumeRequest(token, null)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("support-ticket");
+        assertThat(service.getByToken(token)).get().extracting(SuspendedConversation::getStatus)
+                .isEqualTo(SuspendedConversation.ConversationStatus.WAITING);
     }
 
     @Test
@@ -362,7 +429,7 @@ class ConversaSuspensaRetomaOFluxoTest {
         String token = controller.suspend(new SuspendRequest("conv-1", null, null, "support-ticket", 30))
                 .resumeToken();
 
-        controller.resume(new ResumeRequest(token, Map.of("subject", "Ajuda")));
+        controller.resume(new ResumeRequest(token, formulario("Ajuda")));
 
         ArchflowEvent mensagem = aguardaEvento(ArchflowDomain.CHAT, ArchflowEventType.MESSAGE);
         assertThat(mensagem.getData()).containsEntry("content", "resposta do agente");
@@ -375,7 +442,7 @@ class ConversaSuspensaRetomaOFluxoTest {
         String token = controller.suspend(
                 new SuspendRequest("conv-1", execucao[0], execucao[1], "support-ticket", 30)).resumeToken();
 
-        ConversationResponse retomada = controller.resume(new ResumeRequest(token, Map.of("subject", "Oi")));
+        ConversationResponse retomada = controller.resume(new ResumeRequest(token, formulario("Oi")));
 
         assertThat(retomada.messages()).extracting(ConversationResponse.MessageResponse::role)
                 .contains("system", "user")
@@ -392,7 +459,7 @@ class ConversaSuspensaRetomaOFluxoTest {
                 new SuspendRequest("conv-1", execucao[0], execucao[1], "support-ticket", 30)).resumeToken();
         suspensas.falhar = true;
 
-        assertThatThrownBy(() -> controller.resume(new ResumeRequest(token, Map.of("subject", "Fatura"))))
+        assertThatThrownBy(() -> controller.resume(new ResumeRequest(token, formulario("Fatura"))))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("continuou com os dados do formulário")
                 .hasMessageContaining("banco indisponível")
@@ -402,5 +469,96 @@ class ConversaSuspensaRetomaOFluxoTest {
         ArchflowEvent mensagem = aguardaEvento(ArchflowDomain.CHAT, ArchflowEventType.MESSAGE);
         assertThat(mensagem.getData()).containsEntry("content", "Chamado aberto: Fatura");
         assertThat(respostasDoFluxo).hasValue(1);
+    }
+
+    private String requestIdDe(String executionId) {
+        return (String) stateManager.loadState(executionId).getVariables().get(ExecutionKeys.APPROVAL_REQUEST_ID);
+    }
+
+    /** O formulário saiu: a conversa não está mais suspensa, não tem token, e o aviso é a última fala. */
+    private void formularioRetirado(String token, String aviso) throws Exception {
+        var conversa = controller.getConversation("conv-1");
+        assertThat(conversa.status()).isEqualTo("ACTIVE");
+        assertThat(conversa.formData()).isNull();
+        assertThat(conversa.resumeToken()).isNull();
+        assertThat(service.getMessages("conv-1")).extracting(ConversationMessage::content)
+                .anyMatch(c -> c.contains(aviso) && c.contains("o formulário foi retirado"));
+        assertThat(aguardaEvento(ArchflowDomain.INTERACTION, ArchflowEventType.CANCEL).getData())
+                .containsEntry("conversationId", "conv-1");
+        // O token não existe mais: um envio atrasado não volta a abrir o formulário.
+        assertThatThrownBy(() -> controller.resume(new ResumeRequest(token, formulario("Fatura"))))
+                .isInstanceOf(br.com.archflow.api.conversation.ConversationController.NotFoundException.class);
+        assertThat(respostasDoFluxo).hasValue(0);
+    }
+
+    @Test
+    @DisplayName("RCHFLW-194: recusada a aprovação na fila, a conversa sai de SUSPENDED, perde o formulário e "
+            + "é avisada")
+    void recusaRetiraOFormulario() throws Exception {
+        String[] execucao = executaAtePausar();
+        String token = controller.suspend(
+                new SuspendRequest("conv-1", execucao[0], execucao[1], "support-ticket", 30)).resumeToken();
+
+        queue.submitDecision(requestIdDe(execucao[1]),
+                new ApprovalSubmitRequest("all", "REJECTED", "fora da política", "diretor"));
+        aguardaRegistro(execucao[1], "STOPPED");
+
+        formularioRetirado(token, "A aprovação da execução " + execucao[1] + " foi recusada");
+    }
+
+    @Test
+    @DisplayName("RCHFLW-194: expirada a aprovação, a conversa também perde o formulário — 'ninguém olhou' "
+            + "não deixa o chat travado")
+    void expiracaoRetiraOFormulario() throws Exception {
+        String[] execucao = executaAtePausar();
+        String token = controller.suspend(
+                new SuspendRequest("conv-1", execucao[0], execucao[1], "support-ticket", 30)).resumeToken();
+
+        relogio.avanca(Duration.ofMinutes(6));
+        assertThat(queue.expireStale()).isEqualTo(1);
+        aguardaRegistro(execucao[1], "STOPPED");
+
+        formularioRetirado(token, "A aprovação da execução " + execucao[1] + " expirou sem decisão");
+    }
+
+    @Test
+    @DisplayName("RCHFLW-194: execução encerrada sem o aviso chegar (outra réplica decidiu): o envio é 409 e "
+            + "retira o formulário, em vez de devolvê-lo para sempre")
+    void envioDepoisDoEncerramentoRetiraOFormulario() throws Exception {
+        String[] execucao = executaAtePausar();
+        String token = controller.suspend(
+                new SuspendRequest("conv-1", execucao[0], execucao[1], "support-ticket", 30)).resumeToken();
+        // A fila de outra réplica: mesmo motor e registro, sem esta conversa ouvindo.
+        new ApprovalQueueService(stateManager, engine, Duration.ofMinutes(5), relogio, null, store)
+                .submitDecision(requestIdDe(execucao[1]),
+                        new ApprovalSubmitRequest("all", "REJECTED", null, "diretor"));
+        aguardaRegistro(execucao[1], "STOPPED");
+        assertThat(controller.getConversation("conv-1").status()).isEqualTo("SUSPENDED");
+
+        assertThatThrownBy(() -> controller.resume(new ResumeRequest(token, formulario("Fatura"))))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("terminou com STOPPED")
+                .hasMessageContaining("foi retirado da conversa");
+
+        formularioRetirado(token, "A execução " + execucao[1] + " terminou com STOPPED");
+    }
+
+    @Test
+    @DisplayName("RCHFLW-194: com a execução ainda esperando, a recusa do envio mantém o formulário (não é "
+            + "encerramento)")
+    void recusaQueNaoEncerraMantemOFormulario() throws Exception {
+        String[] execucao = executaAtePausar();
+        String token = controller.suspend(
+                new SuspendRequest("conv-1", execucao[0], execucao[1], "support-ticket", 30)).resumeToken();
+        // Prazo vencido sem a varredura ter passado: o envio é recusado, mas a execução segue PAUSED até a
+        // varredura recusá-la — e é a varredura que avisa a conversa.
+        relogio.avanca(Duration.ofMinutes(6));
+
+        assertThatThrownBy(() -> controller.resume(new ResumeRequest(token, formulario("Fatura"))))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("expirou");
+
+        assertThat(controller.getConversation("conv-1").status()).isEqualTo("SUSPENDED");
+        assertThat(controller.getConversation("conv-1").resumeToken()).isEqualTo(token);
     }
 }

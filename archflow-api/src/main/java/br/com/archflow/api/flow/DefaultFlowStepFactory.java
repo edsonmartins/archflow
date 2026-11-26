@@ -206,9 +206,11 @@ public class DefaultFlowStepFactory extends PortableFlowStepFactory {
             }
             var mcpAgent = new br.com.archflow.api.agent.mcp.McpAgentComponent(r.flowPatch());
             mcpAgent.initialize(r.config());
-            return new ComponentStep(r.id(), StepType.TOOL, mcpAgent.getMetadata().id(),
+            // O gate humano do laço segura o FLUXO no portão do motor, como o nó de aprovação
+            // (RCHFLW-185): sem isto a suspensão saía como saída comum e a execução concluía.
+            return new McpAgentStep(new ComponentStep(r.id(), StepType.TOOL, mcpAgent.getMetadata().id(),
                     r.operation(), r.connections(), r.scopedCatalog(), r.interceptors(), mcpAgent,
-                    r.config());
+                    r.config()), flowEngine == null ? null : flowEngine::getObject);
         }
 
         @Override

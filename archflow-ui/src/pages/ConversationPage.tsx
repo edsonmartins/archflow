@@ -134,7 +134,8 @@ export default function ConversationPage() {
         );
     }
 
-    const title = conversation?.title ?? t('conversationDetail.title', { id: id.slice(0, 8) });
+    // O id inteiro, como na lista: o prefixo de 8 caracteres confundia conversas diferentes (RCHFLW-194).
+    const title = conversation?.title ?? t('conversationDetail.title', { id });
 
     return (
         <Stack gap="lg" p="md">
@@ -145,7 +146,7 @@ export default function ConversationPage() {
                 subtitle={t('conversationDetail.subtitle')}
                 breadcrumbs={[
                     { label: t('conversations.title'), to: '/conversations' },
-                    { label: id.slice(0, 8) },
+                    { label: id },
                 ]}
                 actions={
                     <>

@@ -124,6 +124,59 @@ class DocumentIngestionTest {
                 .doesNotContain(second.document().id());
     }
 
+    // RCHFLW-157: depois de restaurar uma versão anterior a um documento, ele seguia "Pronto" (e
+    // contado como pronto para busca) sem estar na busca, e o reenvio era recusado como ALREADY_PRESENT:
+    // a única saída era mudar os bytes do arquivo.
+
+    @Test
+    void aDocumentLeftOutOfTheRestoredVersionIsShownAsSuchAndItsResubmissionReindexesIt() {
+        Fixture fixture = fixture();
+        KnowledgeBase base = fixture.knowledge.createBase("tenant", null, "QA2 rag base reembolso");
+        var politica = fixture.knowledge.ingest("tenant", base.id(), fixture.files.store("tenant", null,
+                "qa2-politica-reembolso.txt", "text/plain",
+                "Reembolso em até 7 dias corridos.".getBytes(StandardCharsets.UTF_8)).id());
+        drain(fixture);
+        String v1 = fixture.vectorIndex.activeVersion("tenant", base.id()).id();
+        byte[] frete = "Frete grátis acima de R$ 200. Transportadora parceira: Ventania Log."
+                .getBytes(StandardCharsets.UTF_8);
+        var freteEnviado = fixture.knowledge.ingest("tenant", base.id(),
+                fixture.files.store("tenant", null, "qa2-frete.txt", "text/plain", frete).id());
+        drain(fixture);
+
+        fixture.knowledge.rollbackIndex("tenant", base.id(), v1);
+        var planilha = fixture.knowledge.ingest("tenant", base.id(), fixture.files.store("tenant", null,
+                "qa2-planilha.csv", "text/plain", "sku;prazo\nA1;5".getBytes(StandardCharsets.UTF_8)).id());
+        drain(fixture);
+
+        // A versão ativa (v3, baseada em v1) não tem o frete: a lista diz isso em vez de "Pronto".
+        assertThat(fixture.knowledge.documents("tenant", base.id()))
+                .filteredOn(d -> d.id().equals(freteEnviado.document().id()))
+                .extracting(KnowledgeDocument::status).containsExactly(KnowledgeService.NOT_IN_ACTIVE_INDEX);
+        assertThat(fixture.knowledge.documents("tenant", base.id()))
+                .filteredOn(d -> !d.id().equals(freteEnviado.document().id()))
+                .extracting(KnowledgeDocument::status).containsOnly("READY");
+
+        var reenvio = fixture.knowledge.ingest("tenant", base.id(),
+                fixture.files.store("tenant", null, "qa2-frete.txt", "text/plain", frete).id());
+
+        assertThat(reenvio.outcome()).isEqualTo(KnowledgeService.IngestionOutcome.REPROCESSING);
+        assertThat(reenvio.document().id()).isEqualTo(freteEnviado.document().id());
+        assertThat(reenvio.job().id()).isEqualTo(freteEnviado.job().id());
+        assertThat(reenvio.job().status()).isEqualTo(JobStatus.QUEUED);
+        drain(fixture);
+
+        assertThat(fixture.knowledge.documents("tenant", base.id()))
+                .extracting(KnowledgeDocument::status).containsOnly("READY");
+        assertThat(fixture.knowledge.search("tenant", base.id(), null,
+                "frete grátis transportadora Ventania", 10, -1.0))
+                .extracting(KnowledgeVectorIndex.SearchHit::documentId)
+                .contains(freteEnviado.document().id(), planilha.document().id(), politica.document().id());
+        // Reindexado, o mesmo conteúdo volta a ser só "já está nesta base".
+        assertThat(fixture.knowledge.ingest("tenant", base.id(),
+                fixture.files.store("tenant", null, "qa2-frete.txt", "text/plain", frete).id()).outcome())
+                .isEqualTo(KnowledgeService.IngestionOutcome.ALREADY_PRESENT);
+    }
+
     @Test
     void rejectsStaleCandidateActivation() {
         var index = new InMemoryKnowledgeVectorIndex();

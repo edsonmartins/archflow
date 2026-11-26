@@ -145,6 +145,9 @@ public final class FlowEngineFactory {
         // Checkpoint durável por step (item 1.7): crash no meio do fluxo deixa
         // o último estado no store; o resume incremental retoma de lá.
         lifecycle.add(new CheckpointingLifecycleListener(effectiveStateManager));
+        // Depois do checkpoint, com o estado final já no contexto: o laço de um nó mcp-agent que o
+        // portão não segura mais (execução cancelada, por exemplo) sai do store (RCHFLW-185).
+        lifecycle.add(new LacoDoFluxoListener());
 
         DefaultFlowExecutor flowExecutor = new DefaultFlowExecutor(
                 Thread.currentThread().getContextClassLoader(), metrics, lifecycle,

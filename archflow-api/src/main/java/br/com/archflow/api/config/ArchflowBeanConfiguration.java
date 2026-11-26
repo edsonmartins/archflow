@@ -670,10 +670,27 @@ public class ArchflowBeanConfiguration {
         return new ConversationManager(java.time.Duration.ofMinutes(30), suspendedConversationStore);
     }
 
+    /**
+     * Transcrição das conversas (registro + mensagens) — default em memória. Sob
+     * {@code archflow.persistence.jdbc.enabled=true}, {@code JdbcPersistenceConfiguration} fornece a
+     * durável, que vence este {@code @ConditionalOnMissingBean}.
+     */
     @Bean
     @ConditionalOnMissingBean
-    public ConversationService conversationService(ConversationManager conversationManager) {
-        return new DefaultConversationService(conversationManager);
+    @ConditionalOnProperty(name = "archflow.persistence.jdbc.enabled", havingValue = "false", matchIfMissing = true)
+    public br.com.archflow.conversation.domain.ConversationRepository conversationRepository() {
+        return new br.com.archflow.conversation.domain.InMemoryConversationRepository();
+    }
+
+    /**
+     * O repositório é o que torna a transcrição durável: o JDBC existia e era anunciado no log, mas o
+     * serviço guardava as mensagens num mapa próprio, e as tabelas ficavam vazias (RCHFLW-181).
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public ConversationService conversationService(ConversationManager conversationManager,
+            br.com.archflow.conversation.domain.ConversationRepository conversationRepository) {
+        return new DefaultConversationService(conversationManager, conversationRepository);
     }
 
     // =========================================================================
@@ -1150,8 +1167,15 @@ public class ArchflowBeanConfiguration {
         java.util.Map<String, java.util.function.Function<String, br.com.archflow.langchain4j.mcp.McpClient>>
                 porTenant = new java.util.LinkedHashMap<>();
         registrarServidoresDoHost(registry, porTenant, mcpAgentHost.getIfAvailable());
+        // Desativado em /admin/linktor, o Linktor sai da lista, com a mesma regra do seletor do editor
+        // (workflowConfigControllerImpl), lida a cada pedido (RCHFLW-194).
+        java.util.Map<String, java.util.function.BooleanSupplier> disponivel = java.util.Map.of(
+                br.com.archflow.api.linktor.impl.LinktorConfigControllerImpl.SERVER_NAME, () -> {
+                    var cfg = linktorConfigController.get();
+                    return cfg.enabled() && cfg.mcpCommand() != null && !cfg.mcpCommand().isBlank();
+                });
         return new br.com.archflow.api.mcp.impl.McpInspectionControllerImpl(
-                registry, porTenant, TenantContext::currentTenantId);
+                registry, porTenant, TenantContext::currentTenantId, disponivel);
     }
 
     /**

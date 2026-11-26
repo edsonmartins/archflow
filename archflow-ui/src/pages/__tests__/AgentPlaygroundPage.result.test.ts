@@ -21,7 +21,10 @@ vi.mock('@mantine/notifications', () => ({ notifications: { show: vi.fn() } }))
 vi.mock('../../components/PropertyPanel/useCatalog', () => ({
   useCatalog: () => ({
     agents: [{ id: 'conversational-agent', displayName: 'Conversational Agent' }],
-    assistants: [{ id: 'tech-support-assistant', displayName: 'Tech Support' }],
+    assistants: [{ id: 'tech-support-assistant', displayName: 'Tech Support', operations: [
+      { id: 'analyze', name: 'Analyze', inputs: [], outputs: [] },
+      { id: 'respond', name: 'Respond', inputs: [], outputs: [] },
+    ] }],
     tools: [], embeddings: [], memories: [], vectorstores: [], chains: [], loading: false, usingFallback: false,
   }),
 }))
@@ -144,5 +147,25 @@ describe('AgentPlaygroundPage — resultado da invocação', () => {
     const aviso = await waitFor(() => ui.getByTestId('pg-result-unknown'), { timeout: 5000 })
     expect(aviso.textContent).toContain('agentPlayground.result.notFound')
     expect(ui.queryByTestId('pg-result-loading')).toBeNull()
+  })
+})
+
+describe('AgentPlaygroundPage — operação no chat (RCHFLW-194)', () => {
+  it('o chat oferece as operações declaradas do componente e envia a escolhida', async () => {
+    apiMock.message.mockResolvedValue({ ...accepted('req-4', 'tech-support-assistant'), sessionId: 's-1' })
+    apiMock.invocation.mockResolvedValue(result('RUNNING', { requestId: 'req-4' }))
+    const ui = await renderPage()
+    await pickAgent(ui, 'Tech Support')
+    await act(async () => { fireEvent.click(ui.getByRole('tab', { name: 'agentPlayground.tabs.message' })) })
+
+    await act(async () => { fireEvent.click(ui.getByTestId('pg-operation')) })
+    const opcao = await waitFor(() => within(document.body).getByRole('option', { name: 'Respond' }))
+    await act(async () => { fireEvent.click(opcao) })
+    await act(async () => { fireEvent.click(ui.getByTestId('pg-message-btn')) })
+
+    await waitFor(() => expect(apiMock.message).toHaveBeenCalled())
+    expect(apiMock.message.mock.calls[0][0]).toBe('tenant_demo')
+    expect(apiMock.message.mock.calls[0][1]).toBe('tech-support-assistant')
+    expect(apiMock.message.mock.calls[0][4]).toBe('respond')
   })
 })

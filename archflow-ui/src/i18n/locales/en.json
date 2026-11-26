@@ -179,6 +179,7 @@
         "ingestionComplete": "Indexing completed",
         "ingestionFailed": "Indexing failed",
         "uploadFailed": "Document upload failed",
+        "emptyFile": "The file is empty",
         "searchFailed": "Search failed",
         "loadFailed": "Knowledge base could not be loaded",
         "createFailed": "Knowledge base could not be created",
@@ -186,6 +187,7 @@
             "QUEUED": "Queued",
             "PROCESSING": "Processing",
             "READY": "Ready",
+            "NOT_IN_ACTIVE_INDEX": "Not in the active version — upload again to reindex",
             "FAILED": "Failed",
             "BUILDING": "Building",
             "ACTIVE": "Active",
@@ -1677,6 +1679,9 @@
         "agentPlaceholder": "Pick an agent from the catalog",
         "agentLabel": "agent",
         "assistantLabel": "assistant",
+        "operation": "Operation",
+        "operationHint": "Left empty, the component's default operation runs — one without a default refuses the message",
+        "operationPlaceholder": "Component default",
         "tabs": {
             "invoke": "Invoke (payload)",
             "message": "Message (chat)"
@@ -2359,6 +2364,7 @@
         "submitFormFailed": "Failed to submit form. Please try again.",
         "awaitingForm": "Fill in the form above to continue the conversation.",
         "conversationCancelled": "Conversation cancelled.",
+        "cancelledPlaceholder": "Conversation cancelled: it no longer accepts new messages.",
         "stream": {
             "idle": "idle",
             "connecting": "connecting",

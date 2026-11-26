@@ -179,6 +179,7 @@
         "ingestionComplete": "Indexação concluída",
         "ingestionFailed": "Falha na indexação",
         "uploadFailed": "Falha ao enviar documento",
+        "emptyFile": "O arquivo está vazio",
         "searchFailed": "Falha na busca",
         "loadFailed": "Falha ao carregar a base",
         "createFailed": "Falha ao criar a base",
@@ -186,6 +187,7 @@
             "QUEUED": "Na fila",
             "PROCESSING": "Processando",
             "READY": "Pronto",
+            "NOT_IN_ACTIVE_INDEX": "Fora da versão ativa — reenvie para reindexar",
             "FAILED": "Falhou",
             "BUILDING": "Construindo",
             "ACTIVE": "Ativa",
@@ -1677,6 +1679,9 @@
         "agentPlaceholder": "Selecione um agente do catálogo",
         "agentLabel": "agente",
         "assistantLabel": "assistente",
+        "operation": "Operação",
+        "operationHint": "Sem escolher, roda a operação padrão do componente — e o que não declara uma recusa a mensagem",
+        "operationPlaceholder": "Padrão do componente",
         "tabs": {
             "invoke": "Invocar (payload)",
             "message": "Mensagem (chat)"
@@ -2359,6 +2364,7 @@
         "submitFormFailed": "Falha ao enviar o formulário. Tente novamente.",
         "awaitingForm": "Preencha o formulário acima para continuar a conversa.",
         "conversationCancelled": "Conversa cancelada.",
+        "cancelledPlaceholder": "Conversa cancelada: ela não recebe novas mensagens.",
         "stream": {
             "idle": "ocioso",
             "connecting": "conectando",

@@ -450,6 +450,16 @@ export function isInteractionForm(
     return evt.envelope.domain === 'interaction' && evt.envelope.type === 'form';
 }
 
+/**
+ * A conversa não espera mais o formulário: cancelada ou com o formulário retirado pelo servidor (a
+ * aprovação da execução foi recusada, expirou ou a execução terminou — RCHFLW-194).
+ */
+export function isInteractionCancel(
+    evt: ArchflowEvent,
+): evt is ArchflowEvent<{ conversationId?: string }> {
+    return evt.envelope.domain === 'interaction' && evt.envelope.type === 'cancel';
+}
+
 export function isHeartbeat(evt: ArchflowEvent): boolean {
     return evt.envelope.domain === 'system' && evt.envelope.type === 'heartbeat';
 }

@@ -172,3 +172,29 @@ describe('KnowledgeBasesPage — reenvio do mesmo conteúdo', () => {
     })), { timeout: 4000 })
   })
 })
+
+describe('KnowledgeBasesPage — arquivo vazio (RCHFLW-194)', () => {
+  it('um arquivo de 0 byte não é enviado: o aviso é "o arquivo está vazio", não o JSON da recusa', async () => {
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+    await act(async () => {
+      root!.render(h(MantineProvider, null, h(MemoryRouter, null, h(KnowledgeBasesPage))))
+    })
+    await waitFor(() => expect(knowledgeApiMock.listDocuments).toHaveBeenCalledTimes(1))
+    const input = await waitFor(() => {
+      const found = document.querySelector('input[type="file"]')
+      expect(found).not.toBeNull()
+      return found as HTMLInputElement
+    })
+
+    await act(async () => {
+      fireEvent.change(input, { target: { files: [new File([], 'qa2-vazio.txt', { type: 'text/plain' })] } })
+    })
+
+    await waitFor(() => expect(notify).toHaveBeenCalledWith(expect.objectContaining({
+      color: 'red', title: 'knowledge.uploadFailed', message: 'knowledge.emptyFile',
+    })))
+    expect(knowledgeApiMock.upload).not.toHaveBeenCalled()
+  })
+})

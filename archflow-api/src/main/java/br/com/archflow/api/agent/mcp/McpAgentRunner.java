@@ -407,6 +407,28 @@ public class McpAgentRunner {
         return conduzir(session, client, options);
     }
 
+    /**
+     * Apaga, sem decidir, o laço suspenso que o portão da execução {@code execucaoDoFluxo} segurava,
+     * quando aquele fluxo não vai mais retomá-lo: o portão não chegou a abrir, a retomada aprovada
+     * falhou antes de consumir o estado, ou a execução terminou de outro jeito (cancelada). Sem isto o
+     * estado ficava no store para sempre — fora de todas as filas, com o transcript e os argumentos da
+     * tool dentro (RCHFLW-185).
+     *
+     * <p>Só apaga o laço que é daquela execução: um laço avulso (API de agente, AG-UI) ou de outro fluxo
+     * é decidido por quem o segura, nunca descartado por aqui.</p>
+     *
+     * @return {@code true} se havia o laço e ele foi apagado; {@code false} sem store ou sem o laço
+     */
+    public boolean descartarDoFluxo(String requestId, String execucaoDoFluxo) {
+        if (stateStore == null || requestId == null || requestId.isBlank()) {
+            return false;
+        }
+        return stateStore.findByRequestId(requestId)
+                .filter(e -> e.retomada() != null && e.retomada().seguroPor(execucaoDoFluxo))
+                .map(e -> stateStore.delete(e.runId()))
+                .orElse(false);
+    }
+
     // ── Laço ─────────────────────────────────────────────────────────
 
     /**

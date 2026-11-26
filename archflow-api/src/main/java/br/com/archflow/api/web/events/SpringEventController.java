@@ -31,7 +31,7 @@ public class SpringEventController {
         MessageRequest daIdentidade = tenant == null || tenant.equals(request.tenantId())
                 ? request
                 : new MessageRequest(tenant, request.sessionId(), request.agentId(), request.message(),
-                        request.metadata());
+                        request.metadata(), request.operation());
         return delegate.sendMessage(daIdentidade);
     }
 }

@@ -103,8 +103,27 @@ class InspecaoDosServidoresDoAgenteTest {
     private McpInspectionController inspecao(McpAgentHost host) {
         ObjectProvider<McpAgentHost> provider = mock(ObjectProvider.class);
         when(provider.getIfAvailable()).thenReturn(host);
-        return new ArchflowBeanConfiguration().mcpInspectionController(
-                mock(LinktorConfigController.class), provider);
+        // Linktor ativado: desativado ele sai da lista (RCHFLW-194, LinktorDesativadoForaDaInspecaoTest).
+        LinktorConfigController linktor = mock(LinktorConfigController.class);
+        when(linktor.get()).thenReturn(new br.com.archflow.api.linktor.dto.LinktorConfigDto(
+                true, "http://linktor", null, null, "node linktor-mcp", 30));
+        return new ArchflowBeanConfiguration().mcpInspectionController(linktor, provider);
+    }
+
+    @Test
+    @DisplayName("RCHFLW-194: Linktor desativado em /admin/linktor não aparece na lista, como no seletor do editor")
+    @SuppressWarnings("unchecked")
+    void linktorDesativadoForaDaLista() {
+        ObjectProvider<McpAgentHost> provider = mock(ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(null);
+        LinktorConfigController linktor = mock(LinktorConfigController.class);
+        when(linktor.get()).thenReturn(new br.com.archflow.api.linktor.dto.LinktorConfigDto(
+                false, null, null, null, null, 30));
+
+        McpInspectionController inspecao = new ArchflowBeanConfiguration().mcpInspectionController(linktor, provider);
+
+        assertThat(inspecao.listServerNames()).isEmpty();
+        assertThat(inspecao.introspect("linktor").connected()).isFalse();
     }
 
     private McpAgentHost host(MockEnvironment env) {

@@ -28,6 +28,10 @@ public interface McpAgentStateStore {
     /** Remove o estado; chamado quando o laço termina. */
     boolean delete(String runId);
 
-    /** Suspensos de um tenant, para montar a fila de decisões pendentes. */
+    /**
+     * Suspensos de um tenant, para montar a fila de decisões pendentes. {@code tenantId} nulo, em
+     * branco ou {@code "all"} lista os de todos os tenants — a visão do admin, que a fila de
+     * aprovações recebe já autorizada (RCHFLW-141). As duas implementações já faziam assim.
+     */
     List<McpAgentState> findPendingByTenant(String tenantId);
 }

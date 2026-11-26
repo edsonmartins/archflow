@@ -105,6 +105,17 @@ public class InMemoryKnowledgeVectorIndex implements KnowledgeVectorIndex {
                 .limit(limit).toList();
     }
 
+    public java.util.Set<String> indexedDocumentIds(String tenantId, String baseId) {
+        String active = activeVersions.get(key(tenantId, baseId));
+        if (active == null) return java.util.Set.of();
+        return entries.values().stream()
+                .filter(entry -> entry.tenantId.equals(tenantId))
+                .filter(entry -> entry.baseId.equals(baseId))
+                .filter(entry -> entry.versionId.equals(active))
+                .map(Entry::documentId)
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
+    }
+
     private static double cosine(float[] left, float[] right) {
         if (left.length != right.length) throw new IllegalArgumentException("Dimension mismatch");
         double dot = 0, a = 0, b = 0;

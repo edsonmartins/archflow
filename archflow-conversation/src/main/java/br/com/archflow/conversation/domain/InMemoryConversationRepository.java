@@ -38,6 +38,14 @@ public class InMemoryConversationRepository implements ConversationRepository {
     }
 
     @Override
+    public Optional<Conversation> findByIdAcrossTenants(String conversationId) {
+        return conversations.values().stream()
+                .map(tenantMap -> tenantMap.get(conversationId))
+                .filter(java.util.Objects::nonNull)
+                .findFirst();
+    }
+
+    @Override
     public List<Conversation> listByTenant(String tenantId) {
         Map<String, Conversation> tenantMap = conversations.get(tenantId);
         if (tenantMap == null) return List.of();
