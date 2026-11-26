@@ -48,7 +48,9 @@ import CopilotAppOperator from '../CopilotAppOperator'
 import { FlowCanvas } from '../../FlowCanvas/FlowCanvas'
 import { useFlowStore } from '../../FlowCanvas/store/useFlowStore'
 import type { WorkflowData } from '../../FlowCanvas/types'
-import { runBlockers } from '../../FlowCanvas/runReadiness'
+import { hasRunBlockers, runBlockers } from '../../FlowCanvas/runReadiness'
+import { canvasToDocumentSteps } from '../../FlowCanvas/workflowSerde'
+import triagemFlow from './triagemPelaRespostaDaDecisao.json'
 
 class ResizeObserverStub {
   observe() {}
@@ -413,5 +415,128 @@ describe('RCHFLW-116 — "adicione X antes de Y" insere entre o antecessor de Y 
     const semCanvas = await call<{ ok: boolean; error: string }>('addNode', { nodeType: 'approval', insertBefore: 'llm' })
     expect(semCanvas).toEqual(expect.objectContaining({ ok: false, error: 'insertBefore needs the flow open in the editor' }))
     expect(useFlowStore.getState().pendingCanvasOps).toEqual([])
+  })
+})
+
+/**
+ * RCHFLW-116, 2ª rodada — no Chrome, "triagem de pedidos de suporte: classificar por assunto e mandar para um humano
+ * quando for urgente; quando não for urgente, responder com um LLM" virou um decision SEM provider nem model (o
+ * http-decisions padrão recusa sem model) ramificado por AUTO/ESCALATE (a confiança, não a urgência): os dois pedidos
+ * escalaram. O LLM falso faz o que o real fez; as ferramentas recusam com o motivo, e o fluxo que sai é o documento
+ * de triagemPelaRespostaDaDecisao.json — o mesmo que o TriagemPelaRespostaDaDecisaoTest (archflow-api) executa no
+ * motor de verdade, mandando o URGENTE ao humano e o comum ao LLM.
+ */
+describe('RCHFLW-116 — o copiloto monta a triagem que ramifica pela RESPOSTA da decisão', () => {
+  const PEDIDO = 'triagem de pedidos de suporte: classificar por assunto e mandar para um humano quando for urgente; '
+    + 'quando não for urgente, responder com um LLM'
+  const ASSUNTO = { type: 'choice', instructions: 'Qual o assunto do pedido?',
+    criteria: { financeiro: 'cobrança, pagamento', suporte_tecnico: 'defeito, sistema fora do ar', outro: 'qualquer outro assunto' } }
+  const URGENTE = { type: 'noul', instructions: 'O pedido é urgente?',
+    criteria: { true: 'algo parado ou fora do ar, prazo vencendo', false: 'dúvida ou pedido que pode esperar' } }
+
+  /** O documento salvo, com os ids gerados trocados pelos do arquivo compartilhado (pelo rótulo) e sem posição. */
+  function documentoNormalizado(): unknown[] {
+    const snapshot = useFlowStore.getState().getCanvasSnapshot()
+    const slugs: Record<string, string> = Object.fromEntries((triagemFlow.steps as { id: string; label: string }[])
+      .map(st => [st.label, st.id]))
+    let texto = JSON.stringify(canvasToDocumentSteps(snapshot.steps, snapshot.connections)
+      .map(({ position: _position, ...st }) => st))
+    // Os ids mais longos primeiro: node-…-1 não pode comer o começo de node-…-10.
+    for (const st of [...snapshot.steps].sort((a, b) => b.id.length - a.id.length)) {
+      texto = texto.split(st.id).join(slugs[st.label] ?? st.id)
+    }
+    return JSON.parse(texto)
+  }
+
+  it('o decision sem provider/model e o ramo AUTO como caminho comum são recusados; o que sai roda', async () => {
+    await mountEditor()
+
+    const bodies = await runCopilot(PEDIDO, (body, turn) => {
+      const ids = idsByLabel(body.messages)
+      const results = toolResults(body.messages)
+      if (turn === 1) {
+        // O desenho que o modelo real montou: só o assunto, sem provider nem model.
+        return [
+          { name: 'addNode', args: { nodeType: 'input', label: 'Receber pedido' } },
+          { name: 'addNode', args: { nodeType: 'decision', label: 'Triagem',
+            config: { questions: { assunto: ASSUNTO }, primary: 'assunto' } } },
+          { name: 'addNode', args: { nodeType: 'approval', label: 'Atendimento humano',
+            config: { approvalTitle: 'Pedido urgente' } } },
+          { name: 'addNode', args: { nodeType: 'llm-chat', label: 'Responder com LLM',
+            config: { systemPrompt: 'Responda ao pedido do cliente em uma frase.' } } },
+        ]
+      }
+      if (turn === 2) {
+        const refused = results.find(r => r.args.label === 'Triagem')!.result
+        expect(refused.ok).toBe(false)
+        expect(refused.error).toContain('provider http-decisions (the default) refuses to run without "model"')
+        expect(refused.error).toContain('"provider":"llm"')
+        // Sem o nó recusado no canvas: corrigir não deixa um decision quebrado para trás.
+        expect(useFlowStore.getState().canvasApi!.listNodes().map(n => n.nodeType)).toEqual(['input', 'approval', 'llm-chat'])
+        return [{ name: 'addNode', args: { nodeType: 'decision', label: 'Triagem', config: {
+          provider: 'llm', questions: { assunto: ASSUNTO, urgente: URGENTE }, primary: 'assunto', gate: ['urgente'],
+        } } }]
+      }
+      if (turn === 3) {
+        // O modelo ainda tenta o comum pelo AUTO, que o provider llm (teto 0,89) nunca alcança.
+        return [{ name: 'connectNodes', args: { sourceId: ids.get('Triagem'), targetId: ids.get('Responder com LLM'),
+          branch: 'AUTO' } }]
+      }
+      if (turn === 4) {
+        const auto = results.at(-1)!.result
+        expect(auto.ok).toBe(false)
+        expect(auto.error).toContain('branch "AUTO" of decision')
+        expect(auto.error).toContain('is never followed: its provider llm caps the confidence at 0.89')
+        const d = ids.get('Triagem')
+        return [{ name: 'addNode', args: { nodeType: 'condition', label: 'É urgente?', config: {
+          conditionExpression: `\${${d}.answers.urgente.result} == true || \${${d}.route} == 'ESCALATE'`,
+        } } }]
+      }
+      if (turn === 5) {
+        return [
+          { name: 'connectNodes', args: { sourceId: ids.get('Receber pedido'), targetId: ids.get('Triagem') } },
+          { name: 'connectNodes', args: { sourceId: ids.get('Triagem'), targetId: ids.get('É urgente?') } },
+          { name: 'connectNodes', args: { sourceId: ids.get('É urgente?'), targetId: ids.get('Atendimento humano'), branch: 'true' } },
+          { name: 'connectNodes', args: { sourceId: ids.get('É urgente?'), targetId: ids.get('Responder com LLM'), branch: 'false' } },
+        ]
+      }
+      return 'Triagem montada: urgente vai para o humano, o resto o LLM responde.'
+    })
+
+    expect(bodies).toHaveLength(6)
+    // As ligações da última rodada entraram todas.
+    expect(toolResults(bodies[5].messages).slice(-4).map(r => r.result.ok)).toEqual([true, true, true, true])
+    expect(documentoNormalizado()).toEqual(triagemFlow.steps)
+    // O Executar do editor e o aviso do "Gerar com IA" aceitam o fluxo como saiu.
+    const steps = useFlowStore.getState().getCanvasSnapshot().steps
+    expect(hasRunBlockers(runBlockers(steps))).toBe(false)
+  })
+
+  it('configureNode: provider de LLM no lugar do de decisão e regras faltando são recusados; o problema antigo não', async () => {
+    await mountEditor({
+      // Um decision do usuário que já está sem model: renomear ou mexer noutro campo não trava por isso.
+      steps: [step('dec', 'decision', { questions: { assunto: ASSUNTO } })],
+      connections: [],
+    })
+
+    const llmProvider = await call<{ ok: boolean; error: string }>('configureNode', {
+      nodeId: 'dec', config: { provider: 'openai', model: 'gpt-4o-mini' },
+    })
+    const semRegra = await call<{ ok: boolean; error: string }>('configureNode', {
+      nodeId: 'dec', config: { provider: 'rules' },
+    })
+    const outroCampo = await call<{ ok: boolean }>('configureNode', { nodeId: 'dec', config: { onError: 'FAIL' } })
+    const primaryErrado = await call<{ ok: boolean; error: string }>('configureNode', {
+      nodeId: 'dec', config: { primary: 'urgente' },
+    })
+
+    expect(llmProvider.ok).toBe(false)
+    expect(llmProvider.error).toContain('provider "openai" is not a decision provider')
+    expect(semRegra.ok).toBe(false)
+    expect(semRegra.error).toContain('provider rules has no rule for question "assunto"')
+    expect(outroCampo.ok).toBe(true)
+    expect(primaryErrado.ok).toBe(false)
+    expect(primaryErrado.error).toContain('primary "urgente" is not one of the question ids')
+    expect(configOf('dec')).toEqual({ questions: { assunto: ASSUNTO }, onError: 'FAIL' })
   })
 })

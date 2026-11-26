@@ -106,6 +106,40 @@ class AssistDoArchflowTest {
                 .doesNotContain("\"ok\"");
     }
 
+    /**
+     * RCHFLW-116, 2ª rodada: o decision gerado vinha sem provider nem model (o http-decisions padrão não decide sem
+     * model) e o ramo era o route, que é a confiança. O prompt ensina a ramificar pela resposta, com o provider llm e
+     * os campos que o DecisionComponent grava; o decision que não roda vira aviso, com o motivo do próprio componente.
+     */
+    @Test
+    @DisplayName("nl-to-flow ensina a ramificar pela resposta da decisão e avisa do decision que não roda")
+    void nlToFlowDecisaoPelaResposta() {
+        resposta = """
+                {"workflow":{"steps":[
+                  {"name":"semModelo","component":"decision","nodeType":"decision",
+                   "parameters":{"questions":{"assunto":{"type":"choice","criteria":{"a":"x","b":"y"}}}}},
+                  {"name":"semTipo","component":"decision","nodeType":"decision",
+                   "parameters":{"provider":"llm","questions":{"urgente":{"instructions":"É urgente?"}}}},
+                  {"name":"triagem","component":"decision","nodeType":"decision",
+                   "parameters":{"provider":"llm","questions":{"urgente":{"type":"noul"}},"gate":["urgente"]}}],
+                 "links":[]},"lacunas":[],"observacoes":null}
+                """;
+
+        var r = assist.nlToFlow(new NlToFlowRequest("triagem: urgente ao humano, o resto ao LLM", null, "pt-BR"));
+
+        assertThat(prompts.getFirst())
+                .contains("mede a CONFIANÇA da resposta, não diz a categoria")
+                .contains("provider 'llm' (o LLM da plataforma; sem 'model', herda o modelo da plataforma)")
+                .contains("o route AUTO nunca sai")
+                .contains("${triagem.answers.urgente.result} == true || ${triagem.route} == 'ESCALATE'")
+                .doesNotContain("leia ${<name>.decision} ou ${<name>.route}");
+        assertThat(r.observacoes())
+                .contains("o step \"semModelo\" (decision) usa o provedor http-decisions, que não decide sem 'model'")
+                .contains("o step \"semTipo\" (decision) será recusado ao executar: decision: tipo '' da pergunta "
+                        + "'urgente' inválido")
+                .doesNotContain("\"triagem\"");
+    }
+
     @Test
     @DisplayName("nl-to-flow com catálogo no corpo continua usando o do chamador")
     void nlToFlowRespeitaOCatalogoDoCorpo() {

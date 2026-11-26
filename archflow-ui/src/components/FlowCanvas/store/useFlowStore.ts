@@ -32,6 +32,11 @@ export interface CanvasApi {
   /** Os ramos que o nó oferece (branchOptions); null para id desconhecido. */
   branchesOf: (nodeId: string) => string[] | null
   /**
+   * A config viva do nó (cópia), ou null para id desconhecido. O espelho do store só acompanha depois do render: o
+   * copiloto confere a config RESULTANTE de um decision (RCHFLW-116) e, no mesmo lote do addNode, leria a antiga.
+   */
+  configOf: (nodeId: string) => Record<string, unknown> | null
+  /**
    * Põe {@code nodeId} logo antes de {@code targetId}: toda aresta que chegava a {@code targetId} passa a chegar a
    * {@code nodeId} (com o ramo e a condição que tinha) e {@code nodeId} → {@code targetId} é criada, num passo de
    * undo. Devolve quantas arestas foram religadas, ou null se um dos dois não existe (RCHFLW-116).

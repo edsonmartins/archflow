@@ -399,6 +399,22 @@
                 "UNKNOWN_STEP": "«{{fragment}}» não é a saída de nenhum passo do fluxo — use o id do nó, não o rótulo; se «{{root}}» é uma chave do JSON de entrada, declare-a em «Campos de entrada esperados» do nó Entrada",
                 "TEXT_OUTPUT_FIELD": "«{{fragment}}» lê um campo da saída de um LLM Chat, que é só o texto da resposta — compare o texto (contains) ou classifique com um nó Decisão",
                 "NO_REFERENCE": "«{{fragment}}» não lê nenhum ${…}: o valor é sempre o mesmo e o ramo nunca muda"
+            },
+            "runBlockedInvalidDecision": "Decisão que o motor recusa: {{fields}}.",
+            "decisionProblem": {
+                "QUESTIONS_NOT_OBJECT": "as perguntas devem ser um objeto id → { type, instructions, criteria }, não uma lista",
+                "QUESTION_ID": "o id de uma pergunta não pode ser vazio",
+                "QUESTION_NOT_OBJECT": "a pergunta «{{subject}}» deve ser um objeto { type, instructions, criteria }",
+                "QUESTION_TYPE": "a pergunta «{{subject}}» precisa de type choice, score ou noul",
+                "CHOICE_CRITERIA": "a pergunta «{{subject}}» (choice) precisa de criteria com ao menos uma opção → descrição",
+                "SCORE_CRITERIA": "a pergunta «{{subject}}» (score) precisa de criteria com ao menos dois níveis, do menor ao maior",
+                "UNKNOWN_PRIMARY": "«{{subject}}» não é uma das perguntas",
+                "UNKNOWN_GATE": "«{{subject}}» não é uma das perguntas",
+                "ON_ERROR": "«{{subject}}» não vale: use ESCALATE ou FAIL",
+                "THRESHOLDS": "os limiares exigem 0 ≤ REVIEW ≤ AUTO ≤ 1 ({{subject}})",
+                "ACCEPT_AT": "«{{subject}}» fora do intervalo de 0 a 1",
+                "ON_DISAGREE": "«{{subject}}» não vale: use REVIEW ou ESCALATE",
+                "RULES_MISSING": "o provedor rules não tem regra para a pergunta «{{subject}}»"
             }
         },
         "unsavedChanges": "Alterações não salvas",
@@ -464,7 +480,7 @@
             "done": "Fluxo montado pelo copilot",
             "doneMsg": "Confira os nós e as ligações no canvas.",
             "doneInvalid": "Fluxo montado, mas ainda não executa",
-            "promptTemplate": "Monte um workflow no canvas do editor para o objetivo a seguir. Crie cada nó com a ferramenta addNode, usando os tipos de nó disponíveis e um rótulo curto e descritivo; o addNode devolve o id do nó criado. Configure cada nó com o que o objetivo pede (prompt e modelo de um llm-chat, expressão de um condition…), no parâmetro config do addNode ou com configureNode, usando só as chaves de config listadas para o tipo do nó. Depois ligue os nós em ordem lógica com connectNodes, usando exatamente os ids devolvidos pelo addNode (nunca invente ids). Para corrigir um nó que você criou ou uma ligação errada, use removeNode/removeEdge em vez de criar outro nó; não remova nós que já estavam no fluxo, a menos que o objetivo peça (o usuário terá de confirmar). Para classificar e ramificar, prefira um nó decision e escolha o ramo de cada ligação com o branch do connectNodes; a expressão de um condition ou switch lê a saída de um nó anterior pelo id dele (${id.campo}), nunca uma palavra solta, e siga as regras de ramificação do contexto — uma expressão recusada pela ferramenta deve ser corrigida, não deixada para trás. Para pôr um nó antes de outro já existente, use addNode com insertBefore. Ao terminar, responda com um resumo curto do fluxo montado. Objetivo: {{goal}}"
+            "promptTemplate": "Monte um workflow no canvas do editor para o objetivo a seguir. Crie cada nó com a ferramenta addNode, usando os tipos de nó disponíveis e um rótulo curto e descritivo; o addNode devolve o id do nó criado. Configure cada nó com o que o objetivo pede (prompt e modelo de um llm-chat, expressão de um condition…), no parâmetro config do addNode ou com configureNode, usando só as chaves de config listadas para o tipo do nó. Depois ligue os nós em ordem lógica com connectNodes, usando exatamente os ids devolvidos pelo addNode (nunca invente ids). Para corrigir um nó que você criou ou uma ligação errada, use removeNode/removeEdge em vez de criar outro nó; não remova nós que já estavam no fluxo, a menos que o objetivo peça (o usuário terá de confirmar). Para classificar e ramificar, use um nó decision com provider llm (o LLM da plataforma; sem model, herda o padrão) e uma pergunta cuja RESPOSTA é o critério do ramo (noul para sim/não, choice com a opção), e ramifique pela resposta com um condition ou switch logo depois dele, como nos exemplos das regras de ramificação do contexto: o route do decision mede a confiança da resposta, não diz a categoria. A expressão de um condition ou switch lê a saída de um nó anterior pelo id dele (${id.campo}), nunca uma palavra solta — uma expressão ou config recusada pela ferramenta deve ser corrigida, não deixada para trás. Para pôr um nó antes de outro já existente, use addNode com insertBefore. Ao terminar, responda com um resumo curto do fluxo montado. Objetivo: {{goal}}"
         },
         "properties": {
             "title": "Propriedades",
@@ -639,7 +655,7 @@
                 "decisionConsensusModels": "Modelos do consenso (JSON)",
                 "decisionConsensusHint": "[{ provider, model }] votam sobre o mesmo estado; discordar na pergunta principal rebaixa a rota.",
                 "decisionOnDisagree": "Se discordarem",
-                "decisionRoutesHint": "Ligue arestas a partir deste nó e escolha o ramo de cada uma: AUTO, REVIEW ou ESCALATE.",
+                "decisionRoutesHint": "O ramo AUTO, REVIEW ou ESCALATE de uma aresta segue a confiança da resposta, não a resposta. Para ramificar pelo que foi respondido, ligue este nó a uma Condição ou a um Switch que leia ${<id>.decision} ou ${<id>.answers.<pergunta>.result}.",
                 "approvalDescription": "Descrição exibida para o revisor",
                 "approvalDescriptionHint": "Explique o que o revisor está decidindo. O texto vai como está, sem substituição de variáveis.",
                 "proposalPayload": "Payload da proposta (JSON)",

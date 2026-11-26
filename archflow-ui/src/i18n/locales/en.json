@@ -399,6 +399,22 @@
                 "UNKNOWN_STEP": "«{{fragment}}» is not the output of any step in the flow — use the node id, not its label; if «{{root}}» is a key of the run input JSON, declare it in «Expected input fields» of the Input node",
                 "TEXT_OUTPUT_FIELD": "«{{fragment}}» reads a field of an LLM Chat output, which is only the reply text — compare the text (contains) or classify with a Decision node",
                 "NO_REFERENCE": "«{{fragment}}» reads no ${…}: the value never changes and neither does the branch"
+            },
+            "runBlockedInvalidDecision": "Decision the engine refuses: {{fields}}.",
+            "decisionProblem": {
+                "QUESTIONS_NOT_OBJECT": "questions must be an object id → { type, instructions, criteria }, not a list",
+                "QUESTION_ID": "a question id cannot be blank",
+                "QUESTION_NOT_OBJECT": "question «{{subject}}» must be an object { type, instructions, criteria }",
+                "QUESTION_TYPE": "question «{{subject}}» needs type choice, score or noul",
+                "CHOICE_CRITERIA": "question «{{subject}}» (choice) needs criteria with at least one option → description",
+                "SCORE_CRITERIA": "question «{{subject}}» (score) needs criteria with at least two levels, lowest first",
+                "UNKNOWN_PRIMARY": "«{{subject}}» is not one of the questions",
+                "UNKNOWN_GATE": "«{{subject}}» is not one of the questions",
+                "ON_ERROR": "«{{subject}}» is not valid: use ESCALATE or FAIL",
+                "THRESHOLDS": "thresholds need 0 ≤ REVIEW ≤ AUTO ≤ 1 ({{subject}})",
+                "ACCEPT_AT": "«{{subject}}» is outside 0 to 1",
+                "ON_DISAGREE": "«{{subject}}» is not valid: use REVIEW or ESCALATE",
+                "RULES_MISSING": "the rules provider has no rule for question «{{subject}}»"
             }
         },
         "unsavedChanges": "Unsaved changes",
@@ -464,7 +480,7 @@
             "done": "Copilot finished building the flow",
             "doneMsg": "Check the nodes and connections on the canvas.",
             "doneInvalid": "Flow built, but it does not run yet",
-            "promptTemplate": "Build a workflow on the editor canvas for the following goal. Create each node with the addNode tool, using the available node types and a short descriptive label; addNode returns the id of the created node. Configure each node with what the goal asks for (prompt and model of an llm-chat, expression of a condition…), in the addNode config parameter or with configureNode, using only the config keys listed for that node type. Then connect the nodes in a logical order with connectNodes, using exactly the ids returned by addNode (never invent ids). To fix a node you created or a wrong edge, use removeNode/removeEdge instead of adding another node; do not remove nodes that were already in the flow unless the goal asks for it (the user will have to confirm). To classify and branch, prefer a decision node and pick each edge's branch with the connectNodes branch; a condition or switch expression reads the output of an earlier node by its id (${id.field}), never a bare word, and follows the branching rules in the context — fix an expression the tool refuses instead of leaving it behind. To put a node before an existing one, use addNode with insertBefore. When you are done, reply with a short summary of the flow. Goal: {{goal}}"
+            "promptTemplate": "Build a workflow on the editor canvas for the following goal. Create each node with the addNode tool, using the available node types and a short descriptive label; addNode returns the id of the created node. Configure each node with what the goal asks for (prompt and model of an llm-chat, expression of a condition…), in the addNode config parameter or with configureNode, using only the config keys listed for that node type. Then connect the nodes in a logical order with connectNodes, using exactly the ids returned by addNode (never invent ids). To fix a node you created or a wrong edge, use removeNode/removeEdge instead of adding another node; do not remove nodes that were already in the flow unless the goal asks for it (the user will have to confirm). To classify and branch, use a decision node with provider llm (the platform LLM; without model it inherits the default) and a question whose ANSWER is the branch criterion (noul for yes/no, choice with the option), and branch on the answer with a condition or switch right after it, as in the examples of the branching rules in the context: the decision route measures the answer's confidence, it does not tell the category. A condition or switch expression reads the output of an earlier node by its id (${id.field}), never a bare word — fix an expression or config the tool refuses instead of leaving it behind. To put a node before an existing one, use addNode with insertBefore. When you are done, reply with a short summary of the flow. Goal: {{goal}}"
         },
         "properties": {
             "title": "Properties",
@@ -639,7 +655,7 @@
                 "decisionConsensusModels": "Consensus models (JSON)",
                 "decisionConsensusHint": "[{ provider, model }] vote on the same state; disagreement on the primary question lowers the route.",
                 "decisionOnDisagree": "On disagreement",
-                "decisionRoutesHint": "Connect edges from this node and pick their branch: AUTO, REVIEW or ESCALATE.",
+                "decisionRoutesHint": "An edge branch AUTO, REVIEW or ESCALATE follows the confidence of the answer, not the answer. To branch on what was answered, connect this node to a Condition or Switch that reads ${<id>.decision} or ${<id>.answers.<question>.result}.",
                 "approvalDescription": "Description shown to the reviewer",
                 "approvalDescriptionHint": "Explain what the reviewer is deciding. The text is sent as is, with no variable substitution.",
                 "proposalPayload": "Proposal payload (JSON)",

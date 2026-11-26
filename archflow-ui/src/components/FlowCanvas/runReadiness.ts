@@ -2,6 +2,7 @@ import type { TFunction } from 'i18next'
 import { isAnnotationStep, isNotExecutableNode } from './constants'
 import { CONNECTION_FIELD_BY_BACKEND, NODE_TYPES_WITHOUT_DEFAULT_OPERATION, knowledgeBaseOf } from './dataNodeKeys'
 import { invalidControlExpressions, type ExpressionProblem } from './controlExpressions'
+import { decisionConfigFindings, decisionModelMissing, type DecisionProblem } from './decisionReadiness'
 
 /**
  * O que impede o Executar do editor de começar (RCHFLW-11, RCHFLW-92): nós de tipo sem execução e campos que
@@ -113,6 +114,9 @@ export const CONDITIONAL_REQUIRED_FIELDS: Readonly<Record<string, (config: Recor
     ...(backendOf(config, 'memoryBackend') === 'redis'
       ? [field('redisConnection', 'serverConnection', ['redis.connection'])] : []),
   ],
+  // RCHFLW-116: sem provider o motor usa o http-decisions, que exige o model — sem ele a decisão nem é pedida e,
+  // com onError ESCALATE, todo pedido sai pela escalada (decisionReadiness).
+  decision: config => (decisionModelMissing(config) ? [field('model', 'decisionModel')] : []),
 }
 
 export interface RunCandidateStep {
@@ -135,6 +139,19 @@ export interface RunBlockers {
    * servidor recusa o mesmo antes do primeiro passo. Opcional: quem monta um RunBlockers à mão não precisa dele.
    */
   invalidExpressions?: { id: string; label: string; labelKey: string; problem: ExpressionProblem; fragment: string }[]
+  /**
+   * Configuração de um nó decision que o DecisionComponent recusa (RCHFLW-116): pergunta sem tipo ou sem critérios,
+   * primary/gate que não são perguntas, limiares fora de ordem, provider rules sem a regra de uma pergunta.
+   * Opcional, como invalidExpressions.
+   */
+  invalidDecisions?: { id: string; label: string; labelKey: string; problem: DecisionProblem; subject: string }[]
+}
+
+/** O campo do painel de cada chave do decision, para a mensagem nomear o que o usuário corrige. */
+const DECISION_FIELD_LABEL: Readonly<Record<string, string>> = {
+  questions: 'decisionQuestions', primary: 'decisionPrimary', gate: 'decisionGate', onError: 'decisionOnError',
+  thresholds: 'thresholdAuto', acceptAt: 'decisionAcceptAt', consensus: 'decisionOnDisagree',
+  providerOptions: 'decisionRules',
 }
 
 /** Vazio para o motor: ausente, texto em branco, lista ou objeto sem nada. */
@@ -152,7 +169,7 @@ function kindOf(step: RunCandidateStep): string {
 }
 
 export function runBlockers(steps: RunCandidateStep[]): RunBlockers {
-  const result: RunBlockers = { notExecutable: [], missing: [], invalidExpressions: [] }
+  const result: RunBlockers = { notExecutable: [], missing: [], invalidExpressions: [], invalidDecisions: [] }
   const runnable = steps.filter(step => !isAnnotationStep(step))
   for (const inv of invalidControlExpressions(runnable)) {
     const labelKey = REQUIRED_NODE_FIELDS[inv.field === 'conditionExpression' ? 'condition' : 'switch'][0].labelKey
@@ -179,13 +196,21 @@ export function runBlockers(steps: RunCandidateStep[]): RunBlockers {
         result.missing.push({ id: step.id, label, labelKey: f.labelKey })
       }
     }
+    if (kind === 'decision') {
+      for (const f of decisionConfigFindings(step.config)) {
+        result.invalidDecisions!.push({
+          id: step.id, label, labelKey: `editor.properties.fields.${DECISION_FIELD_LABEL[f.key]}`,
+          problem: f.problem, subject: f.subject,
+        })
+      }
+    }
   }
   return result
 }
 
 export function hasRunBlockers(blockers: RunBlockers): boolean {
   return blockers.notExecutable.length > 0 || blockers.missing.length > 0
-    || (blockers.invalidExpressions?.length ?? 0) > 0
+    || (blockers.invalidExpressions?.length ?? 0) > 0 || (blockers.invalidDecisions?.length ?? 0) > 0
 }
 
 /** A mensagem do aviso, nomeando cada nó (e o campo): é o que o usuário precisa para corrigir. */
@@ -206,6 +231,12 @@ export function runBlockersMessage(t: TFunction, blockers: RunBlockers): string 
       fields: blockers.invalidExpressions.map(m => `"${m.label}" → ${t(m.labelKey)}: `
         + t(`editor.notif.expressionProblem.${m.problem}`, { fragment: m.fragment, root: m.fragment.split('.')[0] }))
         .join('; '),
+    }))
+  }
+  if (blockers.invalidDecisions?.length) {
+    parts.push(t('editor.notif.runBlockedInvalidDecision', {
+      fields: blockers.invalidDecisions.map(m => `"${m.label}" → ${t(m.labelKey)}: `
+        + t(`editor.notif.decisionProblem.${m.problem}`, { subject: m.subject })).join('; '),
     }))
   }
   return parts.join(' ')

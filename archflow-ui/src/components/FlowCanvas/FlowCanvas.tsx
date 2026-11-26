@@ -369,6 +369,10 @@ export function FlowCanvas({
         const node = localNodesRef.current.find(n => n.id === nodeId)
         return node ? branchOptions(String(node.data?.nodeType ?? ''), node.data?.config) : null
       },
+      configOf: (nodeId) => {
+        const node = localNodesRef.current.find(n => n.id === nodeId)
+        return node ? { ...(node.data?.config ?? {}) } : null
+      },
       insertBefore: (nodeId, targetId) => {
         const current = localNodesRef.current
         if (nodeId === targetId || !current.some(n => n.id === nodeId) || !current.some(n => n.id === targetId)) {
