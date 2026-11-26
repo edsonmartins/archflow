@@ -53,6 +53,9 @@ propertySchemas:
     provider: { type: string, required: true, examples: [openai, anthropic, openrouter] }
     model: { type: string, required: true }
     systemPrompt: { type: string, default: "" }
+    # RCHFLW-120: só llm-chat/llm-streaming. Vazio = a saída do passo anterior (depois de decision/condition, o JSON
+    # da classificação). Referências ${…} como nas condições; objeto vira JSON; referência sem valor falha o passo.
+    userMessage: { type: string, default: "", example: "${<id do nó input>}", when: "type=llm-chat|llm-streaming" }
     temperature: { type: number, default: 0.7, minimum: 0, maximum: 2 }
     maxTokens: { type: integer, default: 4096 }
     maxIterations: { type: integer, default: 10 }

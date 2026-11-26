@@ -398,7 +398,8 @@
                 "BARE_OPERAND": "«{{fragment}}» is not a value — write the reference as ${…} or quote the text ('…'); without ${} the branch never changes",
                 "UNKNOWN_STEP": "«{{fragment}}» is not the output of any step in the flow — use the node id, not its label; if «{{root}}» is a key of the run input JSON, declare it in «Expected input fields» of the Input node",
                 "TEXT_OUTPUT_FIELD": "«{{fragment}}» reads a field of an LLM Chat output, which is only the reply text — compare the text (contains) or classify with a Decision node",
-                "NO_REFERENCE": "«{{fragment}}» reads no ${…}: the value never changes and neither does the branch"
+                "NO_REFERENCE": "«{{fragment}}» reads no ${…}: the value never changes and neither does the branch",
+                "MALFORMED_TEMPLATE": "«{{fragment}}» is not a reference — write ${path}, with the brace closed and a path inside; outside ${} the text goes to the model as is"
             },
             "runBlockedInvalidDecision": "Decision the engine refuses: {{fields}}.",
             "decisionProblem": {
@@ -537,6 +538,9 @@
                 "persona": "Persona",
                 "systemPrompt": "System prompt",
                 "systemPromptPlaceholder": "You are a helpful assistant...",
+                "userMessage": "User message",
+                "userMessagePlaceholder": "e.g. ${input-node-id} or Customer: ${input-node-id}",
+                "userMessageHint": "Empty: the previous step's output (after a Decision or Condition, the classification JSON). Use ${<Input node id>} for the run's original message; ${input} is the previous step's output. Objects go as JSON (for an API input like {\"message\": …}, use ${<Input node id>.message}); a reference with no value fails the step.",
                 "temperature": "Temperature",
                 "maxTokens": "Max tokens",
                 "maxIterations": "Max iterations",

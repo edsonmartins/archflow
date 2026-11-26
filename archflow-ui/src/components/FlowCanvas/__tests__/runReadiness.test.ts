@@ -80,11 +80,43 @@ describe('runReadiness', () => {
       + '"Lê nota" → editor.properties.fields.expression: editor.notif.expressionProblem.UNKNOWN_STEP[n.text|n]]')
   })
 
+  it('RCHFLW-120: a Mensagem do usuário do LLM Chat que não resolve impede o run, nomeando nó e campo', () => {
+    const triagem = (userMessage: unknown, type = 'llm-chat') => runBlockers([
+      { id: 'receber', label: 'Receber pedido', componentId: 'input', type: 'input' },
+      { id: 'classificar', label: 'Classificar', componentId: 'llm-chat', type: 'llm-chat', config: {} },
+      { id: 'responder', label: 'Responder com LLM', componentId: type, type, config: { userMessage } },
+    ])
+
+    const blockers = triagem('Cliente: ${receber} ${Receber pedido.texto} ${classificar.x}')
+    expect(hasRunBlockers(blockers)).toBe(true)
+    expect(blockers.invalidExpressions).toEqual([
+      { id: 'responder', label: 'Responder com LLM', labelKey: 'editor.properties.fields.userMessage',
+        problem: 'UNKNOWN_STEP', fragment: 'Receber pedido.texto' },
+      { id: 'responder', label: 'Responder com LLM', labelKey: 'editor.properties.fields.userMessage',
+        problem: 'TEXT_OUTPUT_FIELD', fragment: 'classificar.x' },
+    ])
+    expect(runBlockersMessage(t, triagem('${receber', 'llm-streaming'))).toBe('editor.notif.runBlockedInvalidExpression['
+      + '"Responder com LLM" → editor.properties.fields.userMessage: '
+      + 'editor.notif.expressionProblem.MALFORMED_TEMPLATE[${receber|${receber]]')
+    // Vazio, só texto, a Entrada e ${input} rodam; um valor que não é texto não é template (o motor o ignora).
+    for (const ok of ['', '  ', 'Responda com cordialidade.', '${receber}', 'Cliente: ${receber}', '${input}', 42]) {
+      expect(hasRunBlockers(triagem(ok))).toBe(false)
+    }
+    // Num nó que não é de chat a chave não é lida — e não é recusada.
+    expect(hasRunBlockers(runBlockers([
+      { id: 'fim', label: 'Fim', componentId: 'output', type: 'output', config: { userMessage: '${nada' } },
+    ]))).toBe(false)
+  })
+
   it('cada motivo de expressão recusada tem texto no pt-BR', () => {
     const problems = (ptBR as any).editor.notif.expressionProblem
-    for (const code of ['MALFORMED', 'BARE_OPERAND', 'UNKNOWN_STEP', 'TEXT_OUTPUT_FIELD', 'NO_REFERENCE']) {
+    for (const code of ['MALFORMED', 'BARE_OPERAND', 'UNKNOWN_STEP', 'TEXT_OUTPUT_FIELD', 'NO_REFERENCE',
+      'MALFORMED_TEMPLATE']) {
       expect(problems[code]).toContain('{{fragment}}')
+      expect((en as any).editor.notif.expressionProblem[code]).toContain('{{fragment}}')
     }
+    expect((ptBR as any).editor.properties.fields.userMessage).toBe('Mensagem do usuário')
+    expect((en as any).editor.properties.fields.userMessage).toBe('User message')
     // A chave a declarar na Entrada é a raiz do caminho: sem o {{root}}, o aviso não diria qual.
     expect(problems.UNKNOWN_STEP).toContain('{{root}}')
   })

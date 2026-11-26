@@ -1,7 +1,7 @@
 import type { TFunction } from 'i18next'
 import { isAnnotationStep, isNotExecutableNode } from './constants'
 import { CONNECTION_FIELD_BY_BACKEND, NODE_TYPES_WITHOUT_DEFAULT_OPERATION, knowledgeBaseOf } from './dataNodeKeys'
-import { invalidControlExpressions, type ExpressionProblem } from './controlExpressions'
+import { USER_MESSAGE_FIELD, invalidControlExpressions, type ExpressionProblem } from './controlExpressions'
 import { decisionConfigFindings, decisionModelMissing, type DecisionProblem } from './decisionReadiness'
 
 /**
@@ -136,7 +136,8 @@ export interface RunBlockers {
   missing: { id: string; label: string; labelKey: string }[]
   /**
    * Expressões de condition/switch que o motor não avalia ou que leem um passo inexistente (RCHFLW-116) — o
-   * servidor recusa o mesmo antes do primeiro passo. Opcional: quem monta um RunBlockers à mão não precisa dele.
+   * servidor recusa o mesmo antes do primeiro passo —, e a "Mensagem do usuário" do LLM Chat pelas mesmas regras
+   * (RCHFLW-120). Opcional: quem monta um RunBlockers à mão não precisa dele.
    */
   invalidExpressions?: { id: string; label: string; labelKey: string; problem: ExpressionProblem; fragment: string }[]
   /**
@@ -172,7 +173,9 @@ export function runBlockers(steps: RunCandidateStep[]): RunBlockers {
   const result: RunBlockers = { notExecutable: [], missing: [], invalidExpressions: [], invalidDecisions: [] }
   const runnable = steps.filter(step => !isAnnotationStep(step))
   for (const inv of invalidControlExpressions(runnable)) {
-    const labelKey = REQUIRED_NODE_FIELDS[inv.field === 'conditionExpression' ? 'condition' : 'switch'][0].labelKey
+    // A "Mensagem do usuário" do LLM Chat (RCHFLW-120) não é obrigatória: o rótulo vem do painel, não da tabela.
+    const labelKey = inv.field === USER_MESSAGE_FIELD ? 'editor.properties.fields.userMessage'
+      : REQUIRED_NODE_FIELDS[inv.field === 'conditionExpression' ? 'condition' : 'switch'][0].labelKey
     for (const f of inv.findings) result.invalidExpressions!.push({ id: inv.id, label: inv.label, labelKey, ...f })
   }
   for (const step of steps) {

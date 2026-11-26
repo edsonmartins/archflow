@@ -261,7 +261,7 @@ function NodeFields({ nodeId, nodeData, readOnly }: { nodeId: string; nodeData: 
       {/*  AGENT FIELDS (extraído para fields/AgentFields)        */}
       {/* ════════════════════════════════════════════════════════ */}
       {isAgent && (
-        <AgentFields nodeData={nodeData} update={update} isAssistant={isAssistant} />
+        <AgentFields nodeData={nodeData} update={update} isAssistant={isAssistant} nodeId={nodeId} />
       )}
 
       {/* ════════════════════════════════════════════════════════ */}

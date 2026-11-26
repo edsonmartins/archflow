@@ -140,4 +140,69 @@ class ExpressaoDeControleNaValidacaoTest {
                                         + "escreva a referência como ${…} ou o texto entre aspas ('…') — sem ${}, "
                                         + "o avaliador compara o próprio texto e o ramo nunca muda"));
     }
+
+    /** Receber → triagem (condição) → LLM Chat com a "Mensagem do usuário" dada (RCHFLW-120). */
+    private static Flow comMensagem(String tipoDoChat, Object userMessage) {
+        PortableFlowStepFactory factory = new PortableFlowStepFactory(new DefaultComponentCatalog(), null, null);
+        Map<String, Object> config = new HashMap<>();
+        config.put("userMessage", userMessage);
+        return new DefaultWorkflowDeserializer(factory).toFlow(Map.of("id", "f", "metadata", Map.of("name", "f"),
+                "steps", List.of(
+                        no("receber", "input", "Receber", Map.of(), "classificar"),
+                        no("classificar", "llm-chat", "Classificar", Map.of(), "decide"),
+                        no("decide", "condition", "Urgente?", Map.of("conditionExpression",
+                                "${classificar} contains 'URGENTE'"), "responder"),
+                        no("responder", tipoDoChat, "Responder", config))));
+    }
+
+    @Test
+    @DisplayName("RCHFLW-120: a Mensagem do usuário que nunca funciona é recusada, nomeando nó e campo")
+    void mensagemDoUsuarioRecusada() {
+        assertThatThrownBy(() -> valida(comMensagem("llm-chat", "Cliente: ${receber")))
+                .hasMessageContaining("o nó \"Responder\" (responder), campo userMessage:")
+                .hasMessageContaining("«${receber» não é uma referência")
+                .satisfies(e -> assertThat(((FlowValidationException) e).getErrors()).singleElement()
+                        .satisfies(err -> {
+                            assertThat(err.code()).isEqualTo(ExecutableNodesValidator.EXPRESSION_CODE);
+                            assertThat(err.field()).isEqualTo("step.configuration.userMessage");
+                            assertThat(err.context()).containsEntry("node", "responder")
+                                    .containsEntry("problems", List.of("MALFORMED_TEMPLATE"));
+                        }));
+        assertThatThrownBy(() -> valida(comMensagem("llm-streaming", "${classificar.resposta}")))
+                .hasMessageContaining("campo userMessage: ${classificar.resposta}: 'classificar' é um LLM Chat");
+    }
+
+    @Test
+    @DisplayName("RCHFLW-120: referência a passo que existe, texto literal e passo desconhecido (só aviso) passam")
+    void mensagemDoUsuarioQuePassa() {
+        assertThatCode(() -> valida(comMensagem("llm-chat", "Cliente: ${receber}"))).doesNotThrowAnyException();
+        assertThatCode(() -> valida(comMensagem("llm-chat", "Responda com cordialidade.")))
+                .doesNotThrowAnyException();
+        assertThatCode(() -> valida(comMensagem("llm-chat", "${pedido.texto}"))).doesNotThrowAnyException();
+        // Valor que não é texto não é template: a ponte o ignora (vale a entrada do passo), como o painel em branco.
+        assertThatCode(() -> valida(comMensagem("llm-chat", 42))).doesNotThrowAnyException();
+    }
+
+    /** Um LLM Chat com {@code configuration.userMessage} e um {@code config.userMessage} que sobrou (legado). */
+    private static Flow comAsDuasChaves(String emConfiguration, String emConfig) {
+        PortableFlowStepFactory factory = new PortableFlowStepFactory(new DefaultComponentCatalog(), null, null);
+        Map<String, Object> responder = no("responder", "llm-chat", "Responder",
+                new HashMap<>(Map.of("userMessage", emConfiguration)));
+        responder.put("config", Map.of("userMessage", emConfig));
+        return new DefaultWorkflowDeserializer(factory).toFlow(Map.of("id", "f", "metadata", Map.of("name", "f"),
+                "steps", List.of(no("receber", "input", "Receber", Map.of(), "responder"), responder)));
+    }
+
+    @Test
+    @DisplayName("RCHFLW-120: com config e configuration, vale o de configuration — o mesmo que a fábrica executa")
+    void mensagemDoUsuarioNaOrdemDaFabrica() {
+        // O valor que roda (configuration) é válido; o que sobrou em config, não: nada a recusar.
+        assertThatCode(() -> valida(comAsDuasChaves("${receber}", "Cliente: ${receber")))
+                .doesNotThrowAnyException();
+        // Ao contrário, é o de configuration que roda e que tem de ser recusado.
+        assertThatThrownBy(() -> valida(comAsDuasChaves("Cliente: ${receber", "${receber}")))
+                .hasMessageContaining("campo userMessage:").hasMessageContaining("«${receber» não é uma referência");
+        // Em branco por cima é "sem campo" no motor (vale a entrada do passo): o config por baixo não é checado.
+        assertThatCode(() -> valida(comAsDuasChaves("   ", "${receber"))).doesNotThrowAnyException();
+    }
 }

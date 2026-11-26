@@ -226,6 +226,24 @@ public final class ConditionEvaluator {
     }
 
     private Object lookup(String path, ExecutionContext context) {
+        return resolvePath(path, context);
+    }
+
+    /**
+     * Resolve o caminho de um {@code ${caminho}} no contexto, como as condições o resolvem: a chave inteira
+     * primeiro (o executor grava {@code step.<id>.output}; um id pode ter ponto), depois o prefixo mais longo
+     * que é chave, descendo pelos mapas aninhados.
+     *
+     * <p>Público para a "Mensagem do usuário" do LLM Chat ({@link MessageTemplate}, RCHFLW-120) ler um
+     * {@code ${x.y}} exatamente como uma condição o lê — um segundo resolvedor faria o mesmo texto querer dizer
+     * coisas diferentes em dois campos do mesmo fluxo.</p>
+     *
+     * @return o valor, ou {@code null} quando nenhum prefixo resolve
+     */
+    public static Object resolvePath(String path, ExecutionContext context) {
+        if (path == null || context == null) {
+            return null;
+        }
         Optional<Object> direct = context.get(path);
         if (direct.isPresent()) {
             return direct.get();
@@ -244,7 +262,7 @@ public final class ConditionEvaluator {
         return null;
     }
 
-    private Object descend(Object root, String remainder) {
+    private static Object descend(Object root, String remainder) {
         Object current = root;
         for (String part : remainder.split("\\.")) {
             if (!(current instanceof Map<?, ?> map)) {

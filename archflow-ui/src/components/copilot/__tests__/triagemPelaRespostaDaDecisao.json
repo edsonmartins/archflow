@@ -1,5 +1,5 @@
 {
-  "_comment": "RCHFLW-116: o fluxo que o copiloto monta para a triagem (CopilotAppOperator.conditions.test.ts, ids trocados pelos daqui) e que o TriagemPelaRespostaDaDecisaoTest (archflow-api) executa no motor de verdade. Se um dos dois mudar o documento, o outro teste falha.",
+  "_comment": "RCHFLW-116: o fluxo que o copiloto monta para a triagem (CopilotAppOperator.conditions.test.ts, ids trocados pelos daqui) e que o TriagemPelaRespostaDaDecisaoTest (archflow-api) executa no motor de verdade. Se um dos dois mudar o documento, o outro teste falha. RCHFLW-120: o LLM que responde lê a mensagem do cliente pela Entrada (userMessage ${receber}), e não o JSON da decisão que a condição repassa.",
   "id": "triagem-suporte",
   "metadata": {
     "name": "Triagem de pedidos de suporte"
@@ -35,7 +35,8 @@
       "componentId": "llm-chat",
       "label": "Responder com LLM",
       "configuration": {
-        "systemPrompt": "Responda ao pedido do cliente em uma frase."
+        "systemPrompt": "Responda ao pedido do cliente em uma frase.",
+        "userMessage": "${receber}"
       },
       "connections": []
     },

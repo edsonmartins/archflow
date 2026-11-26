@@ -1,5 +1,6 @@
 package br.com.archflow.api.flow.adapter;
 
+import br.com.archflow.engine.execution.MessageTemplate;
 import br.com.archflow.langchain4j.core.spi.LangChainAdapter;
 import br.com.archflow.langchain4j.core.spi.LangChainRegistry;
 import br.com.archflow.langchain4j.openrouter.OpenRouterChatAdapter;
@@ -91,6 +92,13 @@ import java.util.concurrent.ConcurrentHashMap;
  * para o chat que ele cria com o mesmo mapa, que também leva a preferência de provedor do OpenRouter e confere os
  * modelos do tenant; e o {@code execute} genérico do motor vira a operação do tipo ({@code embed}, {@code query},
  * {@code search}), com a entrada e a saída no formato que o fluxo carrega ({@link #dataInput}, {@link #dataOutput}).
+ *
+ * <h2>A mensagem do usuário de um nó de chat (RCHFLW-120)</h2>
+ * Sem {@link #USER_MESSAGE_KEY}, a mensagem é a entrada do passo (a saída do anterior), como sempre foi. Com ele, é o
+ * template resolvido pelo {@link MessageTemplate} — as mesmas referências das condições. Depois de um decision ou
+ * condition, a entrada do passo é o mapa da classificação, e o LLM respondia ao JSON em vez de ao cliente; o nó diz
+ * {@code ${<id da Entrada>}} e recebe a mensagem que chegou. Referência sem valor, ou texto vazio, falha o passo
+ * nomeando nó, campo e referência ({@link #userMessage}): nada vazio nem {@code ${…}} literal vai ao modelo.
  */
 public final class LangChainAdapterComponent implements AIComponent {
 
@@ -145,6 +153,12 @@ public final class LangChainAdapterComponent implements AIComponent {
             "memory", "add, get ou clear",
             "vectorstore", "search, remove ou removeAll");
 
+    /**
+     * A "Mensagem do usuário" de um nó de chat: um template com {@code ${…}} (RCHFLW-120). É chave do designer,
+     * lida pela ponte e não pelo adapter — não vai nas propriedades dele ({@link #effectiveProperties}).
+     */
+    public static final String USER_MESSAGE_KEY = "userMessage";
+
     /** Chaves de uma entrada-mapa que carregam o texto da mensagem, em ordem de preferência. */
     static final List<String> MESSAGE_KEYS = List.of("input", "message", "text", "prompt");
 
@@ -168,6 +182,7 @@ public final class LangChainAdapterComponent implements AIComponent {
     private final TenantModelPolicy modelPolicy;
     private final AdapterConnections connections;
     private final String nodeType;
+    private final String nodeId;
     private final Map<String, LangChainAdapter> byTenant = new ConcurrentHashMap<>();
 
     public LangChainAdapterComponent(String provider, String adapterType,
@@ -266,6 +281,26 @@ public final class LangChainAdapterComponent implements AIComponent {
                                      TenantModelPolicy modelPolicy,
                                      AdapterConnections connections,
                                      String nodeType) {
+        this(provider, adapterType, nodeConfig, keyResolver, baseUrlPolicy, preferences, preferencesRequired,
+                openRouterUrls, modelPolicy, connections, nodeType, null);
+    }
+
+    /**
+     * @param nodeId o id do nó no documento, para a falha da mensagem do usuário dizer qual nó
+     *               ({@link #userMessage}); nulo cai no {@link #componentId()}
+     */
+    public LangChainAdapterComponent(String provider, String adapterType,
+                                     Map<String, Object> nodeConfig,
+                                     TenantKeyResolver keyResolver,
+                                     BaseUrlPolicy baseUrlPolicy,
+                                     ProviderPreferences preferences,
+                                     boolean preferencesRequired,
+                                     List<String> openRouterUrls,
+                                     TenantModelPolicy modelPolicy,
+                                     AdapterConnections connections,
+                                     String nodeType,
+                                     String nodeId) {
+        this.nodeId = nodeId == null || nodeId.isBlank() ? null : nodeId;
         this.nodeType = nodeType == null || nodeType.isBlank() ? null : nodeType.trim().toLowerCase(Locale.ROOT);
         this.connections = connections != null ? connections : AdapterConnections.NONE;
         this.provider = Objects.requireNonNull(provider, "provider");
@@ -344,8 +379,9 @@ public final class LangChainAdapterComponent implements AIComponent {
                 : "__global__";
         if ("chat".equals(adapterType)) {
             modelPolicy.check(tenantId, provider, modelsUsed());
-            return adapterFor(tenantId).execute(chatOperation(operation), messageText(input),
-                    ChatNodeContext.of(context));
+            // A mensagem antes do adapter: um template que não resolve falha sem chamada paga ao modelo.
+            Object message = temTexto(nodeConfig.get(USER_MESSAGE_KEY)) ? userMessage(context) : messageText(input);
+            return adapterFor(tenantId).execute(chatOperation(operation), message, ChatNodeContext.of(context));
         }
         if ("chain".equals(adapterType) && temTexto(nodeConfig.get(RAG_LLM_PROVIDER))) {
             // O RAG chama um modelo de chat: o tenant restrito a uma lista também é restrito aqui.
@@ -506,6 +542,35 @@ public final class LangChainAdapterComponent implements AIComponent {
     }
 
     /**
+     * A mensagem do usuário pelo template do nó ({@link #USER_MESSAGE_KEY}), resolvido no contexto da execução —
+     * o completo, e não a visão do {@link ChatNodeContext}: o template lê o que uma condição leria.
+     *
+     * <p>Falha, nomeando o nó, o campo e a referência, quando o template não é válido, quando uma referência não
+     * tem valor ou quando o resultado é texto em branco (ex.: {@code ${input}} de uma execução sem entrada).
+     * Mandar o vazio ao modelo era a resposta "a nada" terminando o passo com sucesso.</p>
+     */
+    String userMessage(ExecutionContext context) {
+        String template = (String) nodeConfig.get(USER_MESSAGE_KEY);
+        String no = "Nó " + (nodeId != null ? nodeId + " (" + componentId() + ")" : componentId()) + ", campo "
+                + USER_MESSAGE_KEY + " (Mensagem do usuário)";
+        String texto;
+        try {
+            texto = MessageTemplate.render(template, context);
+        } catch (MessageTemplate.UnresolvedReferenceException e) {
+            throw new IllegalArgumentException(no + ": " + e.getMessage() + " — a saída de um passo fica sob o id "
+                    + "do nó (não o rótulo), ${input} é a saída do passo anterior e uma chave da entrada do run só "
+                    + "existe se a execução a trouxer. Nada foi enviado ao modelo.", e);
+        } catch (MessageTemplate.MalformedTemplateException e) {
+            throw new IllegalArgumentException(no + ": " + e.getMessage() + ". Nada foi enviado ao modelo.", e);
+        }
+        if (texto.isBlank()) {
+            throw new IllegalArgumentException(no + ": «" + template + "» resultou em texto vazio nesta execução. "
+                    + "Nada foi enviado ao modelo.");
+        }
+        return texto;
+    }
+
+    /**
      * O texto da mensagem do usuário a partir da entrada do passo. Os adapters exigem uma
      * {@code String}, e a entrada de um fluxo executado com variáveis JSON — ou a saída-objeto do
      * nó anterior — chega como mapa ("Input must be a string").
@@ -574,6 +639,8 @@ public final class LangChainAdapterComponent implements AIComponent {
     Map<String, Object> effectiveProperties(String tenantId) {
         Map<String, Object> properties = new LinkedHashMap<>();
         nodeConfig.forEach((key, value) -> properties.put(ALIASES.getOrDefault(key, key), value));
+        // O template da mensagem é da ponte (execute), não configuração do adapter.
+        properties.remove(USER_MESSAGE_KEY);
         // Credencial e destino de banco/redis/pinecone não vêm do JSON do fluxo (RCHFLW-56): o que vier
         // é descartado e a conexão do servidor, escolhida por nome, preenche.
         AdapterConnections.SERVER_ONLY_PROPERTIES.forEach(properties::remove);

@@ -11,6 +11,7 @@ import { useWorkflowConfig } from '../useWorkflowConfig'
 import { useCatalog } from '../useCatalog'
 import { useChatProviders } from '../useChatProviders'
 import { useWorkflowStore } from '../../../stores/workflow-store'
+import { UpstreamRefs } from './NodeReferences'
 import type { ProviderInfo } from '../../../services/workflow-config-api'
 import {
   getConfig, dedupeByValue, findModel, ctxLabel, INHERIT,
@@ -37,6 +38,8 @@ interface AgentFieldsProps {
   nodeData: FlowNodeData
   update: (key: string, value: unknown) => void
   isAssistant: boolean
+  /** O id do nó: as referências dos nós anteriores da "Mensagem do usuário" partem dele. */
+  nodeId?: string
 }
 
 /**
@@ -44,7 +47,7 @@ interface AgentFieldsProps {
  * persona, pattern, governança, memória) — extraído do PropertyPanel
  * monolítico; o estado derivado vem dos mesmos hooks com cache de módulo.
  */
-export function AgentFields({ nodeData, update, isAssistant }: AgentFieldsProps) {
+export function AgentFields({ nodeData, update, isAssistant, nodeId }: AgentFieldsProps) {
   const { t } = useTranslation()
   const { providers, patterns, personas, governance } = useWorkflowConfig()
   const catalog = useCatalog()
@@ -334,6 +337,36 @@ export function AgentFields({ nodeData, update, isAssistant }: AgentFieldsProps)
               styles={{ input: { fontSize: 12, fontFamily: 'var(--font-mono)' } }}
             />
           </div>
+
+          {/* Mensagem do usuário (RCHFLW-120): sem ela o LLM recebe a saída do passo anterior — depois de uma
+              Decisão ou Condição, o JSON da classificação. As referências seguem as regras das condições, e o
+              Executar e o servidor recusam a que nunca funciona (controlExpressions / ControlExpressionRules). */}
+          {isChat && (
+            <div data-testid="panel-user-message">
+              <div style={{ fontSize: 11, fontWeight: 500, color: 'var(--color-text-secondary)', marginBottom: 5 }}>
+                {f('userMessage')}
+              </div>
+              <Textarea
+                value={storedText(nodeData, 'userMessage')}
+                onChange={e => update('userMessage', e.currentTarget.value)}
+                placeholder={f('userMessagePlaceholder')}
+                minRows={1}
+                maxRows={4}
+                autosize
+                size="xs"
+                styles={{ input: { fontSize: 12, fontFamily: 'var(--font-mono)' } }}
+              />
+              <Text size="xs" c="dimmed" mt={4} lh={1.4} data-testid="panel-user-message-hint">{f('userMessageHint')}</Text>
+              {nodeId && (
+                <div style={{ marginTop: 6 }}>
+                  <UpstreamRefs nodeId={nodeId} onInsert={snippet => {
+                    const atual = storedText(nodeData, 'userMessage')
+                    update('userMessage', atual.trim() === '' ? snippet : `${atual.replace(/\s+$/, '')} ${snippet}`)
+                  }} />
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Temperature */}
           <NumberInput

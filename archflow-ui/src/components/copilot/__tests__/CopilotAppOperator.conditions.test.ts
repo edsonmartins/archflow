@@ -122,6 +122,8 @@ const step = (id: string, type: string, config: Record<string, unknown> = {}) =>
 })
 
 const configOf = (id: string) => useFlowStore.getState().nodes.find(n => n.id === id)?.data.config
+/** As regras de classificar e ramificar que o agente recebe no contexto (EXPRESSION_RULES). */
+const rules = () => [...contexts.entries()].find(([d]) => d.startsWith('How to classify and branch'))?.[1]
 const redToasts = () => notificationsMock.show.mock.calls.filter(([n]) => (n as { color?: string }).color === 'red')
 
 // ── Laço real do CopilotKit com backend falso ──
@@ -493,19 +495,26 @@ describe('RCHFLW-116 — o copiloto monta a triagem que ramifica pela RESPOSTA d
         } } }]
       }
       if (turn === 5) {
+        // RCHFLW-120: o LLM do ramo comum responde à mensagem do cliente (a saída da Entrada), não ao JSON da
+        // decisão que a condição repassa — a regra que o agente recebe no contexto.
+        expect((rules() as string[]).join('\n')).toContain('{"userMessage":"${<inputNodeId>}"}')
+        // Chamada por API com {"message": …}: ${<Entrada>} é o objeto inteiro em JSON; a regra aponta o campo.
+        expect((rules() as string[]).join('\n')).toContain('reference its text field: ${<inputNodeId>.message}')
         return [
           { name: 'connectNodes', args: { sourceId: ids.get('Receber pedido'), targetId: ids.get('Triagem') } },
           { name: 'connectNodes', args: { sourceId: ids.get('Triagem'), targetId: ids.get('É urgente?') } },
           { name: 'connectNodes', args: { sourceId: ids.get('É urgente?'), targetId: ids.get('Atendimento humano'), branch: 'true' } },
           { name: 'connectNodes', args: { sourceId: ids.get('É urgente?'), targetId: ids.get('Responder com LLM'), branch: 'false' } },
+          { name: 'configureNode', args: { nodeId: ids.get('Responder com LLM'),
+            config: { userMessage: `\${${ids.get('Receber pedido')}}` } } },
         ]
       }
       return 'Triagem montada: urgente vai para o humano, o resto o LLM responde.'
     })
 
     expect(bodies).toHaveLength(6)
-    // As ligações da última rodada entraram todas.
-    expect(toolResults(bodies[5].messages).slice(-4).map(r => r.result.ok)).toEqual([true, true, true, true])
+    // As ligações e a Mensagem do usuário da última rodada entraram todas.
+    expect(toolResults(bodies[5].messages).slice(-5).map(r => r.result.ok)).toEqual([true, true, true, true, true])
     expect(documentoNormalizado()).toEqual(triagemFlow.steps)
     // O Executar do editor e o aviso do "Gerar com IA" aceitam o fluxo como saiu.
     const steps = useFlowStore.getState().getCanvasSnapshot().steps
@@ -538,5 +547,63 @@ describe('RCHFLW-116 — o copiloto monta a triagem que ramifica pela RESPOSTA d
     expect(primaryErrado.ok).toBe(false)
     expect(primaryErrado.error).toContain('primary "urgente" is not one of the question ids')
     expect(configOf('dec')).toEqual({ questions: { assunto: ASSUNTO }, onError: 'FAIL' })
+  })
+})
+
+/**
+ * RCHFLW-120 — o LLM Chat depois de uma decisão/condição recebia o JSON da classificação. A "Mensagem do usuário"
+ * (userMessage) que o agente grava passa pelas mesmas regras do Executar e do servidor: o que nunca funciona volta
+ * ao agente com o motivo; a referência à Entrada entra.
+ */
+describe('RCHFLW-120 — userMessage do llm-chat: o agente grava, e o que não resolve é recusado', () => {
+  const fluxo: WorkflowData = {
+    steps: [step('receber', 'input'), step('classificar', 'llm-chat'), step('responder', 'llm-chat'),
+      step('agente', 'agent')],
+    connections: [],
+  }
+
+  it('configureNode e addNode recusam ${ sem fechar, passo inexistente e campo da saída de texto; a Entrada entra', async () => {
+    await mountEditor(fluxo)
+
+    const aberta = await call<{ ok: boolean; error: string }>('configureNode', {
+      nodeId: 'responder', config: { userMessage: 'Cliente: ${receber' } })
+    const rotulo = await call<{ ok: boolean; error: string }>('configureNode', {
+      nodeId: 'responder', config: { userMessage: '${Receber.texto}' } })
+    const campoDeTexto = await call<{ ok: boolean; error: string }>('addNode', {
+      nodeType: 'llm-chat', config: { userMessage: '${classificar.resposta}' } })
+    // O campo de texto de uma Entrada em objeto JSON (a forma que a regra indica para chamadas de API) é aceito.
+    const campoDaEntrada = await call<{ ok: boolean }>('configureNode', {
+      nodeId: 'responder', config: { userMessage: '${receber.message}' } })
+    const certo = await call<{ ok: boolean }>('configureNode', {
+      nodeId: 'responder', config: { userMessage: 'Cliente: ${receber}' } })
+    // A chave só existe nos nós de chat: num agente MCP ela seria gravada sem que nada a lesse.
+    const noAgente = await call<{ ok: boolean; allowedKeys: string[] }>('configureNode', {
+      nodeId: 'agente', config: { userMessage: '${receber}' } })
+
+    expect(aberta.ok).toBe(false)
+    expect(aberta.error).toContain('userMessage not applied: "${receber" is not a reference')
+    expect(rotulo.ok).toBe(false)
+    expect(rotulo.error).toContain('no node in this flow has the id "Receber"')
+    expect(campoDeTexto.ok).toBe(false)
+    expect(campoDeTexto.error).toContain('"classificar" is an llm-chat node, whose output is the reply TEXT')
+    expect(campoDaEntrada.ok).toBe(true)
+    expect(certo.ok).toBe(true)
+    expect(configOf('responder')).toEqual({ userMessage: 'Cliente: ${receber}' })
+    expect(noAgente.ok).toBe(false)
+    expect(noAgente.allowedKeys).not.toContain('userMessage')
+    expect(useFlowStore.getState().nodes.filter(n => n.data.nodeType === 'llm-chat')).toHaveLength(2)
+    expect(runBlockers(useFlowStore.getState().getCanvasSnapshot().steps).invalidExpressions).toEqual([])
+  })
+
+  it('na fila (sem fluxo aberto) só o formato é conferido: o passo citado pode estar no fluxo que vai abrir', async () => {
+    await operator()
+    const aberta = await call<{ ok: boolean; error: string }>('addNode', {
+      nodeType: 'llm-chat', config: { userMessage: '${receber' } })
+    const outroFluxo = await call<{ ok: boolean }>('addNode', {
+      nodeType: 'llm-chat', config: { userMessage: '${receber.texto}' } })
+
+    expect(aberta.ok).toBe(false)
+    expect(aberta.error).toContain('is not a reference')
+    expect(outroFluxo.ok).toBe(true)
   })
 })
