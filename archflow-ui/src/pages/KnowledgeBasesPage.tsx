@@ -35,6 +35,9 @@ const statusColor = (status: string) => ({
     PROCESSING: 'blue', RUNNING: 'blue',
     QUEUED: 'yellow', BUILDING: 'yellow',
     FAILED: 'red', CANCELLED: 'gray', INACTIVE: 'gray',
+    // Indexado, mas fora da versão ativa do índice (depois de restaurar uma anterior): a busca não o
+    // alcança, e o reenvio o reindexa (RCHFLW-157).
+    NOT_IN_ACTIVE_INDEX: 'orange',
 }[status] ?? 'gray')
 
 const formatDate = (value: string | null) =>
@@ -172,6 +175,13 @@ export default function KnowledgeBasesPage() {
 
     const upload = async (file: File | null) => {
         if (!file || !selectedId) return
+        // A mesma regra do servidor (FileStorageService): arquivo de 0 byte não é enviado. Antes o toast
+        // mostrava o JSON cru da recusa, em inglês (RCHFLW-194).
+        if (file.size === 0) {
+            notifications.show({ color: 'red', title: t('knowledge.uploadFailed'),
+                message: t('knowledge.emptyFile') })
+            return
+        }
         setUploading(true)
         try {
             const stored = await knowledgeApi.upload(file)

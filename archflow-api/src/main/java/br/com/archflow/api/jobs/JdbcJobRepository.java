@@ -238,7 +238,7 @@ public class JdbcJobRepository implements JobRepository {
 
     @Override
     public JobRecord reopen(String tenantId, String id, int additionalAttempts,
-                            Map<String, Object> payload) {
+                            Map<String, Object> payload, Set<JobStatus> from) {
         // O WHERE no estado é o que torna a reabertura segura com dois reenvios simultâneos: só um
         // UPDATE pega a linha FAILED/CANCELLED, e a contagem diz a cada chamador se foi ele. O
         // attempt não volta a zero porque job_attempts tem (job_id, attempt_no) como chave; o teto
@@ -250,12 +250,22 @@ public class JdbcJobRepository implements JobRepository {
         } catch (Exception e) {
             throw new RuntimeException("Failed to serialize payload of job " + id, e);
         }
+        // Só estados terminais: um job na fila ou rodando nunca é "reaberto" por cima de quem o executa.
+        List<String> states = from.stream()
+                .filter(state -> state == JobStatus.SUCCEEDED || state == JobStatus.FAILED
+                        || state == JobStatus.CANCELLED)
+                .map(Enum::name).sorted().toList();
+        if (states.isEmpty()) return null;
+        List<Object> parameters = new ArrayList<>(List.of(
+                json, additionalAttempts, Timestamp.from(Instant.now()), tenantId, id));
+        parameters.addAll(states);
         int updated = executeCount("""
                 UPDATE jobs SET status='QUEUED', payload=?, progress=0, message='Queued for retry',
                     error=NULL, max_attempts=attempt+?, cancel_requested=FALSE, worker_id=NULL,
                     completed_at=NULL, lease_until=NULL, updated_at=?
-                 WHERE tenant_id=? AND id=? AND status IN ('FAILED','CANCELLED')
-                """, json, additionalAttempts, Timestamp.from(Instant.now()), tenantId, id);
+                 WHERE tenant_id=? AND id=? AND status IN (
+                """ + String.join(",", java.util.Collections.nCopies(states.size(), "?")) + ")",
+                parameters.toArray());
         return updated == 1 ? find(tenantId, id) : null;
     }
 

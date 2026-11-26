@@ -216,7 +216,7 @@ public class AgUiController {
                         ? AgUiEvent.of("RUN_ERROR", fields("runId", runId,
                                 "message", ErroDoProvedorLegivel.paraUsuario(errorOf(err))))
                         : AgUiEvent.of("RUN_FINISHED", fields("threadId", threadId, "runId", runId,
-                                "result", Map.of("status", statusOf(result, null))));
+                                "result", resultadoDoRun(result)));
                 conexao.escrever(terminal);
             }
             streamRegistry.removeGlobalListener(listener);
@@ -228,6 +228,20 @@ public class AgUiController {
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────
+
+    /**
+     * O {@code result} do {@code RUN_FINISHED}: o status e, quando o fluxo devolveu uma, a saída. Só com o
+     * status, o Runner AG-UI terminava sem mostrar a resposta que a execução tinha (RCHFLW-194) — nenhum nó do
+     * caminho de workflow emite {@code TEXT_MESSAGE_*}, então a saída do fluxo só tem este lugar.
+     */
+    private static Map<String, Object> resultadoDoRun(FlowResult result) {
+        Map<String, Object> resultado = new java.util.LinkedHashMap<>();
+        resultado.put("status", statusOf(result, null));
+        if (result != null) {
+            result.getOutput().ifPresent(output -> resultado.put("output", output));
+        }
+        return resultado;
+    }
 
     /**
      * Uma resposta AG-UI em andamento. Serializa as escritas (o motor pode transmitir de threads

@@ -112,7 +112,7 @@ Adapters are discovered via SPI at runtime.
   `StandaloneFlowMaterializer` — same steps and same up-front refusal as the standalone runner). The
   `archflow-standalone` dependency is `optional`: only the embedded runner needs it, and it drags the whole
   engine along
-- **archflow-conversation** - Suspend/resume wired to the server; guardrails/governance/episodic memory/summarizer are an OPT-IN library not yet called by the archflow-api execution path
+- **archflow-conversation** - Suspend/resume wired to the server. The transcript (record + messages) goes through `ConversationRepository` — `JdbcConversationRepository` (`conversations`/`conversation_messages`, V2_1) under `archflow.persistence.jdbc.enabled`, in-memory otherwise; before RCHFLW-181 `DefaultConversationService` kept messages in its own map and the tables stayed empty. Cancel is a record status (`CANCELLED`), not just the deleted suspension; a rejected/expired approval withdraws the form of the conversation waiting on that execution (`ApprovalQueueService.aoEncerrarSemAprovacao`); guardrails/governance/episodic memory/summarizer are an OPT-IN library not yet called by the archflow-api execution path
 
 ### OpenRouter provider preferences (ZDR) travel in the request body
 

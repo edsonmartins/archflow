@@ -24,6 +24,17 @@ public interface ConversationRepository {
     Optional<Conversation> findById(String tenantId, String conversationId);
 
     /**
+     * A conversa pelo id, em qualquer tenant — para descobrir o dono antes das leituras por tenant.
+     *
+     * <p>O id é a chave primária da tabela {@code conversations}, única entre os tenants, então a
+     * resposta é no máximo uma. Existe porque o {@code ConversationService} recebe só o id (a fala do
+     * agente, o "formulário enviado", o cancelamento) e precisa gravar a mensagem no tenant dono; quem
+     * responde a uma requisição continua conferindo o tenant do chamador contra o
+     * {@link Conversation#tenantId()} devolvido.</p>
+     */
+    Optional<Conversation> findByIdAcrossTenants(String conversationId);
+
+    /**
      * List all conversations for a tenant.
      */
     List<Conversation> listByTenant(String tenantId);

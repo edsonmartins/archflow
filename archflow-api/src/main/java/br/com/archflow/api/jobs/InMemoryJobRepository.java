@@ -178,10 +178,9 @@ public class InMemoryJobRepository implements JobRepository {
 
     @Override
     public synchronized JobRecord reopen(String tenantId, String id, int additionalAttempts,
-                                         Map<String, Object> payload) {
+                                         Map<String, Object> payload, java.util.Set<JobStatus> from) {
         JobRecord job = find(tenantId, id);
-        if (job == null
-                || (job.status() != JobStatus.FAILED && job.status() != JobStatus.CANCELLED)) {
+        if (job == null || !isTerminal(job.status()) || !from.contains(job.status())) {
             return null;
         }
         // Mesmas regras do JdbcJobRepository: attempt segue de onde parou e o teto cresce.

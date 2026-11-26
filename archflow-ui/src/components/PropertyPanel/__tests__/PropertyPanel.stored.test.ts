@@ -32,6 +32,10 @@ vi.mock('../useWorkflowConfig', () => ({
   }),
 }))
 vi.mock('../useChatProviders', () => ({ useChatProviders: () => null }))
+// A lista de bases do campo Base de conhecimento (o nó vector-search com base).
+vi.mock('../../../services/knowledge-api', () => ({
+  knowledgeApi: { listBases: () => Promise.resolve([{ id: 'kb-1', name: 'Políticas' }]) },
+}))
 vi.mock('../useCatalog', () => ({
   useCatalog: () => ({
     agents: [{ id: 'research-agent', displayName: 'Research Agent', kind: 'agent', description: '' }],
@@ -202,6 +206,24 @@ describe('DecisionFields — padrões reais do motor (RCHFLW-92)', () => {
     await act(async () => { fireEvent.change(field(view, 'thresholdAuto'), { target: { value: '' } }) })
 
     expect(update).toHaveBeenCalledWith('thresholds', { review: 0.4 })
+  })
+})
+
+describe('PropertyPanel — score mínimo da busca na base (RCHFLW-194)', () => {
+  it('vector-search com base mostra o minScore gravado (o template grava 0.7) e o padrão real no placeholder',
+    async () => {
+      const view = await panel(data('vector-search', { knowledgeBaseId: 'kb-1', topK: 5, minScore: 0.7 }))
+
+      expect(field(view, 'minScore').value).toBe('0.7')
+      const vazio = await panel(data('vector-search', { knowledgeBaseId: 'kb-1' }))
+      const campos = vazio.getAllByLabelText(/^editor\.properties\.fields\.minScore$/) as HTMLInputElement[]
+      expect(campos.at(-1)!.placeholder).toBe('editor.properties.fields.defaultValue:0')
+    })
+
+  it('sem base o campo não aparece: o adapter do vector store não lê minScore', async () => {
+    const view = await panel(data('vector-search', { topK: 5 }))
+
+    expect(view.queryByLabelText(/^editor\.properties\.fields\.minScore$/)).toBeNull()
   })
 })
 

@@ -91,8 +91,10 @@ export default function ConversationsListPage() {
     const colunas = useMemo((): VxColumn[] => [
         colunaDupla(
             { field: 'id', title: t('conversations.table.id'), width: 'auto', minWidth: 220 },
-            (r) => (r.title ? String(r.title) : String(r.id).slice(0, 8)),
-            (r) => (r.title ? String(r.id).slice(0, 8) : (r.lastMessage as string | undefined)),
+            // O id inteiro: cortado em 8 caracteres, "qa2-conversas-form-…" e "qa2-conversas-expira-…" viravam
+            // a mesma linha "qa2-conv" (RCHFLW-194).
+            (r) => (r.title ? String(r.title) : String(r.id)),
+            (r) => (r.title ? String(r.id) : (r.lastMessage as string | undefined)),
         ),
         colunaDupla(
             { field: 'userId', title: t('conversations.table.user'), width: 200 },

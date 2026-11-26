@@ -214,6 +214,15 @@ public class ConversationManager {
     }
 
     /**
+     * O estado guardado da conversa, mesmo vencido, sem o efeito de {@link #getById} de apagar o vencido.
+     * Para quem só lê um dado dele — o tenant dono, no contexto — e não pode, ao consultar, mudar o que a
+     * varredura de vencidas ({@link #cleanupExpired}) ou a retomada vão encontrar depois.
+     */
+    public Optional<SuspendedConversation> peek(String conversationId) {
+        return store.findById(conversationId);
+    }
+
+    /**
      * Cancels a suspended conversation.
      */
     public boolean cancel(String conversationId) {
@@ -222,6 +231,27 @@ public class ConversationManager {
             log.info("Cancelled conversation {}", conversationId);
         }
         return removed;
+    }
+
+    /**
+     * Retira o formulário de uma conversa que ainda o espera: o estado {@code WAITING} sai do store e a
+     * conversa deixa de estar suspensa. Para quando o que o envio continuaria acabou sem ele — a
+     * aprovação da execução foi recusada, expirou ou a execução parou (RCHFLW-194): sem isto a conversa
+     * ficava SUSPENDED para sempre, com um formulário cujo envio só podia ser recusado.
+     *
+     * <p>Sob o mesmo lock de {@link #resume}: ou o envio retomou primeiro (e nada é retirado), ou a
+     * retirada vence e o token deixa de existir.</p>
+     *
+     * @return o estado retirado, ou vazio se a conversa não esperava (já retomada, cancelada, ausente)
+     */
+    public synchronized Optional<SuspendedConversation> withdraw(String conversationId) {
+        SuspendedConversation suspended = store.findById(conversationId).orElse(null);
+        if (suspended == null || suspended.getStatus() != SuspendedConversation.ConversationStatus.WAITING) {
+            return Optional.empty();
+        }
+        store.deleteById(conversationId);
+        log.info("Withdrew the pending form of conversation {}", conversationId);
+        return Optional.of(suspended);
     }
 
     /**

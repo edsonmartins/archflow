@@ -120,7 +120,7 @@ class DefaultConversationServiceTest {
         List<ConversationMessage> messages = service.getMessages("conv-1");
         assertThat(messages).hasSize(1);
         assertThat(messages.get(0).role()).isEqualTo(ConversationMessage.Role.SYSTEM);
-        assertThat(messages.get(0).content()).contains("suspended");
+        assertThat(messages.get(0).content()).contains("suspensa");
     }
 
     @Test
@@ -176,7 +176,7 @@ class DefaultConversationServiceTest {
         service.addMessage(ConversationMessage.user("conv-message-only", "Hello"));
         service.suspend("conv-suspended", "wf-1", sampleForm());
 
-        List<String> ids = service.listConversationIds();
+        List<String> ids = service.listConversationIds(null);
 
         assertThat(ids).contains("conv-message-only", "conv-suspended");
     }

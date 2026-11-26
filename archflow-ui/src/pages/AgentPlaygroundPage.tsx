@@ -115,6 +115,7 @@ export default function AgentPlaygroundPage() {
     const [agentId, setAgent]   = useState<string | null>(null)
     const [payload, setPayload] = useState('{"topic":"weather"}')
     const [message, setMessage] = useState('Hello, agent!')
+    const [operation, setOperation] = useState<string | null>(null)
     const [response, setResp]   = useState<unknown>(null)
     const [origem, setOrigem]   = useState<Origem | null>(null)
     const [busy, setBusy]       = useState<Origem | null>(null)
@@ -125,6 +126,11 @@ export default function AgentPlaygroundPage() {
         ...catalog.agents.map(a => ({ value: a.id, label: `${a.displayName} (${t('agentPlayground.agentLabel')})` })),
         ...catalog.assistants.map(a => ({ value: a.id, label: `${a.displayName} (${t('agentPlayground.assistantLabel')})` })),
     ]
+
+    // As operações que o componente escolhido declara. Sem escolher uma, o chat roda a padrão dele — e um
+    // assistente que só tem analyze/respond, sem padrão, sempre falhava sem dar como escolher (RCHFLW-194).
+    const selected = [...catalog.agents, ...catalog.assistants].find(a => a.id === agentId)
+    const operationOptions = (selected?.operations ?? []).map(op => ({ value: op.id, label: op.name || op.id }))
 
     const handleInvoke = async () => {
         if (!agentId) {
@@ -158,7 +164,8 @@ export default function AgentPlaygroundPage() {
         }
         setBusy('message')
         try {
-            const res = await agentPlaygroundApi.message(tenantId, agentId, message, sessionId || undefined)
+            const res = await agentPlaygroundApi.message(tenantId, agentId, message, sessionId || undefined,
+                operation ?? undefined)
             setResp(res)
             setOrigem('message')
             setAcompanhada({ requestId: res.requestId, tenantId })
@@ -209,7 +216,7 @@ export default function AgentPlaygroundPage() {
                                 size="sm"
                                 label={t('agentPlayground.agent')}
                                 value={agentId}
-                                onChange={setAgent}
+                                onChange={value => { setAgent(value); setOperation(null) }}
                                 data={agentOptions}
                                 searchable
                                 placeholder={t('agentPlayground.agentPlaceholder')}
@@ -252,6 +259,19 @@ export default function AgentPlaygroundPage() {
 
                                 <Tabs.Panel value="message" pt="md">
                                     <Stack gap="sm">
+                                        {operationOptions.length > 0 && (
+                                            <Select
+                                                size="sm"
+                                                label={t('agentPlayground.operation')}
+                                                description={t('agentPlayground.operationHint')}
+                                                value={operation}
+                                                onChange={setOperation}
+                                                data={operationOptions}
+                                                clearable
+                                                placeholder={t('agentPlayground.operationPlaceholder')}
+                                                data-testid="pg-operation"
+                                            />
+                                        )}
                                         <Textarea
                                             size="sm"
                                             label={t('agentPlayground.message')}

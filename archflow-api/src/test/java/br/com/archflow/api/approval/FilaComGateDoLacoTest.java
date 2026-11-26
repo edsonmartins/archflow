@@ -110,16 +110,20 @@ class FilaComGateDoLacoTest {
             assertThat(fila).extracting(ApprovalResponse::requestId).containsExactly("req-fluxo");
         }
 
-        /** O store lista por tenant; "todos" não é pergunta que ele responde. */
+        /**
+         * RCHFLW-141: a UI do admin manda {@code tenantId=all}, e a fila devolvia só as do fluxo — o
+         * gate do laço sumia da tela de Aprovações e do badge, embora a API sem parâmetro o listasse.
+         */
         @Test
-        @DisplayName("a visão de admin (todos os tenants) não quebra por causa do laço")
+        @DisplayName("a visão de admin (todos os tenants) inclui o gate do laço, na lista e na contagem")
         void todosOsTenants() {
             when(stateManager.findByStatus(FlowStatus.AWAITING_APPROVAL))
                     .thenReturn(List.of(fluxoAguardando()));
+            when(retomada.pendentes("all")).thenReturn(List.of(pendenciaDoLaco()));
 
             assertThat(fila().listPending("all")).extracting(ApprovalResponse::requestId)
-                    .containsExactly("req-fluxo");
-            verify(retomada, never()).pendentes(anyString());
+                    .containsExactly("req-laco", "req-fluxo");
+            assertThat(fila().pendingCount("all")).as("o badge").isEqualTo(2);
         }
 
         /** Uma falha ao ler o store do agente não pode apagar a fila do fluxo. */

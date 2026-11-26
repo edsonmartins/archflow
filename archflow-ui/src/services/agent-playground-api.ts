@@ -62,10 +62,11 @@ export const agentPlaygroundApi = {
             return r.json() as Promise<InvokeResponse>
         }),
 
-    message: (tenantId: string, agentId: string, message: string, sessionId?: string) =>
+    // operation: a operação do componente; ausente, vale a padrão dele (RCHFLW-194).
+    message: (tenantId: string, agentId: string, message: string, sessionId?: string, operation?: string) =>
         authFetch('/archflow/events/message', {
             method: 'POST',
-            body: JSON.stringify({ tenantId, sessionId, agentId, message, metadata: {} }),
+            body: JSON.stringify({ tenantId, sessionId, agentId, message, metadata: {}, operation }),
         }).then(async r => {
             if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`)
             return r.json() as Promise<MessageResponse>

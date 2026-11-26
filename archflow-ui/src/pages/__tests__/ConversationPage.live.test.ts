@@ -90,14 +90,14 @@ afterEach(async () => {
   container?.remove()
 })
 
-async function render() {
+async function render(id = 'conv-1') {
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
   await act(async () => {
     root!.render(
       h(MantineProvider, null,
-        h(MemoryRouter, { initialEntries: ['/conversations/conv-1'] },
+        h(MemoryRouter, { initialEntries: [`/conversations/${id}`] },
           h(Routes, null, h(Route, { path: '/conversations/:id', element: h(ConversationPage) })))),
     )
   })
@@ -219,5 +219,19 @@ describe('ConversationPage — falhas da busca do registro', () => {
     await waitFor(() => expect(messageCountShown()).toBe('2'))
     expect(container.textContent).not.toContain('conversationDetail.noMetadata')
     expect(container.textContent).not.toContain('timeout')
+  })
+})
+
+describe('ConversationPage — id da conversa (RCHFLW-194)', () => {
+  it('o breadcrumb mostra o id inteiro: conversas com o mesmo prefixo de 8 caracteres não se confundem', async () => {
+    apiMock.getConversation.mockResolvedValue(record(1, 'Conversa iniciada'))
+    await render('qa2-conversas-form-1795667360')
+
+    const trilha = await waitFor(() => {
+      const found = container.querySelector('.mantine-Breadcrumbs-root')
+      expect(found).not.toBeNull()
+      return found as HTMLElement
+    })
+    expect(trilha.textContent).toContain('qa2-conversas-form-1795667360')
   })
 })

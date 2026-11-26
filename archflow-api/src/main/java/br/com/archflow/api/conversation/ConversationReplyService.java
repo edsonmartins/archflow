@@ -174,6 +174,31 @@ public class ConversationReplyService {
         publishMessage(conversationId, tenant, message);
     }
 
+    /**
+     * Publica uma fala do usuário já gravada ({@code chat/message}, papel {@code user}, com o id gravado),
+     * sem {@code chat/start}/{@code chat/end}: ela não é uma resposta. Sem isto, quem acompanhava a
+     * conversa em outra aba via só as respostas do assistente (RCHFLW-194); quem enviou casa a fala pelo
+     * {@code messageId} com a que já desenhou.
+     */
+    public void publishUserMessage(String conversationId, String tenantId, ConversationMessage message) {
+        broadcast(channelTenant(tenantId), conversationId, ArchflowEventType.MESSAGE,
+                messageData(conversationId, message));
+    }
+
+    /**
+     * Publica uma fala do sistema já gravada por outro caminho — o "Conversa cancelada" que o
+     * cancelamento grava — no formato de {@link #publishReply} ({@code chat/start}, {@code chat/message},
+     * {@code chat/end}), sem gravá-la de novo. Sem isto o segundo visualizador recebia só o
+     * {@code interaction/cancel}: o formulário sumia, mas a transcrição dele não dizia que a conversa
+     * acabou. O {@code messageId} é o gravado, e é por ele que o chat de quem cancelou não a repete.
+     */
+    public void publishStoredNotice(String conversationId, String tenantId, ConversationMessage message) {
+        String tenant = channelTenant(tenantId);
+        broadcast(tenant, conversationId, ArchflowEventType.START, Map.of("conversationId", conversationId));
+        broadcast(tenant, conversationId, ArchflowEventType.MESSAGE, messageData(conversationId, message));
+        broadcast(tenant, conversationId, ArchflowEventType.END, Map.of("conversationId", conversationId));
+    }
+
     /** Persiste e publica uma falha que encerra a espera do chat ({@code chat/error}). */
     void publishFailure(String conversationId, String tenantId, String message) {
         String tenant = channelTenant(tenantId);
@@ -189,13 +214,17 @@ public class ConversationReplyService {
 
     private void publishMessage(String conversationId, String tenantId, ConversationMessage message) {
         conversationService.addMessage(message);
+        broadcast(tenantId, conversationId, ArchflowEventType.MESSAGE, messageData(conversationId, message));
+        broadcast(tenantId, conversationId, ArchflowEventType.END, Map.of("conversationId", conversationId));
+    }
+
+    private static Map<String, Object> messageData(String conversationId, ConversationMessage message) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("conversationId", conversationId);
         data.put("messageId", message.id());
         data.put("role", message.role().name().toLowerCase(java.util.Locale.ROOT));
         data.put("content", message.content());
-        broadcast(tenantId, conversationId, ArchflowEventType.MESSAGE, data);
-        broadcast(tenantId, conversationId, ArchflowEventType.END, Map.of("conversationId", conversationId));
+        return data;
     }
 
     private static String channelTenant(String tenantId) {

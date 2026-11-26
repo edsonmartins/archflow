@@ -73,6 +73,23 @@ public class ApprovalQueueService {
      */
     private final WorkflowRuntimeStore executionRecords;
 
+    /**
+     * Quem precisa saber que uma execução acabou num portão sem aprovação — recusada por alguém ou pelo
+     * prazo. A conversa que esperava um formulário dessa execução é o caso: sem o aviso ela ficava
+     * SUSPENDED para sempre, e cada envio voltava com 409 (RCHFLW-194).
+     */
+    @FunctionalInterface
+    public interface EncerramentoSemAprovacao {
+        /**
+         * @param flowId   a execução encerrada
+         * @param porPrazo {@code true} quando ninguém decidiu a tempo (o decisor é o timeout)
+         */
+        void encerrada(String flowId, boolean porPrazo);
+    }
+
+    private final List<EncerramentoSemAprovacao> encerramentos =
+            new java.util.concurrent.CopyOnWriteArrayList<>();
+
     /** Sem prazo — as aprovações esperam indefinidamente. */
     public ApprovalQueueService(StateManager stateManager, FlowEngine flowEngine) {
         this(stateManager, flowEngine, Duration.ZERO, Clock.systemUTC());
@@ -121,6 +138,36 @@ public class ApprovalQueueService {
         return !timeout.isZero();
     }
 
+    /** Avisa {@code ouvinte} de cada execução encerrada num portão sem aprovação (recusa ou prazo). */
+    public void aoEncerrarSemAprovacao(EncerramentoSemAprovacao ouvinte) {
+        encerramentos.add(Objects.requireNonNull(ouvinte, "ouvinte"));
+    }
+
+    /**
+     * Nunca lança: a recusa já está gravada no estado do motor e no registro, e um ouvinte que falha não
+     * pode virar erro para quem recusou.
+     */
+    private void avisarEncerramento(String flowId) {
+        if (encerramentos.isEmpty()) {
+            return;
+        }
+        boolean porPrazo;
+        try {
+            FlowState decided = stateManager.loadState(flowId);
+            porPrazo = decided != null
+                    && TIMEOUT_DECIDER.equals(variable(decided, ExecutionKeys.APPROVAL_DECIDED_BY));
+        } catch (RuntimeException e) {
+            porPrazo = false;
+        }
+        for (EncerramentoSemAprovacao ouvinte : encerramentos) {
+            try {
+                ouvinte.encerrada(flowId, porPrazo);
+            } catch (RuntimeException e) {
+                log.warn("Aviso do encerramento sem aprovação de {} falhou: {}", flowId, e.getMessage(), e);
+            }
+        }
+    }
+
     /**
      * Aprovações pendentes, mais antigas primeiro (as que esperam há mais tempo
      * aparecem no topo). {@code tenantId} nulo, em branco ou {@code "all"}
@@ -142,14 +189,15 @@ public class ApprovalQueueService {
                 .toList();
     }
 
-    /** As do gate do laço de agente, na mesma forma das do nó de fluxo. */
+    /**
+     * As do gate do laço de agente, na mesma forma das do nó de fluxo.
+     *
+     * <p>"Todos os tenants" vai ao store como veio: os dois stores o respondem. A fila devolvia
+     * vazio aqui, e o admin — que a UI manda como {@code all} — via "Nenhuma aprovação pendente" e
+     * badge 0 enquanto um estorno esperava decisão (RCHFLW-141).</p>
+     */
     private java.util.stream.Stream<ApprovalResponse> pendenciasDoLaco(String tenantId) {
         if (retomadaDoLaco == null) {
-            return java.util.stream.Stream.empty();
-        }
-        // O store lista por tenant; "todos os tenants" não é uma pergunta que ele responde, e
-        // varrer tenant a tenant exigiria conhecer a lista deles.
-        if (todosOsTenants(tenantId)) {
             return java.util.stream.Stream.empty();
         }
         try {
@@ -159,10 +207,6 @@ public class ApprovalQueueService {
                     tenantId, e.getMessage());
             return java.util.stream.Stream.empty();
         }
-    }
-
-    private static boolean todosOsTenants(String tenantId) {
-        return tenantId == null || tenantId.isBlank() || ALL_TENANTS.equalsIgnoreCase(tenantId);
     }
 
     /**
@@ -573,6 +617,7 @@ public class ApprovalQueueService {
                 store.recordDuration(flowId, 0L);
                 store.completeExecution(flowId, "STOPPED", motivoDoEncerramento(flowId));
             });
+            avisarEncerramento(flowId);
             return;
         }
         registrar(flowId, store -> {

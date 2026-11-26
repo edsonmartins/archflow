@@ -411,6 +411,45 @@ class PgVectorKnowledgeIndexPostgresTest {
                         org.assertj.core.groups.Tuple.tuple(frete.document().id(), "READY"));
     }
 
+    @Test
+    @DisplayName("RCHFLW-157: restaurada uma versão anterior, o documento posterior aparece fora do índice "
+            + "ativo e o reenvio dele reindexa (job SUCCEEDED reaberto), sem perder o que veio depois")
+    void reenvioDepoisDoRollbackReindexa() {
+        var fixture = fixture(DIMENSAO);
+        String tenant = tenant();
+        KnowledgeBase base = fixture.knowledge.createBase(tenant, null, "QA2 rag base reembolso");
+        var troca = fixture.knowledge.ingest(tenant, base.id(), troca(fixture, tenant, "troca.txt"));
+        fixture.processarFila();
+        String v1 = new PgVectorKnowledgeIndex(dataSource, DIMENSAO).activeVersion(tenant, base.id()).id();
+        byte[] frete = "Frete grátis. Transportadora parceira: Ventania Log.".getBytes(StandardCharsets.UTF_8);
+        var freteEnviado = fixture.knowledge.ingest(tenant, base.id(),
+                fixture.files.store(tenant, null, "frete.txt", "text/plain", frete).id());
+        fixture.processarFila();
+        fixture.knowledge.rollbackIndex(tenant, base.id(), v1);
+        var planilha = fixture.knowledge.ingest(tenant, base.id(), fixture.files.store(tenant, null,
+                "planilha.csv", "text/plain", "sku;prazo\nA1;5".getBytes(StandardCharsets.UTF_8)).id());
+        fixture.processarFila();
+
+        assertThat(new PgVectorKnowledgeIndex(dataSource, DIMENSAO).indexedDocumentIds(tenant, base.id()))
+                .containsExactlyInAnyOrder(troca.document().id(), planilha.document().id());
+        assertThat(fixture.knowledge.documents(tenant, base.id()))
+                .extracting(KnowledgeDocument::id, KnowledgeDocument::status)
+                .contains(org.assertj.core.groups.Tuple.tuple(freteEnviado.document().id(),
+                        KnowledgeService.NOT_IN_ACTIVE_INDEX));
+
+        var reenvio = fixture.knowledge.ingest(tenant, base.id(),
+                fixture.files.store(tenant, null, "frete.txt", "text/plain", frete).id());
+        assertThat(reenvio.outcome()).isEqualTo(KnowledgeService.IngestionOutcome.REPROCESSING);
+        assertThat(reenvio.job().id()).isEqualTo(freteEnviado.job().id());
+        fixture.processarFila();
+
+        assertThat(fixture.knowledge.documents(tenant, base.id()))
+                .extracting(KnowledgeDocument::status).containsOnly("READY");
+        assertThat(new PgVectorKnowledgeIndex(dataSource, DIMENSAO).indexedDocumentIds(tenant, base.id()))
+                .containsExactlyInAnyOrder(troca.document().id(), planilha.document().id(),
+                        freteEnviado.document().id());
+    }
+
     private static String troca(Fixture fixture, String tenant, String nome) {
         return fixture.files.store(tenant, null, nome, "text/plain",
                 "Trocas em até 7 dias com nota fiscal.".getBytes(StandardCharsets.UTF_8)).id();

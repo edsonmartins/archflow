@@ -367,4 +367,35 @@ class FormDataTest {
             assertThat(form.getFields().get(2).getValidation().max()).isEqualTo(9999.0);
         }
     }
+
+    /** RCHFLW-184: a regra do chat ({@code FormRenderer}), agora também no servidor. */
+    @Nested
+    @DisplayName("missingRequired")
+    class MissingRequired {
+
+        private final FormData form = FormData.builder()
+                .title("Contato")
+                .addField(FormField.text("assunto", "Assunto").required(true).build())
+                .addField(FormField.text("obs", "Observação").build())
+                .addField(FormField.checkbox("aceite", "Aceito").required(true).build())
+                .build();
+
+        @Test
+        @DisplayName("ausente, nulo e texto vazio faltam; opcional nunca falta")
+        void faltam() {
+            Map<String, Object> comNulo = new java.util.HashMap<>();
+            comNulo.put("assunto", null);
+
+            assertThat(form.missingRequired(null)).containsExactly("assunto", "aceite");
+            assertThat(form.missingRequired(Map.of())).containsExactly("assunto", "aceite");
+            assertThat(form.missingRequired(comNulo)).containsExactly("assunto", "aceite");
+            assertThat(form.missingRequired(Map.of("assunto", "", "aceite", true))).containsExactly("assunto");
+        }
+
+        @Test
+        @DisplayName("preenchido passa, inclusive checkbox desmarcado — o chat também o envia como false")
+        void preenchido() {
+            assertThat(form.missingRequired(Map.of("assunto", "Fatura", "aceite", false))).isEmpty();
+        }
+    }
 }
