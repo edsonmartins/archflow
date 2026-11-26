@@ -335,6 +335,68 @@ class DocumentIngestionTest {
         assertThat(fixture.repository.listDocuments("tenant", base.id())).hasSize(2);
     }
 
+    /**
+     * QA2 P5: o {@code POST /api/jobs} grava o job no tenant de quem submete, mas o handler lia o
+     * tenant do payload. Um usuário do tenant B que conhecesse os ids do documento e de outro arquivo
+     * do tenant A reescrevia os trechos (e a busca) de A.
+     */
+    @Test
+    void aJobSubmittedByAnotherTenantCannotRewriteTheDocumentOfTheTenantNamedInThePayload() {
+        Fixture fixture = fixture();
+        KnowledgeBase base = fixture.knowledge.createBase("tenant-a", null, "Docs A");
+        String original = fixture.files.store("tenant-a", null, "a1.txt", "text/plain",
+                "Arquivo um do tenant A.".getBytes(StandardCharsets.UTF_8)).id();
+        String other = fixture.files.store("tenant-a", null, "a2.txt", "text/plain",
+                "Arquivo dois do tenant A: conteudo trocado pelo tenant B.".getBytes(StandardCharsets.UTF_8)).id();
+        var submission = fixture.knowledge.ingest("tenant-a", base.id(), original);
+        drain(fixture);
+        String documentId = submission.document().id();
+        List<String> before = fixture.repository.listChunks("tenant-a", documentId).stream()
+                .map(DocumentChunk::content).toList();
+
+        // O que o controller faz: o tenant do registro é o da requisição (B); o payload é do cliente.
+        JobRecord attack = fixture.jobs.submit("tenant-b", null, "DOCUMENT_INGESTION",
+                java.util.Map.of("tenantId", "tenant-a", "documentId", documentId, "fileId", other), null, 1);
+        drain(fixture);
+
+        assertThat(fixture.jobs.get("tenant-b", attack.id()).status()).isEqualTo(JobStatus.FAILED);
+        assertThat(fixture.repository.listChunks("tenant-a", documentId)).extracting(DocumentChunk::content)
+                .containsExactlyElementsOf(before)
+                .noneMatch(content -> content.contains("trocado"));
+        assertThat(fixture.repository.findDocument("tenant-a", documentId).status()).isEqualTo("READY");
+        assertThat(fixture.knowledge.search("tenant-a", base.id(), "conteudo trocado pelo tenant B", 3, 0.0))
+                .allSatisfy(hit -> assertThat(hit.content()).doesNotContain("trocado"));
+    }
+
+    /**
+     * Sem tenant no payload, o job roda no tenant do registro: o documento de outro tenant simplesmente
+     * não existe ali — a mesma resposta de um id inválido, que não diz a B se o id de A é válido.
+     */
+    @Test
+    void aJobWithoutPayloadTenantRunsInTheTenantOfTheJob() {
+        Fixture fixture = fixture();
+        KnowledgeBase base = fixture.knowledge.createBase("tenant-a", null, "Docs A");
+        String file = fixture.files.store("tenant-a", null, "a1.txt", "text/plain",
+                "Arquivo um do tenant A.".getBytes(StandardCharsets.UTF_8)).id();
+        var submission = fixture.knowledge.ingest("tenant-a", base.id(), file);
+        drain(fixture);
+        String documentId = submission.document().id();
+
+        // O próprio tenant reprocessa o documento sem repetir o tenant no payload: vale o do job.
+        JobRecord own = fixture.jobs.submit("tenant-a", null, "DOCUMENT_INGESTION",
+                java.util.Map.of("documentId", documentId, "fileId", file), null, 1);
+        // Outro tenant com os mesmos ids: no tenant dele não há esse documento.
+        JobRecord foreign = fixture.jobs.submit("tenant-b", null, "DOCUMENT_INGESTION",
+                java.util.Map.of("documentId", documentId, "fileId", file), null, 1);
+        drain(fixture);
+
+        assertThat(fixture.jobs.get("tenant-a", own.id()).status()).isEqualTo(JobStatus.SUCCEEDED);
+        JobRecord refused = fixture.jobs.get("tenant-b", foreign.id());
+        assertThat(refused.status()).isEqualTo(JobStatus.FAILED);
+        assertThat(refused.error()).isEqualTo("Document or file not found");
+        assertThat(fixture.repository.findDocument("tenant-a", documentId).status()).isEqualTo("READY");
+    }
+
     private static String store(Fixture fixture, String name) {
         return fixture.files.store("tenant", null, name, "text/plain",
                 "Trocas em até 7 dias com nota fiscal.".getBytes(StandardCharsets.UTF_8)).id();

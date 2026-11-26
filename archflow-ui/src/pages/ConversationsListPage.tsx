@@ -23,6 +23,8 @@ import { SectionCard } from '../components/SectionCard';
 import { StatCard } from '../components/admin/StatCard';
 import { VxTable, colunaApagada, colunaDupla, colunaStatus, type VxColumn } from '../components/VTable';
 import { selo } from '../components/VTable/tokens';
+import { usePermissions } from '../lib/permissions';
+import { PermissionTooltip } from '../components/PermissionTooltip';
 
 const STATUS_VALUES: ConversationListParams['status'][] =
     ['ALL', 'ACTIVE', 'AWAITING_HUMAN', 'SUSPENDED', 'ESCALATED', 'CLOSED', 'COMPLETED', 'CANCELLED'];
@@ -40,6 +42,8 @@ const STATUS_COLOR: Record<ConversationStatus, string> = {
 export default function ConversationsListPage() {
     const navigate = useNavigate();
     const { t, i18n } = useTranslation();
+    // Abrir uma conversa é acionar o agente: o servidor exige workflow:execute (QA2 RCHFLW-158).
+    const canStart = usePermissions()('workflow:execute');
     const locale = i18n.resolvedLanguage ?? i18n.language;
     const [conversations, setConversations] = useState<Conversation[]>([]);
     const [loading, setLoading] = useState(false);
@@ -128,16 +132,20 @@ export default function ConversationsListPage() {
                         >
                             {t('common.refresh')}
                         </Button>
-                        <Button
-                            leftSection={<IconPlus size={16} />}
-                            onClick={() => {
-                                void conversationApi
-                                    .createConversation()
-                                    .then(({ id }) => navigate(`/conversations/${id}`));
-                            }}
-                        >
-                            {t('conversations.new', 'Nova conversa')}
-                        </Button>
+                        <PermissionTooltip missing={canStart ? null : 'workflow:execute'}>
+                            <Button
+                                leftSection={<IconPlus size={16} />}
+                                disabled={!canStart}
+                                data-testid="conversation-new"
+                                onClick={() => {
+                                    void conversationApi
+                                        .createConversation()
+                                        .then(({ id }) => navigate(`/conversations/${id}`));
+                                }}
+                            >
+                                {t('conversations.new', 'Nova conversa')}
+                            </Button>
+                        </PermissionTooltip>
                     </>
                 }
             />

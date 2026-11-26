@@ -1,6 +1,7 @@
 package br.com.archflow.api.web.conversation;
 
 import br.com.archflow.api.config.TenantContext;
+import br.com.archflow.api.config.WorkflowPermissionInterceptor;
 import br.com.archflow.api.conversation.ConversationController;
 import br.com.archflow.api.conversation.ConversationResumeService;
 import br.com.archflow.api.conversation.dto.ConversationResponse;
@@ -12,7 +13,9 @@ import br.com.archflow.conversation.form.FormRegistry;
 import br.com.archflow.conversation.message.ConversationMessage;
 import br.com.archflow.conversation.service.ConversationService;
 import br.com.archflow.conversation.state.SuspendedConversation;
+import br.com.archflow.model.security.ApiKeyScope;
 import br.com.archflow.model.tenant.DefaultTenant;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -59,6 +62,13 @@ public class SpringConversationController {
     private final br.com.archflow.api.conversation.ConversationReplyService replyService;
     private final ConversationResumeService resumeService;
     private final FormRegistry forms;
+
+    /**
+     * A mesma propriedade que liga o filtro JWT e os interceptors de papel: desligada (dev), o envio de
+     * formulário não confere permissão nenhuma, como antes.
+     */
+    @Value("${archflow.security.auth.enabled:false}")
+    private boolean authEnabled;
 
     public SpringConversationController(ConversationController delegate,
                                         ConversationService conversationService,
@@ -148,9 +158,10 @@ public class SpringConversationController {
         }
         ConversationResponse response = delegate.suspend(request);
         conversationService.getById(response.conversationId())
-                .map(SuspendedConversation::getForm)
-                .ifPresent(form -> resumeService.announceForm(tenantId, response.conversationId(),
-                        response.resumeToken(), formEvent(toFormData(form))));
+                .filter(state -> state.getForm() != null)
+                .ifPresent(state -> resumeService.announceForm(tenantId, response.conversationId(),
+                        response.resumeToken(), formEvent(toFormData(state.getForm()),
+                                state.getWorkflowExecutionId())));
         return response;
     }
 
@@ -172,15 +183,54 @@ public class SpringConversationController {
             throw new ConversationController.NotFoundException(
                     "Conversation not found or expired for token: " + request.resumeToken());
         }
+        if (authEnabled && state.isPresent() && state.get().getWorkflowExecutionId() != null
+                && !state.get().getWorkflowExecutionId().isBlank()) {
+            // Ligado a uma execução, o envio aprova o portão dela pelo mesmo caminho da fila de aprovações
+            // (ConversationResumeService.resume → submitInput), e quem enviou fica gravado como o decisor.
+            // Exige a permissão de decidir lá (execution:manage); sem isto o formulário do chat contornava
+            // a regra do POST /api/approvals/{id} (QA2 P1). Só o controller sabe se há execução: o
+            // interceptor vê o caminho, não a conversa.
+            Optional<Map<String, Object>> refusal = WorkflowPermissionInterceptor.refusal(currentRequest(),
+                    ApiKeyScope.EXECUTION_MANAGE.getPermission());
+            if (refusal.isPresent()) {
+                throw new PermissionDeniedException(refusal.get());
+            }
+        }
         return resumeService.resume(request, TenantContext.currentTenantId(),
-                SpringApprovalController.authenticatedDecider(
-                        RequestContextHolder.getRequestAttributes() instanceof ServletRequestAttributes sra
-                                ? sra.getRequest() : null));
+                SpringApprovalController.authenticatedDecider(currentRequest()));
     }
 
-    /** As chaves do evento {@code interaction/form} do protocolo, com os campos do {@code formData}. */
-    private static Map<String, Object> formEvent(FormDataDto form) {
+    private static jakarta.servlet.http.HttpServletRequest currentRequest() {
+        return RequestContextHolder.getRequestAttributes() instanceof ServletRequestAttributes sra
+                ? sra.getRequest() : null;
+    }
+
+    /** O {@code 403} do envio de formulário sem a permissão, com o corpo do interceptor de papéis. */
+    static final class PermissionDeniedException extends RuntimeException {
+        private final transient Map<String, Object> body;
+
+        PermissionDeniedException(Map<String, Object> body) {
+            super(String.valueOf(body.get("message")));
+            this.body = body;
+        }
+    }
+
+    @ExceptionHandler(PermissionDeniedException.class)
+    public ResponseEntity<Map<String, Object>> handleForbidden(PermissionDeniedException ex) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ex.body);
+    }
+
+    /**
+     * As chaves do evento {@code interaction/form} do protocolo, com os campos do {@code formData} — e a
+     * execução que o envio continua, quando há uma: com ela o chat sabe que enviar exige
+     * {@code execution:manage} (ver {@link #resume}) e desabilita o formulário de quem não a tem, em vez
+     * de oferecer um envio que o servidor recusa (QA2 RCHFLW-136).
+     */
+    private static Map<String, Object> formEvent(FormDataDto form, String executionId) {
         Map<String, Object> event = new LinkedHashMap<>();
+        if (executionId != null && !executionId.isBlank()) {
+            event.put("executionId", executionId);
+        }
         event.put("formId", form.id());
         event.put("title", form.title());
         event.put("description", form.description());
@@ -333,7 +383,8 @@ public class SpringConversationController {
                 createdAt,
                 updatedAt,
                 messages.size(),
-                lastMessage
+                lastMessage,
+                state.map(SuspendedConversation::getWorkflowExecutionId).filter(id -> !id.isBlank()).orElse(null)
         ));
     }
 
@@ -442,7 +493,12 @@ public class SpringConversationController {
             Instant createdAt,
             Instant updatedAt,
             int messageCount,
-            String lastMessage
+            String lastMessage,
+            /**
+             * A execução que o formulário pendente continua, ou {@code null}. Com ela, enviar o formulário
+             * exige {@code execution:manage}, como decidir na fila de aprovações (ver {@link #resume}).
+             */
+            String executionId
     ) {}
 
     public record FormDataDto(

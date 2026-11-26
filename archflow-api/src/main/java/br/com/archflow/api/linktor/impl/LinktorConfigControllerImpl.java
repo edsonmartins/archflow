@@ -122,8 +122,15 @@ public class LinktorConfigControllerImpl implements LinktorConfigController {
         return byTenant.computeIfAbsent(tenantId, k -> initial);
     }
 
+    /**
+     * O segredo que fica depois do PUT. A máscara que o GET devolveu, ou o campo ausente ({@code null}, um
+     * cliente que só mexe nos outros campos), mantêm o guardado. Em branco remove (RCHFLW-193): antes o
+     * vazio também mantinha, e uma chave salva só saía com um restart — apagar o campo na tela e salvar
+     * devolvia a mesma máscara.
+     */
     private static String preserveIfMasked(String incoming, String previous) {
-        if (incoming == null || incoming.isBlank()) return previous;
+        if (incoming == null) return previous;
+        if (incoming.isBlank()) return "";
         if (LinktorConfigDto.isMasked(incoming)) return previous;
         return incoming;
     }

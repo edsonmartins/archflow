@@ -146,7 +146,8 @@ describe('actingTenant (RCHFLW-103)', () => {
 
 describe('ScheduledTriggersPage — tenant do gatilho (RCHFLW-103)', () => {
   it('usuário comum: o campo mostra o tenant do acesso, só leitura, e é ele que vai no corpo', async () => {
-    useAuthStore.setState({ token: token(['VIEWER'], 'tenant-a') })
+    // DESIGNER: não é admin (não troca de tenant), mas tem workflow:update, que criar o gatilho exige.
+    useAuthStore.setState({ token: token(['DESIGNER'], 'tenant-a') })
     await abrirNovoGatilho()
 
     const campo = body().getByTestId('trigger-tenant') as HTMLInputElement

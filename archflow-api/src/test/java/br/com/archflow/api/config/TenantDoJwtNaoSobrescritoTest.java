@@ -141,12 +141,14 @@ class TenantDoJwtNaoSobrescritoTest {
     }
 
     @Test
-    @DisplayName("personificação sem o papel é ignorada e o tenant segue o do token")
+    @DisplayName("personificação sem o papel é recusada (403) — não troca o tenant nem responde com o do token")
     void personificacaoSemPapelNaoTrocaTenant() throws Exception {
+        // RCHFLW-193: antes era ignorada em silêncio (200 com os dados do tenant-a, lidos como do tenant-b).
         Desfecho d = requisicao(token("tenant-a", "editor"), null, "tenant-b");
 
-        assertThat(d.status()).isEqualTo(200);
-        assertThat(d.tenant()).isEqualTo("tenant-a");
+        assertThat(d.status()).isEqualTo(403);
+        assertThat(d.tenant()).isNotEqualTo("tenant-b");
+        assertThat(d.corpo()).contains("IMPERSONATION_DENIED");
     }
 
     @Test

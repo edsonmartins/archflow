@@ -6,6 +6,7 @@
  * <p>Arquivo .ts (createElement em vez de JSX) porque o vitest.config só inclui *.test.ts.</p>
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { entrarComo } from '../../lib/__tests__/papeisDeTeste'
 import { createElement as h, act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
@@ -65,6 +66,8 @@ function chatEvent(type: string, data: Record<string, unknown> = {}): ArchflowEv
 }
 
 beforeEach(() => {
+  // As ações que acionam o servidor só aparecem para quem tem a permissão (QA2 RCHFLW-136/158).
+  entrarComo('ADMIN')
   vi.clearAllMocks()
   streams.length = 0
   ;(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true

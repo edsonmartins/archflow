@@ -108,10 +108,10 @@ curl -X POST http://localhost:8080/api/auth/refresh \
 
 | Propriedade | Default | Descricao |
 |-------------|---------|-----------|
-| `JWT_SECRET` | (obrigatorio) | Chave secreta HMAC-SHA256 (min 256 bits) |
-| `JWT_EXPIRATION` | `900` | Expiracao do access token em segundos |
-| `JWT_REFRESH_EXPIRATION` | `86400` | Expiracao do refresh token em segundos |
-| `JWT_ISSUER` | `archflow` | Issuer do token |
+| `ARCHFLOW_JWT_SECRET` | (obrigatorio fora de dev/test) | Chave secreta HMAC (min 256 bits); o default publico recusa o startup |
+| `ARCHFLOW_JWT_TTL` | `900` | Validade do access token, em segundos (`archflow.security.jwt.access-token-expiration-seconds`); e o mesmo valor do `expiresIn` da resposta do login/refresh |
+
+O refresh token vale 7 dias (sem property).
 
 :::caution
 Em producao, gere uma chave segura: `openssl rand -base64 32`
@@ -360,16 +360,9 @@ spec:
 
 ### 3. Rate limiting
 
-Configure rate limiting para proteger contra abuso:
-
-```yaml
-archflow:
-  security:
-    rate-limit:
-      enabled: true
-      requests-per-minute: 60
-      burst-size: 10
-```
+O archflow **nao** limita requisicoes nem tentativas de login: nao ha property `archflow.security.rate-limit`
+nem bloqueio de conta por senha errada. Faca o limite no proxy/gateway na frente do servidor (por exemplo,
+`limit_req` do nginx ou o rate limit do ingress), principalmente em `POST /api/auth/login`.
 
 ### 4. Audit logging
 

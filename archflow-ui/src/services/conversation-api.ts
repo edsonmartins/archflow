@@ -69,6 +69,8 @@ export interface Conversation {
     title?: string;
     resumeToken?: string;
     formData?: FormDataType;
+    /** Execução que o formulário pendente continua: enviá-lo exige `execution:manage` (QA2 RCHFLW-136). */
+    executionId?: string | null;
     createdAt: string;
     updatedAt: string;
     messageCount?: number;

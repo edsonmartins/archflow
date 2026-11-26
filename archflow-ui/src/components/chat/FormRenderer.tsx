@@ -5,15 +5,23 @@ import {
     PasswordInput, FileInput, Button, Group,
 } from '@mantine/core';
 import type { FormDataType, FormField } from '../../services/conversation-api';
+import type { Permission } from '../../lib/permissions';
+import { PermissionTooltip } from '../PermissionTooltip';
 
 interface FormRendererProps {
     formData: FormDataType;
     onSubmit: (data: Record<string, unknown>) => void;
     onCancel?: () => void;
     loading?: boolean;
+    /** Permissão que falta para enviar: o servidor recusaria (403), então o botão fica desabilitado. */
+    submitMissing?: Permission | null;
+    /** Idem para cancelar a conversa. */
+    cancelMissing?: Permission | null;
 }
 
-export default function FormRenderer({ formData, onSubmit, onCancel, loading }: FormRendererProps) {
+export default function FormRenderer({
+    formData, onSubmit, onCancel, loading, submitMissing = null, cancelMissing = null,
+}: FormRendererProps) {
     const { t } = useTranslation();
     const [values, setValues] = useState<Record<string, unknown>>(() => {
         const initial: Record<string, unknown> = {};
@@ -80,13 +88,19 @@ export default function FormRenderer({ formData, onSubmit, onCancel, loading }: 
 
             <Group justify="flex-end" mt="xs">
                 {onCancel && (
-                    <Button variant="default" size="xs" onClick={onCancel} disabled={loading}>
-                        {formData.cancelLabel || t('chat.form.cancel')}
-                    </Button>
+                    <PermissionTooltip missing={cancelMissing}>
+                        <Button variant="default" size="xs" onClick={onCancel} disabled={loading || !!cancelMissing}
+                                data-testid="chat-form-cancel">
+                            {formData.cancelLabel || t('chat.form.cancel')}
+                        </Button>
+                    </PermissionTooltip>
                 )}
-                <Button size="xs" onClick={handleSubmit} loading={loading}>
-                    {formData.submitLabel || t('chat.form.submit')}
-                </Button>
+                <PermissionTooltip missing={submitMissing}>
+                    <Button size="xs" onClick={handleSubmit} loading={loading} disabled={!!submitMissing}
+                            data-testid="chat-form-submit">
+                        {formData.submitLabel || t('chat.form.submit')}
+                    </Button>
+                </PermissionTooltip>
             </Group>
         </Stack>
     );

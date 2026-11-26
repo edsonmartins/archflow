@@ -10,6 +10,8 @@ import EmptyState from '../components/EmptyState'
 import { runAgUiWorkflow, type AgUiEvent, type StopAgUiRun, type StopOutcome } from '../services/agui-client'
 import { runOutcomeOf, type RunOutcome } from '../lib/runOutcome'
 import { parseRunInput, toAgUiRunInput } from '../lib/runInput'
+import { usePermissions } from '../lib/permissions'
+import { PermissionTooltip } from '../components/PermissionTooltip'
 
 /** Chave i18n (agui.outcome.*) e cor do badge para cada desfecho. */
 const RUNNER_OUTCOME: Record<RunOutcome, 'finished' | 'failed' | 'cancelled' | 'paused' | 'unknown'> = {
@@ -41,6 +43,9 @@ function summarize(event: AgUiEvent): string {
  */
 export default function AgUiRunnerPage() {
     const { t } = useTranslation()
+    // POST /ag-ui/workflows/{id} executa o fluxo: o servidor exige workflow:execute (QA2 RCHFLW-158). O Parar
+    // segue para todos — fechar o stream já encerra a execução (ver StopOutcome).
+    const canRun = usePermissions()('workflow:execute')
     const [workflowId, setWorkflowId] = useState('wf-demo-001')
     // Entrada do run, com a mesma regra do modal "Entrada da execução" do editor (lib/runInput):
     // objeto JSON → variáveis do state; outro texto → mensagem do usuário (vira ${input}); vazio →
@@ -161,10 +166,12 @@ export default function AgUiRunnerPage() {
                                 {t('agui.stop')}
                             </Button>
                         ) : (
-                            <Button leftSection={<IconPlayerPlay size={16} />} onClick={run}
-                                    disabled={!workflowId.trim()} data-testid="agui-run">
-                                {t('agui.run')}
-                            </Button>
+                            <PermissionTooltip missing={canRun ? null : 'workflow:execute'}>
+                                <Button leftSection={<IconPlayerPlay size={16} />} onClick={run}
+                                        disabled={!workflowId.trim() || !canRun} data-testid="agui-run">
+                                    {t('agui.run')}
+                                </Button>
+                            </PermissionTooltip>
                         )}
                     </Group>
                 </Stack>
