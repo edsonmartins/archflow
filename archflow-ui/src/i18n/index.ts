@@ -26,6 +26,17 @@ const SUPPORTED_LNGS = Array.from(
     ),
 )
 
+// Keep <html lang> in sync so screen readers and spellcheckers pick up
+// the active locale. Registrado ANTES do init(): com os recursos inline o init é síncrono e o evento do boot
+// já disparou quando a linha seguinte roda — com a UI em inglês depois de um F5, o lang ficava no pt-BR do
+// index.html (RCHFLW-188). 'languageChanged' dispara no boot (o detector escolhe o idioma) e a cada troca.
+const syncHtmlLang = (lng: string) => {
+    if (typeof document !== 'undefined' && lng) {
+        document.documentElement.lang = lng
+    }
+}
+i18n.on('languageChanged', syncHtmlLang)
+
 void i18n
     .use(LanguageDetector)
     .use(initReactI18next)
@@ -45,15 +56,5 @@ void i18n
         },
         returnNull: false,
     })
-
-// Keep <html lang> in sync so screen readers and spellcheckers pick up
-// the active locale. Fires on boot (via 'initialized') and on change.
-const syncHtmlLang = (lng: string) => {
-    if (typeof document !== 'undefined') {
-        document.documentElement.lang = lng
-    }
-}
-i18n.on('initialized', () => syncHtmlLang(i18n.language))
-i18n.on('languageChanged', syncHtmlLang)
 
 export default i18n

@@ -54,6 +54,10 @@ public final class ExecutableNodesValidator implements FlowValidator {
     static final String SERVER_CODE = "NODE_REQUIRES_SERVER";
     static final String EXPRESSION_CODE = "CONTROL_EXPRESSION_INVALID";
     static final String DISCONNECTED_CODE = "NODE_DISCONNECTED";
+    static final String BRANCH_CODE = "BRANCH_NOT_DECLARED";
+
+    /** As rotas do {@code decision}, na ordem do seletor da aresta no designer. */
+    private static final List<String> DECISION_ROUTES = List.of("AUTO", "REVIEW", "ESCALATE");
 
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(ExecutableNodesValidator.class);
 
@@ -75,6 +79,10 @@ public final class ExecutableNodesValidator implements FlowValidator {
         errors.addAll(serverOnly(flow));
         errors.addAll(controlExpressions(flow));
         errors.addAll(disconnected(flow));
+        // Aresta em ramo não declarado (RCHFLW-147): só aviso no log, como o UNKNOWN_STEP. O editor recusa o
+        // Executar e avisa no canvas; aqui, recusar faria falhar todo run de fluxos já publicados e chamados
+        // pela API/VendaX que hoje seguem pelos outros ramos — mudança de contrato não decidida.
+        undeclaredBranches(flow).forEach(e -> log.warn("Fluxo {}: {} ({})", flow.getId(), e.message(), BRANCH_CODE));
         if (!errors.isEmpty()) {
             throw new FlowValidationException(errors);
         }
@@ -309,6 +317,90 @@ public final class ExecutableNodesValidator implements FlowValidator {
                         + "aprovação, por exemplo). Ligue-o(s) ao fluxo ou remova-o(s)",
                 DISCONNECTED_CODE,
                 Map.of("nodes", List.copyOf(soltos))));
+    }
+
+    /**
+     * Um erro por aresta que declara um ramo que o nó de origem não tem (RCHFLW-147).
+     *
+     * <p>Renomear um caso do switch ("arrependimento" → "arrependido"), à mão, pelo copiloto ou pelo Gerar com IA,
+     * deixava a aresta no nome antigo. O switch só grava um caso declarado ou {@code default}, então a condição
+     * derivada do ramo ({@code ${sw.branch} == 'arrependimento'}) nunca vale: a requisição que caía no caso novo
+     * terminava COMPLETED sem passar por nada, porque o caso casado sem aresta é o fim deliberado do
+     * {@link ControlStep} — o passo não tem como distinguir. Só a leitura do documento antes do primeiro passo vê
+     * a aresta morta. Vale também para o {@code condition} (só {@code true}/{@code false}) e para o
+     * {@code decision} (as três rotas, em maiúsculas, como o motor as grava).</p>
+     *
+     * <p>Só conta o ramo que vale, como na {@code BranchCondition}: uma {@code condition} escrita à mão vence o
+     * ramo, e a aresta de erro não tem ramo. Sem documento (fluxo montado em código) não há ramo para ler.</p>
+     */
+    static List<ValidationError> undeclaredBranches(Flow flow) {
+        Set<String> ids = new HashSet<>();
+        flow.getSteps().forEach(s -> ids.add(s.getId()));
+        List<ValidationError> errors = new ArrayList<>();
+        for (Map<?, ?> no : nodesOf(flow)) {
+            String id = no.get("id") == null ? null : no.get("id").toString();
+            if (id == null || !ids.contains(id) || !(no.get("connections") instanceof List<?> conexoes)) {
+                continue;
+            }
+            List<String> ramos = branchesOf(no);
+            if (ramos.isEmpty()) {
+                continue;
+            }
+            String nome = no.get("label") instanceof String label && !label.isBlank()
+                    ? "\"" + label.trim() + "\" (" + id + ")" : id;
+            for (Object c : conexoes) {
+                if (!(c instanceof Map<?, ?> aresta) || Boolean.TRUE.equals(aresta.get("isErrorPath"))
+                        || (aresta.get("condition") instanceof String cond && !cond.isBlank())
+                        || !(aresta.get("branch") instanceof String bruto) || bruto.isBlank()) {
+                    continue;
+                }
+                // A mesma normalização da BranchCondition: é este texto que a condição derivada compara. O
+                // designer (undeclaredBranch) faz a mesma conta, para o aviso do editor e esta recusa concordarem.
+                String ramo = bruto.trim();
+                if (ramos.contains(ramo.replace("'", ""))) {
+                    continue;
+                }
+                // Um caso com apóstrofo ("d'água") é declarado, mas a condição derivada da aresta compara sem ele
+                // ('dágua') e nunca vale — dizer só "não declara" mandaria o usuário procurar o caso que está lá.
+                String apostrofo = ramo.indexOf('\'') >= 0
+                        ? " (o ramo é comparado sem apóstrofos, como «" + ramo.replace("'", "") + "»)" : "";
+                Object destino = aresta.get("targetId");
+                errors.add(new ValidationError("step.connections.branch",
+                        "a aresta de " + nome + " para " + destino + " está no ramo «" + ramo + "»" + apostrofo
+                                + ", que o nó não declara (ramos: " + String.join(", ", ramos) + ") — nenhum valor "
+                                + "chega a ela, e a execução terminaria sem passar por ali. Escolha um dos ramos ou "
+                                + "declare o caso",
+                        BRANCH_CODE,
+                        Map.of("node", id, "target", String.valueOf(destino), "branch", ramo,
+                                "branches", List.copyOf(ramos))));
+            }
+        }
+        return errors;
+    }
+
+    /** Os ramos que o nó oferece, pelo tipo do documento (componentId, senão type); vazio quando não ramifica. */
+    private static List<String> branchesOf(Map<?, ?> no) {
+        Object bruto = no.get("componentId") != null ? no.get("componentId") : no.get("type");
+        String tipo = bruto == null ? "" : bruto.toString().trim().toLowerCase(Locale.ROOT);
+        return switch (tipo) {
+            case "condition" -> List.of("true", "false");
+            case "decision" -> DECISION_ROUTES;
+            case "switch" -> {
+                // config primeiro e configuration por cima, como a fábrica (PortableFlowStepFactory.config).
+                Object casos = null;
+                for (String chave : List.of("config", "configuration")) {
+                    if (no.get(chave) instanceof Map<?, ?> config && config.containsKey("switchCases")) {
+                        casos = config.get("switchCases");
+                    }
+                }
+                List<String> ramos = new ArrayList<>(new java.util.LinkedHashSet<>(ControlStep.casosDe(casos)));
+                if (!ramos.contains("default")) {
+                    ramos.add("default");
+                }
+                yield ramos;
+            }
+            default -> List.of();
+        };
     }
 
     /** Um erro por nó que precisa do servidor, na ordem dos passos. */

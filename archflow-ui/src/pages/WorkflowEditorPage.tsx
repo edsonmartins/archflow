@@ -2,6 +2,7 @@ import { useEffect, useCallback, useMemo, useRef, useState } from 'react'
 import { useBlocker, useNavigate, useParams, useSearchParams, type BlockerFunction } from 'react-router-dom'
 import { useTranslation }    from 'react-i18next'
 import { notifications }     from '@mantine/notifications'
+import { LONG_NOTIFICATION_STYLES } from '../lib/longNotification'
 import { Badge, Button, Group, Modal, Paper, Stack, Text, Textarea } from '@mantine/core'
 import {
     IconAlertCircle,
@@ -387,6 +388,8 @@ export function WorkflowEditor() {
   const [yamlLoading, setYamlLoading] = useState(false)
   const [yamlError, setYamlError] = useState<string | null>(null)
   const [yamlDirty, setYamlDirty] = useState(false)
+  // A versão do documento de onde o texto da aba Código saiu: o If-Match do Salvar YAML (RCHFLW-174).
+  const yamlBaseRef = useRef<string | undefined>(undefined)
   // Incrementado quando o documento muda no backend por um caminho que não passa pelo YAML (Executar
   // na aba Código grava o canvas): força recarregar o texto para a aba não mostrar uma versão velha.
   const [yamlReload, setYamlReload] = useState(0)
@@ -453,6 +456,7 @@ export function WorkflowEditor() {
       .then((dto) => {
         if (!cancelled) {
           setYamlText(dto.yaml ?? '')
+          yamlBaseRef.current = dto.updatedAt ?? undefined
           setYamlDirty(false)
         }
       })
@@ -475,18 +479,32 @@ export function WorkflowEditor() {
   // Se o PUT passa mas o reload falha, o YAML JÁ está gravado (yamlDirty fica falso, com razão) e o
   // canvas fica atrás do backend: canvasBehindRef impede que um Salvar/Executar do canvas o regrave por
   // cima, e a volta para a aba Canvas tenta reconstruí-lo de novo.
-  const persistYaml = useCallback(async () => {
-    if (!id) return
-    const dto = await workflowYamlApi.update(id, yamlText)
+  // O PUT leva o updatedAt do GET que trouxe o texto (RCHFLW-174), como o Salvar do canvas (RCHFLW-125): um YAML
+  // aberto antes de outra sessão salvar recebe 409 e abre o aviso de conflito, em vez de apagar o que ela gravou.
+  // `force` grava por cima, sem a versão — o "Sobrescrever" desse aviso.
+  // Devolve o updatedAt da resposta do PUT, e não o do GET do resyncCanvas: entre os dois outra sessão pode gravar,
+  // e quem publica logo depois (prepareToPublish) mandaria no If-Match a versão dela, que esta sessão nunca viu.
+  const persistYaml = useCallback(async (opts: { force?: boolean } = {}): Promise<string | undefined> => {
+    if (!id) return undefined
+    const dto = await workflowYamlApi.update(id, yamlText, opts.force ? undefined : yamlBaseRef.current)
+    const saved = dto.updatedAt ?? undefined
+    yamlBaseRef.current = saved
     setYamlText(dto.yaml ?? yamlText)
     setYamlDirty(false)
     setLastSavedAt(Date.now())
     canvasBehindRef.current = true
     await resyncCanvas()
+    return saved
   }, [id, yamlText, resyncCanvas])
 
   // Frase traduzida com linha/coluna do backend (RCHFLW-94); o toast repete o problema, não um genérico.
   const reportYamlSaveError = useCallback((e: unknown) => {
+    // O fluxo mudou em outro lugar depois que o YAML foi lido (RCHFLW-174): o mesmo aviso do Salvar do canvas.
+    if (isSaveConflict(e)) {
+      conflictViaYamlRef.current = true
+      setConflictOpen(true)
+      return
+    }
     const mensagem = mensagemDeYamlInvalido(e, t, t('editor.notif.yamlErrorMsg'))
     setYamlError(mensagem)
     notifications.show({
@@ -513,6 +531,7 @@ export function WorkflowEditor() {
     notifications.show({
       title:   t('editor.notif.yamlNotExecutable'),
       message: runBlockersMessage(t, blockers),
+      styles: LONG_NOTIFICATION_STYLES,
       color:   'orange',
       autoClose: false,
     })
@@ -540,8 +559,11 @@ export function WorkflowEditor() {
   // tela) ou sobrescreve (grava por cima da outra sessão). Antes o Salvar sobrescrevia calado.
   const [conflictOpen, setConflictOpen] = useState(false)
   const [conflictBusy, setConflictBusy] = useState(false)
+  // O conflito veio do Salvar YAML: o "Sobrescrever" regrava o texto da aba Código, não o canvas.
+  const conflictViaYamlRef = useRef(false)
   const reportSaveFailure = useCallback((e: unknown) => {
     if (isSaveConflict(e)) {
+      conflictViaYamlRef.current = false
       setConflictOpen(true)
       return
     }
@@ -589,18 +611,28 @@ export function WorkflowEditor() {
   }, [resyncCanvas, t])
 
   const overwriteAfterConflict = useCallback(async () => {
+    const viaYaml = conflictViaYamlRef.current
     setConflictBusy(true)
     try {
-      await saveWorkflow({ force: true })
+      if (viaYaml) await persistYaml({ force: true })
+      else {
+        await saveWorkflow({ force: true })
+        // Na aba Código, o texto e a versão dele (yamlBaseRef) são de antes do Sobrescrever: sem recarregar, o
+        // próximo Salvar YAML levaria 409 contra a gravação que o próprio usuário acabou de fazer.
+        if (view === 'yaml') setYamlReload(v => v + 1)
+      }
       setConflictOpen(false)
-      notifications.show({ title: t('editor.notif.saved'), message: t('editor.notif.savedMsg'), color: 'teal' })
+      notifications.show(viaYaml
+        ? { title: t('editor.notif.yamlSaved'), message: t('editor.notif.yamlSavedMsg'), color: 'teal' }
+        : { title: t('editor.notif.saved'), message: t('editor.notif.savedMsg'), color: 'teal' })
     } catch (e) {
       setConflictOpen(false)
-      reportSaveFailure(e)
+      if (viaYaml) reportYamlSaveError(e)
+      else reportSaveFailure(e)
     } finally {
       setConflictBusy(false)
     }
-  }, [saveWorkflow, reportSaveFailure, t])
+  }, [view, saveWorkflow, persistYaml, reportSaveFailure, reportYamlSaveError, t])
 
   // Live run over AG-UI SSE: STEP_* events drive the per-node status
   // pills / animated edges via useFlowStore.executionState (keyed by
@@ -737,13 +769,16 @@ export function WorkflowEditor() {
     // corrigir (RCHFLW-11, RCHFLW-92). Com YAML não salvo na aba Código, o canvas não é o que vai rodar —
     // aí quem recusa é o servidor, no início da execução.
     if (!(view === 'yaml' && yamlDirty)) {
-      const blockers = runBlockers(useFlowStore.getState().getCanvasSnapshot().steps.map(s => ({
+      // Com as arestas: ramo que o nó não declara (RCHFLW-147), destino inexistente e ciclo (RCHFLW-188).
+      const snapshot = useFlowStore.getState().getCanvasSnapshot()
+      const blockers = runBlockers(snapshot.steps.map(s => ({
         id: s.id, label: s.label, componentId: s.componentId, type: s.type, config: s.config,
-      })))
+      })), snapshot.connections)
       if (hasRunBlockers(blockers)) {
         notifications.show({
           title:   t('editor.notif.runBlocked'),
           message: runBlockersMessage(t, blockers),
+          styles: LONG_NOTIFICATION_STYLES,
           color:   'red',
           autoClose: false,
         })
@@ -784,7 +819,8 @@ export function WorkflowEditor() {
       }
     } catch (e) {
       // O fluxo mudou em outro lugar: quem decide é o usuário, pelo aviso de conflito — não roda nenhuma versão.
-      if (!viaYaml && isSaveConflict(e)) {
+      if (isSaveConflict(e)) {
+        conflictViaYamlRef.current = viaYaml
         setConflictOpen(true)
         return
       }
@@ -857,6 +893,41 @@ export function WorkflowEditor() {
   const [aiOpen, setAiOpen] = useState(false)
   const [aiGoal, setAiGoal] = useState('')
   const [publishOpen, setPublishOpen] = useState(false)
+
+  // Publicar põe em PRODUCTION o rascunho gravado no servidor. Com alterações não salvas, a versão imutável saía
+  // sem elas e o editor seguia "NÃO SALVO" (RCHFLW-146). Como o Executar rascunho, salva antes — o YAML, se é ele
+  // a edição pendente — e devolve o updatedAt do que salvou: o Publicar manda essa versão no If-Match, e se outra
+  // sessão gravou no meio o servidor recusa (409) em vez de publicar um documento que ninguém aqui viu.
+  // A versão é a da gravação desta sessão: a do PUT do YAML (persistYaml) ou a do PUT do canvas, que o store guarda.
+  // Sem nada pendente e com o canvas atrás do backend (o YAML gravou, o reload depois falhou), o store ainda tem a
+  // versão de antes do YAML; a última que esta sessão gravou é a do YAML (yamlBaseRef) — com a do store, o Publicar
+  // levaria 409 contra o próprio Salvar YAML.
+  const prepareToPublish = useCallback(async (): Promise<{ updatedAt?: string } | null> => {
+    if (hasUnsavedRef.current) {
+      const viaYaml = view === 'yaml' && yamlDirty
+      if (viaYaml) setYamlError(null)
+      try {
+        if (viaYaml) return { updatedAt: await persistYaml() }
+        await saveWorkflow()
+        if (view === 'yaml') setYamlReload(v => v + 1)
+      } catch (e) {
+        // O aviso de conflito abre no lugar do modal de publicar: os dois juntos disputariam a escolha.
+        if (isSaveConflict(e)) setPublishOpen(false)
+        if (viaYaml) reportYamlSaveError(e)
+        else reportSaveFailure(e)
+        return null
+      }
+    } else if (canvasBehindRef.current && yamlBaseRef.current) {
+      return { updatedAt: yamlBaseRef.current }
+    }
+    return { updatedAt: useWorkflowStore.getState().currentWorkflow?.updatedAt }
+  }, [view, yamlDirty, persistYaml, saveWorkflow, reportYamlSaveError, reportSaveFailure])
+
+  const publishConflict = useCallback(() => {
+    setPublishOpen(false)
+    conflictViaYamlRef.current = false
+    setConflictOpen(true)
+  }, [])
 
   useEffect(() => {
     // /editor/:id?ai=1 (from the create-workflow modal) opens the AI
@@ -978,8 +1049,12 @@ export function WorkflowEditor() {
   hasUnsavedRef.current = hasUnsavedChanges
   // Sair do editor com alterações (menu, link, voltar do navegador) pede confirmação no modal do app. Troca
   // só de query (?ai=1 removido) não sai do editor; a troca de rota do primeiro Salvar do rascunho também não.
+  // Entrar em ?new=1 sai, mesmo no mesmo caminho: a rota troca o documento por um rascunho vazio (RCHFLW-131),
+  // e o Voltar de /editor para /editor?new=1 apagava o rascunho sujo sem perguntar (RCHFLW-143).
   const blocker = useBlocker(useCallback(({ currentLocation, nextLocation }: BlockerArgs) => {
-    if (currentLocation.pathname === nextLocation.pathname) return false
+    const entersNewDraft = new URLSearchParams(nextLocation.search).get('new') === '1'
+      && new URLSearchParams(currentLocation.search).get('new') !== '1'
+    if (currentLocation.pathname === nextLocation.pathname && !entersNewDraft) return false
     if (nextLocation.pathname === allowedPathRef.current) return false
     return hasUnsavedRef.current
   }, []))
@@ -1394,6 +1469,9 @@ export function WorkflowEditor() {
           workflowId={current.id}
           opened={publishOpen}
           onClose={() => setPublishOpen(false)}
+          unsavedChanges={hasUnsavedChanges}
+          prepare={prepareToPublish}
+          onConflict={publishConflict}
         />
       )}
 

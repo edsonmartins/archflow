@@ -8,6 +8,7 @@ import { MantineProvider } from '@mantine/core';
 import { ModalsProvider } from '@mantine/modals';
 import { useLocalStorage } from '@mantine/hooks';
 import { Notifications } from '@mantine/notifications';
+import { NOTIFICATION_MAX_HEIGHT } from './lib/longNotification';
 import { createBrowserRouter, RouterProvider, Routes, Route, Navigate } from 'react-router-dom';
 import { lazy, Suspense } from 'react';
 import { theme } from './theme';
@@ -23,6 +24,7 @@ import ConversationPage from './pages/ConversationPage';
 import ApprovalQueuePage from './pages/ApprovalQueuePage';
 import ApprovalDetailPage from './pages/ApprovalDetailPage';
 import ExecutionDetailPage from './pages/ExecutionDetailPage';
+import NotFoundPage from './pages/NotFoundPage';
 import ScopedApiKeysPage from './pages/admin/tenant/ScopedApiKeysPage';
 import McpServersPage from './pages/McpServersPage';
 import McpServerDetailPage from './pages/McpServerDetailPage';
@@ -76,7 +78,7 @@ function App() {
     return (
         <MantineProvider theme={theme} forceColorScheme={colorScheme}>
             <ModalsProvider>
-            <Notifications position="top-right" />
+            <Notifications position="top-right" notificationMaxHeight={NOTIFICATION_MAX_HEIGHT} />
             <RouterProvider router={router} />
             </ModalsProvider>
         </MantineProvider>
@@ -90,7 +92,8 @@ function App() {
  */
 const router = createBrowserRouter([{ path: '*', element: <AppRoutes /> }]);
 
-function AppRoutes() {
+/** A árvore de rotas do app; exportada para os testes montarem as rotas reais num router de memória. */
+export function AppRoutes() {
     return (
                 <Suspense fallback={<div style={{ padding: 40, textAlign: 'center' }}>Loading...</div>}>
                     <Routes>
@@ -122,6 +125,9 @@ function AppRoutes() {
                             <Route path="/playground/orchestration" element={<DynamicWorkflowPage />} />
                             <Route path="/playground/ag-ui" element={<AgUiRunnerPage />} />
                             <Route path="/playground/copilot" element={<CopilotAssistantPage />} />
+                            {/* Qualquer outro endereço: "não encontrado" com o menu, não uma página em branco
+                                (RCHFLW-188). Fica no grupo protegido — sem sessão, o login vem antes. */}
+                            <Route path="*" element={<NotFoundPage />} />
                         </Route>
 
                         {/* Admin routes */}
@@ -165,6 +171,7 @@ function AppRoutes() {
                                 <Route path="audit" element={<AuditLogPage />} />
                                 <Route path="live" element={<LiveEventsPage />} />
                             </Route>
+                            <Route path="*" element={<NotFoundPage homePath="/admin" />} />
                         </Route>
                     </Routes>
                 </Suspense>

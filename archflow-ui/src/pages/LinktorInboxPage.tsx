@@ -10,6 +10,7 @@ import {
 } from '@tabler/icons-react'
 import {
     conversaEncerrada,
+    linktorDesligado,
     linktorInboxApi,
     type CanalDoInbox,
     type ConversaDoInbox,
@@ -254,8 +255,4 @@ export default function LinktorInboxPage() {
             )}
         </Stack>
     )
-}
-
-function linktorDesligado(bruto: string): boolean {
-    return /disabled/i.test(mensagemDoErro(bruto))
 }

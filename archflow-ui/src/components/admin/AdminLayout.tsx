@@ -12,6 +12,7 @@ import { useTenantStore } from '../../stores/useTenantStore'
 import { ImpersonationBanner } from './ImpersonationBanner'
 import { SidebarBrand, SidebarGroup, SidebarItem, SidebarSeparator, SidebarUser } from '../layout/Sidebar'
 import { useAuthStore } from '../../stores/auth-store'
+import { useLogout } from '../layout/useLogout'
 
 interface AdminNavItem {
   key: string
@@ -58,11 +59,9 @@ export default function AdminLayout() {
   const location = useLocation()
   const { t } = useTranslation()
   const { currentRole, impersonating } = useTenantStore()
-  const { user, logout } = useAuthStore()
-  const handleLogout = async () => {
-    await logout()
-    navigate('/login')
-  }
+  const user = useAuthStore((s) => s.user)
+  // O mesmo Sair do app: navega, e o /login encerra a sessão (RCHFLW-142).
+  const handleLogout = useLogout()
 
   const isSuperadminView = currentRole === 'superadmin' && !impersonating
   const navItems = isSuperadminView ? SUPERADMIN_NAV : TENANT_NAV
@@ -114,12 +113,18 @@ export default function AdminLayout() {
           <div style={{ height: 8 }} />
           {navItems.map(item)}
 
-          {!isSuperadminView && (
+          {/* O superadmin também administra o próprio workspace: o ADMIN do backend vira superadmin na UI
+              (mapRolesToUserRole) e o /admin abre na visão geral dele, mas o menu só tinha as páginas da
+              plataforma — Usuários, Chaves de API e as integrações só abriam digitando a URL (RCHFLW-145). */}
+          {isSuperadminView && (
             <>
-              <SidebarGroup label={t('admin.layout.integrations')} />
-              {TENANT_TOOLS_NAV.map(item)}
+              <SidebarGroup label={t('admin.layout.ownWorkspace')} />
+              {TENANT_NAV.map(item)}
             </>
           )}
+
+          <SidebarGroup label={t('admin.layout.integrations')} />
+          {TENANT_TOOLS_NAV.map(item)}
 
           {isSuperadminView && (
             <>

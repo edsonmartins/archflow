@@ -236,6 +236,37 @@ test.describe('Auth and workflows', () => {
         await expect(page.getByText('Customer Support Flow')).toBeVisible();
     });
 
+    // RCHFLW-188 (item 5): o backend responde 401 à senha errada (SpringAuthController.handleAuthException). O
+    // 401 do POST /auth/login recarregava a página num /login sem o ?from=, e o acerto seguinte caía no início.
+    test('a wrong password (401) keeps the deep link: the next sign-in lands on the requested page', async ({ page }) => {
+        await mockApi(page);
+        let tentativas = 0;
+        await page.route('**/api/auth/login', async (route) => {
+            tentativas += 1;
+            if (tentativas === 1) {
+                await fulfillJson(route, { error: 'Unauthorized', message: 'Invalid credentials' }, 401);
+                return;
+            }
+            await route.fallback();
+        });
+
+        await page.goto('/executions?workflow=wf-invoice');
+        await expect(page).toHaveURL(/\/login\?from=%2Fexecutions%3Fworkflow%3Dwf-invoice$/);
+
+        await page.getByLabel('Username').fill('admin');
+        await page.getByRole('textbox', { name: 'Password' }).fill('wrong-password');
+        await page.getByRole('button', { name: /sign in/i }).click();
+        await expect(page.getByText('Invalid credentials')).toBeVisible();
+        await expect(page).toHaveURL(/\/login\?from=%2Fexecutions%3Fworkflow%3Dwf-invoice$/);
+
+        await page.getByRole('textbox', { name: 'Password' }).fill('admin123');
+        await page.getByRole('button', { name: /sign in/i }).click();
+
+        await expect(page).toHaveURL(/\/executions\?workflow=wf-invoice$/);
+        await expect(page.getByRole('cell', { name: 'Invoice Approval' })).toBeAttached();
+        await expect(page.getByRole('cell', { name: 'Customer Support Flow' })).toHaveCount(0);
+    });
+
     test('lists, searches, creates, executes and deletes workflows', async ({ page }) => {
         await mockApi(page);
         await authenticate(page);

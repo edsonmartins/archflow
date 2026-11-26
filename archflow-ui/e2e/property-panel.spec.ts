@@ -46,10 +46,10 @@ function initialWorkflow(): EditorWorkflow {
   };
 }
 
-async function mockApi(page: Page) {
+async function mockApi(page: Page, configuration?: Record<string, unknown>) {
   return installEditorApi(page, {
     workflowId: 'wf-prop',
-    initialWorkflow,
+    initialWorkflow: configuration ? () => ({ ...initialWorkflow(), configuration }) : initialWorkflow,
     initialYaml: '',
   });
 }
@@ -131,7 +131,8 @@ test.describe('Workflow editor — PropertyPanel', () => {
   });
 
   test('flow defaults panel persists flow-level LLM config on save', async ({ page }) => {
-    const state = await mockApi(page);
+    // O painel só oferece os modelos do provider que os nós herdam (RCHFLW-182): aqui o do fluxo.
+    const state = await mockApi(page, { llmConfig: { provider: 'anthropic' } });
     await authenticate(page);
     await page.goto('/editor/wf-prop');
 
@@ -152,8 +153,22 @@ test.describe('Workflow editor — PropertyPanel', () => {
     await expect.poll(() => state.getLastPut() !== null, { timeout: 3000 }).toBeTruthy();
 
     const llmConfig = (state.getLastPut()!.configuration as { llmConfig?: Record<string, unknown> }).llmConfig ?? {};
+    expect(llmConfig.provider).toBe('anthropic');
     expect(llmConfig.model).toBe('claude-opus-4-6');
     expect(llmConfig.maxTokens).toBe(2048);
+  });
+
+  test('flow defaults panel offers only the inherited provider models', async ({ page }) => {
+    // Sem provider no fluxo e sem o da plataforma (o mock não manda platformDefault): nenhuma sugestão, em vez dos
+    // modelos de todos os providers — escolher um deles gravava um id que o provider herdado recusa (RCHFLW-182).
+    await mockApi(page);
+    await authenticate(page);
+    await page.goto('/editor/wf-prop');
+
+    await expect(page.getByText('Flow defaults')).toBeVisible();
+    await expect(page.getByTestId('flow-model-provider-hint')).toHaveText(/did not report the provider/i);
+    await page.getByRole('combobox', { name: 'Model' }).click();
+    await expect(page.getByRole('option', { name: /Claude|GPT/i })).toHaveCount(0);
   });
 
   test('persona selector populates the system prompt', async ({ page }) => {
@@ -163,15 +178,31 @@ test.describe('Workflow editor — PropertyPanel', () => {
 
     await selectFirstNode(page);
 
-    // Persona dropdown should be visible (the API returned 2 personas)
-    await expect(page.getByRole('combobox', { name: 'Persona' })).toBeVisible();
-    await page.getByRole('combobox', { name: 'Persona' }).click();
-    await page.getByRole('option', { name: /Order Tracking/ }).click();
+    const persona = page.getByRole('combobox', { name: 'Persona' });
+    const choose = async (name: RegExp) => {
+      await persona.click();
+      await page.getByRole('option', { name }).click();
+    };
 
-    // System prompt becomes populated and disabled
+    // Persona dropdown should be visible (the API returned 2 personas)
+    await expect(persona).toBeVisible();
+    await choose(/Order Tracking/);
+
+    // O campo vazio recebe o prompt da persona e continua editável (RCHFLW-183: antes ele travava).
     const prompt = page.getByPlaceholder('You are a helpful assistant...');
     await expect(prompt).toHaveValue(/Tracks orders/);
-    await expect(prompt).toBeDisabled();
+    await expect(prompt).toBeEnabled();
+
+    // Voltar para Personalizado desfaz só o que a persona pôs.
+    await choose(/Custom \(free text\)/);
+    await expect(prompt).toHaveValue('');
+
+    // O prompt escrito pelo autor sobrevive à troca de persona e à volta para Personalizado.
+    await prompt.fill('Answer only about returns.');
+    await choose(/Customer Support/);
+    await expect(prompt).toHaveValue('Answer only about returns.');
+    await choose(/Custom \(free text\)/);
+    await expect(prompt).toHaveValue('Answer only about returns.');
   });
 
   test('governance accordion surfaces profile selector and seeds fields', async ({ page }) => {

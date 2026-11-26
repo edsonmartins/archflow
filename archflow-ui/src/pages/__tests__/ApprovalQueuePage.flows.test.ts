@@ -109,3 +109,39 @@ describe('ApprovalQueuePage — fluxos na fila', () => {
         expect(cell?.textContent).toBe('exec-1 · ap')
     })
 })
+
+/**
+ * RCHFLW-188, item 14: a fila só carregava ao abrir. Pedidos vencidos seguiam com contagem regressiva e "Revisar",
+ * e os cards discordavam do badge da barra lateral, que se atualiza a cada 30 s.
+ */
+describe('ApprovalQueuePage — a fila se atualiza sozinha', () => {
+    afterEach(() => { vi.useRealTimers() })
+
+    it('relê a lista no ritmo do badge: o pedido que venceu (e o servidor tirou) sai da tela', async () => {
+        vi.useFakeTimers({ shouldAdvanceTime: true })
+        approvalApiMock.listPending.mockResolvedValue([
+            pedido('req-1', 'exec-1', 'QA Aprovação'), pedido('req-2', 'exec-2', 'QA Aprovação'),
+        ])
+        await render()
+        expect(container.querySelector('[data-testid="approval-row-req-2"]')).not.toBeNull()
+
+        approvalApiMock.listPending.mockResolvedValue([pedido('req-1', 'exec-1', 'QA Aprovação')])
+        await act(async () => { await vi.advanceTimersByTimeAsync(30_000) })
+
+        expect(container.querySelector('[data-testid="approval-row-req-2"]')).toBeNull()
+        expect(statValue('approvals.stats.pending')).toContain('1')
+    })
+
+    it('entre uma leitura e outra, o "vence em" passa a "vencido" quando o prazo chega', async () => {
+        vi.useFakeTimers({ shouldAdvanceTime: true })
+        const expiresAt = new Date(Date.now() + 10_000).toISOString()
+        approvalApiMock.listPending.mockResolvedValue([{ ...pedido('req-1', 'exec-1', 'QA'), expiresAt }])
+        await render()
+        const cell = () => container.querySelector('[data-testid="approval-row-req-1"] [data-col="expiresAt"]')
+        expect(cell()?.textContent).toBe('approvals.time.inFuture')
+
+        await act(async () => { await vi.advanceTimersByTimeAsync(16_000) })
+
+        expect(cell()?.textContent).toBe('approvals.time.expired')
+    })
+})

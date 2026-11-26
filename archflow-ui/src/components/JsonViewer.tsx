@@ -68,7 +68,13 @@ function JsonNode({
         return <Line indent={depth}>{keyLabel}<span style={{ color: 'var(--text4, #9CA3AF)' }}>null</span></Line>
     }
     if (typeof value === 'string') {
-        return <Line indent={depth}>{keyLabel}<span style={{ color: 'var(--green)' }}>"{value}"</span></Line>
+        // O texto quebra (e mostra as próprias quebras de linha): uma proposta de ~800 palavras virava uma linha de
+        // 42.000px, com rolagem horizontal (RCHFLW-188, item 2).
+        return (
+            <Line indent={depth} wrap>
+                {keyLabel}<span style={{ color: 'var(--green)' }}>"{value}"</span>
+            </Line>
+        )
     }
     if (typeof value === 'number') {
         return <Line indent={depth}>{keyLabel}<span style={{ color: 'var(--blue)' }}>{String(value)}</span></Line>
@@ -125,9 +131,15 @@ function JsonNode({
     )
 }
 
-function Line({ indent, children }: { indent: number; children: ReactNode }) {
+function Line({ indent, children, wrap = false }: { indent: number; children: ReactNode; wrap?: boolean }) {
     return (
-        <div style={{ paddingLeft: indent * 14, whiteSpace: 'nowrap' }}>
+        <div
+            data-wrap={wrap || undefined}
+            style={{
+                paddingLeft: indent * 14,
+                ...(wrap ? { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' } : { whiteSpace: 'nowrap' }),
+            }}
+        >
             {children}
         </div>
     )

@@ -11,6 +11,7 @@ import { CopyIconButton } from './CopyIconButton'
 import {
     ApiError, workflowApi, type WorkflowDeployment, type WorkflowVersion,
 } from '../services/api'
+import { compareDocuments } from '../lib/documentDiff'
 
 /**
  * "Publish" surface for a workflow: how to call it from outside the app.
@@ -18,15 +19,33 @@ import {
  * streaming endpoint, embeddable component) using the endpoints that
  * already exist — POST /api/workflows/{id}/execute, the AG-UI SSE run
  * endpoint, and the <archflow-designer> web component build.
+ *
+ * <p>O servidor publica o rascunho <b>gravado</b>; o que está na tela e ainda não foi salvo ficava de fora, e a
+ * versão imutável ia para PRODUCTION sem essas alterações (RCHFLW-146). Por isso o "Criar versão e publicar"
+ * chama `prepare` antes — o editor salva ali, como o Executar rascunho já fazia — e publica com o `updatedAt` do
+ * documento salvo no If-Match: se outra sessão gravou no meio, o servidor responde 409 e nada é publicado
+ * (`onConflict`).</p>
  */
 export function PublishModal({
     workflowId,
     opened,
     onClose,
+    unsavedChanges = false,
+    prepare,
+    onConflict,
 }: {
     workflowId: string
     opened: boolean
     onClose: () => void
+    /** O editor tem alterações ainda não salvas: o modal avisa que elas serão salvas antes da versão. */
+    unsavedChanges?: boolean
+    /**
+     * Grava o que está na tela e devolve o `updatedAt` do documento gravado — a versão que vai ser publicada —, ou
+     * `null` quando a publicação não deve seguir (a gravação falhou, e quem chamou já avisou o usuário).
+     */
+    prepare?: () => Promise<{ updatedAt?: string } | null>
+    /** O rascunho mudou no servidor desde aquele `updatedAt` (409): quem chamou abre o aviso de conflito. */
+    onConflict?: () => void
 }) {
     const { t } = useTranslation()
     const origin = window.location.origin
@@ -72,8 +91,11 @@ export function PublishModal({
     const publish = async () => {
         setPublishing(true)
         try {
-            const result = await workflowApi.publish(workflowId, comment || undefined)
+            const ready = prepare ? await prepare() : {}
+            if (!ready) return
+            const result = await workflowApi.publish(workflowId, comment || undefined, 'PRODUCTION', ready.updatedAt)
             setPublished(result.version)
+            setDeployment(result.deployment)
             setComment('')
             await loadHistory()
             notifications.show({
@@ -81,6 +103,10 @@ export function PublishModal({
                 message: t('editor.publish.success', { number: result.version.number }),
             })
         } catch (error) {
+            if (error instanceof ApiError && error.status === 409 && onConflict) {
+                onConflict()
+                return
+            }
             notifications.show({
                 color: 'red',
                 message: t('editor.publish.error', { error: String(error) }),
@@ -108,6 +134,13 @@ export function PublishModal({
             setRollingBack(null)
         }
     }
+
+    // O banner diz qual versão está ativa em PRODUCTION, e não a última publicada: depois de um Restaurar ele
+    // continuava mostrando a versão publicada antes, enquanto a lista já marcava a restaurada (RCHFLW-188).
+    const activeVersion = deployment
+        ? versions.find((version) => version.id === deployment.versionId)
+            ?? (published?.id === deployment.versionId ? published : null)
+        : null
 
     const leftVersion = versions.find((version) => version.id === leftVersionId)
     const rightVersion = versions.find((version) => version.id === rightVersionId)
@@ -192,11 +225,16 @@ execution_id = res.json()['executionId']`,
                         {t('editor.publish.createVersion')}
                     </Button>
                 </Group>
-                {published && (
-                    <Alert color="teal">
+                {unsavedChanges && (
+                    <Alert color="yellow" data-testid="publish-unsaved-notice">
+                        {t('editor.publish.unsavedNotice')}
+                    </Alert>
+                )}
+                {published && activeVersion && (
+                    <Alert color="teal" data-testid="publish-deployed">
                         {t('editor.publish.deployed', {
-                            number: published.number,
-                            id: published.id,
+                            number: activeVersion.number,
+                            id: activeVersion.id,
                         })}
                     </Alert>
                 )}
@@ -339,27 +377,6 @@ function formatDate(value: string) {
         dateStyle: 'short',
         timeStyle: 'short',
     }).format(new Date(value))
-}
-
-function compareDocuments(left?: unknown, right?: unknown) {
-    if (!left || !right) return { changed: false, text: '' }
-    const leftLines = JSON.stringify(left, null, 2).split('\n')
-    const rightLines = JSON.stringify(right, null, 2).split('\n')
-    const lines: string[] = []
-    const length = Math.max(leftLines.length, rightLines.length)
-    let changed = false
-    for (let index = 0; index < length; index += 1) {
-        const before = leftLines[index]
-        const after = rightLines[index]
-        if (before === after) {
-            lines.push(`  ${before ?? ''}`)
-        } else {
-            changed = true
-            if (before !== undefined) lines.push(`- ${before}`)
-            if (after !== undefined) lines.push(`+ ${after}`)
-        }
-    }
-    return { changed, text: lines.join('\n') }
 }
 
 function Snippet({ label, code }: { label: string; code: string }) {

@@ -15,7 +15,7 @@ import { UpstreamRefs } from './NodeReferences'
 import type { ProviderInfo } from '../../../services/workflow-config-api'
 import {
   getConfig, dedupeByValue, findModel, ctxLabel, INHERIT,
-  numberUpdater, storedChoice, storedFlag, storedNumber, storedText,
+  numberUpdater, personaPrompt, storedChoice, storedFlag, storedNumber, storedText, systemPromptAfterPersona,
 } from './helpers'
 
 function texto(v: unknown): string {
@@ -308,15 +308,16 @@ export function AgentFields({ nodeData, update, isAssistant, nodeId }: AgentFiel
               label={f('persona')}
               value={personaId}
               onChange={v => {
+                const prompt = systemPromptAfterPersona(nodeData.config?.systemPrompt,
+                  personas.find(pp => pp.id === personaId), personas.find(pp => pp.id === v))
                 update('personaId', v)
-                if (v && v !== '__custom__') {
-                  const p = personas.find(pp => pp.id === v)
-                  if (p) update('systemPrompt', p.description)
-                }
+                if (prompt !== undefined) update('systemPrompt', prompt === '' ? undefined : prompt)
               }}
               size="xs"
               data={personaOptions}
               styles={FIELD_STYLES}
+              description={personaId !== '__custom__' && personaPrompt(personas.find(pp => pp.id === personaId)) === ''
+                ? f('personaNoPrompt') : f('personaHint')}
             />
           )}
 
@@ -332,7 +333,6 @@ export function AgentFields({ nodeData, update, isAssistant, nodeId }: AgentFiel
               minRows={3}
               maxRows={6}
               autosize
-              disabled={personas.length > 0 && personaId !== '__custom__'}
               size="xs"
               styles={{ input: { fontSize: 12, fontFamily: 'var(--font-mono)' } }}
             />

@@ -289,3 +289,59 @@ describe('Novo Fluxo abre um rascunho, sem gravar (RCHFLW-131)', () => {
     await waitFor(() => expect((body().getByTestId('editor-ai-generate') as HTMLButtonElement).disabled).toBe(false))
   })
 })
+
+/**
+ * RCHFLW-143: rascunho sujo, item "Editor" do menu (/editor — o mesmo editor, o rascunho continua na tela) e
+ * Voltar do navegador para /editor?new=1. A troca era só de query, o bloqueio a deixava passar, e a rota do
+ * rascunho criava um rascunho vazio por cima do que estava na tela — sem aviso e sem nada gravado.
+ */
+describe('Voltar para /editor?new=1 com o rascunho sujo (RCHFLW-143)', () => {
+  async function rascunhoSujoNoEditor() {
+    await render('/editor?new=1')
+    await act(async () => { useFlowStore.getState().canvasApi!.addNode({ nodeType: 'llm-chat', label: 'A' }) })
+    await act(async () => { useFlowStore.getState().canvasApi!.addNode({ nodeType: 'condition', label: 'B' }) })
+    // O item "Editor" do menu: mesmo caminho, sai do ?new=1 e o rascunho continua na tela, sem perguntar.
+    await act(async () => { await ultimoRoteador!.navigate('/editor') })
+    expect(location()).toBe('/editor')
+    expect(body().queryByTestId('editor-unsaved-modal')).toBeNull()
+    expect(useFlowStore.getState().nodes).toHaveLength(2)
+  }
+
+  it('o Voltar pergunta, e Continuar editando mantém o rascunho e os nós', async () => {
+    await rascunhoSujoNoEditor()
+
+    await act(async () => { await ultimoRoteador!.navigate(-1) })
+
+    await waitFor(() => expect(body().getByTestId('editor-unsaved-modal')).toBeTruthy())
+    expect(location()).toBe('/editor')
+    expect(useFlowStore.getState().nodes).toHaveLength(2)
+
+    await click(body().getByTestId('editor-unsaved-stay'))
+    expect(location()).toBe('/editor')
+    expect(useFlowStore.getState().nodes.map(n => n.data.label)).toEqual(['A', 'B'])
+    expect(workflowApiMock.create).not.toHaveBeenCalled()
+  })
+
+  it('Descartar e sair abre o rascunho novo, vazio', async () => {
+    await rascunhoSujoNoEditor()
+    await act(async () => { await ultimoRoteador!.navigate(-1) })
+    await waitFor(() => body().getByTestId('editor-unsaved-modal'))
+
+    await click(body().getByTestId('editor-unsaved-discard'))
+
+    await waitFor(() => expect(location()).toBe('/editor?new=1'))
+    await waitFor(() => expect(useFlowStore.getState().nodes).toHaveLength(0))
+    expect(workflowApiMock.create).not.toHaveBeenCalled()
+  })
+
+  it('tirar só o ?ai=1 do rascunho continua sem perguntar', async () => {
+    await render('/editor?new=1&ai=1')
+    await act(async () => { useFlowStore.getState().canvasApi!.addNode({ nodeType: 'llm-chat', label: 'A' }) })
+
+    await act(async () => { await ultimoRoteador!.navigate('/editor?new=1', { replace: true }) })
+
+    expect(body().queryByTestId('editor-unsaved-modal')).toBeNull()
+    expect(location()).toBe('/editor?new=1')
+    expect(useFlowStore.getState().nodes).toHaveLength(1)
+  })
+})

@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Button, SimpleGrid, Stack, Text } from '@mantine/core';
+import { Alert, Button, SimpleGrid, Stack, Text } from '@mantine/core';
 import {
     IconPlus, IconSparkles, IconTemplate, IconTopologyRing, IconShieldCheck, IconLayoutDashboard,
-    IconBolt, IconAlertTriangle, IconPlayerPlay, IconArrowRight,
+    IconBolt, IconAlertTriangle, IconPlayerPlay, IconArrowRight, IconAlertCircle,
 } from '@tabler/icons-react';
 import { useWorkflowStore } from '../stores/workflow-store';
 import { useTenantStore } from '../stores/useTenantStore';
@@ -34,7 +34,10 @@ export default function DashboardPage() {
     const canCreate = usePermissions()('workflow:create');
     const { t, i18n } = useTranslation();
     const locale = i18n.resolvedLanguage ?? i18n.language;
-    const { workflows, executions, loading, fetchWorkflows, fetchExecutions } = useWorkflowStore();
+    const { workflows, executions, loading, error, fetchWorkflows, fetchExecutions } = useWorkflowStore();
+    // RCHFLW-199: com a API fora, a falha virava "vazio" — "Nenhuma falha — tudo certo" e "Nenhuma execução
+    // ainda". O erro do store (o mesmo que a lista de fluxos mostra) troca os números por "—" e avisa.
+    const unavailable = error != null;
     const { impersonating, currentRole } = useTenantStore();
     const [pendingApprovals, setPendingApprovals] = useState<number | null>(null);
 
@@ -111,28 +114,35 @@ export default function DashboardPage() {
                 }
             />
 
+            {unavailable && (
+                <Alert color="red" variant="light" icon={<IconAlertCircle size={16} />}
+                       title={t('dashboard.loadFailedTitle')} data-testid="dashboard-load-failed">
+                    {t('dashboard.loadFailed')}
+                </Alert>
+            )}
+
             <SimpleGrid cols={{ base: 1, xs: 2, md: 4 }} spacing="md">
                 <StatCard
                     label={t('dashboard.stats.workflows')}
-                    value={workflows.length}
+                    value={unavailable ? '—' : workflows.length}
                     icon={IconTopologyRing}
                     accent="blue"
-                    hint={t('dashboard.hints.workflows', { count: publishedWorkflows })}
+                    hint={unavailable ? t('dashboard.hints.unavailable') : t('dashboard.hints.workflows', { count: publishedWorkflows })}
                 />
                 <StatCard
                     label={t('dashboard.stats.published')}
-                    value={publishedWorkflows}
+                    value={unavailable ? '—' : publishedWorkflows}
                     icon={IconBolt}
                     accent="teal"
                     hint={t('dashboard.hints.published')}
                 />
                 <StatCard
                     label={t('dashboard.stats.failedRuns')}
-                    value={failedRuns}
-                    color={failedRuns > 0 ? 'red' : undefined}
+                    value={unavailable ? '—' : failedRuns}
+                    color={!unavailable && failedRuns > 0 ? 'red' : undefined}
                     icon={IconAlertTriangle}
                     accent="rose"
-                    hint={failedRuns > 0
+                    hint={unavailable ? t('dashboard.hints.unavailable') : failedRuns > 0
                         ? t('dashboard.hints.failedRuns', { count: RECENT_EXECUTIONS_LIMIT })
                         : t('dashboard.hints.failedNone')}
                 />
@@ -161,18 +171,18 @@ export default function DashboardPage() {
             >
                 <VxTable
                     legenda={t('dashboard.recentExecutions')}
-                    records={recent as unknown as Record<string, unknown>[]}
+                    records={(unavailable ? [] : recent) as unknown as Record<string, unknown>[]}
                     columns={colunas}
                     loading={loading && executions.length === 0}
                     onRowClick={(r) => navigate(`/executions/${r.id}`)}
-                    emptyMessage={t('executions.empty')}
+                    emptyMessage={unavailable ? t('dashboard.hints.unavailable') : t('executions.empty')}
                     emptyIcon={<IconPlayerPlay />}
                     emptyAccent="violet"
-                    emptyAction={
+                    emptyAction={unavailable ? undefined : (
                         <Button variant="light" size="xs" onClick={() => navigate('/workflows')}>
                             {t('executions.emptyCta')}
                         </Button>
-                    }
+                    )}
                     testid="dashboard-recent"
                     rowTestId={(r) => `exec-row-${r.id}`}
                 />
@@ -187,7 +197,8 @@ export default function DashboardPage() {
                         icon={<IconTopologyRing size={20} />}
                         color="archBlue"
                         title={t('dashboard.shortcuts.workflows')}
-                        description={t('dashboard.shortcuts.workflowsHint', { count: workflows.length })}
+                        description={unavailable ? t('dashboard.hints.unavailable')
+                            : t('dashboard.shortcuts.workflowsHint', { count: workflows.length })}
                         onClick={() => navigate('/workflows')}
                         testId="dashboard-workflows"
                     />

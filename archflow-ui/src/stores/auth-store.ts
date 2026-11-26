@@ -73,14 +73,21 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     },
 
     loadUser: async () => {
-        if (!get().token) return;
+        const token = get().token;
+        if (!token) return;
         set({ loading: true });
         try {
             const res = await authApi.me();
+            // Resposta de uma sessão que já acabou (logout, ou outro login, enquanto o /auth/me voava): gravar
+            // o usuário e o papel dela por cima da sessão atual deixaria o papel de quem saiu na aba.
+            if (get().token !== token) {
+                set({ loading: false });
+                return;
+            }
             set({ user: { ...res, name: res.username, email: res.email ?? '' }, loading: false });
             useTenantStore.getState().setRole(mapRolesToUserRole(res.roles ?? []));
         } catch {
-            set({ user: null, loading: false });
+            set(get().token === token ? { user: null, loading: false } : { loading: false });
         }
     },
 

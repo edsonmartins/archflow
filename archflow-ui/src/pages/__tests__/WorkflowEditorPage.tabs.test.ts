@@ -196,7 +196,8 @@ describe('WorkflowEditor — troca de aba Canvas/Código', () => {
     await click(ui.getByTestId('editor-save'))
 
     await waitFor(() => expect(storeLabels()).toEqual(['Renomeado no YAML', 'Novo no YAML']))
-    expect(yamlApiMock.update).toHaveBeenCalledWith('wf-1', 'editado: sim\n')
+    // Sem versão no GET falso (sem updatedAt), o PUT vai sem If-Match.
+    expect(yamlApiMock.update).toHaveBeenCalledWith('wf-1', 'editado: sim\n', undefined)
     await click(ui.getByTestId('editor-tab-canvas'))
     expect(storeLabels()).toEqual(['Renomeado no YAML', 'Novo no YAML'])
 
@@ -218,7 +219,8 @@ describe('WorkflowEditor — troca de aba Canvas/Código', () => {
     await runFromEditor(ui)
 
     await waitFor(() => expect(runMock).toHaveBeenCalledTimes(1))
-    expect(yamlApiMock.update).toHaveBeenCalledWith('wf-1', 'editado: sim\n')
+    // Sem versão no GET falso (sem updatedAt), o PUT vai sem If-Match.
+    expect(yamlApiMock.update).toHaveBeenCalledWith('wf-1', 'editado: sim\n', undefined)
     expect(workflowApiMock.update).not.toHaveBeenCalled()
   })
   it('ir para Código com o canvas sujo grava o canvas antes de buscar o YAML', async () => {

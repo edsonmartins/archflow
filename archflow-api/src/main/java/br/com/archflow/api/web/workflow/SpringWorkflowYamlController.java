@@ -79,11 +79,21 @@ public class SpringWorkflowYamlController {
         }
         String yaml = bridge.jsonToYaml(json);
         String version = extractVersion(doc);
-        return new WorkflowYamlDto(id, yaml, version);
+        return new WorkflowYamlDto(id, yaml, version, updatedAtOf(doc));
     }
 
+    /**
+     * Grava o YAML sobre o documento atual.
+     *
+     * <p>Com {@code If-Match} (o {@code updatedAt} que o {@code GET} devolveu), só grava se o fluxo continua
+     * nessa versão — senão 409 {@code WORKFLOW_CONFLICT}, o mesmo do PUT do JSON (RCHFLW-174). Antes esta era a
+     * segunda rota de escrita do mesmo documento, e a única sem a checagem do RCHFLW-125: um YAML aberto antes
+     * de outra sessão salvar apagava esse salvamento em silêncio. A leitura do documento atual, a mescla e a
+     * gravação são a operação atômica do store, a mesma do PUT, do PATCH de status e da exclusão.</p>
+     */
     @PutMapping("/{id}/yaml")
-    public WorkflowYamlDto updateYaml(@PathVariable String id, @RequestBody WorkflowYamlDto request) {
+    public ResponseEntity<?> updateYaml(@PathVariable String id, @RequestBody WorkflowYamlDto request,
+                                        @RequestHeader(value = "If-Match", required = false) String ifMatch) {
         if (request == null || request.yaml() == null || request.yaml().isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "YAML payload is empty");
         }
@@ -107,21 +117,82 @@ public class SpringWorkflowYamlController {
                     "YAML id '" + parsedId + "' does not match URL id '" + id + "'");
         }
         parsed.put("id", id);
+        recusarConexaoSemDestino(parsed);
 
-        // Preserve UI-only metadata the YAML representation doesn't carry
-        // (status, updatedAt). Anything the YAML body provides wins; the
-        // existing values fill the gaps.
-        Map<String, Object> existing = store.getWorkflow(tenantId, id);
-        LinkedHashMap<String, Object> merged = new LinkedHashMap<>(existing);
-        merged.putAll(parsed);
-        // O putAll acima trocaria 'configuration' inteira pela versão reduzida do YAML, e com ela ia
-        // embora o allowedComponents — o fluxo restrito voltava a rodar irrestrito sem aviso (RCHFLW-63).
-        merged.put("configuration", mergeConfiguration(existing.get("configuration"), parsed.get("configuration")));
-        merged.put("updatedAt", Instant.now().toString());
-        merged.putIfAbsent("status", "draft");
+        WorkflowRuntimeStore.Update result = store.updateWorkflow(tenantId, id,
+                SpringWorkflowCrudController.versaoEsperada(ifMatch), existing -> {
+                    // Preserve UI-only metadata the YAML representation doesn't carry
+                    // (status, updatedAt). Anything the YAML body provides wins; the
+                    // existing values fill the gaps.
+                    LinkedHashMap<String, Object> merged = new LinkedHashMap<>(existing);
+                    merged.putAll(parsed);
+                    // O putAll acima trocaria 'configuration' inteira pela versão reduzida do YAML, e com ela ia
+                    // embora o allowedComponents — o fluxo restrito voltava a rodar irrestrito sem aviso
+                    // (RCHFLW-63).
+                    merged.put("configuration",
+                            mergeConfiguration(existing.get("configuration"), parsed.get("configuration")));
+                    merged.put("updatedAt", Instant.now().toString());
+                    merged.putIfAbsent("status", "draft");
+                    return merged;
+                });
+        ResponseEntity<Map<String, Object>> recusa = SpringWorkflowCrudController.recusaDe(result);
+        if (recusa != null) {
+            return recusa;
+        }
+        Map<String, Object> merged = result.document();
+        return ResponseEntity.ok(new WorkflowYamlDto(id, bridge.jsonToYaml(toJson(merged)), extractVersion(merged),
+                updatedAtOf(merged)));
+    }
 
-        store.putWorkflow(tenantId, id, merged);
-        return new WorkflowYamlDto(id, bridge.jsonToYaml(toJson(merged)), extractVersion(merged));
+    /**
+     * Recusa o YAML com uma conexão para um passo que ele não tem (RCHFLW-188, item 13).
+     *
+     * <p>Antes o Salvar YAML aceitava ({@code YAML salvo}), o canvas escondia a aresta — o React Flow não desenha
+     * aresta sem ponta, e a Saída ficava solta sem explicação — e só a execução falhava, com o fluxo inteiro
+     * recusado pelo {@code DefaultFlowValidator}. Uma conexão assim nunca roda; recusar aqui, como o YAML
+     * malformado, deixa o texto na aba Código para o usuário corrigir o destino. Vale para a origem declarada
+     * também ({@code sourceId} de outro passo inexistente), como no motor. A frase é a do motor, em
+     * {@code reason}, para a UI montar a mensagem traduzida em volta.</p>
+     */
+    private static void recusarConexaoSemDestino(Map<String, Object> doc) {
+        if (!(doc.get("steps") instanceof java.util.List<?> passos)) {
+            return;
+        }
+        Set<String> ids = new java.util.HashSet<>();
+        passos.forEach(p -> {
+            if (p instanceof Map<?, ?> passo && passo.get("id") != null) {
+                ids.add(passo.get("id").toString());
+            }
+        });
+        for (Object p : passos) {
+            if (!(p instanceof Map<?, ?> passo) || !(passo.get("connections") instanceof java.util.List<?> conexoes)) {
+                continue;
+            }
+            for (Object c : conexoes) {
+                if (!(c instanceof Map<?, ?> conexao)) {
+                    continue;
+                }
+                String passoId = String.valueOf(passo.get("id"));
+                String motivo = null;
+                Object origem = conexao.get("sourceId");
+                Object destino = conexao.get("targetId");
+                if (origem != null && !origem.toString().isBlank() && !ids.contains(origem.toString())) {
+                    motivo = "a conexão do passo '" + passoId + "' sai de um passo que não existe: " + origem;
+                } else if (destino == null || destino.toString().isBlank()) {
+                    motivo = "a conexão do passo '" + passoId + "' não tem targetId";
+                } else if (!ids.contains(destino.toString())) {
+                    motivo = "a conexão do passo '" + passoId + "' aponta para um passo que não existe: " + destino;
+                }
+                if (motivo != null) {
+                    throw new InvalidYamlException("Invalid YAML: " + motivo, motivo, null, null, null);
+                }
+            }
+        }
+    }
+
+    private static String updatedAtOf(Map<String, Object> doc) {
+        Object updatedAt = doc.get("updatedAt");
+        return updatedAt == null ? null : updatedAt.toString();
     }
 
     /**

@@ -166,6 +166,36 @@ class DefaultFlowValidatorTest {
                     });
         }
 
+        /**
+         * RCHFLW-188: a mensagem era fixa ("um ciclo entre os passos") e o usuário não sabia quais nós formavam o
+         * ciclo. Agora nomeia o caminho, na ordem das arestas, a partir do passo onde o ciclo fecha.
+         */
+        @Test
+        @DisplayName("cycle error names the steps of the cycle in edge order")
+        void cycleErrorNamesTheSteps() {
+            var entrada = createStep("entrada", StepType.TOOL, List.of(createConnection("entrada", "decisao", false)));
+            var decisao = createStep("decisao", StepType.TOOL, List.of(
+                    createConnection("decisao", "aprovacao", false)));
+            var aprovacao = createStep("aprovacao", StepType.TOOL, List.of(
+                    createConnection("aprovacao", "llm", false)));
+            var llm = createStep("llm", StepType.TOOL, List.of(createConnection("llm", "decisao", false)));
+
+            var flow = mock(Flow.class);
+            when(flow.getId()).thenReturn("flow-1");
+            when(flow.getSteps()).thenReturn(List.of(entrada, decisao, aprovacao, llm));
+
+            assertThatThrownBy(() -> validator.validate(flow))
+                    .isInstanceOf(FlowValidationException.class)
+                    .satisfies(ex -> assertThat(((FlowValidationException) ex).getErrors())
+                            .filteredOn(e -> e.code().equals("FLOW_CYCLE_DETECTED"))
+                            .singleElement()
+                            .satisfies(e -> {
+                                assertThat(e.message()).contains("decisao → aprovacao → llm → decisao");
+                                assertThat(e.context()).containsEntry("steps",
+                                        List.of("decisao", "aprovacao", "llm", "decisao"));
+                            }));
+        }
+
         @Test
         @DisplayName("should collect multiple errors")
         void shouldCollectMultipleErrors() {

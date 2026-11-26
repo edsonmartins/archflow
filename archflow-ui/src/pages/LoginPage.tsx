@@ -4,14 +4,15 @@ import {
 import {
     IconAlertCircle, IconInfoCircle, IconArrowRight, IconSchema, IconShieldCheck, IconCoffee,
 } from '@tabler/icons-react';
-import { useState, type FormEvent, type ComponentType } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useRef, useState, type FormEvent, type ComponentType } from 'react';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '../stores/auth-store';
 import LanguageSwitcher from '../components/layout/LanguageSwitcher';
 import brandLogo from '../assets/brand/logo-dark-bg.png';
 import brandMark from '../assets/brand/mark.png';
 import LoginArchitecture from './LoginArchitecture';
+import { LOGIN_FROM_PARAM, isLogoutNavigation, safeReturnTarget } from '../lib/sessionNavigation';
 
 /**
  * Login em duas colunas: à esquerda o painel da marca (marinho da sidebar com
@@ -24,16 +25,40 @@ import LoginArchitecture from './LoginArchitecture';
  */
 export default function LoginPage() {
     const navigate = useNavigate();
+    const location = useLocation();
+    const [searchParams] = useSearchParams();
     const { t } = useTranslation();
-    const { login, loading, error, clearError } = useAuthStore();
+    const { login, logout, loading, error, clearError } = useAuthStore();
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
 
+    // O Sair das barras laterais chega aqui antes de encerrar a sessão (RCHFLW-142): só agora, com a saída já
+    // liberada pelo aviso de não salvo do editor, o token é removido. O replace tira o estado do histórico —
+    // voltar para esta entrada não sai de novo de uma sessão nova.
+    const logoutRequested = isLogoutNavigation(location.state);
+    // Um logout por chegada: o StrictMode roda o efeito duas vezes em dev.
+    const loggedOutRef = useRef(false);
+    // O formulário espera o logout terminar: o fim dele (remover os tokens, token:null) chegando depois de um
+    // login novo apagaria a sessão recém-aberta e o ProtectedRoute devolveria o usuário a esta tela. Começa
+    // valendo já na primeira renderização de quem chega pelo Sair, antes do efeito.
+    const [saindo, setSaindo] = useState(logoutRequested);
+    useEffect(() => {
+        if (!logoutRequested || loggedOutRef.current) return;
+        loggedOutRef.current = true;
+        void logout().finally(() => setSaindo(false));
+        navigate(location.pathname, { replace: true, state: null });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [logoutRequested]);
+
     const handleSubmit = async (e: FormEvent) => {
         e.preventDefault();
+        // O Enter num campo (ou o preenchimento automático) também submete; o botão desabilitado não basta.
+        if (saindo) return;
         try {
             await login(username, password);
-            navigate('/');
+            // De volta à página pedida antes do login (RCHFLW-188): o ProtectedRoute e o 401 da API mandam
+            // para /login?from=<página>. Só caminhos do próprio app; o resto cai no início.
+            navigate(safeReturnTarget(searchParams.get(LOGIN_FROM_PARAM)), { replace: true });
         } catch {
             // error is set in store
         }
@@ -115,7 +140,7 @@ export default function LoginPage() {
                                 size="md"
                                 radius="md"
                                 mt="xs"
-                                loading={loading}
+                                loading={loading || saindo}
                                 variant="gradient"
                                 gradient={{ from: '#2563EB', to: '#0EA5E9', deg: 120 }}
                                 rightSection={<IconArrowRight size={18} />}
