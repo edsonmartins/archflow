@@ -122,4 +122,23 @@ public interface FlowEngine {
                                                          String decidedBy, String comment) {
         throw new UnsupportedOperationException("Human-in-the-loop not supported by this engine");
     }
+
+    /**
+     * Aprova <b>com edição</b>: a pessoa reescreveu a proposta e é a versão dela que segue no fluxo.
+     *
+     * <p>Existe à parte de {@link #submitApproval(String, String, boolean, Object, String, String)}
+     * porque "aprovado com payload" não basta para saber que houve edição: o formulário de uma
+     * conversa suspensa também aprova com dados, e esses dados não substituem proposta nenhuma. Sem a
+     * distinção, a edição virava APPROVED no registro e o passo de aprovação devolvia só
+     * {@code {decision}} — o valor editado não chegava a lugar nenhum (RCHFLW-121).</p>
+     *
+     * <p>O padrão delega a uma aprovação com payload, que é o que um motor sem a distinção já fazia.</p>
+     *
+     * @param editedPayload a proposta como a pessoa a deixou; é a saída do passo de aprovação
+     */
+    default CompletableFuture<FlowResult> submitEditedApproval(String flowId, String requestId,
+                                                               Object editedPayload,
+                                                               String decidedBy, String comment) {
+        return submitApproval(flowId, requestId, true, editedPayload, decidedBy, comment);
+    }
 }

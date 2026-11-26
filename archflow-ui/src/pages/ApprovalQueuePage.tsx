@@ -56,6 +56,7 @@ export default function ApprovalQueuePage() {
             (it) =>
                 it.requestId.toLowerCase().includes(q) ||
                 it.flowId.toLowerCase().includes(q) ||
+                (it.flowName ?? '').toLowerCase().includes(q) ||
                 (it.title ?? '').toLowerCase().includes(q) ||
                 (it.description ?? '').toLowerCase().includes(q),
         );
@@ -68,7 +69,8 @@ export default function ApprovalQueuePage() {
             const ts = new Date(it.createdAt).getTime();
             return acc === null || ts < acc ? ts : acc;
         }, null);
-        const flows = new Set(items.map((it) => it.flowId)).size;
+        // Fluxos, não execuções: três pendências do mesmo fluxo contavam 3 (RCHFLW-129).
+        const flows = new Set(items.map(flowKey)).size;
         return { urgent, oldest, flows };
     }, [items]);
 
@@ -80,10 +82,12 @@ export default function ApprovalQueuePage() {
             (r) => String(r.title ?? r.description ?? '—'),
             (r) => (r.title && r.description ? String(r.description) : String(r.requestId).slice(0, 12)),
         ),
+        // O nome do fluxo, com a execução embaixo — antes, "exec-249a1515 · ap" no lugar do nome
+        // (RCHFLW-129). Sem nome (servidor sem registro de execuções), o id, como antes.
         colunaDupla(
             { field: 'flowId', title: t('approvals.table.flow'), width: 230 },
-            (r) => String(r.flowId),
-            (r) => (r.stepId as string | null) ?? undefined,
+            (r) => String(r.flowName || r.flowId),
+            (r) => (r.flowName ? String(r.flowId) : ((r.stepId as string | null) ?? undefined)),
         ),
         colunaApagada({ field: 'createdAt', title: t('approvals.table.waiting'), width: 140,
           fieldFormat: (r) => formatWait(r.createdAt as string | null, t) }),
@@ -196,6 +200,11 @@ export default function ApprovalQueuePage() {
             </SectionCard>
         </Stack>
     );
+}
+
+/** O que identifica um fluxo na fila: o nome quando o servidor o tem, senão a execução. */
+function flowKey(it: ApprovalResponse): string {
+    return it.flowName ? `name:${it.flowName}` : `exec:${it.flowId}`;
 }
 
 type TFn = (key: string, opts?: Record<string, unknown>) => string;

@@ -1793,12 +1793,16 @@
             "comment": "Comment",
             "approved": "Approved",
             "rejected": "Rejected",
-            "timeout": "Rejected by the deadline (nobody decided)"
+            "timeout": "Rejected by the deadline (nobody decided)",
+            "edited": "Approved with edits",
+            "editedPayload": "Approved proposal"
         },
         "pendingApproval": {
             "title": "Awaiting a human decision",
             "text": "Gate {{step}} is waiting for a decision in the Approvals queue.",
-            "open": "Open in the Approvals queue"
+            "open": "Open in the Approvals queue",
+            "expiredTitle": "Approval deadline passed",
+            "expiredText": "The deadline of gate {{step}} has passed: nobody can decide it anymore, and the system records the automatic rejection."
         },
         "stepsHint": "In execution order; failed steps open expanded",
         "noStepsTitle": "No steps recorded",
@@ -2398,7 +2402,7 @@
         },
         "title": "Approval queue",
         "subtitle": "Pending human-in-the-loop decisions. Click a row to review the proposal and decide.",
-        "search": "Search by request id, flow id, description...",
+        "search": "Search by flow, request id, execution id, description...",
         "pending": "{{count}} pending",
         "empty": "No pending approvals.",
         "loadError": "Failed to load approvals",
@@ -2417,7 +2421,7 @@
             "request": "Request",
             "requestHint": "Where this decision comes from",
             "proposalHint": "What the flow will do if approved",
-            "proposalEditHint": "Edit the JSON — it replaces the proposal when approved",
+            "proposalEditHint": "Edit the JSON — when approved, it replaces the proposal and is what goes on to the next step",
             "decisionHint": "Recorded as the signed-in user, with your comment",
             "comment": "Comment",
             "heading": "Approval {{id}}",
@@ -2442,7 +2446,18 @@
             "decidedAt": "When",
             "decidedComment": "Comment",
             "submitFailed": "Failed to submit decision",
-            "invalidJson": "Edited payload is not valid JSON"
+            "invalidJson": "Edited payload is not valid JSON",
+            "execution": "Execution",
+            "editedPayload": "Approved proposal (edited)",
+            "expiredTitle": "Deadline passed",
+            "expiredText": "This approval's deadline has passed and it can no longer be decided. The system records the automatic rejection."
+        },
+        "status": {
+            "PENDING": "Pending",
+            "APPROVED": "Approved",
+            "EDITED": "Approved with edits",
+            "REJECTED": "Rejected",
+            "EXPIRED": "Expired"
         },
         "time": {
             "expired": "expired",

@@ -1793,12 +1793,16 @@
             "comment": "Comentário",
             "approved": "Aprovado",
             "rejected": "Recusado",
-            "timeout": "Recusado pelo prazo (ninguém decidiu)"
+            "timeout": "Recusado pelo prazo (ninguém decidiu)",
+            "edited": "Aprovado com edição",
+            "editedPayload": "Proposta aprovada"
         },
         "pendingApproval": {
             "title": "Aguardando decisão humana",
             "text": "O portão {{step}} espera uma decisão na fila de Aprovações.",
-            "open": "Abrir na fila de Aprovações"
+            "open": "Abrir na fila de Aprovações",
+            "expiredTitle": "Prazo da aprovação vencido",
+            "expiredText": "O prazo do portão {{step}} venceu: ninguém decide mais, e o sistema registra a recusa automática."
         },
         "stepsHint": "Na ordem de execução; etapas com falha já abrem expandidas",
         "noStepsTitle": "Nenhuma etapa registrada",
@@ -2398,7 +2402,7 @@
         },
         "title": "Fila de aprovações",
         "subtitle": "Decisões pendentes de humano (HITL). Clique em uma linha para revisar a proposta e decidir.",
-        "search": "Buscar por id da solicitação, id do fluxo, descrição...",
+        "search": "Buscar por fluxo, id da solicitação, id da execução, descrição...",
         "pending": "{{count}} pendente(s)",
         "empty": "Nenhuma aprovação pendente.",
         "loadError": "Falha ao carregar aprovações",
@@ -2417,7 +2421,7 @@
             "request": "Solicitação",
             "requestHint": "De onde vem esta decisão",
             "proposalHint": "O que o fluxo fará se for aprovado",
-            "proposalEditHint": "Edite o JSON — ele substitui a proposta ao aprovar",
+            "proposalEditHint": "Edite o JSON — ao aprovar, ele substitui a proposta e é o que segue para o próximo passo",
             "decisionHint": "Registrada em nome de quem está autenticado, com o seu comentário",
             "comment": "Comentário",
             "heading": "Aprovação {{id}}",
@@ -2442,7 +2446,18 @@
             "decidedAt": "Quando",
             "decidedComment": "Comentário",
             "submitFailed": "Falha ao enviar decisão",
-            "invalidJson": "Payload editado não é um JSON válido"
+            "invalidJson": "Payload editado não é um JSON válido",
+            "execution": "Execução",
+            "editedPayload": "Proposta aprovada (editada)",
+            "expiredTitle": "Prazo vencido",
+            "expiredText": "O prazo desta aprovação venceu e ela não pode mais ser decidida. O sistema registra a recusa automática."
+        },
+        "status": {
+            "PENDING": "Pendente",
+            "APPROVED": "Aprovada",
+            "EDITED": "Aprovada com edição",
+            "REJECTED": "Rejeitada",
+            "EXPIRED": "Expirada"
         },
         "time": {
             "expired": "expirada",

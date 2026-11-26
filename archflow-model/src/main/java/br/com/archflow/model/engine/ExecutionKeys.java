@@ -113,9 +113,13 @@ public final class ExecutionKeys {
     public static final String APPROVAL_DECIDED_AT = "__archflow.approvalDecidedAt";
 
     /**
-     * {@code List<Map<String, String>>} — uma entrada por decisão já tomada nesta execução
+     * {@code List<Map<String, Object>>} — uma entrada por decisão já tomada nesta execução
      * ({@code stepId}, {@code requestId}, {@code decision}, {@code decidedBy},
      * {@code comment}, {@code decidedAt}), na ordem em que foram tomadas.
+     *
+     * <p>{@code decision} é {@code APPROVED}, {@code REJECTED} ou {@code EDITED}; a edição traz
+     * também {@code editedPayload}, a proposta como quem decidiu a deixou (RCHFLW-121). Já
+     * {@link #APPROVAL_DECISION} continua {@code APPROVED} numa edição, para os ramos que o testam.</p>
      *
      * <p>As chaves {@code APPROVAL_DECISION}/{@code _DECIDED_BY}/{@code _COMMENT}/
      * {@code _DECIDED_AT} descrevem só o portão corrente: o pedido seguinte as limpa, para
@@ -124,7 +128,10 @@ public final class ExecutionKeys {
      */
     public static final String APPROVAL_HISTORY = "__archflow.approvalHistory";
 
-    /** Payload editado pelo humano ao aprovar, quando houver. */
+    /**
+     * Payload editado pelo humano ao aprovar, quando houver — também os dados de um formulário de
+     * conversa. Numa edição da fila, o passo de aprovação devolve este mesmo valor como saída.
+     */
     public static final String APPROVAL_PAYLOAD = "approvalPayload";
 
     /**

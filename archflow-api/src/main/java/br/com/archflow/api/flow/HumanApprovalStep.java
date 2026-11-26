@@ -31,7 +31,8 @@ import java.util.function.Supplier;
  * travessia para nele, ele <b>não</b> entra nos passos concluídos e o canvas, o
  * registro da execução e o AG-UI o mostram aguardando — não concluído (RCHFLW-32).
  * Na retomada ele roda de novo, encontra a decisão deste portão e conclui com
- * {@code {decision}}.
+ * {@code {decision}} — ou, quando quem decidiu editou a proposta ({@code EDITED}), com a proposta
+ * editada, que vira também a entrada do passo seguinte.
  *
  * <p>Config do nó — as chaves que o designer grava, com as antigas como fallback:
  * <ul>
@@ -106,6 +107,17 @@ public final class HumanApprovalStep implements FlowStep {
         String decidedStep = context.get(ExecutionKeys.APPROVAL_STEP_ID)
                 .map(String::valueOf).orElse(null);
         if (decision != null && pendingRequest.isBlank() && id.equals(decidedStep)) {
+            Object edited = editedProposal(context);
+            if (edited != null) {
+                // Editar antes de aprovar substitui a proposta: o que segue é a versão de quem
+                // decidiu, como saída deste passo e entrada do próximo — do mesmo jeito que um
+                // ComponentStep entrega a sua. Antes devolvia só {decision}, e o valor editado não
+                // chegava a passo nenhum (RCHFLW-121).
+                log.info("Step {} retomado com a proposta editada por quem aprovou", id);
+                context.set(id, edited);
+                context.set(ComponentStep.INPUT_KEY, edited);
+                return CompletableFuture.completedFuture(SimpleStepResult.ok(id, edited, elapsedMs(start)));
+            }
             log.info("Step {} retomado com decisão {}", id, decision);
             return CompletableFuture.completedFuture(
                     SimpleStepResult.ok(id, Map.of("decision", decision), elapsedMs(start)));
@@ -174,6 +186,26 @@ public final class HumanApprovalStep implements FlowStep {
         }
         // Sem proposta própria (ou vazia), o revisor avalia o que o passo anterior produziu.
         return context.get(ComponentStep.INPUT_KEY).orElse(null);
+    }
+
+    /**
+     * A proposta editada na decisão deste portão, ou {@code null} quando a decisão não foi uma
+     * edição. Vem da última entrada do histórico durável para este passo, e não de
+     * {@link ExecutionKeys#APPROVAL_PAYLOAD}: aquela chave também carrega os dados de um formulário
+     * de conversa, que aprovam sem substituir proposta nenhuma — só a fila grava {@code EDITED}.
+     */
+    private Object editedProposal(ExecutionContext context) {
+        Object history = context.get(ExecutionKeys.APPROVAL_HISTORY).orElse(null);
+        if (!(history instanceof java.util.Collection<?> all)) {
+            return null;
+        }
+        List<?> entries = List.copyOf(all);
+        for (int i = entries.size() - 1; i >= 0; i--) {
+            if (entries.get(i) instanceof Map<?, ?> entry && id.equals(String.valueOf(entry.get("stepId")))) {
+                return "EDITED".equals(String.valueOf(entry.get("decision"))) ? entry.get("editedPayload") : null;
+            }
+        }
+        return null;
     }
 
     /** Primeira das chaves com valor, como texto; {@code null} quando nenhuma tem. */
