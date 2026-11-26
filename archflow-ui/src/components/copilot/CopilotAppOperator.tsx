@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { COPILOT_GENERATE_AGENT_ID } from './CopilotGenerateBridge'
 import { notifications } from '@mantine/notifications'
@@ -6,11 +6,14 @@ import { useTranslation } from 'react-i18next'
 import { z } from 'zod'
 import { useAgentContext, useFrontendTool, type JsonSerializable } from '@copilotkit/react-core/v2'
 import { api, workflowApi } from '../../services/api'
+import { knowledgeApi, type KnowledgeBase } from '../../services/knowledge-api'
 import { useFlowStore, type CanvasOp } from '../FlowCanvas/store/useFlowStore'
 import { useWorkflowStore } from '../../stores/workflow-store'
 import { newNodeId } from '../FlowCanvas/nodePlacement'
 import { NOT_EXECUTABLE_NODE_TYPES } from '../FlowCanvas/constants'
 import { branchOptions } from '../FlowCanvas/branches'
+import { conflictingEdge } from '../FlowCanvas/parallelEdges'
+import { KNOWLEDGE_BASE_KEY, KNOWLEDGE_NODE_TYPES } from '../FlowCanvas/dataNodeKeys'
 import {
     CONTROL_EXPRESSION_FIELD, USER_MESSAGE_FIELD, controlExpressionFindings, describeFindingForAgent, flowRefsOf,
     userMessageFindings,
@@ -45,12 +48,23 @@ const ROUTES: Record<string, string> = {
 type NavigateToParams = { page: string }
 type RunWorkflowParams = { workflowId: string }
 type ShowStatusParams = { message: string }
+
+/**
+ * O showStatus também no chat (RCHFLW-189). O modelo o usa como resposta final — ele encerra o laço (followUp:false)
+ * — e a mensagem só saía no toast: o chat lateral ficava com a pergunta do usuário e nada mais, sem dizer o que o
+ * copiloto fez. A app não registrava renderização de ferramenta, então a chamada não aparecia na conversa.
+ */
+export function StatusInChat({ args }: { args: Partial<ShowStatusParams> }) {
+    const message = typeof args?.message === 'string' ? args.message.trim() : ''
+    if (!message) return null
+    return <div data-testid="copilot-status-message" style={{ whiteSpace: 'pre-wrap' }}>{message}</div>
+}
 type CreateFlowParams = { name?: string }
 type AddNodeParams = { nodeType: string; label?: string; config?: unknown; insertBefore?: string }
 type ConnectNodesParams = { sourceId: string; targetId: string; branch?: string }
 type ConfigureNodeParams = { nodeId: string; config?: unknown; label?: unknown }
 type RemoveNodeParams = { nodeId: string }
-type RemoveEdgeParams = { sourceId: string; targetId: string }
+type RemoveEdgeParams = { sourceId: string; targetId: string; branch?: string }
 
 /*
  * Resultados devolvidos ao agente. O CopilotKit serializa o retorno do handler (JSON) e o põe no histórico
@@ -72,7 +86,7 @@ export type ToolRefusal = {
     /** O usuário recusou a remoção de um nó dele (removeNode): o agente não deve insistir. */
     declined?: boolean
 }
-export type CreateFlowResult = { workflowId: string; name: string }
+export type CreateFlowResult = { workflowId: string; name: string } | ToolRefusal
 export type AddNodeResult =
     | {
         ok: true; id: string; nodeType: string; label: string; queued: boolean
@@ -88,7 +102,11 @@ export type ConfigureNodeResult =
     | ToolRefusal
 export type RemoveNodeResult = { ok: true; nodeId: string; removedEdges: number; queued: boolean } | ToolRefusal
 export type RemoveEdgeResult =
-    | { ok: true; sourceId: string; targetId: string; removed: number; queued: boolean }
+    | {
+        ok: true; sourceId: string; targetId: string; removed: number; queued: boolean
+        /** Os ramos das arestas que saíram: o agente vê o que tirou, não só quantas. */
+        removedBranches?: string[]
+    }
     | ToolRefusal
 
 /**
@@ -185,14 +203,25 @@ const EXPRESSION_RULES: string[] = [
         + '"criteria":{"true":"algo parado ou fora do ar, prazo vencendo","false":"dúvida ou pedido que pode esperar"}}},'
         + '"primary":"assunto","gate":["urgente"]}; then a condition C with conditionExpression '
         + '"${D.answers.urgente.result} == true || ${D.route} == \'ESCALATE\'"; connectNodes D -> C without branch, '
-        + 'C -> approval with branch "true", C -> llm-chat with branch "false". The ESCALATE part sends a failed or '
-        + 'low-confidence (< 0.5) decision to the human: a failure never becomes the ordinary path. That llm-chat gets '
+        + 'C -> approval with branch "true", C -> llm-chat with branch "false", and approval -> a second llm-chat '
+        + 'that answers the approved request (see the approval rule). The ESCALATE part sends a failed or '
+        + 'low-confidence (< 0.5) decision to the human: a failure never becomes the ordinary path. Each llm-chat gets '
         + '{"userMessage":"${<inputNodeId>}"} (see the llm-chat userMessage rule).',
     'Example by category: primary = a choice question, then a switch with switchExpression "${D.decision}" and '
         + 'switchCases = the options, one per line; connect one edge per case (branch = the case) and the "default" '
         + 'edge to the human (a failed decision has decision null and falls in default; without a "default" edge a '
         + 'value with no case FAILS the step). The decision route edges '
         + '(connectNodes branch AUTO/REVIEW/ESCALATE from the decision itself) are only a confidence gate.',
+    // RCHFLW-155: com várias categorias indo para a mesma resposta automática, o modelo economizava arestas pondo
+    // essas categorias no default — e a decisão que falhou (nula, cai no default) recebia resposta automática.
+    'Several cases going to the SAME node: declare every case in switchCases and connect one edge per case to that '
+        + 'node, each with its own branch (S -> auto with branch "media", then S -> auto with branch "baixa"; two '
+        + 'edges to one target are fine). Never route the ordinary cases through "default" to save edges: "default" '
+        + 'is where a failed decision falls, so it goes to the human even when a case also goes there (S -> approval '
+        + 'with branch "alta" and S -> approval with branch "default"). A branch leads to ONE node (the engine runs '
+        + 'every node a branch reaches, so "default" to the approval and to the auto-reply still answers the '
+        + 'customer alone): to move a branch, first removeEdge it passing that branch, then connect it elsewhere. '
+        + 'removeEdge without branch is refused when the pair holds several branches.',
     'conditionExpression grammar: <operand> <op> <operand> with op ==, !=, >, >=, <, <= or contains, joined by && or '
         + "||, no parentheses. Each operand is ${path}, quoted text ('urgent'), a number or true/false — never a bare "
         + 'word (ticket.urgente == true compares the literal text and never branches).',
@@ -215,7 +244,15 @@ const EXPRESSION_RULES: string[] = [
         + '"ate_500":"R$ 500 ou menos","sem_valor":"o pedido não diz o valor"}}},"primary":"valor"}; then a switch S '
         + 'with switchExpression "${D.decision}" and switchCases "ate_500"; connectNodes S -> llm-chat with branch '
         + '"ate_500" and S -> approval with branch "default" (acima_de_500, sem_valor and a failed decision fall in '
-        + 'default). Never ${<inputNodeId>.valor} > 500 over free text.',
+        + 'default), then approval -> an llm-chat that answers the approved refund. Never ${<inputNodeId>.valor} > 500 '
+        + 'over free text.',
+    // RCHFLW-189: os exemplos terminavam na aprovação, e o fluxo gerado também — o pedido aprovado terminava
+    // COMPLETED com {"decision":"APPROVED"} como última saída, sem nenhuma resposta ao cliente. Aprovar retoma o
+    // fluxo no nó seguinte (DefaultFlowEngine.decide); recusar encerra a execução.
+    'An approval is not the end of the flow: approving RESUMES the run at the next node and rejecting stops it. '
+        + 'Connect the approval to the step that does what was approved — usually an llm-chat that answers the '
+        + 'customer, with {"userMessage":"${<inputNodeId>}"} (approval -> llm-chat, no branch). Without it an approved '
+        + 'request never gets an answer: the run ends with {"decision":"APPROVED"} as its last output.',
     'llm-chat userMessage: without it, an llm-chat receives the previous step output as the user message. After a '
         + 'decision, condition or switch that output is the classification JSON (condition and switch pass on what '
         + 'they received), and the LLM answers the JSON instead of the customer. So an llm-chat that answers after a '
@@ -225,6 +262,15 @@ const EXPRESSION_RULES: string[] = [
         + 'value is sent as JSON, and a reference with no value fails the step. Use ${<inputNodeId>} alone (never '
         + '${<inputNodeId>.message}): as a single reference it already yields the message both for text typed in the '
         + 'run dialog and for an API caller sending {"message":"..."}.',
+    // RCHFLW-151: no systemPrompt e nos textos da aprovação o motor usa o texto cru. Diz QUAIS campos não resolvem,
+    // e não "só estes resolvem": o state do decision também resolve (StateTemplate), e a regra o apagava.
+    'systemPrompt and the approval texts (approvalTitle, approvalDescription, approvalProposal) never resolve '
+        + '${...}: they are sent exactly as written, so a ${...} there reaches the model or the approver as a literal '
+        + 'placeholder. References work in the llm-chat userMessage, in condition/switch expressions and in the '
+        + 'decision state (e.g. {"ticket":"${<inputNodeId>}"} to classify the original message, not the previous '
+        + 'step output). To give an llm-chat the RAG result and the question, put both references in its userMessage '
+        + '("Context: ${<ragId>} Question: ${<inputNodeId>}"). To show an earlier result to the approver, leave '
+        + 'approvalProposal empty: the approver sees the output of the step right before the approval.',
     'Invalid expressions and decision configs the engine would refuse are refused by addNode/configureNode with the '
         + 'reason: fix them; never leave a node the engine cannot run. To add a node BEFORE an existing one, use addNode '
         + 'with insertBefore.',
@@ -235,6 +281,54 @@ const EXPRESSION_RULES: string[] = [
  * escrevia o provider de LLM ("openai") no nó decision, que o motor não acha e escala sempre.
  */
 const DECISION_PROVIDER_IDS = ['llm', 'rules', 'http-decisions', 'langchain4j-decisions'] as const
+
+/**
+ * O que o copiloto não pode fingir (RCHFLW-152, RCHFLW-153). Pedido "envie por e-mail SMTP e registre no
+ * Salesforce", ele montava llm-chats rotulados "Enviar Proposta (E-mail)" e "Registrar Salesforce" e resumia que o
+ * fluxo enviava e registrava; a execução terminava COMPLETED com o LLM afirmando ter registrado — nada saiu. Não há
+ * executor de e-mail nem de CRM: a lacuna é dita ao usuário, como o nl-to-flow faz com as suas "lacunas". E o id da
+ * base de conhecimento vinha inventado ("default", "faq-geral", o nome da base): só um id do catálogo serve.
+ */
+const CAPABILITY_RULES: string[] = [
+    'A node only does what its type does: an llm-chat only generates text, an output only returns the result. When '
+        + 'the user asks for an external effect that no node type in the list performs (send an e-mail or SMS, '
+        + 'register or update a record in a CRM such as Salesforce, call another system), do NOT build a node that '
+        + 'pretends to do it (an llm-chat or output labelled "Send e-mail" or "Register in Salesforce"): leave that '
+        + 'step out and tell the user, in your reply, that this integration is not available in archflow. Never '
+        + 'say the flow sends, registers or calls anything it does not.',
+    'A node type the platform cannot run yet (addNode answers "not yet supported at run time") is a gap too: tell '
+        + 'the user that capability is not available; never replace it with another node type that only imitates it.',
+    'knowledgeBaseId (vector-search, rag) takes the id of a base from the knowledge bases in the context — never the '
+        + 'base name and never an invented id such as "default". If the user did not say which base, or none of the '
+        + 'listed bases fits, ask the user which one to use (or to create one in Knowledge) instead of guessing.',
+]
+
+/** O id pedido para a base de conhecimento existe? A recusa diz por quê e quais existem (RCHFLW-152). */
+async function knowledgeBaseRefusal(nodeType: string, set: Record<string, unknown>): Promise<string | undefined> {
+    const wanted = set[KNOWLEDGE_BASE_KEY]
+    if (!KNOWLEDGE_NODE_TYPES.has(nodeType) || typeof wanted !== 'string' || !wanted.trim()) return undefined
+    let bases: KnowledgeBase[]
+    try {
+        const list = await knowledgeApi.listBases()
+        bases = Array.isArray(list) ? list : []
+    } catch {
+        // Sem a lista não há como saber se o id existe: gravar seria o mesmo chute que a execução recusa depois.
+        return `knowledgeBaseId "${wanted}" not applied: the knowledge bases could not be loaded to check it. Do not `
+            + 'guess an id: tell the user and leave knowledgeBaseId out'
+    }
+    if (bases.some(b => b.id === wanted)) return undefined
+    const byName = bases.find(b => b.name.trim().toLowerCase() === wanted.trim().toLowerCase())
+    if (byName) {
+        return `knowledgeBaseId "${wanted}" not applied: that is the NAME of a knowledge base; its id is "${byName.id}"`
+    }
+    if (bases.length === 0) {
+        return `knowledgeBaseId "${wanted}" not applied: this workspace has no knowledge base. Do not invent one: tell `
+            + 'the user to create the base in Knowledge first'
+    }
+    return `knowledgeBaseId "${wanted}" not applied: it is not a knowledge base of this workspace. The bases are: `
+        + `${bases.map(b => `${b.id} ("${b.name}")`).join(', ')} — use the id of the one the user named; if the user `
+        + 'did not say which, ask instead of picking one'
+}
 
 const findingKey = (f: DecisionFinding) => `${f.problem}:${f.subject}`
 
@@ -281,6 +375,61 @@ function branchError(sourceId: string, branch: string, branches: readonly string
     return branches.length
         ? `branch "${branch}" is not an output of node ${sourceId}; its branches are: ${branches.join(', ')}`
         : `node ${sourceId} does not branch: connect it without a branch`
+}
+
+/**
+ * A ligação pedida já existe (RCHFLW-149)? Duas arestas do mesmo par só convivem com ramos distintos
+ * (parallelEdges); sem isto o canvas a descartava e o agente ouvia ok. A recusa diz qual aresta ocupa o lugar.
+ */
+function duplicateError(sourceId: string, targetId: string, branch: string | undefined,
+    edges: readonly CanvasEdgeRef[]): string | undefined {
+    const asEdges = edges.map(e => ({ source: e.sourceId, target: e.targetId, data: { branch: e.branch } }))
+    const taken = conflictingEdge(asEdges, sourceId, targetId, branch)
+    if (!taken) return undefined
+    const existing = taken.data.branch ? ` (branch "${taken.data.branch}")` : ''
+    return `there is already an edge ${sourceId} -> ${targetId}${existing}: to send another branch of ${sourceId} to `
+        + `the same node, pass that branch (one edge per branch); otherwise this connection already exists`
+}
+
+/**
+ * O ramo pedido já leva a OUTRO nó (revisão do RCHFLW-149)? Com arestas paralelas, o "default" do switch podia ir à
+ * aprovação E ficar na resposta automática: o motor segue toda aresta ativa (DefaultFlowExecutor.resolveOutgoing), e a
+ * decisão que falhou abria a aprovação e respondia ao cliente sozinha — o dano do RCHFLW-155, sob "Fluxo montado".
+ * Um ramo leva a um nó; para mudá-lo de destino, a aresta antiga sai primeiro (removeEdge com o ramo).
+ */
+function branchTakenError(sourceId: string, targetId: string, branch: string | undefined,
+    branches: readonly string[] | undefined, edges: readonly CanvasEdgeRef[]): string | undefined {
+    if (branch === undefined || !branches?.includes(branch)) return undefined
+    const taken = edges.find(e => e.sourceId === sourceId && e.branch === branch && e.targetId !== targetId)
+    if (!taken) return undefined
+    return `branch "${branch}" of ${sourceId} already goes to ${taken.targetId}: a branch leads to one node (the `
+        + `engine would run both). To send it to ${targetId} instead, first call removeEdge with sourceId `
+        + `${sourceId}, targetId ${taken.targetId} and branch "${branch}"; to run two nodes on that branch, chain them`
+}
+
+const edgeLabel = (sourceId: string, targetId: string, branch: string | undefined) =>
+    `${sourceId} → ${targetId}${branch ? ` (branch "${branch}")` : ''}`
+
+/** Os ramos das arestas do par que o removeEdge tiraria (todos, ou só o pedido). */
+function branchesBetween(sourceId: string, targetId: string, branch: string | undefined,
+    edges: readonly CanvasEdgeRef[]): string[] {
+    return edges.filter(e => e.sourceId === sourceId && e.targetId === targetId
+        && (branch === undefined || e.branch === branch)).flatMap(e => (e.branch ? [e.branch] : []))
+}
+
+/**
+ * removeEdge sem ramo num par com vários ramos (revisão do RCHFLW-149). O par passou a guardar um caso por aresta, e
+ * o removeEdge(S, Resposta) para tirar o "default" antigo levava junto o media e o baixa — os casos ficavam sem
+ * caminho e o fluxo terminava sem resposta, com o resumo dizendo que iam para a Resposta. Recusado, com os ramos, o
+ * agente escolhe qual tirar.
+ */
+function severalBranchesError(sourceId: string, targetId: string, branch: string | undefined,
+    edges: readonly CanvasEdgeRef[]): string | undefined {
+    if (branch !== undefined) return undefined
+    const branches = [...new Set(branchesBetween(sourceId, targetId, undefined, edges))]
+    if (branches.length < 2) return undefined
+    return `the edges ${sourceId} -> ${targetId} carry the branches ${branches.map(b => `"${b}"`).join(', ')}: `
+        + 'pass the branch of the edge to remove (call removeEdge once per branch to remove several)'
 }
 
 /** Sem fluxo conhecido (fila sem destino), só se sabe o formato: os passos do canvas que vai abrir são outros. */
@@ -386,6 +535,20 @@ export default function CopilotAppOperator() {
         fetchWorkflows().catch(() => { /* unauthenticated / empty */ })
     }, [fetchWorkflows])
 
+    // As bases de conhecimento, para o agente escolher um id que existe (RCHFLW-152). Só no editor, onde há nó de
+    // busca para configurar; o addNode/configureNode conferem de novo, com a lista do momento.
+    const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[] | null>(null)
+    const inEditor = location.pathname.startsWith('/editor')
+    useEffect(() => {
+        if (!inEditor) return
+        let alive = true
+        Promise.resolve()
+            .then(() => knowledgeApi.listBases())
+            .then(list => { if (alive) setKnowledgeBases(Array.isArray(list) ? list : []) })
+            .catch(() => { if (alive) setKnowledgeBases(null) })
+        return () => { alive = false }
+    }, [inEditor])
+
     useAgentContext({ description: 'Current route (where the user is)', value: location.pathname })
     useAgentContext({
         description: 'Pages you can open with navigateTo (page key)',
@@ -420,8 +583,23 @@ export default function CopilotAppOperator() {
         value: EXPRESSION_RULES,
     })
     useAgentContext({
-        description: 'Edges currently on the editor canvas (sourceId -> targetId) — use them with removeEdge',
-        value: canvasEdges.map((e) => ({ sourceId: e.source, targetId: e.target })),
+        description: 'What the nodes cannot do — never fake an integration or invent an id',
+        value: CAPABILITY_RULES,
+    })
+    useAgentContext({
+        description: 'Knowledge bases of this workspace (id and name) — knowledgeBaseId takes the id; with none that '
+            + 'fits, ask the user',
+        value: knowledgeBases === null
+            ? 'not loaded: ask the user which knowledge base to use'
+            : knowledgeBases.map(b => ({ id: b.id, name: b.name })),
+    })
+    useAgentContext({
+        description: 'Edges currently on the editor canvas (sourceId -> targetId, and the branch) — use them with '
+            + 'removeEdge',
+        value: canvasEdges.map((e) => {
+            const branch = (e.data as { branch?: string } | undefined)?.branch
+            return { sourceId: e.source, targetId: e.target, ...(branch ? { branch } : {}) }
+        }),
     })
 
     useFrontendTool({
@@ -464,12 +642,13 @@ export default function CopilotAppOperator() {
 
     useFrontendTool({
         name: 'showStatus',
-        description: 'Show a short status/notification message to the user.',
+        description: 'Show a short status/notification message to the user (it also appears in the chat).',
         parameters: z.object({ message: z.string().describe('the message to show') }),
         followUp: false,
         handler: async ({ message }: ShowStatusParams) => {
             notifications.show({ message: String(message) })
         },
+        render: StatusInChat,
     })
 
     // ── Canvas editing ──
@@ -485,10 +664,15 @@ export default function CopilotAppOperator() {
             guardEdit(ctx, 'createFlow')
             // O "Gerar com IA" é disparado do editor de UM fluxo e monta aquele fluxo. Criar outro ali deixava o
             // fluxo que o usuário abriu vazio e levava tudo para um novo (RCHFLW-95). Recusar devolve o motivo ao
-            // modelo, que segue adicionando os nós no canvas aberto.
+            // modelo, que segue adicionando os nós no canvas aberto — DEVOLVIDO, não lançado (RCHFLW-150): o erro de
+            // um handler não pede a rodada seguinte, e o modelo, cuja 1ª chamada costuma ser o createFlow num canvas
+            // vazio, parava ali sem ver a recusa; o canvas ficava vazio sob o toast "Fluxo montado".
             if (ctx?.agent?.agentId === COPILOT_GENERATE_AGENT_ID) {
-                throw new Error('createFlow not applied: "Gerar com IA" builds the flow that is open in the editor. '
-                    + 'Add the nodes to the current canvas with addNode.')
+                return {
+                    ok: false,
+                    error: 'createFlow not applied: "Gerar com IA" builds the flow that is open in the editor. '
+                        + 'Add the nodes to the current canvas with addNode.',
+                }
             }
             try {
                 const wf = await workflowApi.create({
@@ -546,9 +730,15 @@ export default function CopilotAppOperator() {
             if (!COPILOT_NODE_TYPES.includes(nodeType)) {
                 // Tipo da paleta sem execução (RCHFLW-11): o motor recusaria o fluxo. Diz isso, em vez de
                 // "desconhecido", para o agente trocar por um tipo que roda.
+                // RCHFLW-153: o motivo sozinho, com a lista de tipos, soava como "troque de tipo", e o modelo trocava a
+                // integração que não existe por um llm-chat que a imita. A recusa diz o que fazer com a lacuna.
+                const gap = ' If the user asked for an effect that none of nodeTypes performs (e-mail, CRM, another '
+                    + 'system), do not imitate it with llm-chat or output: leave the step out and tell the user this '
+                    + 'integration is not available.'
                 const reason = NOT_EXECUTABLE_NODE_TYPES.has(nodeType)
-                    ? `node type "${nodeType}" is not yet supported at run time`
-                    : `unknown node type "${nodeType}"`
+                    ? `node type "${nodeType}" is not yet supported at run time: that capability is not available.`
+                        + gap
+                    : `unknown node type "${nodeType}".${gap}`
                 return refuse('Add node', reason, { nodeTypes: COPILOT_NODE_TYPES })
             }
             const parsed = parseConfigArg(config)
@@ -561,6 +751,8 @@ export default function CopilotAppOperator() {
                 // Nó novo: tudo o que a config cria conta (sem `before`).
                 const badDecision = decisionRefusal(nodeType, checked.config, checked.config.set, undefined)
                 if (badDecision) return refuse('Add node', badDecision)
+                const badBase = await knowledgeBaseRefusal(nodeType, checked.config.set)
+                if (badBase) return refuse('Add node', badBase)
             }
             const canvas = useFlowStore.getState().canvasApi
             const known = canvas ? canvas.listNodes() : queuedNodeRefs()
@@ -641,12 +833,17 @@ export default function CopilotAppOperator() {
                 // O ramo só se confere quando a origem está na fila (é ela que diz o tipo e os casos do nó).
                 const queuedSource = queuedAdds().find(op => op.id === sourceId)
                 const queuedBranches = queuedSource ? branchOptions(queuedSource.nodeType, queuedSource.config) : undefined
+                const queuedEdges = store.pendingCanvasOps.flatMap(op => (
+                    op.kind === 'connect' && (!target || op.workflowId === target)
+                        ? [{ sourceId: op.sourceId, targetId: op.targetId, branch: op.branch }] : []))
                 const refused = unknown.length
                     ? `unknown node id: ${unknown.join(', ')}`
                     : annotationError(sourceId, targetId, queued)
                         ?? (branch !== undefined && queuedBranches && !queuedBranches.includes(branch)
                             ? branchError(sourceId, branch, queuedBranches) : undefined)
                         ?? unreachableAutoError(sourceId, queuedSource?.nodeType, branch, queuedSource?.config)
+                        ?? duplicateError(sourceId, targetId, branch, queuedEdges)
+                        ?? branchTakenError(sourceId, targetId, branch, queuedBranches, queuedEdges)
                 if (refused) {
                     notifications.show({ color: 'red', message: `Connect failed — ${refused}` })
                     return { ok: false, error: refused, nodes: queued, ...(queuedBranches ? { branches: queuedBranches } : {}) }
@@ -668,8 +865,11 @@ export default function CopilotAppOperator() {
                     ?? (branch !== undefined && !(branches ?? []).includes(branch)
                         ? branchError(sourceId, branch, branches ?? []) : undefined)
                     ?? unreachableAutoError(sourceId, source?.nodeType, branch, canvas.configOf(sourceId) ?? undefined)
+                    ?? duplicateError(sourceId, targetId, branch, canvas.listEdges())
+                    ?? branchTakenError(sourceId, targetId, branch, branches, canvas.listEdges())
+            // RCHFLW-149: o canvas devolve false quando não guardou a aresta — e o agente ouve isso, não um ok.
             if (error || !canvas.connectNodes(sourceId, targetId, branch)) {
-                const message = error ?? 'the canvas refused the connection'
+                const message = error ?? `the canvas did not keep the edge ${sourceId} -> ${targetId}`
                 notifications.show({ color: 'red', message: `Connect failed — ${message}` })
                 return { ok: false, error: message, nodes, ...(branches?.length ? { branches } : {}) }
             }
@@ -728,6 +928,8 @@ export default function CopilotAppOperator() {
             const badDecision = decisionRefusal(node.nodeType, patch, applyConfig(current, patch),
                 createdByCopilotRef.current.has(nodeId) ? undefined : (current ?? {}))
             if (badDecision) return refuse(tool, badDecision)
+            const badBase = await knowledgeBaseRefusal(node.nodeType, patch.set)
+            if (badBase) return refuse(tool, badBase)
 
             if (canvas) {
                 const result = canvas.configureNode(nodeId, { config: patch.set, unset: patch.unset, label: newLabel })
@@ -813,41 +1015,60 @@ export default function CopilotAppOperator() {
 
     useFrontendTool({
         name: 'removeEdge',
-        description: 'Remove the edge(s) from sourceId to targetId on the editor canvas (e.g. to reconnect a node '
-            + 'elsewhere). Returns {ok:true, removed} or {ok:false, error, edges} when there is no such edge.',
+        description: 'Remove the edge from sourceId to targetId on the editor canvas (e.g. to reconnect a node '
+            + 'elsewhere). Optional `branch` removes only the edge of that branch: one pair may hold one edge per '
+            + 'branch (switch cases going to the same node), and without branch the call is refused when the pair '
+            + 'holds several branches. Returns {ok:true, removed, removedBranches} or {ok:false, error, edges}.',
         parameters: z.object({
             sourceId: z.string().describe('id of the source node of the edge'),
             targetId: z.string().describe('id of the target node of the edge'),
+            branch: z.string().optional()
+                .describe('optional branch of the edge to remove: a switch case, true/false, AUTO/REVIEW/ESCALATE'),
         }),
-        handler: async ({ sourceId, targetId }: RemoveEdgeParams, ctx?: ToolContext): Promise<RemoveEdgeResult> => {
+        handler: async ({ sourceId, targetId, branch: rawBranch }: RemoveEdgeParams, ctx?: ToolContext)
+            : Promise<RemoveEdgeResult> => {
             guardEdit(ctx, 'removeEdge')
             const tool = 'Remove edge'
+            const branch = typeof rawBranch === 'string' && rawBranch.trim() ? rawBranch.trim() : undefined
             const canvas = useFlowStore.getState().canvasApi
             if (canvas) {
-                const removed = canvas.removeEdge(sourceId, targetId)
-                if (!removed) {
-                    const edges = canvas.listEdges().map(({ sourceId: s, targetId: t, branch }) => (
-                        { sourceId: s, targetId: t, ...(branch ? { branch } : {}) }))
-                    return refuse(tool, `no edge ${sourceId} -> ${targetId}`, { edges })
+                const edges: CanvasEdgeRef[] = canvas.listEdges().map(({ sourceId: s, targetId: t, branch: b }) => (
+                    { sourceId: s, targetId: t, ...(b ? { branch: b } : {}) }))
+                const ambiguous = severalBranchesError(sourceId, targetId, branch, edges)
+                if (ambiguous) return refuse(tool, ambiguous, { edges })
+                const removedBranches = branchesBetween(sourceId, targetId, branch, edges)
+                const removed = canvas.removeEdge(sourceId, targetId, branch)
+                if (!removed) return refuse(tool, `no edge ${edgeLabel(sourceId, targetId, branch)}`, { edges })
+                notifications.show({ color: 'teal', message: `Removed edge ${edgeLabel(sourceId, targetId, branch)}` })
+                return {
+                    ok: true, sourceId, targetId, removed, queued: false,
+                    ...(removedBranches.length ? { removedBranches } : {}),
                 }
-                notifications.show({ color: 'teal', message: `Removed edge ${sourceId} → ${targetId}` })
-                return { ok: true, sourceId, targetId, removed, queued: false }
             }
             // Mesmo recorte do queuedAdds: com destino, só as ligações pedidas para o fluxo que vai abrir.
             const target = useFlowStore.getState().pendingCanvasTarget
             const queuedConnects = useFlowStore.getState().pendingCanvasOps
                 .filter(op => op.kind === 'connect' && (!target || op.workflowId === target))
+            const edges: CanvasEdgeRef[] = queuedConnects.flatMap(op => (op.kind === 'connect'
+                ? [{ sourceId: op.sourceId, targetId: op.targetId, ...(op.branch ? { branch: op.branch } : {}) }]
+                : []))
+            const ambiguous = severalBranchesError(sourceId, targetId, branch, edges)
+            if (ambiguous) return refuse(tool, ambiguous, { edges })
             const isMatch = (op: CanvasOp) => queuedConnects.includes(op)
                 && op.kind === 'connect' && op.sourceId === sourceId && op.targetId === targetId
+                && (branch === undefined || op.branch === branch)
             const removed = queuedConnects.filter(isMatch).length
             if (!removed) {
-                const edges = queuedConnects.flatMap(op => (op.kind === 'connect'
-                    ? [{ sourceId: op.sourceId, targetId: op.targetId }] : []))
-                return refuse(tool, `no edge ${sourceId} -> ${targetId} (no flow is open in the editor)`, { edges })
+                return refuse(tool, `no edge ${edgeLabel(sourceId, targetId, branch)} (no flow is open in the editor)`,
+                    { edges })
             }
+            const removedBranches = branchesBetween(sourceId, targetId, branch, edges)
             rewriteQueue(ops => ops.filter(op => !isMatch(op)))
-            notifications.show({ color: 'blue', message: `Removed queued edge ${sourceId} → ${targetId}` })
-            return { ok: true, sourceId, targetId, removed, queued: true }
+            notifications.show({ color: 'blue', message: `Removed queued edge ${edgeLabel(sourceId, targetId, branch)}` })
+            return {
+                ok: true, sourceId, targetId, removed, queued: true,
+                ...(removedBranches.length ? { removedBranches } : {}),
+            }
         },
     })
 

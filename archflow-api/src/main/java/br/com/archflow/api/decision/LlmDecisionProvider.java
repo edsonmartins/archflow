@@ -154,7 +154,45 @@ public class LlmDecisionProvider implements DecisionProvider {
                         "  a condição vale?\n  formato: {\"probability\": <0 a 1>}\n");
             }
         }
+        // RCHFLW-156: o exemplo de cada pergunta mostrava só o objeto interno, e com uma pergunta só o modelo
+        // devolvia esse objeto solto ({"choice": ...}), sem o id — a triagem escalava quase todo pedido. O
+        // envelope completo, com os ids reais, tira a dúvida de qual é a forma da resposta.
+        sb.append("\nA resposta inteira é UM objeto com o id de cada pergunta como chave, por exemplo:\n{");
+        String separador = "";
+        for (Question q : request.questions()) {
+            sb.append(separador).append('"').append(q.id()).append("\": ").append(switch (q) {
+                case Question.Choice c -> "{\"choice\": \"<opção>\", \"confidence\": <0 a 1>}";
+                case Question.Score s -> "{\"score\": <número>, \"confidence\": <0 a 1>}";
+                case Question.YesNo y -> "{\"probability\": <0 a 1>}";
+            });
+            separador = ", ";
+        }
+        sb.append("}\n");
         return sb.toString();
+    }
+
+    /** O campo que a resposta de {@code q} sempre traz (ver o formato de cada tipo em {@link #sistema}). */
+    private static String campoDaResposta(Question q) {
+        return switch (q) {
+            case Question.Choice c -> "choice";
+            case Question.Score s -> "score";
+            case Question.YesNo y -> "probability";
+        };
+    }
+
+    /**
+     * O objeto da resposta a {@code q}. Com uma pergunta só, aceita também o objeto solto ({@code {"choice": ...}}
+     * sem o id em volta, RCHFLW-156): é a forma do exemplo da pergunta, e não há outra pergunta a que ele pudesse
+     * responder. Isso não adivinha nada — o conteúdo passa pelas mesmas checagens (opção do critério, teto da
+     * confiança); um objeto sem o campo da resposta continua sendo "não respondeu".
+     */
+    private static JsonNode respostaDe(JsonNode raiz, Question q, int perguntas) {
+        JsonNode no = raiz.get(q.id());
+        if ((no == null || !no.isObject()) && perguntas == 1 && raiz.isObject()
+                && raiz.has(campoDaResposta(q))) {
+            return raiz;
+        }
+        return no;
     }
 
     private static Map<String, Answer> parse(String bruto, DecisionRequest request, double teto)
@@ -174,7 +212,7 @@ public class LlmDecisionProvider implements DecisionProvider {
         }
         Map<String, Answer> answers = new LinkedHashMap<>();
         for (Question q : request.questions()) {
-            JsonNode no = raiz.get(q.id());
+            JsonNode no = respostaDe(raiz, q, request.questions().size());
             if (no == null || !no.isObject()) {
                 throw new DecisionException("o LLM não respondeu a '" + q.id() + "'", false);
             }

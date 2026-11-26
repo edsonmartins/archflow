@@ -17,10 +17,15 @@ import br.com.archflow.decision.HttpDecisionProvider;
 import br.com.archflow.engine.execution.ControlExpressionRules;
 import br.com.archflow.langchain4j.provider.LLMConfigResolver;
 import br.com.archflow.langchain4j.provider.LLMResolutionRequest;
+import br.com.archflow.model.config.LLMConfigPatch;
 import br.com.archflow.model.config.ResolvedLLMConfig;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.ChatModel;
+import dev.langchain4j.model.chat.request.ChatRequest;
+import dev.langchain4j.model.chat.response.ChatResponse;
+import dev.langchain4j.model.output.FinishReason;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -44,11 +49,24 @@ public class AssistServiceImpl implements AssistService {
 
     private static final Logger log = LoggerFactory.getLogger(AssistServiceImpl.class);
 
+    /**
+     * Teto de tokens de saída do nl-to-flow quando a configuração não diz outro (RCHFLW-154). O rascunho de um
+     * roteamento com três ramos passa de 3,5 mil caracteres de JSON; no teto padrão da plataforma (1024 tokens)
+     * ele saía cortado no meio de uma string e virava rascunho vazio. Os outros assists respondem pouco e ficam
+     * no teto da plataforma.
+     */
+    public static final int NL_TO_FLOW_MAX_TOKENS_PADRAO = 4096;
+
+    /** A mensagem de {@code lacunas} quando a resposta do modelo não pôde ser lida (contrato do Mentors). */
+    static final String LACUNA_NAO_GEROU = "Não foi possível gerar a partir da descrição";
+
     private final LLMConfigResolver llmConfigResolver;
     private final ResolvedLLMConfig platformDefault;
     private final ObjectMapper objectMapper;
     /** O que este servidor executa; {@code null} = sem catálogo do servidor (só o do corpo). */
     private final ServerFlowCatalog serverCatalog;
+    /** O teto de saída pedido para o nl-to-flow (nunca abaixo do da plataforma, ver {@link #tetoDoNlToFlow}). */
+    private final int nlToFlowMaxTokens;
 
     public AssistServiceImpl(LLMConfigResolver llmConfigResolver,
                              ResolvedLLMConfig platformDefault,
@@ -65,10 +83,23 @@ public class AssistServiceImpl implements AssistService {
                              ResolvedLLMConfig platformDefault,
                              ObjectMapper objectMapper,
                              ServerFlowCatalog serverCatalog) {
+        this(llmConfigResolver, platformDefault, objectMapper, serverCatalog, NL_TO_FLOW_MAX_TOKENS_PADRAO);
+    }
+
+    /**
+     * @param nlToFlowMaxTokens teto de tokens de saída do nl-to-flow ({@code archflow.assist.nl-to-flow.max-tokens});
+     *                          um teto da plataforma maior prevalece
+     */
+    public AssistServiceImpl(LLMConfigResolver llmConfigResolver,
+                             ResolvedLLMConfig platformDefault,
+                             ObjectMapper objectMapper,
+                             ServerFlowCatalog serverCatalog,
+                             int nlToFlowMaxTokens) {
         this.llmConfigResolver = llmConfigResolver;
         this.platformDefault = platformDefault;
         this.objectMapper = objectMapper != null ? objectMapper : new ObjectMapper();
         this.serverCatalog = serverCatalog;
+        this.nlToFlowMaxTokens = nlToFlowMaxTokens;
     }
 
     @Override
@@ -88,8 +119,33 @@ public class AssistServiceImpl implements AssistService {
     @Override
     public NlToFlowResponse nlToFlow(NlToFlowRequest request) {
         String prompt = buildNlToFlowPrompt(request, serverCatalog);
-        String raw = chat(prompt);
-        return comAvisosDeExpressao(parseNlToFlow(raw));
+        int teto = tetoDoNlToFlow();
+        LLMResolutionRequest pedido = LLMResolutionRequest.builder(platformDefault)
+                .stepPatch(LLMConfigPatch.builder().maxTokens(teto).build())
+                .build();
+        ChatResponse resposta = chat(prompt, pedido);
+        String raw = resposta.aiMessage() == null ? null : resposta.aiMessage().text();
+        return comAvisosDeExpressao(parseNlToFlow(raw, cortadoNoTeto(resposta, teto) ? teto : null));
+    }
+
+    /**
+     * O teto do nl-to-flow: o configurado para ele, ou o da plataforma se este for maior — subir o teto geral não
+     * pode baixar o deste assist.
+     */
+    private int tetoDoNlToFlow() {
+        return Math.max(nlToFlowMaxTokens, platformDefault.maxTokens());
+    }
+
+    /**
+     * A resposta parou no teto de tokens? Mesmo critério do {@code McpAgentRunner}: o provedor diz {@code LENGTH},
+     * ou a saída encosta no teto (nem todo provedor reporta o motivo do fim).
+     */
+    static boolean cortadoNoTeto(ChatResponse resposta, int teto) {
+        if (resposta.finishReason() == FinishReason.LENGTH) {
+            return true;
+        }
+        Integer saida = resposta.tokenUsage() == null ? null : resposta.tokenUsage().outputTokenCount();
+        return saida != null && teto > 0 && saida >= teto * 0.95;
     }
 
     /**
@@ -103,6 +159,7 @@ public class AssistServiceImpl implements AssistService {
     static NlToFlowResponse comAvisosDeExpressao(NlToFlowResponse r) {
         List<String> avisos = new ArrayList<>(avisosDeExpressao(r.workflow().steps()));
         avisos.addAll(avisosDeDecisao(r.workflow().steps()));
+        avisos.addAll(avisosDeSwitchSemCasos(r.workflow().steps()));
         avisos.addAll(avisosDeMensagemDoLlm(r.workflow()));
         if (avisos.isEmpty()) {
             return r;
@@ -204,6 +261,48 @@ public class AssistServiceImpl implements AssistService {
         return avisos;
     }
 
+    /**
+     * Um aviso por switch sem {@code parameters.switchCases} que o {@code ControlStep} consiga casar (RCHFLW-154). O
+     * modelo descrevia em {@code observacoes} o caso {@code ate_300} e gravava só a {@code switchExpression}: sem
+     * casos, o {@code ControlStep} manda todo valor ao {@code default} — falha segura (vai ao humano), mas o rascunho
+     * dizia outra coisa, em silêncio.
+     *
+     * <p>Espelha o {@code ControlStep.casos()}: ele só lê um texto (um caso por linha) ou uma lista, e transforma
+     * cada item da lista em texto. Por isso também é aviso o formato que ele lê como vazio ou nunca casa — um mapa
+     * caso → step ({@code {"financeiro": "llm_financeiro"}}), um número solto, ou uma lista de objetos
+     * ({@code [{"case": …, "to": …}]} vira {@code "{case=…, to=…}"}). Os links não levam o caso, e o modelo tenta
+     * pôr o destino dentro do switch. Número ou booleano numa lista casa pelo texto e não é aviso.</p>
+     */
+    static List<String> avisosDeSwitchSemCasos(List<NlToFlowResponse.Step> steps) {
+        List<String> avisos = new ArrayList<>();
+        for (NlToFlowResponse.Step st : steps) {
+            String tipo = st.nodeType() == null ? "" : st.nodeType().trim().toLowerCase(Locale.ROOT);
+            if (!"switch".equals(tipo)) {
+                continue;
+            }
+            Object casos = st.parameters() == null ? null : st.parameters().get("switchCases");
+            boolean formatoQueNaoCasa = casos != null && !(casos instanceof String) && !(casos instanceof List<?>)
+                    || casos instanceof List<?> itens && itens.stream()
+                            .anyMatch(c -> c instanceof Map<?, ?> || c instanceof List<?>);
+            boolean semCasos = casos == null
+                    || casos instanceof String texto && texto.isBlank()
+                    || casos instanceof List<?> lista && lista.stream()
+                            .allMatch(c -> c == null || String.valueOf(c).isBlank());
+            if (formatoQueNaoCasa) {
+                avisos.add("Aviso do archflow: o step \"" + st.name() + "\" (switch) tem 'parameters.switchCases' "
+                        + "num formato que o motor não casa (só texto, um caso por linha, ou lista de textos): todo "
+                        + "valor cai no ramo default, e nenhum caso citado aqui é seguido. O destino de cada caso "
+                        + "vai nos links, não no switch.");
+            } else if (semCasos) {
+                avisos.add("Aviso do archflow: o step \"" + st.name() + "\" (switch) não declara "
+                        + "'parameters.switchCases': todo valor cai no ramo default, e nenhum caso citado aqui é "
+                        + "seguido. Declare os casos (um por linha), um para cada valor que a switchExpression "
+                        + "pode ter.");
+            }
+        }
+        return avisos;
+    }
+
     /** Os steps que classificam ou ramificam: a saída (ou a entrada repassada) deles não é a mensagem do cliente. */
     private static final Set<String> CLASSIFICA_OU_RAMIFICA = Set.of(DecisionComponent.COMPONENT_ID, "condition",
             "switch");
@@ -260,6 +359,21 @@ public class AssistServiceImpl implements AssistService {
         try {
             ChatModel model = llmConfigResolver.resolveModel(defaultRequest());
             return model.chat(prompt);
+        } catch (Exception e) {
+            log.warn("Assist LLM call failed (model={}): {}", currentModelo(), e.toString());
+            throw new AssistUnavailableException(
+                    "Falha ao consultar o modelo de IA: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Como {@link #chat(String)}, mas com a requisição de resolução dada e devolvendo a resposta inteira: o
+     * nl-to-flow precisa do motivo do fim para saber se a saída foi cortada.
+     */
+    private ChatResponse chat(String prompt, LLMResolutionRequest pedido) {
+        try {
+            ChatModel model = llmConfigResolver.resolveModel(pedido);
+            return model.chat(ChatRequest.builder().messages(UserMessage.from(prompt)).build());
         } catch (Exception e) {
             log.warn("Assist LLM call failed (model={}): {}", currentModelo(), e.toString());
             throw new AssistUnavailableException(
@@ -564,6 +678,7 @@ public class AssistServiceImpl implements AssistService {
             appendRegrasDeExpressao(sb, serverCatalog.executableNodeTypes());
             appendRegrasDeDecisao(sb, serverCatalog.executableNodeTypes());
             appendRegrasDaMensagemDoLlm(sb, serverCatalog);
+            appendRegrasDoApproval(sb, serverCatalog.executableNodeTypes());
         } else {
             sb.append("CATÁLOGO de plugins disponíveis:\n");
             appendCatalogo(sb, r.catalogo());
@@ -675,7 +790,11 @@ public class AssistServiceImpl implements AssistService {
           .append("'parameters.conditionExpression' é operando op operando, com op ==, !=, >, >=, <, <= ou ")
           .append("contains, unidos por && ou ||, sem parênteses; cada operando é ${caminho}, texto entre aspas ")
           .append("('urgente'), número ou true/false — nunca palavra solta. 'parameters.switchExpression' é um ")
-          .append("texto com ao menos um ${caminho}. O caminho começa pelo 'name' de um step anterior: ${<name>} ")
+          .append("texto com ao menos um ${caminho}. ")
+          // RCHFLW-154: o prompt só mostrava switchCases dentro do exemplo do reembolso, e o switch saía sem casos.
+          .append("Todo switch declara 'parameters.switchCases': os casos, um por linha (\"financeiro\\ntecnico\"), ")
+          .append("cada um igual a um valor que a switchExpression pode ter (as opções do choice); sem caso, o valor ")
+          .append("cai no default. O caminho começa pelo 'name' de um step anterior: ${<name>} ")
           .append("é a saída dele, ${<name>.<campo>} um campo dela. A saída de um llm-chat é o texto da resposta, ")
           .append("sem campos. Para classificar e ramificar, use um step decision e ramifique pela RESPOSTA dele ")
           .append("(ver as regras do decision). Uma referência ${caminho} sem valor na execução FALHA o passo da ")
@@ -710,7 +829,30 @@ public class AssistServiceImpl implements AssistService {
           .append("saída do passo anterior, e um valor que não é texto vai como JSON. Uma referência sem valor ")
           .append("falha o passo. Use ${<name do step input>} sozinho (nunca ${<name do step input>.message}): como ")
           .append("referência única ele já dá a mensagem, tanto do texto digitado no Executar quanto de uma API que ")
-          .append("manda {\"message\": \"…\"}.\n");
+          .append("manda {\"message\": \"…\"}. ")
+          // RCHFLW-151/189: mesma regra do copiloto (CopilotAppOperator) — diz QUAIS campos não resolvem, porque o
+          // state do decision também resolve (StateTemplate) e um "só estes resolvem" o apagaria.
+          .append("O 'systemPrompt' do llm-chat e os textos do approval (approvalTitle, approvalDescription, ")
+          .append("approvalProposal) nunca resolvem ${...}: vão exatamente como escritos, e um ${...} ali chega ao ")
+          .append("modelo ou ao aprovador como texto literal. Para mostrar ao aprovador um resultado anterior, deixe ")
+          .append("approvalProposal vazio: ele vê a saída do step logo antes do approval.\n");
+    }
+
+    /**
+     * O approval não termina o fluxo (RCHFLW-189), quando o catálogo o oferece. Os exemplos terminavam no approval, e
+     * o rascunho também: aprovado, o fluxo concluía com {@code {"decision":"APPROVED"}} como última saída e o
+     * cliente ficava sem resposta. Aprovar retoma no passo seguinte ({@code DefaultFlowEngine.decide}); recusar
+     * encerra. É a mesma regra que o copiloto do editor segue.
+     */
+    private static void appendRegrasDoApproval(StringBuilder sb, List<String> tipos) {
+        if (!tipos.contains("approval")) {
+            return;
+        }
+        sb.append("Step approval: não é o fim do fluxo — aprovar RETOMA a execução no step seguinte e recusar a ")
+          .append("encerra. Ligue o approval ao step que faz o que foi aprovado, em geral um llm-chat que responde ao ")
+          .append("cliente com parameters {\"userMessage\":\"${<name do step input>}\"} (link approval → llm-chat). ")
+          .append("Sem esse link, o pedido aprovado nunca recebe resposta: a execução termina com ")
+          .append("{\"decision\":\"APPROVED\"} como última saída.\n");
     }
 
     /**
@@ -760,7 +902,8 @@ public class AssistServiceImpl implements AssistService {
           .append("true || ${triagem.route} == 'ESCALATE'\" (a falha também vai ao humano), ligado ao approval ")
           .append("(ramo true) e ao llm-chat (ramo false), que leva parameters {\"userMessage\":\"${receber}\"} ")
           .append("('receber' é o step input: o llm-chat responde à mensagem do cliente, não ao JSON da ")
-          .append("triagem). Os links não levam o ramo: diga em 'observacoes' qual ")
+          .append("triagem); o approval liga a um segundo llm-chat que responde ao pedido aprovado (ver a regra do ")
+          .append("approval). Os links não levam o ramo: diga em 'observacoes' qual ")
           .append("link sai pelo true e qual pelo false. Por categoria: switch com switchExpression ")
           .append("\"${<name>.decision}\" (primary = um choice), um caso por opção e o default ao humano (a ")
           .append("decisão que falhou cai nele; sem link pelo default, um valor sem caso falha o passo). Exemplo ")
@@ -772,7 +915,8 @@ public class AssistServiceImpl implements AssistService {
           .append("\"sem_valor\":\"o pedido não diz o valor\"}}},\"primary\":\"valor\"}; depois um step ")
           .append("'por_valor' (switch) com switchExpression \"${faixa.decision}\" e switchCases \"ate_500\": ")
           .append("o caso ate_500 vai ao llm-chat e o default (onde caem acima_de_500, sem_valor e a decisão que ")
-          .append("falhou) ao approval — nunca ${<name do step input>.valor} > 500 sobre texto livre. Os links do ")
+          .append("falhou) ao approval, e o approval a um llm-chat que responde ao reembolso aprovado — nunca ")
+          .append("${<name do step input>.valor} > 500 sobre texto livre. Os links do ")
           .append("switch também não levam o caso: diga em 'observacoes' qual link sai pelo caso ate_500 e qual ")
           .append("pelo default.\n");
     }
@@ -787,7 +931,15 @@ public class AssistServiceImpl implements AssistService {
         return s != null ? s : "";
     }
 
-    private NlToFlowResponse parseNlToFlow(String raw) {
+    /**
+     * @param cortadoEm o teto de tokens em que a saída do modelo parou, ou {@code null} se ela terminou
+     */
+    private NlToFlowResponse parseNlToFlow(String raw, Integer cortadoEm) {
+        // RCHFLW-154: a saída cortada no teto virava "Não foi possível gerar", sem dizer por quê — quem chama
+        // não tinha como saber que bastava subir o teto ou dividir a descrição.
+        String corte = cortadoEm == null ? null : "A resposta do modelo foi cortada no teto de " + cortadoEm
+                + " tokens de saída (archflow.assist.nl-to-flow.max-tokens): suba esse teto ou descreva o fluxo "
+                + "em partes menores.";
         String json = extractJson(raw);
         if (json != null) {
             try {
@@ -798,6 +950,11 @@ public class AssistServiceImpl implements AssistService {
                     List<NlToFlowResponse.Link> links = parseLinks(wf.get("links"));
                     List<String> lacunas = parseStringArray(root.get("lacunas"));
                     String observacoes = text(root, "observacoes");
+                    if (corte != null) {
+                        // Leu, mas a saída parou no teto: o rascunho pode estar incompleto, e isso é dito.
+                        observacoes = (observacoes == null ? "" : observacoes.trim() + "\n")
+                                + "Aviso do archflow: " + corte + " O rascunho pode estar incompleto.";
+                    }
                     return new NlToFlowResponse(
                             new NlToFlowResponse.Workflow(steps, links),
                             lacunas,
@@ -810,7 +967,7 @@ public class AssistServiceImpl implements AssistService {
         // Fallback: workflow vazio + lacuna padrão + texto cru em observações, ainda 200.
         return new NlToFlowResponse(
                 new NlToFlowResponse.Workflow(List.of(), List.of()),
-                List.of("Não foi possível gerar a partir da descrição"),
+                corte == null ? List.of(LACUNA_NAO_GEROU) : List.of(LACUNA_NAO_GEROU + ": " + corte),
                 raw != null ? raw.trim() : null);
     }
 

@@ -5,6 +5,11 @@ import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import { useFlowStore } from '../FlowCanvas/store/useFlowStore'
 import { hasRunBlockers, runBlockers, runBlockersMessage } from '../FlowCanvas/runReadiness'
+import { disconnectedNodes } from '../FlowCanvas/connectivity'
+import { isAnnotationStep } from '../FlowCanvas/constants'
+import { KNOWLEDGE_NODE_TYPES, knowledgeBaseOf } from '../FlowCanvas/dataNodeKeys'
+import { knowledgeApi } from '../../services/knowledge-api'
+import { failedDecisionMissesHuman, switchCasesWithoutEdge } from './humanPath'
 
 export const COPILOT_GENERATE_EVENT = 'archflow:copilot-generate'
 
@@ -171,23 +176,55 @@ export default function CopilotGenerateBridge() {
             notificationIdRef.current = notificationId
             reportedRef.current = false
             abortedRef.current = false
+            // O canvas antes da geração: "montado" só se ela mudou alguma coisa (RCHFLW-150).
+            const before = canvasSignature()
             void copilotkit
                 .runAgent({ agent })
-                .then(() => {
+                .then(async () => {
                     if (reportedRef.current || abortedRef.current) return
                     // O resumo do modelo ia para o chat lateral; agora a conversa é só desta geração, então ele
                     // aparece aqui — o usuário vê o que o copiloto diz ter feito ao lado do canvas montado.
                     if (notificationId) notifications.hide(notificationId)
+                    const t = tRef.current as unknown as TFunction
+                    const summary = resumoDaGeracao(agent.messages)
+                    // RCHFLW-150: a 1ª chamada do modelo era createFlow (recusado) ou showStatus (que encerra o laço)
+                    // e a geração terminava com o canvas vazio sob o toast "Fluxo montado". O que conta é o canvas:
+                    // vazio, ou igual ao de antes, não é fluxo montado. O texto do modelo continua no aviso — pode
+                    // ser a pergunta que ele fez ao usuário (qual base usar, por exemplo).
+                    const nothing = nothingBuiltKey(before)
+                    if (nothing) {
+                        notifications.show({
+                            color: 'orange',
+                            autoClose: false,
+                            title: tRef.current(nothing),
+                            message: summary || tRef.current(`${nothing}Msg`),
+                        })
+                        return
+                    }
                     // O agente pode desistir de corrigir uma condição que as ferramentas recusaram (ou o fluxo já
                     // tinha uma): o fluxo montado não roda. Dizer "montado" aí seria o silêncio do RCHFLW-116 — o
                     // aviso nomeia o nó e o campo, como o Executar do editor, junto com o resumo do copiloto.
-                    const invalid = generatedFlowProblems(tRef.current as unknown as TFunction)
+                    const invalid = [generatedFlowProblems(t), await unknownKnowledgeBases(t)].filter(Boolean).join(' ')
                     if (invalid) {
                         notifications.show({
                             color: 'orange',
                             autoClose: false,
                             title: tRef.current('editor.ai.doneInvalid'),
-                            message: [resumoDaGeracao(agent.messages), invalid].filter(Boolean).join(' — '),
+                            message: [summary, invalid].filter(Boolean).join(' — '),
+                        })
+                        return
+                    }
+                    // Roda, mas a decisão que falhar não vai só ao humano (RCHFLW-155), ou um caso declarado do switch
+                    // ficou sem aresta e termina sem resposta (RCHFLW-149): não é "montado" sem ressalva.
+                    const unsafe = failedDecisionWarning(t)
+                    const openCases = casesWithoutEdgeWarning(t)
+                    if (unsafe || openCases) {
+                        notifications.show({
+                            color: 'orange',
+                            autoClose: false,
+                            title: tRef.current(unsafe ? 'editor.ai.doneHumanPath' : 'editor.ai.doneCasesWithoutEdge'),
+                            message: [summary, [unsafe, openCases].filter(Boolean).join(' ')].filter(Boolean)
+                                .join(' — '),
                         })
                         return
                     }
@@ -195,7 +232,7 @@ export default function CopilotGenerateBridge() {
                         color: 'teal',
                         autoClose: 12000,
                         title: tRef.current('editor.ai.done'),
-                        message: resumoDaGeracao(agent.messages) || tRef.current('editor.ai.doneMsg'),
+                        message: summary || tRef.current('editor.ai.doneMsg'),
                     })
                 })
                 .catch((error: unknown) => {
@@ -226,7 +263,77 @@ export function generatedFlowProblems(t: TFunction): string {
         id: s.id, label: s.label, componentId: s.componentId, type: s.type, config: s.config,
     }))
     const blockers = runBlockers(steps)
-    return hasRunBlockers(blockers) ? runBlockersMessage(t, blockers) : ''
+    const parts = hasRunBlockers(blockers) ? [runBlockersMessage(t, blockers)] : []
+    // Nó solto: o servidor recusa o fluxo antes do primeiro passo (ExecutableNodesValidator, RCHFLW-135). A geração
+    // que criou os nós e não os ligou saía como "montado" (RCHFLW-150/189) — é a regra do aviso do canvas.
+    const { nodes, edges } = useFlowStore.getState()
+    const loose = disconnectedNodes(nodes, edges)
+    if (loose.length) {
+        const names = loose.map(n => (n.data?.label ? String(n.data.label) : n.id)).join(', ')
+        parts.push(t('editor.disconnectedWarning.message', { names }))
+    }
+    return parts.join(' ')
+}
+
+/** Passos e ligações do canvas, sem posição: arrastar um nó não é "montar o fluxo". */
+function canvasSignature(): string {
+    const { steps, connections } = useFlowStore.getState().getCanvasSnapshot()
+    return JSON.stringify({
+        steps: steps.map(s => [s.id, s.componentId, s.type, s.label, s.config ?? null]),
+        connections: connections.map(c => [c.sourceId, c.targetId, c.branch ?? null, c.condition ?? null,
+            c.isErrorPath ?? false]),
+    })
+}
+
+/** A chave do aviso quando a geração não produziu nada (canvas sem passo, ou igual ao de antes); vazio se produziu. */
+function nothingBuiltKey(before: string): string {
+    const runnable = useFlowStore.getState().getCanvasSnapshot().steps.filter(s => !isAnnotationStep(s))
+    if (runnable.length === 0) return 'editor.ai.doneEmpty'
+    return canvasSignature() === before ? 'editor.ai.doneUnchanged' : ''
+}
+
+/**
+ * Os nós de busca/RAG cuja base de conhecimento não existe (RCHFLW-152): o copiloto gravava "default", "faq-geral"
+ * ou o nome da base, e a execução falhava com "a base de conhecimento ... não existe". Mesma regra do aviso do
+ * painel (KnowledgeBaseField): só com a lista carregada — se ela não carrega, não se sabe, e nada é afirmado.
+ */
+async function unknownKnowledgeBases(t: TFunction): Promise<string> {
+    const withBase = useFlowStore.getState().getCanvasSnapshot().steps
+        .filter(s => KNOWLEDGE_NODE_TYPES.has(String(s.componentId ?? s.type ?? '')) && knowledgeBaseOf(s.config))
+    if (withBase.length === 0) return ''
+    let ids: Set<string>
+    try {
+        const bases = await knowledgeApi.listBases()
+        ids = new Set((Array.isArray(bases) ? bases : []).map(b => b.id))
+    } catch {
+        return ''
+    }
+    return withBase
+        .filter(s => !ids.has(knowledgeBaseOf(s.config)!))
+        .map(s => `"${s.label || s.id}": ${t('editor.properties.fields.knowledgeBaseMissing', {
+            value: knowledgeBaseOf(s.config),
+        })}`)
+        .join(' ')
+}
+
+/** Os casos declarados de switch sem aresta (ver humanPath.switchCasesWithoutEdge), ou vazio. */
+function casesWithoutEdgeWarning(t: TFunction): string {
+    const { steps, connections } = useFlowStore.getState().getCanvasSnapshot()
+    return switchCasesWithoutEdge(steps, connections)
+        .map(({ step, cases }) => t('editor.ai.casesWithoutEdge', {
+            node: `"${step.label || step.id}"`, cases: cases.map(c => `"${c}"`).join(', '),
+        }))
+        .join(' ')
+}
+
+/** O aviso do RCHFLW-155 (ver humanPath), ou vazio. */
+function failedDecisionWarning(t: TFunction): string {
+    const { steps, connections } = useFlowStore.getState().getCanvasSnapshot()
+    const missing = failedDecisionMissesHuman(steps, connections)
+    if (missing.length === 0) return ''
+    return t('editor.ai.failedDecisionMissesHuman', {
+        nodes: missing.map(s => `"${s.label || s.id}"`).join(', '),
+    })
 }
 
 /** O último texto do assistente na conversa da geração (o resumo que o prompt pede), limitado para um aviso. */
