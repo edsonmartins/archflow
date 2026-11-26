@@ -363,6 +363,10 @@
         "loadingYaml": "Carregando YAML…",
         "emptyTitle": "Nenhum fluxo carregado",
         "emptyHint": "Crie um novo fluxo ou carregue um existente para começar",
+        "notFoundTitle": "Fluxo não encontrado",
+        "notFoundHint": "Este fluxo não existe ou não está disponível no seu workspace. Ele pode ter sido excluído ou o link ser de outro workspace.",
+        "backToList": "Voltar para a lista de fluxos",
+        "loadFailed": "Falha ao carregar o fluxo",
         "notif": {
             "yamlSaved": "YAML salvo",
             "yamlSavedMsg": "Fluxo atualizado a partir do YAML",
