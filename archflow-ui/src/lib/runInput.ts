@@ -58,6 +58,21 @@ export function toAgUiRunInput(text: string): AgUiRunInput {
     }
 }
 
+/**
+ * Os campos esperados da Entrada (<code>ioFields</code>) que a entrada digitada não traz (RCHFLW-123).
+ *
+ * <p>Texto livre e entrada vazia não trazem campo nenhum; um objeto JSON traz as chaves dele (cada uma vira
+ * variável). É aviso, não bloqueio: o motor falha fechado — a condition/switch que compara um campo sem valor
+ * falha o passo —, e o fluxo pode ler o campo só num ramo que esta execução não toma.</p>
+ */
+export function missingInputFields(text: string, expected: readonly string[]): string[] {
+    const fields = [...new Set(expected.map(f => f.trim()).filter(f => f !== ''))]
+    if (fields.length === 0) return []
+    const parsed = parseRunInput(text)
+    if (parsed.kind !== 'variables') return fields
+    return fields.filter(f => !Object.prototype.hasOwnProperty.call(parsed.value, f))
+}
+
 const STORAGE_PREFIX = 'archflow.runInput.'
 
 /**

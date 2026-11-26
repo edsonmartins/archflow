@@ -70,13 +70,7 @@ public class InMemoryWorkflowRuntimeStore implements WorkflowRuntimeStore {
         workflows.remove(id);
         versions.remove(id);
         deployments.keySet().removeIf(key -> key.startsWith(id + ":"));
-        executions.entrySet().removeIf(entry -> {
-            if (id.equals(entry.getValue().get("workflowId"))) {
-                stepIndexes.remove(entry.getKey());
-                return true;
-            }
-            return false;
-        });
+        // As execuções ficam (RCHFLW-122), como no JDBC: o histórico e as decisões continuam consultáveis.
     }
 
     /** O workflow quando existe e é do tenant; {@code null} nos dois outros casos, indistintos. */

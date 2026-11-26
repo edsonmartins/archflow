@@ -326,7 +326,8 @@
         },
         "deleteModal": {
             "title": "Excluir fluxo",
-            "message": "Tem certeza? Esta ação não pode ser desfeita."
+            "message": "Excluir o fluxo «{{name}}»? Ele sai da lista de fluxos e não pode ser recuperado. O histórico de execuções e as decisões de aprovação continuam em Execuções.",
+            "blocked": "O fluxo tem execução em andamento ou aguardando aprovação. Cancele a execução ou decida a aprovação antes de excluir."
         }
     },
     "editor": {
@@ -437,7 +438,7 @@
         },
         "disconnectedWarning": {
             "title": "Nós sem conexão",
-            "message": "Sem conexão: {{names}}. Sem nenhuma aresta, o fluxo roda os nós na ordem em que foram criados; com arestas, um nó solto roda à parte, com a entrada da execução. Ligue os nós para definir a ordem."
+            "message": "Sem conexão: {{names}}. Sem nenhuma aresta, o fluxo roda os nós na ordem em que foram criados; com arestas, o servidor recusa executar o fluxo enquanto houver nó solto (ele rodaria à parte, antes de qualquer portão). Ligue os nós ou remova os soltos."
         },
         "publish": {
             "button": "Publicar",
@@ -1766,6 +1767,7 @@
         "asEmpty": "Sem entrada: o fluxo roda com input vazio (\"\") e sem outras variáveis.",
         "asVariables": "Objeto JSON: variáveis {{keys}}.",
         "asText": "Texto: chega ao fluxo como input.",
+        "missingFields": "A Entrada declara os campos {{fields}}, e esta entrada não os traz. Uma condição ou switch que compare um deles falha o passo em vez de escolher um ramo. Envie um JSON com os campos, ou extraia o valor do texto antes (um nó decision ou um LLM).",
         "cancel": "Cancelar",
         "run": "Executar",
         "target": {

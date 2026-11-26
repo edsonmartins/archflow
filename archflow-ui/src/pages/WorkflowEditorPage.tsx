@@ -35,6 +35,7 @@ import { workflowYamlApi }   from '../services/workflow-yaml-api'
 import type { FlowNodeData, WorkflowData } from '../components/FlowCanvas/types'
 import { canvasToDocumentSteps, workflowDataFromDocument } from '../components/FlowCanvas/workflowSerde'
 import { hasRunBlockers, runBlockers, runBlockersMessage } from '../components/FlowCanvas/runReadiness'
+import { declaredInputFields } from '../components/FlowCanvas/controlExpressions'
 import { usePermissions }    from '../lib/permissions'
 import EmptyState            from '../components/EmptyState'
 
@@ -482,6 +483,9 @@ export function WorkflowEditor() {
   // Executar pede a entrada antes (RunInputModal); o Parar continua imediato. Sem o modal o fluxo
   // rodava sempre sem entrada e um nó que lê ${input} não tinha como ser testado pelo editor.
   const [runInputOpen, setRunInputOpen] = useState(false)
+  // Os campos que as Entradas declaram (ioFields), lidos do canvas ao abrir o modal: ele avisa quando a entrada
+  // digitada não os traz (RCHFLW-123).
+  const [runExpectedFields, setRunExpectedFields] = useState<string[]>([])
 
   const handleExecute = useCallback(async () => {
     if (!current) return
@@ -521,6 +525,9 @@ export function WorkflowEditor() {
         return
       }
     }
+    setRunExpectedFields(useFlowStore.getState().getCanvasSnapshot().steps.flatMap(s => declaredInputFields({
+      id: s.id, label: s.label, componentId: s.componentId, type: s.type, config: s.config,
+    })))
     setRunInputOpen(true)
   }, [current, isExecuting, abortExecution, view, yamlDirty, t])
 
@@ -966,6 +973,7 @@ export function WorkflowEditor() {
           onClose={() => setRunInputOpen(false)}
           onConfirm={(text) => { void startRun(text) }}
           runs="draft"
+          expectedFields={runExpectedFields}
         />
       )}
 

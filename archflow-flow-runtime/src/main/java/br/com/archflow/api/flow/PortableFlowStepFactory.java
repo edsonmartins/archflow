@@ -85,6 +85,10 @@ public class PortableFlowStepFactory implements FlowStepFactory {
     // lá a chave vem só do ambiente (RCHFLW-37).
     private boolean inlineApiKeys = true;
 
+    // archflow.flow.lenient-conditions (RCHFLW-123): o padrão é falhar fechado — referência sem valor numa
+    // condition/switch falha o passo, e o switch sem aresta para o ramo também. true devolve o ramo padrão.
+    private boolean lenientConditions;
+
     /**
      * @param catalog           catálogo dos componentes ({@link ComponentStep})
      * @param interceptors      cadeia de interceptors das invocações, ou {@code null}
@@ -109,6 +113,15 @@ public class PortableFlowStepFactory implements FlowStepFactory {
      */
     public void setInlineApiKeys(boolean allowed) {
         this.inlineApiKeys = allowed;
+    }
+
+    /**
+     * {@code archflow.flow.lenient-conditions}: {@code true} devolve o comportamento anterior à RCHFLW-123 —
+     * numa {@code condition}/{@code switch}, a referência sem valor segue {@code false}/{@code default} (com o
+     * {@code warning} na saída) e o switch sem aresta para o ramo conclui. Default {@code false}: falha o passo.
+     */
+    public void setLenientConditions(boolean lenient) {
+        this.lenientConditions = lenient;
     }
 
     public void setAdapterConnections(br.com.archflow.api.flow.adapter.AdapterConnections connections) {
@@ -213,7 +226,8 @@ public class PortableFlowStepFactory implements FlowStepFactory {
         // Nós de controle do designer: passos de verdade, que calculam o ramo; quem ramifica é a aresta.
         if ("condition".equals(kind) || "switch".equals(kind)) {
             return new ControlStep(id, "condition".equals(kind)
-                    ? ControlStep.Kind.CONDITION : ControlStep.Kind.SWITCH, connections, config);
+                    ? ControlStep.Kind.CONDITION : ControlStep.Kind.SWITCH, connections, config,
+                    str(node.get("label"), null), lenientConditions);
         }
 
         if (StepType.APPROVAL.name().equalsIgnoreCase(type)) {

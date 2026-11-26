@@ -72,7 +72,14 @@ public interface WorkflowRuntimeStore {
     /** True only when the workflow exists AND belongs to the tenant. */
     boolean hasWorkflow(String tenantId, String id);
 
-    /** Removes the tenant's workflow and every execution recorded for it; no-op for another tenant's. */
+    /**
+     * Removes the tenant's workflow with its versions and deployments; no-op for another tenant's.
+     *
+     * <p>As execuções do fluxo <b>ficam</b> (RCHFLW-122): a lista, o detalhe e as decisões de aprovação
+     * continuam consultáveis, com o nome que o registro guardou ({@code workflowName}). Apagá-las levava
+     * junto a resposta a "quem autorizou isto". O fluxo em si some — da lista e do {@link #getWorkflow} —,
+     * sem exclusão lógica. Quem recusa excluir um fluxo com execução em andamento ou pausada é o controller.</p>
+     */
     void deleteWorkflow(String tenantId, String id);
 
     /** Immutable snapshots, newest version first; empty when the workflow is not the tenant's. */

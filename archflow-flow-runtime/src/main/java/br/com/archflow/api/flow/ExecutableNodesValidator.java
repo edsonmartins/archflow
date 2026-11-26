@@ -8,6 +8,7 @@ import br.com.archflow.engine.validation.FlowValidator;
 import br.com.archflow.engine.validation.ValidationContext;
 import br.com.archflow.model.flow.Flow;
 import br.com.archflow.model.flow.FlowStep;
+import br.com.archflow.model.flow.StepConnection;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -43,12 +44,16 @@ import java.util.Set;
  * <p>A "Mensagem do usuário" de um LLM Chat ({@code userMessage}, RCHFLW-120) passa pela mesma regra
  * ({@link ControlExpressionRules#checkTemplate}): um <code>${</code> que não é referência ou um campo da saída de texto
  * de outro LLM Chat nunca funcionam e são recusados; {@code UNKNOWN_STEP}, só aviso, pelo mesmo motivo.</p>
+ *
+ * <p>E os nós soltos de um fluxo com arestas ({@code NODE_DISCONNECTED}, RCHFLW-135): rodariam à parte, logo no
+ * início, antes de qualquer portão.</p>
  */
 public final class ExecutableNodesValidator implements FlowValidator {
 
     static final String CODE = "NODE_TYPE_NOT_EXECUTABLE";
     static final String SERVER_CODE = "NODE_REQUIRES_SERVER";
     static final String EXPRESSION_CODE = "CONTROL_EXPRESSION_INVALID";
+    static final String DISCONNECTED_CODE = "NODE_DISCONNECTED";
 
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(ExecutableNodesValidator.class);
 
@@ -69,6 +74,7 @@ public final class ExecutableNodesValidator implements FlowValidator {
         errors.addAll(unsupported(flow));
         errors.addAll(serverOnly(flow));
         errors.addAll(controlExpressions(flow));
+        errors.addAll(disconnected(flow));
         if (!errors.isEmpty()) {
             throw new FlowValidationException(errors);
         }
@@ -244,6 +250,65 @@ public final class ExecutableNodesValidator implements FlowValidator {
             return nodes;
         }
         return List.of();
+    }
+
+    /**
+     * Um erro com os nós soltos de um fluxo que tem arestas (RCHFLW-135).
+     *
+     * <p>Com alguma aresta o motor percorre o grafo a partir dos passos sem aresta de entrada, e um nó sem
+     * aresta nenhuma é um deles: roda à parte, com a entrada da execução, logo no começo. No QA, ao religar a
+     * aprovação para outra Saída, a Saída antiga ficou solta e rodou antes do portão; um LLM ou uma
+     * ferramenta solta faria a chamada (paga, com efeito) sem passar por ele. O editor já avisa "Nós sem
+     * conexão"; quem roda pela API, pelo YAML ou pelo standalone passa por aqui.</p>
+     *
+     * <p>Sem aresta nenhuma o fluxo é linear (a ordem do documento) e nada muda — inclusive o fluxo de um nó
+     * só. A aresta conta como o motor a conta: no passo de origem e para um passo que existe.</p>
+     */
+    private static List<ValidationError> disconnected(Flow flow) {
+        List<FlowStep> steps = flow.getSteps();
+        if (steps.size() < 2 || steps.stream().allMatch(s -> s.getConnections() == null
+                || s.getConnections().isEmpty())) {
+            return List.of();
+        }
+        Set<String> ids = new HashSet<>();
+        steps.forEach(s -> ids.add(s.getId()));
+        Set<String> ligados = new HashSet<>();
+        for (FlowStep step : steps) {
+            for (StepConnection c : step.getConnections() == null ? List.<StepConnection>of()
+                    : step.getConnections()) {
+                String origem = c.getSourceId();
+                if (c.getTargetId() == null || !ids.contains(c.getTargetId())
+                        || (origem != null && !origem.isBlank() && !origem.equals(step.getId()))) {
+                    continue;
+                }
+                ligados.add(step.getId());
+                ligados.add(c.getTargetId());
+            }
+        }
+        Map<String, String> rotulos = new LinkedHashMap<>();
+        for (Map<?, ?> no : nodesOf(flow)) {
+            if (no.get("id") != null && no.get("label") instanceof String label && !label.isBlank()) {
+                rotulos.put(no.get("id").toString(), label.trim());
+            }
+        }
+        List<String> soltos = new ArrayList<>();
+        List<String> nomes = new ArrayList<>();
+        for (FlowStep step : steps) {
+            if (!ligados.contains(step.getId())) {
+                soltos.add(step.getId());
+                nomes.add(rotulos.containsKey(step.getId())
+                        ? "\"" + rotulos.get(step.getId()) + "\" (" + step.getId() + ")" : step.getId());
+            }
+        }
+        if (soltos.isEmpty()) {
+            return List.of();
+        }
+        return List.of(new ValidationError("step.connections",
+                "nó(s) sem nenhuma aresta: " + String.join(", ", nomes) + " — o fluxo tem arestas, e um nó solto "
+                        + "rodaria à parte, logo no início e com a entrada da execução (antes de um portão de "
+                        + "aprovação, por exemplo). Ligue-o(s) ao fluxo ou remova-o(s)",
+                DISCONNECTED_CODE,
+                Map.of("nodes", List.copyOf(soltos))));
     }
 
     /** Um erro por nó que precisa do servidor, na ordem dos passos. */

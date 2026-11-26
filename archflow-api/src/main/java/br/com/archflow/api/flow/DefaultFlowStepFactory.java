@@ -98,6 +98,17 @@ public class DefaultFlowStepFactory extends PortableFlowStepFactory {
                 jdbc && dataSource != null ? dataSource::getIfAvailable : null));
     }
 
+    /**
+     * {@code archflow.flow.lenient-conditions} (RCHFLW-123): sem a propriedade, a referência sem valor numa
+     * {@code condition}/{@code switch} falha o passo. Ver {@link PortableFlowStepFactory#setLenientConditions}.
+     */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setLenientConditionsProperty(
+            @org.springframework.beans.factory.annotation.Value("${archflow.flow.lenient-conditions:false}")
+            boolean lenient) {
+        setLenientConditions(lenient);
+    }
+
     /** Provedores e chaves do nó de decisão, entregues pelo host (ver {@code ArchflowBeanConfiguration}). */
     @Override
     @org.springframework.beans.factory.annotation.Autowired(required = false)

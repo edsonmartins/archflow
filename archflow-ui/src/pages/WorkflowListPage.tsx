@@ -11,7 +11,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useWorkflowStore } from '../stores/workflow-store';
-import { workflowApi } from '../services/api';
+import { ApiError, workflowApi } from '../services/api';
 import { OptionCard } from '../components/OptionCard';
 import { PageHeader, type Accent } from '../components/PageHeader';
 import { StatCard } from '../components/admin/StatCard';
@@ -69,7 +69,23 @@ export default function WorkflowListPage() {
     }), [workflows]);
     const totalSteps = useMemo(() => workflows.reduce((n, w) => n + (w.stepCount ?? 0), 0), [workflows]);
 
-    const handleDelete = async () => { if (deleteId) { await deleteWorkflow(deleteId); setDeleteId(null); } };
+    // O diálogo diz qual fluxo sai e que o histórico fica (RCHFLW-122); o servidor recusa (409) enquanto houver
+    // execução em andamento ou pausada, e o motivo aparece no próprio diálogo, que continua aberto.
+    const [deleteError, setDeleteError] = useState<string | null>(null);
+    const deleting = workflows.find(w => w.id === deleteId);
+    const closeDelete = () => { setDeleteId(null); setDeleteError(null); };
+    const handleDelete = async () => {
+        if (!deleteId) return;
+        try {
+            await deleteWorkflow(deleteId);
+            closeDelete();
+        } catch (e) {
+            setDeleteError(e instanceof ApiError && e.status === 409
+                && e.details?.code === 'WORKFLOW_HAS_ACTIVE_EXECUTIONS'
+                ? t('workflows.deleteModal.blocked')
+                : e instanceof Error ? e.message : String(e));
+        }
+    };
 
     const handleToggleStatus = async (id: string, currentStatus: string) => {
         await workflowApi.setStatus(id, currentStatus === 'active' ? 'draft' : 'active');
@@ -330,11 +346,19 @@ export default function WorkflowListPage() {
                 />
             )}
 
-            <Modal opened={!!deleteId} onClose={() => setDeleteId(null)} title={t('workflows.deleteModal.title')} centered>
-                <Text size="sm">{t('workflows.deleteModal.message')}</Text>
+            <Modal opened={!!deleteId} onClose={closeDelete} title={t('workflows.deleteModal.title')} centered>
+                <Text size="sm" data-testid="delete-workflow-message">
+                    {t('workflows.deleteModal.message', { name: deleting?.name ?? deleteId ?? '' })}
+                </Text>
+                {deleteError && (
+                    <Alert color="red" variant="light" mt="sm" icon={<IconAlertCircle size={16} />}
+                           data-testid="delete-workflow-error">
+                        {deleteError}
+                    </Alert>
+                )}
                 <Group justify="flex-end" mt="md">
-                    <Button variant="light" onClick={() => setDeleteId(null)}>{t('common.cancel')}</Button>
-                    <Button color="red" onClick={handleDelete}>{t('common.delete')}</Button>
+                    <Button variant="light" onClick={closeDelete}>{t('common.cancel')}</Button>
+                    <Button color="red" onClick={handleDelete} data-testid="delete-workflow-confirm">{t('common.delete')}</Button>
                 </Group>
             </Modal>
 

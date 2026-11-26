@@ -155,13 +155,41 @@ class NosDeControleTest {
                         Map.of("targetId", "b", "branch", "default"))));
     }
 
+    /** A fábrica com {@code archflow.flow.lenient-conditions=true}: o comportamento anterior à RCHFLW-123. */
+    private final DefaultFlowStepFactory leniente = lenienteFactory();
+
+    private static DefaultFlowStepFactory lenienteFactory() {
+        DefaultFlowStepFactory f = new DefaultFlowStepFactory(mock(ComponentCatalog.class), null, null, null, null);
+        f.setLenientConditionsProperty(true);
+        return f;
+    }
+
     @Test
-    @DisplayName("switch com raiz inexistente (rótulo em vez do id) segue 'default', mas avisa o caminho")
+    @DisplayName("raiz inexistente (rótulo em vez do id): o passo falha nomeando a referência (RCHFLW-123)")
+    void raizNaoResolvidaFalha() {
+        ExecutionContext c = ctx();
+        c.set("node-1712345678901", Map.of("route", "ESCALATE"));
+        var sw = switchDe("${triagem.route}").execute(c).join();
+        assertThat(sw.getStatus()).isEqualTo(br.com.archflow.model.enums.StepStatus.FAILED);
+        assertThat(String.valueOf(sw.getOutput().orElse(""))).contains("${triagem.route}");
+
+        var cond = condicao("${triagem.route} == 'ESCALATE'").execute(ctx()).join();
+        assertThat(cond.getStatus()).isEqualTo(br.com.archflow.model.enums.StepStatus.FAILED);
+        assertThat(String.valueOf(cond.getOutput().orElse("")))
+                .contains("condition decide, campo conditionExpression: a referência ${triagem.route} não tem valor");
+    }
+
+    @Test
+    @DisplayName("leniente: switch com raiz inexistente (rótulo em vez do id) segue 'default', mas avisa o caminho")
     void switchComRaizNaoResolvida() {
         ExecutionContext c = ctx();
         // O motor gravou a saída da decisão sob o id do nó; o usuário escreveu o rótulo.
         c.set("node-1712345678901", Map.of("route", "ESCALATE"));
-        FlowStep passo = switchDe("${triagem.route}");
+        FlowStep passo = leniente.create(Map.of("id", "rota", "type", "SWITCH", "componentId", "switch",
+                "configuration", Map.of("switchExpression", "${triagem.route}", "switchCases", "AUTO\nESCALATE"),
+                "connections", List.of(
+                        Map.of("targetId", "a", "branch", "ESCALATE"),
+                        Map.of("targetId", "b", "branch", "default"))));
 
         var resultado = passo.execute(c).join();
 
@@ -177,11 +205,19 @@ class NosDeControleTest {
                 .containsExactly(false, true);
     }
 
+    private FlowStep condicaoLeniente(String expressao) {
+        return leniente.create(Map.of("id", "decide", "type", "CONDITION", "componentId", "condition",
+                "configuration", Map.of("conditionExpression", expressao),
+                "connections", List.of(
+                        Map.of("targetId", "sim", "branch", "true"),
+                        Map.of("targetId", "nao", "branch", "false"))));
+    }
+
     @Test
-    @DisplayName("condition com raiz inexistente segue 'false' e avisa; raiz presente com campo ausente não avisa")
+    @DisplayName("leniente: condition com raiz inexistente segue 'false' e avisa; raiz com campo ausente não avisa")
     void conditionComRaizNaoResolvida() {
         ExecutionContext c = ctx();
-        FlowStep passo = condicao("${triagem.route} == 'ESCALATE'");
+        FlowStep passo = condicaoLeniente("${triagem.route} == 'ESCALATE'");
         passo.execute(c).join();
         Map<String, Object> saida = saida(c, "decide");
         assertThat(saida.get("branch")).isEqualTo("false");
@@ -189,7 +225,7 @@ class NosDeControleTest {
 
         ExecutionContext c2 = ctx();
         c2.set("triagem", Map.of("route", "AUTO"));
-        condicao("${triagem.confianca} > 0.5").execute(c2).join();
+        condicaoLeniente("${triagem.confianca} > 0.5").execute(c2).join();
         assertThat(saida(c2, "decide")).as("a raiz existe: campo opcional não é aviso")
                 .doesNotContainKey("warning");
     }

@@ -171,12 +171,9 @@ public class JdbcWorkflowRuntimeStore implements WorkflowRuntimeStore {
                 ps.setString(1, id);
                 ps.executeUpdate();
             }
-            try (PreparedStatement ps = conn.prepareStatement(
-                    "DELETE FROM workflow_executions WHERE workflow_id = ? AND tenant_id = ?")) {
-                ps.setString(1, id);
-                ps.setString(2, DefaultTenant.orDefault(tenantId));
-                ps.executeUpdate();
-            }
+            // As execuções ficam (RCHFLW-122): apagá-las levava junto o histórico e quem decidiu cada portão.
+            // O registro guarda o nome do fluxo (workflowName) desde a criação, e nenhuma FK o prende ao
+            // documento — a lista e o detalhe continuam respondendo sem ele.
         } catch (SQLException e) {
             throw new RuntimeException("Failed to delete workflow " + id, e);
         }

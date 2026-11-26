@@ -110,6 +110,16 @@ class PermissoesDeFluxosEExecucoesTest {
         fluxosAntes = store.workflows(DefaultTenant.ID).size();
     }
 
+    /**
+     * Encerra as execuções do fluxo que ficaram RUNNING (o motor falso nunca termina). Com execução em andamento
+     * ou pausada, a exclusão responde 409 (RCHFLW-122) — aqui se testa o papel, não essa regra.
+     */
+    private void encerraExecucoes() {
+        store.executions(DefaultTenant.ID, FLUXO, null).stream()
+                .filter(e -> "RUNNING".equals(e.get("status")))
+                .forEach(e -> store.completeExecution(String.valueOf(e.get("id")), "COMPLETED", null));
+    }
+
     // ── requisições ─────────────────────────────────────────────────────────
 
     private enum Acao {
@@ -259,6 +269,7 @@ class PermissoesDeFluxosEExecucoesTest {
             assertThat(faz(mvc, Acao.MUDAR_STATUS, designer).getResponse().getStatus()).isEqualTo(200);
             assertThat(faz(mvc, Acao.PUBLICAR, designer).getResponse().getStatus()).isEqualTo(201);
             assertThat(faz(mvc, Acao.EXECUTAR, designer).getResponse().getStatus()).isEqualTo(200);
+            encerraExecucoes();
             assertThat(faz(mvc, Acao.APAGAR, designer).getResponse().getStatus()).isEqualTo(204);
             assertThat(store.hasWorkflow(DefaultTenant.ID, FLUXO)).isFalse();
         }
@@ -290,6 +301,7 @@ class PermissoesDeFluxosEExecucoesTest {
             MvcResult cancel = faz(mvc, Acao.CANCELAR, List.of("superadmin"));
             assertThat(cancel.getResponse().getStatus()).isEqualTo(200);
             assertThat(store.getExecution(DefaultTenant.ID, execucao).get("status")).isEqualTo("CANCELLED");
+            encerraExecucoes();
             assertThat(faz(mvc, Acao.APAGAR, List.of("ROLE_ADMIN")).getResponse().getStatus()).isEqualTo(204);
         }
     }
@@ -309,6 +321,7 @@ class PermissoesDeFluxosEExecucoesTest {
     @DisplayName("auth desligada (dev): sem checagem de papel, como no AdminRoleInterceptor")
     void authDesligada() throws Exception {
         MockMvc mvc = mvc(false);
+        encerraExecucoes();
         assertThat(faz(mvc, Acao.APAGAR, List.of("VIEWER")).getResponse().getStatus()).isEqualTo(204);
         assertThat(faz(mvc, Acao.CRIAR, null).getResponse().getStatus()).isEqualTo(201);
     }

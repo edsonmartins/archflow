@@ -678,7 +678,15 @@ public class AssistServiceImpl implements AssistService {
           .append("texto com ao menos um ${caminho}. O caminho começa pelo 'name' de um step anterior: ${<name>} ")
           .append("é a saída dele, ${<name>.<campo>} um campo dela. A saída de um llm-chat é o texto da resposta, ")
           .append("sem campos. Para classificar e ramificar, use um step decision e ramifique pela RESPOSTA dele ")
-          .append("(ver as regras do decision).\n");
+          .append("(ver as regras do decision). Uma referência ${caminho} sem valor na execução FALHA o passo da ")
+          .append("condition/switch, que nunca escolhe um ramo por ela. A entrada do run costuma ser o texto do ")
+          .append("cliente, e aí ${<name do step input>.valor} não existe: para comparar um valor que o cliente ")
+          .append("escreve no texto (um valor em reais, uma data, uma quantidade), extraia-o antes — um step ")
+          .append("decision com uma pergunta choice ou score sobre ele, ou um llm-chat cujo systemPrompt mande ")
+          .append("responder só o número em dígitos, sem separador de milhar nem moeda e com ponto decimal (1200 ")
+          .append("ou 1200.50, nunca 1.200 nem R$ 1.200,00 — 1.200 seria lido como 1,2), e então ")
+          .append("${<name do llm>} > 500. Compare um campo da entrada direto só ")
+          .append("quando ela é um JSON que o traz, com o campo declarado nos ioFields do step input.\n");
     }
 
     /**
@@ -739,7 +747,15 @@ public class AssistServiceImpl implements AssistService {
           .append("('receber' é o step input: o llm-chat responde à mensagem do cliente, não ao JSON da ")
           .append("triagem). Os links não levam o ramo: diga em 'observacoes' qual ")
           .append("link sai pelo true e qual pelo false. Por categoria: switch com switchExpression ")
-          .append("\"${<name>.decision}\" (primary = um choice) e um caso por opção.\n");
+          .append("\"${<name>.decision}\" (primary = um choice) e um caso por opção. Exemplo para \"reembolso ")
+          .append("acima de 500 reais pede aprovação do gerente; abaixo, responder automaticamente\" (o valor vem ")
+          .append("no texto do cliente): step 'faixa' (decision) com parameters {\"provider\":\"llm\",")
+          .append("\"questions\":{\"valor\":{\"type\":\"choice\",\"instructions\":\"Qual o valor do reembolso ")
+          .append("pedido?\",\"criteria\":{\"acima_de_500\":\"mais de R$ 500\",\"ate_500\":\"R$ 500 ou menos\",")
+          .append("\"sem_valor\":\"o pedido não diz o valor\"}}},\"primary\":\"valor\"}; depois um step ")
+          .append("'por_valor' (switch) com switchExpression \"${faixa.decision}\" e switchCases \"ate_500\": ")
+          .append("o caso ate_500 vai ao llm-chat e o default (onde caem acima_de_500, sem_valor e a decisão que ")
+          .append("falhou) ao approval — nunca ${<name do step input>.valor} > 500 sobre texto livre.\n");
     }
 
     private static void appendProps(StringBuilder sb, List<String> props) {

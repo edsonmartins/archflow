@@ -136,13 +136,19 @@ class JdbcWorkflowRuntimeStoreTenantPostgresTest {
                 .isInstanceOf(WorkflowRuntimeStore.WorkflowOwnershipException.class);
         assertThat(store.getWorkflow("acme", "wf-acme")).containsEntry("v", 1);
 
-        // Apagar no tenant errado não apaga nada; no certo, leva versões, implantação e execuções.
+        // Apagar no tenant errado não apaga nada; no certo, leva versões e implantação — e as execuções ficam,
+        // com o nome do fluxo (RCHFLW-122): o histórico e quem decidiu cada portão continuam consultáveis.
         store.deleteWorkflow("globex", "wf-acme");
         assertThat(store.hasWorkflow("acme", "wf-acme")).isTrue();
         assertThat(store.workflowVersions("acme", "wf-acme")).hasSize(1);
         store.deleteWorkflow("acme", "wf-acme");
         assertThat(store.hasWorkflow("acme", "wf-acme")).isFalse();
-        assertThat(store.executions("acme", null, null)).isEmpty();
+        assertThat(store.getWorkflow("acme", "wf-acme")).isNull();
+        assertThat(store.workflowVersions("acme", "wf-acme")).isEmpty();
+        assertThat(store.executions("acme", "wf-acme", null)).singleElement()
+                .satisfies(e -> assertThat(e).containsEntry("id", execucao).containsEntry("workflowName", "A"));
+        assertThat(store.getExecution("acme", execucao)).containsEntry("status", "COMPLETED");
+        assertThat(store.getExecution("globex", execucao)).isNull();
         assertThat(store.workflows("globex")).hasSize(1);
     }
 }

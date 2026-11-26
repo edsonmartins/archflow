@@ -111,10 +111,41 @@ public class SpringWorkflowCrudController {
         return ResponseEntity.ok(updated);
     }
 
+    /** Status de execução que ainda dependem do fluxo: em andamento ou parada à espera (aprovação). */
+    static final Set<String> ACTIVE_EXECUTION_STATUSES = Set.of("RUNNING", "PAUSED");
+
+    /**
+     * Exclui o fluxo e mantém o histórico de execuções (RCHFLW-122, ver
+     * {@link WorkflowRuntimeStore#deleteWorkflow}).
+     *
+     * <p>409 enquanto houver execução do fluxo em andamento ou pausada: quem decide a aprovação pendente a
+     * decidiria para um fluxo que já sumiu da lista. A resposta diz quais execuções — cancelá-las ou decidir a
+     * aprovação libera a exclusão.</p>
+     *
+     * <p>A checagem não é atômica com um {@code execute} concorrente: a execução criada entre a consulta e o
+     * {@code deleteWorkflow} segue. Fica aceito porque o dano é contido — o motor percorre e retoma pelo
+     * {@code FlowRepository}, gravado por id de execução no {@code execute}, não pelo documento; o registro
+     * guarda o nome. Fechar a janela pediria trava compartilhada entre os três pontos que executam (este
+     * controller, AG-UI e MCP) e as réplicas.</p>
+     */
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> delete(@PathVariable String id) {
+    public ResponseEntity<Map<String, Object>> delete(@PathVariable String id) {
         String tenantId = tenant();
         if (!store.hasWorkflow(tenantId, id)) return ResponseEntity.notFound().build();
+        List<String> ativas = store.executions(tenantId, id, null).stream()
+                .filter(e -> ACTIVE_EXECUTION_STATUSES.contains(String.valueOf(e.get("status"))))
+                .map(e -> String.valueOf(e.get("id")))
+                .toList();
+        if (!ativas.isEmpty()) {
+            Map<String, Object> body = new LinkedHashMap<>();
+            body.put("error", "O fluxo \"" + workflowName(store.getWorkflow(tenantId, id)) + "\" tem "
+                    + (ativas.size() == 1 ? "uma execução" : ativas.size() + " execuções")
+                    + " em andamento ou aguardando aprovação (" + String.join(", ", ativas) + "). Cancele-"
+                    + (ativas.size() == 1 ? "a" : "as") + " ou decida a aprovação antes de excluir o fluxo.");
+            body.put("code", "WORKFLOW_HAS_ACTIVE_EXECUTIONS");
+            body.put("executions", ativas);
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(body);
+        }
         store.deleteWorkflow(tenantId, id);
         auditTrail.record(AuditAction.DELETE, "workflow", id, true, null, null);
         return ResponseEntity.noContent().build();

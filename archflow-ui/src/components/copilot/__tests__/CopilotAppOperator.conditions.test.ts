@@ -608,3 +608,65 @@ describe('RCHFLW-120 — userMessage do llm-chat: o agente grava, e o que não r
     expect(outroFluxo.ok).toBe(true)
   })
 })
+
+describe('RCHFLW-123 — o valor que vem no texto do cliente é extraído antes da comparação', () => {
+  const PEDIDO = 'quando chegar um pedido de reembolso acima de 500 reais, pedir aprovação do gerente; abaixo, '
+    + 'responder automaticamente'
+  const VALOR = { type: 'choice', instructions: 'Qual o valor do reembolso pedido?', criteria: {
+    acima_de_500: 'mais de R$ 500', ate_500: 'R$ 500 ou menos', sem_valor: 'o pedido não diz o valor' } }
+
+  it('a regra diz que a referência sem valor falha o passo; o exemplo do reembolso entra e o Executar o aceita', async () => {
+    await mountEditor()
+
+    const bodies = await runCopilot(PEDIDO, (body, turn) => {
+      const ids = idsByLabel(body.messages)
+      if (turn === 1) {
+        const regras = (rules() as string[]).join('\n')
+        // O defeito do QA: ${entrada.valor} > 500 sobre texto livre dava false e o LLM aprovava sozinho.
+        expect(regras).toContain('A condition/switch reference with no value at run time FAILS the step')
+        expect(regras).toContain('extract it first: a decision node with a choice or score question about it')
+        // O llm que devolve o número: «1.200» seria lido 1.2 e o reembolso de R$ 1.200 iria ao automático.
+        expect(regras).toContain('answer only the number in digits, with no thousands separator or currency')
+        expect(regras).toContain('Never ${<inputNodeId>.valor} > 500 over free text.')
+        return [
+          { name: 'addNode', args: { nodeType: 'input', label: 'Receber pedido' } },
+          { name: 'addNode', args: { nodeType: 'decision', label: 'Faixa de valor',
+            config: { provider: 'llm', questions: { valor: VALOR }, primary: 'valor' } } },
+          { name: 'addNode', args: { nodeType: 'approval', label: 'Aprovação do gerente',
+            config: { approvalTitle: 'Reembolso acima de R$ 500' } } },
+          { name: 'addNode', args: { nodeType: 'llm-chat', label: 'Resposta automática',
+            config: { systemPrompt: 'Responda ao pedido de reembolso do cliente.' } } },
+        ]
+      }
+      if (turn === 2) {
+        return [{ name: 'addNode', args: { nodeType: 'switch', label: 'Por valor', config: {
+          switchExpression: `\${${ids.get('Faixa de valor')}.decision}`, switchCases: 'ate_500' } } }]
+      }
+      if (turn === 3) {
+        return [
+          { name: 'connectNodes', args: { sourceId: ids.get('Receber pedido'), targetId: ids.get('Faixa de valor') } },
+          { name: 'connectNodes', args: { sourceId: ids.get('Faixa de valor'), targetId: ids.get('Por valor') } },
+          { name: 'connectNodes', args: { sourceId: ids.get('Por valor'), targetId: ids.get('Resposta automática'),
+            branch: 'ate_500' } },
+          { name: 'connectNodes', args: { sourceId: ids.get('Por valor'), targetId: ids.get('Aprovação do gerente'),
+            branch: 'default' } },
+          { name: 'configureNode', args: { nodeId: ids.get('Resposta automática'),
+            config: { userMessage: `\${${ids.get('Receber pedido')}}` } } },
+        ]
+      }
+      return 'Reembolso montado: o valor vem do texto pela decisão, e acima de 500 vai ao gerente.'
+    })
+
+    expect(bodies).toHaveLength(4)
+    expect(toolResults(bodies[3].messages).map(r => r.result?.ok)).toEqual(Array(10).fill(true))
+    const ids = idsByLabel(bodies[3].messages)
+    expect(edgesOf()).toEqual(expect.arrayContaining([
+      [ids.get('Por valor'), ids.get('Resposta automática'), 'ate_500'],
+      [ids.get('Por valor'), ids.get('Aprovação do gerente'), 'default'],
+    ]))
+    // Nenhuma condição compara um campo da Entrada, e o Executar do editor aceita o fluxo como saiu.
+    const steps = useFlowStore.getState().getCanvasSnapshot().steps
+    expect(JSON.stringify(steps)).not.toContain('.valor}')
+    expect(hasRunBlockers(runBlockers(steps))).toBe(false)
+  })
+})

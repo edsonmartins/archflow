@@ -65,6 +65,7 @@ public final class StandaloneFlowMaterializer {
         factory.setBaseUrlPolicy(environment.baseUrlPolicy());
         factory.setProviderPreferences(environment.providerPreferences(), environment.providerPreferencesRequired());
         factory.setPlatformDefaultLLM(environment.platformDefaultLLM());
+        factory.setLenientConditions(environment.lenientConditions());
         // Os provedores embutidos, com o http-decisions levando a preferência de provedor e passando pela guarda
         // de destino — como no servidor. Os que dependem do servidor (llm, langchain4j-decisions) não existem aqui:
         // a fábrica recusa, antes do primeiro passo, o nó que cite um deles.

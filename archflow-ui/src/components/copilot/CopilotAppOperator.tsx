@@ -188,6 +188,20 @@ const EXPRESSION_RULES: string[] = [
         + "${<llmId>} contains 'URGENT' (tell it in systemPrompt to answer with that word), or use a decision node. "
         + 'A top-level key of the run input JSON is ${<key>}; a nested field of it, ${<key>.<field>}, needs <key> '
         + 'declared in the input node ioFields. ${input} is the output of the previous step.',
+    'A condition/switch reference with no value at run time FAILS the step — it never picks a branch. The run input '
+        + 'is often the customer\'s free text, and then ${<inputNodeId>.valor} does not exist. To compare a value the '
+        + 'customer writes in the text (an amount, a date, a quantity), extract it first: a decision node with a '
+        + 'choice or score question about it, or an llm-chat whose systemPrompt says to answer only the number in '
+        + 'digits, with no thousands separator or currency and a dot as decimal point (1200 or 1200.50, never 1.200 or '
+        + 'R$ 1.200,00 — 1.200 would read as 1.2), then ${<llmId>} > 500. Compare an input field directly only when '
+        + 'the run input is JSON carrying it, declared in the input node ioFields.',
+    'Example — "refund requests above 500 reais need the manager\'s approval; below, answer automatically" (the amount '
+        + 'comes in the customer text): decision D with config {"provider":"llm","questions":{"valor":{"type":"choice",'
+        + '"instructions":"Qual o valor do reembolso pedido?","criteria":{"acima_de_500":"mais de R$ 500",'
+        + '"ate_500":"R$ 500 ou menos","sem_valor":"o pedido não diz o valor"}}},"primary":"valor"}; then a switch S '
+        + 'with switchExpression "${D.decision}" and switchCases "ate_500"; connectNodes S -> llm-chat with branch '
+        + '"ate_500" and S -> approval with branch "default" (acima_de_500, sem_valor and a failed decision fall in '
+        + 'default). Never ${<inputNodeId>.valor} > 500 over free text.',
     'llm-chat userMessage: without it, an llm-chat receives the previous step output as the user message. After a '
         + 'decision, condition or switch that output is the classification JSON (condition and switch pass on what '
         + 'they received), and the LLM answers the JSON instead of the customer. So an llm-chat that answers after a '

@@ -113,16 +113,22 @@ class InMemoryWorkflowRuntimeStoreTest {
     }
 
     @Test
-    @DisplayName("deleteWorkflow also removes related executions")
-    void deleteWorkflowRemovesRelatedExecutions() {
+    @DisplayName("deleteWorkflow removes the workflow and keeps its executions, with the name (RCHFLW-122)")
+    void deleteWorkflowKeepsExecutionHistory() {
         var store = new InMemoryWorkflowRuntimeStore();
         Map<String, Object> execution = store.createExecution(T, "wf-demo-001", "Customer Support Agent");
+        String id = execution.get("id").toString();
 
         store.deleteWorkflow(T, "wf-demo-001");
 
         assertThat(store.getWorkflow(T, "wf-demo-001")).isNull();
-        assertThat(store.getExecution(T, execution.get("id").toString())).isNull();
-        assertThat(store.executions(T, null, null)).noneMatch(item -> "wf-demo-001".equals(item.get("workflowId")));
+        assertThat(store.hasWorkflow(T, "wf-demo-001")).isFalse();
+        assertThat(store.getExecution(T, id)).containsEntry("workflowName", "Customer Support Agent");
+        assertThat(store.executions(T, "wf-demo-001", null)).extracting(e -> e.get("id")).contains(id);
+        // Os callbacks do motor continuam gravando no registro (a execução que terminou depois).
+        store.recordStep(id, "s1", Map.of("status", "COMPLETED"));
+        store.completeExecution(id, "COMPLETED", null);
+        assertThat(store.getExecution(T, id)).containsEntry("status", "COMPLETED");
     }
 
     @Test

@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Button, Group, Modal, Stack, Text, Textarea } from '@mantine/core'
-import { IconPlayerPlay } from '@tabler/icons-react'
-import { loadLastRunInput, parseRunInput, saveLastRunInput } from '../lib/runInput'
+import { Alert, Button, Group, Modal, Stack, Text, Textarea } from '@mantine/core'
+import { IconAlertTriangle, IconPlayerPlay } from '@tabler/icons-react'
+import { loadLastRunInput, missingInputFields, parseRunInput, saveLastRunInput } from '../lib/runInput'
 import { productionRunTarget, type RunTarget } from '../lib/runTarget'
 
 /**
@@ -16,6 +16,10 @@ import { productionRunTarget, type RunTarget } from '../lib/runTarget'
  * rascunho), {@code 'production'} na lista e no Executar novamente (a versão publicada em produção, com o
  * número dela, ou o rascunho quando não há versão lá). O modal é a última tela antes de rodar nos três
  * caminhos — é aqui que o usuário precisa ler qual versão vai executar.</p>
+ *
+ * <p>{@code expectedFields} são os campos que os nós Entrada declaram ({@code ioFields}). Quando a entrada não
+ * os traz — texto livre num fluxo que compara {@code valor} —, o modal avisa sem impedir (RCHFLW-123): o motor
+ * falha fechado, e a condição que compara o campo ausente falha o passo em vez de escolher o ramo.</p>
  */
 export function RunInputModal({
     workflowId,
@@ -23,12 +27,14 @@ export function RunInputModal({
     onClose,
     onConfirm,
     runs,
+    expectedFields = [],
 }: {
     workflowId: string
     opened: boolean
     onClose: () => void
     onConfirm: (text: string) => void
     runs?: 'draft' | 'production'
+    expectedFields?: readonly string[]
 }) {
     const { t } = useTranslation()
     const [text, setText] = useState('')
@@ -56,6 +62,7 @@ export function RunInputModal({
         : parsed.kind === 'variables'
             ? t('runInput.asVariables', { keys: Object.keys(parsed.value).join(', ') || '—' })
             : t('runInput.asText')
+    const missing = missingInputFields(text, expectedFields)
 
     const confirm = () => {
         saveLastRunInput(workflowId, text)
@@ -91,6 +98,12 @@ export function RunInputModal({
                     data-autofocus
                 />
                 <Text size="xs" c="dimmed" data-testid="run-input-hint">{hint}</Text>
+                {missing.length > 0 && (
+                    <Alert color="yellow" variant="light" icon={<IconAlertTriangle size={16} />}
+                           data-testid="run-input-missing-fields">
+                        {t('runInput.missingFields', { fields: missing.join(', ') })}
+                    </Alert>
+                )}
                 <Group justify="flex-end">
                     <Button variant="default" onClick={onClose} data-testid="run-input-cancel">
                         {t('runInput.cancel')}

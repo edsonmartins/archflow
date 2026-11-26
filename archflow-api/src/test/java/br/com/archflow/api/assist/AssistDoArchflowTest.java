@@ -185,6 +185,44 @@ class AssistDoArchflowTest {
                 .doesNotContain("\"certo\"").doesNotContain("\"resumir\"");
     }
 
+    /**
+     * RCHFLW-123: o "Gerar com IA" montou {@code ${entrada.valor} > 500} sobre a entrada em texto livre, e o LLM
+     * confirmou um reembolso de R$ 900 sem aprovação. O motor agora falha o passo; o prompt ensina a extrair o valor
+     * antes (decision ou llm-chat) e traz o exemplo do reembolso — que, devolvido pelo modelo, não gera aviso.
+     */
+    @Test
+    @DisplayName("nl-to-flow ensina que a referência sem valor falha o passo e a extrair o valor do texto antes")
+    void nlToFlowExtraiOValorDoTexto() {
+        resposta = """
+                {"workflow":{"steps":[
+                  {"name":"receber","component":"input","nodeType":"input","parameters":{}},
+                  {"name":"faixa","component":"decision","nodeType":"decision",
+                   "parameters":{"provider":"llm","questions":{"valor":{"type":"choice",
+                     "instructions":"Qual o valor do reembolso pedido?","criteria":{"acima_de_500":"mais de R$ 500",
+                     "ate_500":"R$ 500 ou menos","sem_valor":"o pedido não diz o valor"}}},"primary":"valor"}},
+                  {"name":"por_valor","component":"switch","nodeType":"switch",
+                   "parameters":{"switchExpression":"${faixa.decision}","switchCases":"ate_500"}},
+                  {"name":"gerente","component":"approval","nodeType":"approval","parameters":{}},
+                  {"name":"responder","component":"llm-chat","nodeType":"llm-chat",
+                   "parameters":{"userMessage":"${receber}"}}],
+                 "links":[{"source":"receber","target":"faixa"},{"source":"faixa","target":"por_valor"},
+                  {"source":"por_valor","target":"responder"},{"source":"por_valor","target":"gerente"}]},
+                 "lacunas":[],"observacoes":null}
+                """;
+
+        var r = assist.nlToFlow(new NlToFlowRequest("reembolso acima de 500 reais pede aprovação do gerente; abaixo, "
+                + "responder automaticamente", null, "pt-BR"));
+
+        assertThat(prompts.getFirst())
+                .contains("Uma referência ${caminho} sem valor na execução FALHA o passo da condition/switch")
+                .contains("extraia-o antes — um step decision com uma pergunta choice ou score sobre ele")
+                // O llm que devolve o número: «1.200» seria lido 1,2 e o reembolso de R$ 1.200 iria ao automático.
+                .contains("responder só o número em dígitos, sem separador de milhar nem moeda e com ponto decimal")
+                .contains("switchExpression \"${faixa.decision}\" e switchCases \"ate_500\"")
+                .contains("nunca ${<name do step input>.valor} > 500 sobre texto livre");
+        assertThat(String.valueOf(r.observacoes())).doesNotContain("será recusado").doesNotContain("\"por_valor\"");
+    }
+
     @Test
     @DisplayName("nl-to-flow com catálogo no corpo continua usando o do chamador")
     void nlToFlowRespeitaOCatalogoDoCorpo() {
