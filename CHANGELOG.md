@@ -149,6 +149,85 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security — preflight CORS com auth ligada e segredo JWT público (QA2 T3, T5)
+- **Preflight CORS deixa de levar `401`.** Com `archflow.security.auth.enabled=true`, todo `OPTIONS` de
+  preflight (com `Origin` e `Access-Control-Request-Method`) recebia `401 MISSING_TOKEN` do filtro JWT,
+  sem cabeçalho CORS — o navegador nunca manda `Authorization` num preflight, então nenhum cliente de
+  outra origem passava dele (`<archflow-designer>` incorporado, Vite com auth ligada). Agora o preflight
+  passa o filtro sem identidade e o Spring MVC o responde com a configuração de
+  `archflow.cors.allowed-origins` (`ARCHFLOW_CORS_ORIGINS`), sem chegar a controller nenhum. Origem fora
+  da lista: `403` sem `Access-Control-Allow-Origin`. Só o preflight muda: um `OPTIONS` sem esses
+  cabeçalhos e a requisição de verdade seguem exigindo token. O CORS continua mapeado só em `/api/**`
+  (e no bundle do embed): o preflight de `/mcp`, `/ag-ui` e `/archflow/**` passa o filtro, mas não libera
+  a origem — igual ao GET com token nesses caminhos hoje.
+- **O boot recusa o segredo JWT público fora de dev/test.** O `application.yml` traz
+  `archflow.security.jwt.secret: ${ARCHFLOW_JWT_SECRET:change-me-in-production-…}`; só o profile `prod`
+  exigia `ARCHFLOW_JWT_SECRET`, e qualquer outro (`staging`, `homolog`…) subia com o default publicado no
+  repositório — um access token com `roles: ["ADMIN"]` assinado com ele era aceito. O
+  `ProductionReadinessGuard` agora falha o startup ("Refusing to start: archflow.security.jwt.secret is the
+  public default secret…") quando a property está ausente ou é um dos defaults do repositório (o do
+  `application.yml` e o do `@Value` do `JwtService`), fora dos profiles `dev`/`test`. Sem escape hatch:
+  `archflow.allow-in-memory=true` não cobre isto. **O que fazer:** defina `ARCHFLOW_JWT_SECRET` (ou
+  `archflow.security.jwt.secret`) com um segredo aleatório de pelo menos 32 bytes, por exemplo
+  `openssl rand -base64 48`. **Ambiente local:** sem `SPRING_PROFILES_ACTIVE` o `application.yml` ativa
+  `dev` (`spring.profiles.active: ${SPRING_PROFILES_ACTIVE:dev}`), e o `docker-compose.yml` usa
+  `SPRING_PROFILES_ACTIVE=dev` — os dois seguem subindo como antes; `docker-compose.prod.yml` já exigia
+  `ARCHFLOW_JWT_SECRET`. Quem sobe com outro profile (ex.: `SPRING_PROFILES_ACTIVE=staging`) sem o
+  segredo passa a não subir até defini-lo. Os guias do docs-site (`deploy-docker`, `security-rbac`,
+  `troubleshooting`) citavam `JWT_SECRET`/`JWT_EXPIRATION`, que o app nunca leu — agora citam
+  `ARCHFLOW_JWT_SECRET`/`ARCHFLOW_JWT_TTL`.
+
+### Security — sessão de login: logout, refresh de uso único e papel atual (QA2 T1, T2, T4)
+- **O logout encerra a sessão inteira.** O login abre uma sessão (claim `sid`) que o access e o refresh
+  token compartilham e que a rotação mantém. `POST /api/auth/logout` — que o SPA chama só com o access
+  token — revoga a sessão: o refresh token dela para junto. Antes o refresh token seguia emitindo access
+  novos por 7 dias depois do logout. Outras sessões do mesmo usuário (outro navegador) não mudam.
+- **O refresh token é de uso único.** `POST /api/auth/refresh` consome o token apresentado e devolve um
+  par novo; o antigo responde `401` ("Refresh token already used"). Um token já consumido que volta é
+  tratado como cópia roubada e **encerra a sessão** (o par novo também para). Entre refreshes
+  simultâneos do mesmo token, só um passa. Quem sente: um cliente que guardava o refresh token do login
+  e o reapresentava, e uma aba duplicada do navegador (o `sessionStorage` é copiado e as duas abas
+  renovam com o mesmo token — a segunda derruba a sessão e volta ao login). Não há janela de
+  tolerância para reuso: uma resposta de refresh que o SPA não chega a guardar (aba fechada ou
+  recarregada com o refresh em voo, resposta perdida na rede) deixa nele o token já consumido, e o
+  próximo refresh encerra a sessão e volta ao login. É a troca do OAuth 2.0 Security BCP — uma janela
+  aceitaria, durante ela, também a cópia roubada.
+- **Refresh token de antes desta versão (sem `sid`) é recusado** (`401`, "Refresh token predates login
+  sessions — log in again"). Aceitá-lo deixava o logout sem alcance sobre ele: o logout de um access
+  legado revoga só aquele access, e o refresh legado ainda renovava num par novo por até 7 dias depois
+  do deploy. Efeito do deploy: cada sessão aberta antes dele pede **um login a mais**, quando o access
+  token dela vence (até 15 min). O access token legado segue valendo até expirar e o logout o revoga.
+- **Papel e estado do usuário valem na hora.** O filtro JWT autorizava pela claim `roles` do token:
+  um ADMIN rebaixado ou removido seguia ADMIN em toda a API até o token expirar (15 min), enquanto o
+  `/api/auth/me` do mesmo token já dizia outra coisa. Agora cada requisição autenticada por JWT relê o
+  usuário: rebaixado → o papel novo (inclusive para personificar), removido, desativado ou bloqueado →
+  `401`. Custo com JDBC, sem cache: **3 consultas por requisição autenticada por JWT**, em 2 conexões do
+  pool (`revoked_tokens`; `users` + `user_roles`), e **6 no `/api/auth/me`** (o controller confere o
+  token de novo) — some isso ao dimensionar o pool Hikari e a carga do banco; todas pela chave
+  primária/índice. Chaves de API e a chave de serviço do VendaX Core
+  (`/api/agents/invoke`) não mudam; com `archflow.security.auth.enabled=false` a identidade continua
+  vindo do token, sem consulta.
+- **WebSocket de voz (`/api/realtime/{tenant}/{persona}?token=`).** O handshake conferia só assinatura
+  e validade: um refresh token, um access token revogado pelo logout e o token de um usuário de outro
+  tenant abriam a sessão no tenant escrito no caminho. Agora: só access token não revogado de usuário
+  ativo (`401` fora disso) e o tenant do caminho tem de ser o do token (`__default__` sem a claim) —
+  outro tenant responde `403`, salvo personificação (`archflow.admin.impersonation.enabled` e papel
+  admin, a mesma regra do `X-Impersonate-Tenant`). O Voice Playground do SPA monta o caminho com o
+  tenant da claim `tenantId` do access token (ou o personificado; `__default__` sem a claim) — antes
+  mandava `__default__` para todo usuário, o que a regra nova recusaria para quem é de outro tenant.
+- **Revogação durável entre réplicas.** Com `archflow.persistence.jdbc.enabled=true` a revogação vai
+  para a tabela `revoked_tokens` (migração **`V5_1_3`**; só o SHA-256 da chave e a expiração em epoch
+  ms; linhas vencidas saem na próxima revogação), e o logout feito numa réplica vale nas outras. Sem
+  JDBC ela fica em memória, por réplica, e some no restart — fora de dev/test o
+  `ProductionReadinessGuard` passa a contar o `InMemoryTokenBlacklist` como violação (como os outros
+  stores em memória; `archflow.allow-in-memory=true` rebaixa para aviso). Num banco que já aplicou uma
+  migração acima de 5.1.3 ela chega fora de ordem e depende de `spring.flyway.out-of-order=true`
+  (padrão). Falha do banco ao conferir a revogação ou ao reler o usuário **não libera a requisição**
+  e responde **`503` `AUTH_UNAVAILABLE`** (no WebSocket, handshake `503`) — não `401`, que o SPA trata
+  como sessão perdida (apaga os tokens e vai ao login): uma oscilação do banco deslogaria todo mundo.
+  `TokenBlacklist` ganhou `revokeIfAbsent` (consumo atômico): uma implementação própria precisa
+  adotá-lo.
+
 ### Security — tenant da requisição (RCHFLW-13, RCHFLW-44, RCHFLW-49)
 - **`X-Tenant-Id` não troca mais o tenant de quem tem JWT.** Com um access token válido, o header só
   pode repetir o tenant do token; um valor diferente recebe `403 TENANT_MISMATCH`. Um token **sem** a

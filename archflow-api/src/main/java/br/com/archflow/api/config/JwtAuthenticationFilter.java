@@ -21,6 +21,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
+import org.springframework.web.cors.CorsUtils;
 
 import java.io.IOException;
 import java.util.Arrays;
@@ -161,6 +162,18 @@ public class JwtAuthenticationFilter implements Filter {
             return;
         }
 
+        if (CorsUtils.isPreFlightRequest(http)) {
+            // Preflight CORS (OPTIONS + Origin + Access-Control-Request-Method): o navegador nunca
+            // manda Authorization nele, então exigir token aqui dava 401 MISSING_TOKEN, sem
+            // cabeçalhos CORS, a todo cliente de outra origem — o <archflow-designer> embutido e o
+            // Vite com auth ligada não passavam do preflight. Segue sem identidade: o DispatcherServlet
+            // responde um preflight com o CorsProcessor (origens de archflow.cors.allowed-origins)
+            // e nunca chama o controller, e os interceptors de papel já deixam OPTIONS passar. Só o
+            // preflight de verdade: um OPTIONS sem esses cabeçalhos continua exigindo token.
+            chain.doFilter(request, response);
+            return;
+        }
+
         String path = http.getRequestURI();
         boolean isPublic = isPublicPath(path);
 
@@ -186,12 +199,26 @@ public class JwtAuthenticationFilter implements Filter {
                         return;
                     }
                 } else {
+                    List<String> currentRoles = null;
                     if (enabled && authService != null) {
-                        authService.validateAccessToken(token);
+                        // Os papéis que valem são os de agora, relidos do usuário — não a claim, que
+                        // é a de quando o token foi emitido: um ADMIN rebaixado ou removido seguia
+                        // ADMIN até o token expirar. Removido/desativado → exceção → 401 abaixo.
+                        currentRoles = List.of(authService.getUserInfoFromToken(token).roles());
                     }
-                    populateAttributes(http, claims);
+                    populateAttributes(http, claims, currentRoles);
                 }
             } catch (RuntimeException e) {
+                if (enabled && !isPublic && isProtectedPath(path) && !isTokenRejection(e)) {
+                    // O store de revogação ou o de usuários não respondeu: sem resposta não há como
+                    // afirmar que o token vale, e a requisição não passa — mas 503, não 401. O SPA
+                    // trata 401 como sessão perdida e apaga os tokens: uma oscilação do banco
+                    // deslogaria todo mundo e o status culparia a credencial.
+                    log.error("Rejected request to {} — authentication store unavailable", path, e);
+                    reject(httpResp, HttpServletResponse.SC_SERVICE_UNAVAILABLE, "AUTH_UNAVAILABLE",
+                            "Authentication is temporarily unavailable");
+                    return;
+                }
                 if (enabled && !isPublic && isProtectedPath(path)) {
                     log.debug("Rejected request to {} — invalid token: {}", path, e.getMessage());
                     reject(httpResp, "INVALID_TOKEN", "Invalid or expired access token");
@@ -308,12 +335,18 @@ public class JwtAuthenticationFilter implements Filter {
         return false;
     }
 
-    private void populateAttributes(HttpServletRequest http, Claims claims) {
+    /**
+     * @param currentRoles os papéis atuais do usuário, quando conferidos no repositório; {@code null}
+     *                     (autenticação desligada, sem {@link AuthService}) usa a claim do token
+     */
+    private void populateAttributes(HttpServletRequest http, Claims claims, List<String> currentRoles) {
         http.setAttribute(ATTR_USER_ID, claims.getSubject());
         Object username = claims.get("username");
         if (username != null) http.setAttribute(ATTR_USERNAME, String.valueOf(username));
         Object roles = claims.get("roles");
-        if (roles instanceof java.util.Collection<?> coll) {
+        if (currentRoles != null) {
+            http.setAttribute(ATTR_ROLES, currentRoles);
+        } else if (roles instanceof java.util.Collection<?> coll) {
             http.setAttribute(ATTR_ROLES, List.copyOf((java.util.Collection<String>) coll));
         }
         Object tenantClaim = claims.get("tenantId");
@@ -326,6 +359,16 @@ public class JwtAuthenticationFilter implements Filter {
                 http.setAttribute(ImpersonationFilter.ATTR_TENANT_ID, s);
             }
         }
+    }
+
+    /**
+     * A exceção diz algo do token (inválido, expirado, revogado, de usuário removido/desativado) — e
+     * não que o store de revogação ou o de usuários falhou. Só a primeira vira {@code 401}.
+     */
+    static boolean isTokenRejection(RuntimeException e) {
+        return e instanceof JwtService.JwtException
+                || e instanceof AuthService.AuthenticationException
+                || e instanceof io.jsonwebtoken.JwtException;
     }
 
     private void reject(HttpServletResponse resp, String code, String message) throws IOException {

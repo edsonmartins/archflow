@@ -287,10 +287,25 @@ public class ArchflowBeanConfiguration {
         return new InMemoryUserRepository(passwordService.hash(resolved));
     }
 
+    /**
+     * Revogação de tokens e sessões (logout, refresh token consumido) em memória — vale só nesta
+     * réplica e some no restart. Com {@code archflow.persistence.jdbc.enabled=true} o
+     * {@code JdbcPersistenceConfiguration} põe o {@code JdbcTokenBlacklist}, compartilhado entre
+     * réplicas.
+     */
     @Bean
     @ConditionalOnMissingBean
-    public AuthService authService(JwtService jwtService, PasswordService passwordService, UserRepository userRepository) {
-        return new AuthService(jwtService, passwordService, userRepository);
+    @ConditionalOnProperty(name = JDBC_ENABLED, havingValue = "false", matchIfMissing = true)
+    public br.com.archflow.security.auth.TokenBlacklist tokenBlacklist() {
+        return new br.com.archflow.security.auth.InMemoryTokenBlacklist();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public AuthService authService(JwtService jwtService, PasswordService passwordService,
+                                   UserRepository userRepository,
+                                   br.com.archflow.security.auth.TokenBlacklist tokenBlacklist) {
+        return new AuthService(jwtService, passwordService, userRepository, tokenBlacklist);
     }
 
     /**

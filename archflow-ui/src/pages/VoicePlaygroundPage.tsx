@@ -18,6 +18,7 @@ import MicButton from '../components/voice/MicButton';
 import Transcript, { type TranscriptTurn } from '../components/voice/Transcript';
 import {
     RealtimeClient,
+    realtimeTenantId,
     type RealtimeMessage,
     type RealtimeStatus,
 } from '../services/realtime-client';
@@ -88,11 +89,10 @@ export default function VoicePlaygroundPage() {
 
     const ensureClient = useCallback(() => {
         if (clientRef.current) return clientRef.current;
-        // O caminho do WebSocket ainda exige um segmento de tenant. Sem personificação, o tenant
-        // padrão canônico ('__default__', o mesmo que o servidor resolve para a requisição sem
-        // tenant) — 'default' era um tenant inventado que não batia com nenhum outro leitor.
-        const tenantId =
-            sessionStorage.getItem('archflow_impersonate_tenant') ?? '__default__';
+        const tenantId = realtimeTenantId(
+            sessionStorage.getItem('archflow_impersonate_tenant'),
+            sessionStorage.getItem('archflow_token'),
+        );
         const client = new RealtimeClient({ tenantId, personaId: persona });
 
         const offStatus = client.onStatus(setStatus);

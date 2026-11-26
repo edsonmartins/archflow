@@ -93,6 +93,16 @@ public class JdbcPersistenceConfiguration {
         return new JdbcUserRepository(dataSource);
     }
 
+    /**
+     * Revogação de tokens e sessões no banco: o logout feito numa réplica vale em todas, e o refresh
+     * token consumido numa não renova em outra.
+     */
+    @Bean
+    public br.com.archflow.security.auth.TokenBlacklist tokenBlacklist(DataSource dataSource) {
+        log.info("JDBC persistence ativo: revogação de tokens durável (JdbcTokenBlacklist)");
+        return new br.com.archflow.security.auth.JdbcTokenBlacklist(dataSource);
+    }
+
     @Bean
     public br.com.archflow.api.usage.RepositorioDeUso repositorioDeUso(DataSource dataSource) {
         log.info("JDBC persistence ativo: consumo de modelo durável (JdbcRepositorioDeUso)");

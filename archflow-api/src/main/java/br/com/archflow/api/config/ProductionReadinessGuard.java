@@ -8,6 +8,7 @@ import org.springframework.core.env.Environment;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Fails fast quando um deployment que NÃO está em profile dev/test sobe com
@@ -24,6 +25,9 @@ import java.util.List;
  *       que configurar em cada um.</li>
  * </ul>
  *
+ * <p>Antes dos stores, duas recusas sem escape hatch: autenticação desligada e segredo JWT público
+ * ({@link #PUBLIC_DEFAULT_JWT_SECRETS}) — as duas deixam a API aberta, não só sujeita a perder dados.
+ *
  * <p>Roda via {@link SmartInitializingSingleton}, depois que todos os
  * singletons foram instanciados — inclusive beans condicionais que possam
  * ter substituído os defaults em memória.
@@ -34,6 +38,18 @@ public class ProductionReadinessGuard implements SmartInitializingSingleton {
 
     /** Property que rebaixa violações de erro fatal para warning. */
     public static final String ALLOW_IN_MEMORY_PROPERTY = "archflow.allow-in-memory";
+
+    /** Segredo que assina e confere os JWT ({@code ARCHFLOW_JWT_SECRET} no {@code application.yml}). */
+    static final String JWT_SECRET_PROPERTY = "archflow.security.jwt.secret";
+
+    /**
+     * Os segredos JWT que vêm escritos no repositório: o default do {@code application.yml} e o do
+     * {@code @Value} do bean {@code JwtService} (quando a property nem existe). São públicos — quem
+     * leu o código assina um access token com {@code roles: ["ADMIN"]} e o filtro o aceita.
+     */
+    static final Set<String> PUBLIC_DEFAULT_JWT_SECRETS = Set.of(
+            "change-me-in-production-this-must-be-very-long-at-least-256-bits",
+            "change-me-in-production-this-must-be-very-long");
 
     private final Environment environment;
     private final ListableBeanFactory beanFactory;
@@ -59,6 +75,21 @@ public class ProductionReadinessGuard implements SmartInitializingSingleton {
                     + "the dev/test profiles — every endpoint would be reachable without "
                     + "authentication. Enable it (the prod profile already does) or activate "
                     + "the dev profile.");
+        }
+
+        // Segredo JWT público fora de dev/test: a autenticação está ligada, mas qualquer um forja
+        // um token ADMIN. Só o profile prod exigia ARCHFLOW_JWT_SECRET (o placeholder dele não tem
+        // default); "staging", "homolog" ou nenhum profile subiam com o default. Sem escape hatch,
+        // como a auth desligada: archflow.allow-in-memory aceita perda de dados, não credencial
+        // forjável.
+        String jwtSecret = environment.getProperty(JWT_SECRET_PROPERTY);
+        if (jwtSecret == null || PUBLIC_DEFAULT_JWT_SECRETS.contains(jwtSecret.trim())) {
+            throw new IllegalStateException(
+                    "Refusing to start: " + JWT_SECRET_PROPERTY + " is the public default secret "
+                    + "(or unset) outside the dev/test profiles — anyone who has read the "
+                    + "repository can sign an ADMIN access token. Set ARCHFLOW_JWT_SECRET (or "
+                    + JWT_SECRET_PROPERTY + ") to a random secret of at least 32 bytes, e.g. "
+                    + "`openssl rand -base64 48`, or activate the dev profile.");
         }
 
         Object embeddingModel = beanFactory.getBeanProvider(
@@ -113,6 +144,9 @@ public class ProductionReadinessGuard implements SmartInitializingSingleton {
         checkBean(br.com.archflow.observability.audit.AuditRepository.class,
                 br.com.archflow.observability.audit.InMemoryAuditRepository.class,
                 "AuditRepository — trilha de auditoria", violations);
+        checkBean(br.com.archflow.security.auth.TokenBlacklist.class,
+                br.com.archflow.security.auth.InMemoryTokenBlacklist.class,
+                "TokenBlacklist — logout e refresh tokens consumidos (revogação por réplica)", violations);
         checkBean(br.com.archflow.security.apikey.ApiKeyService.ApiKeyRepository.class,
                 br.com.archflow.api.config.InMemoryApiKeyRepository.class,
                 "ApiKeyRepository — chaves de API", violations);
