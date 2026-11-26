@@ -18,7 +18,12 @@ only**:
 | `LinktorConfigControllerImpl`   | Per-tenant Linktor config                |
 | `SkillsControllerImpl`          | Per-tenant active-skill set              |
 | `GlobalConfigControllerImpl`    | Platform-wide LLM models, plan defaults  |
-| `ScheduledTriggerControllerImpl`| Quartz job + cron registrations          |
+
+Scheduled triggers are no longer on this list (RCHFLW-187): with
+`archflow.persistence.jdbc.enabled=true` the registry lives in the
+`scheduled_triggers` table (migration `V6_15`), next to the Quartz
+`JobStoreTX` tables, so triggers and their jobs survive a restart together.
+Without it both stay in memory (`RAMJobStore`), as in dev.
 
 **Implication:** every redeploy resets these registries. For v1 this is
 acceptable for two reasons:

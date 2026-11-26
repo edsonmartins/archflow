@@ -917,6 +917,7 @@
         "title": "Gatilhos agendados",
         "newTrigger": "Novo gatilho",
         "info": "Os gatilhos disparam no horário local do servidor usando expressões cron do Quartz (6 ou 7 campos: <code>seg min hora dia-do-mês mês dia-da-semana [ano]</code>). Ao disparar, submete um InvocationRequest na fila do agente — o mesmo caminho do botão \"Invocar\" do playground.",
+        "infoZone": "Os gatilhos disparam no fuso do servidor, {{zone}}, usando expressões cron do Quartz (6 ou 7 campos: <code>seg min hora dia-do-mês mês dia-da-semana [ano]</code>). Ao disparar, submete um InvocationRequest na fila do agente — o mesmo caminho do botão \"Invocar\" do playground. O próximo disparo aparece no seu horário.",
         "loading": "Carregando…",
         "empty": "Nenhum gatilho ainda.",
         "table": {
@@ -926,7 +927,8 @@
             "agent": "Agente",
             "status": "Status",
             "lastFired": "Último disparo",
-            "lastResult": "Último resultado"
+            "lastResult": "Último resultado",
+            "nextFire": "Próximo disparo"
         },
         "lastStatus": {
             "QUEUED": "na fila",
@@ -936,9 +938,12 @@
         },
         "status": {
             "enabled": "ativo",
-            "paused": "pausado"
+            "paused": "pausado",
+            "unscheduled": "sem agendamento"
         },
         "fireNow": "Disparar agora",
+        "firing": "Disparando…",
+        "viewResult": "Ver resposta",
         "edit": "Editar",
         "delete": "Excluir",
         "editTitle": "Editar gatilho",
@@ -960,12 +965,28 @@
         "firedMsg": "Invocação submetida para {{name}}",
         "run": {
             "completed": "Agente concluído",
-            "completedMsg": "O disparo de {{name}} terminou com sucesso",
+            "completedMsg": "O disparo de {{name}} terminou com sucesso. A resposta do agente está em \"Ver resposta\", na linha do gatilho.",
             "failed": "O agente de {{name}} falhou",
             "noErrorMessage": "O agente falhou sem mensagem de erro.",
             "unknown": "Resultado de {{name}} indisponível",
-            "stillRunning": "O agente ainda não terminou. Consulte pelo requestId {{id}}.",
+            "stillRunning": "O agente ainda não terminou (requestId {{id}}). Acompanhe em \"Ver resposta\", na linha do gatilho.",
             "queryFailed": "Não foi possível consultar o resultado (requestId {{id}})."
+        },
+        "runResult": {
+            "title": "Última execução de {{name}}",
+            "requestId": "requestId:",
+            "notFound": "O resultado desta execução não está mais disponível (a retenção já o apagou, ou ele ainda não foi registrado).",
+            "queryFailed": "Não foi possível consultar o resultado desta execução.",
+            "noOutput": "O agente terminou sem resposta.",
+            "notFinished": "O agente ainda não terminou. Feche e abra de novo em instantes."
+        },
+        "errors": {
+            "TRIGGER_NAME_REQUIRED": "Dê um nome ao gatilho.",
+            "TRIGGER_AGENT_UNKNOWN": "O agente escolhido não está no catálogo. Escolha um agente da lista.",
+            "TRIGGER_CRON_INVALID": "A expressão cron \"{{cron}}\" não está no formato Quartz: são 6 ou 7 campos (seg min hora dia-do-mês mês dia-da-semana [ano]), com ? no dia do mês ou no dia da semana e os dias em inglês. Exemplo: 0 0 9 ? * MON-FRI (dias úteis às 9h).",
+            "TRIGGER_CRON_NEVER_FIRES": "A expressão cron \"{{cron}}\" nunca dispara: a data não existe (como 30 de fevereiro) ou já passou. Nada foi salvo.",
+            "TRIGGER_BODY_INVALID": "O payload deve ser um objeto JSON válido.",
+            "TRIGGER_CONFLICT": "Outra pessoa alterou este gatilho enquanto você editava, e nada foi salvo. Feche e abra o gatilho de novo para editar a versão atual."
         }
     },
     "admin": {

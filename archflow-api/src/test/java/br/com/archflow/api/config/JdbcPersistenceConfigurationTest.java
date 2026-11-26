@@ -85,6 +85,9 @@ class JdbcPersistenceConfigurationTest {
                     // Skills ativas por tenant (RCHFLW-66): o switch sobrevive a restart.
                     assertThat(ctx.getBean(br.com.archflow.api.skills.store.SkillActivationStore.class))
                             .isInstanceOf(br.com.archflow.api.skills.store.JdbcSkillActivationStore.class);
+                    // Gatilhos agendados (RCHFLW-187): o registro sobrevive a restart junto do JobStoreTX.
+                    assertThat(ctx.getBean(br.com.archflow.api.triggers.store.ScheduledTriggerStore.class))
+                            .isInstanceOf(br.com.archflow.api.triggers.store.JdbcScheduledTriggerStore.class);
                 });
     }
 
