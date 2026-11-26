@@ -928,17 +928,33 @@ public class ArchflowBeanConfiguration {
         return scheduler;
     }
 
+    /**
+     * Registro dos gatilhos agendados. Em memória por default (dev), junto do {@code RAMJobStore} acima; o
+     * durável vive em {@link JdbcPersistenceConfiguration} (migration V6_15), junto do {@code JobStoreTX} —
+     * registro e jobs do Quartz sobrevivem, ou não, ao restart juntos (RCHFLW-187).
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(name = JDBC_ENABLED, havingValue = "false", matchIfMissing = true)
+    public br.com.archflow.api.triggers.store.ScheduledTriggerStore scheduledTriggerStore() {
+        return new br.com.archflow.api.triggers.store.InMemoryScheduledTriggerStore();
+    }
+
     @Bean
     @ConditionalOnMissingBean
     public br.com.archflow.api.triggers.ScheduledTriggerController scheduledTriggerController(
             org.quartz.Scheduler scheduler,
             AgentInvocationQueue agentInvocationQueue,
             org.springframework.beans.factory.ObjectProvider<
-                    br.com.archflow.api.agent.invocation.AgentInvocationResultStore> agentInvocationResultStore) {
+                    br.com.archflow.api.agent.invocation.AgentInvocationResultStore> agentInvocationResultStore,
+            br.com.archflow.api.triggers.store.ScheduledTriggerStore scheduledTriggerStore,
+            br.com.archflow.plugin.api.catalog.ComponentCatalog componentCatalog) {
         // O store de resultados dá ao gatilho o desfecho do último disparo (RCHFLW-104): sem ele o
-        // "Com falha" da tela contava só a falha de enfileirar, nunca a do agente.
+        // "Com falha" da tela contava só a falha de enfileirar, nunca a do agente. O catálogo é o mesmo em que
+        // o consumidor da fila procura o agente: um agente desconhecido é recusado ao salvar (RCHFLW-191).
         return new br.com.archflow.api.triggers.impl.ScheduledTriggerControllerImpl(
-                scheduler, agentInvocationQueue, agentInvocationResultStore.getIfAvailable());
+                scheduler, agentInvocationQueue, agentInvocationResultStore.getIfAvailable(), scheduledTriggerStore,
+                agentId -> componentCatalog.getComponent(agentId).isPresent());
     }
 
     // =========================================================================

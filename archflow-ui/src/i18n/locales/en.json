@@ -915,6 +915,7 @@
         "title": "Scheduled triggers",
         "newTrigger": "New trigger",
         "info": "Triggers fire on the server's local time using Quartz cron expressions (6 or 7 fields: <code>sec min hour day-of-month month day-of-week [year]</code>). When a trigger fires it submits an InvocationRequest to the agent queue — the same path as the \"Invoke\" button in the playground.",
+        "infoZone": "Triggers fire in the server time zone, {{zone}}, using Quartz cron expressions (6 or 7 fields: <code>sec min hour day-of-month month day-of-week [year]</code>). When a trigger fires it submits an InvocationRequest to the agent queue — the same path as the \"Invoke\" button in the playground. The next fire is shown in your local time.",
         "loading": "Loading…",
         "empty": "No triggers yet.",
         "table": {
@@ -924,7 +925,8 @@
             "agent": "Agent",
             "status": "Status",
             "lastFired": "Last fired",
-            "lastResult": "Last result"
+            "lastResult": "Last result",
+            "nextFire": "Next fire"
         },
         "lastStatus": {
             "QUEUED": "queued",
@@ -934,9 +936,12 @@
         },
         "status": {
             "enabled": "enabled",
-            "paused": "paused"
+            "paused": "paused",
+            "unscheduled": "not scheduled"
         },
         "fireNow": "Fire now",
+        "firing": "Firing…",
+        "viewResult": "View response",
         "edit": "Edit",
         "delete": "Delete",
         "editTitle": "Edit trigger",
@@ -958,12 +963,28 @@
         "firedMsg": "Submitted invocation for {{name}}",
         "run": {
             "completed": "Agent completed",
-            "completedMsg": "The run of {{name}} finished successfully",
+            "completedMsg": "The run of {{name}} finished successfully. The agent's response is under \"View response\" on the trigger row.",
             "failed": "The agent of {{name}} failed",
             "noErrorMessage": "The agent failed without an error message.",
             "unknown": "Result of {{name}} unavailable",
-            "stillRunning": "The agent has not finished yet. Look it up by requestId {{id}}.",
+            "stillRunning": "The agent has not finished yet (requestId {{id}}). Follow it under \"View response\" on the trigger row.",
             "queryFailed": "Could not query the result (requestId {{id}})."
+        },
+        "runResult": {
+            "title": "Last run of {{name}}",
+            "requestId": "requestId:",
+            "notFound": "The result of this run is no longer available (retention already removed it, or it has not been recorded yet).",
+            "queryFailed": "Could not query the result of this run.",
+            "noOutput": "The agent finished without a response.",
+            "notFinished": "The agent has not finished yet. Close and open again in a moment."
+        },
+        "errors": {
+            "TRIGGER_NAME_REQUIRED": "Give the trigger a name.",
+            "TRIGGER_AGENT_UNKNOWN": "The selected agent is not in the catalog. Pick an agent from the list.",
+            "TRIGGER_CRON_INVALID": "The cron expression \"{{cron}}\" is not in Quartz format: 6 or 7 fields (sec min hour day-of-month month day-of-week [year]), with ? in either day-of-month or day-of-week and day names in English. Example: 0 0 9 ? * MON-FRI (weekdays at 9am).",
+            "TRIGGER_CRON_NEVER_FIRES": "The cron expression \"{{cron}}\" never fires: the date does not exist (like February 30) or is in the past. Nothing was saved.",
+            "TRIGGER_BODY_INVALID": "The payload must be a valid JSON object.",
+            "TRIGGER_CONFLICT": "Someone else changed this trigger while you were editing, and nothing was saved. Close and reopen the trigger to edit the current version."
         }
     },
     "admin": {

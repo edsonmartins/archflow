@@ -385,7 +385,7 @@ class GatilhosDoTenantDaIdentidadeTest {
         }
 
         @Override
-        public ScheduledTriggerDto update(String id, ScheduledTriggerDto dto) {
+        public ScheduledTriggerDto update(String id, ScheduledTriggerDto dto, java.time.Instant expectedUpdatedAt) {
             get(id);
             ScheduledTriggerDto stored = new ScheduledTriggerDto(id, dto.name(), dto.cronExpression(),
                     dto.tenantId(), dto.agentId(), dto.payload(), dto.enabled(), null, null, null, null);

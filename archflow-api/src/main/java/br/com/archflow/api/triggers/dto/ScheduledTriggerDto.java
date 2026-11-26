@@ -8,8 +8,9 @@ import java.util.Objects;
  * Cron-scheduled trigger that fires agent invocations on a recurring
  * schedule.
  *
- * <p>Stored server-side (in-memory by default) and materialised as a
- * Quartz job + cron trigger at create / update time. When the trigger
+ * <p>Stored server-side ({@code ScheduledTriggerStore}: in-memory by default, the
+ * {@code scheduled_triggers} table with {@code archflow.persistence.jdbc.enabled=true}, RCHFLW-187) and
+ * materialised as a Quartz job + cron trigger at create / update time. When the trigger
  * fires, the job submits an {@code InvocationRequest} to the
  * configured {@code AgentInvocationQueue}.</p>
  *
@@ -33,6 +34,13 @@ import java.util.Objects;
  * @param lastStatus     como terminou o último disparo — {@code QUEUED}, {@code RUNNING},
  *                       {@code COMPLETED} ou {@code FAILED} (os estados do resultado da invocação) —, ou
  *                       {@code null} se o gatilho nunca disparou
+ * @param updatedAt      versão da configuração, posta pelo servidor a cada criação/edição (não a cada
+ *                       disparo). É o {@code If-Match} do PUT: sem ela, quem salvava um formulário antigo
+ *                       apagava em silêncio a edição de outra pessoa (RCHFLW-191)
+ * @param nextFireTime   próximo disparo segundo o Quartz, lido a cada consulta e nunca gravado; {@code null}
+ *                       quando não há agendamento. É ele, e não {@code enabled}, que diz se o gatilho está
+ *                       mesmo agendado: um ativo sem agendamento não pode aparecer como ativo (RCHFLW-140)
+ * @param timeZone       fuso em que o cron é interpretado (o do servidor), para a tela nomeá-lo
  */
 public record ScheduledTriggerDto(
         String id,
@@ -46,7 +54,19 @@ public record ScheduledTriggerDto(
         Instant lastFiredAt,
         String lastError,
         String lastRequestId,
-        String lastStatus) {
+        String lastStatus,
+        Instant updatedAt,
+        Instant nextFireTime,
+        String timeZone) {
+
+    /** Sem a versão e a agenda — o formato de antes da RCHFLW-187, que é o de quem só envia o corpo. */
+    public ScheduledTriggerDto(String id, String name, String cronExpression, String tenantId,
+                               String agentId, Map<String, Object> payload, boolean enabled,
+                               Instant createdAt, Instant lastFiredAt, String lastError,
+                               String lastRequestId, String lastStatus) {
+        this(id, name, cronExpression, tenantId, agentId, payload, enabled, createdAt, lastFiredAt,
+                lastError, lastRequestId, lastStatus, null, null, null);
+    }
 
     /**
      * Sem o status do último disparo — o formato de antes da RCHFLW-104, que é o de quem só envia o
@@ -67,5 +87,17 @@ public record ScheduledTriggerDto(
         Objects.requireNonNull(agentId, "agentId");
         if (payload == null) payload = Map.of();
         if (createdAt == null) createdAt = Instant.now();
+    }
+
+    /** O mesmo gatilho com o último disparo trocado. */
+    public ScheduledTriggerDto withLastRun(Instant firedAt, String error, String requestId, String status) {
+        return new ScheduledTriggerDto(id, name, cronExpression, tenantId, agentId, payload, enabled, createdAt,
+                firedAt, error, requestId, status, updatedAt, nextFireTime, timeZone);
+    }
+
+    /** O mesmo gatilho com a agenda que o Quartz tem para ele agora. */
+    public ScheduledTriggerDto withSchedule(Instant next, String zone) {
+        return new ScheduledTriggerDto(id, name, cronExpression, tenantId, agentId, payload, enabled, createdAt,
+                lastFiredAt, lastError, lastRequestId, lastStatus, updatedAt, next, zone);
     }
 }

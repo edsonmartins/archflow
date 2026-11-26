@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import {
-    Alert, Button, Group, Modal, Select, SimpleGrid, Stack, Switch,
+    Alert, Badge, Button, Code, Group, Loader, Modal, Select, SimpleGrid, Stack, Switch, Text,
     Textarea, TextInput,
 } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
@@ -14,6 +14,7 @@ import {
     agentPlaygroundApi, InvocationNotFoundError, isTerminal, type InvocationResult,
 } from '../services/agent-playground-api'
 import { useCatalog } from '../components/PropertyPanel/useCatalog'
+import { JsonViewer } from '../components/JsonViewer'
 import { ApiError } from '../services/api'
 import { confirmAction } from '../lib/confirm'
 import { PageHeader } from '../components/PageHeader'
@@ -77,6 +78,42 @@ export async function followTriggerRun(
     }
 }
 
+/**
+ * O gatilho está mesmo agendado: ativo E com próximo disparo no Quartz (RCHFLW-140). Um ativo sem agendamento
+ * — o job sumiu, ou o cron já não tem disparo — não pode aparecer como "ativo" nem contar como tal.
+ */
+export function isScheduled(trigger: Pick<ScheduledTrigger, 'enabled' | 'nextFireTime'>): boolean {
+    return trigger.enabled && !!trigger.nextFireTime
+}
+
+/** O texto da coluna "Status": ativo (agendado), sem agendamento ou pausado. */
+export function statusLabel(trigger: Pick<ScheduledTrigger, 'enabled' | 'nextFireTime'>, t: TFunction): string {
+    if (!trigger.enabled) return t('triggers.status.paused')
+    return isScheduled(trigger) ? t('triggers.status.enabled') : t('triggers.status.unscheduled')
+}
+
+/** Códigos de recusa do servidor que a tela traduz (RCHFLW-191); o resto mostra a mensagem da API. */
+const SAVE_ERROR_CODES = new Set([
+    'TRIGGER_NAME_REQUIRED', 'TRIGGER_AGENT_UNKNOWN', 'TRIGGER_CRON_INVALID', 'TRIGGER_CRON_NEVER_FIRES',
+    'TRIGGER_BODY_INVALID', 'TRIGGER_CONFLICT',
+])
+
+/**
+ * A mensagem de um Salvar recusado. O servidor fala inglês e o Quartz mais ainda ("Based on configured
+ * schedule, the given trigger ... will never fire."); o código da recusa vira um texto que explica o que
+ * corrigir — o formato Quartz, no caso do cron.
+ */
+export function saveErrorMessage(e: unknown, t: TFunction, cron: string): string {
+    if (e instanceof ApiError) {
+        const code = e.details?.code
+        if (typeof code === 'string' && SAVE_ERROR_CODES.has(code)) {
+            return t(`triggers.errors.${code}`, { cron })
+        }
+        return e.message
+    }
+    return String(e)
+}
+
 /** O texto da coluna "Último resultado": o status do último disparo, ou "—" se nunca disparou. */
 export function lastRunLabel(trigger: Pick<ScheduledTrigger, 'lastStatus'>, t: TFunction): string {
     return trigger.lastStatus ? t(`triggers.lastStatus.${trigger.lastStatus}`) : '—'
@@ -103,6 +140,15 @@ export default function ScheduledTriggersPage() {
     const [error, setError]   = useState<string | null>(null)
     const [editing, setEdit]  = useState<ScheduledTrigger | null>(null)
     const [draft, setDraft]   = useState<NewDraft>(blankDraft)
+    // O Salvar em andamento (RCHFLW-175): o segundo clique, ou o Enter repetido, mandava outro POST.
+    const [saving, setSaving] = useState(false)
+    const savingRef = useRef(false)
+    // Os gatilhos com "Disparar agora" em andamento (RCHFLW-176): o clique duplo disparava o agente duas vezes.
+    // O ref decide na hora do clique (o estado só chega no próximo render); o estado troca o ícone da linha.
+    const firingRef = useRef(new Set<string>())
+    const [firing, setFiring] = useState<ReadonlySet<string>>(new Set())
+    // A última execução de um gatilho, aberta pela ação "Ver resposta" (RCHFLW-191).
+    const [viewing, setViewing] = useState<ScheduledTrigger | null>(null)
 
     const catalog = useCatalog()
     // RCHFLW-103: o gatilho roda no tenant da identidade. Quem não é admin vê o próprio tenant e não o
@@ -145,9 +191,14 @@ export default function ScheduledTriggersPage() {
     }
 
     const save = async () => {
+        if (savingRef.current) return
         let parsedPayload: Record<string, unknown>
         try {
-            parsedPayload = draft.payloadJson.trim() ? JSON.parse(draft.payloadJson) : {}
+            const parsed: unknown = draft.payloadJson.trim() ? JSON.parse(draft.payloadJson) : {}
+            // Um array ou uma string são JSON válido, mas não um payload: o servidor recusava com um
+            // "Bad Request" mudo (RCHFLW-191).
+            if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('not an object')
+            parsedPayload = parsed as Record<string, unknown>
         } catch {
             notifications.show({ color: 'red', title: t('triggers.invalidJson'),
                 message: t('triggers.invalidJsonMsg') })
@@ -161,9 +212,13 @@ export default function ScheduledTriggersPage() {
             payload: parsedPayload,
             enabled: draft.enabled,
         }
+        savingRef.current = true
+        setSaving(true)
         try {
             if (editing && editing.id) {
-                await triggersApi.update(editing.id, body)
+                // A versão que o formulário abriu: se outra pessoa salvou no meio, 409 em vez de desfazer em
+                // silêncio a edição dela (RCHFLW-191).
+                await triggersApi.update(editing.id, body, editing.updatedAt)
             } else {
                 await triggersApi.create(body)
             }
@@ -171,7 +226,12 @@ export default function ScheduledTriggersPage() {
             await reload()
         } catch (e) {
             notifications.show({ color: 'red', title: t('triggers.saveFailed'),
-                message: e instanceof ApiError ? e.message : String(e) })
+                message: saveErrorMessage(e, t, draft.cronExpression) })
+            // No conflito a lista é relida: quem fechar e abrir de novo edita a versão atual.
+            if (e instanceof ApiError && e.details?.code === 'TRIGGER_CONFLICT') void reload()
+        } finally {
+            savingRef.current = false
+            setSaving(false)
         }
     }
 
@@ -193,6 +253,9 @@ export default function ScheduledTriggersPage() {
     }
 
     const fire = async (trigger: ScheduledTrigger) => {
+        if (firingRef.current.has(trigger.id)) return
+        firingRef.current.add(trigger.id)
+        setFiring(new Set(firingRef.current))
         try {
             const fired = await triggersApi.fireNow(trigger.id)
             notifications.show({ color: 'green', title: t('triggers.fired'),
@@ -206,6 +269,12 @@ export default function ScheduledTriggersPage() {
         } catch (e) {
             notifications.show({ color: 'red', title: t('triggers.fireFailed'),
                 message: e instanceof ApiError ? e.message : String(e) })
+            // O servidor grava a falha no gatilho (status "com falha", sem requestId). Sem reler, a linha
+            // seguia com o desfecho e o "Ver resposta" do disparo anterior, como se ele fosse o último.
+            await reload()
+        } finally {
+            firingRef.current.delete(trigger.id)
+            setFiring(new Set(firingRef.current))
         }
     }
 
@@ -220,10 +289,13 @@ export default function ScheduledTriggersPage() {
         colunaApagada({ field: 'tenantId', title: t('triggers.table.tenant'), width: 130 }),
         { field: 'agentId', title: t('triggers.table.agent'), width: 190 },
         colunaStatus(
-            { field: 'enabled', title: t('triggers.table.status'), width: 120,
-              fieldFormat: (r) => (r.enabled ? t('triggers.status.enabled') : t('triggers.status.paused')) },
-            (r) => (r.enabled ? 'green' : 'gray'),
+            { field: 'enabled', title: t('triggers.table.status'), width: 150,
+              fieldFormat: (r) => statusLabel(r as unknown as ScheduledTrigger, t) },
+            (r) => (!r.enabled ? 'gray' : isScheduled(r as unknown as ScheduledTrigger) ? 'green' : 'red'),
         ),
+        // O próximo disparo, no horário de quem olha (RCHFLW-191): antes só havia o último, e o cron cru.
+        colunaApagada({ field: 'nextFireTime', title: t('triggers.table.nextFire'), width: 190,
+          fieldFormat: (r) => formatInstant(r.nextFireTime as string | null, locale) }),
         colunaApagada({ field: 'lastFiredAt', title: t('triggers.table.lastFired'), width: 190,
           fieldFormat: (r) => formatInstant(r.lastFiredAt as string | null, locale) }),
         // O desfecho do último disparo, inclusive o automático (RCHFLW-104): antes a falha do agente só
@@ -234,13 +306,19 @@ export default function ScheduledTriggersPage() {
             (r) => (r.lastError ? String(r.lastError) : undefined),
         ),
         colunaAcoes([
-            { nome: 'fire', icone: 'play', rotulo: t('triggers.fireNow'), cor: 'violet', mostrar: () => canFire },
+            { nome: 'fire', icone: 'play', rotulo: t('triggers.fireNow'), cor: 'violet',
+              mostrar: (r) => canFire && !firing.has(String(r.id)) },
+            // Enquanto o disparo está em andamento, o play vira um indicador sem ação.
+            { nome: 'firing', icone: 'dots', rotulo: t('triggers.firing'), mostrar: (r) => firing.has(String(r.id)) },
+            { nome: 'result', icone: 'eye', rotulo: t('triggers.viewResult'), mostrar: (r) => !!r.lastRequestId },
             { nome: 'edit', icone: 'pencil', rotulo: t('triggers.edit'), mostrar: () => canUpdate },
             { nome: 'delete', icone: 'trash', rotulo: t('triggers.delete'), cor: 'red', mostrar: () => canUpdate },
         ]),
-    ], [t, locale, canFire, canUpdate])
+    ], [t, locale, canFire, canUpdate, firing])
 
-    const enabledCount = items.filter(i => i.enabled).length
+    const enabledCount = items.filter(isScheduled).length
+    const pausedCount = items.filter(i => !i.enabled).length
+    const serverZone = items.find(i => i.timeZone)?.timeZone
     const failingCount = items.filter(i => i.lastError).length
     const firstLoad = loading && items.length === 0
 
@@ -271,7 +349,7 @@ export default function ScheduledTriggersPage() {
                           icon={IconClockPlay} accent="blue" hint={t('triggers.stats.totalHint')} />
                 <StatCard label={t('triggers.stats.enabled')} value={firstLoad ? '—' : enabledCount}
                           icon={IconPlayerPlay} accent="teal" hint={t('triggers.stats.enabledHint')} />
-                <StatCard label={t('triggers.stats.paused')} value={firstLoad ? '—' : items.length - enabledCount}
+                <StatCard label={t('triggers.stats.paused')} value={firstLoad ? '—' : pausedCount}
                           icon={IconClockPause} accent="slate" hint={t('triggers.stats.pausedHint')} />
                 <StatCard label={t('triggers.stats.failing')} value={firstLoad ? '—' : failingCount}
                           color={failingCount > 0 ? 'red' : undefined}
@@ -298,6 +376,7 @@ export default function ScheduledTriggersPage() {
                     onIconClick={(nome, r) => {
                         const trig = r as unknown as ScheduledTrigger
                         if (nome === 'fire') fire(trig)
+                        else if (nome === 'result') setViewing(trig)
                         else if (nome === 'edit') openEdit(trig)
                         else if (nome === 'delete') remove(trig)
                     }}
@@ -316,7 +395,8 @@ export default function ScheduledTriggersPage() {
             </SectionCard>
 
             <Alert color="blue" variant="light" icon={<IconInfoCircle size={16} />}>
-                {t('triggers.info').split(/<code>|<\/code>/).map((seg, i) =>
+                {(serverZone ? t('triggers.infoZone', { zone: serverZone }) : t('triggers.info'))
+                    .split(/<code>|<\/code>/).map((seg, i) =>
                     i % 2 === 1 ? <code key={i}>{seg}</code> : <span key={i}>{seg}</span>)}
             </Alert>
 
@@ -353,21 +433,92 @@ export default function ScheduledTriggersPage() {
                               value={draft.payloadJson}
                               onChange={e => setDraft({ ...draft, payloadJson: e.currentTarget.value })}
                               autosize minRows={3}
-                              styles={{ input: { fontFamily: 'var(--font-mono)' } }} />
+                              styles={{ input: { fontFamily: 'var(--font-mono)' } }}
+                              data-testid="trigger-payload" />
                     <Switch label={t('triggers.enabled')}
                             checked={draft.enabled}
                             onChange={e => setDraft({ ...draft, enabled: e.currentTarget.checked })} />
                     <Group justify="flex-end" mt="xs">
                         <Button variant="default" onClick={() => setEdit(null)}>{t('common.cancel')}</Button>
-                        <Button onClick={save} data-testid="trigger-save"
-                                disabled={!draft.name.trim() || !draft.cronExpression.trim()
+                        <Button onClick={save} data-testid="trigger-save" loading={saving}
+                                disabled={saving || !draft.name.trim() || !draft.cronExpression.trim()
                                         || !draftTenant.trim() || !draft.agentId.trim()}>
                             {t('common.save')}
                         </Button>
                     </Group>
                 </Stack>
             </Modal>
+
+            <TriggerRunModal trigger={viewing} onClose={() => setViewing(null)} />
         </Stack>
+    )
+}
+
+/**
+ * A última execução do gatilho — a resposta do agente, ou o erro (RCHFLW-191). Antes ela só existia em
+ * GET /archflow/agents/invocations/{requestId}: a tela mostrava "concluído" e o aviso mandava consultar um
+ * requestId que ela nem exibia.
+ */
+function TriggerRunModal({ trigger, onClose }: { trigger: ScheduledTrigger | null; onClose: () => void }) {
+    const { t, i18n } = useTranslation()
+    const locale = i18n.resolvedLanguage ?? i18n.language
+    const [result, setResult] = useState<InvocationResult | null>(null)
+    const [failure, setFailure] = useState<'notFound' | 'failed' | null>(null)
+    const requestId = trigger?.lastRequestId ?? null
+    const tenantId = trigger?.tenantId ?? ''
+
+    useEffect(() => {
+        setResult(null)
+        setFailure(null)
+        if (!requestId) return
+        let vivo = true
+        agentPlaygroundApi.invocation(requestId, tenantId)
+            .then(r => { if (vivo) setResult(r) })
+            .catch(e => { if (vivo) setFailure(e instanceof InvocationNotFoundError ? 'notFound' : 'failed') })
+        return () => { vivo = false }
+    }, [requestId, tenantId])
+
+    return (
+        <Modal opened={trigger !== null} onClose={onClose} size="lg" data-testid="trigger-run-modal"
+               title={t('triggers.runResult.title', { name: trigger?.name ?? '' })}>
+            <Stack gap="sm">
+                <Text size="sm">{t('triggers.runResult.requestId')} <Code data-testid="trigger-run-request">
+                    {requestId}</Code></Text>
+                {!result && !failure && <Loader size="sm" data-testid="trigger-run-loading" />}
+                {failure && (
+                    <Alert color="yellow" variant="light" icon={<IconAlertTriangle size={16} />}
+                           data-testid="trigger-run-unavailable">
+                        {t(failure === 'notFound' ? 'triggers.runResult.notFound' : 'triggers.runResult.queryFailed')}
+                    </Alert>
+                )}
+                {result && (
+                    <>
+                        <Group gap="xs">
+                            <Badge variant="light" data-testid="trigger-run-status"
+                                   color={result.status === 'COMPLETED' ? 'green'
+                                       : result.status === 'FAILED' ? 'red' : 'blue'}>
+                                {t(`triggers.lastStatus.${result.status}`)}
+                            </Badge>
+                            {result.finishedAt && (
+                                <Text size="xs" c="dimmed">{formatInstant(result.finishedAt, locale)}</Text>
+                            )}
+                        </Group>
+                        {result.status === 'FAILED' && (
+                            <Alert color="red" variant="light" icon={<IconAlertTriangle size={16} />}
+                                   data-testid="trigger-run-error">
+                                {result.error || t('triggers.run.noErrorMessage')}
+                            </Alert>
+                        )}
+                        {result.status === 'COMPLETED' && (result.output == null
+                            ? <Text size="sm" c="dimmed">{t('triggers.runResult.noOutput')}</Text>
+                            : <JsonViewer value={result.output} autoExpandDepth={2} testId="trigger-run-output" />)}
+                        {!isTerminal(result.status) && (
+                            <Text size="sm" c="dimmed">{t('triggers.runResult.notFinished')}</Text>
+                        )}
+                    </>
+                )}
+            </Stack>
+        </Modal>
     )
 }
 

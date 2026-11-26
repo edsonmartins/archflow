@@ -7,6 +7,7 @@ import br.com.archflow.api.agent.invocation.AgentInvocationResult;
 import br.com.archflow.api.agent.invocation.InMemoryAgentInvocationResultStore;
 import br.com.archflow.api.triggers.dto.ScheduledTriggerDto;
 import br.com.archflow.api.triggers.impl.ScheduledTriggerControllerImpl;
+import br.com.archflow.api.triggers.store.InMemoryScheduledTriggerStore;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -40,6 +41,7 @@ class DesfechoDoDisparoTest {
     private Scheduler scheduler;
     private InMemoryAgentInvocationQueue queue;
     private InMemoryAgentInvocationResultStore results;
+    private InMemoryScheduledTriggerStore store;
     private ScheduledTriggerController controller;
     private final List<String> criados = new ArrayList<>();
 
@@ -56,12 +58,13 @@ class DesfechoDoDisparoTest {
         scheduler.start();
         queue = new InMemoryAgentInvocationQueue();
         results = new InMemoryAgentInvocationResultStore();
-        controller = new ScheduledTriggerControllerImpl(scheduler, queue, results);
+        store = new InMemoryScheduledTriggerStore();
+        controller = new ScheduledTriggerControllerImpl(scheduler, queue, results, store, agentId -> true);
     }
 
     @AfterEach
     void tearDown() throws Exception {
-        // O registro de gatilhos é estático: o que este teste cria não pode vazar para os outros.
+        // O registro é deste teste, mas o job sai do Quartz junto: o scheduler é desligado logo abaixo.
         for (String id : criados) {
             try {
                 controller.delete(id);
@@ -178,11 +181,36 @@ class DesfechoDoDisparoTest {
 
         AgentInvocationQueue fora = mock(AgentInvocationQueue.class);
         doThrow(new IllegalStateException("fila fora")).when(fora).submit(org.mockito.ArgumentMatchers.any());
-        ScheduledTriggerController comFilaFora = new ScheduledTriggerControllerImpl(scheduler, fora, results);
+        // Outra instância sobre o mesmo registro: a fila é dela, o gatilho é o mesmo.
+        ScheduledTriggerController comFilaFora = new ScheduledTriggerControllerImpl(scheduler, fora, results, store,
+                agentId -> true);
         assertThatThrownBy(() -> comFilaFora.fireNow(trigger.id())).isInstanceOf(IllegalStateException.class);
 
         ScheduledTriggerDto lido = naLista(trigger.id());
         assertThat(lido.lastStatus()).isEqualTo("FAILED");
         assertThat(lido.lastError()).isEqualTo("fila fora");
+    }
+
+    /**
+     * O disparo que não enfileirou não tem invocação. Com o {@code lastRequestId} do anterior, o "Ver resposta"
+     * da tela abria a execução anterior — concluída, com a resposta dela — ao lado de um gatilho "com falha".
+     */
+    @Test
+    @DisplayName("a falha de enfileirar não deixa a resposta do disparo anterior como a do último")
+    void falhaDeEnfileirarNaoApontaParaOAnterior() {
+        ScheduledTriggerDto trigger = criar("0 0 2 * * ?", true);
+        String anterior = controller.fireNow(trigger.id()).lastRequestId();
+        gravar(anterior, AgentInvocationResult.Status.COMPLETED, null);
+        assertThat(naLista(trigger.id()).lastStatus()).isEqualTo("COMPLETED");
+
+        AgentInvocationQueue fora = mock(AgentInvocationQueue.class);
+        doThrow(new IllegalStateException("fila fora")).when(fora).submit(org.mockito.ArgumentMatchers.any());
+        ScheduledTriggerController comFilaFora = new ScheduledTriggerControllerImpl(scheduler, fora, results, store,
+                agentId -> true);
+        assertThatThrownBy(() -> comFilaFora.fireNow(trigger.id())).isInstanceOf(IllegalStateException.class);
+
+        ScheduledTriggerDto lido = naLista(trigger.id());
+        assertThat(lido.lastStatus()).isEqualTo("FAILED");
+        assertThat(lido.lastRequestId()).as("a tela abriria a execução anterior como a última").isNull();
     }
 }
