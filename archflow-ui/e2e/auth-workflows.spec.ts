@@ -268,7 +268,8 @@ test.describe('Auth and workflows', () => {
         await page.goto('/workflows');
         await page.getByRole('button', { name: 'Delete' }).nth(1).click();
         await page.getByRole('dialog', { name: 'Delete Workflow' }).getByRole('button', { name: 'Delete' }).dispatchEvent('click');
-        await expect(page.getByText('Invoice Approval')).toBeHidden();
+        // Pelo card, não pelo texto: o diálogo de exclusão cita o nome do fluxo (RCHFLW-122) enquanto fecha.
+        await expect(page.getByTestId('workflow-card-wf-invoice')).toBeHidden();
         await expect(page.getByText('Customer Support Flow')).toBeVisible();
     });
 
