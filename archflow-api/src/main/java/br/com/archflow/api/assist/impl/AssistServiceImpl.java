@@ -10,6 +10,7 @@ import br.com.archflow.api.assist.dto.NlToFlowResponse;
 import br.com.archflow.api.assist.dto.SuggestMappingRequest;
 import br.com.archflow.api.assist.dto.SuggestMappingResponse;
 import br.com.archflow.api.catalog.dto.CatalogItemDto;
+import br.com.archflow.api.flow.adapter.LangChainAdapterComponent;
 import br.com.archflow.decision.DecisionComponent;
 import br.com.archflow.decision.DecisionProviders;
 import br.com.archflow.decision.HttpDecisionProvider;
@@ -102,6 +103,7 @@ public class AssistServiceImpl implements AssistService {
     static NlToFlowResponse comAvisosDeExpressao(NlToFlowResponse r) {
         List<String> avisos = new ArrayList<>(avisosDeExpressao(r.workflow().steps()));
         avisos.addAll(avisosDeDecisao(r.workflow().steps()));
+        avisos.addAll(avisosDeMensagemDoLlm(r.workflow()));
         if (avisos.isEmpty()) {
             return r;
         }
@@ -178,21 +180,72 @@ public class AssistServiceImpl implements AssistService {
         List<String> avisos = new ArrayList<>();
         for (NlToFlowResponse.Step st : steps) {
             String tipo = st.nodeType() == null ? "" : st.nodeType().trim().toLowerCase(Locale.ROOT);
+            // A "Mensagem do usuário" do llm-chat (RCHFLW-120) segue as regras de caminho das condições.
             String campo = switch (tipo) {
                 case "condition" -> "conditionExpression";
                 case "switch" -> "switchExpression";
-                default -> null;
+                default -> ControlExpressionRules.TEXT_OUTPUT_NODE_TYPES.contains(tipo)
+                        ? LangChainAdapterComponent.USER_MESSAGE_KEY : null;
             };
             if (campo == null || st.parameters() == null || !(st.parameters().get(campo) instanceof String expr)) {
                 continue;
             }
-            List<ControlExpressionRules.Finding> achados = "condition".equals(tipo)
-                    ? ControlExpressionRules.checkCondition(expr, refs)
-                    : ControlExpressionRules.checkSwitch(expr, refs);
+            List<ControlExpressionRules.Finding> achados = switch (tipo) {
+                case "condition" -> ControlExpressionRules.checkCondition(expr, refs);
+                case "switch" -> ControlExpressionRules.checkSwitch(expr, refs);
+                default -> ControlExpressionRules.checkTemplate(expr, refs);
+            };
             if (!achados.isEmpty()) {
                 avisos.add("Aviso do archflow: o step \"" + st.name() + "\", campo " + campo
                         + ", será recusado ao executar: " + String.join("; ",
                         achados.stream().map(ControlExpressionRules.Finding::message).toList()));
+            }
+        }
+        return avisos;
+    }
+
+    /** Os steps que classificam ou ramificam: a saída (ou a entrada repassada) deles não é a mensagem do cliente. */
+    private static final Set<String> CLASSIFICA_OU_RAMIFICA = Set.of(DecisionComponent.COMPONENT_ID, "condition",
+            "switch");
+
+    /**
+     * Um aviso por llm-chat sem {@code userMessage} logo depois de um decision, condition ou switch (RCHFLW-120). O
+     * motor passa a saída de cada passo ao seguinte, e a condição repassa o que recebeu: esse LLM recebe o JSON da
+     * classificação como mensagem do usuário e responde a ele, não ao cliente — foi o que se viu no Chrome. O aviso
+     * diz o campo e a referência à Entrada, quando o rascunho tem uma.
+     */
+    static List<String> avisosDeMensagemDoLlm(NlToFlowResponse.Workflow wf) {
+        Map<String, String> tipos = new java.util.HashMap<>();
+        String entrada = null;
+        for (NlToFlowResponse.Step st : wf.steps()) {
+            if (st.name() == null) {
+                continue;
+            }
+            String tipo = st.nodeType() == null ? "" : st.nodeType().trim().toLowerCase(Locale.ROOT);
+            tipos.put(st.name(), tipo);
+            if (entrada == null && "input".equals(tipo)) {
+                entrada = st.name();
+            }
+        }
+        String referencia = entrada != null ? "${" + entrada + "}" : "${<name do step input>}";
+        List<String> avisos = new ArrayList<>();
+        for (NlToFlowResponse.Step st : wf.steps()) {
+            String tipo = tipos.getOrDefault(st.name(), "");
+            boolean semMensagem = st.parameters() == null
+                    || !(st.parameters().get(LangChainAdapterComponent.USER_MESSAGE_KEY) instanceof String m
+                    && !m.isBlank());
+            if (!ControlExpressionRules.TEXT_OUTPUT_NODE_TYPES.contains(tipo) || !semMensagem) {
+                continue;
+            }
+            List<String> antes = wf.links() == null ? List.of() : wf.links().stream()
+                    .filter(l -> st.name().equals(l.target()) && l.source() != null
+                            && CLASSIFICA_OU_RAMIFICA.contains(tipos.getOrDefault(l.source(), "")))
+                    .map(NlToFlowResponse.Link::source).distinct().toList();
+            if (!antes.isEmpty()) {
+                avisos.add("Aviso do archflow: o step \"" + st.name() + "\" (llm-chat) vem depois de \""
+                        + String.join("\", \"", antes) + "\" e, sem 'userMessage', recebe como mensagem do usuário a "
+                        + "saída do passo anterior (o JSON da classificação), não a mensagem do cliente. Preencha "
+                        + "parameters.userMessage com " + referencia + ".");
             }
         }
         return avisos;
@@ -510,6 +563,7 @@ public class AssistServiceImpl implements AssistService {
             appendServerCatalogForFlow(sb, serverCatalog);
             appendRegrasDeExpressao(sb, serverCatalog.executableNodeTypes());
             appendRegrasDeDecisao(sb, serverCatalog.executableNodeTypes());
+            appendRegrasDaMensagemDoLlm(sb, serverCatalog);
         } else {
             sb.append("CATÁLOGO de plugins disponíveis:\n");
             appendCatalogo(sb, r.catalogo());
@@ -628,6 +682,29 @@ public class AssistServiceImpl implements AssistService {
     }
 
     /**
+     * A "Mensagem do usuário" do llm-chat (RCHFLW-120), quando o catálogo oferece o llm-chat. O motor passa a saída
+     * de cada passo ao seguinte: o llm-chat depois de um decision/condition/switch recebia o JSON da classificação e
+     * respondia a ele. As regras de caminho são as das condições ({@code ControlExpressionRules.checkTemplate}).
+     */
+    private static void appendRegrasDaMensagemDoLlm(StringBuilder sb, ServerFlowCatalog serverCatalog) {
+        boolean temLlmChat = serverCatalog.executableNodeTypes().contains("llm-chat")
+                || serverCatalog.executableComponents().stream().anyMatch(c -> "llm-chat".equals(c.nodeType()));
+        if (!temLlmChat) {
+            return;
+        }
+        sb.append("Mensagem do usuário do llm-chat: sem 'parameters.userMessage', o llm-chat recebe como mensagem ")
+          .append("a saída do passo anterior. Depois de um decision, condition ou switch essa saída é o JSON da ")
+          .append("classificação (a condition e o switch repassam o que receberam), e o LLM responde ao JSON, não ")
+          .append("ao cliente: nesse caso preencha 'parameters.userMessage' com \"${<name do step input>}\" (a ")
+          .append("mensagem que chegou à execução). É um texto com referências ${caminho}, pelas mesmas regras de ")
+          .append("caminho das condições: texto fora de ${} vai como está (\"Cliente: ${receber}\"), ${input} é a ")
+          .append("saída do passo anterior, e um valor que não é texto vai como JSON. Uma referência sem valor ")
+          .append("falha o passo. Use ${<name do step input>} sozinho (nunca ${<name do step input>.message}): como ")
+          .append("referência única ele já dá a mensagem, tanto do texto digitado no Executar quanto de uma API que ")
+          .append("manda {\"message\": \"…\"}.\n");
+    }
+
+    /**
      * Como classificar e ramificar com o step decision, quando o catálogo o oferece (RCHFLW-116, 2ª rodada). O
      * modelo montava um decision sem provider nem model (o http-decisions padrão não decide sem model) e
      * ramificava pelo {@code route} — que é a confiança da resposta, não a categoria. Os campos são os que o
@@ -658,7 +735,9 @@ public class AssistServiceImpl implements AssistService {
           .append("\"algo parado ou fora do ar\",\"false\":\"pode esperar\"}}},\"gate\":[\"urgente\"]}; depois ")
           .append("um step 'e_urgente' (condition) com conditionExpression \"${triagem.answers.urgente.result} == ")
           .append("true || ${triagem.route} == 'ESCALATE'\" (a falha também vai ao humano), ligado ao approval ")
-          .append("(ramo true) e ao llm-chat (ramo false). Os links não levam o ramo: diga em 'observacoes' qual ")
+          .append("(ramo true) e ao llm-chat (ramo false), que leva parameters {\"userMessage\":\"${receber}\"} ")
+          .append("('receber' é o step input: o llm-chat responde à mensagem do cliente, não ao JSON da ")
+          .append("triagem). Os links não levam o ramo: diga em 'observacoes' qual ")
           .append("link sai pelo true e qual pelo false. Por categoria: switch com switchExpression ")
           .append("\"${<name>.decision}\" (primary = um choice) e um caso por opção.\n");
     }

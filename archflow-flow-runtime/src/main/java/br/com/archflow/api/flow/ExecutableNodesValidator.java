@@ -1,5 +1,6 @@
 package br.com.archflow.api.flow;
 
+import br.com.archflow.api.flow.adapter.LangChainAdapterComponent;
 import br.com.archflow.engine.exceptions.FlowValidationException;
 import br.com.archflow.engine.exceptions.ValidationError;
 import br.com.archflow.engine.execution.ControlExpressionRules;
@@ -38,6 +39,10 @@ import java.util.Set;
  * referência a um passo que o fluxo não tem ({@code UNKNOWN_STEP}) só é recusada no editor — aqui vira
  * aviso no log, porque ela resolve se a entrada do run trouxer a chave, e fluxos criados por API contam
  * com isso.</p>
+ *
+ * <p>A "Mensagem do usuário" de um LLM Chat ({@code userMessage}, RCHFLW-120) passa pela mesma regra
+ * ({@link ControlExpressionRules#checkTemplate}): um <code>${</code> que não é referência ou um campo da saída de texto
+ * de outro LLM Chat nunca funcionam e são recusados; {@code UNKNOWN_STEP}, só aviso, pelo mesmo motivo.</p>
  */
 public final class ExecutableNodesValidator implements FlowValidator {
 
@@ -101,7 +106,10 @@ public final class ExecutableNodesValidator implements FlowValidator {
     private static List<ValidationError> controlExpressions(Flow flow) {
         List<ControlStep> controles = flow.getSteps().stream()
                 .filter(ControlStep.class::isInstance).map(ControlStep.class::cast).toList();
-        if (controles.isEmpty()) {
+        // Os LLM Chat com "Mensagem do usuário": o template está no documento, e o passo do chat é um ComponentStep
+        // que não guarda o tipo do nó. Fluxo sem documento (montado em código) não tem o campo.
+        Map<String, String> mensagens = userMessages(flow);
+        if (controles.isEmpty() && mensagens.isEmpty()) {
             return List.of();
         }
         Set<String> ids = new HashSet<>();
@@ -131,31 +139,70 @@ public final class ExecutableNodesValidator implements FlowValidator {
             List<ControlExpressionRules.Finding> todos = step.kind() == ControlStep.Kind.CONDITION
                     ? ControlExpressionRules.checkCondition(expressao, refs)
                     : ControlExpressionRules.checkSwitch(expressao, refs);
-            String no = rotulos.containsKey(step.getId())
-                    ? "\"" + rotulos.get(step.getId()) + "\" (" + step.getId() + ")"
-                    : step.getId();
-            // UNKNOWN_STEP aqui é só aviso: um ${X.y} cujo X não é passo, raiz do motor nem campo declarado na
-            // Entrada ainda resolve no run se o JSON de entrada trouxer a chave X — e fluxos criados por API
-            // (VendaX Core, YAML, standalone) fazem isso sem declarar. Recusar no servidor quebraria fluxos que
-            // funcionam hoje; o editor continua impedindo (lá o designer declara o campo). Os outros problemas
-            // nunca funcionam — comparam o próprio texto ou leem campo de saída de texto — e são recusados.
-            todos.stream().filter(f -> f.problem() == ControlExpressionRules.Problem.UNKNOWN_STEP)
-                    .forEach(f -> log.warn("Fluxo {}: o nó {}, campo {}: {} — se não vier na entrada do run, a "
-                            + "condição não resolve", flow.getId(), no, step.expressionField(), f.message()));
-            List<ControlExpressionRules.Finding> achados = todos.stream()
-                    .filter(f -> f.problem() != ControlExpressionRules.Problem.UNKNOWN_STEP).toList();
-            if (achados.isEmpty()) {
+            recusar(flow, step.getId(), rotulos, step.expressionField(), expressao, todos, errors);
+        }
+        mensagens.forEach((id, template) -> {
+            if (ids.contains(id)) {
+                recusar(flow, id, rotulos, LangChainAdapterComponent.USER_MESSAGE_KEY, template,
+                        ControlExpressionRules.checkTemplate(template, refs), errors);
+            }
+        });
+        return errors;
+    }
+
+    /** Um erro para o campo do nó com as recusas que nunca funcionam; o {@code UNKNOWN_STEP} vai ao log. */
+    private static void recusar(Flow flow, String id, Map<String, String> rotulos, String campo, String expressao,
+                                List<ControlExpressionRules.Finding> todos, List<ValidationError> errors) {
+        String no = rotulos.containsKey(id) ? "\"" + rotulos.get(id) + "\" (" + id + ")" : id;
+        // UNKNOWN_STEP aqui é só aviso: um ${X.y} cujo X não é passo, raiz do motor nem campo declarado na
+        // Entrada ainda resolve no run se o JSON de entrada trouxer a chave X — e fluxos criados por API
+        // (VendaX Core, YAML, standalone) fazem isso sem declarar. Recusar no servidor quebraria fluxos que
+        // funcionam hoje; o editor continua impedindo (lá o designer declara o campo). Os outros problemas
+        // nunca funcionam — comparam o próprio texto ou leem campo de saída de texto — e são recusados.
+        todos.stream().filter(f -> f.problem() == ControlExpressionRules.Problem.UNKNOWN_STEP)
+                .forEach(f -> log.warn("Fluxo {}: o nó {}, campo {}: {} — se não vier na entrada do run, a "
+                        + "referência não resolve", flow.getId(), no, campo, f.message()));
+        List<ControlExpressionRules.Finding> achados = todos.stream()
+                .filter(f -> f.problem() != ControlExpressionRules.Problem.UNKNOWN_STEP).toList();
+        if (achados.isEmpty()) {
+            return;
+        }
+        String motivos = String.join("; ", achados.stream().map(ControlExpressionRules.Finding::message).toList());
+        errors.add(new ValidationError("step.configuration." + campo,
+                "o nó " + no + ", campo " + campo + ": " + motivos,
+                EXPRESSION_CODE,
+                Map.of("node", id, "field", campo, "expression", expressao,
+                        "problems", achados.stream().map(f -> f.problem().name()).toList())));
+    }
+
+    /**
+     * O {@code userMessage} de cada nó de chat do documento, por id. É o tipo do nó que diz "chat", como na fábrica
+     * ({@code AdapterNodeTypes}).
+     *
+     * <p>Lê na mesma ordem da fábrica ({@code PortableFlowStepFactory.config}): {@code config} primeiro e
+     * {@code configuration} por cima, que vence. Se o validador lesse em outra ordem, um documento com as duas
+     * chaves (legado ou editado à mão) seria julgado por um template que não é o que roda — recusado por um valor
+     * que o motor ignora, ou aceito sem checar o que o motor envia. Um valor em branco por cima também vale como
+     * "sem campo", como no motor (comportamento de hoje).
+     */
+    private static Map<String, String> userMessages(Flow flow) {
+        Map<String, String> out = new LinkedHashMap<>();
+        for (Map<?, ?> no : nodesOf(flow)) {
+            if (no.get("id") == null || !(isTextOutput(no.get("type")) || isTextOutput(no.get("componentId")))) {
                 continue;
             }
-            String motivos = String.join("; ",
-                    achados.stream().map(ControlExpressionRules.Finding::message).toList());
-            errors.add(new ValidationError("step.configuration." + step.expressionField(),
-                    "o nó " + no + ", campo " + step.expressionField() + ": " + motivos,
-                    EXPRESSION_CODE,
-                    Map.of("node", step.getId(), "field", step.expressionField(), "expression", expressao,
-                            "problems", achados.stream().map(f -> f.problem().name()).toList())));
+            Object valor = null;
+            for (String chave : List.of("config", "configuration")) {
+                if (no.get(chave) instanceof Map<?, ?> config
+                        && config.containsKey(LangChainAdapterComponent.USER_MESSAGE_KEY)) {
+                    valor = config.get(LangChainAdapterComponent.USER_MESSAGE_KEY);
+                }
+            }
+            if (valor instanceof String t && !t.isBlank()) {
+                out.put(no.get("id").toString(), t);
+            }
         }
-        return errors;
+        return out;
     }
 
     private static boolean isKind(Object kind, String expected) {

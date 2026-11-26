@@ -58,6 +58,10 @@ import static org.mockito.Mockito.when;
  * Aqui o ramo vem da resposta ({@code answers.urgente.result}) e o provedor é o {@code llm} real
  * ({@link LlmDecisionProvider}, com o teto de confiança de produção) sobre um modelo de chat determinístico. O
  * {@code llm-chat} vai a um servidor local no lugar do OpenRouter, para se ver quem chegou à resposta.</p>
+ *
+ * <p>RCHFLW-120: o servidor local guarda o corpo de cada pedido, e o teste lê a mensagem do usuário que o LLM
+ * recebeu — com a "Mensagem do usuário" ({@code userMessage: ${receber}}), o pedido do cliente; sem ela, o JSON da
+ * decisão, como antes.</p>
  */
 @DisplayName("triagem pela resposta da decisão: urgente ao humano, comum ao LLM")
 class TriagemPelaRespostaDaDecisaoTest {
@@ -143,9 +147,38 @@ class TriagemPelaRespostaDaDecisaoTest {
         }
     }
 
-    @SuppressWarnings("unchecked")
     private Execucao executar(String pedido, ChatModel classificador) throws Exception {
+        return executar(pedido, classificador, documento -> { });
+    }
+
+    /** A config do nó "Responder com LLM" do documento, para o teste mexer na "Mensagem do usuário". */
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> configDoResponder(Map<String, Object> documento) {
+        return ((List<Map<String, Object>>) documento.get("steps")).stream()
+                .filter(st -> "responder".equals(st.get("id"))).findFirst()
+                .map(st -> (Map<String, Object>) st.get("configuration")).orElseThrow();
+    }
+
+    /** A mensagem do usuário do único pedido que chegou ao LLM (a última do papel user). */
+    private String mensagemDoUsuarioNoLlm() throws IOException {
+        assertThat(pedidosAoLlm).hasSize(1);
+        com.fasterxml.jackson.databind.JsonNode mensagens = new ObjectMapper().readTree(pedidosAoLlm.get(0))
+                .get("messages");
+        String ultima = null;
+        for (com.fasterxml.jackson.databind.JsonNode m : mensagens) {
+            if ("user".equals(m.get("role").asText())) {
+                ultima = m.get("content").isTextual() ? m.get("content").asText() : m.get("content").toString();
+            }
+        }
+        return ultima;
+    }
+
+    /** O pedido é o texto do Executar ou, num mapa, o JSON de um chamador de API (semeado como no servidor). */
+    @SuppressWarnings("unchecked")
+    private Execucao executar(Object pedido, ChatModel classificador,
+                              java.util.function.Consumer<Map<String, Object>> ajuste) throws Exception {
         Map<String, Object> documento = new ObjectMapper().readValue(Files.readString(FLUXO), Map.class);
+        ajuste.accept(documento);
         StateManager estado = new InMemoryStateManager();
         InMemoryFlowRepository repositorio = new InMemoryFlowRepository();
         FlowEngine motor = FlowEngineFactory.create(repositorio, null, null, estado);
@@ -170,7 +203,11 @@ class TriagemPelaRespostaDaDecisaoTest {
         repositorio.save(flow);
         DefaultExecutionContext ctx = new DefaultExecutionContext("SYSTEM", "u1", flow.getId(),
                 MessageWindowChatMemory.builder().maxMessages(20).build());
-        ctx.set("input", pedido);
+        if (pedido instanceof Map<?, ?> json) {
+            RunInputSeeding.seedVariables(ctx, (Map<String, Object>) json);
+        } else {
+            ctx.set("input", pedido);
+        }
         FlowResult resultado = motor.execute(flow, ctx).get(15, TimeUnit.SECONDS);
         return new Execucao(resultado, ctx, estado, flow.getId());
     }
@@ -201,10 +238,77 @@ class TriagemPelaRespostaDaDecisaoTest {
         assertThat(r.resposta("urgente", "result")).isEqualTo(false);
         assertThat(r.saida("e_urgente")).containsEntry("branch", "false");
         assertThat(r.contexto().get("responder")).hasValue("Atendemos das 8h às 18h.");
-        // Uma chamada, a do nó "Responder com LLM" (com o prompt de sistema dele). O que vai como mensagem do usuário é
-        // a entrada linear do passo — a saída do decision, que a condição repassa intacta —, não o texto do pedido:
-        // limitação do fluxo de dados linear do motor, fora desta correção (ver o relatório do RCHFLW-116).
+        // Uma chamada, a do nó "Responder com LLM" (com o prompt de sistema dele). RCHFLW-120: a mensagem do usuário
+        // é a do cliente — o nó a lê da Entrada (userMessage ${receber}); a entrada linear do passo seria a saída do
+        // decision, que a condição repassa intacta.
         assertThat(pedidosAoLlm).singleElement().asString().contains("Responda ao pedido do cliente em uma frase.");
+        assertThat(mensagemDoUsuarioNoLlm()).isEqualTo(COMUM);
+    }
+
+    /**
+     * RCHFLW-120, o que se viu no Chrome: sem a "Mensagem do usuário", o LLM recebe o que sempre recebeu — a entrada
+     * linear do passo, o JSON da decisão — e respondia "notei que você enviou um registro técnico/JSON". O campo
+     * vazio não muda nenhum fluxo existente.
+     */
+    @Test
+    @DisplayName("sem userMessage, o LLM recebe o que recebe hoje: o JSON da decisão, não o pedido")
+    void semMensagemDoUsuarioRecebeOJsonDaDecisao() throws Exception {
+        Execucao r = executar(COMUM, classificador(TriagemPelaRespostaDaDecisaoTest::porUrgencia),
+                documento -> configDoResponder(documento).remove("userMessage"));
+
+        assertThat(r.resultado().getStatus()).isEqualTo(ExecutionStatus.COMPLETED);
+        assertThat(mensagemDoUsuarioNoLlm()).isNotEqualTo(COMUM).contains("\"answers\"").contains("\"route\"");
+    }
+
+    @Test
+    @DisplayName("userMessage mistura texto e referências; ${input} é a saída do passo anterior, como nas condições")
+    void templateMisturaTextoEReferencias() throws Exception {
+        executar(COMUM, classificador(TriagemPelaRespostaDaDecisaoTest::porUrgencia),
+                documento -> configDoResponder(documento)
+                        .put("userMessage", "Cliente: ${receber} (assunto ${triagem.answers.assunto.choice})"));
+
+        assertThat(mensagemDoUsuarioNoLlm()).isEqualTo("Cliente: " + COMUM + " (assunto outro)");
+
+        pedidosAoLlm.clear();
+        executar(COMUM, classificador(TriagemPelaRespostaDaDecisaoTest::porUrgencia),
+                documento -> configDoResponder(documento).put("userMessage", "${input}"));
+        assertThat(mensagemDoUsuarioNoLlm()).contains("\"answers\"").doesNotContain("${");
+    }
+
+    /**
+     * O texto digitado no Executar chega à Entrada como texto; um chamador de API manda {@code {"message": "…"}}. Na
+     * validação no Chrome o copiloto escreveu {@code ${receber.message}} e o texto digitado falhou o passo. Agora a
+     * referência sozinha {@code ${receber}} é lida como a mensagem (a mesma leitura que o nó de chat faz da própria
+     * entrada): dá o pedido nos dois casos. Num template misto, o mapa continua indo como JSON.
+     */
+    @Test
+    @DisplayName("${receber} sozinho dá o pedido com entrada em texto e em objeto JSON; no texto misto, o mapa vai em JSON")
+    void entradaEmTextoOuObjetoJson() throws Exception {
+        Map<String, Object> chamadaDeApi = Map.of("message", COMUM);
+        executar(chamadaDeApi, classificador(TriagemPelaRespostaDaDecisaoTest::porUrgencia), documento -> { });
+        assertThat(mensagemDoUsuarioNoLlm()).isEqualTo(COMUM);
+
+        pedidosAoLlm.clear();
+        executar(COMUM, classificador(TriagemPelaRespostaDaDecisaoTest::porUrgencia), documento -> { });
+        assertThat(mensagemDoUsuarioNoLlm()).isEqualTo(COMUM);
+
+        pedidosAoLlm.clear();
+        executar(chamadaDeApi, classificador(TriagemPelaRespostaDaDecisaoTest::porUrgencia),
+                documento -> configDoResponder(documento).put("userMessage", "Cliente: ${receber}"));
+        assertThat(mensagemDoUsuarioNoLlm()).isEqualTo("Cliente: {\"message\":\"" + COMUM + "\"}");
+    }
+
+    @Test
+    @DisplayName("referência sem valor falha o passo nomeando nó, campo e referência, e nada vai ao modelo")
+    void referenciaSemValorFalhaSemChamarOLlm() throws Exception {
+        Execucao r = executar(COMUM, classificador(TriagemPelaRespostaDaDecisaoTest::porUrgencia),
+                documento -> configDoResponder(documento).put("userMessage", "${receber.texto}"));
+
+        assertThat(r.resultado().getStatus()).isEqualTo(ExecutionStatus.FAILED);
+        assertThat(String.valueOf(r.resultado().getErrors()))
+                .contains("responder").contains("userMessage").contains("${receber.texto}");
+        assertThat(pedidosAoLlm).isEmpty();
+        assertThat(r.contexto().get("responder")).isEmpty();
     }
 
     /**

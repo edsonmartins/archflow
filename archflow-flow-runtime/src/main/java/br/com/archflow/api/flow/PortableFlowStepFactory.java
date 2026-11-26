@@ -260,10 +260,12 @@ public class PortableFlowStepFactory implements FlowStepFactory {
                             connections, scopedCatalog, interceptors, null, config,
                             "o provider '" + chatProvider + "' não está em configuration.allowedComponents");
                 }
+                // O id do nó vai junto para a falha da "Mensagem do usuário" (RCHFLW-120) dizer qual nó; o
+                // chat não usa conexões do servidor nem o tipo de nó (só os nós de dados).
                 LangChainAdapterComponent adapter = new LangChainAdapterComponent(
                         chatProvider, "chat", adapterConfig(id, chat.get().config()), tenantKeyResolver,
                         baseUrlPolicy, providerPreferences, providerPreferencesRequired, openRouterUrls(),
-                        modelPolicy);
+                        modelPolicy, null, null, id);
                 return new ComponentStep(id, StepType.TOOL, adapter.componentId(),
                         operationOf(config, node), connections, scopedCatalog, interceptors, adapter,
                         config);

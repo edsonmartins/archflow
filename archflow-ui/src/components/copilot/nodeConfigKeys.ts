@@ -36,6 +36,10 @@ const CHAT: ConfigKeys = {
   personaId: 'string',
 }
 
+// A "Mensagem do usuário" (RCHFLW-120) é só dos nós de chat: o agente MCP lê a entrada por outro caminho
+// (McpAgentComponent), e a chave num agent seria gravada sem que nada a lesse.
+const CHAT_NODE: ConfigKeys = { ...CHAT, userMessage: 'string' }
+
 // agent / assistant: o chat mais o laço do agente, memória, governança de ferramentas e servidores MCP.
 const AGENT_LOOP: ConfigKeys = {
   ...CHAT,
@@ -114,8 +118,8 @@ const LINKTOR_CONVERSATION: ConfigKeys = { linktorConversationExpr: 'string' }
 export const NODE_CONFIG_KEYS: Readonly<Record<string, ConfigKeys>> = {
   agent: { ...AGENT_LOOP, agentTypeId: 'string' },
   assistant: { ...AGENT_LOOP, assistantTypeId: 'string' },
-  'llm-chat': CHAT,
-  'llm-streaming': CHAT,
+  'llm-chat': CHAT_NODE,
+  'llm-streaming': CHAT_NODE,
   orchestrate: {
     goal: 'string',
     decomposePrompt: 'string',
