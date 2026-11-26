@@ -233,14 +233,21 @@ describe('CopilotGenerateBridge', () => {
     })
     useFlowStore.setState({
       nodes: [node('a', 'input', 'Entrada'),
-        node('sw', 'switch', 'Categoria', { switchExpression: '${a.categoria}', switchCases: 'financeiro\nvendas' }),
+        node('sw', 'switch', 'Categoria', { switchExpression: '${a.categoria}', switchCases: 'financeiro\ncomercial' }),
         node('r', 'output', 'Resposta')] as never,
       edges: [
         { id: 'e1', source: 'a', target: 'sw', data: { isErrorPath: false } },
         { id: 'e2', source: 'sw', target: 'r', data: { isErrorPath: false, branch: 'comercial' } },
       ] as never,
     })
+    // A geração troca o caso no switch (como um configureNode) e não mexe na aresta, que fica em "comercial".
     kit.runAgent.mockImplementation(async () => {
+      useFlowStore.setState((st) => ({
+        nodes: st.nodes.map((n) => n.id === 'sw'
+          ? { ...n, data: { ...n.data, config: { ...(n.data as { config: object }).config,
+              switchCases: 'financeiro\nvendas' } } }
+          : n),
+      }) as never)
       kit.agent.messages = [{ role: 'assistant', content: 'Categoria renomeada.' }]
     })
 

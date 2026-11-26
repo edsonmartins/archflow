@@ -28,6 +28,7 @@ vi.mock('@mantine/notifications', () => ({ notifications: notificationsMock }))
 vi.mock('../../lib/confirm', () => ({ confirmAction: confirmMock }))
 
 import ApprovalDetailPage from '../ApprovalDetailPage'
+import { entrarComo } from '../../lib/__tests__/papeisDeTeste'
 
 const TEXTO = 'Prezado cliente,\nseu reembolso de R$ 320,00 foi aprovado.\n' + 'Detalhes do pedido. '.repeat(200)
 
@@ -41,6 +42,8 @@ let root: Root | null = null
 let container: HTMLDivElement
 
 beforeEach(() => {
+  // Decidir exige execution:manage (RCHFLW-136): quem decide nestes cenários é o ADMIN.
+  entrarComo('ADMIN')
   vi.clearAllMocks()
   ;(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true
   ;(globalThis as any).ResizeObserver ??= class { observe() {} unobserve() {} disconnect() {} }
