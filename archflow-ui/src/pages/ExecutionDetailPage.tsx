@@ -206,6 +206,12 @@ function StepOutput({ raw }: { raw: string }) {
 function StepBlock({ step, locale }: { step: StepRow; locale: string }) {
     const { t } = useTranslation()
     const [open, setOpen] = useState(step.status === 'FAILED')
+    // Quem chega pelo "Rodar" abre o detalhe com o passo ainda RUNNING: o estado inicial já tinha passado, e o
+    // passo que falhava depois, pelo polling, ficava fechado até recarregar a página (RCHFLW-130). Abre na
+    // chegada da falha; depois disso quem decide é o clique.
+    useEffect(() => {
+        if (step.status === 'FAILED') setOpen(true)
+    }, [step.status])
     const notExecuted = step.notExecuted === true
 
     const statusColor = notExecuted ? 'gray' : (STEP_STATUS_COLOR[step.status] ?? 'gray')
@@ -222,6 +228,7 @@ function StepBlock({ step, locale }: { step: StepRow; locale: string }) {
     return (
         <Paper withBorder radius="md" px="sm" py="xs" data-testid={`execution-step-${step.stepId}`}
                data-not-executed={notExecuted ? 'true' : undefined}
+               data-expanded={open && !notExecuted ? 'true' : undefined}
                style={{ borderLeft: `3px solid var(--mantine-color-${statusColor}-${notExecuted ? 3 : 6})`,
                    boxShadow: 'none', opacity: notExecuted ? 0.6 : undefined }}>
             <Group

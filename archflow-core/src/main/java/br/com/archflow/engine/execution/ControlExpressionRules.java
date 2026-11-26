@@ -33,6 +33,10 @@ import java.util.regex.Pattern;
  *   <li>{@link Problem#TEXT_OUTPUT_FIELD}: um {@code ${X.campo}} em que {@code X} é um nó de chat — a saída
  *       dele é o texto da resposta ({@code ChatTurn}), e um campo de texto nunca resolve.</li>
  *   <li>{@link Problem#NO_REFERENCE}: um switch sem nenhum {@code ${…}} — o valor é sempre o mesmo texto.</li>
+ *   <li>{@link Problem#SINGLE_EQUALS}: um operando com {@code =} sozinho fora de aspas ({@code ${input} = 'x'}).
+ *       A gramática não tem {@code =}, então a expressão inteira vira um operando solto — o mesmo defeito do
+ *       {@link Problem#BARE_OPERAND} —, mas a mensagem dele mandava escrever {@code ${…}} a quem já tinha
+ *       escrito, e não dizia o que faltava: {@code ==} (RCHFLW-133).</li>
  * </ul>
  *
  * <p><b>O que fica de fora, de propósito (falso positivo).</b> Um {@code ${nome}} <i>sem ponto</i> que não
@@ -54,7 +58,8 @@ public final class ControlExpressionRules {
         BARE_OPERAND,
         UNKNOWN_STEP,
         TEXT_OUTPUT_FIELD,
-        NO_REFERENCE
+        NO_REFERENCE,
+        SINGLE_EQUALS
     }
 
     /**
@@ -83,6 +88,8 @@ public final class ControlExpressionRules {
                         + "classifique com um nó decision";
                 case NO_REFERENCE -> "o switch não lê nenhum ${…}: o valor é sempre «" + fragment
                         + "» e o ramo nunca muda";
+                case SINGLE_EQUALS -> "«" + fragment + "» usa = sozinho, que não compara: para comparar, use == ("
+                        + "«" + withDoubleEquals(fragment) + "»)";
             };
         }
     }
@@ -193,6 +200,10 @@ public final class ControlExpressionRules {
 
     private static void checkOperand(String token, FlowRefs refs, List<Finding> findings) {
         String t = token.trim();
+        if (!withDoubleEquals(t).equals(t)) {
+            findings.add(new Finding(Problem.SINGLE_EQUALS, t));
+            return;
+        }
         Matcher placeholder = ConditionEvaluator.PLACEHOLDER.matcher(t);
         if (placeholder.matches()) {
             String path = placeholder.group(1).trim();
@@ -210,6 +221,43 @@ public final class ControlExpressionRules {
             return;
         }
         findings.add(new Finding(Problem.BARE_OPERAND, t));
+    }
+
+    /**
+     * O texto com cada {@code =} sozinho trocado por {@code ==}: fora de aspas e de {@code ${…}}, e sem ser parte
+     * de {@code ==}, {@code !=}, {@code >=} ou {@code <=}. Igual ao texto quando não há nenhum — é o teste do
+     * {@link Problem#SINGLE_EQUALS} e a sugestão da mensagem.
+     */
+    static String withDoubleEquals(String text) {
+        StringBuilder out = new StringBuilder(text.length() + 2);
+        char quote = 0;
+        int braces = 0;
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            out.append(c);
+            if (quote != 0) {
+                if (c == quote) {
+                    quote = 0;
+                }
+            } else if (braces > 0) {
+                if (c == '}') {
+                    braces--;
+                }
+            } else if (c == '\'' || c == '"') {
+                quote = c;
+            } else if (c == '$' && i + 1 < text.length() && text.charAt(i + 1) == '{') {
+                braces++;
+                out.append('{');
+                i++;
+            } else if (c == '=') {
+                char before = i > 0 ? text.charAt(i - 1) : ' ';
+                char after = i + 1 < text.length() ? text.charAt(i + 1) : ' ';
+                if ("=!<>".indexOf(before) < 0 && after != '=') {
+                    out.append('=');
+                }
+            }
+        }
+        return out.toString();
     }
 
     /**

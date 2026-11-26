@@ -129,7 +129,11 @@ public final class FlowEngineFactory {
         CompositeFlowLifecycleListener lifecycle = new CompositeFlowLifecycleListener();
         // Stream flow/step lifecycle to the per-tenant SSE feed (design-0005 step 3).
         if (streamRegistry != null && runningFlows != null) {
-            lifecycle.add(new RegistryFlowLifecycleListener(streamRegistry, runningFlows));
+            // O erro de um passo sai no stream na frase legível, sem o corpo HTTP do provedor de LLM nem o
+            // user_id da conta da plataforma: o painel Executar do editor lê o stream, não o registro
+            // (RCHFLW-130). O texto original fica no log do StepRecordingListener.
+            lifecycle.add(new RegistryFlowLifecycleListener(streamRegistry, runningFlows,
+                    ErroDoProvedorLegivel::paraUsuario));
         }
         // Pick up any process-wide registered listeners (e.g. LinktorFlowPublisher).
         for (FlowLifecycleListener extra : FlowLifecycleListeners.snapshot()) {

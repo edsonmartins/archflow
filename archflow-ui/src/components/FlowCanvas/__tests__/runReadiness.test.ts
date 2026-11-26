@@ -80,9 +80,28 @@ describe('runReadiness', () => {
       + '"Lê nota" → editor.properties.fields.expression: editor.notif.expressionProblem.UNKNOWN_STEP[n.text|n]]')
   })
 
+  // RCHFLW-133: com `${input} = 'x'` a mensagem mandava escrever ${…} a quem já tinha escrito e não dizia "use ==".
+  it('= sozinho na condição: o aviso sugere == com a expressão corrigida, nos dois idiomas', () => {
+    const blockers = runBlockers([
+      { id: 'c', label: 'Confere', componentId: 'condition', type: 'condition',
+        config: { conditionExpression: "${input} = 'x'" } },
+    ])
+    expect(blockers.invalidExpressions).toEqual([{ id: 'c', label: 'Confere',
+      labelKey: 'editor.properties.fields.expression', problem: 'SINGLE_EQUALS', fragment: "${input} = 'x'" }])
+
+    const real = (locale: any) => ((k: string, o?: Record<string, string>) => {
+      const raw = k.split('.').reduce((acc: any, part) => acc?.[part], locale) as string
+      return raw.replace(/\{\{(\w+)\}\}/g, (_: string, name: string) => o?.[name] ?? '')
+    }) as unknown as TFunction
+    const pt = runBlockersMessage(real(ptBR), blockers)
+    expect(pt).toContain("«${input} = 'x'» usa = sozinho, que não compara — para comparar, use == («${input} == 'x'»)")
+    expect(pt).not.toContain('não é um valor')
+    expect(runBlockersMessage(real(en), blockers)).toContain("to compare, use == («${input} == 'x'»)")
+  })
+
   it('cada motivo de expressão recusada tem texto no pt-BR', () => {
     const problems = (ptBR as any).editor.notif.expressionProblem
-    for (const code of ['MALFORMED', 'BARE_OPERAND', 'UNKNOWN_STEP', 'TEXT_OUTPUT_FIELD', 'NO_REFERENCE']) {
+    for (const code of ['MALFORMED', 'BARE_OPERAND', 'UNKNOWN_STEP', 'TEXT_OUTPUT_FIELD', 'NO_REFERENCE', 'SINGLE_EQUALS']) {
       expect(problems[code]).toContain('{{fragment}}')
     }
     // A chave a declarar na Entrada é a raiz do caminho: sem o {{root}}, o aviso não diria qual.

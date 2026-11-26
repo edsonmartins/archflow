@@ -245,7 +245,8 @@ function branchError(sourceId: string, branch: string, branches: readonly string
 }
 
 /** Sem fluxo conhecido (fila sem destino), só se sabe o formato: os passos do canvas que vai abrir são outros. */
-const FORMAT_PROBLEMS: ReadonlySet<ExpressionProblem> = new Set(['MALFORMED', 'BARE_OPERAND', 'NO_REFERENCE'])
+const FORMAT_PROBLEMS: ReadonlySet<ExpressionProblem> =
+    new Set(['MALFORMED', 'BARE_OPERAND', 'NO_REFERENCE', 'SINGLE_EQUALS'])
 
 /**
  * A config dos nós Entrada, para os campos esperados (ioFields) valerem como raiz — como no Executar e no servidor.

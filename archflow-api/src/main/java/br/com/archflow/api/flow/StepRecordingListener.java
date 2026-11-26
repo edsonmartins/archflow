@@ -8,6 +8,8 @@ import br.com.archflow.model.flow.FlowResult;
 import br.com.archflow.model.flow.FlowStep;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.Writer;
@@ -37,6 +39,8 @@ import java.util.Objects;
  * todos os {@code recordStep} seguintes da execução.
  */
 public final class StepRecordingListener implements FlowLifecycleListener {
+
+    private static final Logger log = LoggerFactory.getLogger(StepRecordingListener.class);
 
     /** Limite da saída gravada por passo — é diagnóstico, não o resultado oficial. */
     static final int MAX_OUTPUT_CHARS = 4096;
@@ -77,11 +81,21 @@ public final class StepRecordingListener implements FlowLifecycleListener {
         store.recordStep(flow.getId(), step.getId(), patch);
     }
 
+    /**
+     * O erro do passo vai para o registro na frase que a tela mostra (RCHFLW-130): o erro de um provedor de
+     * LLM chegava como o corpo HTTP cru, com o {@code user_id} da conta da plataforma. O texto original fica
+     * no log — é o detalhe técnico que o suporte precisa, e a tela não.
+     */
     @Override
     public void onStepFailed(Flow flow, FlowStep step, ExecutionContext context,
                              Throwable error, long durationMs) {
-        store.recordStep(flow.getId(), step.getId(),
-                finished("FAILED", durationMs, error != null ? error.getMessage() : null));
+        String original = error != null ? error.getMessage() : null;
+        String legivel = ErroDoProvedorLegivel.paraUsuario(original);
+        if (original != null && !original.equals(legivel)) {
+            log.warn("Passo {} da execução {} falhou; resposta do provedor: {}",
+                    step.getId(), flow.getId(), original);
+        }
+        store.recordStep(flow.getId(), step.getId(), finished("FAILED", durationMs, legivel));
     }
 
     @Override

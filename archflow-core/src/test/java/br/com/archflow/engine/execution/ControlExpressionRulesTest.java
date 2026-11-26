@@ -82,6 +82,19 @@ class ControlExpressionRulesTest {
     }
 
     @Test
+    @DisplayName("= sozinho: a mensagem sugere == com a expressão corrigida, sem mandar escrever ${…} (RCHFLW-133)")
+    void igualSozinhoSugereIgualIgual() {
+        Finding f = ControlExpressionRules.checkCondition("${input} = 'x'", REFS).get(0);
+
+        assertThat(f.problem()).isEqualTo(Problem.SINGLE_EQUALS);
+        assertThat(f.message()).isEqualTo("«${input} = 'x'» usa = sozinho, que não compara: para comparar, use == "
+                + "(«${input} == 'x'»)");
+        // O = dentro de aspas e o de ==, !=, >=, <= não contam.
+        assertThat(ControlExpressionRules.withDoubleEquals("${x} == 'a=b' && ${y} >= 1")).isEqualTo(
+                "${x} == 'a=b' && ${y} >= 1");
+    }
+
+    @Test
     @DisplayName("referência a passo inexistente sugere o id do nó e declarar a chave na Entrada")
     void passoInexistente() {
         Finding f = ControlExpressionRules.checkCondition("${ticket.urgente} == true", REFS).get(0);

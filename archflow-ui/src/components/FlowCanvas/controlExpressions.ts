@@ -21,10 +21,14 @@
  *       contrato que o fluxo já declara, e a forma que funciona com qualquer entrada;</li>
  *   <li>TEXT_OUTPUT_FIELD — {@code ${X.campo}} em que X é um LLM Chat: a saída dele é o texto da resposta;</li>
  *   <li>NO_REFERENCE — switch sem nenhum {@code ${…}}: o valor é sempre o mesmo.</li>
+ *   <li>SINGLE_EQUALS — operando com {@code =} sozinho fora de aspas ({@code ${input} = 'x'}): a gramática não tem
+ *       {@code =}, e a mensagem do BARE_OPERAND mandava escrever {@code ${…}} a quem já tinha escrito, sem dizer que
+ *       faltava o {@code ==} (RCHFLW-133).</li>
  * </ul>
  */
 
-export type ExpressionProblem = 'MALFORMED' | 'BARE_OPERAND' | 'UNKNOWN_STEP' | 'TEXT_OUTPUT_FIELD' | 'NO_REFERENCE'
+export type ExpressionProblem =
+  'MALFORMED' | 'BARE_OPERAND' | 'UNKNOWN_STEP' | 'TEXT_OUTPUT_FIELD' | 'NO_REFERENCE' | 'SINGLE_EQUALS'
 
 export interface ExpressionFinding {
   problem:  ExpressionProblem
@@ -133,8 +137,43 @@ function checkPath(path: string, refs: FlowRefs, out: ExpressionFinding[]) {
   if (!ENGINE_ROOTS.has(path.substring(0, path.indexOf('.')))) out.push({ problem: 'UNKNOWN_STEP', fragment: path })
 }
 
+/**
+ * O texto com cada {@code =} sozinho trocado por {@code ==} — fora de aspas e de ${…}, e sem ser parte de ==, !=, >=
+ * ou <=. Igual ao texto quando não há nenhum: é o teste do SINGLE_EQUALS e a sugestão da mensagem
+ * (ControlExpressionRules.withDoubleEquals).
+ */
+export function withDoubleEquals(text: string): string {
+  let out = ''
+  let quote = ''
+  let braces = 0
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]
+    out += c
+    if (quote) {
+      if (c === quote) quote = ''
+    } else if (braces > 0) {
+      if (c === '}') braces--
+    } else if (c === "'" || c === '"') {
+      quote = c
+    } else if (c === '$' && text[i + 1] === '{') {
+      braces++
+      out += '{'
+      i++
+    } else if (c === '=') {
+      const before = i > 0 ? text[i - 1] : ' '
+      const after = i + 1 < text.length ? text[i + 1] : ' '
+      if (!'=!<>'.includes(before) && after !== '=') out += '='
+    }
+  }
+  return out
+}
+
 function checkOperand(token: string, refs: FlowRefs, out: ExpressionFinding[]) {
   const t = token.trim()
+  if (withDoubleEquals(t) !== t) {
+    out.push({ problem: 'SINGLE_EQUALS', fragment: t })
+    return
+  }
   const placeholder = PLACEHOLDER.exec(t)
   if (placeholder) {
     const path = placeholder[1].trim()
@@ -283,5 +322,7 @@ export function describeFindingForAgent(f: ExpressionFinding): string {
         + `\${<decisionId>.decision} / branch on its route`
     case 'NO_REFERENCE':
       return `switch expression "${f.fragment}" reads no \${…}: its value never changes — use e.g. \${<decisionId>.decision}`
+    case 'SINGLE_EQUALS':
+      return `"${f.fragment}" uses a single = , which does not compare: write == ("${withDoubleEquals(f.fragment)}")`
   }
 }
