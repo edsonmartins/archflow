@@ -168,7 +168,9 @@ class UsoMedidoEmTodosOsCaminhosTest {
         Map<String, Object> usage = (Map<String, Object>) naRequisicao(() -> detalhe.get(executionId).getBody())
                 .get("usage");
         assertThat(usage).containsEntry("inputTokens", 1_300L).containsEntry("outputTokens", 250L)
-                .containsEntry("costCents", 1L).containsEntry("withoutPrice", 0);
+                .containsEntry("costCents", 1L).containsEntry("withoutPrice", 0)
+                // O modelo que rodou (RCHFLW-190): antes o detalhe não dizia qual.
+                .containsEntry("models", List.of("openrouter/m"));
     }
 
     @Test

@@ -315,16 +315,35 @@ public class DecisionComponent implements AIComponent {
                 throw new DecisionException("sem chave de API para o provedor '" + id + "'", false);
             }
         }
-        DecisionResult result = p.decide(request, new DecisionCall(tenantId,
-                str(tentativa.get("model"), null), key, timeout, options));
+        String modeloDoNo = str(tentativa.get("model"), null);
+        DecisionResult result;
+        try {
+            result = p.decide(request, new DecisionCall(tenantId, modeloDoNo, key, timeout, options));
+        } catch (DecisionException e) {
+            // A chamada que falhou DEPOIS de consumir (o modelo respondeu, mas sem JSON) também conta:
+            // antes ela sumia do consumo da execução (RCHFLW-170).
+            relatarUso(uso, id, modeloDoNo, e.usage());
+            throw e;
+        }
         // O consumo é de quem chamou: cada chamada que foi feita conta, mesmo a de um degrau que
         // depois não foi o escolhido.
-        if (result.usage() != null) {
-            uso.ifPresent(u -> u.onDecision(result.provider(), result.model(),
-                    result.usage().inputTokens(), result.usage().outputTokens(),
-                    result.usage().costUsd()));
-        }
+        relatarUso(uso, result.provider(), result.model(), result.usage());
         return new Tentativa(result, result.provider(), result.model(), confidenceOf(result));
+    }
+
+    /**
+     * Relata uma chamada ao contador da execução. O par cobrado ({@code billed*}) vence o de quem
+     * serviu: é ele que casa com a tabela de preços — ver {@link DecisionResult.Usage}.
+     */
+    private static void relatarUso(Optional<DecisionUsageListener> uso, String provider, String model,
+                                   DecisionResult.Usage usage) {
+        if (usage == null) {
+            return;
+        }
+        uso.ifPresent(u -> u.onDecision(
+                usage.billedProvider() != null ? usage.billedProvider() : provider,
+                usage.billedModel() != null ? usage.billedModel() : model,
+                usage.inputTokens(), usage.outputTokens(), usage.costUsd()));
     }
 
     /** A menor confiança entre as perguntas que decidem a rota; 0 quando nenhuma decide. */

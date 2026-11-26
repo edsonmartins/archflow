@@ -292,6 +292,13 @@ Cada chamada feita — de um degrau da cascata, de um voto do consenso ou de um 
 `uso.declaredCostUsd` do resultado ao Core, **separado** de `costCents` (reais, da tabela de preços):
 este runtime não converte moeda. Ausente é "nenhum provedor informou", nunca zero.
 
+- **`llm`:** a chamada é contada pelo LLM que a plataforma resolveu (`openrouter` + o modelo), que é o par
+  da tabela de preços (`openrouter/<modelo>`) — com o modelo padrão precificado, a decisão tem `costCents`
+  como qualquer turno de agente. O `provider` da saída do nó continua `llm`; o `model` é o que respondeu.
+- **Falha depois de consumir:** uma chamada que o modelo respondeu mas que não virou decisão (sem JSON, sem
+  uma das perguntas) também é contada. Uma falha sem resposta (rede, timeout) não informa uso e não é
+  contada.
+
 ## Na DSL (`archflow-dsl` 1.5.0+)
 
 ```java
@@ -341,6 +348,9 @@ dele vai no `richObject` do result nesta forma (pedido de 14/10/2026, VEN-221 / 
 - `modelo` é como o provedor respondeu, com a versão. `uso` é o **da chamada de decisão**, em USD, como o
   provedor declarou; o consumo da execução inteira (tokens, `costCents`, `costReais`, `declaredCostUsd`)
   continua em `VendaxResult.uso`, que já soma a decisão.
+- `valor` é a resposta da pergunta: a opção no `choice`, a nota no `score` e, no `noul`, o **booleano**
+  (`answers.<id>.result`, `probability ≥ 0,5`) — não a probabilidade, que o passo grava em
+  `answers.<id>.value` (e em `decision`, quando a `primary` é `noul`). Pergunta recusada: `valor: null`.
 - O que o nó não informou fica **ausente** (nunca zero). `erro` só aparece quando a decisão não saiu — e
   aí `rota` é `ESCALATE` e `decisao` é vazio.
 - O tipo do rich object vem do `saidaSchema` da definição (`decisao@1` → `decisao`), como para qualquer

@@ -166,6 +166,9 @@ public class SpringExecutionController {
             usage.put("costReais", uso.custoReais());
             usage.put("declaredCostUsd", uso.custoDeclaradoUsd());
             usage.put("withoutPrice", uso.execucoesSemPreco());
+            // Os `provedor/modelo` chamados (RCHFLW-190): sem eles, "sem preço" não dizia de qual
+            // modelo falta o preço. Vazia quando nenhum lançamento registrou o modelo.
+            usage.put("models", uso.modelos());
             Map<String, Object> copy = new LinkedHashMap<>(execution);
             copy.put("usage", usage);
             return copy;

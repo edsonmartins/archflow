@@ -156,7 +156,15 @@ public class AgentFlowRunner {
             documento.put("steps", marcandoOsNosFinais(documento.get("steps")));
         }
 
-        Flow flow = deserializer.toFlow(documento);
+        Flow flow;
+        try {
+            flow = deserializer.toFlow(documento);
+        } catch (RuntimeException e) {
+            // O documento não se lê: repetir o mesmo invoke dá o mesmo erro. A mensagem é a de antes;
+            // o que muda é o tipo, que diz ao chamador que não vale tentar de novo (RCHFLW-190).
+            throw new FluxoInvalido(e.getMessage() != null && !e.getMessage().isBlank()
+                    ? e.getMessage() : e.getClass().getSimpleName(), e);
+        }
         // Registrar é o que permite retomar depois de uma suspensão por aprovação: sem isto, o
         // fluxo suspende de forma durável e não há como continuá-lo.
         flowRepository.save(flow);
@@ -213,18 +221,53 @@ public class AgentFlowRunner {
 
         FlowResult resultado;
         java.util.concurrent.CompletableFuture<FlowResult> execucao = null;
+        FlowEngine motor = flowEngine.getObject();
+        long timeoutMs = timeoutDe(invoke);
+        long limite = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs);
         try {
-            execucao = flowEngine.getObject().execute(flow, contexto);
-            resultado = execucao.get(timeoutDe(invoke), TimeUnit.MILLISECONDS);
+            execucao = motor.execute(flow, contexto);
+            resultado = execucao.get(timeoutMs, TimeUnit.MILLISECONDS);
         } catch (InterruptedException e) {
-            // Interromper quem espera não para o motor: sem isto o fluxo seguiria rodando.
+            // INTERROMPER QUEM ESPERA NÃO PARA O MOTOR. O `execucao.cancel(true)` que estava aqui
+            // não parava nada: a future vem de supplyAsync, e cancelá-la só a completa — a travessia
+            // seguia, e o turno que ela ainda registrava caía num contador que ninguém mais lia
+            // (RCHFLW-166/167). Agora o motor é parado de verdade (cooperativo: o passo em curso
+            // termina) e esperamos que ele termine, dentro do prazo desta execução: quem monta o
+            // result (o CANCELADO) lê o contador já com tudo o que foi gasto. Num cancelamento em
+            // fluxo o laço desiste na hora, então a espera é curta.
+            //
+            // A ESPERA TEM TETO (o timeout_ms), e o motor pode passar dele — uma chamada bloqueante
+            // longa. Por isso a exceção leva a execução do motor: quem monta o result corta o
+            // contador e pendura NELA o relato APOS_PRAZO do que vier depois (RCHFLW-167). Pendurado
+            // na thread que espera, o relato disparava vazio quando ela desistia no teto, e o turno
+            // que o motor ainda anotava se perdia.
+            pararOMotor(motor, execucaoId);
             if (execucao != null) {
-                execucao.cancel(true);
+                aguardarOMotor(execucao, limite);
             }
             Thread.currentThread().interrupt();
-            throw new IllegalStateException("Execução do fluxo interrompida", e);
+            throw new ExecucaoEmCurso("Execução do fluxo interrompida", e, execucao);
+        } catch (java.util.concurrent.TimeoutException e) {
+            // O `politica.timeout_ms` venceu. O ERROR sai agora, com o que foi gasto até aqui; o
+            // motor é parado, e o que o passo em curso ainda gastar é relatado quando ele terminar —
+            // quem se pendura em `motor()` é o dispatcher (RCHFLW-167).
+            //
+            // A MENSAGEM DIZ O PRAZO, e não o nome da exceção: "Falha ao executar o fluxo:
+            // TimeoutException" não dizia qual prazo venceu nem de quanto era, ao lado do texto claro
+            // do `validoAte` (RCHFLW-190). O prefixo é o de sempre.
+            pararOMotor(motor, execucaoId);
+            throw new PrazoDoFluxo("Falha ao executar o fluxo: não terminou em " + timeoutMs + " ms ("
+                    + (timeoutDeclarado(invoke) ? "politica.timeout_ms" : "teto padrão, sem politica.timeout_ms")
+                    + ")", e, execucao);
         } catch (Exception e) {
-            throw new IllegalStateException("Falha ao executar o fluxo: " + causaDe(e), e);
+            String mensagem = "Falha ao executar o fluxo: " + causaDe(e);
+            // RECUSA NA VALIDAÇÃO É DETERMINÍSTICA: passo inexistente, ciclo, nó solto, fluxo sem
+            // passos — o mesmo documento é recusado de novo. A mensagem não muda; o tipo leva
+            // `recuperavel: false` à rota em fluxo, que antes dizia "tente de novo" para tudo.
+            if (validacaoNaCadeia(e)) {
+                throw new FluxoInvalido(mensagem, e);
+            }
+            throw new IllegalStateException(mensagem, e);
         }
 
         if (resultado.getStatus() == ExecutionStatus.FAILED) {
@@ -407,6 +450,144 @@ public class AgentFlowRunner {
         return new VendaxResult.Encerramento(
                 m.get("name") == null ? null : String.valueOf(m.get("name")),
                 codigo instanceof Number n ? n.intValue() : null);
+    }
+
+    /**
+     * A execução desistiu de esperar, mas o trabalho por trás dela pode seguir gastando: interrompida
+     * (cancelamento, {@code validoAte}, desligamento) ou com o {@code timeout_ms} vencido.
+     *
+     * <p>Continua sendo uma {@link IllegalStateException} com a mesma mensagem de antes — quem já a
+     * tratava não muda. O que ela acrescenta é {@link #trabalho()}, para quem monta o result pendurar
+     * nele o relato do que for gasto depois. O trabalho pode, por sua vez, terminar com outra
+     * {@code ExecucaoEmCurso} — a thread do {@code validoAte} desiste antes do motor —, e por isso a
+     * espera certa é {@link #quandoTudoParar}, não o trabalho sozinho.</p>
+     */
+    public static class ExecucaoEmCurso extends IllegalStateException {
+        private final transient java.util.concurrent.CompletableFuture<?> trabalho;
+
+        public ExecucaoEmCurso(String mensagem, Throwable causa,
+                               java.util.concurrent.CompletableFuture<?> trabalho) {
+            super(mensagem, causa);
+            this.trabalho = trabalho == null
+                    ? java.util.concurrent.CompletableFuture.completedFuture(null) : trabalho;
+        }
+
+        /** O trabalho que ficou rodando; completa quando ele terminou (bem, mal ou parado). */
+        public java.util.concurrent.CompletableFuture<?> trabalho() {
+            return trabalho;
+        }
+
+        /**
+         * Completa quando {@code trabalho} terminou <b>e</b>, se ele terminou com uma
+         * {@code ExecucaoEmCurso}, quando o trabalho que ela deixou rodando também terminou — em
+         * cascata. É o "quem termina por último" entre a thread que espera e o motor: o relato
+         * depois do prazo só pode ler o contador quando nada mais vai anotar nele.
+         */
+        public static java.util.concurrent.CompletableFuture<Void> quandoTudoParar(
+                java.util.concurrent.CompletableFuture<?> trabalho) {
+            return trabalho
+                    .handle((valor, erro) -> emCursoEm(erro))
+                    .thenCompose(emCurso -> emCurso == null
+                            ? java.util.concurrent.CompletableFuture.<Void>completedFuture(null)
+                            : quandoTudoParar(emCurso.trabalho()));
+        }
+
+        /** A {@code ExecucaoEmCurso} na cadeia de causas de {@code erro} (o futuro a embrulha). */
+        public static ExecucaoEmCurso emCursoEm(Throwable erro) {
+            for (Throwable t = erro; t != null; t = t.getCause() == t ? null : t.getCause()) {
+                if (t instanceof ExecucaoEmCurso emCurso) {
+                    return emCurso;
+                }
+            }
+            return null;
+        }
+    }
+
+    /**
+     * O {@code politica.timeout_ms} venceu antes de o motor terminar; {@link #motor()} é a execução
+     * do motor, que segue até o passo em curso terminar e cujo gasto ainda precisa ser relatado.
+     */
+    public static final class PrazoDoFluxo extends ExecucaoEmCurso {
+
+        PrazoDoFluxo(String mensagem, Throwable causa, java.util.concurrent.CompletableFuture<?> motor) {
+            super(mensagem, causa, motor);
+        }
+
+        /** Completa quando o motor de fato terminou (bem, mal ou parado). */
+        public java.util.concurrent.CompletableFuture<?> motor() {
+            return trabalho();
+        }
+    }
+
+    /**
+     * O documento do fluxo não passa: não se lê, ou o motor o recusou na validação. Repetir o mesmo
+     * invoke dá o mesmo erro — é o que a rota em fluxo diz com {@code recuperavel: false}.
+     *
+     * <p>Continua sendo uma {@link IllegalStateException} com a mesma mensagem de antes: quem já tratava
+     * a falha não muda.</p>
+     */
+    public static final class FluxoInvalido extends IllegalStateException {
+        FluxoInvalido(String mensagem, Throwable causa) {
+            super(mensagem, causa);
+        }
+
+        /** Há um {@code FluxoInvalido} na cadeia de causas de {@code erro}? */
+        public static boolean em(Throwable erro) {
+            for (Throwable t = erro; t != null; t = t.getCause() == t ? null : t.getCause()) {
+                if (t instanceof FluxoInvalido) {
+                    return true;
+                }
+            }
+            return false;
+        }
+    }
+
+    private static boolean validacaoNaCadeia(Throwable erro) {
+        for (Throwable t = erro; t != null; t = t.getCause() == t ? null : t.getCause()) {
+            if (t instanceof br.com.archflow.engine.exceptions.FlowValidationException) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Pede ao motor que pare esta execução; já terminada ou não registrada, não há o que parar. */
+    private static void pararOMotor(FlowEngine motor, String execucaoId) {
+        try {
+            motor.cancel(execucaoId);
+        } catch (RuntimeException e) {
+            log.debug("Fluxo {} não estava mais ativo para ser parado: {}", execucaoId, e.getMessage());
+        }
+    }
+
+    /**
+     * Espera o motor terminar, até {@code limite} (o prazo desta execução, em {@link System#nanoTime}),
+     * sem ceder a uma nova interrupção: quem chega aqui já foi interrompido e vai restaurar a flag ao
+     * sair. O dispatcher usa a mesma espera quando o cancelamento o pega no prazo do envelope.
+     */
+    static void aguardarOMotor(java.util.concurrent.CompletableFuture<?> execucao, long limite) {
+        while (true) {
+            long restante = limite - System.nanoTime();
+            if (restante <= 0) {
+                return;
+            }
+            try {
+                execucao.get(restante, TimeUnit.NANOSECONDS);
+                return;
+            } catch (InterruptedException denovo) {
+                // Segue esperando; a flag é restaurada por quem chamou.
+            } catch (java.util.concurrent.ExecutionException | java.util.concurrent.CancellationException
+                     | java.util.concurrent.TimeoutException e) {
+                return;
+            }
+        }
+    }
+
+    /** A política do invoke declarou um {@code timeout_ms} válido (senão vale o teto padrão). */
+    private static boolean timeoutDeclarado(VendaxInvoke invoke) {
+        var def = invoke.definicao();
+        return def != null && def.politica() != null
+                && def.politica().get("timeout_ms") instanceof Number n && n.longValue() > 0;
     }
 
     private long timeoutDe(VendaxInvoke invoke) {

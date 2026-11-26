@@ -42,7 +42,9 @@ class DecisaoNoResultTest {
         intencao.put("choice", "PEDIDO");
         intencao.put("probabilities", Map.of("PEDIDO", 0.97, "DUVIDA", 0.03));
         Map<String, Object> urgente = new LinkedHashMap<>();
-        urgente.put("value", true);
+        // O que o componente grava num noul: a probabilidade em `value`, o sim/não em `result`. A
+        // fixture punha `value=true`, e por isso o envelope que repassava `value` passava (RCHFLW-169).
+        urgente.put("value", 0.8);
         urgente.put("confidence", 0.6);
         urgente.put("route", "REVIEW");
         urgente.put("type", "noul");
@@ -95,6 +97,56 @@ class DecisaoNoResultTest {
         assertThat(e.path("uso").path("saida").asLong()).isEqualTo(9);
         assertThat(e.path("uso").path("custoUsd").asDouble()).isEqualTo(0.00002);
         assertThat(e.has("erro")).isFalse();
+    }
+
+    /**
+     * A saída gravada pelo {@code DecisionComponent} de verdade, não uma fixture: num {@code noul} ele
+     * põe a probabilidade em {@code value}. O envelope leva o booleano documentado (RCHFLW-169).
+     */
+    @Test
+    @DisplayName("noul vindo do componente real: valor é o booleano, não a probabilidade (0.945)")
+    @SuppressWarnings("unchecked")
+    void noulDoComponenteRealEhBooleano() throws Exception {
+        br.com.archflow.decision.DecisionProvider provedor = new br.com.archflow.decision.DecisionProvider() {
+            @Override
+            public String id() {
+                return "fixo";
+            }
+
+            @Override
+            public br.com.archflow.decision.DecisionResult decide(
+                    br.com.archflow.decision.DecisionRequest request, br.com.archflow.decision.DecisionCall call) {
+                return new br.com.archflow.decision.DecisionResult(Map.of(
+                        "assunto", new br.com.archflow.decision.Answer.Choice("REEMBOLSO",
+                                Map.of("REEMBOLSO", 0.9, "DUVIDA", 0.1), 0.9),
+                        "urgente", new br.com.archflow.decision.Answer.YesNo(0.945),
+                        "calmo", new br.com.archflow.decision.Answer.YesNo(0.2)),
+                        "m-1", "fixo", false, null);
+            }
+        };
+        Map<String, Object> perguntas = new LinkedHashMap<>();
+        perguntas.put("assunto", Map.of("type", "choice", "instructions", "Qual o assunto?",
+                "criteria", Map.of("REEMBOLSO", "quer o dinheiro de volta", "DUVIDA", "pergunta")));
+        perguntas.put("urgente", Map.of("type", "noul", "instructions", "O cliente está com algo urgente?"));
+        perguntas.put("calmo", Map.of("type", "noul", "instructions", "O cliente está calmo?"));
+        var componente = new br.com.archflow.decision.DecisionComponent(
+                br.com.archflow.decision.DecisionProviders.empty().register(provedor), null);
+        componente.initialize(Map.of("provider", "fixo", "questions", perguntas));
+        Map<String, Object> saida = (Map<String, Object>) componente.execute("decide",
+                "Comprei um fone há 3 dias, veio com defeito e quero meu dinheiro de volta hoje, é urgente!",
+                new br.com.archflow.model.engine.DefaultExecutionContext("t1", null, null, null));
+
+        JsonNode e = MAPPER.readTree(DecisaoNoResult.envelope(saida));
+
+        JsonNode urgente = e.path("decisao").path("urgente");
+        assertThat(urgente.path("tipo").asText()).isEqualTo("noul");
+        assertThat(urgente.path("valor").isBoolean()).as("antes: 0.945, que asBoolean() lê como false")
+                .isTrue();
+        assertThat(urgente.path("valor").booleanValue()).isTrue();
+        assertThat(e.path("decisao").path("calmo").path("valor").isBoolean()).isTrue();
+        assertThat(e.path("decisao").path("calmo").path("valor").booleanValue()).isFalse();
+        assertThat(e.path("decisao").path("assunto").path("valor").asText())
+                .as("choice segue com o valor de sempre").isEqualTo("REEMBOLSO");
     }
 
     /** O que o nó não informou fica ausente — nunca zero, nunca vazio. */

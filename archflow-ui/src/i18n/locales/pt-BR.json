@@ -1829,7 +1829,8 @@
             "inputTokens": "Tokens de entrada",
             "outputTokens": "Tokens de saída",
             "cost": "Custo (tabela de preços)",
-            "declaredCost": "Custo declarado pelo provedor"
+            "declaredCost": "Custo declarado pelo provedor",
+            "models": "Modelos"
         },
         "subtitle": "Execução de {{workflow}}",
         "loadFailed": "Não foi possível carregar esta execução",

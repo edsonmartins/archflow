@@ -502,6 +502,14 @@ public class McpAgentRunner {
                         : chatComRepeticaoDeTransporte(model, session, pedido);
             } catch (RuntimeException e) {
                 if (options.uso() != null) {
+                    // CANCELADO NO MEIO DO STREAM, o pedido já tinha saído e o provedor cobra o que
+                    // processou. O turno conta, sem tokens nem custo (o fim do stream, que os traria,
+                    // não chega) — sem isto o CANCELADO saía com uso nulo (RCHFLW-166). Só o stream
+                    // lança ExecucaoCancelada aqui; o cancelamento antes do pedido sai lá em cima,
+                    // sem turno, porque nada foi ao provedor.
+                    if (e instanceof ExecucaoCancelada && streaming != null) {
+                        options.uso().somarTurnoInterrompido(provedorDoUso, rotuloDoModelo);
+                    }
                     options.uso().marcarCustoDeclaradoDesconhecido();
                 }
                 throw e;

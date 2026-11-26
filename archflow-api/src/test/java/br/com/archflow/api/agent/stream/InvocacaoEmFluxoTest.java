@@ -435,4 +435,72 @@ class InvocacaoEmFluxoTest {
         verify(dispatcher, times(1)).executarEmFluxo(any(), any(), any());
         verify(dispatcher, never()).entregarPorWebhook(any(), eq(invoke("k13", null)));
     }
+
+    /** Sem idempotencyKey: a chave sai de {@code sourceMessageId}, {@code traceId} ou {@code conversationId}. */
+    private static VendaxInvoke semChave(String conversa, String mensagem, String trace, String texto) {
+        return new VendaxInvoke("1.0", "t1", conversa, "QA2", mensagem, texto, "LIGHT", "teste",
+                trace, null, null, null, null, null,
+                new DefinicaoDeAgente("FLUXO", Map.of("steps", List.of()), null, null,
+                        List.of(), Map.of(), Map.of(), "demo@1"));
+    }
+
+    /** O "modelo" responde o próprio texto da pergunta: cada mensagem tem a sua resposta. */
+    private AtomicInteger respondeOTexto() {
+        AtomicInteger chamadas = new AtomicInteger();
+        when(dispatcher.comUsoDe(any(), any())).thenAnswer(inv -> inv.getArgument(0));
+        when(dispatcher.executarEmFluxo(any(), any(), any())).thenAnswer(inv -> {
+            chamadas.incrementAndGet();
+            VendaxInvoke invoke = inv.getArgument(0);
+            return new ResultadoEmFluxo(ok(invoke, "resposta a: " + invoke.text()), false);
+        });
+        return chamadas;
+    }
+
+    private JsonNode fimDe(VendaxInvoke invoke) throws Exception {
+        Conexao c = aceita(invoke);
+        espera(() -> c.encerrada);
+        List<Evento> eventos = c.eventos();
+        assertThat(eventos).isNotEmpty();
+        assertThat(eventos.get(eventos.size() - 1).nome()).isEqualTo("fim");
+        return eventos.get(eventos.size() - 1).dados();
+    }
+
+    @Test
+    @DisplayName("sem idempotencyKey, a 2ª mensagem da mesma conversa é executada — não recebe o fim da 1ª")
+    void chaveDaConversaNaoReaproveita() throws Exception {
+        AtomicInteger chamadas = respondeOTexto();
+
+        fimDe(semChave("qa2-conv-1", null, null, "Quanto é 2+2?"));
+        JsonNode segunda = fimDe(semChave("qa2-conv-1", null, null, "Qual a capital da França?"));
+
+        assertThat(segunda.get("richObject").asText())
+                .as("antes: o fim guardado da primeira pergunta, sem executar")
+                .isEqualTo("resposta a: Qual a capital da França?");
+        assertThat(chamadas.get()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("sem idempotencyKey, outra conversa com o mesmo traceId não recebe a resposta alheia")
+    void chaveDaSessaoNaoReaproveita() throws Exception {
+        AtomicInteger chamadas = respondeOTexto();
+
+        fimDe(semChave("qa2-c-0", null, "qa2-sessao-1", "foto do produto quebrado"));
+        JsonNode outra = fimDe(semChave("qa2-c-1", null, "qa2-sessao-1", "onde está meu pedido?"));
+
+        assertThat(outra.get("conversationId").asText()).isEqualTo("qa2-c-1");
+        assertThat(outra.get("richObject").asText()).isEqualTo("resposta a: onde está meu pedido?");
+        assertThat(chamadas.get()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("com sourceMessageId a chave é da mensagem: a repetição ainda recebe só o fim guardado")
+    void chaveDaMensagemReaproveita() throws Exception {
+        AtomicInteger chamadas = respondeOTexto();
+
+        fimDe(semChave("qa2-conv-2", "msg-7", null, "Quanto é 2+2?"));
+        Conexao repetida = aceita(semChave("qa2-conv-2", "msg-7", null, "Quanto é 2+2?"));
+
+        assertThat(repetida.nomes()).containsExactly("fim");
+        assertThat(chamadas.get()).isEqualTo(1);
+    }
 }

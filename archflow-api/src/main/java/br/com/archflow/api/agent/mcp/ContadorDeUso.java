@@ -74,6 +74,8 @@ public final class ContadorDeUso implements br.com.archflow.decision.DecisionUsa
     private final Set<String> modelos = new LinkedHashSet<>();
     private final Set<String> provedores = new LinkedHashSet<>();
     private final java.util.List<Resumo.TurnoUso> usoPorTurno = new java.util.ArrayList<>();
+    /** O retrato do instante do prazo, quando houve um — ver {@link #cortar}. Nulo: sem corte. */
+    private Optional<Resumo> corte;
 
     public ContadorDeUso() {
         this(System::nanoTime);
@@ -136,6 +138,19 @@ public final class ContadorDeUso implements br.com.archflow.decision.DecisionUsa
         usoPorTurno.add(new Resumo.TurnoUso(provedorSolicitado, modeloSolicitado, provedorEfetivo,
                 modeloEfetivo, entrada, saida, custoValido(custoUsd) ? custoUsd : null, idDaGeracao));
         return usoPorTurno.size() - 1;
+    }
+
+    /**
+     * Um turno que saiu para o provedor e foi abandonado antes da resposta completa — o chamador
+     * cancelou ou a conexão caiu no meio do stream (RCHFLW-166).
+     *
+     * <p>O provedor cobra o que já processou, mas os tokens e o custo só vêm no fim do stream, que
+     * não chega. Antes, nada era anotado: sem turno, o resumo ficava vazio e o {@code CANCELADO}
+     * saía com {@code uso} nulo, como se nada tivesse sido gasto. Agora o turno conta, sem tokens e
+     * sem custo — desconhecido, nunca zero —, e aparece em {@code turnsWithoutCost}.</p>
+     */
+    public synchronized void somarTurnoInterrompido(String provedor, String modelo) {
+        somarTurno(provedor, modelo, null, null, null, null, null, null);
     }
 
     /**
@@ -309,6 +324,32 @@ public final class ContadorDeUso implements br.com.archflow.decision.DecisionUsa
                 custoDeclaradoUsd(),
                 java.util.List.copyOf(usoPorTurno),
                 cobrancasDeSaida));
+    }
+
+    /**
+     * Fixa o retrato do instante do prazo: é ele, e só ele, que o {@code ERROR} leva no result.
+     *
+     * <p>O prazo divide o consumo em dois canais — o result leva o que foi gasto até o prazo, e o
+     * relato {@code APOS_PRAZO} leva o resto. Ler o contador duas vezes (no prazo e de novo ao montar
+     * o result) deixava um turno que terminasse entre as duas leituras nos dois canais: o result o
+     * carregava e o relato, subtraindo o retrato do prazo, também. Com o corte a divisa é uma só.
+     * A primeira chamada vale; as seguintes devolvem o mesmo retrato.</p>
+     *
+     * @return o retrato do corte; vazio quando nada tinha sido gasto até ali
+     */
+    public synchronized Optional<Resumo> cortar() {
+        if (corte == null) {
+            corte = resumo();
+        }
+        return corte;
+    }
+
+    /**
+     * O que vai no result desta execução: o retrato do {@link #cortar corte}, se houve um, ou o
+     * consumo até agora. Vazio no corte continua vazio — o que veio depois é do relato.
+     */
+    public synchronized Optional<Resumo> resumoDoResultado() {
+        return corte != null ? corte : resumo();
     }
 
     /**

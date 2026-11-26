@@ -280,6 +280,55 @@ class SaidaEmFluxoDoLacoTest {
         laco.join();
     }
 
+    /**
+     * RCHFLW-166: o turno abandonado no meio do stream já tinha saído para o provedor, que cobra o
+     * que processou. Antes só se marcava o custo como desconhecido — sem turno, o resumo ficava vazio
+     * e o CANCELADO saía com {@code uso} nulo.
+     */
+    @Test
+    @DisplayName("cancelar no meio do stream: o turno abandonado conta, sem tokens e sem custo")
+    void cancelarNoMeioContaOTurno() throws Exception {
+        ModeloEmFluxo modelo = new ModeloEmFluxo(List.of(Turno.texto("começo", "nunca chega")), true);
+        Anotadora saida = new Anotadora();
+        ContadorDeUso uso = new ContadorDeUso();
+        CompletableFuture<Void> terminou = new CompletableFuture<>();
+        Thread.ofVirtual().start(() -> {
+            try {
+                runner(modelo, bloqueante("x"))
+                        .run("t1", "sys", "oi", new Cliente(false), opcoes(saida, uso));
+            } catch (Throwable ignorado) {
+                // ExecucaoCancelada, conferida em cancelarNoMeio
+            }
+            terminou.complete(null);
+        });
+        assertThat(modelo.comecou.await(2, TimeUnit.SECONDS)).isTrue();
+
+        saida.cancelamento.complete(null);
+        terminou.get(2, TimeUnit.SECONDS);
+
+        assertThat(uso.resumo()).as("antes: vazio").get().satisfies(r -> {
+            assertThat(r.turnos()).isEqualTo(1);
+            assertThat(r.tokens()).as("o fim do stream, que traria os tokens, não chegou").isNull();
+            assertThat(r.turnosSemCusto()).isEqualTo(1);
+            assertThat(r.custoDeclaradoUsd()).isNull();
+            assertThat(r.modelo()).isEqualTo("simulado/modelo-simulado");
+        });
+    }
+
+    @Test
+    @DisplayName("cancelado antes do pedido: nada foi ao provedor, nenhum turno é anotado")
+    void canceladoAntesNaoAnotaTurno() {
+        ModeloEmFluxo modelo = new ModeloEmFluxo(List.of(Turno.texto("x")));
+        Anotadora saida = new Anotadora();
+        ContadorDeUso uso = new ContadorDeUso();
+        saida.cancelamento.complete(null);
+
+        assertThatThrownBy(() -> runner(modelo, bloqueante("x"))
+                .run("t1", "sys", "oi", new Cliente(false), opcoes(saida, uso)))
+                .isInstanceOf(ExecucaoCancelada.class);
+        assertThat(uso.resumo()).isEmpty();
+    }
+
     @Test
     @DisplayName("já cancelado antes do turno: nem chama o modelo")
     void canceladoAntesDeComecar() {

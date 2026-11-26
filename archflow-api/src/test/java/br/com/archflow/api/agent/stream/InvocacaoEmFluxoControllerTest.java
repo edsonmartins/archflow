@@ -112,4 +112,51 @@ class InvocacaoEmFluxoControllerTest {
         assertThat(controller.cancelar("longe", "Bearer segredo").getStatusCode())
                 .isEqualTo(HttpStatus.NOT_FOUND);
     }
+
+    /**
+     * Chave com barra (RCHFLW-190, item 2): o invoke a aceita, e o {@code /{idempotencyKey}/cancel} só
+     * casa um segmento — o cancelamento respondia 404. Pelo roteamento real do Spring (MockMvc), com o
+     * controller do invoke assíncrono ao lado, para provar que a rota nova não toma o lugar de nenhuma.
+     */
+    @Test
+    @DisplayName("cancel de chave com '/': a rota de vários segmentos cancela, sem tirar o lugar das outras")
+    void cancelaChaveComBarra() throws Exception {
+        comChave("segredo");
+        when(invocacao.cancelar("qa2/pedido/123-1")).thenReturn(true);
+        when(invocacao.cancelar("k1")).thenReturn(true);
+        var assincrono = new br.com.archflow.api.agent.vendax.VendaxInvokeController(
+                mock(br.com.archflow.api.agent.vendax.VendaxAgentDispatcher.class));
+        var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders
+                .standaloneSetup(controller, assincrono).build();
+
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .post("/api/agents/invoke/qa2/pedido/123-1/cancel")
+                        .header("Authorization", "Bearer segredo"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
+                        .status().isAccepted());
+        verify(invocacao).cancelar("qa2/pedido/123-1");
+
+        // A de um segmento continua na rota de sempre.
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .post("/api/agents/invoke/k1/cancel").header("Authorization", "Bearer segredo"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
+                        .status().isAccepted());
+        // Sem chave de serviço certa, a rota nova recusa como as outras.
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .post("/api/agents/invoke/qa2/pedido/123-1/cancel").header("Authorization", "Bearer x"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
+                        .status().isUnauthorized());
+        // O que não termina em /cancel não é cancelamento.
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .post("/api/agents/invoke/qa2/pedido").header("Authorization", "Bearer segredo"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
+                        .status().isNotFound());
+        // O invoke assíncrono continua no controller dele (sem chave configurada lá: 503), não aqui.
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .post("/api/agents/invoke").contentType("application/json").content("{}")
+                        .header("Authorization", "Bearer segredo"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
+                        .status().isServiceUnavailable());
+        verify(invocacao, never()).cancelar("qa2/pedido");
+    }
 }

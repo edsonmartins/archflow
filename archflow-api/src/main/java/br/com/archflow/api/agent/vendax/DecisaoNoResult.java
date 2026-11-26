@@ -104,7 +104,13 @@ final class DecisaoNoResult {
         porSeHouver(p, "tipo", r.get("type"));
         // `value` pode ser legitimamente nulo (recusa): vai explícito, para o Core não confundir
         // "respondeu nulo" com "não há esta pergunta".
-        p.put("valor", r.get("value"));
+        //
+        // NUM `noul` O VALOR É O BOOLEANO, não a probabilidade. O componente grava em `value` a
+        // probabilidade (é o que `${D.decision}` lê, e não muda aqui) e em `result` o sim/não; o
+        // envelope documentado (docs/decision-component.md, RESPOSTA de 18/10) leva `"valor": true`.
+        // Repassar `value` mandava 0.945 ao Core — que, lido como booleano, é `false`: "sim" virava
+        // "não" (RCHFLW-169).
+        p.put("valor", "noul".equals(r.get("type")) ? r.get("result") : r.get("value"));
         porSeHouver(p, "confianca", r.get("confidence"));
         porSeHouver(p, "rota", r.get("route"));
         porSeHouver(p, "probabilidades", r.get("probabilities"));

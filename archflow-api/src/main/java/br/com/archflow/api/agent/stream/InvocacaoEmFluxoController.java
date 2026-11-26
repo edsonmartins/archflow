@@ -98,6 +98,27 @@ public class InvocacaoEmFluxoController {
                         + " com esta chave nesta instância"));
     }
 
+    /**
+     * O cancelamento de uma chave <b>com barra</b> ({@code pedido/123}), mandada sem codificar:
+     * {@code POST /api/agents/invoke/pedido/123/cancel}.
+     *
+     * <p>Nenhuma das duas rotas recusa chave com barra na admissão, e o {@code /{idempotencyKey}/cancel}
+     * só casa um segmento: a chave aceita no invoke não tinha como ser cancelada (RCHFLW-190). Codificada
+     * ({@code %2F}) ela nem chega aqui — o Tomcat recusa a barra codificada com 400 antes do Spring, e
+     * mudar isso é configuração do servidor inteiro, não desta rota. Mais específicas, {@code /stream} e
+     * {@code /{idempotencyKey}/cancel} continuam respondendo; este método só recebe o que sobra.</p>
+     */
+    @PostMapping("/{*caminho}")
+    public ResponseEntity<?> cancelarChaveComBarra(
+            @PathVariable String caminho,
+            @RequestHeader(value = "Authorization", required = false) String authorization) {
+        String sufixo = "/cancel";
+        if (caminho == null || !caminho.endsWith(sufixo) || caminho.length() <= sufixo.length() + 1) {
+            return json(HttpStatus.NOT_FOUND, Map.of("error", "rota inexistente"));
+        }
+        return cancelar(caminho.substring(1, caminho.length() - sufixo.length()), authorization);
+    }
+
     private ResponseEntity<?> autenticar(String authorization) {
         if (chaveDeServico == null || chaveDeServico.isBlank()) {
             return json(HttpStatus.SERVICE_UNAVAILABLE,

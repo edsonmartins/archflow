@@ -1829,7 +1829,8 @@
             "inputTokens": "Input tokens",
             "outputTokens": "Output tokens",
             "cost": "Cost (price table)",
-            "declaredCost": "Cost declared by the provider"
+            "declaredCost": "Cost declared by the provider",
+            "models": "Models"
         },
         "subtitle": "Run of {{workflow}}",
         "loadFailed": "Could not load this execution",

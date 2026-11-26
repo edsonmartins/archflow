@@ -181,6 +181,8 @@ class WorkflowPermissionInterceptorTest {
             // VendaX Core: chamada de máquina, fora do JWT, autenticada pela chave de serviço no controller.
             new Rota("POST", "/api/agents/invoke"), new Rota("POST", "/api/agents/invoke/stream"),
             new Rota("POST", "/api/agents/invoke/x/cancel"),
+            // Cancelamento de chave com barra (RCHFLW-190): mesma chave de serviço, só repassa ao /cancel.
+            new Rota("POST", "/api/agents/invoke/x"),
             // Assist (ADR-0004): caminho público, protegido pela chave estática X-ArchFlow-Key no controller.
             new Rota("POST", "/archflow/assist/explain-error"), new Rota("POST", "/archflow/assist/suggest-mapping"),
             new Rota("POST", "/archflow/assist/nl-to-flow"),

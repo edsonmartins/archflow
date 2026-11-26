@@ -100,10 +100,29 @@ public final class ExecucoesEmAndamento {
                 && cancelar(execucao.chave);
     }
 
-    /** A execução terminou. */
+    /**
+     * A execução desta chave terminou. Remove o que estiver registrado sob ela, seja quem for —
+     * quem tem a {@link Execucao} em mãos usa {@link #concluir(Execucao)}.
+     */
     public synchronized void concluir(String chave) {
         if (chave != null) {
             emAndamento.remove(chave);
+        }
+    }
+
+    /**
+     * <b>Esta</b> execução terminou: sai do registro só se ainda for a registrada. Pode ser chamada
+     * mais de uma vez.
+     *
+     * <p>Pela identidade, e não pela chave, pelo mesmo motivo de {@link #cancelar(Execucao)}: quem
+     * libera a chave antes de entregar o resultado (para o cancelamento não derrubar o envio) e
+     * conclui de novo no fim tiraria do registro uma execução nova da mesma chave, admitida nesse
+     * meio-tempo — que perderia o cancelamento por chave, o cancelamento pela conexão e o 409 de
+     * uma terceira chamada (RCHFLW-165).</p>
+     */
+    public synchronized void concluir(Execucao execucao) {
+        if (execucao != null) {
+            emAndamento.remove(execucao.chave, execucao);
         }
     }
 

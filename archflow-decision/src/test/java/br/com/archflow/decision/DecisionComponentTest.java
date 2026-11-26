@@ -422,6 +422,44 @@ class DecisionComponentTest {
                 "a/modelo-a:10:1.0E-5", "b/modelo-b:10:1.0E-5", "c/modelo-c:10:1.0E-5");
     }
 
+    /** RCHFLW-170: a chamada que falhou depois de consumir sumia do consumo da execução. */
+    @Test
+    @DisplayName("decisão que falha depois de consumir também é reportada ao ouvinte de consumo")
+    void falhaComConsumoReportada() throws Exception {
+        List<String> vistas = new ArrayList<>();
+        ExecutionContext c = ctx();
+        c.set(DecisionUsageListener.CONTEXT_KEY, (DecisionUsageListener) (p, m, in, out, custo) ->
+                vistas.add(p + "/" + m + ":" + in + ":" + out + ":" + custo));
+        Falso f = new Falso("falso", false);
+        f.falha = new DecisionException("o LLM não devolveu JSON", false)
+                .withUsage(new DecisionResult.Usage(434L, 39L, null));
+
+        Map<String, Object> saida = rodar(componente(f, null, config()), "x", c);
+
+        assertThat(saida.get("route")).as("a falha continua escalando").isEqualTo("ESCALATE");
+        assertThat(vistas).containsExactly("falso/m-1:434:39:null");
+    }
+
+    /** RCHFLW-170: o par que cobra (o LLM resolvido) é o que casa com a tabela de preços. */
+    @Test
+    @DisplayName("o par cobrado do consumo vence o de quem serviu a decisão")
+    void parCobradoVence() throws Exception {
+        List<String> vistas = new ArrayList<>();
+        ExecutionContext c = ctx();
+        c.set(DecisionUsageListener.CONTEXT_KEY, (DecisionUsageListener) (p, m, in, out, custo) ->
+                vistas.add(p + "|" + m));
+        Falso f = new Falso("falso", false);
+        f.resposta = r -> new DecisionResult(Map.of("time", escolha("conta", 0.9),
+                "urgencia", new Answer.Score(1.0, Map.of(), Map.of(), 0.9)), "m-1", "falso", false,
+                new DecisionResult.Usage(10L, 2L, null, "openrouter", "vendor/m-1"));
+
+        Map<String, Object> saida = rodar(componente(f, null, config()), "x", c);
+
+        assertThat(vistas).containsExactly("openrouter|vendor/m-1");
+        assertThat(saida).as("a saída do nó continua dizendo quem serviu")
+                .containsEntry("provider", "falso").containsEntry("model", "m-1");
+    }
+
     @Test
     @DisplayName("configuração de cascata e consenso inválida é recusada")
     void configuracaoDeCascataInvalida() {
