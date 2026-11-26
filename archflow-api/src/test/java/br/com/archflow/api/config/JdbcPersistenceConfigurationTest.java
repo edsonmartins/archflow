@@ -59,6 +59,9 @@ class JdbcPersistenceConfigurationTest {
                             .isInstanceOf(JdbcAuditRepository.class);
                     assertThat(ctx.getBean(UserRepository.class))
                             .isInstanceOf(JdbcUserRepository.class);
+                    // Revogação (logout/refresh consumido) no banco: vale em toda réplica.
+                    assertThat(ctx.getBean(br.com.archflow.security.auth.TokenBlacklist.class))
+                            .isInstanceOf(br.com.archflow.security.auth.JdbcTokenBlacklist.class);
                     assertThat(ctx.getBean(ApiKeyService.ApiKeyRepository.class))
                             .isInstanceOf(JdbcApiKeyRepository.class);
                     assertThat(ctx.getBean(br.com.archflow.engine.persistence.FlowRepository.class))

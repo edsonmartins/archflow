@@ -6,9 +6,12 @@ import { notifications } from '@mantine/notifications'
 import { marketplaceApi, type Extension } from '../services/marketplace-api'
 import { ApiError } from '../services/api'
 import { confirmAction } from '../lib/confirm'
+import { useIsAdmin } from '../lib/permissions'
 
 export default function MarketplaceDetailPage() {
     const { t } = useTranslation()
+    // Remover do catálogo exige o papel ADMIN no servidor (QA2 RCHFLW-137).
+    const isAdmin = useIsAdmin()
     const { id = '' } = useParams()
     const [ext, setExt] = useState<Extension | null>(null)
     const [err, setErr] = useState<string | null>(null)
@@ -76,7 +79,7 @@ export default function MarketplaceDetailPage() {
                     )}
                 </Stack>
             </Card>
-            {ext.installed && (
+            {ext.installed && isAdmin && (
                 <Group>
                     <Button color="red" variant="outline" onClick={uninstall} data-testid="uninstall-detail">
                         {t('marketplace.uninstall')}

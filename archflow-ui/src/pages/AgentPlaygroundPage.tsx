@@ -18,6 +18,8 @@ import { PageHeader } from '../components/PageHeader'
 import { SectionCard } from '../components/SectionCard'
 import EmptyState from '../components/EmptyState'
 import { useActingTenant } from '../lib/actingTenant'
+import { usePermissions } from '../lib/permissions'
+import { PermissionTooltip } from '../components/PermissionTooltip'
 
 /** Which endpoint produced the last response — shown as a tag on the response panel. */
 type Origem = 'invoke' | 'message'
@@ -100,6 +102,9 @@ function useInvocationResult(acompanhada: Acompanhada | null) {
  */
 export default function AgentPlaygroundPage() {
     const { t } = useTranslation()
+    // Invocar e enviar mensagem acionam o agente: o servidor exige workflow:execute (QA2 RCHFLW-158).
+    const canRun = usePermissions()('workflow:execute')
+    const missing = canRun ? null : 'workflow:execute' as const
     const catalog = useCatalog()
     // RCHFLW-103: a invocação roda no tenant da identidade. Quem não é admin vê o próprio tenant e não
     // o troca (o servidor recusaria com 403); o admin começa no tenant em que está; sem login (dev), livre.
@@ -233,11 +238,14 @@ export default function AgentPlaygroundPage() {
                                             styles={{ input: { fontFamily: 'var(--font-mono)' } }}
                                         />
                                         <Group justify="flex-end">
-                                            <Button onClick={handleInvoke} loading={busy === 'invoke'}
-                                                    leftSection={<IconPlayerPlayFilled size={14} />}
-                                                    data-testid="pg-invoke-btn">
-                                                {t('agentPlayground.invokeBtn')}
-                                            </Button>
+                                            <PermissionTooltip missing={missing}>
+                                                <Button onClick={handleInvoke} loading={busy === 'invoke'}
+                                                        leftSection={<IconPlayerPlayFilled size={14} />}
+                                                        disabled={!canRun}
+                                                        data-testid="pg-invoke-btn">
+                                                    {t('agentPlayground.invokeBtn')}
+                                                </Button>
+                                            </PermissionTooltip>
                                         </Group>
                                     </Stack>
                                 </Tabs.Panel>
@@ -253,11 +261,14 @@ export default function AgentPlaygroundPage() {
                                             data-testid="pg-message"
                                         />
                                         <Group justify="flex-end">
-                                            <Button onClick={handleMessage} loading={busy === 'message'}
-                                                    leftSection={<IconSend size={14} />}
-                                                    data-testid="pg-message-btn">
-                                                {t('agentPlayground.sendBtn')}
-                                            </Button>
+                                            <PermissionTooltip missing={missing}>
+                                                <Button onClick={handleMessage} loading={busy === 'message'}
+                                                        leftSection={<IconSend size={14} />}
+                                                        disabled={!canRun}
+                                                        data-testid="pg-message-btn">
+                                                    {t('agentPlayground.sendBtn')}
+                                                </Button>
+                                            </PermissionTooltip>
                                         </Group>
                                     </Stack>
                                 </Tabs.Panel>

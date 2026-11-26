@@ -65,6 +65,8 @@
         "resolveConversationMessage": "Mark this conversation as resolved? It will be closed."
     },
     "common": {
+        "requiresPermission": "Requires the {{permission}} permission",
+        "requiresAdmin": "Requires the ADMIN role",
         "confirm": "Confirm",
         "noData": "No data",
         "create": "Create",
@@ -2205,9 +2207,9 @@
             "baseUrl": "Linktor API base URL",
             "baseUrlHint": "Forwarded to the MCP server as LINKTOR_API_URL",
             "apiKey": "API key",
-            "apiKeyHint": "LINKTOR_API_KEY. Leave masked placeholder to preserve.",
+            "apiKeyHint": "LINKTOR_API_KEY. Leave the masked placeholder to keep it; clear the field to remove it.",
             "accessToken": "Access token (optional)",
-            "accessTokenHint": "LINKTOR_ACCESS_TOKEN for user-scoped access.",
+            "accessTokenHint": "LINKTOR_ACCESS_TOKEN for user-scoped access. Clear the field to remove it.",
             "mcpCommand": "MCP command",
             "mcpCommandHint": "Command that starts the Linktor MCP server; space-separated args are supported. The executable (the first word) must be on the backend's MCP command allow-list.",
             "mcpCommandPlaceholder": "node /path/to/linktor-mcp-server/dist/index.js",
@@ -2219,6 +2221,8 @@
             "restartEnvVar": "Environment variable",
             "restartEnvHint": "Write the variable name exactly as in the table, without _ between words: ARCHFLOW_LINKTOR_API_BASE_URL, for example, is not read.",
             "saveFailed": "Save failed",
+            "loadFailedTitle": "Could not load the current configuration",
+            "loadFailedBody": "Saving now would store the default values and erase the stored API key and token. Reload the page to try again.",
             "installTitle": "Install the MCP server",
             "installHint": "<code>npm install -g @linktor/mcp-server</code> installs the <code>linktor-mcp</code> binary, but it is not on the default MCP command allow-list (which has launchers such as node and npx). Run <code>node /path/to/linktor-mcp-server/dist/index.js</code>, or allow the binary through the backend's <code>ARCHFLOW_MCP_ALLOWED_COMMANDS</code> variable (comma-separated; it replaces the default list, e.g. <code>npx,node,linktor-mcp</code>)."
         },

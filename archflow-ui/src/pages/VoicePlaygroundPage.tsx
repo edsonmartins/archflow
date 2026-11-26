@@ -18,10 +18,13 @@ import MicButton from '../components/voice/MicButton';
 import Transcript, { type TranscriptTurn } from '../components/voice/Transcript';
 import {
     RealtimeClient,
+    realtimeTenantId,
     type RealtimeMessage,
     type RealtimeStatus,
 } from '../services/realtime-client';
 import { workflowConfigApi } from '../services/workflow-config-api';
+import { usePermissions } from '../lib/permissions';
+import { PermissionTooltip } from '../components/PermissionTooltip';
 
 /**
  * Static fallback personas used while the backend call resolves or in
@@ -46,6 +49,9 @@ const FALLBACK_PERSONAS = [
  */
 export default function VoicePlaygroundPage() {
     const { t } = useTranslation();
+    // A sessão de voz põe o agente da persona para responder: o handshake do WebSocket exige
+    // workflow:execute, como o POST /ag-ui/agent (QA2 RCHFLW-158).
+    const canRun = usePermissions()('workflow:execute');
     const [personas, setPersonas] = useState(FALLBACK_PERSONAS);
     const [persona, setPersona]   = useState<string>(FALLBACK_PERSONAS[0].value);
     const [status, setStatus]     = useState<RealtimeStatus>('idle');
@@ -88,11 +94,10 @@ export default function VoicePlaygroundPage() {
 
     const ensureClient = useCallback(() => {
         if (clientRef.current) return clientRef.current;
-        // O caminho do WebSocket ainda exige um segmento de tenant. Sem personificação, o tenant
-        // padrão canônico ('__default__', o mesmo que o servidor resolve para a requisição sem
-        // tenant) — 'default' era um tenant inventado que não batia com nenhum outro leitor.
-        const tenantId =
-            sessionStorage.getItem('archflow_impersonate_tenant') ?? '__default__';
+        const tenantId = realtimeTenantId(
+            sessionStorage.getItem('archflow_impersonate_tenant'),
+            sessionStorage.getItem('archflow_token'),
+        );
         const client = new RealtimeClient({ tenantId, personaId: persona });
 
         const offStatus = client.onStatus(setStatus);
@@ -213,7 +218,10 @@ export default function VoicePlaygroundPage() {
                                 data-testid="voice-persona"
                             />
                             <Stack align="center" gap="md" py="md">
-                                <MicButton status={status} onStart={handleStart} onStop={handleStop} />
+                                <PermissionTooltip missing={canRun ? null : 'workflow:execute'}>
+                                    <MicButton status={status} onStart={handleStart} onStop={handleStop}
+                                               disabled={!canRun} />
+                                </PermissionTooltip>
                             </Stack>
                             <Text size="xs" c="dimmed" ta="center" lh={1.55}>
                                 {t('voicePlayground.micHint')}

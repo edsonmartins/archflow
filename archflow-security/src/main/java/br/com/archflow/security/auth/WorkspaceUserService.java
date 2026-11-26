@@ -178,9 +178,9 @@ public class WorkspaceUserService {
     }
 
     /**
-     * Troca o papel de um usuário do tenant. Vale no próximo login/refresh do usuário — o token
-     * que ele já tem leva os papéis de quando foi emitido — e na hora para as chaves de API dele, que
-     * releem o dono a cada requisição.
+     * Troca o papel de um usuário do tenant. Vale na hora: o filtro JWT autoriza pelos papéis atuais
+     * do usuário ({@link AuthService#getUserInfoFromToken}), não pelos da claim do token que ele já
+     * tem, e as chaves de API dele releem o dono a cada requisição.
      *
      * @throws WorkspaceUserException {@code NOT_FOUND} fora do tenant, {@code INVALID} papel
      *                                desconhecido, {@code FORBIDDEN} quando é o próprio usuário
@@ -197,8 +197,9 @@ public class WorkspaceUserService {
     }
 
     /**
-     * Remove um usuário ativo do tenant: o login dele deixa de existir (o refresh é recusado) e as
-     * chaves de API dele param na hora, porque o dono não existe mais.
+     * Remove um usuário ativo do tenant: o login dele deixa de existir — o access token que ele já
+     * tem é recusado na próxima requisição, o refresh também — e as chaves de API dele param na hora,
+     * porque o dono não existe mais.
      *
      * @throws WorkspaceUserException {@code NOT_FOUND} fora do tenant, {@code CONFLICT} quando é um
      *                                convite (use {@link #revokeInvitation}), {@code FORBIDDEN} quando

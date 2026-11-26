@@ -11,6 +11,7 @@
  * <p>Arquivo .ts (createElement em vez de JSX) porque o vitest.config só inclui *.test.ts.</p>
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { entrarComo } from '../../../lib/__tests__/papeisDeTeste'
 import { createElement as h, act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { CopilotChatDefaultLabels } from '@copilotkit/react-core/v2/headless'
@@ -41,6 +42,8 @@ let root: Root | null = null
 let container: HTMLDivElement
 
 beforeEach(() => {
+  // As ações que acionam o servidor só aparecem para quem tem a permissão (QA2 RCHFLW-136/158).
+  entrarComo('ADMIN')
   sidebar.props = []
   sidebar.headerProps = []
   ;(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true

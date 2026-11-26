@@ -3,6 +3,7 @@ import { Badge, Box, Group, Loader, Paper, Stack, Text, ThemeIcon } from '@manti
 import { IconInfoCircle, IconRobot, IconTool, IconUser } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import type { FormDataType } from '../../services/conversation-api';
+import type { Permission } from '../../lib/permissions';
 import FormRenderer from './FormRenderer';
 import ToolCallBlock, { type ToolCallView } from './ToolCallBlock';
 import CitationList, { type Citation } from './CitationList';
@@ -16,6 +17,9 @@ interface ChatMessageProps {
     formData?: FormDataType;
     onFormSubmit?: (data: Record<string, unknown>) => void;
     onFormCancel?: () => void;
+    /** Permissão que falta para enviar / cancelar o formulário (o botão fica desabilitado com o aviso). */
+    formSubmitMissing?: Permission | null;
+    formCancelMissing?: Permission | null;
     /** Optional persona/agent label rendered as a badge on assistant messages. */
     personaId?: string;
     personaIcon?: string;
@@ -40,6 +44,8 @@ export default function ChatMessage({
     formData,
     onFormSubmit,
     onFormCancel,
+    formSubmitMissing,
+    formCancelMissing,
     personaId,
     personaIcon,
     toolCalls,
@@ -151,6 +157,8 @@ export default function ChatMessage({
                                 formData={formData!}
                                 onSubmit={onFormSubmit!}
                                 onCancel={onFormCancel}
+                                submitMissing={formSubmitMissing}
+                                cancelMissing={formCancelMissing}
                             />
                         ) : (
                             <Text size="sm" lh={1.6} style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>

@@ -263,8 +263,12 @@ public class ArchflowBeanConfiguration {
     @Bean
     @ConditionalOnMissingBean
     public JwtService jwtService(
-            @Value("${archflow.security.jwt.secret:change-me-in-production-this-must-be-very-long}") String secret) {
-        return new JwtService(secret);
+            @Value("${archflow.security.jwt.secret:change-me-in-production-this-must-be-very-long}") String secret,
+            @Value("${archflow.security.jwt.access-token-expiration-seconds:900}") long accessTokenTtlSeconds) {
+        // A mesma propriedade que o authControllerImpl informa como expiresIn. Antes o bean usava o
+        // construtor sem validade e o token expirava sempre em 900 s: com ARCHFLOW_JWT_TTL=3600 o login
+        // dizia expiresIn 3600 e o token morria em 15 min (RCHFLW-192).
+        return new JwtService(secret, accessTokenTtlSeconds * 1000L, JwtService.DEFAULT_REFRESH_TOKEN_EXPIRATION);
     }
 
     /**
@@ -287,10 +291,25 @@ public class ArchflowBeanConfiguration {
         return new InMemoryUserRepository(passwordService.hash(resolved));
     }
 
+    /**
+     * Revogação de tokens e sessões (logout, refresh token consumido) em memória — vale só nesta
+     * réplica e some no restart. Com {@code archflow.persistence.jdbc.enabled=true} o
+     * {@code JdbcPersistenceConfiguration} põe o {@code JdbcTokenBlacklist}, compartilhado entre
+     * réplicas.
+     */
     @Bean
     @ConditionalOnMissingBean
-    public AuthService authService(JwtService jwtService, PasswordService passwordService, UserRepository userRepository) {
-        return new AuthService(jwtService, passwordService, userRepository);
+    @ConditionalOnProperty(name = JDBC_ENABLED, havingValue = "false", matchIfMissing = true)
+    public br.com.archflow.security.auth.TokenBlacklist tokenBlacklist() {
+        return new br.com.archflow.security.auth.InMemoryTokenBlacklist();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public AuthService authService(JwtService jwtService, PasswordService passwordService,
+                                   UserRepository userRepository,
+                                   br.com.archflow.security.auth.TokenBlacklist tokenBlacklist) {
+        return new AuthService(jwtService, passwordService, userRepository, tokenBlacklist);
     }
 
     /**

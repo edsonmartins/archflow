@@ -62,14 +62,20 @@ Renova o access token usando o refresh token.
 }
 ```
 
+O refresh token é de **uso único**: guarde o `refreshToken` novo da resposta, o enviado deixa de valer.
+Reapresentar um refresh token já usado é tratado como cópia roubada e encerra a sessão (o par novo
+também para) — o usuário precisa entrar de novo.
+
 **Errors:**
-- `401` — Refresh token inválido ou expirado
+- `401` — Refresh token inválido, expirado, já usado, de uma sessão encerrada pelo logout ou emitido
+  antes das sessões de login (sem a claim `sid`: entre de novo)
 
 ---
 
 ### POST /auth/logout
 
-Invalida os tokens do usuário atual.
+Encerra a sessão de login do token: o access token enviado e o refresh token da mesma sessão deixam
+de valer. Outras sessões do usuário (outro navegador) continuam.
 
 **Headers:** `Authorization: Bearer <token>`
 

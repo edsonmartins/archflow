@@ -16,6 +16,8 @@ import {
     orchestrationApi, type DynamicWorkflowResponse, type SubtaskFailure,
 } from '../services/orchestration-api'
 import { mensagemDoErro } from '../lib/errorMessage'
+import { usePermissions } from '../lib/permissions'
+import { PermissionTooltip } from '../components/PermissionTooltip'
 
 /**
  * Os motivos distintos de falha, com quantas subtarefas falharam por cada um, na ordem em que
@@ -75,6 +77,8 @@ function dicaDeTokens(
  */
 export default function DynamicWorkflowPage() {
     const { t } = useTranslation()
+    // POST /api/orchestration/run aciona os agentes: o servidor exige workflow:execute (QA2 RCHFLW-158).
+    const canRun = usePermissions()('workflow:execute')
 
     const [goal, setGoal] = useState('')
     const [decomposePrompt, setDecomposePrompt] = useState('')
@@ -210,15 +214,17 @@ export default function DynamicWorkflowPage() {
                                         onChange={setBudgetTokens}
                                     />
                                     <Group justify="flex-end" align="flex-end">
-                                        <Button
-                                            leftSection={<IconPlayerPlay size={16} />}
-                                            onClick={run}
-                                            loading={running}
-                                            disabled={!goal.trim()}
-                                            data-testid="dw-run"
-                                        >
-                                            {t('dynamicWorkflow.run')}
-                                        </Button>
+                                        <PermissionTooltip missing={canRun ? null : 'workflow:execute'}>
+                                            <Button
+                                                leftSection={<IconPlayerPlay size={16} />}
+                                                onClick={run}
+                                                loading={running}
+                                                disabled={!goal.trim() || !canRun}
+                                                data-testid="dw-run"
+                                            >
+                                                {t('dynamicWorkflow.run')}
+                                            </Button>
+                                        </PermissionTooltip>
                                     </Group>
                                 </SimpleGrid>
                             </Stack>
