@@ -41,6 +41,7 @@ import type { FlowNodeData, WorkflowData } from './types'
 import { CanvasOutline } from './CanvasOutline'
 import { AddNodeMenu } from './AddNodeMenu'
 import { DisconnectedNodesWarning } from './DisconnectedNodesWarning'
+import { withEdge } from './parallelEdges'
 import { freePosition, isInView, newNodeId, nodeCentre } from './nodePlacement'
 
 // ── Registro de tipos ────────────────────────────────────────────
@@ -351,18 +352,26 @@ export function FlowCanvas({
         if (!ids.has(sourceId) || !ids.has(targetId)) return false
         // O ramo pedido tem de ser do nó de origem: um "AUTO" numa condição viraria uma aresta que nunca segue.
         if (branch !== undefined && !(api.branchesOf(sourceId) ?? []).includes(branch)) return false
-        pushHistory('connect')
+        const data = branch !== undefined
+          ? { isErrorPath: false, branch }
+          : defaultEdgeData(sourceId, localNodesRef.current, localEdgesRef.current)
+        const edgeBranch = (data as { branch?: string }).branch
         const edge: Edge = {
-          id: `e-${sourceId}-${targetId}-${Date.now()}`,
-          source: sourceId, target: targetId, type: 'flow', animated: false,
-          data: branch !== undefined
-            ? { isErrorPath: false, branch }
-            : defaultEdgeData(sourceId, localNodesRef.current, localEdgesRef.current),
+          // O ramo entra no id: dois casos do mesmo switch para o mesmo destino, no mesmo milissegundo, teriam o
+          // mesmo id (e a mesma key no React).
+          id: `e-${sourceId}-${targetId}${edgeBranch ? `-${edgeBranch}` : ''}-${Date.now()}`,
+          source: sourceId, target: targetId, type: 'flow', animated: false, data,
         }
+        // RCHFLW-149: o addEdge do React Flow descartava calado a 2ª aresta do mesmo par (o ramo não conta) e isto
+        // devolvia true; o copiloto resumia "ligado" e o caso ficava sem caminho. withEdge aceita o ramo paralelo e
+        // devolve null para a ligação que já existe — e então o canvas diz que não ligou.
+        const next = withEdge(localEdgesRef.current, edge)
+        if (!next) return false
+        pushHistory('connect')
         // Mesmo motivo do addNode: o ramo padrão (true/false…) do connect seguinte depende das arestas já
         // criadas neste lote, e o snapshot de undo também.
-        localEdgesRef.current = addEdge(edge, localEdgesRef.current)
-        setEdges(eds => addEdge(edge, eds))
+        localEdgesRef.current = next
+        setEdges(eds => withEdge(eds, edge) ?? eds)
         return true
       },
       branchesOf: (nodeId) => {
@@ -451,8 +460,9 @@ export function FlowCanvas({
         }
         return true
       },
-      removeEdge: (sourceId, targetId) => {
-        const keep = (eds: Edge[]) => eds.filter(e => !(e.source === sourceId && e.target === targetId))
+      removeEdge: (sourceId, targetId, branch) => {
+        const keep = (eds: Edge[]) => eds.filter(e => !(e.source === sourceId && e.target === targetId
+          && (branch === undefined || (e.data as { branch?: string } | undefined)?.branch === branch)))
         const current = localEdgesRef.current
         const removed = current.length - keep(current).length
         if (!removed) return 0
@@ -495,18 +505,25 @@ export function FlowCanvas({
   // ── Conexão entre nós ──────────────────────────────────────────
   const onConnect: OnConnect = useCallback(
     (params: Connection) => {
+      // O addEdge descartava calado a 2ª aresta do mesmo par (os nós têm um handle de saída só): o usuário não
+      // conseguia desenhar à mão o "media e baixa para a mesma resposta" que o copiloto monta (RCHFLW-149). Com o
+      // ramo livre seguinte ela entra ao lado; a ligação que já existe é recusada com aviso, não some.
+      const data = defaultEdgeData(params.source, localNodesRef.current, localEdgesRef.current)
+      const edge: Edge = {
+        ...params,
+        id: `e-${params.source}-${params.target}${data.branch ? `-${data.branch}` : ''}-${Date.now()}`,
+        type: 'flow',
+        animated: false,
+        data,
+      }
+      const next = withEdge(localEdgesRef.current, edge)
+      if (!next) {
+        notifications.show({ color: 'orange', message: tRef.current('editor.edgeAlreadyExists') })
+        return
+      }
       pushHistory('connect')
-      setEdges(eds =>
-        addEdge(
-          {
-            ...params,
-            type: 'flow',
-            animated: false,
-            data: defaultEdgeData(params.source, localNodesRef.current, eds),
-          },
-          eds
-        )
-      )
+      localEdgesRef.current = next
+      setEdges(eds => withEdge(eds, edge) ?? eds)
     },
     [setEdges, pushHistory]
   )

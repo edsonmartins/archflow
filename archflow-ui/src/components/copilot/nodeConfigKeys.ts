@@ -490,6 +490,42 @@ function coerce(value: unknown, type: ConfigValueType): { ok: true; value: unkno
 }
 
 /**
+ * Campos de texto que o motor usa como estão, sem resolver {@code ${...}} (RCHFLW-151): o prompt de sistema
+ * (ChatTurn.systemPromptOf, McpAgentComponent) e os textos da aprovação (HumanApprovalStep.proposalOf / text). A
+ * "Mensagem do usuário" do chat (MessageTemplate), as expressões de condition/switch e o state do decision
+ * (StateTemplate) leem referências; estes não. O copiloto
+ * escrevia {@code Contexto: ${<rag>}} no systemPrompt — o modelo recebia o placeholder e dizia que a base não tinha
+ * nada — e {@code Resumo: ${<llm>}} na proposta, que o aprovador via literal. Resolver esses campos no motor mudaria o
+ * que um texto com "${" quer dizer nos fluxos que já existem; recusar aqui, com o caminho certo, não muda nada deles.
+ */
+const LITERAL_TEXT_KEYS: Readonly<Record<string, Readonly<Record<string, string>>>> = (() => {
+  const prompt = {
+    systemPrompt: 'put the ${...} references in userMessage (e.g. "Context: ${<ragNodeId>}\\n\\nQuestion: '
+      + '${<inputNodeId>}") and keep systemPrompt as plain instructions',
+  }
+  const approvalText = 'write plain text; to show what an earlier step produced, leave approvalProposal empty and put '
+    + 'that step right before the approval — an empty proposal shows the previous step output to the approver'
+  return {
+    'llm-chat': prompt,
+    'llm-streaming': prompt,
+    // Agente e assistente não têm userMessage (CHAT, não CHAT_NODE): não há outro campo que leia a referência.
+    agent: { systemPrompt: 'keep systemPrompt as plain instructions' },
+    assistant: { systemPrompt: 'keep systemPrompt as plain instructions' },
+    approval: { approvalTitle: approvalText, approvalDescription: approvalText, approvalProposal: approvalText },
+  }
+})()
+
+const TEMPLATE_REFERENCE = /\$\{[^}]*\}/
+
+/** Por que {@code value} não serve na chave literal {@code key}, ou undefined (ver {@link LITERAL_TEXT_KEYS}). */
+function literalReferenceProblem(nodeType: string, key: string, value: unknown): string | undefined {
+  const hint = LITERAL_TEXT_KEYS[nodeType]?.[key]
+  if (!hint || typeof value !== 'string' || !TEMPLATE_REFERENCE.test(value)) return undefined
+  return `"${key}" is sent as written: the engine never resolves \${...} in it, so the run would use the `
+    + `placeholder ${value.match(TEMPLATE_REFERENCE)![0]} literally — ${hint}`
+}
+
+/**
  * Valida o patch de config de um nó do tipo {@code nodeType}. Tudo ou nada: se uma chave for
  * desconhecida ou um valor não servir, nada é aplicado — um patch pela metade deixaria o agente sem
  * saber o que ficou gravado.
@@ -530,6 +566,11 @@ export function validateNodeConfig(nodeType: string, patch: Record<string, unkno
     const allowed = ALLOWED_VALUES[nodeType]?.[key]
     if (allowed && !allowed.includes(coerced.value as string)) {
       errors.push(`"${key}" must be one of ${allowed.join(', ')}`)
+      continue
+    }
+    const literal = literalReferenceProblem(nodeType, key, coerced.value)
+    if (literal) {
+      errors.push(literal)
       continue
     }
     if (type === 'json') {

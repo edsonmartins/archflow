@@ -62,6 +62,10 @@ archflow:
   # Se api-key estiver definida, o controller exige o header X-ArchFlow-Key; vazio = libera (dev).
   assist:
     api-key: ${ARCHFLOW_ASSIST_API_KEY:}
+    # Teto de tokens de saída do nl-to-flow (RCHFLW-154): o rascunho de um fluxo com vários ramos não cabe nos
+    # 1024 do archflow.llm.max-tokens padrão. Um archflow.llm.max-tokens maior prevalece.
+    nl-to-flow:
+      max-tokens: ${ARCHFLOW_ASSIST_NL_TO_FLOW_MAX_TOKENS:4096}
   # Servidores MCP conhecidos por esta instalação. Um nó 'mcp-agent' escolhe qual usar por
   # REFERÊNCIA (server: "vendax"); endereço e credencial ficam fora do documento do fluxo, que é
   # versionado e visível no designer — e é o que permite o mesmo fluxo rodar aqui e num agente local.
