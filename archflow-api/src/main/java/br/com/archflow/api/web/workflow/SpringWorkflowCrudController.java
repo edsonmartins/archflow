@@ -42,6 +42,8 @@ public class SpringWorkflowCrudController {
     private final AuditTrail auditTrail;
     /** Nulo numa instalação sem MCP: o nó falha dizendo isso, e o resto do fluxo segue existindo. */
     private final McpAgentHost mcpAgentHost;
+    /** Trava da conferência de versão + gravação do PUT (ver {@link #update}). */
+    private final Object gravacao = new Object();
 
     public SpringWorkflowCrudController(WorkflowRuntimeStore store,
                                         WorkflowDeserializer deserializer,
@@ -95,20 +97,60 @@ public class SpringWorkflowCrudController {
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
 
+    /**
+     * Grava o documento inteiro por cima do atual.
+     *
+     * <p>Controle de concorrência otimista (RCHFLW-125): quem manda {@code If-Match} com o {@code updatedAt} que
+     * leu só grava se o fluxo continua nessa versão; se outra sessão gravou no meio, a resposta é 409 com o
+     * {@code updatedAt} atual, e o editor pergunta se recarrega ou sobrescreve. Antes o segundo Salvar apagava
+     * em silêncio a mudança do primeiro. 409, e não o 412 que o HTTP prevê para If-Match: o conflito é de
+     * conteúdo, e é o código que o editor trata. Sem o cabeçalho a gravação é a de sempre — o VendaX e os
+     * scripts que fazem PUT direto não mandam versão e não podem passar a falhar.
+     *
+     * <p>A conferência e a gravação ficam sob a mesma trava; sem ela, dois Salvar simultâneos leriam a mesma
+     * versão e os dois passariam. A trava é desta instância: entre réplicas a janela continua aberta.
+     */
     @PutMapping("/{id}")
-    public ResponseEntity<Map<String, Object>> update(@PathVariable String id, @RequestBody Map<String, Object> body) {
+    public ResponseEntity<Map<String, Object>> update(@PathVariable String id, @RequestBody Map<String, Object> body,
+                                                      @RequestHeader(value = "If-Match", required = false)
+                                                      String ifMatch) {
         String tenantId = tenant();
-        if (!store.hasWorkflow(tenantId, id)) return ResponseEntity.notFound().build();
         var updated = new LinkedHashMap<>(body);
-        updated.put("id", id);
-        updated.put("updatedAt", Instant.now().toString());
-        updated.putIfAbsent("status", "draft");
-        updated.putIfAbsent("steps", List.of());
-        updated.putIfAbsent("configuration", Map.of());
-        store.putWorkflow(tenantId, id, updated);
+        synchronized (gravacao) {
+            var atual = store.getWorkflow(tenantId, id);
+            if (atual == null) return ResponseEntity.notFound().build();
+            String esperado = versaoEsperada(ifMatch);
+            if (esperado != null && !esperado.equals(String.valueOf(atual.get("updatedAt")))) {
+                Map<String, Object> conflito = new LinkedHashMap<>();
+                conflito.put("error", "Workflow was changed elsewhere since it was loaded");
+                conflito.put("code", "WORKFLOW_CONFLICT");
+                conflito.put("updatedAt", atual.get("updatedAt"));
+                return ResponseEntity.status(HttpStatus.CONFLICT).body(conflito);
+            }
+            updated.put("id", id);
+            updated.put("updatedAt", Instant.now().toString());
+            updated.putIfAbsent("status", "draft");
+            updated.putIfAbsent("steps", List.of());
+            updated.putIfAbsent("configuration", Map.of());
+            store.putWorkflow(tenantId, id, updated);
+        }
         auditTrail.record(AuditAction.UPDATE, "workflow", id, true, null,
                 Map.of("name", workflowName(updated)));
         return ResponseEntity.ok(updated);
+    }
+
+    /**
+     * O {@code updatedAt} pedido no {@code If-Match}, sem as aspas da entity tag (e sem o {@code W/}); nulo
+     * quando não há pré-condição — cabeçalho ausente, vazio ou {@code *} (qualquer versão serve).
+     */
+    static String versaoEsperada(String ifMatch) {
+        if (ifMatch == null) return null;
+        String valor = ifMatch.trim();
+        if (valor.startsWith("W/")) valor = valor.substring(2).trim();
+        if (valor.length() >= 2 && valor.startsWith("\"") && valor.endsWith("\"")) {
+            valor = valor.substring(1, valor.length() - 1);
+        }
+        return valor.isEmpty() || "*".equals(valor) ? null : valor;
     }
 
     @DeleteMapping("/{id}")

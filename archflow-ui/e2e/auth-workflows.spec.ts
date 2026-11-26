@@ -262,8 +262,11 @@ test.describe('Auth and workflows', () => {
         await page.getByRole('button', { name: 'New Workflow' }).click();
         // The create modal offers scratch / AI / template — take scratch.
         await page.getByTestId('create-blank').click();
-        await expect(page).toHaveURL(/\/editor\/wf-created$/);
+        // RCHFLW-131: o modal abre um rascunho, sem gravar; o fluxo nasce no primeiro Salvar.
+        await expect(page).toHaveURL(/\/editor\?new=1$/);
         await expect(page.getByText('Untitled Workflow')).toBeVisible();
+        await page.getByTestId('editor-save').click();
+        await expect(page).toHaveURL(/\/editor\/wf-created$/);
 
         await page.goto('/workflows');
         await page.getByRole('button', { name: 'Delete' }).nth(1).click();

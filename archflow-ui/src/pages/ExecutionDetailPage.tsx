@@ -396,9 +396,11 @@ export default function ExecutionDetailPage() {
         <PageHeader
             icon={IconPlayerPlay}
             accent={extra?.accent ?? 'violet'}
-            title={t('executionDetail.title', { id: id.slice(0, 12) })}
+            // O id inteiro (RCHFLW-134): o corte em 12 comia o último caractere de exec-xxxxxxxx (13), e quem
+            // copiava do título ou do breadcrumb levava um id que não existe.
+            title={t('executionDetail.title', { id })}
             subtitle={extra?.subtitle}
-            breadcrumbs={[{ label: t('executions.title'), to: '/executions' }, { label: id.slice(0, 12) }]}
+            breadcrumbs={[{ label: t('executions.title'), to: '/executions' }, { label: id }]}
             actions={data ? (
                 <>
                     {traceId && (

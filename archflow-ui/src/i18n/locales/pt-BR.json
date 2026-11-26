@@ -357,6 +357,32 @@
         "savedRelative": "Salvo {{time}}",
         "untitled": "Fluxo sem título",
         "renameHint": "Clique para renomear",
+        "renameEmpty": "Nome vazio",
+        "renameEmptyMsg": "O fluxo precisa de um nome. O nome anterior foi mantido.",
+        "renameDuplicate": "Nome repetido",
+        "renameDuplicateMsg": "Já existe outro fluxo chamado \"{{name}}\". O nome foi aceito, mas os dois vão se confundir na lista e no filtro de Execuções.",
+        "codeAfterSave": "Salve o fluxo para editar o YAML",
+        "unsaved": {
+            "badge": "Não salvo",
+            "title": "Alterações não salvas",
+            "message": "Este fluxo tem alterações que ainda não foram salvas. Se sair agora, elas se perdem.",
+            "stay": "Continuar editando",
+            "discard": "Descartar e sair",
+            "save": "Salvar e sair"
+        },
+        "conflict": {
+            "title": "Fluxo alterado em outro lugar",
+            "message": "Este fluxo foi alterado em outro lugar depois que você o abriu. Recarregue para ver a versão atual (suas alterações não salvas se perdem) ou sobrescreva para gravar a sua por cima da outra.",
+            "reload": "Recarregar",
+            "overwrite": "Sobrescrever",
+            "reloadFailedMsg": "Não foi possível recarregar a versão atual. O que está na tela continua como estava; tente de novo."
+        },
+        "discardYaml": {
+            "title": "Descartar o YAML não salvo?",
+            "message": "O YAML editado ainda não foi salvo. Ao voltar para o Canvas, essa edição é descartada.",
+            "stay": "Continuar no YAML",
+            "confirm": "Descartar e voltar"
+        },
         "yamlInvalidAt": "YAML inválido na linha {{line}}, coluna {{column}}: {{reason}}",
         "yamlInvalidAtLine": "YAML inválido na linha {{line}}: {{reason}}",
         "yamlInvalid": "YAML inválido: {{reason}}",
@@ -372,6 +398,7 @@
             "yamlSavedMsg": "Fluxo atualizado a partir do YAML",
             "yamlError": "Erro no YAML",
             "yamlErrorMsg": "Falha ao salvar o YAML",
+            "yamlNotExecutable": "YAML salvo, mas o fluxo não executa",
             "saved": "Salvo",
             "savedMsg": "Fluxo salvo com sucesso",
             "saveError": "Erro",
