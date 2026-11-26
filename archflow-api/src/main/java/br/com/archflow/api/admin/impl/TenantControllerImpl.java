@@ -82,6 +82,15 @@ public class TenantControllerImpl implements TenantController {
         return tenantId == null ? Optional.empty() : Optional.ofNullable(tenants.get(tenantId));
     }
 
+    /**
+     * {@code true} quando o tenant está no cadastro com o status {@code suspended} — o que o
+     * {@code TenantSuspensionInterceptor} confere em cada requisição autenticada (QA2 P6). Tenant fora do
+     * cadastro (o padrão, um tenant que só existe no produto) não está suspenso.
+     */
+    public boolean isSuspended(String tenantId) {
+        return findTenant(tenantId).map(tenant -> "suspended".equals(tenant.status())).orElse(false);
+    }
+
     @Override
     public List<TenantDto> listTenants() {
         return tenants.values().stream().map(this::comUsoMedido).collect(Collectors.toCollection(ArrayList::new));
@@ -146,6 +155,9 @@ public class TenantControllerImpl implements TenantController {
         // compute() guarantees the read-modify-write runs under the map's
         // bucket lock so concurrent suspend/activate/updateTenant on the
         // same tenantId serialize instead of racing.
+        if (update != null && "suspended".equals(update.status())) {
+            recusaSuspenderOPadrao(tenantId);
+        }
         TenantDto updated = tenants.compute(tenantId, (id, existing) -> {
             if (existing == null) {
                 throw new IllegalArgumentException("Tenant not found: " + tenantId);
@@ -197,8 +209,21 @@ public class TenantControllerImpl implements TenantController {
                 .toList();
     }
 
+    /**
+     * O tenant padrão não se suspende. É onde cai todo token sem a claim de tenant — inclusive o do
+     * admin da plataforma —, e desde o QA2 P6 a suspensão tranca de fato: suspendê-lo (o cadastro
+     * aceita criar um {@code __default__}) deixaria a plataforma inteira com 403, e só um ADMIN de outro
+     * tenant ou um restart desfaria. Recusa, em vez de ignorar, para o status nunca mentir na tela.
+     */
+    private static void recusaSuspenderOPadrao(String tenantId) {
+        if (DefaultTenant.ID.equals(tenantId)) {
+            throw new IllegalArgumentException("The default tenant (" + tenantId + ") cannot be suspended");
+        }
+    }
+
     @Override
     public void suspendTenant(String tenantId) {
+        recusaSuspenderOPadrao(tenantId);
         log.info("Suspending tenant: {}", tenantId);
         tenants.compute(tenantId, (id, t) -> {
             if (t == null) throw new IllegalArgumentException("Tenant not found: " + tenantId);

@@ -26,6 +26,8 @@ class JobWorkerTest {
         }
 
         assertThat(handler.seenFile).isEqualTo("f1");
+        // O handler recebe o tenant do registro do job, não o de um payload (QA2 P5).
+        assertThat(handler.seenTenant).isEqualTo("tenant");
         assertThat(service.get("tenant", known.id()).status()).isEqualTo(JobStatus.SUCCEEDED);
         assertThat(service.get("tenant", unknown.id()).status()).isEqualTo(JobStatus.QUEUED);
         assertThat(service.attempts("tenant", known.id())).singleElement().satisfies(attempt -> {
@@ -55,6 +57,7 @@ class JobWorkerTest {
 
     private static final class RecordingHandler implements JobHandler {
         private String seenFile;
+        private String seenTenant;
 
         public String type() {
             return "DOCUMENT_INGESTION";
@@ -63,6 +66,7 @@ class JobWorkerTest {
         public void handle(JobContext context, Map<String, Object> payload) {
             context.progress(50, "Parsing");
             seenFile = String.valueOf(payload.get("fileId"));
+            seenTenant = context.tenantId();
         }
     }
 }

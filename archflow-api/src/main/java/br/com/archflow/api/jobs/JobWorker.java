@@ -35,7 +35,7 @@ public class JobWorker implements AutoCloseable {
                 () -> service.heartbeat(job.id(), workerId, lease),
                 heartbeatMillis, heartbeatMillis, TimeUnit.MILLISECONDS);
         try {
-            handler.handle(new Context(job.id()), job.payload());
+            handler.handle(new Context(job.id(), job.tenantId()), job.payload());
             service.complete(job.id());
         } catch (JobCancelledException cancelled) {
             service.fail(job.id(), cancelled.getMessage());
@@ -55,13 +55,19 @@ public class JobWorker implements AutoCloseable {
 
     private final class Context implements JobContext {
         private final String jobId;
+        private final String tenantId;
 
-        private Context(String jobId) {
+        private Context(String jobId, String tenantId) {
             this.jobId = jobId;
+            this.tenantId = tenantId;
         }
 
         public String jobId() {
             return jobId;
+        }
+
+        public String tenantId() {
+            return tenantId;
         }
 
         public void progress(int percentage, String message) {

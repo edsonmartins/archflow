@@ -28,7 +28,8 @@ import static org.mockito.Mockito.when;
 class QpAgentControllerTenantTest {
 
     private final QpAgentService service = mock(QpAgentService.class);
-    private final QpAgentController controller = new QpAgentController(service);
+    /** Auth ligada, como em produção; os casos de dev constroem o seu com {@code false}. */
+    private final QpAgentController controller = new QpAgentController(service, true);
 
     @AfterEach
     void limpa() {
@@ -95,5 +96,71 @@ class QpAgentControllerTenantTest {
         ArgumentCaptor<QpAgentService.QpRequest> enviado = ArgumentCaptor.forClass(QpAgentService.QpRequest.class);
         verify(service).quote(enviado.capture());
         assertThat(enviado.getValue().tenantId()).isEqualTo("acme");
+    }
+
+    /**
+     * QA2 P5: um JWT sem a claim {@code tenantId} é do tenant padrão (é o que o {@link ImpersonationFilter}
+     * grava). O controller o tratava como "sem tenant" e aceitava qualquer tenant do corpo.
+     */
+    @Test
+    @DisplayName("JWT sem claim de tenant (tenant padrão) + corpo tenant_b → 403 e o agente não roda")
+    void jwtSemClaimNaoEscolheOutroTenantPeloCorpo() {
+        MockHttpServletRequest req = new MockHttpServletRequest();
+        req.setAttribute(JwtAuthenticationFilter.ATTR_USER_ID, "u-admin");
+        req.setAttribute(JwtAuthenticationFilter.ATTR_ROLES, List.of("DESIGNER"));
+        req.setAttribute(ImpersonationFilter.ATTR_TENANT_ID, "__default__");
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(req));
+
+        var resposta = controller.quote(corpo("tenant_b"));
+
+        assertThat(resposta.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        verify(service, never()).quote(any(QpAgentService.QpRequest.class));
+    }
+
+    /** Um JWT validado sem a claim de tenant; {@code efetivo} é o que o ImpersonationFilter gravou. */
+    private static void jwtSemClaim(String efetivo) {
+        MockHttpServletRequest req = new MockHttpServletRequest();
+        req.setAttribute(JwtAuthenticationFilter.ATTR_USER_ID, "u-admin");
+        req.setAttribute(JwtAuthenticationFilter.ATTR_ROLES, List.of("ADMIN"));
+        req.setAttribute(ImpersonationFilter.ATTR_TENANT_ID, efetivo);
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(req));
+    }
+
+    private String tenantEnviado() {
+        ArgumentCaptor<QpAgentService.QpRequest> enviado = ArgumentCaptor.forClass(QpAgentService.QpRequest.class);
+        verify(service).quote(enviado.capture());
+        return enviado.getValue().tenantId();
+    }
+
+    /**
+     * Auth desligada (dev): o filtro JWT ainda grava a identidade de um token válido, mas o corpo
+     * continua escolhendo o tenant, como antes da correção do P5 — só o token com a claim prende.
+     */
+    @Test
+    @DisplayName("auth desligada + JWT sem claim + corpo acme → roda em acme, como antes")
+    void authDesligadaJwtSemClaimAceitaOCorpo() {
+        jwtSemClaim("__default__");
+        var dev = new QpAgentController(service, false);
+
+        var resposta = dev.quote(corpo("acme"));
+
+        assertThat(resposta.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(tenantEnviado()).isEqualTo("acme");
+    }
+
+    /**
+     * Personificação (X-Impersonate-Tenant aceito pelo ImpersonationFilter): o tenant efetivo é o
+     * personificado, e o corpo pode repeti-lo; nomear um terceiro continua recusado.
+     */
+    @Test
+    @DisplayName("JWT sem claim personificando tenant_x: corpo tenant_x passa, corpo tenant_y → 403")
+    void personificacaoPrendeAoTenantEfetivo() {
+        jwtSemClaim("tenant_x");
+
+        assertThat(controller.quote(corpo("tenant_y")).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        verify(service, never()).quote(any(QpAgentService.QpRequest.class));
+
+        assertThat(controller.quote(corpo("tenant_x")).getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(tenantEnviado()).isEqualTo("tenant_x");
     }
 }
