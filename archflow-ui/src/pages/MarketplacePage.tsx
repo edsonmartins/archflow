@@ -9,6 +9,8 @@ import { notifications } from '@mantine/notifications'
 import { marketplaceApi, type Extension } from '../services/marketplace-api'
 import { ApiError } from '../services/api'
 import { confirmAction } from '../lib/confirm'
+import { useIsAdmin } from '../lib/permissions'
+import { PermissionTooltip } from '../components/PermissionTooltip'
 
 /**
  * Lists, searches and installs/uninstalls marketplace extensions.
@@ -20,6 +22,9 @@ import { confirmAction } from '../lib/confirm'
  */
 export default function MarketplacePage() {
     const { t } = useTranslation()
+    // O catálogo é um só para a plataforma: instalar e remover exigem o papel ADMIN no servidor
+    // (AdminSecurityConfiguration.ADMIN_WRITE_PATHS, QA2 RCHFLW-137). Ler segue para todos.
+    const isAdmin = useIsAdmin()
     const [items, setItems]       = useState<Extension[]>([])
     const [query, setQuery]       = useState('')
     const [typeFilter, setType]   = useState<string | undefined>()
@@ -104,9 +109,11 @@ export default function MarketplacePage() {
         <Stack gap="md" p="md" data-testid="marketplace-page">
             <Group justify="space-between">
                 <Title order={2}>{t('marketplace.title')}</Title>
-                <Button onClick={() => setOpen(true)} data-testid="marketplace-install-btn">
-                    {t('marketplace.installExt')}
-                </Button>
+                <PermissionTooltip missing={isAdmin ? null : 'ADMIN'}>
+                    <Button onClick={() => setOpen(true)} data-testid="marketplace-install-btn" disabled={!isAdmin}>
+                        {t('marketplace.installExt')}
+                    </Button>
+                </PermissionTooltip>
             </Group>
 
             <Group>
@@ -171,7 +178,7 @@ export default function MarketplacePage() {
                                 <Text size="sm" c="dimmed">{ext.description}</Text>
                                 <Text size="xs" c="dimmed">{t('marketplace.authorBy', { author: ext.author })}</Text>
                             </Stack>
-                            <Group>
+                            {isAdmin && <Group>
                                 {ext.installed ? (
                                     <Tooltip label={t('marketplace.uninstallHint')}>
                                         <Button variant="outline" color="red"
@@ -195,7 +202,7 @@ export default function MarketplacePage() {
                                         </Button>
                                     </Tooltip>
                                 )}
-                            </Group>
+                            </Group>}
                         </Group>
                     </Card>
                 ))}

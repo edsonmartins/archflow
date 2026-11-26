@@ -259,6 +259,31 @@ class ConversaSuspensaRetomaOFluxoTest {
     }
 
     @Test
+    @DisplayName("o GET e o evento do formulário dizem a execução que o envio continua — o chat sabe que exige "
+            + "execution:manage")
+    void formularioDizAExecucao() throws Exception {
+        // QA2 RCHFLW-136: enviar o formulário ligado a uma execução exige execution:manage. Sem a execução no
+        // GET nem no evento, a UI não tinha como desabilitar o envio de quem o servidor recusa.
+        String[] execucao = executaAtePausar();
+
+        controller.suspend(new SuspendRequest("conv-1", execucao[0], execucao[1], "support-ticket", 30));
+
+        assertThat(controller.getConversation("conv-1").executionId()).isEqualTo(execucao[1]);
+        ArchflowEvent form = aguardaEvento(ArchflowDomain.INTERACTION, ArchflowEventType.FORM);
+        assertThat(form.getData()).containsEntry("executionId", execucao[1]);
+    }
+
+    @Test
+    @DisplayName("formulário sem execução: o GET e o evento não trazem executionId")
+    void formularioSemExecucao() throws Exception {
+        controller.suspend(new SuspendRequest("conv-1", null, null, "support-ticket", 30));
+
+        assertThat(controller.getConversation("conv-1").executionId()).isNull();
+        ArchflowEvent form = aguardaEvento(ArchflowDomain.INTERACTION, ArchflowEventType.FORM);
+        assertThat(form.getData()).doesNotContainKey("executionId");
+    }
+
+    @Test
     @DisplayName("formId desconhecido é erro claro (400) e não cria conversa")
     void formIdDesconhecido() {
         assertThatThrownBy(() -> controller.suspend(new SuspendRequest("conv-1", null, null, "dados-cliente", 30)))

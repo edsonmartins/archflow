@@ -7,6 +7,7 @@ import {
 } from '@copilotkit/react-core/v2';
 import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
+import { usePermissions } from '../../lib/permissions';
 
 /**
  * Todos os textos visíveis do chat do CopilotKit, vindos do i18n (RCHFLW-82). Sem a prop {@code labels}
@@ -71,11 +72,18 @@ const TranslatedHeader = Object.assign(TranslatedHeaderView, {
     DrawerLauncher: CopilotModalHeader.DrawerLauncher,
 });
 
-/** A barra lateral do copilot montada no layout, com os rótulos no idioma atual da interface. */
+/**
+ * A barra lateral do copilot montada no layout, com os rótulos no idioma atual da interface.
+ *
+ * <p>Só para quem tem {@code workflow:execute}: cada mensagem é um {@code POST /ag-ui/agent}, que o servidor
+ * recusa (403) sem ela (QA2 RCHFLW-158). Um VIEWER via o chat, digitava e recebia erro a cada envio.</p>
+ */
 export default function AppCopilotSidebar() {
     // O react-i18next troca a identidade de t quando o idioma muda: trocar pelo seletor refaz os
     // rótulos sem remontar o chat (e sem perder a conversa aberta).
     const { t } = useTranslation();
     const labels = useMemo(() => copilotChatLabels(t), [t]);
+    const canRunAgent = usePermissions()('workflow:execute');
+    if (!canRunAgent) return null;
     return <CopilotSidebar agentId="archflow" defaultOpen={false} labels={labels} header={TranslatedHeader} />;
 }

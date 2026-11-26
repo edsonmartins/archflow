@@ -12,9 +12,10 @@ import java.util.Collection;
 import java.util.Map;
 
 /**
- * Enforcement de role admin nos endpoints de administração global
+ * Enforcement de role admin nos endpoints de administração
  * ({@code /api/admin/global/**} e {@code /api/admin/tenants/**}, fase 5.4 do
- * plano de homologação): sem role {@code ADMIN}/{@code SUPERADMIN} no token,
+ * plano de homologação; depois workspace, Linktor e Brain Sentry — a lista está em
+ * {@link AdminSecurityConfiguration#ADMIN_PATHS}): sem role {@code ADMIN}/{@code SUPERADMIN} no token,
  * a resposta é {@code 403} com corpo JSON claro.
  *
  * <p>As roles vêm do request attribute
@@ -31,10 +32,17 @@ public class AdminRoleInterceptor implements HandlerInterceptor {
     private static final Logger log = LoggerFactory.getLogger(AdminRoleInterceptor.class);
 
     private final boolean authEnabled;
+    /** Só as escritas exigem admin; leituras passam com a autenticação ({@code /api/extensions}). */
+    private final boolean writesOnly;
     private final ObjectMapper json = new ObjectMapper();
 
     public AdminRoleInterceptor(boolean authEnabled) {
+        this(authEnabled, false);
+    }
+
+    public AdminRoleInterceptor(boolean authEnabled, boolean writesOnly) {
         this.authEnabled = authEnabled;
+        this.writesOnly = writesOnly;
     }
 
     @Override
@@ -45,6 +53,10 @@ public class AdminRoleInterceptor implements HandlerInterceptor {
         }
         // Preflight CORS não carrega Authorization; o CorsRegistry responde.
         if ("OPTIONS".equalsIgnoreCase(request.getMethod())) {
+            return true;
+        }
+        if (writesOnly && ("GET".equalsIgnoreCase(request.getMethod())
+                || "HEAD".equalsIgnoreCase(request.getMethod()))) {
             return true;
         }
         Object roles = request.getAttribute(JwtAuthenticationFilter.ATTR_ROLES);

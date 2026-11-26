@@ -141,4 +141,38 @@ class LinktorConfigSaveTest {
 
         assertThat(controller.rawSnapshot().apiKey()).isEqualTo("nova-chave-123");
     }
+
+    @Test
+    @DisplayName("campo apagado (em branco) remove a chave e o token guardados — antes só um restart os tirava")
+    void segredoEmBrancoRemove() throws Exception {
+        // RCHFLW-193: o vazio também significava "manter", e o segredo gravado ficava irremovível.
+        mvc = build(new LinktorConfigDto(true, "http://localhost:8081/api/v1", "qa2-fake-linktor-key-123456",
+                "qa2-fake-access-token-654321", "npx linktor", 30));
+
+        ObjectNode body = getConfig();
+        body.put("apiKey", "");
+        body.put("accessToken", "  ");
+        MvcResult r = putConfig(body);
+
+        assertThat(r.getResponse().getStatus()).isEqualTo(200);
+        assertThat(controller.rawSnapshot().apiKey()).isEmpty();
+        assertThat(controller.rawSnapshot().accessToken()).isEmpty();
+        assertThat(getConfig().path("apiKey").asText()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("campo ausente (null) mantém o segredo: o cliente que só mexe nos outros campos não o apaga")
+    void segredoAusenteMantido() throws Exception {
+        mvc = build(new LinktorConfigDto(true, "http://localhost:8081/api/v1", "qa2-fake-linktor-key-123456",
+                "", "npx linktor", 30));
+
+        ObjectNode body = getConfig();
+        body.remove("apiKey");
+        body.putNull("accessToken");
+        body.put("timeoutSeconds", 60);
+        putConfig(body);
+
+        assertThat(controller.rawSnapshot().apiKey()).isEqualTo("qa2-fake-linktor-key-123456");
+        assertThat(controller.rawSnapshot().timeoutSeconds()).isEqualTo(60);
+    }
 }

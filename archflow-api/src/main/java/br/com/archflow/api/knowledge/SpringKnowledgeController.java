@@ -29,6 +29,11 @@ public class SpringKnowledgeController {
     @PostMapping("/{id}/documents")
     public ResponseEntity<KnowledgeService.IngestionSubmission> ingest(
             @PathVariable String id, @RequestBody IngestRequest request) {
+        // Corpo sem fileId é erro de quem chama (400). Sem a checagem o id nulo chegava ao repositório:
+        // o JDBC respondia 404 e o em memória estourava NPE (500) — o mesmo pedido, dois status (RCHFLW-193).
+        if (request == null || request.fileId() == null || request.fileId().isBlank()) {
+            throw new IllegalArgumentException("fileId is required");
+        }
         var result = service.ingest(TenantContext.currentTenantId(), id, request.fileId());
         return result == null ? ResponseEntity.notFound().build()
                 : ResponseEntity.accepted().body(result);

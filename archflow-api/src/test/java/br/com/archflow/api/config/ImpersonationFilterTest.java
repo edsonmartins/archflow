@@ -77,24 +77,85 @@ class ImpersonationFilterTest {
     }
 
     @Test
-    @DisplayName("rejects impersonation when JWT carries no superadmin role")
+    @DisplayName("JWT sem papel admin pedindo outro tenant: 403 IMPERSONATION_DENIED, não 200 com o próprio tenant")
     void rejectsWithoutSuperadminRole() throws Exception {
+        // RCHFLW-193: antes o cabeçalho era ignorado em silêncio e a resposta vinha com os dados do próprio
+        // tenant — que o cliente lia como se fossem do tenant pedido. Agora é a regra do X-Tenant-Id (RCHFLW-44).
         ImpersonationFilter filter = new ImpersonationFilter(true);
         HttpServletRequest req = mock(HttpServletRequest.class);
         HttpServletResponse resp = mock(HttpServletResponse.class);
         FilterChain chain = mock(FilterChain.class);
+        java.io.StringWriter corpo = new java.io.StringWriter();
         when(req.getHeader(ImpersonationFilter.HEADER_IMPERSONATE)).thenReturn("tenant_other");
         when(req.getHeader(ImpersonationFilter.HEADER_TENANT)).thenReturn("tenant_self");
         when(req.getAttribute(JwtAuthenticationFilter.ATTR_ROLES)).thenReturn(List.of("tenant_admin"));
-        // Com JWT, o X-Tenant-Id só vale quando repete a claim do token (RCHFLW-44).
         when(req.getAttribute(JwtAuthenticationFilter.ATTR_TENANT)).thenReturn("tenant_self");
         when(req.getRequestURI()).thenReturn("/api/admin/workspace");
+        when(resp.getWriter()).thenReturn(new java.io.PrintWriter(corpo));
 
         filter.doFilter(req, resp, chain);
 
-        // Should stay on the caller's own (JWT) tenant, not honour the impersonation.
-        verify(req).setAttribute(ImpersonationFilter.ATTR_TENANT_ID, "tenant_self");
+        verify(resp).setStatus(HttpServletResponse.SC_FORBIDDEN);
+        assertThat(corpo.toString()).contains("IMPERSONATION_DENIED");
+        verify(chain, never()).doFilter(req, resp);
         verify(req, never()).setAttribute(ImpersonationFilter.ATTR_TENANT_ID, "tenant_other");
+    }
+
+    @Test
+    @DisplayName("chave de API pedindo outro tenant: 403 — a chave não tem papel que personifique")
+    void apiKeyImpersonationRejected() throws Exception {
+        ImpersonationFilter filter = new ImpersonationFilter(true);
+        HttpServletRequest req = mock(HttpServletRequest.class);
+        HttpServletResponse resp = mock(HttpServletResponse.class);
+        FilterChain chain = mock(FilterChain.class);
+        when(req.getHeader(ImpersonationFilter.HEADER_IMPERSONATE)).thenReturn("tenant_qa2_b");
+        // O que o JwtAuthenticationFilter grava para uma chave aceita: dono e tenant, sem papéis.
+        when(req.getAttribute(JwtAuthenticationFilter.ATTR_USER_ID)).thenReturn("u-dono");
+        when(req.getAttribute(JwtAuthenticationFilter.ATTR_TENANT)).thenReturn("__default__");
+        when(req.getRequestURI()).thenReturn("/api/workflows");
+        when(resp.getWriter()).thenReturn(new java.io.PrintWriter(new java.io.StringWriter()));
+
+        filter.doFilter(req, resp, chain);
+
+        verify(resp).setStatus(HttpServletResponse.SC_FORBIDDEN);
+        verify(chain, never()).doFilter(req, resp);
+    }
+
+    @Test
+    @DisplayName("admin com a personificação desligada pedindo outro tenant: 403, não os dados do próprio")
+    void adminWithImpersonationDisabledRejected() throws Exception {
+        ImpersonationFilter filter = new ImpersonationFilter(false);
+        HttpServletRequest req = mock(HttpServletRequest.class);
+        HttpServletResponse resp = mock(HttpServletResponse.class);
+        FilterChain chain = mock(FilterChain.class);
+        when(req.getHeader(ImpersonationFilter.HEADER_IMPERSONATE)).thenReturn("tenant_b");
+        when(req.getAttribute(JwtAuthenticationFilter.ATTR_ROLES)).thenReturn(List.of("ADMIN"));
+        when(req.getAttribute(JwtAuthenticationFilter.ATTR_TENANT)).thenReturn("tenant_a");
+        when(req.getRequestURI()).thenReturn("/api/workflows");
+        when(resp.getWriter()).thenReturn(new java.io.PrintWriter(new java.io.StringWriter()));
+
+        filter.doFilter(req, resp, chain);
+
+        verify(resp).setStatus(HttpServletResponse.SC_FORBIDDEN);
+        verify(chain, never()).doFilter(req, resp);
+    }
+
+    @Test
+    @DisplayName("X-Impersonate-Tenant que repete o próprio tenant: não é personificar, segue aceito")
+    void impersonationEchoingOwnTenantAccepted() throws Exception {
+        ImpersonationFilter filter = new ImpersonationFilter(true);
+        HttpServletRequest req = mock(HttpServletRequest.class);
+        HttpServletResponse resp = mock(HttpServletResponse.class);
+        FilterChain chain = mock(FilterChain.class);
+        when(req.getHeader(ImpersonationFilter.HEADER_IMPERSONATE)).thenReturn("tenant_self");
+        when(req.getAttribute(JwtAuthenticationFilter.ATTR_ROLES)).thenReturn(List.of("VIEWER"));
+        when(req.getAttribute(JwtAuthenticationFilter.ATTR_TENANT)).thenReturn("tenant_self");
+        when(req.getRequestURI()).thenReturn("/api/workflows");
+
+        filter.doFilter(req, resp, chain);
+
+        verify(req).setAttribute(ImpersonationFilter.ATTR_TENANT_ID, "tenant_self");
+        verify(chain, times(1)).doFilter(req, resp);
     }
 
     @Test

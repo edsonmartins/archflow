@@ -172,12 +172,12 @@ curl -X POST http://localhost:8080/api/auth/refresh \
 
 **Causas possiveis:**
 1. Token malformado (verifique copia/cola)
-2. `JWT_SECRET` mudou entre reinicializacoes
+2. `ARCHFLOW_JWT_SECRET` mudou entre reinicializacoes
 3. Token foi gerado por outra instancia com secret diferente
 
 ```bash
-# Verificar se o JWT_SECRET e consistente
-echo $JWT_SECRET
+# Verificar se o ARCHFLOW_JWT_SECRET e consistente
+echo $ARCHFLOW_JWT_SECRET
 
 # Fazer novo login
 curl -X POST http://localhost:8080/api/auth/login \

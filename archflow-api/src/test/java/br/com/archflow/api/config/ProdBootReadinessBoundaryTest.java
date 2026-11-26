@@ -52,10 +52,14 @@ class ProdBootReadinessBoundaryTest {
     /** Ambiente sem profile dev/test → o guard roda de verdade (como em prod). */
     private static StandardEnvironment prodLikeEnvironment() {
         StandardEnvironment env = new StandardEnvironment();
-        // Como no perfil prod real: auth ligada (o guard recusa boot com auth
-        // desligada fora de dev/test — checagem separada das de persistência).
+        // Como no perfil prod real: auth ligada e segredo JWT próprio (o guard recusa boot com auth
+        // desligada ou com o segredo público fora de dev/test — checagens separadas das de
+        // persistência, que são o que este teste mede).
         env.getPropertySources().addFirst(new org.springframework.core.env.MapPropertySource(
-                "test", java.util.Map.of("archflow.security.auth.enabled", "true")));
+                "test", java.util.Map.of(
+                        "archflow.security.auth.enabled", "true",
+                        ProductionReadinessGuard.JWT_SECRET_PROPERTY,
+                        "segredo-do-deployment-aleatorio-com-mais-de-32-bytes")));
         return env;
     }
 

@@ -7,6 +7,8 @@ interface MicButtonProps {
     status: RealtimeStatus;
     onStart: () => void;
     onStop: () => void;
+    /** Sem a permissão de acionar o agente o servidor recusa o handshake: o botão não abre a sessão. */
+    disabled?: boolean;
 }
 
 const STATUS_COLOR: Record<RealtimeStatus, string> = {
@@ -37,7 +39,7 @@ const STATUS_LABEL_KEY: Record<RealtimeStatus, string> = {
  * callbacks. Visual states map to the {@link RealtimeStatus} enum from
  * the realtime client.
  */
-export default function MicButton({ status, onStart, onStop }: MicButtonProps) {
+export default function MicButton({ status, onStart, onStop, disabled = false }: MicButtonProps) {
     const { t } = useTranslation();
     const label = t(`voicePlayground.mic.${STATUS_LABEL_KEY[status]}`);
     const active = status === 'recording' || status === 'speaking';
@@ -61,6 +63,7 @@ export default function MicButton({ status, onStart, onStop }: MicButtonProps) {
                     variant="filled"
                     color={color}
                     onClick={handleClick}
+                    disabled={disabled}
                     style={{
                         position: 'relative',
                         boxShadow: active

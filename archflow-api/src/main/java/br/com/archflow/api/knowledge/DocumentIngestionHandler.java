@@ -47,7 +47,21 @@ public class DocumentIngestionHandler implements JobHandler {
     }
 
     public void handle(JobContext context, Map<String, Object> payload) {
-        String tenantId = required(payload, "tenantId");
+        // O tenant é o do registro do job (o de quem submeteu), nunca o do payload: o POST /api/jobs
+        // aceita qualquer payload, e com o tenant lido dali um usuário do tenant B, conhecendo os ids,
+        // reescrevia os trechos do documento do tenant A com outro arquivo de A (QA2 P5).
+        String tenantId = context.tenantId();
+        if (tenantId == null || tenantId.isBlank()) {
+            throw new IllegalStateException("Ingestion job " + context.jobId() + " has no tenant");
+        }
+        // O KnowledgeService ainda grava o tenantId no payload (e os jobs já enfileirados o têm). Um
+        // valor diferente do do job é recusado antes de qualquer leitura — em vez de ignorado —, para
+        // que nem o "documento não encontrado" diga a quem pediu se os ids do outro tenant existem.
+        Object fromPayload = payload.get("tenantId");
+        if (fromPayload != null && !fromPayload.toString().isBlank()
+                && !fromPayload.toString().trim().equals(tenantId)) {
+            throw new IllegalArgumentException("Job payload tenantId does not match the tenant of the job");
+        }
         String documentId = required(payload, "documentId");
         String fileId = required(payload, "fileId");
         KnowledgeDocument document = repository.findDocument(tenantId, documentId);

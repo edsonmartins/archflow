@@ -26,6 +26,9 @@ public class JwtService {
 
     private static final Logger log = LoggerFactory.getLogger(JwtService.class);
 
+    /** Claim com o id da sessão de login, compartilhado pelo access e pelo refresh token dela. */
+    public static final String SESSION_CLAIM = "sid";
+
     private final SecretKey signingKey;
     private final long accessTokenExpirationMs;
     private final long refreshTokenExpirationMs;
@@ -33,7 +36,11 @@ public class JwtService {
 
     // Default values
     private static final long DEFAULT_ACCESS_TOKEN_EXPIRATION = 15 * 60 * 1000; // 15 minutes
-    private static final long DEFAULT_REFRESH_TOKEN_EXPIRATION = 7 * 24 * 60 * 60 * 1000L; // 7 days
+    /**
+     * 7 dias. Público para quem configura só a validade do access token (o bean do servidor, com
+     * {@code ARCHFLOW_JWT_TTL}) manter a do refresh sem repetir o número.
+     */
+    public static final long DEFAULT_REFRESH_TOKEN_EXPIRATION = 7 * 24 * 60 * 60 * 1000L;
 
     /**
      * Creates a JwtService with a secret key.
@@ -101,14 +108,29 @@ public class JwtService {
      * chamada.
      */
     public String generateTenantAccessToken(String userId, String username, String tenantId, String[] roles) {
-        if (tenantId == null || tenantId.isBlank()) {
-            return generateAccessToken(userId, username, roles);
+        return generateTenantAccessToken(userId, username, tenantId, roles, null);
+    }
+
+    /**
+     * Como {@link #generateTenantAccessToken(String, String, String, String[])}, com a claim
+     * {@link #SESSION_CLAIM} — a sessão de login a que o token pertence. Access e refresh de um mesmo
+     * login (e os que a rotação emite a partir dele) levam o mesmo id: é o que permite ao logout
+     * encerrar a sessão inteira apresentando só o access token, que é o que o SPA manda.
+     *
+     * @param sessionId id da sessão; {@code null} emite o token sem a claim, como os de antes
+     */
+    public String generateTenantAccessToken(String userId, String username, String tenantId, String[] roles,
+                                            String sessionId) {
+        Map<String, Object> claims = new HashMap<>();
+        claims.put("type", "access");
+        claims.put("roles", roles);
+        if (tenantId != null && !tenantId.isBlank()) {
+            claims.put("tenantId", tenantId);
         }
-        return generateToken(userId, username, accessTokenExpirationMs, Map.of(
-                "type", "access",
-                "roles", roles,
-                "tenantId", tenantId
-        ));
+        if (sessionId != null) {
+            claims.put(SESSION_CLAIM, sessionId);
+        }
+        return generateToken(userId, username, accessTokenExpirationMs, claims);
     }
 
     /**
@@ -119,9 +141,20 @@ public class JwtService {
      * @return The JWT refresh token
      */
     public String generateRefreshToken(String userId, String username) {
-        return generateToken(userId, username, refreshTokenExpirationMs, Map.of(
-                "type", "refresh"
-        ));
+        return generateRefreshToken(userId, username, null);
+    }
+
+    /**
+     * Um refresh token da sessão {@code sessionId} (claim {@link #SESSION_CLAIM}); {@code null} emite
+     * o token sem a claim.
+     */
+    public String generateRefreshToken(String userId, String username, String sessionId) {
+        Map<String, Object> claims = new HashMap<>();
+        claims.put("type", "refresh");
+        if (sessionId != null) {
+            claims.put(SESSION_CLAIM, sessionId);
+        }
+        return generateToken(userId, username, refreshTokenExpirationMs, claims);
     }
 
     /**
@@ -213,6 +246,14 @@ public class JwtService {
      */
     public String extractTokenType(String token) {
         return extractClaim(token, claims -> claims.get("type", String.class));
+    }
+
+    /**
+     * A sessão de login do token (claim {@link #SESSION_CLAIM}), ou {@code null} num token emitido
+     * antes de a claim existir.
+     */
+    public String extractSessionId(String token) {
+        return extractClaim(token, claims -> claims.get(SESSION_CLAIM, String.class));
     }
 
     /**

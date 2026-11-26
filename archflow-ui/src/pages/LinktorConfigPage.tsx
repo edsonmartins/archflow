@@ -10,6 +10,8 @@ import {
 import { notifications } from '@mantine/notifications'
 import { linktorApi, type LinktorConfig } from '../services/linktor-api'
 import { ApiError } from '../services/api'
+import { useIsAdmin } from '../lib/permissions'
+import { PermissionTooltip } from '../components/PermissionTooltip'
 import { PageHeader } from '../components/PageHeader'
 import { SectionCard } from '../components/SectionCard'
 
@@ -52,15 +54,25 @@ const PROPRIEDADES_PERMANENTES: ReadonlyArray<readonly [propriedade: string, var
  */
 export default function LinktorConfigPage() {
     const { t } = useTranslation()
+    // Gravar a configuração (o comando que o servidor executa e o destino da chave) exige o papel ADMIN
+    // (QA2 RCHFLW-137).
+    const isAdmin = useIsAdmin()
     const [cfg, setCfg]       = useState<LinktorConfig>(DEFAULT)
     const [loading, setL]     = useState(true)
     const [saving, setS]      = useState(false)
+    // Sem a configuração atual o formulário fica nos padrões, e salvá-lo mandaria chave e token em branco —
+    // que o servidor agora entende como "remover" (RCHFLW-193) — e trocaria o resto pelos padrões. Então,
+    // se o GET falhou, não há o que salvar até a página carregar de novo.
+    const [loadFailed, setLoadFailed] = useState(false)
 
     useEffect(() => {
         linktorApi.get()
             .then(c => setCfg({ ...DEFAULT, ...c }))
-            .catch(e => notifications.show({ color: 'red', title: 'Linktor',
-                message: e instanceof ApiError ? e.message : String(e) }))
+            .catch(e => {
+                setLoadFailed(true)
+                notifications.show({ color: 'red', title: 'Linktor',
+                    message: e instanceof ApiError ? e.message : String(e) })
+            })
             .finally(() => setL(false))
     }, [])
 
@@ -212,11 +224,20 @@ export default function LinktorConfigPage() {
                         </Stack>
                     </SectionCard>
 
+                    {loadFailed && (
+                        <Alert color="red" variant="light" icon={<IconAlertTriangle size={16} />}
+                               title={t('linktor.config.loadFailedTitle')} data-testid="linktor-load-failed">
+                            {t('linktor.config.loadFailedBody')}
+                        </Alert>
+                    )}
+
                     <Group justify="flex-end">
-                        <Button onClick={save} loading={saving} leftSection={<IconDeviceFloppy size={16} />}
-                                data-testid="linktor-save">
-                            {t('common.save')}
-                        </Button>
+                        <PermissionTooltip missing={isAdmin ? null : 'ADMIN'}>
+                            <Button onClick={save} loading={saving} leftSection={<IconDeviceFloppy size={16} />}
+                                    disabled={!isAdmin || loadFailed} data-testid="linktor-save">
+                                {t('common.save')}
+                            </Button>
+                        </PermissionTooltip>
                     </Group>
                 </Stack>
             )}
