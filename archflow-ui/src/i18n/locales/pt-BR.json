@@ -1257,6 +1257,7 @@
                 "subtitle": "Organizações desta instalação, seus planos e consumo.",
                 "listTitle": "Todos os tenants",
                 "listHint": "Clique na linha para ver o detalhe; a seta abre o workspace como o tenant.",
+                "listHintNoImpersonation": "Clique na linha para ver o detalhe. Entrar como o tenant está desligado neste servidor (archflow.admin.impersonation.enabled).",
                 "searchPlaceholder": "Buscar por nome ou ID",
                 "noMatch": "Nenhum tenant corresponde à busca.",
                 "emptyHint": "Crie o primeiro tenant para trazer uma organização.",

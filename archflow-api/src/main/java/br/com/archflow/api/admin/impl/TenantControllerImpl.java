@@ -29,6 +29,8 @@ public class TenantControllerImpl implements TenantController {
      * cadastro, que nasce zerado: nunca um número de demonstração.
      */
     private volatile Function<String, TenantUsageDto> usoMedido;
+    /** {@code archflow.admin.impersonation.enabled}, só repassado nos totais (RCHFLW-198). */
+    private volatile boolean impersonationEnabled;
 
     /** No-arg constructor seeds demo tenants — used by tests / dev profile. */
     public TenantControllerImpl() {
@@ -82,6 +84,15 @@ public class TenantControllerImpl implements TenantController {
         this.usoMedido = usoMedido;
     }
 
+    /**
+     * Se este servidor aceita a personificação ({@code archflow.admin.impersonation.enabled}). Quem
+     * decide é o {@code ImpersonationFilter}; aqui o valor só segue nos totais, para a lista de tenants
+     * não oferecer um "Entrar" que o servidor vai recusar (RCHFLW-198).
+     */
+    public void setImpersonationEnabled(boolean impersonationEnabled) {
+        this.impersonationEnabled = impersonationEnabled;
+    }
+
     /** O cadastro com o uso medido no lugar do guardado. */
     private TenantDto comUsoMedido(TenantDto tenant) {
         Function<String, TenantUsageDto> fonte = usoMedido;
@@ -125,7 +136,7 @@ public class TenantControllerImpl implements TenantController {
         }
         int execToday = usos.stream().mapToInt(u -> u != null ? u.executionsToday() : 0).sum();
         long tokensMonth = usos.stream().mapToLong(u -> u != null ? u.tokensThisMonth() : 0).sum();
-        return new TenantStatsDto((int) active, (int) trial, execToday, tokensMonth);
+        return new TenantStatsDto((int) active, (int) trial, execToday, tokensMonth, impersonationEnabled);
     }
 
     @Override

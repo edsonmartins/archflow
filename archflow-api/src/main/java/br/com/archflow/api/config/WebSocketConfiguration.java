@@ -12,6 +12,10 @@ import org.springframework.web.socket.config.annotation.EnableWebSocket;
 import org.springframework.web.socket.config.annotation.WebSocketConfigurer;
 import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistry;
 
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.Map;
 import java.util.function.Predicate;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -37,6 +41,16 @@ public class WebSocketConfiguration implements WebSocketConfigurer {
     private final boolean impersonationEnabled;
     /** {@code true} para o id de um tenant suspenso no cadastro — lido a cada handshake. */
     private final Predicate<String> tenantSuspended;
+    /**
+     * De quanto em quanto tempo, no máximo, uma sessão aberta é reconferida (RCHFLW-197). A conferência
+     * roda na mensagem que chegar depois do intervalo: o Voice Playground manda ~190 mensagens de áudio
+     * por segundo, e reconferir cada uma seriam centenas de consultas ao banco por segundo por usuário.
+     */
+    private final Duration reauthInterval;
+    private final Clock clock;
+
+    /** Atributo da sessão com a identidade conferida no handshake (só com a autenticação ligada). */
+    static final String IDENTITY_ATTRIBUTE = WebSocketConfiguration.class.getName() + ".identity";
 
     // SpringRealtimeController only exists when a RealtimeAdapter is configured
     // (e.g. the dev profile); a hard constructor dependency would fail the boot
@@ -53,19 +67,29 @@ public class WebSocketConfiguration implements WebSocketConfigurer {
             @org.springframework.beans.factory.annotation.Value(
                     "${archflow.security.auth.enabled:false}") boolean authEnabled,
             @org.springframework.beans.factory.annotation.Value(
-                    "${archflow.admin.impersonation.enabled:false}") boolean impersonationEnabled) {
+                    "${archflow.admin.impersonation.enabled:false}") boolean impersonationEnabled,
+            @org.springframework.beans.factory.annotation.Value(
+                    "${archflow.realtime.reauth-interval:PT5S}") Duration reauthInterval) {
         this(realtimeController.getIfAvailable(), jwtService.getIfAvailable(), authService.getIfAvailable(),
                 allowedOrigins, authEnabled, impersonationEnabled, tenantId -> {
                     // O mesmo cadastro que o TenantSuspensionInterceptor lê: suspender e reativar valem na hora.
                     TenantControllerImpl cadastro = tenants.getIfAvailable();
                     return cadastro != null && cadastro.isSuspended(tenantId);
-                });
+                }, reauthInterval, Clock.systemUTC());
     }
 
     WebSocketConfiguration(SpringRealtimeController realtimeController,
                            br.com.archflow.security.jwt.JwtService jwtService, AuthService authService,
                            String[] allowedOrigins, boolean authEnabled, boolean impersonationEnabled,
                            Predicate<String> tenantSuspended) {
+        this(realtimeController, jwtService, authService, allowedOrigins, authEnabled, impersonationEnabled,
+                tenantSuspended, Duration.ofSeconds(5), Clock.systemUTC());
+    }
+
+    WebSocketConfiguration(SpringRealtimeController realtimeController,
+                           br.com.archflow.security.jwt.JwtService jwtService, AuthService authService,
+                           String[] allowedOrigins, boolean authEnabled, boolean impersonationEnabled,
+                           Predicate<String> tenantSuspended, Duration reauthInterval, Clock clock) {
         this.realtimeController = realtimeController;
         this.jwtService = jwtService;
         this.authService = authService;
@@ -73,6 +97,8 @@ public class WebSocketConfiguration implements WebSocketConfigurer {
         this.authEnabled = authEnabled;
         this.impersonationEnabled = impersonationEnabled;
         this.tenantSuspended = tenantSuspended;
+        this.reauthInterval = reauthInterval;
+        this.clock = clock;
     }
 
     @Override
@@ -88,7 +114,7 @@ public class WebSocketConfiguration implements WebSocketConfigurer {
                 .setAllowedOrigins(allowedOrigins);
     }
 
-    private WebSocketHandler delegatingHandler() {
+    WebSocketHandler delegatingHandler() {
         return new org.springframework.web.socket.handler.AbstractWebSocketHandler() {
             @Override
             public void afterConnectionEstablished(org.springframework.web.socket.WebSocketSession session) throws Exception {
@@ -113,6 +139,17 @@ public class WebSocketConfiguration implements WebSocketConfigurer {
             @Override
             protected void handleTextMessage(org.springframework.web.socket.WebSocketSession session,
                                              org.springframework.web.socket.TextMessage message) throws Exception {
+                org.springframework.http.HttpStatus refusal = reauthorize(session.getAttributes());
+                if (refusal != null) {
+                    log.warn("Closing realtime session {} — open session no longer authorized ({})",
+                            session.getId(), refusal.value());
+                    session.close(refusal == org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE
+                            ? CloseStatus.SERVICE_OVERLOAD.withReason("AUTH_UNAVAILABLE")
+                            : CloseStatus.POLICY_VIOLATION.withReason(
+                                    refusal == org.springframework.http.HttpStatus.UNAUTHORIZED
+                                            ? "SESSION_REVOKED" : "FORBIDDEN"));
+                    return;
+                }
                 handler(session).handleMessage(session, message);
             }
 
@@ -169,7 +206,7 @@ public class WebSocketConfiguration implements WebSocketConfigurer {
                     String token = org.springframework.web.util.UriComponentsBuilder
                             .fromUri(request.getURI()).build()
                             .getQueryParams().getFirst("token");
-                    org.springframework.http.HttpStatus refusal = authorizeHandshake(token, tenantId);
+                    org.springframework.http.HttpStatus refusal = authorizeHandshake(token, tenantId, attributes);
                     if (refusal != null) {
                         log.warn("Rejecting realtime handshake ({}): {}", refusal.value(), path);
                         response.setStatusCode(refusal);
@@ -216,45 +253,116 @@ public class WebSocketConfiguration implements WebSocketConfigurer {
      *         tenant de outro, papel sem {@code workflow:execute} ou tenant suspenso, 503 store de
      *         revogação/usuários sem resposta)
      */
-    org.springframework.http.HttpStatus authorizeHandshake(String token, String pathTenant) {
+    org.springframework.http.HttpStatus authorizeHandshake(String token, String pathTenant,
+                                                           Map<String, Object> attributes) {
         if (jwtService == null || authService == null || token == null || token.isBlank()) {
             return org.springframework.http.HttpStatus.UNAUTHORIZED;
         }
         AuthService.UserInfo principal;
         String tokenTenant;
+        String sessionId;
         try {
             principal = authService.getUserInfoFromToken(token);
             tokenTenant = jwtService.extractClaim(token, claims -> claims.get("tenantId", String.class));
+            sessionId = jwtService.extractSessionId(token);
         } catch (RuntimeException e) {
-            if (!JwtAuthenticationFilter.isTokenRejection(e)) {
-                // Store de revogação/usuários fora do ar: recusa, mas sem culpar o token (como o filtro).
-                log.error("Realtime handshake refused — authentication store unavailable", e);
-                return org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE;
-            }
-            log.debug("Realtime handshake token refused: {}", e.getMessage());
-            return org.springframework.http.HttpStatus.UNAUTHORIZED;
+            return refusalOf(e, "handshake");
         }
         String expected = tokenTenant == null || tokenTenant.isBlank()
                 ? TenantContext.DEFAULT_TENANT : tokenTenant.trim();
+        org.springframework.http.HttpStatus refusal = authorize(principal, expected, pathTenant);
+        if (refusal == null) {
+            if (!expected.equals(pathTenant)) {
+                log.info("Tenant impersonation (realtime): tenantId={} userId={}", pathTenant, principal.userId());
+            }
+            attributes.put(IDENTITY_ATTRIBUTE,
+                    new Identity(principal.userId(), sessionId, token, expected, pathTenant, clock.instant()));
+        }
+        return refusal;
+    }
+
+    /**
+     * Reconfere uma sessão aberta (RCHFLW-197): o handshake era a única conferência, e uma sessão de voz
+     * aberta seguia conversando com o agente depois do logout, do rebaixamento para VIEWER ou da suspensão
+     * do tenant — o REST confere isso a cada requisição. Aqui vale a mesma regra do handshake, com a
+     * sessão no lugar do token: {@link AuthService#getUserInfoOfOpenSession} (revogação, usuário ativo,
+     * papéis atuais — sem a expiração, que o cliente não renova num socket aberto) e
+     * {@link #authorize} (tenant suspenso, {@code workflow:execute}, tenant do caminho). No máximo uma vez
+     * por {@code archflow.realtime.reauth-interval}.
+     *
+     * @return {@code null} quando a sessão segue autorizada (ou a autenticação está desligada); senão o
+     *         status da recusa, com o mesmo sentido do handshake
+     */
+    org.springframework.http.HttpStatus reauthorize(Map<String, Object> attributes) {
+        if (!(attributes.get(IDENTITY_ATTRIBUTE) instanceof Identity identity)) {
+            // Sem identidade só quando a autenticação está desligada: o handshake não abre a sessão sem ela.
+            return authEnabled ? org.springframework.http.HttpStatus.UNAUTHORIZED : null;
+        }
+        Instant now = clock.instant();
+        if (now.isBefore(identity.lastCheck().plus(reauthInterval))) {
+            return null;
+        }
+        AuthService.UserInfo principal;
+        try {
+            principal = authService.getUserInfoOfOpenSession(identity.userId(), identity.sessionId(),
+                    identity.token());
+        } catch (RuntimeException e) {
+            return refusalOf(e, "open session");
+        }
+        org.springframework.http.HttpStatus refusal =
+                authorize(principal, identity.identityTenant(), identity.pathTenant());
+        if (refusal == null) {
+            attributes.put(IDENTITY_ATTRIBUTE, identity.checkedAt(now));
+        }
+        return refusal;
+    }
+
+    /** A identidade aceita no handshake e o instante da última conferência dela. */
+    record Identity(String userId, String sessionId, String token, String identityTenant, String pathTenant,
+                    Instant lastCheck) {
+        Identity checkedAt(Instant instant) {
+            return new Identity(userId, sessionId, token, identityTenant, pathTenant, instant);
+        }
+
+        /** Sem o token: um log da identidade não pode levar a credencial junto. */
+        @Override
+        public String toString() {
+            return "Identity[userId=" + userId + ", identityTenant=" + identityTenant
+                    + ", pathTenant=" + pathTenant + ", lastCheck=" + lastCheck + "]";
+        }
+    }
+
+    private static org.springframework.http.HttpStatus refusalOf(RuntimeException e, String what) {
+        if (!JwtAuthenticationFilter.isTokenRejection(e)) {
+            // Store de revogação/usuários fora do ar: recusa, mas sem culpar o token (como o filtro).
+            log.error("Realtime {} refused — authentication store unavailable", what, e);
+            return org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE;
+        }
+        log.debug("Realtime {} refused: {}", what, e.getMessage());
+        return org.springframework.http.HttpStatus.UNAUTHORIZED;
+    }
+
+    /** O que o handshake e a reconferência exigem dos papéis e do tenant atuais da identidade. */
+    private org.springframework.http.HttpStatus authorize(AuthService.UserInfo principal, String expected,
+                                                          String pathTenant) {
         // Como no REST: o tenant conferido é o da identidade, não o do caminho — o superadmin que
         // personifica um tenant suspenso ainda precisa entrar nele para reativá-lo.
         if (tenantSuspended != null && tenantSuspended.test(expected)) {
-            log.warn("Rejecting realtime handshake — tenant {} is suspended", expected);
+            log.warn("Rejecting realtime session — tenant {} is suspended", expected);
             return org.springframework.http.HttpStatus.FORBIDDEN;
         }
         String execute = ApiKeyScope.WORKFLOW_EXECUTE.getPermission();
         if (!WorkflowPermissionInterceptor.permits(principal.roleSet(), execute)) {
-            log.warn("Rejecting realtime handshake — roles {} do not grant {}", principal.roleSet(), execute);
+            log.warn("Rejecting realtime session — roles {} do not grant {}", principal.roleSet(), execute);
             return org.springframework.http.HttpStatus.FORBIDDEN;
         }
         if (expected.equals(pathTenant)) {
             return null;
         }
         if (impersonationEnabled && ImpersonationFilter.rolesMayImpersonate(principal.roleSet())) {
-            log.info("Tenant impersonation (realtime): tenantId={} userId={}", pathTenant, principal.userId());
             return null;
         }
-        log.warn("Rejecting realtime handshake for another tenant: path={} token={}", pathTenant, expected);
+        log.warn("Rejecting realtime session for another tenant: path={} token={}", pathTenant, expected);
         return org.springframework.http.HttpStatus.FORBIDDEN;
     }
 

@@ -275,8 +275,34 @@ public class AuthService {
      */
     public UserInfo getUserInfoFromToken(String accessToken) {
         String userId = validateAccessToken(accessToken);
-        String username = jwtService.extractUsername(accessToken);
+        return currentUser(userId, jwtService.extractUsername(accessToken));
+    }
 
+    /**
+     * Reconfere uma sessão já aberta com {@code accessToken} — um WebSocket, que só apresenta o token no
+     * handshake (RCHFLW-197). Confere o que o {@link #getUserInfoFromToken} confere a cada requisição REST
+     * — sessão (ou o próprio token, se for de antes da claim) não revogada pelo logout, usuário ainda
+     * ativo e os papéis atuais — <b>exceto a expiração</b>: o cliente não renova o token de um socket
+     * aberto, e conferi-la derrubaria toda sessão de voz 15 min depois do login.
+     *
+     * @param userId      o usuário do handshake
+     * @param sessionId   a claim de sessão do token do handshake, ou {@code null} num token de antes dela
+     * @param accessToken o token do handshake (revogado pelo próprio texto quando não há sessão)
+     * @return os dados atuais do usuário
+     * @throws AuthenticationException sessão revogada, usuário removido, desativado ou bloqueado
+     */
+    public UserInfo getUserInfoOfOpenSession(String userId, String sessionId, String accessToken) {
+        boolean revoked = sessionId != null
+                ? tokenBlacklist.isRevoked(sessionKey(sessionId))
+                : tokenBlacklist.isRevoked(accessToken);
+        if (revoked) {
+            throw new AuthenticationException("Session has been revoked");
+        }
+        return currentUser(userId, null);
+    }
+
+    /** O usuário como está no repositório agora; {@code username} nulo usa o do cadastro. */
+    private UserInfo currentUser(String userId, String username) {
         // Get additional user info from repository
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new AuthenticationException("User not found"));
@@ -292,7 +318,7 @@ public class AuthService {
 
         return new UserInfo(
                 userId,
-                username,
+                username != null ? username : user.getUsername(),
                 user.getEmail(),
                 roles,
                 user.isEnabled(),

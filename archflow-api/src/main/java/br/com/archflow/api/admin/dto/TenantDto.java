@@ -31,11 +31,17 @@ public record TenantDto(
             int userCount
     ) {}
 
+    /**
+     * @param impersonationEnabled {@code archflow.admin.impersonation.enabled} deste servidor. Com ela
+     *                             desligada o servidor recusa toda requisição personificada (403
+     *                             IMPERSONATION_DENIED), e a lista de tenants esconde o "Entrar" (RCHFLW-198)
+     */
     public record TenantStatsDto(
             int totalActive,
             int totalTrial,
             int executionsToday,
-            long tokensThisMonth
+            long tokensThisMonth,
+            boolean impersonationEnabled
     ) {}
 
     public record CreateTenantRequest(
