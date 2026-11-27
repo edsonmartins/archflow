@@ -72,7 +72,12 @@ export default function TenantList() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [setTenants])
 
+  // RCHFLW-198: com a personificação desligada no servidor, "Entrar" levava a 403 em toda tela até sair.
+  // Só aparece quando o servidor diz que aceita — enquanto os totais não chegam, ou se falharem, não.
+  const impersonationEnabled = stats?.impersonationEnabled === true
+
   const handleImpersonate = (tenant: TenantRow) => {
+    if (!impersonationEnabled) return
     startImpersonation({
       id: tenant.id,
       name: tenant.name,
@@ -127,10 +132,11 @@ export default function TenantList() {
       },
     ),
     colunaAcoes([
-      { nome: 'enter', icone: 'external', rotulo: t('admin.superadmin.tenants.enter'), cor: 'blue' },
+      { nome: 'enter', icone: 'external', rotulo: t('admin.superadmin.tenants.enter'), cor: 'blue',
+        mostrar: () => impersonationEnabled },
       { nome: 'details', icone: 'eye', rotulo: t('admin.superadmin.tenants.details') },
     ]),
-  ], [t])
+  ], [t, impersonationEnabled])
 
   return (
     <Stack gap="lg" p="md">
@@ -169,7 +175,9 @@ export default function TenantList() {
         icon={IconBuildingSkyscraper}
         accent="blue"
         title={t('admin.superadmin.tenants.listTitle')}
-        description={t('admin.superadmin.tenants.listHint')}
+        description={stats && !impersonationEnabled
+          ? t('admin.superadmin.tenants.listHintNoImpersonation')
+          : t('admin.superadmin.tenants.listHint')}
         actions={
           <TextInput
             size="xs"

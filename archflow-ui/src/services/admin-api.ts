@@ -80,6 +80,11 @@ export interface TenantStats {
   totalTrial:        number
   executionsToday:   number
   tokensThisMonth:   number
+  /**
+   * `archflow.admin.impersonation.enabled` do servidor. Desligada, toda requisição personificada leva 403
+   * IMPERSONATION_DENIED, e a lista não oferece o "Entrar" (RCHFLW-198).
+   */
+  impersonationEnabled: boolean
 }
 
 export const tenantApi = {

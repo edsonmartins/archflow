@@ -1257,6 +1257,7 @@
                 "subtitle": "Organizations on this deployment, their plans and consumption.",
                 "listTitle": "All tenants",
                 "listHint": "Click a row for details; the arrow opens the workspace as that tenant.",
+                "listHintNoImpersonation": "Click a row for details. Entering as the tenant is turned off on this server (archflow.admin.impersonation.enabled).",
                 "searchPlaceholder": "Search by name or ID",
                 "noMatch": "No tenant matches the search.",
                 "emptyHint": "Create the first tenant to onboard an organization.",

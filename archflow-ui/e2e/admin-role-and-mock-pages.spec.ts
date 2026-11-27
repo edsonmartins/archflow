@@ -11,7 +11,7 @@ async function setSession(page: Page, role: 'superadmin' | 'tenant_admin') {
     await installSession(page, { role });
 }
 
-async function installAdminApi(page: Page) {
+async function installAdminApi(page: Page, { impersonationEnabled = true } = {}) {
     let tenants = [
         {
             id: 'tenant_rio_quality',
@@ -117,6 +117,7 @@ async function installAdminApi(page: Page) {
                 totalTrial: tenants.filter((tenant) => tenant.status === 'trial').length,
                 executionsToday: tenants.reduce((sum, tenant) => sum + tenant.usage.executionsToday, 0),
                 tokensThisMonth: tenants.reduce((sum, tenant) => sum + tenant.usage.tokensThisMonth, 0),
+                impersonationEnabled,
             });
             return true;
         },
@@ -317,6 +318,19 @@ test.describe('Admin roles and integrated pages', () => {
 
         await page.getByRole('button', { name: /Back to superadmin/i }).click();
         await expect(page.getByTestId('impersonation-banner')).toBeHidden();
+    });
+
+    test('impersonation turned off on the server: no Enter action, and the hint says why', async ({ page }) => {
+        // RCHFLW-198: com archflow.admin.impersonation.enabled=false, "Entrar" levava a 403 em toda tela.
+        await installAdminApi(page, { impersonationEnabled: false });
+        await setSession(page, 'superadmin');
+
+        await page.goto('/admin/tenants');
+
+        await expect(page.getByText('Entering as the tenant is turned off on this server', { exact: false }))
+            .toBeVisible();
+        await expect(page.getByRole('button', { name: 'Details' }).first()).toBeAttached();
+        await expect(page.getByRole('button', { name: 'Enter' })).toHaveCount(0);
     });
 
     test('creates a tenant through the real create endpoint', async ({ page }) => {

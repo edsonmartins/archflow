@@ -50,6 +50,17 @@ class TenantControllerImplTest {
     }
 
     @Test
+    @DisplayName("os totais dizem se a personificação está ligada — a lista não oferece um Entrar que vai dar 403")
+    void statsCarryImpersonationFlag() {
+        // RCHFLW-198: desligada (padrão de prod), o servidor recusa toda requisição personificada.
+        assertThat(controller.getStats().impersonationEnabled()).as("padrão: desligada").isFalse();
+
+        controller.setImpersonationEnabled(true);
+
+        assertThat(controller.getStats().impersonationEnabled()).isTrue();
+    }
+
+    @Test
     @DisplayName("should create new tenant")
     void shouldCreateTenant() {
         var request = new CreateTenantRequest("Acme Corp", "tenant_acme", "admin@acme.com",

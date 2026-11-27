@@ -447,11 +447,15 @@ public class ArchflowBeanConfiguration {
     @Bean
     @ConditionalOnMissingBean
     public TenantControllerImpl tenantControllerImpl(
-            @Value("${archflow.admin.seedDemoData:false}") boolean seedDemoData) {
+            @Value("${archflow.admin.seedDemoData:false}") boolean seedDemoData,
+            @Value("${archflow.admin.impersonation.enabled:false}") boolean impersonationEnabled) {
         // Default false so production never returns the fixture tenant in
         // listTenants(). Dev profile (application-dev.yml) overrides to
         // true so the local UI has something to render.
-        return new TenantControllerImpl(seedDemoData);
+        TenantControllerImpl controller = new TenantControllerImpl(seedDemoData);
+        // A mesma property e o mesmo padrão do ImpersonationFilter (RCHFLW-198).
+        controller.setImpersonationEnabled(impersonationEnabled);
+        return controller;
     }
 
     /**
