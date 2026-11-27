@@ -84,6 +84,17 @@ describe('RCHFLW-189 (3): a aprovação não é o fim do fluxo', () => {
     expect(locale('en.json').editor.ai.promptTemplate)
       .toContain('An approval is not the end of the flow: approving resumes the run at the next node')
   })
+
+  // RCHFLW-153: o pedido manda registrar a lacuna, e o aviso do fim da geração a lista.
+  it('o pedido do "Gerar com IA" manda registrar a lacuna com o reportGap, e o aviso tem onde listá-la', () => {
+    const locale = (f: string) => JSON.parse(readFileSync(resolve(__dirname, `../../../i18n/locales/${f}`), 'utf-8'))
+    for (const f of ['pt-BR.json', 'en.json']) {
+      const ai = locale(f).editor.ai
+      expect(ai.promptTemplate, f).toContain('reportGap')
+      expect(ai.gaps, f).toContain('{{items}}')
+      expect(ai.doneGaps, f).toBeTypeOf('string')
+    }
+  })
 })
 
 describe('RCHFLW-189 (4): o showStatus aparece no chat', () => {

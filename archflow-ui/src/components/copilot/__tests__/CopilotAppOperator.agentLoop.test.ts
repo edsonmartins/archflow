@@ -261,6 +261,9 @@ describe('CopilotAppOperator — o agente liga os nós que criou (laço real do 
 
     const [first, second] = server.bodies
     expect(first.tools.map(t => t.name)).toEqual(expect.arrayContaining(['addNode', 'connectNodes', 'createFlow']))
+    // RCHFLW-153: o reportGap é do agente do "Gerar com IA"; o chat lateral ('archflow') não tem aviso que o mostre.
+    expect(tools.has('reportGap')).toBe(true)
+    expect(first.tools.map(t => t.name)).not.toContain('reportGap')
     const assistant = second.messages.find(m => m.role === 'assistant' && m.toolCalls?.length)!
     expect(assistant.toolCalls!.map(c => c.function.name)).toEqual(['addNode', 'addNode', 'addNode'])
     for (const call of assistant.toolCalls!) {
@@ -275,7 +278,8 @@ describe('CopilotAppOperator — o agente liga os nós que criou (laço real do 
 describe('CopilotAppOperator — contrato das ferramentas de edição', () => {
   it('as ferramentas de que o agente depende pedem a rodada seguinte; as terminais não', async () => {
     await mountEditor()
-    for (const name of ['createFlow', 'addNode', 'connectNodes']) {
+    // reportGap também: com followUp:false, um lote só com ele encerraria o laço sem o resumo (RCHFLW-153).
+    for (const name of ['createFlow', 'addNode', 'connectNodes', 'reportGap']) {
       expect(tools.get(name)!.followUp, name).not.toBe(false)
     }
     for (const name of ['navigateTo', 'runWorkflow', 'showStatus']) {
