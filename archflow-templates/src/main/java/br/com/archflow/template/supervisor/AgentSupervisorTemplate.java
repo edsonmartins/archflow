@@ -50,10 +50,14 @@ public class AgentSupervisorTemplate extends AbstractWorkflowTemplate {
     private static Map<String, ParameterDefinition> buildParameters() {
         Map<String, ParameterDefinition> params = new LinkedHashMap<>();
 
-        params.put("agents", ParameterDefinition.required(
+        // Opcional com a mesma lista que o getDefinition() (e o buildWorkflow) já usam: como
+        // required sem default, omitir "agents" dava 400 embora o template tivesse um valor
+        // pronto para ele (RCHFLW-200).
+        params.put("agents", ParameterDefinition.optional(
                 "agents",
                 "List of agent IDs to coordinate",
-                List.class
+                List.class,
+                List.of("researcher", "writer", "reviewer")
         ));
 
         params.put("supervisorModel", ParameterDefinition.optional(
@@ -98,10 +102,13 @@ public class AgentSupervisorTemplate extends AbstractWorkflowTemplate {
                 true
         ));
 
+        // "synthesis" primeiro: o enumParameter usa options[0] como default, e o default que o
+        // getDefinition() e o buildWorkflow declaram é "synthesis". Com "concatenate" na frente, o
+        // install sem o parâmetro gravava os passos com um método e a instância com outro (RCHFLW-200).
         params.put("aggregationMethod", ParameterDefinition.enumParameter(
                 "aggregationMethod",
                 "Method for aggregating agent results",
-                "concatenate", "synthesis", "voting"
+                "synthesis", "concatenate", "voting"
         ));
 
         params.put("enableLogging", ParameterDefinition.optional(
@@ -360,7 +367,10 @@ public class AgentSupervisorTemplate extends AbstractWorkflowTemplate {
                 return Map.of(
                         "template", ID,
                         "templateVersion", VERSION,
-                        "createdAt", java.time.Instant.now()
+                        // ISO-8601 em texto, como o CustomerSupportTemplate: o /install copia este mapa
+                        // para o configuration do documento, e um Instant cru derrubava o JSON do
+                        // store JDBC com 500 (RCHFLW-200).
+                        "createdAt", java.time.Instant.now().toString()
                 );
             }
         };

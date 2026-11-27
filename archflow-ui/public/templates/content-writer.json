@@ -3,24 +3,22 @@
   "name": "Long-form content writer",
   "icon": "✍️",
   "summary": "Outlines, drafts and polishes a long-form article from a brief.",
-  "description": "Three-stage agent pipeline: an outline generator builds the structure, a drafter writes each section in parallel, and a final editor polishes tone and consistency. Useful for blog posts, newsletters and product descriptions.",
+  "description": "Three sequential LLM steps: an outliner turns the brief into a section structure, a drafter writes the full article from the brief and the outline, and an editor revises the draft for clarity, consistency and fidelity to the brief. Each step receives the original brief alongside the previous step's output. Useful for blog posts, newsletters and product descriptions.",
   "category": "content",
-  "tags": ["writing", "long-form", "multi-agent"],
+  "tags": ["writing", "long-form", "prompt-chain"],
   "complexity": "intermediate",
   "steps": [
     { "id": "s1", "type": "input", "componentId": "input", "label": "Brief", "category": "io", "position": { "x": 60, "y": 220 }, "config": {} },
-    { "id": "s2", "type": "agent", "componentId": "agent", "label": "Outliner", "category": "agent", "position": { "x": 280, "y": 220 }, "config": { "role": "outliner" } },
-    { "id": "s3", "type": "parallel", "componentId": "parallel", "label": "Draft sections", "category": "control", "position": { "x": 520, "y": 220 }, "config": {} },
-    { "id": "s4", "type": "agent", "componentId": "agent", "label": "Drafter", "category": "agent", "position": { "x": 760, "y": 220 }, "config": { "role": "drafter" } },
-    { "id": "s5", "type": "agent", "componentId": "agent", "label": "Editor", "category": "agent", "position": { "x": 1000, "y": 220 }, "config": { "role": "editor" } },
-    { "id": "s6", "type": "output", "componentId": "output", "label": "Article", "category": "io", "position": { "x": 1240, "y": 220 }, "config": {} }
+    { "id": "s2", "type": "llm-chat", "componentId": "llm-chat", "label": "Outline", "category": "agent", "position": { "x": 300, "y": 220 }, "config": { "systemPrompt": "Você é o redator responsável pelo esboço de um artigo longo. A partir do briefing, escreva somente a estrutura: título provisório e a lista de seções, cada uma com uma ou duas frases sobre o que ela deve cobrir. Não escreva o artigo.", "userMessage": "Briefing: ${s1}" } },
+    { "id": "s3", "type": "llm-chat", "componentId": "llm-chat", "label": "Draft", "category": "agent", "position": { "x": 540, "y": 220 }, "config": { "systemPrompt": "Você é o redator do primeiro rascunho. Escreva o artigo completo seguindo o esboço seção por seção e respeitando o briefing (público, tom e extensão, quando o briefing os indicar). Devolva apenas o texto do artigo.", "userMessage": "Briefing: ${s1}\n\nEsboço: ${s2}" } },
+    { "id": "s4", "type": "llm-chat", "componentId": "llm-chat", "label": "Edit", "category": "agent", "position": { "x": 780, "y": 220 }, "config": { "systemPrompt": "Você é o editor final. Revise o rascunho: corrija erros, melhore a clareza e a fluidez, deixe o tom consistente e confira se o texto cumpre o briefing. Devolva apenas a versão final do artigo, sem comentários sobre as mudanças.", "userMessage": "Briefing: ${s1}\n\nRascunho: ${s3}" } },
+    { "id": "s5", "type": "output", "componentId": "output", "label": "Article", "category": "io", "position": { "x": 1020, "y": 220 }, "config": {} }
   ],
   "connections": [
     { "id": "c1", "sourceId": "s1", "targetId": "s2", "isErrorPath": false },
     { "id": "c2", "sourceId": "s2", "targetId": "s3", "isErrorPath": false },
     { "id": "c3", "sourceId": "s3", "targetId": "s4", "isErrorPath": false },
-    { "id": "c4", "sourceId": "s4", "targetId": "s5", "isErrorPath": false },
-    { "id": "c5", "sourceId": "s5", "targetId": "s6", "isErrorPath": false }
+    { "id": "c4", "sourceId": "s4", "targetId": "s5", "isErrorPath": false }
   ],
   "variables": { "tone": "professional", "word_target": "1500" }
 }

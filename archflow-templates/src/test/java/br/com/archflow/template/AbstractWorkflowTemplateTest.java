@@ -1,6 +1,7 @@
 package br.com.archflow.template;
 
 import br.com.archflow.model.Workflow;
+import br.com.archflow.template.WorkflowTemplate.ParameterDefinition;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -26,6 +27,7 @@ class AbstractWorkflowTemplateTest {
     static class TestableTemplate extends AbstractWorkflowTemplate {
 
         Workflow builtWorkflow;
+        Map<String, Object> builtParameters;
 
         TestableTemplate(
                 String id,
@@ -39,6 +41,7 @@ class AbstractWorkflowTemplateTest {
 
         @Override
         protected Workflow buildWorkflow(String name, Map<String, Object> parameters) {
+            builtParameters = parameters;
             builtWorkflow = Workflow.builder()
                     .id(name)
                     .name(name)
@@ -192,6 +195,63 @@ class AbstractWorkflowTemplateTest {
             assertThatThrownBy(() -> template.createInstance("my-workflow", params))
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessageContaining("requiredParam");
+        }
+    }
+
+    /**
+     * RCHFLW-200: o {@code enumParameter} nasce {@code required=true} com {@code default=options[0]}, e o
+     * validateParameters recusava a chave omitida antes de o resolveParameters aplicar o default — 400 no
+     * install de três dos quatro templates SPI.
+     */
+    @Nested
+    @DisplayName("obrigatório com default (RCHFLW-200)")
+    class RequiredWithDefaultTests {
+
+        private TestableTemplate withEnum() {
+            Map<String, ParameterDefinition> params = new LinkedHashMap<>(buildParameters());
+            params.put("mode", ParameterDefinition.enumParameter("mode", "Mode", "fast", "slow"));
+            return new TestableTemplate("enum-template", "Enum", "desc", "cat", Set.of(), params);
+        }
+
+        @Test
+        @DisplayName("omitido, o default satisfaz a validação e é o valor aplicado")
+        void omittedRequiredWithDefaultUsesDefault() {
+            TestableTemplate t = withEnum();
+
+            t.createInstance("wf", Map.of("requiredParam", "x"));
+
+            assertThat(t.builtParameters).containsEntry("mode", "fast");
+        }
+
+        @Test
+        @DisplayName("informado, o valor de quem instala vence o default")
+        void explicitValueWinsOverDefault() {
+            TestableTemplate t = withEnum();
+
+            t.createInstance("wf", Map.of("requiredParam", "x", "mode", "slow"));
+
+            assertThat(t.builtParameters).containsEntry("mode", "slow");
+        }
+
+        @Test
+        @DisplayName("obrigatório sem default continua recusado")
+        void requiredWithoutDefaultStillRejected() {
+            TestableTemplate t = withEnum();
+
+            assertThatThrownBy(() -> t.validateParameters(Map.of()))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("requiredParam")
+                    .hasMessageNotContaining("'mode'");
+        }
+
+        @Test
+        @DisplayName("o tipo continua conferido quando o valor vem")
+        void typeStillCheckedForRequiredWithDefault() {
+            TestableTemplate t = withEnum();
+
+            assertThatThrownBy(() -> t.validateParameters(Map.of("requiredParam", "x", "mode", 3)))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("mode");
         }
     }
 

@@ -51,7 +51,10 @@ public class JdbcWorkflowRuntimeStore implements WorkflowRuntimeStore {
             Set.of("COMPLETED", "FAILED", "STOPPED", "CANCELLED");
 
     private final DataSource dataSource;
-    private final ObjectMapper mapper = new ObjectMapper();
+    // Com os módulos (java.time), como o JdbcMcpAgentStateStore e o JdbcAgentInvocationResultStore:
+    // o documento é um mapa livre que o install preenche a partir do Workflow do template, e um
+    // Instant ali dava InvalidDefinitionException no toJson — 500 no /install (RCHFLW-200).
+    private final ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
     // Serializa os read-modify-write concorrentes (callbacks do engine em virtual
     // threads) da MESMA execução dentro desta JVM — sem ele, dois recordStep
     // simultâneos perderiam o patch um do outro. Evicted quando a execução

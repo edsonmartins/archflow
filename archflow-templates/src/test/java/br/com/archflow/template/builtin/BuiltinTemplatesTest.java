@@ -523,13 +523,25 @@ class BuiltinTemplatesTest {
         class Parameters {
 
             @Test
-            @DisplayName("should define agents as required")
-            void shouldHaveRequiredAgents() {
+            @DisplayName("agents é opcional com a lista que a definição do template já usa (RCHFLW-200)")
+            void shouldHaveAgentsWithDefinitionDefault() {
                 Map<String, ParameterDefinition> params = template.getParameters();
 
                 assertThat(params).containsKey("agents");
-                assertThat(params.get("agents").required()).isTrue();
+                assertThat(params.get("agents").required()).isFalse();
                 assertThat(params.get("agents").type()).isEqualTo(List.class);
+                assertThat(params.get("agents").defaultValue())
+                        .isEqualTo(template.getDefinition().getDefaultParameters().get("agents"));
+            }
+
+            @Test
+            @DisplayName("o default de aggregationMethod é o da definição: synthesis (RCHFLW-200)")
+            void aggregationMethodDefaultMatchesDefinition() {
+                ParameterDefinition def = template.getParameters().get("aggregationMethod");
+
+                assertThat(def.defaultValue())
+                        .isEqualTo("synthesis")
+                        .isEqualTo(template.getDefinition().getDefaultParameters().get("aggregationMethod"));
             }
 
             @Test
@@ -587,23 +599,14 @@ class BuiltinTemplatesTest {
             }
 
             @Test
-            @DisplayName("should throw when required agents parameter is missing")
-            void shouldThrowWhenRequiredParamMissing() {
-                // Arrange
-                Map<String, Object> params = Map.of("maxIterations", 3);
+            @DisplayName("sem nenhum parâmetro instala com os defaults da definição (RCHFLW-200)")
+            void createsWithDefaultsWhenParametersOmitted() {
+                // Antes: 400 por 'agents' (required sem default) e depois por 'aggregationMethod'.
+                Workflow fromEmpty = template.createInstance("supervisor-bot", Map.of());
+                Workflow fromNull = template.createInstance("supervisor-bot", null);
 
-                // Act & Assert
-                assertThatThrownBy(() -> template.createInstance("supervisor-bot", params))
-                        .isInstanceOf(IllegalArgumentException.class)
-                        .hasMessageContaining("agents");
-            }
-
-            @Test
-            @DisplayName("should throw when null parameters and required param exists")
-            void shouldThrowWhenNullParams() {
-                assertThatThrownBy(() -> template.createInstance("supervisor-bot", null))
-                        .isInstanceOf(IllegalArgumentException.class)
-                        .hasMessageContaining("agents");
+                assertThat(fromEmpty.getName()).isEqualTo("supervisor-bot");
+                assertThat(fromNull.getName()).isEqualTo("supervisor-bot");
             }
 
             @Test

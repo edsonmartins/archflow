@@ -47,6 +47,10 @@ import java.util.Set;
  *
  * <p>E os nós soltos de um fluxo com arestas ({@code NODE_DISCONNECTED}, RCHFLW-135): rodariam à parte, logo no
  * início, antes de qualquer portão.</p>
+ *
+ * <p>Só aviso no log, sem recusa (RCHFLW-201): o nó cujo componente o catálogo não resolve (fora da paleta sem
+ * execução — esse é recusado acima) e o {@code condition}/{@code switch} sem expressão. Os dois falham ao chegar
+ * no nó, depois dos passos anteriores; recusá-los antes mudaria o contrato de fluxos já publicados.</p>
  */
 public final class ExecutableNodesValidator implements FlowValidator {
 
@@ -55,6 +59,8 @@ public final class ExecutableNodesValidator implements FlowValidator {
     static final String EXPRESSION_CODE = "CONTROL_EXPRESSION_INVALID";
     static final String DISCONNECTED_CODE = "NODE_DISCONNECTED";
     static final String BRANCH_CODE = "BRANCH_NOT_DECLARED";
+    static final String UNRESOLVED_CODE = "COMPONENT_NOT_RESOLVED";
+    static final String EXPRESSION_MISSING_CODE = "CONTROL_EXPRESSION_MISSING";
 
     /** As rotas do {@code decision}, na ordem do seletor da aresta no designer. */
     private static final List<String> DECISION_ROUTES = List.of("AUTO", "REVIEW", "ESCALATE");
@@ -83,6 +89,12 @@ public final class ExecutableNodesValidator implements FlowValidator {
         // Executar e avisa no canvas; aqui, recusar faria falhar todo run de fluxos já publicados e chamados
         // pela API/VendaX que hoje seguem pelos outros ramos — mudança de contrato não decidida.
         undeclaredBranches(flow).forEach(e -> log.warn("Fluxo {}: {} ({})", flow.getId(), e.message(), BRANCH_CODE));
+        // Componente que o catálogo não resolve e condition/switch sem expressão (RCHFLW-201): também só aviso.
+        // O run segue como hoje e falha ao chegar no nó; recusar antes mudaria o contrato dos fluxos publicados.
+        unresolvedComponents(flow).forEach(e -> log.warn("Fluxo {}: {} ({})", flow.getId(), e.message(),
+                UNRESOLVED_CODE));
+        missingControlExpressions(flow).forEach(e -> log.warn("Fluxo {}: {} ({})", flow.getId(), e.message(),
+                EXPRESSION_MISSING_CODE));
         if (!errors.isEmpty()) {
             throw new FlowValidationException(errors);
         }
@@ -401,6 +413,69 @@ public final class ExecutableNodesValidator implements FlowValidator {
             }
             default -> List.of();
         };
+    }
+
+    /**
+     * Um aviso por {@link ComponentStep} que não tem o que executar (RCHFLW-201), na ordem dos passos.
+     *
+     * <p>A mesma pergunta do {@link NodeSupport} na galeria ({@code ComponentStep.resolvesComponent}) e a mesma
+     * mensagem do {@code execute} ({@code component not found: X}, com o motivo do {@code allowedComponents}
+     * quando foi o escopo que negou). Sem ela, o run rodava os passos anteriores — chamadas pagas ao modelo — e
+     * só falhava ao chegar no nó. Fica no log, não recusa: fluxos publicados (VendaX, API) seguem como hoje.</p>
+     */
+    static List<ValidationError> unresolvedComponents(Flow flow) {
+        Map<String, String> rotulos = labels(flow);
+        List<ValidationError> avisos = new ArrayList<>();
+        for (FlowStep step : flow.getSteps()) {
+            if (step instanceof ComponentStep component && !component.resolvesComponent()) {
+                avisos.add(new ValidationError("step.componentId",
+                        "o nó " + nodeName(step.getId(), rotulos) + ": " + component.notFoundMessage()
+                                + " — a execução roda os passos anteriores e falha ao chegar nele",
+                        UNRESOLVED_CODE,
+                        Map.of("node", step.getId(), "component", String.valueOf(component.componentId()))));
+            }
+        }
+        return avisos;
+    }
+
+    /**
+     * Um aviso por {@code condition}/{@code switch} sem expressão (RCHFLW-201), na ordem dos passos.
+     *
+     * <p>As regras da expressão ({@link ControlExpressionRules}) não acusam o campo vazio — é campo obrigatório,
+     * e quem o recusa é o {@link ControlStep} ao executar, depois dos passos anteriores. O editor impede o
+     * Executar; quem roda pela API, pelo YAML ou pelo standalone fica com este aviso no log, sem recusa.</p>
+     */
+    static List<ValidationError> missingControlExpressions(Flow flow) {
+        Map<String, String> rotulos = labels(flow);
+        List<ValidationError> avisos = new ArrayList<>();
+        for (FlowStep step : flow.getSteps()) {
+            if (step instanceof ControlStep control && control.expression() == null) {
+                String campo = control.expressionField();
+                avisos.add(new ValidationError("step.configuration." + campo,
+                        "o nó " + nodeName(step.getId(), rotulos) + ", campo " + campo + ": sem expressão — o "
+                                + (control.kind() == ControlStep.Kind.CONDITION ? "condition" : "switch")
+                                + " falha ao chegar nele ('" + campo + "' é obrigatória)",
+                        EXPRESSION_MISSING_CODE,
+                        Map.of("node", step.getId(), "field", campo)));
+            }
+        }
+        return avisos;
+    }
+
+    /** O rótulo de cada nó do documento que tem um, por id; vazio sem documento. */
+    private static Map<String, String> labels(Flow flow) {
+        Map<String, String> rotulos = new LinkedHashMap<>();
+        for (Map<?, ?> no : nodesOf(flow)) {
+            if (no.get("id") != null && no.get("label") instanceof String label && !label.isBlank()) {
+                rotulos.put(no.get("id").toString(), label.trim());
+            }
+        }
+        return rotulos;
+    }
+
+    /** {@code "Rótulo" (id)}, ou só o id quando o nó não tem rótulo. */
+    private static String nodeName(String id, Map<String, String> rotulos) {
+        return rotulos.containsKey(id) ? "\"" + rotulos.get(id) + "\" (" + id + ")" : id;
     }
 
     /** Um erro por nó que precisa do servidor, na ordem dos passos. */

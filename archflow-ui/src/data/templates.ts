@@ -81,32 +81,34 @@ const TEMPLATES: WorkflowTemplate[] = [
     },
 
     // ── 2. RAG / doc Q&A ──────────────────────────────────────────
+    // Refeito só com nós que executam (RCHFLW-202). O de antes passava por 'embedding' sem provider (cujo vetor
+    // virava o texto da busca) e por 'prompt-template', que não tem executor e citava um template 'rag.qa' que não
+    // existe: o fluxo era recusado antes do primeiro passo. O nó RAG busca na base e responde com a pergunta que
+    // recebeu (KnowledgeNodeComponent), então a pergunta não se perde no caminho. A base fica para o usuário escolher
+    // no nó: o id é do workspace dele, e inventar um daria "base não existe" na execução.
+    // Por que não Busca vetorial → LLM Chat: sem base, o vector-search cai num componente que não existe, e o
+    // POST /templates/unsupported-node-types marcava o template na galeria como "Nós sem executor", mandando
+    // trocar o nó que só precisava da base. O RAG sem base tem executor (o RagChainAdapter), e o Executar do
+    // editor pede a base (ou os providers) antes de rodar (runReadiness CONDITIONAL_REQUIRED_FIELDS.rag).
     {
         id: 'rag-doc-qa',
         name: 'Document Q&A (RAG)',
         icon: '📚',
-        summary: 'Retrieval-augmented assistant that answers questions citing your knowledge base.',
+        summary: 'Retrieval-augmented assistant that answers questions from your knowledge base.',
         description:
-            'Receives a question, runs a vector search against your knowledge base, builds a prompt with the ' +
-            'retrieved chunks and asks an LLM to synthesize an answer. Citations are returned alongside the reply ' +
-            'so the UI can render them with the CitationList component.',
+            'Receives a question, searches the knowledge base chosen on the Answer from knowledge base node and asks ' +
+            'the LLM to answer from the retrieved excerpts. Choose the knowledge base on that node before running.',
         category: 'rag',
-        tags: ['rag', 'vector', 'embeddings', 'citations'],
+        tags: ['rag', 'knowledge-base'],
         complexity: 'starter',
         steps: [
             { id: 's1', type: 'input', componentId: 'input', label: 'Question', category: 'io', position: { x: 60, y: 200 }, config: {} },
-            { id: 's2', type: 'embedding', componentId: 'embedding', label: 'Embed question', category: 'vector', position: { x: 280, y: 200 }, config: { model: 'text-embedding-3-small' } },
-            { id: 's3', type: 'vector-search', componentId: 'vector-search', label: 'Retrieve chunks', category: 'vector', position: { x: 500, y: 200 }, config: { topK: 6 } },
-            { id: 's4', type: 'prompt-template', componentId: 'prompt-template', label: 'Build prompt', category: 'io', position: { x: 720, y: 200 }, config: { template: 'rag.qa' } },
-            { id: 's5', type: 'llm-streaming', componentId: 'llm-streaming', label: 'Synthesize', category: 'agent', position: { x: 940, y: 200 }, config: { model: 'gpt-4o' } },
-            { id: 's6', type: 'output', componentId: 'output', label: 'Answer', category: 'io', position: { x: 1160, y: 200 }, config: {} },
+            { id: 's2', type: 'rag', componentId: 'rag', label: 'Answer from knowledge base', category: 'vector', position: { x: 320, y: 200 }, config: { retrieverMaxResults: 6 } },
+            { id: 's3', type: 'output', componentId: 'output', label: 'Answer', category: 'io', position: { x: 580, y: 200 }, config: {} },
         ],
         connections: [
             { id: 'c1', sourceId: 's1', targetId: 's2', isErrorPath: false },
             { id: 'c2', sourceId: 's2', targetId: 's3', isErrorPath: false },
-            { id: 'c3', sourceId: 's3', targetId: 's4', isErrorPath: false },
-            { id: 'c4', sourceId: 's4', targetId: 's5', isErrorPath: false },
-            { id: 'c5', sourceId: 's5', targetId: 's6', isErrorPath: false },
         ],
         variables: { kb_collection: 'docs', max_chunks: '6' },
     },
@@ -142,32 +144,62 @@ const TEMPLATES: WorkflowTemplate[] = [
     },
 
     // ── 4. Content writer ─────────────────────────────────────────
+    // Refeito como cadeia de LLM Chat (RCHFLW-202): 'agent' e 'parallel' não têm executor, e a chave 'role' não era
+    // lida por nada — com os tipos trocados, o "Outliner" escrevia o artigo inteiro e o "Editor" pedia o texto. Cada
+    // passo diz o papel no systemPrompt e recebe o briefing (${s1}) junto com a saída do anterior pela userMessage;
+    // sem isso só o primeiro passo via o briefing. A redação por seção em paralelo saiu da descrição: não há nó que a faça.
     {
         id: 'content-writer',
         name: 'Long-form content writer',
         icon: '✍️',
         summary: 'Outlines, drafts and polishes a long-form article from a brief.',
         description:
-            'Three-stage agent pipeline: an outline generator builds the structure, a drafter writes each ' +
-            'section in parallel, and a final editor polishes tone and consistency. Useful for blog posts, ' +
-            'newsletters and product descriptions.',
+            'Three sequential LLM steps: an outliner turns the brief into a section structure, a drafter writes the ' +
+            'full article from the brief and the outline, and an editor revises the draft for clarity, consistency ' +
+            'and fidelity to the brief. Each step receives the original brief alongside the previous step\'s output. ' +
+            'Useful for blog posts, newsletters and product descriptions.',
         category: 'content',
-        tags: ['writing', 'long-form', 'multi-agent'],
+        tags: ['writing', 'long-form', 'prompt-chain'],
         complexity: 'intermediate',
         steps: [
             { id: 's1', type: 'input', componentId: 'input', label: 'Brief', category: 'io', position: { x: 60, y: 220 }, config: {} },
-            { id: 's2', type: 'agent', componentId: 'agent', label: 'Outliner', category: 'agent', position: { x: 280, y: 220 }, config: { role: 'outliner' } },
-            { id: 's3', type: 'parallel', componentId: 'parallel', label: 'Draft sections', category: 'control', position: { x: 520, y: 220 }, config: {} },
-            { id: 's4', type: 'agent', componentId: 'agent', label: 'Drafter', category: 'agent', position: { x: 760, y: 220 }, config: { role: 'drafter' } },
-            { id: 's5', type: 'agent', componentId: 'agent', label: 'Editor', category: 'agent', position: { x: 1000, y: 220 }, config: { role: 'editor' } },
-            { id: 's6', type: 'output', componentId: 'output', label: 'Article', category: 'io', position: { x: 1240, y: 220 }, config: {} },
+            {
+                id: 's2', type: 'llm-chat', componentId: 'llm-chat', label: 'Outline', category: 'agent', position: { x: 300, y: 220 },
+                config: {
+                    systemPrompt:
+                        'Você é o redator responsável pelo esboço de um artigo longo. A partir do briefing, escreva ' +
+                        'somente a estrutura: título provisório e a lista de seções, cada uma com uma ou duas frases ' +
+                        'sobre o que ela deve cobrir. Não escreva o artigo.',
+                    userMessage: 'Briefing: ${s1}',
+                },
+            },
+            {
+                id: 's3', type: 'llm-chat', componentId: 'llm-chat', label: 'Draft', category: 'agent', position: { x: 540, y: 220 },
+                config: {
+                    systemPrompt:
+                        'Você é o redator do primeiro rascunho. Escreva o artigo completo seguindo o esboço seção por ' +
+                        'seção e respeitando o briefing (público, tom e extensão, quando o briefing os indicar). ' +
+                        'Devolva apenas o texto do artigo.',
+                    userMessage: 'Briefing: ${s1}\n\nEsboço: ${s2}',
+                },
+            },
+            {
+                id: 's4', type: 'llm-chat', componentId: 'llm-chat', label: 'Edit', category: 'agent', position: { x: 780, y: 220 },
+                config: {
+                    systemPrompt:
+                        'Você é o editor final. Revise o rascunho: corrija erros, melhore a clareza e a fluidez, deixe ' +
+                        'o tom consistente e confira se o texto cumpre o briefing. Devolva apenas a versão final do ' +
+                        'artigo, sem comentários sobre as mudanças.',
+                    userMessage: 'Briefing: ${s1}\n\nRascunho: ${s3}',
+                },
+            },
+            { id: 's5', type: 'output', componentId: 'output', label: 'Article', category: 'io', position: { x: 1020, y: 220 }, config: {} },
         ],
         connections: [
             { id: 'c1', sourceId: 's1', targetId: 's2', isErrorPath: false },
             { id: 'c2', sourceId: 's2', targetId: 's3', isErrorPath: false },
             { id: 'c3', sourceId: 's3', targetId: 's4', isErrorPath: false },
             { id: 'c4', sourceId: 's4', targetId: 's5', isErrorPath: false },
-            { id: 'c5', sourceId: 's5', targetId: 's6', isErrorPath: false },
         ],
         variables: { tone: 'professional', word_target: '1500' },
     },
