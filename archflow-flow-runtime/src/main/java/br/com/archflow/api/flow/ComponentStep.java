@@ -114,6 +114,23 @@ public final class ComponentStep implements FlowStep {
         return resolved != null || (catalog != null && catalog.getComponent(componentId).isPresent());
     }
 
+    /** O id do componente que o nó pede ao catálogo. */
+    String componentId() { return componentId; }
+
+    /**
+     * A falha do {@link #execute} quando não há o que executar — {@code component not found: X}, mais o motivo.
+     * O {@link ExecutableNodesValidator} avisa com o mesmo texto antes do primeiro passo (RCHFLW-201).
+     */
+    String notFoundMessage() {
+        // O motivo do escopo vem antes da dica do nó: com require-allowlist e sem lista, a dica
+        // ("o provider X não está em allowedComponents") mandaria acrescentar um item a uma lista
+        // que o fluxo nem declara.
+        String motivo = catalog instanceof ScopedComponentCatalog escopo
+                ? escopo.denialReason(componentId).orElse(notFoundHint)
+                : notFoundHint;
+        return "component not found: " + componentId + (motivo == null ? "" : " — " + motivo);
+    }
+
     @Override
     public CompletableFuture<StepResult> execute(ExecutionContext context) {
         long start = System.nanoTime();
@@ -121,15 +138,8 @@ public final class ComponentStep implements FlowStep {
                 ? resolved
                 : catalog.getComponent(componentId).orElse(null);
         if (component == null) {
-            // O motivo do escopo vem antes da dica do nó: com require-allowlist e sem lista, a dica
-            // ("o provider X não está em allowedComponents") mandaria acrescentar um item a uma lista
-            // que o fluxo nem declara.
-            String motivo = catalog instanceof ScopedComponentCatalog escopo
-                    ? escopo.denialReason(componentId).orElse(notFoundHint)
-                    : notFoundHint;
             return CompletableFuture.completedFuture(
-                    SimpleStepResult.failed(id, "component not found: " + componentId
-                            + (motivo == null ? "" : " — " + motivo), elapsedMs(start)));
+                    SimpleStepResult.failed(id, notFoundMessage(), elapsedMs(start)));
         }
         try {
             Object input = context.get(INPUT_KEY).orElse(null);

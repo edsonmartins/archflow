@@ -2179,7 +2179,7 @@
             "noSteps": "Este modelo ainda não tem passos",
             "noStepsHint": "Usar este modelo criaria um fluxo vazio, por isso a ação está desativada.",
             "unsupportedTitle": "Este modelo ainda não executa de ponta a ponta",
-            "unsupportedHint": "Estes tipos de nó não têm executor no motor: {{types}}. O fluxo clonado abre no editor com os passos, mas a execução falha no primeiro desses nós com \"component not found\". Troque-os por nós executáveis (agente MCP, decisão, condição/switch, LLM com provider) antes de rodar.",
+            "unsupportedHint": "Estes tipos de nó não têm executor no motor: {{types}}. O fluxo clonado abre no editor com os passos, mas não roda como está: com um tipo da paleta sem executor, a execução é recusada antes do primeiro passo, listando esses nós; com um componente que o catálogo não tem, os passos anteriores rodam e a execução falha ao chegar no nó, com \"component not found\". Troque-os por nós executáveis (agente MCP, decisão, condição/switch, LLM com provider) antes de rodar.",
             "unsupportedStep": "sem executor",
             "unverifiedTitle": "Não deu para verificar se este modelo executa",
             "unverifiedHint": "O servidor não respondeu a verificação dos tipos de nó. Alguns nós podem não ter executor no motor; confira antes de rodar o fluxo clonado.",
