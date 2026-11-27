@@ -11,6 +11,7 @@ import br.com.archflow.api.web.workflow.InMemoryWorkflowRuntimeStore;
 import br.com.archflow.api.workflow.WorkflowYamlBridge;
 import br.com.archflow.engine.execution.ConditionEvaluator;
 import br.com.archflow.model.ai.AIComponent;
+import br.com.archflow.model.config.ResolvedLLMConfig;
 import br.com.archflow.model.flow.Flow;
 import br.com.archflow.model.flow.FlowStep;
 import br.com.archflow.model.flow.StepConnection;
@@ -45,8 +46,10 @@ import static org.mockito.Mockito.when;
  * passa pelo {@link DefaultWorkflowDeserializer} real e pela ponte YAML (o terceiro leitor,
  * {@code SerializableStep}). Se um dos leitores mudar como lê o documento, este teste quebra.
  *
- * <p>A outra metade é a honestidade: esses templates usam tipos de nó sem executor. O documento
- * vem inteiro, e {@code unsupportedNodeTypes} diz quais nós falhariam com "component not found".
+ * <p>A outra metade é a honestidade: knowledge-base, document-processing e agent-supervisor ainda usam
+ * tipos de nó sem executor (esperam a decisão do RCHFLW-205). O documento vem inteiro, e
+ * {@code unsupportedNodeTypes} diz quais nós falhariam com "component not found". O customer-support foi
+ * refeito com nós que o motor executa (RCHFLW-203): instalado com a base, a lista é vazia.
  */
 @DisplayName("templates do backend → motor: grafo real, nós sem executor marcados")
 class TemplateConformanceTest {
@@ -64,10 +67,17 @@ class TemplateConformanceTest {
         return catalog;
     }
 
+    /**
+     * O motor como o servidor o tem: catálogo vazio e o LLM padrão da plataforma ({@code archflow.llm.provider}),
+     * de onde o LLM Chat sem provider no nó herda o dele — sem o padrão, todo llm-chat seria "sem executor".
+     */
     private static DefaultFlowStepFactory factoryWith(ComponentCatalog catalog) {
-        return new DefaultFlowStepFactory(catalog, mock(DynamicWorkflowService.class),
+        DefaultFlowStepFactory factory = new DefaultFlowStepFactory(catalog, mock(DynamicWorkflowService.class),
                 mock(br.com.archflow.agent.streaming.EventStreamRegistry.class),
                 mock(br.com.archflow.engine.core.StateManager.class), null);
+        factory.setPlatformDefaultLLM(ResolvedLLMConfig.builder().provider("openrouter").model("modelo-padrao")
+                .build());
+        return factory;
     }
 
     private static Map<String, Object> document(String id, List<Map<String, Object>> steps) {
@@ -155,11 +165,11 @@ class TemplateConformanceTest {
     @Test
     @DisplayName("os nós sem executor são listados; os que o motor resolve, não")
     void unsupportedNodeTypesFollowTheRuntime() {
-        List<Map<String, Object>> steps = controller.getTemplate("customer-support").steps();
+        List<Map<String, Object>> steps = controller.getTemplate("knowledge-base").steps();
 
         List<String> none = new NodeSupport(factory).unsupportedNodeTypes(steps);
         // Entrada e Saída executam como passagem (RCHFLW-11): não são mais marcadas.
-        assertThat(none).containsExactly("llm", "vector-search", "sentiment", "human-handoff");
+        assertThat(none).contains("llm", "reranker").doesNotContain("input", "output");
 
         ComponentCatalog withLlm = mock(ComponentCatalog.class);
         when(withLlm.getComponent(anyString())).thenReturn(Optional.empty());
@@ -167,7 +177,28 @@ class TemplateConformanceTest {
         assertThat(new NodeSupport(factoryWith(withLlm)).unsupportedNodeTypes(steps))
                 .as("um componente registrado no catálogo deixa de ser marcado")
                 .doesNotContain("llm")
-                .contains("sentiment");
+                .contains("reranker");
+    }
+
+    /**
+     * RCHFLW-203: o customer-support usava 'llm', 'sentiment' e 'human-handoff', que nada executa — toda execução
+     * falhava no 2º passo. Refeito, com a base escolhida no install nenhum nó fica sem executor, e a prévia da galeria
+     * não marca a busca cuja base o install pede.
+     */
+    @ParameterizedTest(name = "enableSentiment={0}")
+    @ValueSource(booleans = {true, false})
+    @DisplayName("customer-support instalado com a base: nenhum nó sem executor")
+    void customerSupportHasNoUnsupportedNode(boolean enableSentiment) {
+        Map<String, Object> params = Map.of("knowledgeBaseId", "kb-suporte", "enableSentiment", enableSentiment);
+        List<Map<String, Object>> installed = controller.templateSteps("customer-support", params);
+
+        assertThat(new NodeSupport(factory).unsupportedNodeTypes(installed)).isEmpty();
+        // A prévia (GET, com os defaults) também: a base é obrigatória e sem padrão, então o nó leva o marcador que o
+        // install preenche — antes ia "", a busca caía no catálogo e a galeria mandava trocar o nó (RCHFLW-203/204).
+        assertThat(new NodeSupport(factory).unsupportedNodeTypes(controller.getTemplate("customer-support").steps()))
+                .isEmpty();
+        assertThatCode(() -> deserializer.toFlow(document("customer-support", installed)))
+                .doesNotThrowAnyException();
     }
 
     @Test
@@ -202,15 +233,41 @@ class TemplateConformanceTest {
         Map<String, Object> stored = store.getWorkflow(DefaultTenant.ID, workflowId);
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> steps = (List<Map<String, Object>>) stored.get("steps");
-        assertThat(steps).hasSize(10);
+        assertThat(steps).hasSize(14);
         assertThat(steps).filteredOn(s -> "kb-search".equals(s.get("id"))).singleElement()
                 .extracting(s -> ((Map<?, ?>) s.get("configuration")).get("knowledgeBaseId"))
                 .isEqualTo("docs-sac");
-        // Com a base informada, a busca do template executa pela base de conhecimento (RCHFLW-55).
-        assertThat(created.getBody().get("unsupportedNodeTypes")).asList()
-                .contains("sentiment")
-                .doesNotContain("vector-search");
+        // Com a base informada, a busca do template executa pela base de conhecimento (RCHFLW-55), e o resto do
+        // grafo é de nós que o motor executa (RCHFLW-203).
+        assertThat(created.getBody().get("unsupportedNodeTypes")).asList().isEmpty();
         assertThatCode(() -> deserializer.toFlow(stored)).doesNotThrowAnyException();
+    }
+
+    /**
+     * RCHFLW-204: a galeria passou a instalar os templates do backend pelo /install em vez de clonar pelo
+     * POST /api/workflows, que grava o CREATE do workflow. Sem o mesmo evento aqui, o fluxo criado pela galeria
+     * sumia da trilha de auditoria.
+     */
+    @Test
+    @DisplayName("POST /install grava na auditoria o CREATE do workflow criado, como o POST /api/workflows")
+    void installIsAudited() {
+        br.com.archflow.observability.audit.InMemoryAuditRepository audit =
+                new br.com.archflow.observability.audit.InMemoryAuditRepository();
+        SpringTemplateController web = new SpringTemplateController(controller,
+                new InMemoryWorkflowRuntimeStore(), new NodeSupport(factory));
+        web.setAuditTrail(new br.com.archflow.api.audit.AuditTrail(() -> audit));
+
+        String workflowId = (String) web.installTemplate("customer-support",
+                new InstallTemplateRequest("Meu SAC", Map.of("knowledgeBaseId", "docs-sac", "responseLanguage", "pt")))
+                .getBody().get("workflowId");
+
+        assertThat(audit.query(br.com.archflow.observability.audit.AuditRepository.AuditQuery.builder().limit(10)))
+                .singleElement().satisfies(e -> {
+                    assertThat(e.getAction()).isEqualTo(br.com.archflow.observability.audit.AuditAction.CREATE);
+                    assertThat(e.getResourceType()).isEqualTo("workflow");
+                    assertThat(e.getResourceId()).isEqualTo(workflowId);
+                    assertThat(e.isSuccess()).isTrue();
+                });
     }
 
     @Test
@@ -219,8 +276,11 @@ class TemplateConformanceTest {
         SpringTemplateController web = new SpringTemplateController(controller,
                 new InMemoryWorkflowRuntimeStore(), new NodeSupport(factory));
 
-        assertThat(web.listTemplates()).allSatisfy(t ->
+        // Os três que esperam o RCHFLW-205 seguem marcados; o customer-support executa (RCHFLW-203) e a galeria não o
+        // anuncia "sem executor" — a base que falta é a que o formulário do install pede (RCHFLW-204).
+        assertThat(web.listTemplates()).filteredOn(t -> !"customer-support".equals(t.id())).allSatisfy(t ->
                 assertThat(t.unsupportedNodeTypes()).as(t.id()).isNotNull().isNotEmpty());
+        assertThat(web.getTemplate("customer-support").unsupportedNodeTypes()).isNotNull().isEmpty();
         assertThat(web.getTemplate("knowledge-base").unsupportedNodeTypes()).contains("reranker");
 
         Map<String, List<String>> bundled = web.unsupportedNodeTypes(Map.of("sac-basic", List.of(

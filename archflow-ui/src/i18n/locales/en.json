@@ -2179,10 +2179,10 @@
             "noSteps": "This template has no steps yet",
             "noStepsHint": "Using it would create an empty flow, so the action is disabled.",
             "unsupportedTitle": "This template does not run end to end yet",
-            "unsupportedHint": "These node types have no executor in the engine: {{types}}. The cloned flow opens in the editor with its steps, but it does not run as is: for a palette type with no executor, execution is refused before the first step, listing those nodes; for a component the catalog does not have, the earlier steps run and execution fails when it reaches the node, with \"component not found\". Replace them with executable nodes (MCP agent, decision, condition/switch, LLM with a provider) before running.",
+            "unsupportedHint": "These node types have no executor in the engine: {{types}}. The flow created from it opens in the editor with its steps, but it does not run as is: for a palette type with no executor, execution is refused before the first step, listing those nodes; for a component the catalog does not have, the earlier steps run and execution fails when it reaches the node, with \"component not found\". Replace them with executable nodes (MCP agent, decision, condition/switch, LLM with a provider) before running.",
             "unsupportedStep": "no executor",
             "unverifiedTitle": "Could not check whether this template runs",
-            "unverifiedHint": "The server did not answer the node type check. Some nodes may have no executor in the engine; check before running the cloned flow.",
+            "unverifiedHint": "The server did not answer the node type check. Some nodes may have no executor in the engine; check before running the flow created from it.",
             "routersTitle": "Routers without configuration",
             "routersHint": "After installing, fill in these fields in the editor before running: {{routers}}.",
             "copyName": "{{name}} (copy)",
@@ -2214,6 +2214,15 @@
             "created": "Workflow created",
             "createdMsg": "{{name}} cloned to your workspace",
             "cloneFailed": "Failed to clone template"
+        },
+        "install": {
+            "title": "Template parameters",
+            "subtitle": "The server installs this template with the parameters below. Those not shown here keep the template default.",
+            "knowledgeBasePlaceholder": "Pick a base",
+            "submit": "Install and open in the editor",
+            "createdMsg": "{{name}} created in your workspace by the server, with the parameters you chose",
+            "failed": "Failed to install template",
+            "unsupportedMsg": "The created flow has nodes with no executor in the engine: {{types}}. It opens in the editor, but it does not run as is: replace them with executable nodes before running."
         }
     },
     "mcp": {

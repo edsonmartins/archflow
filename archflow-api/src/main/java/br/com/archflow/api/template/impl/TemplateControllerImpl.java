@@ -62,7 +62,8 @@ public class TemplateControllerImpl implements TemplateController {
     public List<Map<String, Object>> templateSteps(String templateId, Map<String, Object> parameters) {
         WorkflowTemplate template = registry.getTemplate(templateId)
                 .orElseThrow(() -> new TemplateNotFoundException(templateId));
-        return TemplateDocument.steps(template.getDefinition(), parameters);
+        // A definição dos parâmetros do pedido: um passo que um parâmetro desliga sai do grafo (RCHFLW-203).
+        return TemplateDocument.steps(template.getDefinition(parameters), parameters);
     }
 
     @Override

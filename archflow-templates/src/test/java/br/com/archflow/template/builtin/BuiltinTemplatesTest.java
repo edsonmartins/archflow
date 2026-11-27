@@ -52,7 +52,8 @@ class BuiltinTemplatesTest {
         @Test
         @DisplayName("should have expected tags")
         void shouldHaveExpectedTags() {
-            assertThat(template.getTags()).containsExactlyInAnyOrder("rag", "support", "multi-agent", "routing");
+            assertThat(template.getTags())
+                    .containsExactlyInAnyOrder("rag", "support", "routing", "decision", "human-approval");
         }
 
         @Test
@@ -178,12 +179,13 @@ class BuiltinTemplatesTest {
             }
 
             @Test
-            @DisplayName("should have structure with input entry point")
+            @DisplayName("should have structure with the inquiry entry point")
             void shouldHaveStructureWithEntryPoint() {
                 WorkflowTemplateDefinition definition = template.getDefinition();
 
+                // "inquiry", não "input": ${input} é a saída do passo anterior (RCHFLW-203).
                 assertThat(definition.getStructure()).isNotNull();
-                assertThat(definition.getStructure().getEntryPoint()).isEqualTo("input");
+                assertThat(definition.getStructure().getEntryPoint()).isEqualTo("inquiry");
             }
 
             @Test
@@ -192,8 +194,8 @@ class BuiltinTemplatesTest {
                 WorkflowTemplateDefinition definition = template.getDefinition();
 
                 assertThat(definition.getStructure().getNodes()).isNotEmpty();
-                assertThat(definition.getStructure().getNodes()).containsKey("input");
-                assertThat(definition.getStructure().getNodes()).containsKey("intent-classifier");
+                assertThat(definition.getStructure().getNodes()).containsKey("inquiry");
+                assertThat(definition.getStructure().getNodes()).containsKey("classify");
             }
 
             @Test

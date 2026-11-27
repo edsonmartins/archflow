@@ -42,6 +42,24 @@ export interface WorkflowTemplate {
      * "component not found"). Vazio = tudo roda; ausente = não verificado (sem backend).
      */
     unsupportedNodeTypes?: string[];
+    /**
+     * Parâmetros que o template do backend (SPI) aceita no install. Presente só nos templates do backend — é o que
+     * faz o "Usar este modelo" ir pelo POST /api/templates/{id}/install, o único caminho que aplica os parâmetros
+     * (RCHFLW-204). Os do catálogo local não têm e seguem pelo clone.
+     */
+    parameters?: TemplateParameter[];
+}
+
+/** Um parâmetro do template do backend, como o GET /api/templates o descreve (TemplateResponse.ParameterInfo). */
+export interface TemplateParameter {
+    name: string;
+    description?: string;
+    /** O nome simples da classe Java que o install exige (String, Integer, Boolean, List...). */
+    type: string;
+    defaultValue?: unknown;
+    required: boolean;
+    /** Valores aceitos, quando o parâmetro é uma enumeração. */
+    options?: string[];
 }
 
 const TEMPLATES: WorkflowTemplate[] = [

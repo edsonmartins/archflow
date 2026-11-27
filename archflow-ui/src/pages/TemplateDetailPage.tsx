@@ -44,6 +44,7 @@ import { workflowApi } from '../services/api';
 import { NODE_CATEGORIES } from '../components/FlowCanvas/constants';
 import { canvasToDocumentSteps } from '../components/FlowCanvas/workflowSerde';
 import { usePermissions } from '../lib/permissions';
+import { TemplateInstallModal } from '../components/templates/TemplateInstallModal';
 
 export default function TemplateDetailPage() {
     const { id } = useParams<{ id: string }>();
@@ -56,6 +57,9 @@ export default function TemplateDetailPage() {
     );
     const [cloning, setCloning] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [installOpen, setInstallOpen] = useState(false);
+    const [installing, setInstalling] = useState(false);
+    const [installError, setInstallError] = useState<string | null>(null);
 
     // If the user navigated directly to the detail url without hitting the
     // list first the cache may be cold — kick off a preload and update. Roda
@@ -117,27 +121,78 @@ export default function TemplateDetailPage() {
     const workflowJson = JSON.stringify(
         { steps: canvasToDocumentSteps(steps, template.connections ?? []) }, null, 2);
 
+    // Template do backend (SPI): vai pelo /install, o único caminho que aplica os parâmetros; o clone gravava o grafo
+    // resolvido com os defaults e o knowledgeBaseId ficava vazio (RCHFLW-204). Os locais seguem pelo clone.
+    const installable = Array.isArray(template.parameters);
+
+    // Os nomes que já existem, para a cópia não repetir um. Sem a lista (falha ao ler), a cópia sai com o primeiro
+    // nome — o mesmo conselho best-effort do aviso de nome repetido do editor.
+    const copyName = async () => {
+        const existentes = await workflowApi.list().then((ws) => ws.map((w) => w.name ?? ''), () => []);
+        return nomeDaCopia(template.name, existentes, t);
+    };
+
+    // A mensagem diz o caminho que criou o fluxo: "clonado" no clone; no install foi o servidor, com os parâmetros
+    // do formulário (RCHFLW-204).
+    const opened = (name: string, workflowId: string, messageKey: string) => {
+        notifications.show({
+            title: t('templates.detail.created'),
+            message: t(messageKey, { name }),
+            color: 'teal',
+            icon: <IconCheck size={16} />,
+        });
+        navigate(`/editor/${workflowId}`);
+    };
+
     const handleClone = async () => {
         setCloning(true);
         setError(null);
         try {
-            // Os nomes que já existem, para a cópia não repetir um. Sem a lista (falha ao ler), a cópia sai com
-            // o primeiro nome — o mesmo conselho best-effort do aviso de nome repetido do editor.
-            const existentes = await workflowApi.list().then((ws) => ws.map((w) => w.name ?? ''), () => []);
-            const name = nomeDaCopia(template.name, existentes, t);
+            const name = await copyName();
             const created = await templateApi.clone(template.id, { name });
-            notifications.show({
-                title: t('templates.detail.created'),
-                message: t('templates.detail.createdMsg', { name }),
-                color: 'teal',
-                icon: <IconCheck size={16} />,
-            });
-            navigate(`/editor/${created.id}`);
+            opened(name, created.id, 'templates.detail.createdMsg');
         } catch (e) {
             setError(e instanceof Error ? e.message : t('templates.detail.cloneFailed'));
         } finally {
             setCloning(false);
         }
+    };
+
+    const handleInstall = async (parameters: Record<string, unknown>) => {
+        setInstalling(true);
+        setInstallError(null);
+        try {
+            const name = await copyName();
+            const installed = await templateApi.install(template.id, { name, parameters });
+            setInstallOpen(false);
+            opened(name, installed.workflowId, 'templates.install.createdMsg');
+            // O servidor verifica o grafo já com os parâmetros escolhidos; se ainda sobrou nó sem executor, a lista
+            // dele é a que vale — antes era descartada aqui e o aviso não aparecia em lugar nenhum (RCHFLW-204).
+            const gaps = installed.unsupportedNodeTypes ?? [];
+            if (gaps.length > 0) {
+                notifications.show({
+                    title: t('templates.detail.unsupportedTitle'),
+                    message: t('templates.install.unsupportedMsg', { types: gaps.join(', ') }),
+                    color: 'orange',
+                    icon: <IconAlertTriangle size={16} />,
+                    autoClose: false,
+                });
+            }
+        } catch (e) {
+            // A mensagem do servidor (ex.: 400 "Required parameter ... is missing") fica no formulário, aberto.
+            setInstallError(e instanceof Error ? e.message : t('templates.install.failed'));
+        } finally {
+            setInstalling(false);
+        }
+    };
+
+    const handleUse = () => {
+        if (!installable) {
+            void handleClone();
+            return;
+        }
+        setInstallError(null);
+        setInstallOpen(true);
     };
 
     return (
@@ -151,8 +206,8 @@ export default function TemplateDetailPage() {
                 actions={canCreate ? (
                     <Button
                         leftSection={<IconRocket size={16} />}
-                        onClick={handleClone}
-                        loading={cloning}
+                        onClick={handleUse}
+                        loading={cloning || installing}
                         // Sem passos o clone seria um fluxo vazio — não oferecer o que não entrega.
                         disabled={steps.length === 0}
                         data-testid="template-clone"
@@ -161,6 +216,17 @@ export default function TemplateDetailPage() {
                     </Button>
                 ) : undefined}
             />
+
+            {installable && (
+                <TemplateInstallModal
+                    opened={installOpen}
+                    onClose={() => setInstallOpen(false)}
+                    parameters={template.parameters}
+                    submitting={installing}
+                    error={installError}
+                    onSubmit={(parameters) => void handleInstall(parameters)}
+                />
+            )}
 
             {unsupported.length > 0 && (
                 <Alert color="orange" variant="light" icon={<IconAlertTriangle size={16} />}

@@ -201,3 +201,53 @@ describe('templateApi.clone', () => {
     expect(payload.steps[2].connections).toEqual([])
   })
 })
+
+/**
+ * RCHFLW-204: os parâmetros do template do backend eram descartados em toWorkflowTemplate, e nada na UI chamava o
+ * /install — o único caminho que os aplica. O knowledgeBaseId do customer-support ficava vazio.
+ */
+describe('parâmetros do template do backend (RCHFLW-204)', () => {
+  const comParametros: BackendTemplate = {
+    ...customerSupport,
+    parameters: [
+      { name: 'knowledgeBaseId', description: 'ID of the knowledge base', type: 'String', defaultValue: null,
+        required: true, options: null },
+      { name: 'responseLanguage', description: 'Language for responses', type: 'String', defaultValue: 'en',
+        required: true, options: ['en', 'pt'] },
+      { name: 'maxIterations', description: null, type: 'Integer', defaultValue: 5, required: false, options: null },
+    ],
+  }
+
+  it('toWorkflowTemplate leva tipo, obrigatoriedade, default, opções e descrição', () => {
+    const tpl = toWorkflowTemplate(comParametros)
+
+    expect(tpl.parameters).toEqual([
+      { name: 'knowledgeBaseId', description: 'ID of the knowledge base', type: 'String', required: true },
+      { name: 'responseLanguage', description: 'Language for responses', type: 'String', defaultValue: 'en',
+        required: true, options: ['en', 'pt'] },
+      { name: 'maxIterations', type: 'Integer', defaultValue: 5, required: false },
+    ])
+  })
+
+  it('todo template do backend sai com a lista (vazia sem parâmetros); os locais não têm', async () => {
+    expect(toWorkflowTemplate(customerSupport).parameters).toEqual([])
+    expect(bundledList().every((t) => t.parameters === undefined)).toBe(true)
+
+    apiMock.get.mockResolvedValue([comParametros])
+    apiMock.post.mockResolvedValue({})
+    await templateApi.list()
+    expect(templateApi.get('customer-support')?.parameters).toHaveLength(3)
+    expect(templateApi.get('sac-basic')?.parameters).toBeUndefined()
+  })
+
+  it('install posta nome e parâmetros no endpoint do template e devolve o id do rascunho', async () => {
+    apiMock.post.mockResolvedValue({ workflowId: 'wf-novo', unsupportedNodeTypes: [] })
+
+    const result = await templateApi.install('customer-support',
+      { name: 'Meu suporte', parameters: { knowledgeBaseId: 'kb-1' } })
+
+    expect(apiMock.post).toHaveBeenCalledWith('/templates/customer-support/install',
+      { name: 'Meu suporte', parameters: { knowledgeBaseId: 'kb-1' } })
+    expect(result.workflowId).toBe('wf-novo')
+  })
+})

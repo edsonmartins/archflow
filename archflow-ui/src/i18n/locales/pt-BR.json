@@ -2179,10 +2179,10 @@
             "noSteps": "Este modelo ainda não tem passos",
             "noStepsHint": "Usar este modelo criaria um fluxo vazio, por isso a ação está desativada.",
             "unsupportedTitle": "Este modelo ainda não executa de ponta a ponta",
-            "unsupportedHint": "Estes tipos de nó não têm executor no motor: {{types}}. O fluxo clonado abre no editor com os passos, mas não roda como está: com um tipo da paleta sem executor, a execução é recusada antes do primeiro passo, listando esses nós; com um componente que o catálogo não tem, os passos anteriores rodam e a execução falha ao chegar no nó, com \"component not found\". Troque-os por nós executáveis (agente MCP, decisão, condição/switch, LLM com provider) antes de rodar.",
+            "unsupportedHint": "Estes tipos de nó não têm executor no motor: {{types}}. O fluxo criado a partir dele abre no editor com os passos, mas não roda como está: com um tipo da paleta sem executor, a execução é recusada antes do primeiro passo, listando esses nós; com um componente que o catálogo não tem, os passos anteriores rodam e a execução falha ao chegar no nó, com \"component not found\". Troque-os por nós executáveis (agente MCP, decisão, condição/switch, LLM com provider) antes de rodar.",
             "unsupportedStep": "sem executor",
             "unverifiedTitle": "Não deu para verificar se este modelo executa",
-            "unverifiedHint": "O servidor não respondeu a verificação dos tipos de nó. Alguns nós podem não ter executor no motor; confira antes de rodar o fluxo clonado.",
+            "unverifiedHint": "O servidor não respondeu a verificação dos tipos de nó. Alguns nós podem não ter executor no motor; confira antes de rodar o fluxo criado a partir dele.",
             "routersTitle": "Roteadores sem configuração",
             "routersHint": "Depois de instalar, preencha estes campos no editor antes de executar: {{routers}}.",
             "copyName": "{{name}} (cópia)",
@@ -2214,6 +2214,15 @@
             "created": "Fluxo criado",
             "createdMsg": "{{name}} clonado para seu workspace",
             "cloneFailed": "Falha ao clonar modelo"
+        },
+        "install": {
+            "title": "Parâmetros do modelo",
+            "subtitle": "Este modelo é instalado pelo servidor com os parâmetros abaixo. Os que não aparecem aqui ficam com o valor padrão do modelo.",
+            "knowledgeBasePlaceholder": "Escolha uma base",
+            "submit": "Instalar e abrir no editor",
+            "createdMsg": "{{name}} criado no seu workspace pelo servidor, com os parâmetros escolhidos",
+            "failed": "Falha ao instalar o modelo",
+            "unsupportedMsg": "O fluxo criado tem nós sem executor no motor: {{types}}. Ele abre no editor, mas não roda como está: troque-os por nós executáveis antes de rodar."
         }
     },
     "mcp": {
