@@ -2,6 +2,7 @@ import { api, workflowApi, type WorkflowDetail } from './api';
 import {
     listTemplates as bundledList,
     getTemplate as bundledGet,
+    type TemplateParameter,
     type WorkflowTemplate,
 } from '../data/templates';
 import type { WorkflowStep } from '../components/FlowCanvas/types';
@@ -45,6 +46,36 @@ export interface BackendTemplate {
     steps?: BackendStep[];
     /** Tipos de nó sem executor no motor; `null`/ausente = não verificado. */
     unsupportedNodeTypes?: string[] | null;
+    /** Os parâmetros do install (TemplateResponse.ParameterInfo); `options` vem `null` fora das enumerações. */
+    parameters?: {
+        name: string;
+        description?: string | null;
+        type: string;
+        defaultValue?: unknown;
+        required: boolean;
+        options?: string[] | null;
+    }[];
+}
+
+/** Resposta do POST /api/templates/{id}/install: o rascunho que o servidor gravou. */
+export interface InstallResult {
+    workflowId: string;
+    unsupportedNodeTypes?: string[];
+}
+
+/**
+ * Os parâmetros do backend no formato da galeria. Antes eram descartados aqui, e o "Usar este modelo" não tinha o
+ * que perguntar: o knowledgeBaseId ficava vazio e a busca ia para o caminho sem base (RCHFLW-204).
+ */
+function toTemplateParameters(params: NonNullable<BackendTemplate['parameters']>): TemplateParameter[] {
+    return params.map((p) => ({
+        name: p.name,
+        ...(p.description ? { description: p.description } : {}),
+        type: p.type,
+        ...(p.defaultValue !== null && p.defaultValue !== undefined ? { defaultValue: p.defaultValue } : {}),
+        required: p.required === true,
+        ...(Array.isArray(p.options) && p.options.length > 0 ? { options: p.options } : {}),
+    }));
 }
 
 /** Do documento canônico para o formato do designer, que é o que a galeria e o canvas usam. */
@@ -75,11 +106,14 @@ export function toWorkflowTemplate(bt: BackendTemplate): WorkflowTemplate {
     const unsupported = backendSteps.length > 0 && Array.isArray(bt.unsupportedNodeTypes)
         ? { unsupportedNodeTypes: bt.unsupportedNodeTypes }
         : {};
+    // Todo template do backend leva a lista (vazia quando não declara nenhum): é ela que o marca como instalável.
+    const parameters = toTemplateParameters(bt.parameters ?? []);
     return fallback
         ? {
             ...fallback,
             ...graph,
             ...unsupported,
+            parameters,
             name: bt.displayName ?? fallback.name,
             summary: bt.description ?? fallback.summary,
         }
@@ -94,6 +128,7 @@ export function toWorkflowTemplate(bt: BackendTemplate): WorkflowTemplate {
             complexity: (bt.complexity as WorkflowTemplate['complexity']) ?? 'starter',
             ...graph,
             ...unsupported,
+            parameters,
         };
 }
 
@@ -296,6 +331,15 @@ export const templateApi = {
         };
 
         return workflowApi.create(payload);
+    },
+
+    /**
+     * Instala um template do backend pelo POST /api/templates/{id}/install — o único caminho que aplica os
+     * parâmetros de quem instala sobre os defaults; o clone grava o grafo que o GET já resolveu com os defaults
+     * (RCHFLW-204). O servidor grava o rascunho e devolve o id dele.
+     */
+    install(templateId: string, request: { name: string; parameters: Record<string, unknown> }): Promise<InstallResult> {
+        return api.post<InstallResult>(`/templates/${encodeURIComponent(templateId)}/install`, request);
     },
 
     /** Test helper — wipe the in-memory cache. */

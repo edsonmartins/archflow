@@ -16,8 +16,15 @@ import {
  *
  * <p>Uma base gravada que não aparece na lista (apagada, ou de outro workspace — um fluxo importado) é avisada:
  * o motor falha a execução com a mesma razão, e o painel não pode fingir que está tudo certo.</p>
+ *
+ * <p>{@code required}/{@code placeholder}: o formulário do "Usar este modelo" reaproveita o seletor para o parâmetro
+ * do template que nomeia a base (RCHFLW-204). Lá a base é obrigatória e não há "backend abaixo" — o placeholder do
+ * nó ("Nenhuma — usar o backend abaixo") e o limpar diriam o contrário.</p>
  */
-export function KnowledgeBaseField({ nodeData, update }: FieldProps) {
+export function KnowledgeBaseField({ nodeData, update, required = false, placeholder }: FieldProps & {
+  required?: boolean
+  placeholder?: string
+}) {
   const { t } = useTranslation()
   const f = (key: string, opts?: Record<string, unknown>) => t(`editor.properties.fields.${key}`, opts)
   const [bases, setBases] = useState<KnowledgeBase[] | null>(null)
@@ -48,10 +55,11 @@ export function KnowledgeBaseField({ nodeData, update }: FieldProps) {
       <Select
         label={f('knowledgeBase')}
         description={f('knowledgeBaseHint')}
-        placeholder={f('knowledgeBasePlaceholder')}
+        placeholder={placeholder ?? f('knowledgeBasePlaceholder')}
         value={stored}
         onChange={choose}
-        clearable
+        required={required}
+        clearable={!required}
         searchable
         size="xs"
         data={[

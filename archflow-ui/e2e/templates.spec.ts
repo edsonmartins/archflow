@@ -16,16 +16,48 @@ const backendTemplate = {
           position: { x: 80, y: 80 }, configuration: {},
           connections: [{ sourceId: 'input', targetId: 'kb-search', isErrorPath: false }] },
         { id: 'kb-search', type: 'vector-search', componentId: 'vector-search', label: 'Knowledge Base Search',
-          position: { x: 340, y: 80 }, configuration: { topK: 5 }, connections: [] },
+          position: { x: 340, y: 80 }, configuration: { knowledgeBaseId: '{{knowledgeBaseId}}', topK: 5 },
+          connections: [] },
     ],
-    // `input` é um ControlStep no motor; só o vector-search (sem provider) fica sem executor.
-    unsupportedNodeTypes: ['vector-search'],
+    // Executa de ponta a ponta (RCHFLW-203): a base é obrigatória e sem padrão, então a prévia leva o marcador que o
+    // install preenche, e a busca não é marcada "sem executor".
+    unsupportedNodeTypes: [],
+    // Os parâmetros do install (TemplateResponse.ParameterInfo): o "Usar" pede os obrigatórios (RCHFLW-204).
+    parameters: [
+        { name: 'knowledgeBaseId', description: 'ID of the knowledge base/vector store to use for RAG',
+          type: 'String', defaultValue: null, required: true, options: null },
+        { name: 'responseLanguage', description: 'Language for responses', type: 'String', defaultValue: 'en',
+          required: true, options: ['en', 'pt'] },
+        { name: 'maxIterations', description: 'Maximum number of agent iterations before escalation',
+          type: 'Integer', defaultValue: 5, required: false, options: null },
+    ],
+};
+
+/** Um template SPI que ainda tem nó sem executor (espera o RCHFLW-205): a galeria o marca. */
+const unsupportedBackendTemplate = {
+    id: 'knowledge-base',
+    displayName: 'Knowledge Base Q&A',
+    description: 'Answers questions from documents',
+    category: 'knowledge',
+    tags: ['rag'],
+    stepCount: 2,
+    steps: [
+        { id: 'input', type: 'input', componentId: 'input', label: 'Question',
+          position: { x: 80, y: 80 }, configuration: {},
+          connections: [{ sourceId: 'input', targetId: 'rerank', isErrorPath: false }] },
+        { id: 'rerank', type: 'reranker', componentId: 'reranker', label: 'Reranker',
+          position: { x: 340, y: 80 }, configuration: {}, connections: [] },
+    ],
+    unsupportedNodeTypes: ['reranker'],
+    parameters: [],
 };
 
 async function mockApi(page: Page, options: { backendTemplates?: unknown[] } = {}) {
     // O que o POST /workflows recebeu: o GET devolve exatamente isso, como o backend real
     // (antes o GET fixo com `steps: []` escondia que o clone perdia arestas e config — RCHFLW-45).
-    const state: { created: Record<string, unknown> | null } = { created: null };
+    const state: { created: Record<string, unknown> | null; installed: Record<string, unknown> | null } = {
+        created: null, installed: null,
+    };
     await installApiRouter(page, [
         ...authHandlers(adminUser, { loginShape: 'token' }),
         // Keep the gallery hermetic: without this the request reaches whatever backend the dev server
@@ -57,6 +89,31 @@ async function mockApi(page: Page, options: { backendTemplates?: unknown[] } = {
             };
             state.created = created;
             await fulfillJson(route, created, 201);
+            return true;
+        },
+        // O /install grava o rascunho com os parâmetros sobre os defaults e devolve o id (SpringTemplateController).
+        async ({ path, method, request, route }) => {
+            if (path !== '/templates/customer-support/install' || method !== 'POST') return false;
+            const body = request.postDataJSON() as Record<string, unknown>;
+            state.installed = body;
+            const params = (body?.parameters ?? {}) as Record<string, unknown>;
+            state.created = {
+                id: createdWorkflowId,
+                metadata: { name: body?.name, description: '', version: '1.0.0' },
+                steps: backendTemplate.steps.map((s) => s.id === 'kb-search'
+                    ? { ...s, configuration: { ...s.configuration, knowledgeBaseId: params.knowledgeBaseId } }
+                    : s),
+                configuration: {},
+            };
+            await fulfillJson(route, { workflowId: createdWorkflowId, workflow: state.created,
+                unsupportedNodeTypes: [] }, 201);
+            return true;
+        },
+        async ({ path, method, route }) => {
+            if (path !== '/knowledge-bases' || method !== 'GET') return false;
+            await fulfillJson(route, [
+                { id: 'kb-suporte', tenantId: 't', workspaceId: null, name: 'Suporte', createdAt: '' },
+            ]);
             return true;
         },
         async ({ path, method, route }) => {
@@ -147,7 +204,7 @@ test.describe('Templates gallery', () => {
     });
 
     test('merges the backend catalog with the bundled one and marks nodes without executor', async ({ page }) => {
-        await mockApi(page, { backendTemplates: [backendTemplate] });
+        await mockApi(page, { backendTemplates: [backendTemplate, unsupportedBackendTemplate] });
         await authenticate(page);
 
         await page.goto('/templates');
@@ -156,13 +213,39 @@ test.describe('Templates gallery', () => {
         await expect(page.getByTestId('template-card-customer-support')).toBeVisible();
         await expect(page.getByTestId('template-card-sac-basic')).toBeVisible();
         await expect(page.getByTestId('template-card-email-triage')).toBeVisible();
-        await expect(page.getByTestId('template-unsupported-customer-support')).toContainText('vector-search');
+        await expect(page.getByTestId('template-unsupported-knowledge-base')).toContainText('reranker');
         await expect(page.getByTestId('template-unsupported-sac-basic')).toContainText('agent');
+        // O customer-support executa (RCHFLW-203): a busca cuja base o install pede não é "sem executor".
+        await expect(page.getByTestId('template-unsupported-customer-support')).toHaveCount(0);
 
+        await page.getByTestId('template-card-knowledge-base').click();
+        await expect(page.getByTestId('template-unsupported')).toContainText('reranker');
+
+        await page.goBack();
         await page.getByTestId('template-card-customer-support').click();
-        await expect(page.getByTestId('template-unsupported')).toContainText('vector-search');
         await expect(page.getByText('Knowledge Base Search').first()).toBeVisible();
+        await expect(page.getByTestId('template-unsupported')).toHaveCount(0);
         await expect(page.getByTestId('template-clone')).toBeEnabled();
+    });
+
+    test('installs a backend template with the collected parameters (RCHFLW-204)', async ({ page }) => {
+        const state = await mockApi(page, { backendTemplates: [backendTemplate] });
+        await authenticate(page);
+
+        await page.goto('/templates/customer-support');
+        await page.getByTestId('template-clone').click();
+
+        // A base é obrigatória: sem ela o Instalar não sai.
+        const confirm = page.getByTestId('template-install-confirm');
+        await expect(confirm).toBeDisabled();
+        await page.getByTestId('knowledge-base-select').click();
+        await page.getByRole('option', { name: 'Suporte' }).click();
+        await confirm.click();
+
+        await expect(page).toHaveURL(new RegExp(`/editor/${createdWorkflowId}$`));
+        // Pelo /install, não pelo clone: os obrigatórios vão no pedido, os opcionais ficam com o default do servidor.
+        expect(state.installed?.parameters).toEqual({ knowledgeBaseId: 'kb-suporte', responseLanguage: 'en' });
+        await expect(page.locator('.react-flow__node')).toHaveCount(2);
     });
 
     test('shows not found for unknown template id', async ({ page }) => {
