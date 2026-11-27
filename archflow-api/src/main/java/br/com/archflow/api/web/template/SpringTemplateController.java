@@ -1,9 +1,11 @@
 package br.com.archflow.api.web.template;
 
+import br.com.archflow.api.audit.AuditTrail;
 import br.com.archflow.api.flow.NodeSupport;
 import br.com.archflow.api.template.TemplateController;
 import br.com.archflow.api.template.dto.InstallTemplateRequest;
 import br.com.archflow.api.template.dto.TemplateResponse;
+import br.com.archflow.observability.audit.AuditAction;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -26,6 +28,20 @@ public class SpringTemplateController {
         this.delegate = delegate;
         this.workflowStore = workflowStore;
         this.nodeSupport = nodeSupport;
+    }
+
+    /**
+     * A trilha de auditoria: instalar um template cria um workflow, e o {@code POST /api/workflows} já grava esse
+     * CREATE. Com a galeria passando a instalar os templates do backend por aqui, sem isto o fluxo criado deixava de
+     * ser auditado (RCHFLW-204). Sem bean, no-op — o mesmo padrão do {@code SpringExecutionController}.
+     */
+    private volatile AuditTrail auditTrail = AuditTrail.noop();
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setAuditTrail(AuditTrail auditTrail) {
+        if (auditTrail != null) {
+            this.auditTrail = auditTrail;
+        }
     }
 
     @GetMapping
@@ -87,6 +103,10 @@ public class SpringTemplateController {
         // O rascunho instalado é do tenant de quem instalou (RCHFLW-73); sem isso ele nasceria num
         // tenant que o próprio instalador não lista.
         workflowStore.putWorkflow(br.com.archflow.api.config.TenantContext.currentTenantId(), workflowId, document);
+        // O mesmo evento do POST /api/workflows (SpringWorkflowCrudController.create), com o template de onde veio.
+        Object name = ((Map<?, ?>) document.get("metadata")).get("name");
+        auditTrail.record(AuditAction.CREATE, "workflow", workflowId, true, null,
+                Map.of("name", name != null ? name.toString() : "Untitled", "template", id));
 
         return ResponseEntity.status(HttpStatus.CREATED).body(Map.of(
                 "workflowId", workflowId,

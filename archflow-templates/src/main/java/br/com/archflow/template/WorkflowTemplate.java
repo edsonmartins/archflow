@@ -58,6 +58,20 @@ public interface WorkflowTemplate {
     WorkflowTemplateDefinition getDefinition();
 
     /**
+     * A definição para os parâmetros de quem instala.
+     *
+     * <p>RCHFLW-203: um parâmetro que liga ou desliga um passo (o {@code enableSentiment} do
+     * customer-support) só é real se o passo deixar de existir no grafo. Antes ele virava um par de
+     * arestas {@code true == true}/{@code true == false} para o mesmo destino — o passo continuava lá.
+     * O padrão é a definição fixa, então os templates sem parâmetro estrutural não mudam.</p>
+     *
+     * @param parameters os parâmetros do pedido (sem os defaults; pode ser {@code null})
+     */
+    default WorkflowTemplateDefinition getDefinition(Map<String, Object> parameters) {
+        return getDefinition();
+    }
+
+    /**
      * Gets the configurable parameters for this template.
      *
      * @return Map of parameter names to their descriptions

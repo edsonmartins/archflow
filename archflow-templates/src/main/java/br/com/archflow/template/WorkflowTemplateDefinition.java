@@ -153,6 +153,7 @@ public class WorkflowTemplateDefinition {
         private final String source;
         private final String target;
         private final String condition;
+        private final String branch;
         private final Map<String, Object> configuration;
 
         public TemplateConnection(
@@ -161,11 +162,35 @@ public class WorkflowTemplateDefinition {
                 String target,
                 String condition,
                 Map<String, Object> configuration) {
+            this(id, source, target, condition, null, configuration);
+        }
+
+        private TemplateConnection(
+                String id,
+                String source,
+                String target,
+                String condition,
+                String branch,
+                Map<String, Object> configuration) {
             this.id = id;
             this.source = source;
             this.target = target;
             this.condition = condition;
+            this.branch = branch;
             this.configuration = configuration != null ? Map.copyOf(configuration) : Map.of();
+        }
+
+        /**
+         * Aresta que segue um ramo do nó de origem ({@code true}/{@code false} de um {@code condition}, um
+         * caso de um {@code switch}, {@code AUTO}/{@code REVIEW}/{@code ESCALATE} de um {@code decision}).
+         *
+         * <p>RCHFLW-203: os templates ramificavam por condições sobre variáveis que nenhum passo grava
+         * ({@code {{intent}} == 'billing'}). O documento canônico já tem o {@code branch} da aresta, que a
+         * factory converte pela regra única do {@code BranchCondition} (archflow-model) — faltava o template
+         * conseguir declará-lo.</p>
+         */
+        public static TemplateConnection branch(String id, String source, String target, String branch) {
+            return new TemplateConnection(id, source, target, null, branch, null);
         }
 
         public String getId() {
@@ -182,6 +207,11 @@ public class WorkflowTemplateDefinition {
 
         public String getCondition() {
             return condition;
+        }
+
+        /** O ramo do nó de origem que a aresta segue, ou {@code null} (ver {@link #branch}). */
+        public String getBranch() {
+            return branch;
         }
 
         public Map<String, Object> getConfiguration() {

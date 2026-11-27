@@ -39,8 +39,10 @@ import java.util.regex.Pattern;
  *
  * <p>Os templates escrevem marcadores {@code {{x}}}. Na configuração dos nós, {@code {{p}}} de um
  * parâmetro do template é substituído pelo valor (o mesmo merge de defaults que o
- * {@code createInstance} faz); qualquer outro {@code {{x}}} fica como está, porque é variável de
- * prompt resolvida em tempo de execução. Nas condições das arestas o motor só entende
+ * {@code createInstance} faz); qualquer outro {@code {{x}}} fica como está — e <b>nada</b> o resolve
+ * na execução (RCHFLW-203): o motor só entende {@code ${x}}, e só na {@code userMessage} do chat, no
+ * {@code state} do decision e nas expressões de controle. Dado de execução num nó vai como
+ * {@code ${idDoPasso}}, nunca como {@code {{x}}}. Nas condições das arestas o motor só entende
  * {@code ${x}} ({@code ConditionEvaluator}): parâmetro vira literal e o resto vira {@code ${x}}.
  * Deixar um parâmetro como {@code ${hybridSearch}} não funcionaria — ele não existe no contexto
  * da execução, e os dois ramos ({@code == true} / {@code == false}) seriam falsos.
@@ -134,6 +136,11 @@ public final class TemplateDocument {
                 String condition = convertCondition(c.getCondition(), parameters);
                 if (condition != null) {
                     conn.put("condition", condition);
+                }
+                // O ramo vai como o designer o grava (RCHFLW-203): a factory e o SerializableStep o
+                // convertem pela mesma regra (BranchCondition), e o designer mostra o ramo na aresta.
+                if (c.getBranch() != null && !c.getBranch().isBlank()) {
+                    conn.put("branch", c.getBranch());
                 }
                 connections.add(conn);
             }

@@ -127,12 +127,14 @@ class TemplateDocumentTest {
     @Test
     @DisplayName("variável de execução vira ${x}; parâmetro vira literal")
     void conditionsUseTheEngineGrammar() {
-        List<Map<String, Object>> steps = TemplateDocument.steps(new CustomerSupportTemplate().getDefinition());
+        // O document-processing ainda escreve condições com {{x}} (espera a decisão do RCHFLW-205): hasImages não é
+        // parâmetro e vira ${hasImages}; enableOcr/classifyDocument são parâmetros e viram literal.
+        List<Map<String, Object>> steps = TemplateDocument.steps(new DocumentProcessingTemplate().getDefinition());
 
-        assertThat(connections(stepById(steps, "intent-classifier")))
-                .singleElement()
-                .extracting(c -> c.get("condition")).isEqualTo("${intent} != 'general'");
-        assertThat(connections(stepById(steps, "response-generator")))
+        assertThat(connections(stepById(steps, "parser")))
+                .extracting(c -> c.get("condition"))
+                .containsExactly("${hasImages} == true && true == true", "${hasImages} == false || true == false");
+        assertThat(connections(stepById(steps, "classifier")))
                 .extracting(c -> c.get("condition"))
                 .containsExactly("true == true", "true == false");
         assertThat(connections(stepById(steps, "input")))
@@ -141,22 +143,50 @@ class TemplateDocumentTest {
     }
 
     @Test
+    @DisplayName("aresta de ramo sai com o branch, sem condição escrita (RCHFLW-203)")
+    void branchEdgesCarryTheBranch() {
+        List<Map<String, Object>> steps = TemplateDocument.steps(new CustomerSupportTemplate().getDefinition());
+
+        // O motor converte o branch pela regra do BranchCondition; a condição à mão venceria o ramo.
+        assertThat(connections(stepById(steps, "by-intent")))
+                .allSatisfy(c -> assertThat(c).doesNotContainKey("condition"))
+                .extracting(c -> c.get("targetId") + ":" + c.get("branch"))
+                .containsExactly("billing-agent:billing", "technical-agent:technical", "sales-agent:sales",
+                        "general-agent:general", "escalated-draft:default");
+        assertThat(connections(stepById(steps, "is-frustrated")))
+                .extracting(c -> c.get("targetId") + ":" + c.get("branch"))
+                .containsExactly("escalated-draft:true", "classify:false");
+        // O rascunho vem antes da aprovação, que o entrega ao output: o revisor aprova ou edita a resposta (RCHFLW-203).
+        assertThat(connections(stepById(steps, "escalated-draft")))
+                .singleElement().extracting(c -> c.get("targetId")).isEqualTo("handoff");
+        assertThat(connections(stepById(steps, "handoff")))
+                .singleElement().extracting(c -> c.get("targetId")).isEqualTo("output");
+        assertThat(connections(stepById(steps, "inquiry")))
+                .singleElement()
+                .satisfies(c -> assertThat(c).doesNotContainKey("condition").doesNotContainKey("branch"));
+    }
+
+    @Test
     @DisplayName("parâmetro de quem instala vence o default; marcador sozinho mantém o tipo")
     void parametersOverrideDefaults() {
-        WorkflowTemplateDefinition def = new CustomerSupportTemplate().getDefinition();
+        WorkflowTemplate support = new CustomerSupportTemplate();
 
-        List<Map<String, Object>> defaults = TemplateDocument.steps(def);
-        assertThat(config(stepById(defaults, "kb-search")).get("knowledgeBaseId")).isEqualTo("");
+        List<Map<String, Object>> defaults = TemplateDocument.steps(support.getDefinition());
+        // Obrigatório e sem padrão: o marcador fica até o install, e a prévia não monta a busca sem base (RCHFLW-203).
+        assertThat(config(stepById(defaults, "kb-search")).get("knowledgeBaseId")).isEqualTo("{{knowledgeBaseId}}");
 
-        List<Map<String, Object>> installed = TemplateDocument.steps(def,
-                Map.of("knowledgeBaseId", "support-docs", "enableSentiment", false));
+        Map<String, Object> params = Map.of("knowledgeBaseId", "support-docs", "responseLanguage", "pt",
+                "confidenceThreshold", 0.6);
+        List<Map<String, Object>> installed = TemplateDocument.steps(support.getDefinition(params), params);
         assertThat(config(stepById(installed, "kb-search")).get("knowledgeBaseId")).isEqualTo("support-docs");
-        assertThat(connections(stepById(installed, "response-generator")))
-                .extracting(c -> c.get("condition"))
-                .containsExactly("false == true", "false == false");
-        // Variável de prompt (não é parâmetro) fica para a execução.
-        assertThat(config(stepById(installed, "intent-classifier")).get("promptTemplate").toString())
-                .contains("{{message}}");
+        assertThat(config(stepById(installed, "classify")).get("thresholds"))
+                .as("o marcador sozinho mantém o número")
+                .isEqualTo(Map.of("auto", 1.0, "review", 0.6));
+        // O idioma entra no prompt no install; a referência ${...} da mensagem fica para a execução.
+        assertThat(config(stepById(installed, "billing-agent")).get("systemPrompt").toString())
+                .contains("ISO 639-1 code is \"pt\"").doesNotContain("{{");
+        assertThat(config(stepById(installed, "billing-agent")).get("userMessage").toString())
+                .contains("${inquiry}").contains("${kb-search}");
 
         List<Map<String, Object>> supervisor = TemplateDocument.steps(new AgentSupervisorTemplate().getDefinition());
         assertThat(config(stepById(supervisor, "supervisor")).get("agents"))
@@ -164,6 +194,22 @@ class TemplateDocumentTest {
         assertThat(connections(stepById(supervisor, "quality-checker")))
                 .extracting(c -> c.get("condition"))
                 .contains("${quality} >= 0.8");
+    }
+
+    @Test
+    @DisplayName("enableSentiment=false tira os passos do sentimento do grafo, não só as arestas (RCHFLW-203)")
+    void sentimentToggleChangesTheGraph() {
+        WorkflowTemplate support = new CustomerSupportTemplate();
+        Map<String, Object> off = Map.of("knowledgeBaseId", "docs", "enableSentiment", false);
+
+        List<Map<String, Object>> with = TemplateDocument.steps(support.getDefinition());
+        List<Map<String, Object>> without = TemplateDocument.steps(support.getDefinition(off), off);
+
+        assertThat(with).extracting(s -> s.get("id")).contains("sentiment", "is-frustrated");
+        assertThat(without).extracting(s -> s.get("id")).doesNotContain("sentiment", "is-frustrated");
+        assertThat(connections(stepById(without, "kb-search")))
+                .singleElement().extracting(c -> c.get("targetId")).isEqualTo("classify");
+        assertThat(without).hasSize(with.size() - 2);
     }
 
     @Test
