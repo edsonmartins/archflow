@@ -25,6 +25,14 @@ export const COPILOT_GENERATE_EVENT = 'archflow:copilot-generate'
 export const COPILOT_GENERATE_AGENT_ID = 'archflow-generate'
 
 /**
+ * Ferramenta com que o agente do "Gerar com IA" registra uma lacuna (RCHFLW-153): uma capacidade que o usuário pediu
+ * e que nenhum tipo de nó faz (enviar e-mail, registrar num CRM). É o par, no copiloto, das {@code lacunas} do
+ * nl-to-flow (AssistServiceImpl, NlToFlowResponse): o passo que falta é registrado, e não imitado por um llm-chat.
+ * A ponte lista cada lacuna registrada no aviso do fim da geração ({@link lacunasDaGeracao}).
+ */
+export const REPORT_GAP_TOOL = 'reportGap'
+
+/**
  * Prefixo do id do toast "O copilot está montando seu fluxo". Quem dispara a geração (editor) mostra
  * o toast com um id derivado deste e o entrega em {@link requestCopilotGeneration}, para que a ponte
  * consiga fechá-lo quando a execução falha — senão o aviso de "montando" fica na tela ao lado do
@@ -187,6 +195,12 @@ export default function CopilotGenerateBridge() {
                     if (notificationId) notifications.hide(notificationId)
                     const t = tRef.current as unknown as TFunction
                     const summary = resumoDaGeracao(agent.messages)
+                    // RCHFLW-153: as lacunas registradas com o reportGap vão em todo aviso de fim de uma geração que
+                    // terminou, fora do corte de 400 do resumo — a que o modelo só cita no texto podia ser cortada, ou
+                    // sumir com o toast teal. Execução que falhou fica só no aviso vermelho e cancelada não tem aviso
+                    // (o return acima).
+                    const gaps = gapsWarning(t, lacunasDaGeracao(agent.messages))
+                    const withGaps = (m: string) => [m, gaps].filter(Boolean).join(' — ')
                     // RCHFLW-150: a 1ª chamada do modelo era createFlow (recusado) ou showStatus (que encerra o laço)
                     // e a geração terminava com o canvas vazio sob o toast "Fluxo montado". O que conta é o canvas:
                     // vazio, ou igual ao de antes, não é fluxo montado. O texto do modelo continua no aviso — pode
@@ -197,7 +211,7 @@ export default function CopilotGenerateBridge() {
                             color: 'orange',
                             autoClose: false,
                             title: tRef.current(nothing),
-                            message: summary || tRef.current(`${nothing}Msg`),
+                            message: withGaps(summary || tRef.current(`${nothing}Msg`)),
                         })
                         return
                     }
@@ -210,7 +224,7 @@ export default function CopilotGenerateBridge() {
                             color: 'orange',
                             autoClose: false,
                             title: tRef.current('editor.ai.doneInvalid'),
-                            message: [summary, invalid].filter(Boolean).join(' — '),
+                            message: withGaps([summary, invalid].filter(Boolean).join(' — ')),
                         })
                         return
                     }
@@ -223,8 +237,18 @@ export default function CopilotGenerateBridge() {
                             color: 'orange',
                             autoClose: false,
                             title: tRef.current(unsafe ? 'editor.ai.doneHumanPath' : 'editor.ai.doneCasesWithoutEdge'),
-                            message: [summary, [unsafe, openCases].filter(Boolean).join(' ')].filter(Boolean)
-                                .join(' — '),
+                            message: withGaps([summary, [unsafe, openCases].filter(Boolean).join(' ')].filter(Boolean)
+                                .join(' — ')),
+                        })
+                        return
+                    }
+                    // Montado e roda, mas sem parte do pedido: também não é "montado" sem ressalva — e o teal some.
+                    if (gaps) {
+                        notifications.show({
+                            color: 'orange',
+                            autoClose: false,
+                            title: tRef.current('editor.ai.doneGaps'),
+                            message: withGaps(summary || tRef.current('editor.ai.doneMsg')),
                         })
                         return
                     }
@@ -337,6 +361,56 @@ function failedDecisionWarning(t: TFunction): string {
     return t('editor.ai.failedDecisionMissesHuman', {
         nodes: missing.map(s => `"${s.label || s.id}"`).join(', '),
     })
+}
+
+/** As lacunas registradas (ver {@link lacunasDaGeracao}), numa frase para o aviso, ou vazio. */
+function gapsWarning(t: TFunction, items: string[]): string {
+    if (items.length === 0) return ''
+    return t('editor.ai.gaps', { items: items.map(i => `"${i}"`).join(', ') })
+}
+
+type GenerationMessage = {
+    role?: string
+    content?: unknown
+    toolCalls?: { id: string; function?: { name?: string; arguments?: string } }[]
+    toolCallId?: string
+}
+
+/**
+ * As capacidades que o agente registrou com o {@link REPORT_GAP_TOOL} na conversa da geração, na ordem das chamadas
+ * e sem repetir (sem diferença de maiúsculas). Conta o resultado devolvido pela ferramenta, não os argumentos: só a
+ * chamada executada e aceita ({@code ok:true}) é lacuna. Sem resultado (o CopilotKit pula a ferramenta de outro
+ * agente), com erro ("Error: …") ou recusada, não entra.
+ */
+export function lacunasDaGeracao(messages: ReadonlyArray<GenerationMessage>): string[] {
+    const results = new Map<string, unknown>()
+    for (const m of messages) {
+        if (m.role === 'tool' && m.toolCallId) results.set(m.toolCallId, m.content)
+    }
+    const seen = new Set<string>()
+    const items: string[] = []
+    for (const m of messages) {
+        if (m.role !== 'assistant') continue
+        for (const call of m.toolCalls ?? []) {
+            if (call.function?.name !== REPORT_GAP_TOOL) continue
+            const content = results.get(call.id)
+            if (typeof content !== 'string') continue
+            let result: unknown
+            try {
+                result = JSON.parse(content)
+            } catch {
+                continue
+            }
+            const { ok, capability } = (result ?? {}) as { ok?: unknown; capability?: unknown }
+            if (ok !== true || typeof capability !== 'string' || !capability.trim()) continue
+            const item = capability.trim()
+            const key = item.toLowerCase()
+            if (seen.has(key)) continue
+            seen.add(key)
+            items.push(item)
+        }
+    }
+    return items
 }
 
 /** O último texto do assistente na conversa da geração (o resumo que o prompt pede), limitado para um aviso. */

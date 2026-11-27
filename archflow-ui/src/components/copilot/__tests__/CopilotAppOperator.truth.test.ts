@@ -24,7 +24,8 @@ import { waitFor } from '@testing-library/dom'
 import { HttpAgent } from '@ag-ui/client'
 
 type Tool = {
-  name: string; followUp?: boolean; handler: (args: Record<string, unknown>, ctx?: unknown) => Promise<unknown>
+  name: string; agentId?: string; followUp?: boolean
+  handler: (args: Record<string, unknown>, ctx?: unknown) => Promise<unknown>
 }
 
 const tools = vi.hoisted(() => new Map<string, Tool>())
@@ -54,7 +55,7 @@ vi.mock('react-i18next', () => ({
 
 import { CopilotKitCoreReact } from '@copilotkit/react-core/v2/context'
 import CopilotAppOperator from '../CopilotAppOperator'
-import { COPILOT_GENERATE_AGENT_ID } from '../CopilotGenerateBridge'
+import { COPILOT_GENERATE_AGENT_ID, lacunasDaGeracao } from '../CopilotGenerateBridge'
 import { workflowApi } from '../../../services/api'
 import { FlowCanvas } from '../../FlowCanvas/FlowCanvas'
 import { useFlowStore } from '../../FlowCanvas/store/useFlowStore'
@@ -235,8 +236,11 @@ describe('um ramo leva a um nó, e o removeEdge tira só o ramo pedido (revisão
 
 // ── Laço real do CopilotKit, para o RCHFLW-150 ──
 
-type AgUiMessage = { id: string; role: string; content?: string; toolCallId?: string }
-type RunBody = { messages: AgUiMessage[] }
+type AgUiMessage = {
+  id: string; role: string; content?: string; toolCallId?: string
+  toolCalls?: { id: string; function: { name: string; arguments: string } }[]
+}
+type RunBody = { messages: AgUiMessage[]; tools: { name: string }[] }
 type ModelCall = { name: string; args: Record<string, unknown> }
 
 function sse(events: Record<string, unknown>[]): Response {
@@ -282,14 +286,14 @@ async function runGenerate(model: (body: RunBody, turn: number) => ModelCall[] |
   })
   agent.addMessage({ id: 'u1', role: 'user', content: 'Triagem de pedidos de reembolso' })
   await act(async () => { await core.runAgent({ agent: agent as any }) })
-  return bodies
+  return { bodies, messages: agent.messages }
 }
 
 describe('"Gerar com IA" começando por createFlow (RCHFLW-150)', () => {
   it('a recusa volta ao modelo como resultado, ele roda de novo e monta no canvas aberto', async () => {
     await mountEditor()
 
-    const bodies = await runGenerate((body, turn) => {
+    const { bodies } = await runGenerate((body, turn) => {
       if (turn === 1) return [{ name: 'createFlow', args: { name: 'Triagem de Reembolso' } }]
       if (turn === 2) {
         const refusal = body.messages.filter(m => m.role === 'tool').map(m => JSON.parse(m.content!))[0]
@@ -404,6 +408,43 @@ describe('integração que não existe é lacuna, não imitação (RCHFLW-153)',
     const rules = contexts.get('What the nodes cannot do — never fake an integration or invent an id') as string[]
     expect(rules.join(' ')).toMatch(/Salesforce/)
     expect(rules.join(' ')).toMatch(/tell the user, in your reply, that this integration is not available/)
+  })
+
+  it('reportGap só no agente do "Gerar com IA", pedindo a rodada seguinte', async () => {
+    await mountEditor()
+    const gap = tools.get('reportGap')
+    expect(gap).toBeDefined()
+    expect(gap!.agentId).toBe(COPILOT_GENERATE_AGENT_ID)
+    expect(gap!.followUp).not.toBe(false)
+  })
+
+  it('reportGap devolve a capacidade aparada; vazia é recusada, sem lançar', async () => {
+    await mountEditor()
+    expect(await call('reportGap', { capability: '  Enviar e-mail SMTP ' }))
+      .toEqual({ ok: true, capability: 'Enviar e-mail SMTP' })
+    expect(await call('reportGap', { capability: '   ' })).toEqual(expect.objectContaining({ ok: false }))
+  })
+
+  it('no laço real, a lacuna registrada volta ao modelo e chega à ponte no formato do CopilotKit', async () => {
+    await mountEditor()
+
+    const { bodies, messages } = await runGenerate((body, turn) => {
+      if (turn === 1) {
+        return [
+          { name: 'addNode', args: { nodeType: 'input', label: 'Entrada' } },
+          { name: 'addNode', args: { nodeType: 'llm-chat', label: 'Gerar Proposta' } },
+          { name: 'reportGap', args: { capability: 'Enviar e-mail SMTP' } },
+        ]
+      }
+      expect(body.tools.map(t => t.name)).toContain('reportGap')
+      const call = body.messages.flatMap(m => m.toolCalls ?? []).find(c => c.function.name === 'reportGap')!
+      const result = body.messages.find(m => m.role === 'tool' && m.toolCallId === call.id)!
+      expect(JSON.parse(result.content!)).toEqual({ ok: true, capability: 'Enviar e-mail SMTP' })
+      return 'Montei Entrada e Gerar Proposta; o envio por e-mail SMTP ficou de fora.'
+    })
+
+    expect(bodies).toHaveLength(2)
+    expect(lacunasDaGeracao(messages)).toEqual(['Enviar e-mail SMTP'])
   })
 })
 

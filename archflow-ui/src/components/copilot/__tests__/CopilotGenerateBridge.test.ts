@@ -21,7 +21,10 @@ const kit = vi.hoisted(() => ({
   runAgent: vi.fn(),
   agent: {
     threadId: 'thread-antiga',
-    messages: [] as { role: string; content?: string }[],
+    messages: [] as {
+      role: string; content?: string; toolCallId?: string
+      toolCalls?: { id: string; function: { name: string; arguments: string } }[]
+    }[],
     addMessage: vi.fn(),
     setMessages: vi.fn(),
   },
@@ -50,6 +53,7 @@ import CopilotGenerateBridge, {
   COPILOT_GENERATE_NOTIFICATION_ID,
   describeCopilotRunError,
   isCopilotAbort,
+  lacunasDaGeracao,
   newCopilotGenerateNotificationId,
   requestCopilotGeneration,
 } from '../CopilotGenerateBridge'
@@ -202,6 +206,8 @@ describe('CopilotGenerateBridge', () => {
     expect(notificationsMock.show).toHaveBeenCalledWith(expect.objectContaining({
       color: 'teal', title: 'editor.ai.done', message: 'Montei 3 nós ligados: Entrada, Resumo e Saída.',
     }))
+    // Sem reportGap, o aviso é o de sempre (RCHFLW-153).
+    expect(notificationsMock.show).not.toHaveBeenCalledWith(expect.objectContaining({ title: 'editor.ai.doneGaps' }))
   })
 
   // RCHFLW-116: o agente desistiu de corrigir a condição (ou ela já estava no fluxo) — "fluxo montado" seria silêncio.
@@ -473,5 +479,143 @@ describe('CopilotGenerateBridge — "montado" só com o fluxo no canvas', () => 
       message: 'media e baixa vão para a Resposta Automática. — editor.ai.casesWithoutEdge',
     }))
     expect(notificationsMock.show).not.toHaveBeenCalledWith(expect.objectContaining({ title: 'editor.ai.done' }))
+  })
+})
+
+describe('lacunas chegam ao usuário (RCHFLW-153)', () => {
+  // Pedido "envie por e-mail SMTP e registre no Salesforce": o copiloto deixa os dois passos de fora e os registra.
+  const gapCall = (id: string, capability: string) => ({
+    id, function: { name: 'reportGap', arguments: JSON.stringify({ capability }) },
+  })
+  const gapResult = (toolCallId: string, capability: string) => ({
+    role: 'tool', toolCallId, content: JSON.stringify({ ok: true, capability }),
+  })
+  /** A conversa da geração com duas lacunas registradas e o resumo do modelo (vazio = sem texto). */
+  function withGaps(text = 'Montei Entrada e Gerar Proposta.') {
+    kit.agent.messages = [
+      { role: 'assistant', toolCalls: [gapCall('g1', 'Enviar e-mail SMTP'), gapCall('g2', 'Registrar no Salesforce')] },
+      gapResult('g1', 'Enviar e-mail SMTP'),
+      gapResult('g2', 'Registrar no Salesforce'),
+      ...(text ? [{ role: 'assistant', content: text }] : []),
+    ]
+  }
+  const proposta = () => buildOnCanvas([node('a', 'input', 'Entrada'),
+    node('b', 'llm-chat', 'Gerar Proposta', { userMessage: '${a}' })], [edge('a', 'b')])
+
+  it('fluxo que roda, com lacunas: aviso laranja que não some, listando-as — nunca o teal', async () => {
+    kit.runAgent.mockImplementation(async () => { proposta(); withGaps() })
+
+    await act(async () => { requestCopilotGeneration('proposta por e-mail e Salesforce', 'toast-lacunas') })
+
+    expect(notificationsMock.hide).toHaveBeenCalledWith('toast-lacunas')
+    expect(notificationsMock.show).toHaveBeenCalledWith({
+      color: 'orange', autoClose: false, title: 'editor.ai.doneGaps',
+      message: 'Montei Entrada e Gerar Proposta. — editor.ai.gaps',
+    })
+    expect(notificationsMock.show).not.toHaveBeenCalledWith(expect.objectContaining({ color: 'teal' }))
+  })
+
+  it('modelo sem texto: a mensagem padrão, e as lacunas junto', async () => {
+    kit.runAgent.mockImplementation(async () => { proposta(); withGaps('') })
+
+    await act(async () => { requestCopilotGeneration('proposta', 'toast-lacunas-sem-texto') })
+
+    expect(notificationsMock.show).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'editor.ai.doneGaps', message: 'editor.ai.doneMsg — editor.ai.gaps',
+    }))
+  })
+
+  it('canvas vazio (o pedido era só lacuna): "nada montado", e as lacunas junto', async () => {
+    kit.runAgent.mockImplementation(async () => { withGaps('Nada a montar: e-mail e CRM não existem.') })
+
+    await act(async () => { requestCopilotGeneration('só e-mail', 'toast-lacunas-vazio') })
+
+    expect(notificationsMock.show).toHaveBeenCalledWith(expect.objectContaining({
+      color: 'orange', title: 'editor.ai.doneEmpty', message: expect.stringContaining('editor.ai.gaps'),
+    }))
+  })
+
+  it('nó solto: "ainda não executa", com o aviso do canvas e as lacunas', async () => {
+    kit.runAgent.mockImplementation(async () => {
+      buildOnCanvas([node('a', 'input', 'Entrada'), node('b', 'llm-chat', 'Roteia Assunto'),
+        node('c', 'approval', 'Aprovação Humana')], [edge('a', 'b')])
+      withGaps('Montei o roteamento.')
+    })
+
+    await act(async () => { requestCopilotGeneration('roteamento', 'toast-lacunas-solto') })
+
+    expect(notificationsMock.show).toHaveBeenCalledWith(expect.objectContaining({
+      color: 'orange', title: 'editor.ai.doneInvalid',
+      message: 'Montei o roteamento. — editor.disconnectedWarning.message — editor.ai.gaps',
+    }))
+  })
+
+  it('caso do switch sem aresta: o aviso dos casos e as lacunas', async () => {
+    kit.runAgent.mockImplementation(async () => {
+      buildOnCanvas([
+        node('in', 'input', 'E-mail'),
+        node('d', 'decision', 'Urgência', {
+          provider: 'llm', primary: 'urgencia',
+          questions: {
+            urgencia: { type: 'choice', instructions: 'Qual a urgência?', criteria: { alta: 'a', media: 'm', baixa: 'b' } },
+          },
+        }),
+        node('sw', 'switch', 'Roteia', { switchExpression: '${d.decision}', switchCases: 'alta\nmedia\nbaixa' }),
+        node('ap', 'approval', 'Aprovação Coordenador'),
+        node('auto', 'llm-chat', 'Resposta Automática', { userMessage: '${in}' }),
+      ], [edge('in', 'd'), edge('d', 'sw'), edge('sw', 'ap', 'alta'), edge('sw', 'auto', 'media'),
+        edge('sw', 'ap', 'default')])
+      withGaps('media e baixa vão para a Resposta Automática.')
+    })
+
+    await act(async () => { requestCopilotGeneration('urgência', 'toast-lacunas-casos') })
+
+    expect(notificationsMock.show).toHaveBeenCalledWith(expect.objectContaining({
+      color: 'orange', title: 'editor.ai.doneCasesWithoutEdge',
+      message: 'media e baixa vão para a Resposta Automática. — editor.ai.casesWithoutEdge — editor.ai.gaps',
+    }))
+  })
+})
+
+describe('lacunasDaGeracao', () => {
+  const assistant = (...calls: [string, string, unknown][]) => ({
+    role: 'assistant',
+    toolCalls: calls.map(([id, name, args]) => ({ id, function: { name, arguments: JSON.stringify(args) } })),
+  })
+  const tool = (toolCallId: string, content: unknown) => ({
+    role: 'tool', toolCallId, content: typeof content === 'string' ? content : JSON.stringify(content),
+  })
+
+  it('só conta a chamada executada e aceita: sem resultado, com erro, fora de JSON ou ok:false não entram', () => {
+    expect(lacunasDaGeracao([
+      assistant(['a', 'reportGap', { capability: 'sem resultado' }],
+        ['b', 'reportGap', { capability: 'com erro' }],
+        ['c', 'reportGap', { capability: 'não é JSON' }],
+        ['d', 'reportGap', { capability: '' }],
+        ['e', 'reportGap', { capability: 'aceita' }]),
+      tool('b', 'Error: x'),
+      tool('c', 'não é JSON'),
+      tool('d', { ok: false, error: 'capability is empty' }),
+      tool('e', { ok: true, capability: 'aceita' }),
+    ])).toEqual(['aceita'])
+  })
+
+  it('outras ferramentas não contam, nem a recusa do addNode com nodeTypes', () => {
+    expect(lacunasDaGeracao([
+      assistant(['a', 'addNode', { nodeType: 'tool', label: 'Enviar e-mail SMTP' }],
+        ['b', 'showStatus', { message: 'Registrar no Salesforce' }]),
+      tool('a', { ok: false, error: 'node type "tool" is not yet supported', nodeTypes: ['input'] }),
+      tool('b', { ok: true, capability: 'não é reportGap' }),
+    ])).toEqual([])
+  })
+
+  it('apara, tira repetidas sem diferença de maiúsculas e mantém a ordem das chamadas', () => {
+    expect(lacunasDaGeracao([
+      assistant(['a', 'reportGap', {}], ['b', 'reportGap', {}]),
+      tool('a', { ok: true, capability: '  Enviar e-mail SMTP ' }),
+      tool('b', { ok: true, capability: 'Registrar no Salesforce' }),
+      assistant(['c', 'reportGap', {}]),
+      tool('c', { ok: true, capability: 'enviar E-MAIL smtp' }),
+    ])).toEqual(['Enviar e-mail SMTP', 'Registrar no Salesforce'])
   })
 })

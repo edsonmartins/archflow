@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { COPILOT_GENERATE_AGENT_ID } from './CopilotGenerateBridge'
+import { COPILOT_GENERATE_AGENT_ID, REPORT_GAP_TOOL } from './CopilotGenerateBridge'
 import { notifications } from '@mantine/notifications'
 import { useTranslation } from 'react-i18next'
 import { z } from 'zod'
@@ -48,6 +48,7 @@ const ROUTES: Record<string, string> = {
 type NavigateToParams = { page: string }
 type RunWorkflowParams = { workflowId: string }
 type ShowStatusParams = { message: string }
+type ReportGapParams = { capability: string }
 
 /**
  * O showStatus também no chat (RCHFLW-189). O modelo o usa como resposta final — ele encerra o laço (followUp:false)
@@ -101,6 +102,7 @@ export type ConfigureNodeResult =
     | { ok: true; nodeId: string; label: string; config: Record<string, unknown>; queued: boolean }
     | ToolRefusal
 export type RemoveNodeResult = { ok: true; nodeId: string; removedEdges: number; queued: boolean } | ToolRefusal
+export type ReportGapResult = { ok: true; capability: string } | ToolRefusal
 export type RemoveEdgeResult =
     | {
         ok: true; sourceId: string; targetId: string; removed: number; queued: boolean
@@ -649,6 +651,29 @@ export default function CopilotAppOperator() {
             notifications.show({ message: String(message) })
         },
         render: StatusInChat,
+    })
+
+    // RCHFLW-153: a lacuna (integração que nenhum tipo de nó faz) é registrada aqui, e a ponte a lista no aviso do fim
+    // da geração. A regra está na descrição da ferramenta e no pedido do usuário, porque o contexto e os resultados das
+    // ferramentas chegam ao modelo cercados como dado (AgUiAgentController). Só no agente do "Gerar com IA": o chat
+    // lateral não tem aviso no fim que mostre a lacuna. Com followUp (o padrão): com followUp:false, um lote só com
+    // reportGap encerraria o laço sem texto nenhum — o problema do showStatus.
+    useFrontendTool({
+        name: REPORT_GAP_TOOL,
+        agentId: COPILOT_GENERATE_AGENT_ID,
+        description: 'Report a step of the goal that this flow does NOT do because no available node type performs '
+            + 'it (send an e-mail or SMS, register or update a record in a CRM such as Salesforce, call another '
+            + 'system). Call it once per missing integration INSTEAD of adding a node that imitates it; the user is '
+            + 'shown every reported step when the generation ends. Then continue and reply with the summary.',
+        parameters: z.object({
+            capability: z.string()
+                .describe('the left-out step in the user\'s words, e.g. "enviar a proposta por e-mail SMTP"'),
+        }),
+        handler: async ({ capability }: ReportGapParams): Promise<ReportGapResult> => {
+            const trimmed = typeof capability === 'string' ? capability.trim() : ''
+            if (!trimmed) return refuse('Report gap', 'capability is empty')
+            return { ok: true, capability: trimmed }
+        },
     })
 
     // ── Canvas editing ──
