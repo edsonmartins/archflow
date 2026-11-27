@@ -84,7 +84,12 @@ public interface WorkflowTemplate {
             String key = entry.getKey();
             ParameterDefinition def = entry.getValue();
 
-            if (def.required() && (parameters == null || !parameters.containsKey(key))) {
+            // Um obrigatório que declara default está satisfeito sem a chave: o resolveParameters
+            // aplica o default logo depois. Antes todo enumParameter (required=true, default=options[0])
+            // recusava o install com 400 quando omitido — outputFormat, answerStyle, aggregationMethod,
+            // responseLanguage (RCHFLW-200). Sem default, continua obrigatório de verdade.
+            if (def.required() && def.defaultValue() == null
+                    && (parameters == null || !parameters.containsKey(key))) {
                 throw new IllegalArgumentException(
                         "Required parameter '" + key + "' is missing for template '" + getId() + "'");
             }

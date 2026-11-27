@@ -388,7 +388,10 @@ public class KnowledgeBaseTemplate extends AbstractWorkflowTemplate {
                 return Map.of(
                         "template", ID,
                         "templateVersion", VERSION,
-                        "createdAt", java.time.Instant.now()
+                        // ISO-8601 em texto, como o CustomerSupportTemplate: o /install copia este mapa
+                        // para o configuration do documento, e um Instant cru derrubava o JSON do
+                        // store JDBC com 500 (RCHFLW-200).
+                        "createdAt", java.time.Instant.now().toString()
                 );
             }
         };
